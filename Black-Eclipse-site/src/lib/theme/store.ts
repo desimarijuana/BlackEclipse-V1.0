@@ -601,7 +601,11 @@ export function useHydrateTheme() {
       void hydrateFromServer();
       return;
     }
-    const refresh = () => void hydrateFromServer();
+    const refresh = () => {
+      // The theme cannot change while the page is hidden; skip the 15 s probe.
+      if (document.hidden) return;
+      void hydrateFromServer();
+    };
     window.addEventListener('focus', refresh);
     window.addEventListener('eclipse:theme-changed', refresh);
     const timer = setInterval(refresh, 15_000);

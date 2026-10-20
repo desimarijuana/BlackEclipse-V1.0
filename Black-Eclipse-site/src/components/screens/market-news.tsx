@@ -57,6 +57,8 @@ interface MarketNewsProps {
    * related pivot). Changing it re-seeds the `ticker:` query operator.
    */
   symbol?: string;
+  /** False while this screen sits in the shell's hidden keep-alive slot. */
+  active?: boolean;
 }
 
 const CATEGORIES = [
@@ -185,7 +187,7 @@ function FilterSelect({ value, onChange, placeholder, options, selectRef }: {
 
 // ─── Price Reaction mini chart removed — no longer shown.
 
-export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, symbol }: MarketNewsProps) {
+export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, symbol, active = true }: MarketNewsProps) {
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [newsList, setNewsList] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -381,19 +383,19 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
   };
 
   useEffect(() => {
-    if (!cards.autoRefresh) return;
+    if (!active || !cards.autoRefresh) return;
     const id = setInterval(() => {
       if (document.visibilityState === 'visible') void pollForNew();
     }, cards.refreshSec * 1000);
     return () => clearInterval(id);
     // pollForNew closes over current state; re-arm when deps change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cards.autoRefresh, cards.refreshSec, cards.perPage, cards.sort, filters, newsList, stagedNews, page]);
+  }, [active, cards.autoRefresh, cards.refreshSec, cards.perPage, cards.sort, filters, newsList, stagedNews, page]);
 
   // Instant refresh when the user returns to the tab after being away.
   useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState === 'visible') void pollForNew();
+      if (active && document.visibilityState === 'visible') void pollForNew();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);

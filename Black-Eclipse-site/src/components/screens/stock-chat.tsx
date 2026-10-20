@@ -4,9 +4,10 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { usePageShortcuts, useKeyboardShortcutsStore } from '@/hooks/use-page-shortcuts';
 import dynamic from 'next/dynamic';
 import { Sidebar, AppTab, Conversation } from '@/components/layout/sidebar';
-import { TerminalDock } from '@/components/terminal/terminal-dock';
 import { AgentWorkspace } from '@/components/agent-workspace/workspace';
-import { BotSchedulerDock } from '@/components/bots/scheduler-dock';import { useTerminalShell } from '@/hooks/use-terminal-shell';
+import { useTerminalShell } from '@/hooks/use-terminal-shell';
+import { useTerminalStore } from '@/lib/terminal/store';
+import { TerminalDock, BotSchedulerDock, ChatDock, DeferredAurora } from './lazy-chrome';
 import { backTarget, recordVisit } from '@/lib/navigation-history';
 import { TopBar } from '@/components/layout/top-bar';
 import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
@@ -16,7 +17,6 @@ import { EmptyState } from '@/components/chat/empty-state';
 import { ChatHistory } from '@/components/chat/chat-history';
 import { ChatInput } from '@/components/chat/chat-input';
 import { ApprovalCard } from '@/components/chat/approval-card';
-import { ChatDock } from '@/components/chat/chat-dock';
 import { SessionBar } from '@/components/chat/session-bar';
 import { CheckpointBar } from '@/components/chat/checkpoint-bar';
 import { ChatWordmark } from '@/components/chat/chat-wordmark';
@@ -143,7 +143,6 @@ const GraphStudioScreen = dynamic(
 );
 import { Newspaper, ArrowLeft } from '@/lib/icons';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { AuroraGlow } from '@/components/layout/aurora-glow';
 import { MarketRegimeControl } from '@/components/layout/market-regime-control';
 import { useAgentRun } from '@/lib/agent/use-agent-run';
 import { useChatModel } from '@/lib/agent/use-chat-model';
@@ -152,7 +151,6 @@ import { clientIsOperator } from '@/lib/harness/skills-browser';
 import { turnText, type AssistantTurn } from '@/lib/agent/response-model';
 import { MarketViewsProvider } from '@/lib/dashboard/market-views';
 import { useCommandStore } from '@/lib/search/store';
-import { contentFromMessage } from '@/lib/canvas/content';
 import { useRegimeScopeStore } from '@/lib/regime/store';
 import { useSidebarKeybinds } from '@/hooks/use-sidebar-keybinds';
 import { useForwardWheelScroll } from '@/hooks/use-forward-wheel-scroll';
@@ -195,9 +193,13 @@ function StockChatContent() {
   const canvasOpen = canvasInlineOpen || Boolean(pendingCanvasArtifactId) || Boolean(canvasView);
   const openMessageInCanvas = useCallback((msg: { id: string; content?: string; response?: { title?: string } }) => {
     if (!msg.content) return;
-    useCommandStore.getState().openCanvasContent(
-      contentFromMessage(msg.content, { id: msg.id, title: msg.response?.title }),
-    );
+    // The canvas content builder imports the response contract (Zod). Load it
+    // only when the operator actually opens a message in the canvas.
+    void import('@/lib/canvas/content').then(({ contentFromMessage }) => {
+      useCommandStore.getState().openCanvasContent(
+        contentFromMessage(msg.content!, { id: msg.id, title: msg.response?.title }),
+      );
+    });
   }, []);
   const [query, setQuery] = useState('');
   const [selectedChartSymbol, setSelectedChartSymbol] = useState('AAPL');
@@ -952,6 +954,7 @@ function StockChatContent() {
   const chatScrollRef = useRef<HTMLDivElement>(null);
   // Hydrate the terminal's persisted state and tuck it away in focus mode.
   useTerminalShell(focusMode);
+  const terminalOpen = useTerminalStore((s) => s.open);
 
   // Focus mode is chat-only: leave it the moment another tab is opened, and
   // never keep it on while the settings modal is up.
@@ -1030,7 +1033,7 @@ function StockChatContent() {
         {t('a11y.skipToContent')}
       </a>
       {/* Aurora full-viewport top glow — reflects blended market + news sentiment */}
-      <AuroraGlow />
+      <DeferredAurora />
       {/* Market Regime panel — headless; opened from the global search / shell.
           Not a header control. */}
       <MarketRegimeControl />
@@ -1083,7 +1086,7 @@ function StockChatContent() {
             VIEWPORT (`fixed`) so it stays full-width/centered as the sidebar or
             dock resizes the panel — panel z-10 keeps it behind both. Mirrors the
             fullscreen Command Center overlay. */}
-        {activeTab === 'chat' && messages.length === 0 && <AuroraGlow className="fixed" />}
+        {activeTab === 'chat' && messages.length === 0 && <DeferredAurora className="fixed" />}
 
         {/* Giant ChatBot wordmark (Settings › General › Background). Painted
             above the backdrop but below the transcript/composer, landing only. */}
@@ -1106,7 +1109,7 @@ function StockChatContent() {
             <div data-keepalive-panel className={cn('w-full h-full', activeTab === 'dashboard' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-2 md:px-4 py-3">
                 <MarketViewsProvider>
-                  <DashboardScreen />
+                  <DashboardScreen active={activeTab === 'dashboard'} />
                 </MarketViewsProvider>
               </div>
             </div>
@@ -1280,6 +1283,7 @@ function StockChatContent() {
                     onAnalyzeTicker={handleChartTicker}
                     fullPage={true}
                     symbol={newsSymbol}
+                    active={activeTab === 'news'}
                   />
                 </div>
               </div>
@@ -1308,7 +1312,7 @@ function StockChatContent() {
 
           {visited.has('heatmap') && (
             <div className={cn('w-full h-full', activeTab === 'heatmap' ? '' : 'hidden')}>
-              <MarketBubbles onAnalyzeTicker={t => handleInjectPrompt(t, 'research')} />
+              <MarketBubbles active={activeTab === 'heatmap'} onAnalyzeTicker={t => handleInjectPrompt(t, 'research')} />
             </div>
           )}
 
@@ -1316,7 +1320,7 @@ function StockChatContent() {
           {visited.has('alerts') && (
             <div className={cn('w-full h-full', activeTab === 'alerts' ? '' : 'hidden')}>
               <div className="flex-1 overflow-y-auto">
-                <AlertsScreen />
+                <AlertsScreen active={activeTab === 'alerts'} />
               </div>
             </div>
           )}
@@ -1350,7 +1354,7 @@ function StockChatContent() {
           {visited.has('tasks') && (
             <div className={cn('w-full h-full', activeTab === 'tasks' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
-                <TasksScreen />
+                <TasksScreen active={activeTab === 'tasks'} />
               </div>
             </div>
           )}
@@ -1438,7 +1442,7 @@ function StockChatContent() {
                 >
                   <ArrowLeft size={13} /> Back to Market Discover
                 </button>
-                <ChartWidget symbol={selectedChartSymbol} className="h-full" />
+                <ChartWidget symbol={selectedChartSymbol} className="h-full" active={activeTab === 'chart'} />
               </div>
             </div>
           )}
@@ -1449,7 +1453,9 @@ function StockChatContent() {
               is open. Mounted once here rather than per-screen; the dock gates
               on this panel's own display so it never floats over an inactive
               keep-alive tab. */}
-          <ChatDock visible={activeTab !== 'chat' && activeTab !== 'bots' && activeTab !== 'graph-studio' && !settingsOpen} />
+          {activeTab !== 'chat' && activeTab !== 'bots' && activeTab !== 'graph-studio' && !settingsOpen && (
+            <ChatDock visible />
+          )}
         </div>
         {/* Close the main column, then place the right dock as a SIBLING column
             in the row, so the main panel shrinks instead of being overlapped. */}
@@ -1465,13 +1471,13 @@ function StockChatContent() {
               : activeTab === 'graph-studio'
                 ? null // Graph Studio's inspector/run console own the right rail.
                 : <AgentWorkspace showExplain={activeTab === 'chat'} />))}
-        <TerminalDock slot="right" />
+        {terminalOpen && <TerminalDock slot="right" />}
       </div>
 
       {/* Bottom-docked terminal: a real strip below the row, above the footer. */}
-      <TerminalDock slot="bottom" />
+      {terminalOpen && <TerminalDock slot="bottom" />}
       {/* Full-page terminal: an overlay, since nothing else is visible behind it. */}
-      <TerminalDock slot="full" />
+      {terminalOpen && <TerminalDock slot="full" />}
 
       {/* Phone-only primary navigation: fixed bottom bar + "More" sheet. */}
       <MobileBottomNav

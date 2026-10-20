@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Settings, SquareTerminal, BrainCircuit, Ghost, Network, ChatsCircle, GitBranch, type LucideIcon } from '@/lib/icons';
 import { useSidebarConfigStore, useHydrateSidebarConfig } from '@/lib/sidebar/store';
 import { DEFAULT_SIDEBAR_SECTIONS, configMap, modeForTab, type NavGroup } from '@/lib/sidebar/config';
@@ -13,9 +14,6 @@ import { useIsMobile } from '@/hooks/use-media-query';
 import { useThemeStore, BRAND_MARK_SRC, BRAND_WORDMARK_SRC } from '@/lib/theme';
 import { ChatHistoryPanel } from '@/components/layout/chat-history-panel';
 import { BotsSidebarPanel } from '@/components/bots/bots-sidebar-panel';
-import { GraphModePanel } from '@/components/screens/graph-studio/graph-mode-panel';
-import { SidebarGatewayDialog } from '@/components/layout/sidebar-gateway-dialog';
-import { SidebarGraphDialog } from '@/components/layout/sidebar-graph-dialog';
 import { SavedPagesNav } from '@/components/layout/saved-pages-nav';
 import {
   DropdownMenu,
@@ -29,6 +27,22 @@ import type { ChatOrganizationApi, Conversation } from '@/lib/chat/chat-organiza
 // their persistence + view logic); re-exported here so existing importers keep
 // resolving `Conversation` from the sidebar module.
 export type { ChatFolder, Conversation } from '@/lib/chat/chat-organization';
+
+// Closed-by-default dialogs/panels: the graph dialog pulls in two ECharts
+// force-graphs, and the mode panel pulls the workflow/node-library graph. Keep
+// them out of the shell's first-load bundle; each loads on first open.
+const SidebarGraphDialog = dynamic(
+  () => import('@/components/layout/sidebar-graph-dialog').then((m) => m.SidebarGraphDialog),
+  { ssr: false },
+);
+const SidebarGatewayDialog = dynamic(
+  () => import('@/components/layout/sidebar-gateway-dialog').then((m) => m.SidebarGatewayDialog),
+  { ssr: false },
+);
+const GraphModePanel = dynamic(
+  () => import('@/components/screens/graph-studio/graph-mode-panel').then((m) => m.GraphModePanel),
+  { ssr: false },
+);
 
 
 const NAV_DEF = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
@@ -474,8 +488,8 @@ export function Sidebar({
         )}
       </div>
 
-      <SidebarGatewayDialog open={gatewayOpen} onOpenChange={setGatewayOpen} />
-      <SidebarGraphDialog open={graphOpen} onOpenChange={setGraphOpen} />
+      {gatewayOpen && <SidebarGatewayDialog open onOpenChange={setGatewayOpen} />}
+      {graphOpen && <SidebarGraphDialog open onOpenChange={setGraphOpen} />}
     </div>
   );
 

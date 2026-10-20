@@ -19,7 +19,7 @@ import {
   VT323,
 } from 'next/font/google';
 import { cn } from "@/lib/utils";
-import { AgentationToolbar } from "@/components/layout/agentation-toolbar";
+import { AgentationMount } from "@/components/layout/agentation-mount";
 import { GlobalLoader } from "@/components/ui/global-loader";
 import { GlobalSearchMount } from "@/components/layout/global-search-mount";
 import { KeyboardShortcuts } from "@/components/layout/keyboard-shortcuts";
@@ -83,7 +83,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         />
         <GlobalLoader />
         {children}
-        {process.env.NEXT_PUBLIC_AGENTATION === '1' && <AgentationToolbar />}
+        <AgentationMount />
         <GlobalSearchMount />
         <KeyboardShortcuts />
         <TerminalKeybind />

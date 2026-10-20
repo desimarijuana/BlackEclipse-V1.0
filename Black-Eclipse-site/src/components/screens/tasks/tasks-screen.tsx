@@ -8,6 +8,7 @@
 // state machine the agent uses, so completion is verified, not asserted.
 
 import { useCallback, useEffect, useState } from 'react';
+import { useActiveInterval } from '@/hooks/use-active-interval';
 import { cn } from '@/lib/utils';
 import {
   blockTask,
@@ -53,7 +54,7 @@ function statusLine(task: TaskNode): string | null {
   return null;
 }
 
-export function TasksScreen() {
+export function TasksScreen({ active = true }: { active?: boolean }) {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState<PlanView | null>(null);
@@ -91,9 +92,8 @@ export function TasksScreen() {
 
   useEffect(() => {
     void refreshView(selected);
-    const timer = setInterval(() => void refreshView(selected), 5000);
-    return () => clearInterval(timer);
   }, [selected, refreshView]);
+  useActiveInterval(active, () => void refreshView(selected), 5000);
 
   const run = useCallback(
     async (fn: () => Promise<unknown>) => {

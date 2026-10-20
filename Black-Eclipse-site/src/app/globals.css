@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-
 /* ── Portfolio builder layout flow ─────────────────────────────────────────
  * Fund-page widgets can have extra min-height (height customizer). CSS Grid
  * with dense flow packs them side-by-side into a 4-col layout, so a widget
@@ -19,8 +18,8 @@
 }
 .fund-widget-flow > * {
   min-width: 0;
-  /* Don't stretch cards to fill a row made taller by a height-boosted
-   * neighbour — that's what caused uneven vertical gaps between rows. */
+/* Don't stretch cards to fill a row made taller by a height-boosted
+ * neighbour — that's what caused uneven vertical gaps between rows. */
   align-self: start;
 }
 .fund-widget-flow > * > * {
@@ -48,7 +47,6 @@
     grid-auto-flow: dense;
   }
 }
-
 /* Edit-mode banner: a slim dark frosted strip shown above the customize
  * panel. Backdrop blur hides the page behind it — content blurs out, not
  * shows through. (Kept for backwards compatibility.) */
@@ -59,7 +57,6 @@
   backdrop-filter: blur(14px) saturate(1.1);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
-
 /* ── Frosted glass utility (menus, strips, floating panels) ────────────────
  * The "proper" frosted recipe: translucent dark tint + strong backdrop blur +
  * subtle saturation boost + hairline light border + soft shadow. Because the
@@ -78,14 +75,12 @@ html:not(.dark) .ws-glass {
   border: 1px solid rgba(0, 0, 0, 0.08);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
-
 @custom-variant dark (&:is(.dark *));
-
 :root {
-  /* Brand + market tokens. Defaults here; Settings › Customization overrides
-   * them through the managed `#eclipse-theme-overrides` stylesheet. Everything
-   * below (scrollbars, hover borders, sliders, legacy color remaps) reads
-   * these instead of hard-coded greens so one theme recolors the whole UI. */
+/* Brand + market tokens. Defaults here; Settings › Customization overrides
+ * them through the managed `#eclipse-theme-overrides` stylesheet. Everything
+ * below (scrollbars, hover borders, sliders, legacy color remaps) reads
+ * these instead of hard-coded greens so one theme recolors the whole UI. */
   --brand: #047857;
   --brand-rgb: 4 120 87;
   --brand-accent: #34d399;
@@ -149,7 +144,6 @@ html:not(.dark) .ws-glass {
   --tracking-normal: 0em;
   --spacing: 0.27rem;
 }
-
 .dark {
   --brand: #7aff78;
   --brand-rgb: 122 255 120;
@@ -212,7 +206,6 @@ html:not(.dark) .ws-glass {
   --shadow-xl: 0 1px 3px 0px hsl(0 0% 0% / 0.10), 0 8px 10px -1px hsl(0 0% 0% / 0.10);
   --shadow-2xl: 0 1px 3px 0px hsl(0 0% 0% / 0.25);
 }
-
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -246,17 +239,14 @@ html:not(.dark) .ws-glass {
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
   --font-serif: var(--font-serif);
   --font-heading: var(--font-heading);
-
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-
   --shadow-2xs: var(--shadow-2xs);
   --shadow-xs: var(--shadow-xs);
   --shadow-sm: var(--shadow-sm);
@@ -269,7 +259,6 @@ html:not(.dark) .ws-glass {
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
 }
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -281,7 +270,6 @@ html:not(.dark) .ws-glass {
     @apply font-sans;
   }
 }
-
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -292,7 +280,6 @@ html:not(.dark) .ws-glass {
     transform: translateY(0);
   }
 }
-
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -301,19 +288,13 @@ html:not(.dark) .ws-glass {
     opacity: 1;
   }
 }
-
 .animate-fade-in-up {
   animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
-
 .animate-fade-in {
   animation: fadeIn 0.4s ease-out backwards;
 }
-
-/* Structured-response block entrance — a small, ONE-SHOT fade+rise as a block
-   appears (including a block that streams in mid-answer). It uses `backwards`
-   fill only (never `forwards`/`both`), so it cannot create a persistent backdrop
-   root above a glass surface. Reduced-motion users get no motion. */
+/* Structured-response block entrance — a small, ONE-SHOT fade+rise as a block   appears (including a block that streams in mid-answer). It uses `backwards`   fill only (never `forwards`/`both`), so it cannot create a persistent backdrop   root above a glass surface. Reduced-motion users get no motion. */
 .response-block-enter {
   animation: fadeInUp 0.42s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
@@ -322,7 +303,6 @@ html:not(.dark) .ws-glass {
     animation: none;
   }
 }
-
 /* ── Live ghost avatar — ambient life ─────────────────────────────────────────
  * `GhostAvatar` is a pure SVG drawing; `LiveGhostAvatar` adds motion without
  * changing it. Three layers:
@@ -350,31 +330,23 @@ html:not(.dark) .ws-glass {
   animation: none;
 }
 .be-ghost-live[data-interactive] .be-ghost__gaze {
-  transform: translate(
-    calc(var(--look-x, 0) * 3px),
-    calc(var(--look-y, 0) * 2.4px)
-  );
+  transform: translate(    calc(var(--look-x, 0) * 3px),    calc(var(--look-y, 0) * 2.4px)  );
   transition: transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .be-ghost-live[data-poke] .be-ghost {
   transform-origin: 50% 100%;
   animation: ghostPoke 600ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-
 @keyframes ghostBreathe {
-  0%,
-  100% {
+  0%,  100% {
     transform: scaleY(1);
   }
   50% {
     transform: scaleY(1.025);
   }
 }
-
 @keyframes ghostBlink {
-  0%,
-  90%,
-  100% {
+  0%,  90%,  100% {
     transform: scaleY(1);
   }
   93% {
@@ -384,7 +356,6 @@ html:not(.dark) .ws-glass {
     transform: scaleY(1);
   }
 }
-
 @keyframes ghostPoke {
   0% {
     transform: scale(1, 1);
@@ -399,13 +370,11 @@ html:not(.dark) .ws-glass {
     transform: scale(1, 1);
   }
 }
-
 /* ── Live ghost avatar — moods ────────────────────────────────────────────────
  * The face expression for the agent's turn, driven by `data-mood` (see
  * `lib/bots/ghost-mood.ts`). Only the live, active wrapper is affected. The
  * gaze/eye transforms for a mood are scoped with :not([data-interactive]) so a
- * cursor-tracking face keeps following the pointer instead of snapping to a pose.
- */
+ * cursor-tracking face keeps following the pointer instead of snapping to a pose. */
 /* thinking — eyes lift, a slow ponder */
 .be-ghost-live[data-active]:not([data-interactive]) .be-ghost[data-mood="thinking"] .be-ghost__gaze {
   transform: translateY(-2.6px);
@@ -413,7 +382,6 @@ html:not(.dark) .ws-glass {
 .be-ghost-live[data-active] .be-ghost[data-mood="thinking"] .be-ghost__body {
   animation: ghostBreathe 3.4s ease-in-out infinite;
 }
-
 /* working — eyes dart side to side */
 .be-ghost-live[data-active]:not([data-interactive]) .be-ghost[data-mood="working"] .be-ghost__gaze {
   animation: ghostDart 1.15s ease-in-out infinite;
@@ -421,14 +389,12 @@ html:not(.dark) .ws-glass {
 .be-ghost-live[data-active] .be-ghost[data-mood="working"] .be-ghost__eyes {
   animation: ghostBlink 2.6s ease-in-out infinite;
 }
-
 /* speaking — the mouth moves */
 .be-ghost-live[data-active] .be-ghost[data-mood="speaking"] .be-ghost__mouth {
   transform-box: fill-box;
   transform-origin: 50% 45%;
   animation: ghostTalk 0.44s ease-in-out infinite;
 }
-
 /* waiting — eyes up and patient */
 .be-ghost-live[data-active]:not([data-interactive]) .be-ghost[data-mood="waiting"] .be-ghost__gaze {
   transform: translateY(-2px);
@@ -436,7 +402,6 @@ html:not(.dark) .ws-glass {
 .be-ghost-live[data-active] .be-ghost[data-mood="waiting"] .be-ghost__eyes {
   animation: ghostBlink 6s ease-in-out infinite;
 }
-
 /* happy — a little hop and a squint */
 .be-ghost-live[data-active] .be-ghost[data-mood="happy"] {
   transform-origin: 50% 100%;
@@ -447,7 +412,6 @@ html:not(.dark) .ws-glass {
   transform-origin: 50% 55%;
   animation: ghostSquint 0.62s ease-in-out;
 }
-
 /* sad — a droop */
 .be-ghost-live[data-active] .be-ghost[data-mood="sad"] .be-ghost__body {
   transform-box: fill-box;
@@ -460,27 +424,22 @@ html:not(.dark) .ws-glass {
 .be-ghost-live[data-active] .be-ghost[data-mood="sad"] .be-ghost__eyes {
   animation: ghostBlink 7s ease-in-out infinite;
 }
-
 @keyframes ghostDart {
-  0%,
-  100% {
+  0%,  100% {
     transform: translateX(-2.6px);
   }
   50% {
     transform: translateX(2.6px);
   }
 }
-
 @keyframes ghostTalk {
-  0%,
-  100% {
+  0%,  100% {
     transform: scaleY(0.72);
   }
   50% {
     transform: scaleY(1.24);
   }
 }
-
 @keyframes ghostHop {
   0% {
     transform: translateY(0) scale(1, 1);
@@ -495,27 +454,22 @@ html:not(.dark) .ws-glass {
     transform: translateY(0) scale(1, 1);
   }
 }
-
 @keyframes ghostSquint {
-  0%,
-  100% {
+  0%,  100% {
     transform: scaleY(1);
   }
   40% {
     transform: scaleY(0.5);
   }
 }
-
 @keyframes ghostDroop {
-  0%,
-  100% {
+  0%,  100% {
     transform: translateY(0) scaleY(1);
   }
   50% {
     transform: translateY(1.6px) scaleY(0.985);
   }
 }
-
 /* ── Effort slider "Ultra" stop — an ENERGY fill ──────────────────────────────
  * The top stop of the composer's model-intelligence slider. Everything is drawn
  * from the theme's `--primary` token so it reads as the app accent, never a
@@ -533,36 +487,53 @@ html:not(.dark) .ws-glass {
  * switches — it is the explicit "maximum effort" affordance and must always read
  * as alive, the same intent the price ticker carries. */
 @keyframes effortUltraFlow {
-  0% { background-position: 0% 50%; }
-  100% { background-position: 200% 50%; }
+  0% {
+ background-position: 0% 50%;
+ }
+  100% {
+ background-position: 200% 50%;
+ }
 }
 .effort-ultra-fill {
   --ultra-dur: 2.6s;
-  background-image: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--primary) 18%, transparent) 0%,
-    color-mix(in srgb, var(--primary) 55%, transparent) 22%,
-    color-mix(in srgb, var(--primary) 22%, transparent) 50%,
-    color-mix(in srgb, var(--primary) 72%, transparent) 78%,
-    color-mix(in srgb, var(--primary) 18%, transparent) 100%
-  );
+  background-image: linear-gradient(    90deg,    color-mix(in srgb, var(--primary) 18%, transparent) 0%,    color-mix(in srgb, var(--primary) 55%, transparent) 22%,    color-mix(in srgb, var(--primary) 22%, transparent) 50%,    color-mix(in srgb, var(--primary) 72%, transparent) 78%,    color-mix(in srgb, var(--primary) 18%, transparent) 100%  );
   background-size: 200% 100%;
   animation: effortUltraFlow var(--ultra-dur) linear infinite;
 }
 @keyframes effortUltraGlow {
-  0%, 100% { transform: scale(1); opacity: 0.5; }
-  50% { transform: scale(1.5); opacity: 0.9; }
+  0%, 100% {
+ transform: scale(1);
+ opacity: 0.5;
+ }
+  50% {
+ transform: scale(1.5);
+ opacity: 0.9;
+ }
 }
 @keyframes effortUltraSpin {
-  to { transform: rotate(360deg); }
+  to {
+ transform: rotate(360deg);
+ }
 }
 @keyframes effortUltraShock {
-  0% { transform: scale(0.4); opacity: 0.85; }
-  100% { transform: scale(1.9); opacity: 0; }
+  0% {
+ transform: scale(0.4);
+ opacity: 0.85;
+ }
+  100% {
+ transform: scale(1.9);
+ opacity: 0;
+ }
 }
 @keyframes effortUltraCore {
-  0%, 100% { transform: scale(1); filter: brightness(1) drop-shadow(0 0 4px var(--primary)); }
-  50% { transform: scale(1.12); filter: brightness(1.6) drop-shadow(0 0 9px var(--primary)); }
+  0%, 100% {
+ transform: scale(1);
+ filter: brightness(1) drop-shadow(0 0 4px var(--primary));
+ }
+  50% {
+ transform: scale(1.12);
+ filter: brightness(1.6) drop-shadow(0 0 9px var(--primary));
+ }
 }
 .effort-ultra-glow {
   --ultra-dur: 1.6s;
@@ -594,34 +565,29 @@ html:not(.dark) .ws-glass {
 /* A laser beam that sweeps left→right across the Ultra fill, with a soft
  * leading edge and a trailing streak. */
 @keyframes effortUltraBeam {
-  0% { left: -40%; opacity: 0; }
-  10% { opacity: 1; }
-  90% { opacity: 1; }
-  100% { left: 110%; opacity: 0; }
+  0% {
+ left: -40%;
+ opacity: 0;
+ }
+  10% {
+ opacity: 1;
+ }
+  90% {
+ opacity: 1;
+ }
+  100% {
+ left: 110%;
+ opacity: 0;
+ }
 }
 .effort-ultra-beam {
   --ultra-dur: 2.6s;
   width: 34%;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--primary) 45%, transparent) 55%,
-    color-mix(in srgb, var(--primary) 95%, #ffffff) 82%,
-    #ffffff 92%,
-    color-mix(in srgb, var(--primary) 95%, #ffffff) 96%,
-    transparent 100%
-  );
+  background: linear-gradient(    90deg,    transparent 0%,    color-mix(in srgb, var(--primary) 45%, transparent) 55%,    color-mix(in srgb, var(--primary) 95%, #ffffff) 82%,    #ffffff 92%,    color-mix(in srgb, var(--primary) 95%, #ffffff) 96%,    transparent 100%  );
   filter: blur(1px) drop-shadow(0 0 6px var(--primary));
   animation: effortUltraBeam var(--ultra-dur) ease-in-out infinite;
 }
-
-
-/* Hover-revealed controls (message actions, copy buttons, edit).
-   Components keep their Tailwind `opacity-0 group-hover:opacity-100
-   focus-within:opacity-100` classes for pointer devices; `.hover-reveal` adds
-   the two behaviors Tailwind cannot express per-media-query:
-     • on touch (no hover) the control is always visible and tappable, and
-     • reduced-motion users get no opacity transition. */
+/* Hover-revealed controls (message actions, copy buttons, edit).   Components keep their Tailwind `opacity-0 group-hover:opacity-100   focus-within:opacity-100` classes for pointer devices; `.hover-reveal` adds   the two behaviors Tailwind cannot express per-media-query:     • on touch (no hover) the control is always visible and tappable, and     • reduced-motion users get no opacity transition. */
 .hover-reveal {
   transition: opacity 0.15s ease;
 }
@@ -635,35 +601,27 @@ html:not(.dark) .ws-glass {
     transition: none;
   }
 }
-
-/* Header price ribbon — a seamless, continuously scrolling quote marquee.
-   The track holds two identical copies of the quote list; translating from
-   -50% (the start of the second copy) back to 0 gives continuous LEFT→RIGHT
-   motion with no visible jump. There is deliberately NO background: the strip
-   is bare text so it reads as live market chrome, not a card. Edge fade via a
-   mask so quotes dissolve into the header instead of clipping at the border.
-   The loop is NOT gated on prefers-reduced-motion — motion is the whole point
-   of a ticker, so it always runs (it is slow and subtle). */
+/* Header price ribbon — a seamless, continuously scrolling quote marquee.   The track holds two identical copies of the quote list; translating from   -50% (the start of the second copy) back to 0 gives continuous LEFT→RIGHT   motion with no visible jump. There is deliberately NO background: the strip   is bare text so it reads as live market chrome, not a card. Edge fade via a   mask so quotes dissolve into the header instead of clipping at the border.   The loop is NOT gated on prefers-reduced-motion — motion is the whole point   of a ticker, so it always runs (it is slow and subtle). */
 @keyframes priceRibbonScroll {
-  from { transform: translateX(-50%); }
-  to { transform: translateX(0); }
+  from {
+ transform: translateX(-50%);
+ }
+  to {
+ transform: translateX(0);
+ }
 }
-
 .price-ribbon {
   mask-image: linear-gradient(to right, transparent 0, rgba(0, 0, 0, 1) 16px, rgba(0, 0, 0, 1) calc(100% - 16px), transparent 100%);
   -webkit-mask-image: linear-gradient(to right, transparent 0, rgba(0, 0, 0, 1) 16px, rgba(0, 0, 0, 1) calc(100% - 16px), transparent 100%);
 }
-
 .price-ribbon-track {
   width: max-content;
   animation: priceRibbonScroll 24s linear infinite;
   will-change: transform;
 }
-
 .price-ribbon:hover .price-ribbon-track {
   animation-play-state: paused;
 }
-
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none !important;
@@ -671,7 +629,6 @@ html:not(.dark) .ws-glass {
 .scrollbar-hide::-webkit-scrollbar {
   display: none !important;
 }
-
 /* ── Mobile ergonomics ─────────────────────────────────────────────────────
  * safe-bottom: clear the iOS home indicator / Android gesture bar on fixed
  * bottom chrome (bottom nav, chat dock, sheets). touch-target: guarantee the
@@ -689,45 +646,30 @@ html:not(.dark) .ws-glass {
     min-height: 0;
   }
 }
-
-/* The chat transcript no longer styles a native scrollbar: the full-height bar
-   read as a long band running under the header, so the bar is hidden and
-   `ChatHistory` renders a short capped thumb instead. */
-
-/* Global premium scrollbar — neutral, low-contrast. Deliberately NOT
-   brand-coloured: a saturated brand thumb (especially on hover) reads as a
-   loud yellow/green streak on dark glass. Neutral grey keeps it professional
-   and lets the content, not the chrome, carry the colour. */
+/* The chat transcript no longer styles a native scrollbar: the full-height bar   read as a long band running under the header, so the bar is hidden and   `ChatHistory` renders a short capped thumb instead. */
+/* Global premium scrollbar — neutral, low-contrast. Deliberately NOT   brand-coloured: a saturated brand thumb (especially on hover) reads as a   loud yellow/green streak on dark glass. Neutral grey keeps it professional   and lets the content, not the chrome, carry the colour. */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.16);
   border-radius: 9999px;
   border: 1.5px solid transparent;
   background-clip: padding-box;
 }
-
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.30);
 }
-
 /* Firefox global scrollbar support */
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
 }
-
-/* Chat composer: the only visible scrollbar sits inside the glass input, so it
-   needs its own inset, low-contrast treatment — otherwise the 6px global thumb
-   crowds the text and the action buttons. Keep it short and hugging the right
-   edge with breathing room above/below. */
+/* Chat composer: the only visible scrollbar sits inside the glass input, so it   needs its own inset, low-contrast treatment — otherwise the 6px global thumb   crowds the text and the action buttons. Keep it short and hugging the right   edge with breathing room above/below. */
 .chat-composer-scroll {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
@@ -746,9 +688,7 @@ html:not(.dark) .ws-glass {
 .chat-composer-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.30);
 }
-
-/* Stock-detail metrics rail: a visible, neutral scrollbar so the rail reads as
-   scrollable without a brand-coloured streak. */
+/* Stock-detail metrics rail: a visible, neutral scrollbar so the rail reads as   scrollable without a brand-coloured streak. */
 .tv-metrics-rail {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.20) transparent;
@@ -769,10 +709,7 @@ html:not(.dark) .ws-glass {
 .tv-metrics-rail::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.34);
 }
-
-/* News category tabs: 1px dark-grey scrollbar matching the site's other
-   scrollbars (#262626 thumb on #0a0a0a track), sitting below the pills so it
-   never collides with tab content. !important overrides the global blocks. */
+/* News category tabs: 1px dark-grey scrollbar matching the site's other   scrollbars (#262626 thumb on #0a0a0a track), sitting below the pills so it   never collides with tab content. !important overrides the global blocks. */
 .news-tabs-scroll {
   scrollbar-width: thin;
   scrollbar-color: #262626 #0a0a0a;
@@ -791,14 +728,8 @@ html:not(.dark) .ws-glass {
 .news-tabs-scroll::-webkit-scrollbar-thumb:hover {
   background: #3f3f46 !important;
 }
-
 /* Consistent, highly-visible shimmer skeleton styles */
-.animate-pulse div,
-.animate-pulse span,
-.animate-pulse table,
-.animate-pulse tbody,
-.animate-pulse tr,
-.animate-pulse td {
+.animate-pulse div,.animate-pulse span,.animate-pulse table,.animate-pulse tbody,.animate-pulse tr,.animate-pulse td {
   &.bg-muted\/30, &.bg-muted-foreground\/20, &.bg-muted-foreground\/25 {
     background-color: rgba(0, 0, 0, 0.08) !important;
   }
@@ -818,14 +749,8 @@ html:not(.dark) .ws-glass {
     background-color: rgba(0, 0, 0, 0.015) !important;
   }
 }
-
 .dark {
-  .animate-pulse div,
-  .animate-pulse span,
-  .animate-pulse table,
-  .animate-pulse tbody,
-  .animate-pulse tr,
-  .animate-pulse td {
+  .animate-pulse div,  .animate-pulse span,  .animate-pulse table,  .animate-pulse tbody,  .animate-pulse tr,  .animate-pulse td {
     &.bg-muted\/30, &.bg-muted-foreground\/20, &.bg-muted-foreground\/25 {
       background-color: rgba(255, 255, 255, 0.12) !important;
     }
@@ -846,66 +771,53 @@ html:not(.dark) .ws-glass {
     }
   }
 }
-
-/* Premium Card Styles matching image.png (Solid card backdrops, rounded edges, subtle borders).
-   Scoped to :not(.tv-overlay *) so the tradingview detail terminal keeps its sharp translucent panels.
-   The sidebar (.sidebar-root) is exempted so it stays flat/square. */
+/* Premium Card Styles matching image.png (Solid card backdrops, rounded edges, subtle borders).   Scoped to :not(.tv-overlay *) so the tradingview detail terminal keeps its sharp translucent panels.   The sidebar (.sidebar-root) is exempted so it stays flat/square. */
 .sidebar-root {
   border-radius: 0 !important;
   border: none !important;
 }
-.bg-card:not(.tv-overlay .bg-card):not(.sidebar-root), 
-[class*="bg-card/"]:not(.tv-overlay [class*="bg-card/"]):not(.sidebar-root) {
+.bg-card:not(.tv-overlay .bg-card):not(.sidebar-root), [class*="bg-card/"]:not(.tv-overlay [class*="bg-card/"]):not(.sidebar-root) {
   border-radius: 24px !important;
-  background: #ffffff !important; /* Solid white for light mode readability */
+  background: #ffffff !important;
+/* Solid white for light mode readability */
   border: 2px solid rgba(0, 0, 0, 0.08) !important;
   transition: border-color 0.2s ease !important;
 }
-
 .dark {
-  .bg-card:not(.tv-overlay .bg-card):not(.sidebar-root), 
-  [class*="bg-card/"]:not(.tv-overlay [class*="bg-card/"]):not(.sidebar-root) {
-    background: var(--card) !important; /* Solid card surface for dark mode */
+  .bg-card:not(.tv-overlay .bg-card):not(.sidebar-root),   [class*="bg-card/"]:not(.tv-overlay [class*="bg-card/"]):not(.sidebar-root) {
+    background: var(--card) !important;
+/* Solid card surface for dark mode */
     border: 2px solid rgb(var(--brand-rgb) / 0.05) !important;
   }
 }
-
 /* Sharp, highly visible green border stroke on hover for interactive cards (no translations or box-glows) */
-a.bg-card:hover, 
-.bg-card.cursor-pointer:hover,
-.interactive-card:hover {
+a.bg-card:hover, .bg-card.cursor-pointer:hover,.interactive-card:hover {
   border-color: var(--brand) !important;
 }
-
 /* Premium Button Styles matching button.png (Pill shape, dark background, subtle border, white text) */
-.btn-pill,
-button.bg-primary:not(.screener-tab):not(.filter-toggle),
-a.bg-primary {
+.btn-pill,button.bg-primary:not(.screener-tab):not(.filter-toggle),a.bg-primary {
   border-radius: 9999px !important;
-  background: rgba(255, 255, 255, 0.95) !important; /* Light mode: clean white/light gray button */
+  background: rgba(255, 255, 255, 0.95) !important;
+/* Light mode: clean white/light gray button */
   border: 1.5px solid rgba(0, 0, 0, 0.15) !important;
   color: #0d0d0d !important;
   font-weight: 600 !important;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.05) !important;
   transition: all 0.2s ease !important;
-  
-  &:hover {
+    &:hover {
     background: rgba(245, 245, 245, 1) !important;
     border-color: rgba(0, 0, 0, 0.3) !important;
     color: #000000 !important;
     box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08) !important;
   }
 }
-
 .dark {
-  .btn-pill,
-  button.bg-primary:not(.screener-tab):not(.filter-toggle),
-  a.bg-primary {
-    background: rgba(16, 16, 16, 0.9) !important; /* Dark mode: dark button */
+  .btn-pill,  button.bg-primary:not(.screener-tab):not(.filter-toggle),  a.bg-primary {
+    background: rgba(16, 16, 16, 0.9) !important;
+/* Dark mode: dark button */
     border: 1px solid rgba(255, 255, 255, 0.12) !important;
     color: #ffffff !important;
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35) !important;
-
     &:hover {
       background: rgba(22, 22, 22, 0.95) !important;
       border-color: rgba(255, 255, 255, 0.22) !important;
@@ -914,9 +826,7 @@ a.bg-primary {
     }
   }
 }
-
-/* Screener tab buttons: active state uses a neutral accent background (NOT green).
-   Exempt from the pill override above so the rounded shape is preserved. */
+/* Screener tab buttons: active state uses a neutral accent background (NOT green).   Exempt from the pill override above so the rounded shape is preserved. */
 button.screener-tab.bg-primary {
   border-radius: 1.5rem !important;
   background: transparent !important;
@@ -924,16 +834,13 @@ button.screener-tab.bg-primary {
   color: #ffffff !important;
   box-shadow: none !important;
 }
-
 .dark {
   button.screener-tab.bg-primary {
     background: transparent !important;
     color: #ffffff !important;
   }
 }
-
-/* Filter toggle buttons (Advanced Filters): active state uses a neutral accent
-   background (NOT green). Exempt from the pill override above. */
+/* Filter toggle buttons (Advanced Filters): active state uses a neutral accent   background (NOT green). Exempt from the pill override above. */
 button.filter-toggle.bg-primary {
   border-radius: 0.75rem !important;
   background: transparent !important;
@@ -941,128 +848,71 @@ button.filter-toggle.bg-primary {
   color: #ffffff !important;
   box-shadow: none !important;
 }
-
 .dark {
   button.filter-toggle.bg-primary {
     background: transparent !important;
     color: #ffffff !important;
   }
 }
-
 /* Gray highlighted text override (keeps highlights gray unless hovered; prices and trends keep original colors) */
-span.text-primary,
-p.text-primary,
-div.text-primary,
-span[class*="text-primary"],
-a.text-primary,
-.text-primary {
-  color: oklch(0.50 0.01 240) !important; /* Muted gray for light mode */
+span.text-primary,p.text-primary,div.text-primary,span[class*="text-primary"],a.text-primary,.text-primary {
+  color: oklch(0.50 0.01 240) !important;
+/* Muted gray for light mode */
   transition: color 0.25s ease;
-  
-  &:hover {
+    &:hover {
     color: var(--brand) !important;
   }
 }
-
 .dark {
-  span.text-primary,
-  p.text-primary,
-  div.text-primary,
-  span[class*="text-primary"],
-  a.text-primary,
-  .text-primary {
-    color: oklch(0.70 0.01 240) !important; /* Elegant gray highlight for dark mode */
-    
-    &:hover {
+  span.text-primary,  p.text-primary,  div.text-primary,  span[class*="text-primary"],  a.text-primary,  .text-primary {
+    color: oklch(0.70 0.01 240) !important;
+/* Elegant gray highlight for dark mode */
+        &:hover {
       color: var(--brand) !important;
     }
   }
 }
-
 /* Keep structural elements like SVGs and text icons matching the primary green color */
-svg.text-primary,
-.text-primary svg {
+svg.text-primary,.text-primary svg {
   color: var(--brand) !important;
 }
-
 /* The effort slider's brain mark must ALWAYS read as the accent, in both
  * schemes. The `.dark .text-primary` gray remap above out-specifies the
  * `svg.text-primary` rule, so a dedicated class with matching-or-higher
  * specificity (and later source order) is used for this icon instead of relying
  * on `text-primary`. */
-.effort-accent,
-.dark .effort-accent,
-html:not(.dark) .effort-accent {
+.effort-accent,.dark .effort-accent,html:not(.dark) .effort-accent {
   color: var(--primary) !important;
 }
-
 /* Global Remap: legacy Tailwind emerald classes follow the theme brand color. */
-[class*="text-emerald-"],
-.text-emerald-400,
-.text-emerald-500,
-.text-emerald-300,
-.text-emerald-200 {
+[class*="text-emerald-"],.text-emerald-400,.text-emerald-500,.text-emerald-300,.text-emerald-200 {
   color: var(--brand) !important;
 }
-
-[class*="bg-emerald-500"],
-.bg-emerald-400,
-.bg-emerald-500,
-.bg-emerald-600 {
+[class*="bg-emerald-500"],.bg-emerald-400,.bg-emerald-500,.bg-emerald-600 {
   background-color: var(--brand) !important;
 }
-
-[class*="bg-emerald-500/"],
-[class*="bg-emerald-500\/10"],
-[class*="bg-emerald-500\/15"],
-[class*="bg-emerald-500\/20"] {
+[class*="bg-emerald-500/"],[class*="bg-emerald-500\/10"],[class*="bg-emerald-500\/15"],[class*="bg-emerald-500\/20"] {
   background-color: rgb(var(--brand-rgb) / 0.12) !important;
 }
-
-[class*="border-emerald-500/"],
-.border-emerald-500\/10,
-.border-emerald-500\/15,
-.border-emerald-500\/20,
-.border-emerald-500\/30,
-.border-emerald-500\/35 {
+[class*="border-emerald-500/"],.border-emerald-500\/10,.border-emerald-500\/15,.border-emerald-500\/20,.border-emerald-500\/30,.border-emerald-500\/35 {
   border-color: rgb(var(--brand-rgb) / 0.2) !important;
 }
-
 .accent-emerald-500 {
   accent-color: var(--brand) !important;
 }
-
 /* Global Remap: translate legacy Tailwind rose/red classes to the bearish token. */
-[class*="text-rose-"],
-.text-rose-400,
-.text-rose-500,
-.text-rose-300,
-.text-rose-200 {
+[class*="text-rose-"],.text-rose-400,.text-rose-500,.text-rose-300,.text-rose-200 {
   color: var(--bearish) !important;
 }
-
-[class*="bg-rose-500"],
-.bg-rose-400,
-.bg-rose-500,
-.bg-rose-600 {
+[class*="bg-rose-500"],.bg-rose-400,.bg-rose-500,.bg-rose-600 {
   background-color: var(--bearish) !important;
 }
-
-[class*="bg-rose-500/"],
-[class*="bg-rose-500\/10"],
-[class*="bg-rose-500\/15"],
-[class*="bg-rose-500\/20"] {
+[class*="bg-rose-500/"],[class*="bg-rose-500\/10"],[class*="bg-rose-500\/15"],[class*="bg-rose-500\/20"] {
   background-color: rgb(var(--bearish-rgb) / 0.12) !important;
 }
-
-[class*="border-rose-500/"],
-.border-rose-500\/10,
-.border-rose-500\/15,
-.border-rose-500\/20,
-.border-rose-500\/30 {
+[class*="border-rose-500/"],.border-rose-500\/10,.border-rose-500\/15,.border-rose-500\/20,.border-rose-500\/30 {
   border-color: rgb(var(--bearish-rgb) / 0.2) !important;
 }
-
 /* Global outer container margin spacing to let pages breathe */
 .space-y-10 {
   margin-top: 3.5rem !important;
@@ -1071,17 +921,11 @@ html:not(.dark) .effort-accent {
 main, .min-h-screen {
   padding-bottom: 4rem !important;
 }
-
 /* Sidebar menu rounding override (keep left side menu completely flat/straight) */
-aside.group\/sidebar,
-div.group\/sidebar,
-[class*="group/sidebar"] {
+aside.group\/sidebar,div.group\/sidebar,[class*="group/sidebar"] {
   border-radius: 0px !important;
 }
-
-/* Custom scrollbar styling for Chrome, Safari, Edge, Opera — the final cascade
-   layer, so it wins over the earlier global block. Neutral grey, theme-agnostic
-   so no theme can turn the scrollbar a saturated yellow/green. */
+/* Custom scrollbar styling for Chrome, Safari, Edge, Opera — the final cascade   layer, so it wins over the earlier global block. Neutral grey, theme-agnostic   so no theme can turn the scrollbar a saturated yellow/green. */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -1098,18 +942,13 @@ div.group\/sidebar,
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.30);
 }
-
 /* Custom Firefox Scrollbar */
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
 }
-
 /* Native inputs branding */
-input[type="date"],
-input[type="datetime-local"],
-input[type="month"],
-input[type="time"] {
+input[type="date"],input[type="datetime-local"],input[type="month"],input[type="time"] {
   accent-color: var(--brand);
   color-scheme: dark;
   background-color: rgba(10, 10, 10, 0.6);
@@ -1119,14 +958,10 @@ input[type="time"] {
   color: #ffffff;
   outline: none;
 }
-input[type="date"]:focus,
-input[type="datetime-local"]:focus,
-input[type="month"]:focus,
-input[type="time"]:focus {
+input[type="date"]:focus,input[type="datetime-local"]:focus,input[type="month"]:focus,input[type="time"]:focus {
   border-color: var(--brand);
   box-shadow: 0 0 0 1px var(--brand);
 }
-
 /* Checkboxes and Toggles */
 input[type="checkbox"] {
   accent-color: var(--brand);
@@ -1136,10 +971,8 @@ input[type="radio"] {
   accent-color: var(--brand);
   cursor: pointer;
 }
-
 /* Hide native spinner buttons on number inputs if wanted, or style them */
-input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button {
+input[type="number"]::-webkit-outer-spin-button,input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
@@ -1154,7 +987,6 @@ input[type="number"]:focus {
   border-color: var(--brand);
   outline: none;
 }
-
 /* Range slider styling */
 input[type="range"] {
   -webkit-appearance: none;
@@ -1162,17 +994,16 @@ input[type="range"] {
   background: transparent;
   cursor: pointer;
 }
-
 input[type="range"]::-webkit-slider-runnable-track {
   background: rgba(255, 255, 255, 0.1);
   height: 4px;
   border-radius: 2px;
 }
-
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  margin-top: -6px; /* Centers the thumb on the track */
+  margin-top: -6px;
+/* Centers the thumb on the track */
   background-color: var(--brand);
   height: 16px;
   width: 16px;
@@ -1180,18 +1011,15 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow: 0 0 10px rgb(var(--brand-rgb) / 0.5);
   transition: transform 0.1s ease, background-color 0.1s ease;
 }
-
 input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.2);
   background-color: var(--brand-hover);
 }
-
 input[type="range"]::-moz-range-track {
   background: rgba(255, 255, 255, 0.1);
   height: 4px;
   border-radius: 2px;
 }
-
 input[type="range"]::-moz-range-thumb {
   background-color: var(--brand);
   border: none;
@@ -1202,13 +1030,10 @@ input[type="range"]::-moz-range-thumb {
   transition: transform 0.1s ease, background-color 0.1s ease;
   cursor: pointer;
 }
-
 input[type="range"]::-moz-range-thumb:hover {
   transform: scale(1.2);
   background-color: var(--brand-hover);
 }
-
-
 /* -- Workspace kernel drop-target chrome ----------------------------------- */
 .ws-drop-indicator {
   position: relative;
@@ -1220,13 +1045,11 @@ input[type="range"]::-moz-range-thumb:hover {
   flex-shrink: 0;
   pointer-events: none;
 }
-
 .ws-drop-hot {
   outline: 1px dashed var(--primary);
   outline-offset: 2px;
   border-radius: 0.75rem;
 }
-
 /* Fund-page tabs strip — true frosted glass menu. The old bg-accent/40 +
  * backdrop-blur-md combo rendered as a flat bar: it sits inside an ancestor
  * that is itself a backdrop-filter layer, so low-opacity fills had nothing
@@ -1234,74 +1057,45 @@ input[type="range"]::-moz-range-thumb:hover {
 .fund-tabs-glass {
   background: rgb(var(--card-rgb, 18 18 20) / 0.55);
   backdrop-filter: blur(18px) saturate(1.35);
-  /* Explicit right-edge inset line helps when the border is visually weakened
-     by frosted rendering + overflow clipping on the last tab. */
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.30),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    inset -1px 0 0 rgba(255, 255, 255, 0.06);
+/* Explicit right-edge inset line helps when the border is visually weakened     by frosted rendering + overflow clipping on the last tab. */
+  box-shadow:    0 8px 30px rgba(0, 0, 0, 0.30),    inset 0 1px 0 rgba(255, 255, 255, 0.06),    inset -1px 0 0 rgba(255, 255, 255, 0.06);
 }
 html:not(.dark) .fund-tabs-glass {
   background: rgba(255, 255, 255, 0.62);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    inset -1px 0 0 rgba(0, 0, 0, 0.08);
+  box-shadow:    0 8px 30px rgba(0, 0, 0, 0.08),    inset 0 1px 0 rgba(255, 255, 255, 0.55),    inset -1px 0 0 rgba(0, 0, 0, 0.08);
 }
-
-/* Unified tab strip — frosted glass menu shared across every page's tabs.
-   Same recipe as the portfolio fund tabs so all tab bars look identical. */
+/* Unified tab strip — frosted glass menu shared across every page's tabs.   Same recipe as the portfolio fund tabs so all tab bars look identical. */
 .tab-bar-glass {
   background: rgb(var(--card-rgb, 18 18 20) / 0.55);
   backdrop-filter: blur(18px) saturate(1.35);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.30),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    inset -1px 0 0 rgba(255, 255, 255, 0.06);
+  box-shadow:    0 8px 30px rgba(0, 0, 0, 0.30),    inset 0 1px 0 rgba(255, 255, 255, 0.06),    inset -1px 0 0 rgba(255, 255, 255, 0.06);
 }
 html:not(.dark) .tab-bar-glass {
   background: rgba(255, 255, 255, 0.62);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    inset -1px 0 0 rgba(0, 0, 0, 0.08);
+  box-shadow:    0 8px 30px rgba(0, 0, 0, 0.08),    inset 0 1px 0 rgba(255, 255, 255, 0.55),    inset -1px 0 0 rgba(0, 0, 0, 0.08);
 }
-
-/* Restrained tab strip — the control-strip tier. Same family as
-   .glass-card-subtle so a tab row reads as chrome, not as a hero card. */
+/* Restrained tab strip — the control-strip tier. Same family as   .glass-card-subtle so a tab row reads as chrome, not as a hero card. */
 .tab-bar-subtle {
   background: rgb(var(--card-rgb, 18 18 20) / 0.40);
   backdrop-filter: blur(16px) saturate(1.3);
-  box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.20),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow:    0 4px 16px rgba(0, 0, 0, 0.20),    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 html:not(.dark) .tab-bar-subtle {
   background: rgba(255, 255, 255, 0.50);
-  box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.50);
+  box-shadow:    0 4px 16px rgba(0, 0, 0, 0.06),    inset 0 1px 0 rgba(255, 255, 255, 0.50);
 }
-
-/* On-chart candle timer — black frosted-glass pill. ALWAYS keeps a real
-   backdrop blur (frosted glass), never a flat translucent fill. */
+/* On-chart candle timer — black frosted-glass pill. ALWAYS keeps a real   backdrop blur (frosted glass), never a flat translucent fill. */
 .glass-ticker {
   background: rgb(var(--card-rgb, 18 18 20) / 0.55);
   backdrop-filter: blur(18px) saturate(1.35);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.30),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    inset -1px 0 0 rgba(255, 255, 255, 0.06);
+  box-shadow:    0 8px 30px rgba(0, 0, 0, 0.30),    inset 0 1px 0 rgba(255, 255, 255, 0.06),    inset -1px 0 0 rgba(255, 255, 255, 0.06);
 }
 html:not(.dark) .glass-ticker {
   background: rgba(255, 255, 255, 0.62);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    inset -1px 0 0 rgba(0, 0, 0, 0.08);
+  box-shadow:    0 8px 30px rgba(0, 0, 0, 0.08),    inset 0 1px 0 rgba(255, 255, 255, 0.55),    inset -1px 0 0 rgba(0, 0, 0, 0.08);
 }
-
-/* Floating fund-actions popover — matches the frosted menu recipe. */.fund-menu-glass {
+/* Floating fund-actions popover — matches the frosted menu recipe. */
+.fund-menu-glass {
   background: rgb(var(--card-rgb, 16 16 18) / 0.78);
   backdrop-filter: blur(22px) saturate(1.4);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -1311,7 +1105,6 @@ html:not(.dark) .fund-menu-glass {
   border: 1px solid rgba(0, 0, 0, 0.08);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.60);
 }
-
 /* -- Command center (header search + ?K palette) -------------------------
  * Shares the app's frosted recipe (translucent dark tint + strong blur +
  * saturation boost + hairline border + inset top highlight). */
@@ -1324,7 +1117,6 @@ html:not(.dark) .command-glass {
   background: rgba(255, 255, 255, 0.80);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.60);
 }
-
 /* Compact header variant - smaller blur radius and shadow. */
 .command-glass-bar {
   background: rgb(var(--card-rgb, 20 20 22) / 0.55);
@@ -1335,7 +1127,6 @@ html:not(.dark) .command-glass-bar {
   background: rgba(255, 255, 255, 0.62);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
-
 /* ── Frosted-glass cards ────────────────────────────────────────────────
  * The site-wide card recipe, matching the tab strip: translucent tint +
  * strong blur + saturation boost + inset top/right highlight lines + soft
@@ -1343,19 +1134,12 @@ html:not(.dark) .command-glass-bar {
 .glass-card {
   background: rgb(var(--card-rgb, 18 18 20) / 0.55);
   backdrop-filter: blur(18px) saturate(1.35);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.30),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    inset -1px 0 0 rgba(255, 255, 255, 0.06);
+  box-shadow:    0 8px 30px rgba(0, 0, 0, 0.30),    inset 0 1px 0 rgba(255, 255, 255, 0.06),    inset -1px 0 0 rgba(255, 255, 255, 0.06);
 }
 html:not(.dark) .glass-card {
   background: rgba(255, 255, 255, 0.62);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    inset -1px 0 0 rgba(0, 0, 0, 0.08);
+  box-shadow:    0 8px 30px rgba(0, 0, 0, 0.08),    inset 0 1px 0 rgba(255, 255, 255, 0.55),    inset -1px 0 0 rgba(0, 0, 0, 0.08);
 }
-
 /* Stronger tier — modals, drawers, popovers, overlays. */
 .glass-card-strong {
   background: rgb(var(--card-rgb, 16 16 18) / 0.85);
@@ -1366,22 +1150,16 @@ html:not(.dark) .glass-card-strong {
   background: rgba(255, 255, 255, 0.85);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.60);
 }
-
 /* Subtle tier — small tiles, table headers, chips. */
 .glass-card-subtle {
   background: rgb(var(--card-rgb, 18 18 20) / 0.40);
   backdrop-filter: blur(16px) saturate(1.3);
-  box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.20),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow:    0 4px 16px rgba(0, 0, 0, 0.20),    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 html:not(.dark) .glass-card-subtle {
   background: rgba(255, 255, 255, 0.50);
-  box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.50);
+  box-shadow:    0 4px 16px rgba(0, 0, 0, 0.06),    inset 0 1px 0 rgba(255, 255, 255, 0.50);
 }
-
 /* Frosted-glass tooltip / popover — the SAME recipe the chart/HUD tooltips use
  * (ECharts `extraCssText` in eclipse-provider.ts), so a hover popup over the
  * chat transcript matches the chart tooltips exactly. Translucent tint (0.5),
@@ -1394,18 +1172,13 @@ html:not(.dark) .glass-card-subtle {
   backdrop-filter: blur(18px) saturate(1.35);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 14px;
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow:    0 8px 30px rgba(0, 0, 0, 0.45),    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 html:not(.dark) .glass-tooltip {
   background: rgba(255, 255, 255, 0.62);
   border-color: rgba(0, 0, 0, 0.10);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  box-shadow:    0 8px 30px rgba(0, 0, 0, 0.14),    inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
-
 /* Sidebar mode-switcher dropdown — the shared dropdown tier (`.glass-tooltip`)
  * reads too flat over the already-frosted rail, so the menu is cut from the
  * SAME material as the nav bar it belongs to: the sidebar's own glass tokens
@@ -1424,14 +1197,12 @@ html:not(.dark) .nav-menu-glass {
   border-color: rgba(0, 0, 0, 0.08);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.60);
 }
-
 /* Compact selects in the chat-history controls (sort / tag filter) — the shared
  * 16px chevron is oversized for the 28px trigger, so shrink it to 12px. */
 [data-slot="select-trigger"].history-select svg {
   width: 12px;
   height: 12px;
 }
-
 /* Side drawer / large panel — a deliberately LOW-opacity, HIGH-blur tier so the
  * page behind is clearly visible and frosted (the standard card tier is too
  * opaque to read as glass on a dark page). Used by the workspace widget
@@ -1442,19 +1213,12 @@ html:not(.dark) .nav-menu-glass {
 .glass-drawer {
   background: linear-gradient(180deg, rgb(var(--card-rgb, 26 26 30) / 0.48), rgb(var(--card-rgb, 14 14 16) / 0.58));
   backdrop-filter: blur(32px) saturate(1.6);
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.50),
-    inset 0 1px 0 rgba(255, 255, 255, 0.10),
-    inset -1px 0 0 rgba(255, 255, 255, 0.06);
+  box-shadow:    0 16px 48px rgba(0, 0, 0, 0.50),    inset 0 1px 0 rgba(255, 255, 255, 0.10),    inset -1px 0 0 rgba(255, 255, 255, 0.06);
 }
 html:not(.dark) .glass-drawer {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.70));
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.60),
-    inset -1px 0 0 rgba(0, 0, 0, 0.06);
+  box-shadow:    0 16px 48px rgba(0, 0, 0, 0.14),    inset 0 1px 0 rgba(255, 255, 255, 0.60),    inset -1px 0 0 rgba(0, 0, 0, 0.06);
 }
-
 /* Chat slash-command popover — a deliberately NEAR-TRANSPARENT frosted panel
  * (the solid background is removed; only the blur remains). Low tint (0.14),
  * high blur + saturation so the content behind stays visible through real
@@ -1464,18 +1228,13 @@ html:not(.dark) .glass-drawer {
   background: rgb(var(--card-rgb, 18 18 20) / 0.14);
   backdrop-filter: blur(26px) saturate(1.5);
   border: 1px solid rgba(255, 255, 255, 0.10);
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow:    0 16px 48px rgba(0, 0, 0, 0.45),    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 html:not(.dark) .glass-command-popover {
   background: rgba(255, 255, 255, 0.20);
   border-color: rgba(0, 0, 0, 0.08);
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.60);
+  box-shadow:    0 16px 48px rgba(0, 0, 0, 0.12),    inset 0 1px 0 rgba(255, 255, 255, 0.60);
 }
-
 /* Chat composer — a NEAR-TRANSPARENT frosted panel: the solid fill is removed
  * and only the blur remains, so the transcript behind reads through real glass.
  * Low tint (0.16), high blur + saturation. Keep the tint low — a higher alpha
@@ -1483,59 +1242,44 @@ html:not(.dark) .glass-command-popover {
 .glass-composer {
   background: rgb(var(--card-rgb, 18 18 20) / 0.16);
   backdrop-filter: blur(28px) saturate(1.5);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  box-shadow:    0 8px 30px rgba(0, 0, 0, 0.35),    inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 html:not(.dark) .glass-composer {
   background: rgba(255, 255, 255, 0.22);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.10),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  box-shadow:    0 8px 30px rgba(0, 0, 0, 0.10),    inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
-
 /* Frosted-glass button — translucent tint + real backdrop blur, no border.
  * Used by the workspace toolbar / drawers. */
 .glass-button {
   background: rgb(var(--card-rgb, 18 18 20) / 0.45);
   backdrop-filter: blur(16px) saturate(1.35);
-  box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow:    0 4px 16px rgba(0, 0, 0, 0.25),    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 .glass-button:hover {
   background: rgb(var(--card-rgb, 30 30 34) / 0.60);
 }
 html:not(.dark) .glass-button {
   background: rgba(255, 255, 255, 0.55);
-  box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  box-shadow:    0 4px 16px rgba(0, 0, 0, 0.08),    inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 html:not(.dark) .glass-button:hover {
   background: rgba(255, 255, 255, 0.75);
 }
-
 /* Primary-action variant — same frosted recipe, tinted with the brand green so
  * an "add"/"transaction" button stays emphasised while remaining real glass. */
 .glass-button-add {
   background: rgb(var(--brand-rgb) / 0.28);
   backdrop-filter: blur(16px) saturate(1.5);
   color: var(--primary);
-  box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.25),
-    inset 0 1px 0 rgb(var(--brand-rgb) / 0.14);
+  box-shadow:    0 4px 16px rgba(0, 0, 0, 0.25),    inset 0 1px 0 rgb(var(--brand-rgb) / 0.14);
 }
 .glass-button-add:hover {
   background: rgb(var(--brand-rgb) / 0.42);
 }
 html:not(.dark) .glass-button-add {
   background: rgb(var(--brand-rgb) / 0.14);
-  box-shadow:
-    0 4px 16px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.50);
+  box-shadow:    0 4px 16px rgba(0, 0, 0, 0.08),    inset 0 1px 0 rgba(255, 255, 255, 0.50);
 }
-
 /* ── Trading-calendar shell + day cells ─────────────────────────────────
  * The grid sits on a slightly darker shell so the uniform date cells read as
  * tiles on a single surface. Cells are one neutral wash (no per-day fill —
@@ -1558,7 +1302,9 @@ html:not(.dark) .cal-shell {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
-.cal-cell:hover { transform: translateY(-1px); }
+.cal-cell:hover {
+ transform: translateY(-1px);
+ }
 .cal-cell--pos {
   background: rgb(var(--brand-rgb) / 0.14);
   border-color: rgb(var(--brand-rgb) / 0.30);
@@ -1583,122 +1329,54 @@ html:not(.dark) .cal-shell {
 }
 /* Weekend / out-of-month cells recede — a translucent dim, never a black
  * overlay (which muddied light mode). */
-.cal-cell--muted { opacity: 0.5; }
+.cal-cell--muted {
+ opacity: 0.5;
+ }
 html:not(.dark) .cal-cell {
   background: rgba(0, 0, 0, 0.02);
   border-color: rgba(0, 0, 0, 0.06);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
-html:not(.dark) .cal-cell--empty:hover { background: rgba(0, 0, 0, 0.05); border-color: rgba(0, 0, 0, 0.14); }
+html:not(.dark) .cal-cell--empty:hover {
+ background: rgba(0, 0, 0, 0.05);
+ border-color: rgba(0, 0, 0, 0.14);
+ }
 html:not(.dark) .glass-button-add:hover {
   background: rgb(var(--brand-rgb) / 0.22);
 }
-
 /* ── Customization-driven glass surfaces ─────────────────────────────────────
  * Settings › Customization › Glass writes --glass-* tokens on <html> and adds
  * `theme-glass-active`. These rules are scoped so the shipped tier hierarchy in
  * the hardcoded recipes is untouched until the user opts into customization.
  * `theme-glass-off` (glass disabled) removes the blur entirely and makes the
  * tint opaque, turning every tier into a solid panel. */
-html.theme-glass-active .glass-card,
-html.theme-glass-active .glass-card-strong,
-html.theme-glass-active .glass-card-subtle,
-html.theme-glass-active .glass-drawer,
-html.theme-glass-active .glass-command-popover,
-html.theme-glass-active .glass-composer,
-html.theme-glass-active .glass-button,
-html.theme-glass-active .ws-glass,
-html.theme-glass-active .tab-bar-glass,
-html.theme-glass-active .tab-bar-subtle,
-html.theme-glass-active .fund-tabs-glass,
-html.theme-glass-active .glass-ticker,
-html.theme-glass-active .fund-menu-glass,
-html.theme-glass-active .command-glass,
-html.theme-glass-active .command-glass-bar {
+html.theme-glass-active .glass-card,html.theme-glass-active .glass-card-strong,html.theme-glass-active .glass-card-subtle,html.theme-glass-active .glass-drawer,html.theme-glass-active .glass-command-popover,html.theme-glass-active .glass-composer,html.theme-glass-active .glass-button,html.theme-glass-active .ws-glass,html.theme-glass-active .tab-bar-glass,html.theme-glass-active .tab-bar-subtle,html.theme-glass-active .fund-tabs-glass,html.theme-glass-active .glass-ticker,html.theme-glass-active .fund-menu-glass,html.theme-glass-active .command-glass,html.theme-glass-active .command-glass-bar {
   background-color: rgb(var(--glass-tint, 18 18 20) / var(--glass-opacity, 0.55)) !important;
   backdrop-filter: blur(var(--glass-blur, 18px)) saturate(1.35);
   box-shadow: var(--glass-shadow, 0 8px 30px rgba(0, 0, 0, 0.30)), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 /* Light mode keeps its white frost (or a lightened custom tint). */
-html:not(.dark).theme-glass-active .glass-card,
-html:not(.dark).theme-glass-active .glass-card-strong,
-html:not(.dark).theme-glass-active .glass-card-subtle,
-html:not(.dark).theme-glass-active .glass-drawer,
-html:not(.dark).theme-glass-active .glass-command-popover,
-html:not(.dark).theme-glass-active .glass-composer,
-html:not(.dark).theme-glass-active .glass-button,
-html:not(.dark).theme-glass-active .ws-glass,
-html:not(.dark).theme-glass-active .tab-bar-glass,
-html:not(.dark).theme-glass-active .tab-bar-subtle,
-html:not(.dark).theme-glass-active .fund-tabs-glass,
-html:not(.dark).theme-glass-active .glass-ticker,
-html:not(.dark).theme-glass-active .fund-menu-glass,
-html:not(.dark).theme-glass-active .command-glass,
-html:not(.dark).theme-glass-active .command-glass-bar {
+html:not(.dark).theme-glass-active .glass-card,html:not(.dark).theme-glass-active .glass-card-strong,html:not(.dark).theme-glass-active .glass-card-subtle,html:not(.dark).theme-glass-active .glass-drawer,html:not(.dark).theme-glass-active .glass-command-popover,html:not(.dark).theme-glass-active .glass-composer,html:not(.dark).theme-glass-active .glass-button,html:not(.dark).theme-glass-active .ws-glass,html:not(.dark).theme-glass-active .tab-bar-glass,html:not(.dark).theme-glass-active .tab-bar-subtle,html:not(.dark).theme-glass-active .fund-tabs-glass,html:not(.dark).theme-glass-active .glass-ticker,html:not(.dark).theme-glass-active .fund-menu-glass,html:not(.dark).theme-glass-active .command-glass,html:not(.dark).theme-glass-active .command-glass-bar {
   background-color: rgb(var(--glass-tint-light, 255 255 255) / var(--glass-opacity, 0.55)) !important;
 }
-
 /* The drawer/menu tiers keep their gradient when glass is on; a solid fill would
  * hide the blur they exist to show. */
-html.theme-glass-active .glass-drawer,
-html.theme-glass-active .fund-menu-glass,
-html.theme-glass-active .command-glass {
+html.theme-glass-active .glass-drawer,html.theme-glass-active .fund-menu-glass,html.theme-glass-active .command-glass {
   background-color: transparent !important;
-  background-image: linear-gradient(
-    180deg,
-    rgb(var(--glass-tint) / var(--glass-opacity)),
-    rgb(var(--glass-tint) / calc(var(--glass-opacity) + 0.08))
-  ) !important;
+  background-image: linear-gradient(    180deg,    rgb(var(--glass-tint) / var(--glass-opacity)),    rgb(var(--glass-tint) / calc(var(--glass-opacity) + 0.08))  ) !important;
 }
-html:not(.dark).theme-glass-active .glass-drawer,
-html:not(.dark).theme-glass-active .fund-menu-glass,
-html:not(.dark).theme-glass-active .command-glass {
-  background-image: linear-gradient(
-    180deg,
-    rgb(var(--glass-tint-light) / var(--glass-opacity)),
-    rgb(var(--glass-tint-light) / calc(var(--glass-opacity) + 0.08))
-  ) !important;
+html:not(.dark).theme-glass-active .glass-drawer,html:not(.dark).theme-glass-active .fund-menu-glass,html:not(.dark).theme-glass-active .command-glass {
+  background-image: linear-gradient(    180deg,    rgb(var(--glass-tint-light) / var(--glass-opacity)),    rgb(var(--glass-tint-light) / calc(var(--glass-opacity) + 0.08))  ) !important;
 }
-
 /* Glass disabled: solid, no blur, everywhere. */
-html.theme-glass-off .glass-card,
-html.theme-glass-off .glass-card-strong,
-html.theme-glass-off .glass-card-subtle,
-html.theme-glass-off .glass-drawer,
-html.theme-glass-off .glass-command-popover,
-html.theme-glass-off .glass-composer,
-html.theme-glass-off .glass-button,
-html.theme-glass-off .ws-glass,
-html.theme-glass-off .tab-bar-glass,
-html.theme-glass-off .tab-bar-subtle,
-html.theme-glass-off .fund-tabs-glass,
-html.theme-glass-off .glass-ticker,
-html.theme-glass-off .fund-menu-glass,
-html.theme-glass-off .command-glass,
-html.theme-glass-off .command-glass-bar,
-html.theme-glass-off .nav-menu-glass {
+html.theme-glass-off .glass-card,html.theme-glass-off .glass-card-strong,html.theme-glass-off .glass-card-subtle,html.theme-glass-off .glass-drawer,html.theme-glass-off .glass-command-popover,html.theme-glass-off .glass-composer,html.theme-glass-off .glass-button,html.theme-glass-off .ws-glass,html.theme-glass-off .tab-bar-glass,html.theme-glass-off .tab-bar-subtle,html.theme-glass-off .fund-tabs-glass,html.theme-glass-off .glass-ticker,html.theme-glass-off .fund-menu-glass,html.theme-glass-off .command-glass,html.theme-glass-off .command-glass-bar,html.theme-glass-off .nav-menu-glass {
   backdrop-filter: none !important;
   background-image: none !important;
   background-color: rgb(var(--glass-tint) / 0.96) !important;
 }
-html:not(.dark).theme-glass-off .glass-card,
-html:not(.dark).theme-glass-off .glass-card-strong,
-html:not(.dark).theme-glass-off .glass-card-subtle,
-html:not(.dark).theme-glass-off .glass-drawer,
-html:not(.dark).theme-glass-off .glass-command-popover,
-html:not(.dark).theme-glass-off .glass-composer,
-html:not(.dark).theme-glass-off .glass-button,
-html:not(.dark).theme-glass-off .tab-bar-glass,
-html:not(.dark).theme-glass-off .tab-bar-subtle,
-html:not(.dark).theme-glass-off .fund-tabs-glass,
-html:not(.dark).theme-glass-off .glass-ticker,
-html:not(.dark).theme-glass-off .fund-menu-glass,
-html:not(.dark).theme-glass-off .command-glass,
-html:not(.dark).theme-glass-off .command-glass-bar,
-html:not(.dark).theme-glass-off .nav-menu-glass {
+html:not(.dark).theme-glass-off .glass-card,html:not(.dark).theme-glass-off .glass-card-strong,html:not(.dark).theme-glass-off .glass-card-subtle,html:not(.dark).theme-glass-off .glass-drawer,html:not(.dark).theme-glass-off .glass-command-popover,html:not(.dark).theme-glass-off .glass-composer,html:not(.dark).theme-glass-off .glass-button,html:not(.dark).theme-glass-off .tab-bar-glass,html:not(.dark).theme-glass-off .tab-bar-subtle,html:not(.dark).theme-glass-off .fund-tabs-glass,html:not(.dark).theme-glass-off .glass-ticker,html:not(.dark).theme-glass-off .fund-menu-glass,html:not(.dark).theme-glass-off .command-glass,html:not(.dark).theme-glass-off .command-glass-bar,html:not(.dark).theme-glass-off .nav-menu-glass {
   background-color: rgb(var(--glass-tint-light) / 0.92) !important;
 }
-
 /* ── Sidebar surface ─────────────────────────────────────────────────────────
  * The navigation rail has its OWN tint separate from the page/card glass, so it
  * can ship as a soft grey while the page stays black (and be re-tinted in
@@ -1731,7 +1409,6 @@ html.theme-glass-off .sidebar-root {
 html:not(.dark).theme-glass-off .sidebar-root {
   background-color: rgba(255, 255, 255, 0.92) !important;
 }
-
 /* Page background treatment (Settings › General › Background). The theme's
  * pattern (`--page-bg-image`) paints on the shell (body + .app-page-bg) so it
  * covers every tab. A chosen wallpaper is NOT painted on the shell — it is
@@ -1751,7 +1428,6 @@ body {
   background-repeat: repeat;
   background-attachment: fixed;
 }
-
 /* ChatBot wallpaper layer. Fills the main content panel (right of the sidebar)
  * and resizes with it, so opening/closing the sidebar keeps the image fully
  * visible rather than cropping it. Deliberately NOT `background-attachment:
@@ -1792,7 +1468,6 @@ html.dark .app-bg-layer {
   transform: scale(var(--app-bg-zoom, 1));
   transform-origin: var(--app-bg-position, center);
 }
-
 /* Chat-conversation surface (Settings › Customization › ChatBot Page › Chat
  * background). On by default: fills the chat panel behind the transcript +
  * composer with a flat color or gradient, so messages sit on a surface of your
@@ -1815,7 +1490,6 @@ html.dark .app-bg-layer {
 html.dark .chat-surface-layer {
   background: var(--chat-surface-bg-dark, transparent);
 }
-
 /* Prompt-bubble fill (Settings › Customization › ChatBot Page › Chat background
  * › Prompt bubble). The user bubble's background is a scheme-aware var pair,
  * defaulting to a neutral foreground tint so it reads clearly on both the light
@@ -1826,7 +1500,6 @@ html.dark .chat-surface-layer {
 html.dark .chat-bubble {
   background: var(--chat-bubble-bg-dark, color-mix(in srgb, var(--foreground) 10%, transparent));
 }
-
 /* Giant ChatBot wordmark. A display-type wordmark (e.g. "ECLIPSE AGENT") painted
  * behind the ChatBot landing, above the wallpaper art but below the transcript
  * and composer. Sits at `z-0` like the wallpaper layer, so the message/composer
@@ -1854,35 +1527,25 @@ html.dark .chat-bubble {
   transform: translateY(-50%);
   text-shadow: 0 2px 24px rgb(0 0 0 / 0.28);
 }
-
 /* ── Accessibility preferences ───────────────────────────────────────────────
  * Classes toggled on <html> by the locale/a11y store (Settings › Accessibility).
  * Kept here so components never read the preference — the document root adapts.
  * Motion is also honoured from the OS via the media query below. */
-.a11y-reduce-motion *,
-.a11y-reduce-motion *::before,
-.a11y-reduce-motion *::after,
-.theme-no-anim *,
-.theme-no-anim *::before,
-.theme-no-anim *::after {
+.a11y-reduce-motion *,.a11y-reduce-motion *::before,.a11y-reduce-motion *::after,.theme-no-anim *,.theme-no-anim *::before,.theme-no-anim *::after {
   animation-duration: 0.001ms !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
   scroll-behavior: auto !important;
 }
-
 /* The price ticker is live market chrome — motion is its entire purpose, so it
  * is deliberately EXEMPT from the reduce-motion / animations-off rules above
  * (which would otherwise freeze it). It is slow and subtle; keeping it running
  * is the documented intent (see .price-ribbon-track). Higher specificity + the
  * !important keep it alive against both the class rules and the OS media query. */
-.a11y-reduce-motion .price-ribbon-track,
-.theme-no-anim .price-ribbon-track,
-.price-ribbon-track.price-ribbon-track {
+.a11y-reduce-motion .price-ribbon-track,.theme-no-anim .price-ribbon-track,.price-ribbon-track.price-ribbon-track {
   animation-duration: 24s !important;
   animation-iteration-count: infinite !important;
 }
-
 /* The composer's Ultra ("maximum effort") energy is deliberately EXEMPT from the
  * reduce-motion / animations-off kill switches — the same intent the price
  * ticker carries. It is the explicit "this is the strongest" affordance; frozen,
@@ -1890,30 +1553,23 @@ html.dark .chat-bubble {
  * rule restores its own timing against BOTH the class rules and the OS media
  * query (a class/attribute selector out-specifies the universal `*` even with
  * `!important` on both sides). */
-.a11y-reduce-motion [class*="effort-ultra-"],
-.theme-no-anim [class*="effort-ultra-"],
-[class*="effort-ultra-"][class*="effort-ultra-"] {
+.a11y-reduce-motion [class*="effort-ultra-"],.theme-no-anim [class*="effort-ultra-"],[class*="effort-ultra-"][class*="effort-ultra-"] {
   animation-duration: var(--ultra-dur, 2.6s) !important;
   animation-iteration-count: infinite !important;
 }
-
 /* Customization › Glow off — hide the ambient Aurora glow without unmounting
  * it, so the preference needs no prop drilling into the app shell. */
 .theme-no-glow [data-aurora-glow] {
   display: none !important;
 }
-
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  *,  *::before,  *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
 }
-
 /* High contrast: strengthen text/border tokens so faint muted text and hairline
  * borders become clearly legible in both themes. */
 .a11y-high-contrast {
@@ -1926,34 +1582,23 @@ html:not(.dark).a11y-high-contrast {
   --border: oklch(0.30 0.02 260 / 55%);
   --input: oklch(0.30 0.02 260 / 65%);
 }
-.a11y-high-contrast .glass-card,
-.a11y-high-contrast .glass-card-strong,
-.a11y-high-contrast .glass-card-subtle,
-.a11y-high-contrast .glass-command-popover,
-.a11y-high-contrast .ws-glass {
+.a11y-high-contrast .glass-card,.a11y-high-contrast .glass-card-strong,.a11y-high-contrast .glass-card-subtle,.a11y-high-contrast .glass-command-popover,.a11y-high-contrast .ws-glass {
   border-color: rgba(255, 255, 255, 0.28);
 }
-html:not(.dark) .a11y-high-contrast .glass-card,
-html:not(.dark) .a11y-high-contrast .glass-card-strong,
-html:not(.dark) .a11y-high-contrast .glass-card-subtle,
-html:not(.dark) .a11y-high-contrast .glass-command-popover,
-html:not(.dark) .a11y-high-contrast .ws-glass {
+html:not(.dark) .a11y-high-contrast .glass-card,html:not(.dark) .a11y-high-contrast .glass-card-strong,html:not(.dark) .a11y-high-contrast .glass-card-subtle,html:not(.dark) .a11y-high-contrast .glass-command-popover,html:not(.dark) .a11y-high-contrast .ws-glass {
   border-color: rgba(0, 0, 0, 0.22);
 }
-
 /* Larger text: scale the root font-size; rem-based Tailwind sizes follow.
  * Capped at 118% so layouts do not break. Composes with the Customization
  * font-scale token when set. */
 html.a11y-large-text {
   font-size: calc(118% * var(--font-scale, 1));
 }
-
 /* Customization › Text size. Defaults to 1, so this is a no-op until the user
  * changes it in Settings › Customization. */
 html {
   font-size: calc(100% * var(--font-scale, 1));
 }
-
 /* Skip link — visible only when keyboard-focused (first Tab on a page). */
 .skip-to-content {
   position: fixed;
@@ -1976,7 +1621,6 @@ html {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
-
 /* ── Light-scheme compatibility layer ────────────────────────────────────────
  * Many components were authored against the dark-only app and hardcode
  * white-on-dark hairlines/fills (border-white/5, bg-black/40, text-white…).
@@ -1986,71 +1630,124 @@ html {
  * recipes, and the aurora glow are deliberately left alone. Scoped to
  * `html:not(.dark)` so dark mode is byte-for-byte unchanged. Kept `!important`
  * -free with enough specificity to win by source order. */
-html:not(.dark) .border-white,
-html:not(.dark) .border-white\/5,
-html:not(.dark) .border-white\/8,
-html:not(.dark) .border-white\/10,
-html:not(.dark) .border-white\/12,
-html:not(.dark) .border-white\/15,
-html:not(.dark) .divide-white\/5 > :not([hidden]) ~ :not([hidden]) {
+html:not(.dark) .border-white,html:not(.dark) .border-white\/5,html:not(.dark) .border-white\/8,html:not(.dark) .border-white\/10,html:not(.dark) .border-white\/12,html:not(.dark) .border-white\/15,html:not(.dark) .divide-white\/5 > :not([hidden]) ~ :not([hidden]) {
   border-color: color-mix(in srgb, var(--foreground) 14%, transparent);
 }
 /* Black fills are used BOTH as control fills on light cards AND as modal
  * scrims, so the mapping keeps enough opacity to still dim / blur content
  * behind an overlay while reading as a soft dark wash on a white surface. */
-html:not(.dark) .bg-black,
-html:not(.dark) .bg-black\/10 { background-color: color-mix(in srgb, var(--foreground) 4%, transparent); }
-html:not(.dark) .bg-black\/20 { background-color: color-mix(in srgb, var(--foreground) 8%, transparent); }
-html:not(.dark) .bg-black\/25 { background-color: color-mix(in srgb, var(--foreground) 10%, transparent); }
-html:not(.dark) .bg-black\/30 { background-color: color-mix(in srgb, var(--foreground) 14%, transparent); }
-html:not(.dark) .bg-black\/40 { background-color: color-mix(in srgb, var(--foreground) 20%, transparent); }
-html:not(.dark) .bg-black\/50 { background-color: color-mix(in srgb, var(--foreground) 28%, transparent); }
-html:not(.dark) .bg-black\/55 { background-color: color-mix(in srgb, var(--foreground) 32%, transparent); }
-html:not(.dark) .bg-black\/60 { background-color: color-mix(in srgb, var(--foreground) 38%, transparent); }
-html:not(.dark) .bg-black\/70 { background-color: color-mix(in srgb, var(--foreground) 48%, transparent); }
-html:not(.dark) .bg-black\/90 { background-color: color-mix(in srgb, var(--foreground) 72%, transparent); }
+html:not(.dark) .bg-black,html:not(.dark) .bg-black\/10 {
+ background-color: color-mix(in srgb, var(--foreground) 4%, transparent);
+ }
+html:not(.dark) .bg-black\/20 {
+ background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
+ }
+html:not(.dark) .bg-black\/25 {
+ background-color: color-mix(in srgb, var(--foreground) 10%, transparent);
+ }
+html:not(.dark) .bg-black\/30 {
+ background-color: color-mix(in srgb, var(--foreground) 14%, transparent);
+ }
+html:not(.dark) .bg-black\/40 {
+ background-color: color-mix(in srgb, var(--foreground) 20%, transparent);
+ }
+html:not(.dark) .bg-black\/50 {
+ background-color: color-mix(in srgb, var(--foreground) 28%, transparent);
+ }
+html:not(.dark) .bg-black\/55 {
+ background-color: color-mix(in srgb, var(--foreground) 32%, transparent);
+ }
+html:not(.dark) .bg-black\/60 {
+ background-color: color-mix(in srgb, var(--foreground) 38%, transparent);
+ }
+html:not(.dark) .bg-black\/70 {
+ background-color: color-mix(in srgb, var(--foreground) 48%, transparent);
+ }
+html:not(.dark) .bg-black\/90 {
+ background-color: color-mix(in srgb, var(--foreground) 72%, transparent);
+ }
 /* White washes are used as subtle fills (progress tracks, separators, active
  * pills, hovers). On white chrome they'd vanish, so flip them to a dark wash. */
-html:not(.dark) .bg-white\/5,
-html:not(.dark) .hover\:bg-white\/5:hover { background-color: color-mix(in srgb, var(--foreground) 8%, transparent); }
-html:not(.dark) .bg-white\/10,
-html:not(.dark) .hover\:bg-white\/10:hover { background-color: color-mix(in srgb, var(--foreground) 12%, transparent); }
-html:not(.dark) .bg-white\/\[0\.02\],
-html:not(.dark) .hover\:bg-white\/\[0\.02\]:hover { background-color: color-mix(in srgb, var(--foreground) 4%, transparent); }
-html:not(.dark) .bg-white\/\[0\.03\],
-html:not(.dark) .hover\:bg-white\/\[0\.03\]:hover { background-color: color-mix(in srgb, var(--foreground) 5%, transparent); }
-html:not(.dark) .bg-white\/\[0\.04\],
-html:not(.dark) .hover\:bg-white\/\[0\.04\]:hover { background-color: color-mix(in srgb, var(--foreground) 6%, transparent); }
-html:not(.dark) .bg-white\/\[0\.05\],
-html:not(.dark) .hover\:bg-white\/\[0\.05\]:hover { background-color: color-mix(in srgb, var(--foreground) 7%, transparent); }
-html:not(.dark) .bg-white\/\[0\.06\],
-html:not(.dark) .hover\:bg-white\/\[0\.06\]:hover { background-color: color-mix(in srgb, var(--foreground) 8%, transparent); }
-html:not(.dark) .bg-white\/\[0\.08\],
-html:not(.dark) .hover\:bg-white\/\[0\.08\]:hover { background-color: color-mix(in srgb, var(--foreground) 9%, transparent); }
-html:not(.dark) .text-white { color: var(--foreground); }
-html:not(.dark) .text-white\/5 { color: color-mix(in srgb, var(--foreground) 8%, transparent); }
-html:not(.dark) .text-white\/70 { color: color-mix(in srgb, var(--foreground) 62%, transparent); }
-html:not(.dark) .text-white\/90 { color: color-mix(in srgb, var(--foreground) 88%, transparent); }
+html:not(.dark) .bg-white\/5,html:not(.dark) .hover\:bg-white\/5:hover {
+ background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
+ }
+html:not(.dark) .bg-white\/10,html:not(.dark) .hover\:bg-white\/10:hover {
+ background-color: color-mix(in srgb, var(--foreground) 12%, transparent);
+ }
+html:not(.dark) .bg-white\/\[0\.02\],html:not(.dark) .hover\:bg-white\/\[0\.02\]:hover {
+ background-color: color-mix(in srgb, var(--foreground) 4%, transparent);
+ }
+html:not(.dark) .bg-white\/\[0\.03\],html:not(.dark) .hover\:bg-white\/\[0\.03\]:hover {
+ background-color: color-mix(in srgb, var(--foreground) 5%, transparent);
+ }
+html:not(.dark) .bg-white\/\[0\.04\],html:not(.dark) .hover\:bg-white\/\[0\.04\]:hover {
+ background-color: color-mix(in srgb, var(--foreground) 6%, transparent);
+ }
+html:not(.dark) .bg-white\/\[0\.05\],html:not(.dark) .hover\:bg-white\/\[0\.05\]:hover {
+ background-color: color-mix(in srgb, var(--foreground) 7%, transparent);
+ }
+html:not(.dark) .bg-white\/\[0\.06\],html:not(.dark) .hover\:bg-white\/\[0\.06\]:hover {
+ background-color: color-mix(in srgb, var(--foreground) 8%, transparent);
+ }
+html:not(.dark) .bg-white\/\[0\.08\],html:not(.dark) .hover\:bg-white\/\[0\.08\]:hover {
+ background-color: color-mix(in srgb, var(--foreground) 9%, transparent);
+ }
+html:not(.dark) .text-white {
+ color: var(--foreground);
+ }
+html:not(.dark) .text-white\/5 {
+ color: color-mix(in srgb, var(--foreground) 8%, transparent);
+ }
+html:not(.dark) .text-white\/70 {
+ color: color-mix(in srgb, var(--foreground) 62%, transparent);
+ }
+html:not(.dark) .text-white\/90 {
+ color: color-mix(in srgb, var(--foreground) 88%, transparent);
+ }
 /* Softer drop shadows read better on a light page than the dark-on-dark values. */
-html:not(.dark) .shadow-black\/10 { --tw-shadow-color: rgb(0 0 0 / 0.08); }
-html:not(.dark) .shadow-black\/20 { --tw-shadow-color: rgb(0 0 0 / 0.12); }
-html:not(.dark) .shadow-black\/30 { --tw-shadow-color: rgb(0 0 0 / 0.16); }
-html:not(.dark) .shadow-black\/40 { --tw-shadow-color: rgb(0 0 0 / 0.18); }
-html:not(.dark) .shadow-black\/50 { --tw-shadow-color: rgb(0 0 0 / 0.20); }
+html:not(.dark) .shadow-black\/10 {
+ --tw-shadow-color: rgb(0 0 0 / 0.08);
+ }
+html:not(.dark) .shadow-black\/20 {
+ --tw-shadow-color: rgb(0 0 0 / 0.12);
+ }
+html:not(.dark) .shadow-black\/30 {
+ --tw-shadow-color: rgb(0 0 0 / 0.16);
+ }
+html:not(.dark) .shadow-black\/40 {
+ --tw-shadow-color: rgb(0 0 0 / 0.18);
+ }
+html:not(.dark) .shadow-black\/50 {
+ --tw-shadow-color: rgb(0 0 0 / 0.20);
+ }
 /* Hardcoded near-black surfaces that are not theme tokens. */
-html:not(.dark) .bg-\[\#0f0f0f\] { background-color: var(--card); }
-html:not(.dark) .bg-\[\#0f0f0f\]\/95 { background-color: color-mix(in srgb, var(--card) 95%, transparent); }
-html:not(.dark) .bg-\[\#0e0e0e\] { background-color: var(--card); }
-html:not(.dark) .bg-\[\#121212\] { background-color: var(--card); }
-html:not(.dark) .bg-\[\#050505\]\/80 { background-color: color-mix(in srgb, var(--background) 80%, transparent); }
-html:not(.dark) .to-\[\#0f0f0f\]\/30 { --tw-gradient-to: color-mix(in srgb, var(--card) 30%, transparent); }
-html:not(.dark) .via-\[\#0f0f0f\]\/60 { --tw-gradient-via: color-mix(in srgb, var(--card) 60%, transparent); }
+html:not(.dark) .bg-\[\#0f0f0f\] {
+ background-color: var(--card);
+ }
+html:not(.dark) .bg-\[\#0f0f0f\]\/95 {
+ background-color: color-mix(in srgb, var(--card) 95%, transparent);
+ }
+html:not(.dark) .bg-\[\#0e0e0e\] {
+ background-color: var(--card);
+ }
+html:not(.dark) .bg-\[\#121212\] {
+ background-color: var(--card);
+ }
+html:not(.dark) .bg-\[\#050505\]\/80 {
+ background-color: color-mix(in srgb, var(--background) 80%, transparent);
+ }
+html:not(.dark) .to-\[\#0f0f0f\]\/30 {
+ --tw-gradient-to: color-mix(in srgb, var(--card) 30%, transparent);
+ }
+html:not(.dark) .via-\[\#0f0f0f\]\/60 {
+ --tw-gradient-via: color-mix(in srgb, var(--card) 60%, transparent);
+ }
 /* The ambient Aurora glow is additive and tuned for a black page; on white it
  * reads as a heavy smear. Soften it rather than disabling it, so the Market
  * Regime signal still shows. */
-html:not(.dark) [data-aurora-glow] { opacity: 0.42; }
-
-
+html:not(.dark) [data-aurora-glow] {
+ opacity: 0.42;
+ }
 /* ── Boot overlay auto-dismiss ────────────────────────────────────────────────
  * `GlobalLoader` normally unmounts itself from a JS timer. That timer shares the
  * main thread with hydration and dev-chunk compilation, so on a loaded machine
@@ -2061,9 +1758,15 @@ html:not(.dark) [data-aurora-glow] { opacity: 0.42; }
  * kill switches collapse the duration to ~0ms, which is still a dismissal
  * (the app underneath is already painted), never a stuck overlay. */
 @keyframes beBootOverlayDismiss {
-  0%, 72% { opacity: 1; visibility: visible; }
-  100% { opacity: 0; visibility: hidden; }
+  0%, 72% {
+ opacity: 1;
+ visibility: visible;
+ }
+  100% {
+ opacity: 0;
+ visibility: hidden;
+ }
 }
 .be-boot-overlay {
-  animation: beBootOverlayDismiss 2.4s ease forwards;
+  animation: beBootOverlayDismiss 1.1s ease forwards;
 }

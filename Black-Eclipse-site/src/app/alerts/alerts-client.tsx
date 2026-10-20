@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { usePageShortcuts } from "@/hooks/use-page-shortcuts";
 import { useListNavigation } from "@/hooks/use-list-navigation";
+import { useActiveInterval } from "@/hooks/use-active-interval";
 import {
   Bell, Plus, Save, Trash2, Pencil, FlaskConical, X,
   CircleDot, History, Check, Zap, PencilLine, Inbox,
@@ -109,7 +110,7 @@ type View = "watches" | "create" | "history";
 
 // ─── Main client ─────────────────────────────────────────────────────────
 
-export function AlertsClient() {
+export function AlertsClient({ active = true }: { active?: boolean }) {
   const [view, setView] = useState<View>("watches");
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -161,9 +162,8 @@ export function AlertsClient() {
   useEffect(() => {
     loadAll();
     loadLive();
-    const t = setInterval(loadLive, 5000);
-    return () => clearInterval(t);
   }, [loadAll, loadLive]);
+  useActiveInterval(active, () => void loadLive(), 5000);
 
   useEffect(() => {
     const newest = events[0]?.id ?? null;

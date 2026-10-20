@@ -17,9 +17,9 @@ import {
   tableToTsv,
 } from '@/lib/chat/markdown';
 import { CopyButton } from './copy-button';
-import { ResponseFence } from '@/components/response/response-fence';
+import { RESPONSE_FENCE_LANGUAGE } from '@/lib/response/fence-check';
+import { ResponseFenceLazy as ResponseFence } from '@/components/response/response-fence-lazy';
 import { MermaidBlock } from '@/components/response/mermaid-block';
-import { RESPONSE_FENCE_LANGUAGE } from '@/lib/response/contract';
 
 // A ```mermaid fence is a diagram, not code. `mermaid-block` lazy-imports the
 // heavy `mermaid` package inside its own effect (so the library is still only

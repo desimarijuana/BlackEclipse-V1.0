@@ -86,11 +86,14 @@ const RATCHET: Record<string, number> = {
   // `valuation` block + helper imports here (+21 net). May only shrink; the next
   // split candidate is the instrument-identity block.
   "src/lib/harness/data-bridge.ts": 1400,
-  "src/components/screens/market-bubbles.tsx": 1413,
-  "src/components/chart/chart-widget.tsx": 1405,
+  // Re-pinned 1413→1414, 1405→1415, 1336→1338: each gaining `active` prop
+  // plumbing so keep-alive tabs stop polling while hidden (the shell keeps
+  // visited screens mounted). May only shrink from here.
+  "src/components/screens/market-bubbles.tsx": 1414,
+  "src/components/chart/chart-widget.tsx": 1415,
   "src/lib/workspace/workspace-canvas.tsx": 1374,
   "src/components/screens/customization-settings.tsx": 1337,
-  "src/components/screens/market-news.tsx": 1336,
+  "src/components/screens/market-news.tsx": 1338,
   // Grew when the AI section gained a real provider select + model dropdown
   // (the previous datalist was not surfaced by the input primitive). Pinned
   // until the deferred AI-section split; may only shrink from here.
@@ -160,7 +163,10 @@ const RATCHET: Record<string, number> = {
   // the top bar for it, hides the chat dock, and gives the right dock to the
   // screen's own inspector/run rail (three small condition edits). May only
   // shrink from here.
-  "src/components/screens/stock-chat.tsx": 1518,
+  // Re-pinned 1518→1522: closed chrome (terminal/scheduler/dock/aurora) moved to
+  // `screens/lazy-chrome.tsx`, leaving one import, two `active` prop passes and
+  // the deferred canvas-content import here. May only shrink from here.
+  "src/components/screens/stock-chat.tsx": 1522,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

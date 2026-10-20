@@ -41,7 +41,7 @@ function formatWhen(value: string): string {
   return date.toLocaleString();
 }
 
-export function DashboardScreen() {
+export function DashboardScreen({ active = true }: { active?: boolean }) {
   const dashboards = useDashboards();
   const markets = useMarketViews();
   const widgets = useWidgets({ surface: 'dashboard' });
@@ -169,15 +169,15 @@ export function DashboardScreen() {
     void refreshDashboardLock();
     const onChanged = () => void refreshDashboardLock();
     window.addEventListener('eclipse:locks-changed', onChanged);
-    const timer = window.setInterval(() => void refreshDashboardLock(), 30_000);
+    const timer = active ? window.setInterval(() => void refreshDashboardLock(), 30_000) : null;
     return () => {
       window.removeEventListener('eclipse:locks-changed', onChanged);
-      window.clearInterval(timer);
+      if (timer) window.clearInterval(timer);
     };
-  }, [refreshDashboardLock]);
+  }, [refreshDashboardLock, active]);
 
   useEffect(() => {
-    if (!activeDashboardId || typeof window === 'undefined') return;
+    if (!active || !activeDashboardId || typeof window === 'undefined') return;
     let cancelled = false;
     let inFlight = false;
     const poll = async () => {
@@ -219,7 +219,7 @@ export function DashboardScreen() {
       source?.close();
       if (fallback) clearInterval(fallback);
     };
-  }, [activeDashboardId, storageKey, defaultLayout]);
+  }, [activeDashboardId, storageKey, defaultLayout, active]);
 
   useEffect(() => {
     if (!dashboards.loaded || !dashboards.activeId) return;

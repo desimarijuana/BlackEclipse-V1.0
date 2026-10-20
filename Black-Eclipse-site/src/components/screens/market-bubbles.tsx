@@ -16,6 +16,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
+import { useActiveInterval } from '@/hooks/use-active-interval';
 import { Search, Sparkles, Orbit, RefreshCw, ZoomIn, ZoomOut, ArrowUpDown, Filter, Gauge, Sliders, TrendingUp } from '@/lib/icons';
 import { TopLoader } from '@/components/ui/top-loader';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -278,6 +279,7 @@ class PhysicsBubble {
 
 interface MarketBubblesProps {
   onAnalyzeTicker: (ticker: string) => void;
+  active?: boolean;
 }
 
 const BUBBLE_CURRENCY: Record<string, string> = {
@@ -314,7 +316,7 @@ const BUBBLE_CURRENCY: Record<string, string> = {
 
 const bubbleCurrencyFor = (market: string) => BUBBLE_CURRENCY[market.toUpperCase()] || '$';
 
-export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
+export function MarketBubbles({ onAnalyzeTicker, active = true }: MarketBubblesProps) {
   
   // Basic query filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -554,10 +556,9 @@ export function MarketBubbles({ onAnalyzeTicker }: MarketBubblesProps) {
   // Init live poll — initial load shows the loader, refreshes are silent.
   useEffect(() => {
     loadMarketData(selectedMarket);
-    const interval = setInterval(() => loadMarketData(selectedMarket, true), 20000);
-    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMarket, topN]);
+  useActiveInterval(active, () => loadMarketData(selectedMarket, true), 20000);
 
   // Reset page position to 1 when filters change
   useEffect(() => {

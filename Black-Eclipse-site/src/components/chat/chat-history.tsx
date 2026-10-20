@@ -1,17 +1,14 @@
 'use client';
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, ArrowDown, Clock, Cpu, Pencil, RotateCcw, Check, X, Copy, ThumbsUp, ThumbsDown, SquarePen } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { Message } from '@/types/chat';
 import { Markdown } from './markdown';
-import { ResponseView } from '@/components/response/response-view';
 import { ResponseRuntimeProvider } from '@/components/response/figure-context';
 import { buildFigureResolver } from '@/lib/response/refs';
-import { projectContentMarkdown } from '@/lib/response/projection';
-import { hasResponseFence } from '@/lib/response/parse';
-import { planMarkdown, plannerUpgraded } from '@/lib/response/planner';
+import { hasResponseFence } from '@/lib/response/fence-check';
 import { ResponseStatusLine } from './response-status';
 import { ActivityFeed } from './activity-feed';
 import { ChangeCards } from './change-cards';
@@ -116,33 +113,41 @@ function formatTurnDuration(ms: number): string {
  * changes when its text does, so memoizing it stops a streaming turn from
  * re-parsing every *other* turn in the transcript.
  *
- * When a settled answer contains a structured response fence, `Markdown` renders
- * it inline. When it does not, the deterministic planner re-presents plain
- * Markdown (tables → interactive tables, source lists → citations) without
- * changing the words. While streaming, it falls back to raw Markdown so a
- * half-written block never flickers into a structured render.
+ * The structured renderer (Zod contract, block registry, planners) is loaded on
+ * demand: plain Markdown paints first, then the answer upgrades in place once
+ * that chunk is ready. Streaming turns stay on Markdown so a half-written block
+ * never flickers into a structured render.
  */
-const AssistantContent = memo(function AssistantContent({
-  content,
-  compact,
-  streaming,
-  onFollowup,
-}: {
+type AssistantContentProps = {
   content: string;
   compact: boolean;
   streaming: boolean;
   onFollowup?: (prompt: string) => void;
-}) {
-  const planned = useMemo(() => {
-    if (streaming || hasResponseFence(content)) return null;
-    const response = planMarkdown(content);
-    return plannerUpgraded(response) ? response : null;
-  }, [content, streaming]);
+};
 
-  if (planned) {
-    return <ResponseView response={planned} compact={compact} onFollowup={onFollowup} />;
-  }
-  return <Markdown content={content} compact={compact} streaming={streaming} onFollowup={onFollowup} className="w-full" />;
+const AssistantContent = memo(function AssistantContent(props: AssistantContentProps) {
+  const [Ready, setReady] = useState<ComponentType<AssistantContentProps> | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void import('./assistant-content').then((m) => {
+      if (live) setReady(() => m.AssistantContent);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  if (Ready) return <Ready {...props} />;
+  return (
+    <Markdown
+      content={props.content}
+      compact={props.compact}
+      streaming={props.streaming}
+      onFollowup={props.onFollowup}
+      className="w-full"
+    />
+  );
 });
 
 export function ChatHistory({ messages, compact = false, onEditMessage, onResendMessage, onRetryMessage, onFeedback, onFollowup, onOpenCanvas, scrollRef: externalScrollRef, bottomInset }: ChatHistoryProps) {
@@ -316,8 +321,11 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
   const copyMessage = async (msg: Message) => {
     try {
       // Copy READABLE text: a structured answer is projected to Markdown instead
-      // of copying the raw eclipse-response JSON.
-      const text = hasResponseFence(msg.content) ? projectContentMarkdown(msg.content) : msg.content;
+      // of copying the raw eclipse-response JSON. The projector (and its Zod
+      // contract) is loaded only when a copy actually needs it.
+      const text = hasResponseFence(msg.content)
+        ? (await import('@/lib/response/projection')).projectContentMarkdown(msg.content)
+        : msg.content;
       await navigator.clipboard.writeText(text);
       setCopiedId(msg.id);
       setTimeout(() => setCopiedId((c) => (c === msg.id ? null : c)), 1500);

@@ -38,7 +38,9 @@ export function useAppShellSync(): void {
 
     const startPoll = () => {
       if (poll || closed) return;
-      poll = setInterval(() => void refresh(), POLL_MS);
+      poll = setInterval(() => {
+        if (!document.hidden) void refresh();
+      }, POLL_MS);
     };
 
     try {

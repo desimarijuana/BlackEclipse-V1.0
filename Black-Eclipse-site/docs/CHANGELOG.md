@@ -221,6 +221,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `npx tsc --noEmit`, `npx vitest run` (362 files / 3671 tests). no doc change —
   performance/plumbing only; no contract or architecture change.
 
+- **perf(shell): hidden keep-alive tabs stop polling, and the response engine
+  leaves the first-load graph.** Three follow-ups. (1) The shell keeps visited
+  screens mounted behind `hidden`, so Tasks (5 s), Alerts (5 s), Chart (1 s
+  countdown), MarketBubbles (20 s), Dashboard (30/60 s + SSE) and News (60 s)
+  kept polling forever. Each now takes an `active` prop from `stock-chat.tsx`
+  and uses the new `useActiveInterval` (or an `if (!active)` guard), which also
+  skips `document.hidden`. The theme (15 s), app-shell (30 s) and saved-pages
+  (60 s) probes gained the same visibility guard. (2) The response engine (Zod
+  contract + block registry + planners) is no longer in the boot chunk:
+  `chat-history` loads `assistant-content` on demand with a plain-Markdown
+  first paint, `markdown` uses a small SSR-safe `ResponseFenceLazy` that projects
+  prose immediately, and the canvas-content import is deferred. (3) Portfolio
+  history is one `POST /api/price-history/batch` instead of N per-symbol browser
+  requests (the browser caps a host at ~6 concurrent connections, so the tail
+  used to serialize). Measured on the dev server after both passes: initial
+  HTML scripts **70 → 38** and boot JS **18.52 MB → 7.75 MB (−58%)**. Tests:
+  362 files / 3672 pass; size ratchets re-pinned for the `active` plumbing.
+  Docs updated: `docs/DATA-FLOW.md` (batch route contract).
+
 ## 2026-10-19
 
 - **fix(shell): the sidebar mode is now per browser tab/window.** Switching to

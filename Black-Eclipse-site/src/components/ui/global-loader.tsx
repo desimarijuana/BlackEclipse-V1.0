@@ -36,7 +36,7 @@ const WARMUP_ENDPOINTS = [
 // last percentage (the "stuck at 95%" report). The CSS animation runs on the
 // compositor and hides the overlay even if React never gets a turn, so a
 // cosmetic loader can never trap the user.
-export function GlobalLoader({ maxDelay = 2500 }: { maxDelay?: number }) {
+export function GlobalLoader({ maxDelay = 900 }: { maxDelay?: number }) {
   const [visible, setVisible] = useState(true);
   const [pct, setPct] = useState(1);
   const totalRef = useRef(getBootProgress().total);
@@ -62,7 +62,9 @@ export function GlobalLoader({ maxDelay = 2500 }: { maxDelay?: number }) {
   // never surface as console errors.
   useEffect(() => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), maxDelay);
+    // The warm-ups keep running after the overlay fades; only a genuinely hung
+    // request is aborted, so a slow endpoint cannot pin the boot tracker.
+    const timeout = setTimeout(() => controller.abort(), 15_000);
     for (const url of WARMUP_ENDPOINTS) {
       fetch(url, { signal: controller.signal }).catch(() => {});
     }
@@ -70,7 +72,7 @@ export function GlobalLoader({ maxDelay = 2500 }: { maxDelay?: number }) {
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [maxDelay]);
+  }, []);
 
   // Guaranteed count-up: every 120ms bump the percentage by at least one
   // step so the number visibly climbs 1 → 100 over maxDelay, while the real

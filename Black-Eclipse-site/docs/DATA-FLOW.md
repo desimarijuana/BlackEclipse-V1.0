@@ -1,7 +1,7 @@
 ---
 title: Data Flow
 status: Current
-last-verified: 2026-09-30
+last-verified: 2026-10-20
 ---
 
 # Data Flow
@@ -147,6 +147,13 @@ upstream call. `scraper/yahoo-chart.ts` holds the single chart-fetch / ticker-
 candidate implementation (shared with `/api/price-history`). A failed read-through
 returns nothing and the stored row is served under its real `source`/`updatedAt`
 — never fabricated; indices stay on `IndexQuote`, PSX on its own endpoint.
+
+**Batched history for portfolios.** A portfolio/watchlist makes ONE
+`POST /api/price-history/batch` with `{ symbols: [{ symbol, market }], range? }`
+and receives `{ seriesBySymbol: { [symbol]: <the per-symbol payload> } }`. The
+route fans the same per-symbol path (cache, market discovery, snapshot fallback)
+out server-side, so N holdings no longer become N browser requests (the browser
+caps a host at ~6 concurrent connections, which serialized the tail).
 
 ### Universe data
 

@@ -141,15 +141,37 @@ export function usePriceHistories(symbols: string[], marketsHint: Record<string,
 
       // 2) Fetch per-symbol in parallel — only symbols NOT freshly cached.
       const toFetch = uniq.filter(sym => !fresh.has(sym));
+      let batched: Record<string, { series?: unknown }> = {};
+      if (toFetch.length > 0) {
+        try {
+          const res = await fetch('/api/price-history/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              symbols: toFetch.map(sym => ({ symbol: sym, market: marketsHint[sym] ?? 'US' })),
+              range: HISTORY_RANGE,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            batched = data?.seriesBySymbol ?? {};
+          }
+        } catch {
+          /* fall back to per-symbol fetches below */
+        }
+      }
       const results = await Promise.all(
         toFetch.map(async sym => {
           try {
-            const market = marketsHint[sym] ?? 'US';
-            const res = await fetch(
-              `/api/price-history?symbol=${encodeURIComponent(sym)}&market=${encodeURIComponent(market)}&range=${HISTORY_RANGE}`
-            );
-            const data = await res.json();
-            const series = Array.isArray(data.series) ? data.series : [];
+            let data = batched[sym];
+            if (!data) {
+              const market = marketsHint[sym] ?? 'US';
+              const res = await fetch(
+                `/api/price-history?symbol=${encodeURIComponent(sym)}&market=${encodeURIComponent(market)}&range=${HISTORY_RANGE}`
+              );
+              data = await res.json();
+            }
+            const series = Array.isArray(data?.series) ? data.series : [];
             // Filter date AND close TOGETHER. Filtering closes alone (as this
             // used to) desynchronizes the two arrays the moment a bar has a
             // non-finite or ≤0 close: every later date then labels the wrong

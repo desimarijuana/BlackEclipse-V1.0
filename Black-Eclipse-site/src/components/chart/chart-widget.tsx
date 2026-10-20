@@ -48,6 +48,8 @@ interface ChartWidgetProps {
   /** Controlled drawing tool (when hosted in a chart panel toolbar). */
   tool?: DrawingToolMode;
   onToolChange?: (tool: DrawingToolMode) => void;
+  /** False while this chart sits in the shell's hidden keep-alive slot. */
+  active?: boolean;
   /** Crosshair move callback (timestamp ms) — linked charts. */
   onCrosshair?: (time: number | null) => void;
   /** Visible-range callback (0–100 %) — linked range. */
@@ -141,12 +143,15 @@ function formatCountdown(msLeft: number): string {
 }
 
 /** Live next-candle countdown state, ticking every second. */
-function useCandleCountdown(timeframe: Timeframe, symbol: string, market: string) {
+function useCandleCountdown(timeframe: Timeframe, symbol: string, market: string, active = true) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
+    if (!active) return;
+    const t = setInterval(() => {
+      if (!document.hidden) setNow(Date.now());
+    }, 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [active]);
   const candle = useMemo(
     () => nextCandleAt(timeframe, symbol, market, new Date(now)),
     [timeframe, symbol, market, now],
@@ -162,6 +167,7 @@ export function ChartWidget({
   compact = false, hideToolbar = false, hideFooter = false,
   tool: controlledTool, onToolChange,
   onCrosshair, onRange, crosshairTime, range, onProviderReady,
+  active = true,
 }: ChartWidgetProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -536,6 +542,7 @@ export function ChartWidget({
             symbol={chartState.symbol}
             market={chartState.market}
             timeframe={chartState.timeframe}
+            active={active}
           />
         )}
         {loading && (
@@ -583,6 +590,7 @@ export function ChartWidget({
           onRefreshMs={setRefreshMs}
           onRefresh={refresh}
           loading={loading}
+          active={active}
         />
       )}
     </div>
@@ -598,13 +606,14 @@ export function ChartWidget({
  * carries ONLY the time until the current candle closes.
  */
 function LivePriceOverlay({
-  symbol, market, timeframe,
+  symbol, market, timeframe, active = true,
 }: {
   symbol: string;
   market: string;
   timeframe: Timeframe;
+  active?: boolean;
 }) {
-  const { candle, candleLeft, closedMarket } = useCandleCountdown(timeframe, symbol, market);
+  const { candle, candleLeft, closedMarket } = useCandleCountdown(timeframe, symbol, market, active);
 
   return (
     <div
@@ -623,7 +632,7 @@ function LivePriceOverlay({
  * refresh timer with a selectable cadence (30s / 1m / 5m / 15m / Off).
  */
 function PriceFooter({
-  symbol, market, timeframe, quote, refreshMs, secondsLeft, onRefreshMs, onRefresh, loading,
+  symbol, market, timeframe, quote, refreshMs, secondsLeft, onRefreshMs, onRefresh, loading, active = true,
 }: {
   symbol: string;
   market: string;
@@ -634,6 +643,7 @@ function PriceFooter({
   onRefreshMs: (ms: number) => void;
   onRefresh: () => void;
   loading: boolean;
+  active?: boolean;
 }) {
   const palette = useChartPalette();
   const up = (quote?.changePercent ?? 0) >= 0;
@@ -642,7 +652,7 @@ function PriceFooter({
     n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: n < 1 ? 6 : 2 });
   const updated = quote?.at ? new Date(quote.at).toLocaleTimeString('en-US', { hour12: false }) : null;
 
-  const { candle, candleLeft, closedMarket } = useCandleCountdown(timeframe, symbol, market);
+  const { candle, candleLeft, closedMarket } = useCandleCountdown(timeframe, symbol, market, active);
 
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border/10 glass-card-subtle px-3 py-1.5 text-[11px] font-mono">

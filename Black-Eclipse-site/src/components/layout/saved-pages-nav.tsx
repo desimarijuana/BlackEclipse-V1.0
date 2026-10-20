@@ -50,7 +50,9 @@ export function SavedPagesNav({
   useEffect(() => {
     void refresh();
     window.addEventListener('focus', refresh);
-    const timer = window.setInterval(refresh, 60_000);
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, 60_000);
     const onPop = () => setOpenPageId(pageFromLocation());
     window.addEventListener('popstate', onPop);
     // The runtime pushes `changed` when any blueprint revision moves (including
