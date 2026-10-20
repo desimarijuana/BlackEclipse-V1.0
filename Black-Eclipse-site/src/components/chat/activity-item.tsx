@@ -10,7 +10,7 @@
 // a developer-facing view is allowed to show.
 
 import { useState } from 'react';
-import { AlertCircle, Brain, Check, ChevronRight, Globe, Loader2, Scissors, Search, Sigma, ShieldAlert, Wrench } from '@/lib/icons';
+import { AlertCircle, Brain, Check, ChevronRight, Globe, Loader2, Scissors, Search, Sigma, ShieldAlert, SquareCode, Wrench } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import type { ActivityItem } from '@/lib/agent/response-model';
@@ -26,6 +26,8 @@ export interface ActivityItemRowProps {
    * coding turn. Absent for ordinary turns (nothing renders).
    */
   capability?: ChatCapability;
+  /** The step the agent is on right now — gently foregrounded while it runs. */
+  latest?: boolean;
 }
 
 /** A conservative duration format — only shown when the runtime reported one. */
@@ -41,11 +43,14 @@ function CategoryIcon({ item, className }: { item: ActivityItem; className?: str
   if (item.kind === 'bounded') return <Scissors size={12} className={className} />;
   if (item.kind === 'retrieval') return <Globe size={12} className={className} />;
   if (/search|research/.test(item.name)) return <Search size={12} className={className} />;
+  if (/^analysis_|^execute_(python|code|javascript|typescript)|^execute_code|^scaffold_kit/.test(item.name)) {
+    return <SquareCode size={12} className={className} />;
+  }
   if (/calc|rsi|sma|indicator|technical/.test(item.name)) return <Sigma size={12} className={className} />;
   return <Wrench size={12} className={className} />;
 }
 
-export function ActivityItemRow({ item, compact = false, capability }: ActivityItemRowProps) {
+export function ActivityItemRow({ item, compact = false, capability, latest = false }: ActivityItemRowProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const failed = item.status === 'failed';
@@ -64,7 +69,7 @@ export function ActivityItemRow({ item, compact = false, capability }: ActivityI
   const hasDetails = Boolean(item.code) || item.kind === 'retrieval' || Boolean(item.name);
 
   return (
-    <div className={cn('group/act rounded-lg', compact ? 'text-[11px]' : 'text-[12px]')}>
+    <div className={cn('group/act rounded-lg transition-colors', latest && 'bg-primary/[0.05]', compact ? 'text-[11px]' : 'text-[12px]')}>
       <button
         type="button"
         onClick={() => hasDetails && setOpen((v) => !v)}

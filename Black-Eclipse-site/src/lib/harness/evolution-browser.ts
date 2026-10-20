@@ -4,6 +4,8 @@
 
 import type {
   EvolutionCandidateEvidence,
+  EvolutionCandidateStateResult,
+  EvolutionDriftSignal,
   EvolutionExperiment,
   EvolutionExperimentDetail,
   EvolutionLandingResult,
@@ -56,6 +58,16 @@ export async function getEvolutionExperimentBrowser(id: string): Promise<Evoluti
 export async function evolutionCandidateEvidenceBrowser(id: string): Promise<EvolutionCandidateEvidence> {
   return api<EvolutionCandidateEvidence>(
     `/api/evolution/candidates/${encodeURIComponent(id)}/evidence`,
+  );
+}
+
+export async function getEvolutionCandidateStateBrowser(
+  id: string,
+  scope?: string,
+): Promise<EvolutionCandidateStateResult> {
+  const query = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+  return api<EvolutionCandidateStateResult>(
+    `/api/evolution/candidates/${encodeURIComponent(id)}/state${query}`,
   );
 }
 
@@ -168,6 +180,18 @@ export async function createEvolutionSurfaceExperimentBrowser(
 
 export async function getEvolutionRslStatusBrowser(): Promise<EvolutionRslStatus> {
   return api<EvolutionRslStatus>("/api/evolution/rsl");
+}
+
+export async function getEvolutionDriftBrowser(
+  input: { scope?: string; window?: number; baseline?: number; threshold?: number } = {},
+): Promise<EvolutionDriftSignal> {
+  const params = new URLSearchParams();
+  if (input.scope) params.set("scope", input.scope);
+  if (input.window) params.set("window", String(input.window));
+  if (input.baseline) params.set("baseline", String(input.baseline));
+  if (input.threshold != null) params.set("threshold", String(input.threshold));
+  const query = params.toString();
+  return api<EvolutionDriftSignal>(`/api/evolution/drift${query ? `?${query}` : ""}`);
 }
 
 export async function tickEvolutionRslBrowser(): Promise<EvolutionRslTickResult> {

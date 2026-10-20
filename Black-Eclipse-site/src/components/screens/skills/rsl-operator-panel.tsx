@@ -7,19 +7,25 @@
 import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/lib/i18n/use-t";
 import {
+  activateEvolutionSurfaceStateBrowser,
   adoptEvolutionLessonBrowser,
   createEvolutionSurfaceExperimentBrowser,
+  getEvolutionCandidateStateBrowser,
+  getEvolutionSurfacePreviewBrowser,
   listEvolutionLessonsBrowser,
   runEvolutionRecursiveBrowser,
 } from "@/lib/harness/evolution-browser";
 import type {
+  EvolutionHarnessState,
   EvolutionLesson,
   EvolutionRecursiveResult,
   EvolutionRecursiveVariant,
   EvolutionSurfaceExperimentInput,
   EvolutionSurfaceExperimentResult,
+  EvolutionSurfacePreview,
   EvolutionSurfaceSnapshot,
 } from "@/lib/harness/evolution-client";
+import { SurfaceActivationCard } from "./surface-activation-card";
 
 const SAMPLE_VARIANTS = JSON.stringify(
   [
@@ -112,6 +118,12 @@ export function RslOperatorPanel() {
   const [surfaceRunning, setSurfaceRunning] = useState(false);
   const [surfaceResult, setSurfaceResult] = useState<EvolutionSurfaceExperimentResult | null>(null);
   const [surfaceError, setSurfaceError] = useState<string | null>(null);
+  const [derivedState, setDerivedState] = useState<EvolutionHarnessState | null>(null);
+  const [derivedPreview, setDerivedPreview] = useState<EvolutionSurfacePreview | null>(null);
+  const [derivedScope, setDerivedScope] = useState("global");
+  const [derivedLoading, setDerivedLoading] = useState(false);
+  const [derivedActivating, setDerivedActivating] = useState(false);
+  const [derivedError, setDerivedError] = useState<string | null>(null);
 
   const loadLessons = useCallback(async () => {
     setLessonError(null);
@@ -222,6 +234,44 @@ export function RslOperatorPanel() {
     surfaceBase, surfaceCandidate, surfaceDataset, surfaceProblem, surfaceSeed,
     surfaceScope, surfaceSplit, surfaceTarget, surfaceTrials, t,
   ]);
+
+  const findDerivedState = useCallback(async (candidateId: string, scope: string) => {
+    setDerivedLoading(true);
+    setDerivedError(null);
+    setDerivedState(null);
+    setDerivedPreview(null);
+    try {
+      const result = await getEvolutionCandidateStateBrowser(candidateId);
+      if (!result.state) {
+        setDerivedError(t("evolution.surface.stateMissing"));
+        return;
+      }
+      setDerivedState(result.state);
+      const preview = await getEvolutionSurfacePreviewBrowser(
+        result.state.id, scope || result.state.scope,
+      );
+      setDerivedPreview(preview);
+      setDerivedScope(preview.scope);
+    } catch (err) {
+      setDerivedError(err instanceof Error ? err.message : "state lookup failed");
+    } finally {
+      setDerivedLoading(false);
+    }
+  }, [t]);
+
+  const activateDerived = useCallback(async () => {
+    if (!derivedState) return;
+    setDerivedActivating(true);
+    setDerivedError(null);
+    try {
+      await activateEvolutionSurfaceStateBrowser(derivedState.id, derivedScope);
+      await findDerivedState(derivedState.candidateId ?? "", derivedScope);
+    } catch (err) {
+      setDerivedError(err instanceof Error ? err.message : "activation failed");
+    } finally {
+      setDerivedActivating(false);
+    }
+  }, [derivedScope, derivedState, findDerivedState]);
 
   const inputClass =
     "w-full rounded-lg border border-border/50 bg-background/40 px-2.5 py-1.5 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40";
@@ -439,13 +489,45 @@ export function RslOperatorPanel() {
           </button>
           {surfaceError && <span className="text-[10px] text-rose-300">{surfaceError}</span>}
           {surfaceResult && (
-            <span className="text-[10px] text-muted-foreground">
-              {surfaceResult.queued
-                ? t("evolution.surface.queued", { id: surfaceResult.candidate.id })
-                : t("evolution.surface.existing", { id: surfaceResult.candidate.id })}
-            </span>
+            <>
+              <span className="text-[10px] text-muted-foreground">
+                {surfaceResult.queued
+                  ? t("evolution.surface.queued", { id: surfaceResult.candidate.id })
+                  : t("evolution.surface.existing", { id: surfaceResult.candidate.id })}
+              </span>
+              <button
+                type="button"
+                onClick={() => void findDerivedState(surfaceResult.candidate.id, surfaceScope)}
+                disabled={derivedLoading}
+                className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-2.5 py-1 text-[10px] text-sky-300 transition hover:bg-sky-400/15 disabled:opacity-50"
+              >
+                {derivedLoading
+                  ? t("evolution.surface.findingState")
+                  : t("evolution.surface.findState")}
+              </button>
+            </>
           )}
         </div>
+        {derivedError && (
+          <p className="mt-2 rounded-lg border border-rose-400/30 bg-rose-400/5 px-2 py-1 text-[10px] text-rose-300">
+            {derivedError}
+          </p>
+        )}
+        {derivedState && derivedPreview && (
+          <div className="mt-2">
+            <SurfaceActivationCard
+              state={derivedState}
+              preview={derivedPreview}
+              scope={derivedScope}
+              onScopeChange={(next) => {
+                setDerivedScope(next);
+                void findDerivedState(derivedState.candidateId ?? "", next);
+              }}
+              onActivate={() => void activateDerived()}
+              activating={derivedActivating}
+            />
+          </div>
+        )}
       </section>
     </div>
   );

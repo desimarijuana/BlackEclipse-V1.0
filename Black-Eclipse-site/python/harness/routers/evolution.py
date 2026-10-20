@@ -419,6 +419,28 @@ def lesson_outcomes(
     }
 
 
+@router.get("/evolution/candidates/{candidate_id}/state")
+def candidate_harness_state(
+    candidate_id: str,
+    scope: Optional[str] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """The derived harness state(s) for one measured candidate, newest first."""
+    from ..self_improvement.state import HarnessStateStore  # noqa: PLC0415
+
+    store = HarnessStateStore(service.store)
+    rows = [
+        row for row in store.list_states(scope=scope, limit=200)
+        if str(row.get("candidateId") or "") == candidate_id
+    ]
+    return {
+        "success": True,
+        "candidateId": candidate_id,
+        "state": rows[0] if rows else None,
+        "states": rows,
+    }
+
+
 @router.get("/evolution/states")
 def list_harness_states(
     scope: Optional[str] = None,
@@ -1027,6 +1049,31 @@ async def rsl_tick(_: bool = Depends(require_operator)) -> dict[str, Any]:
     if loop is None:
         raise HTTPException(status_code=503, detail="RSL loop unavailable")
     return {"success": True, **await loop.tick()}
+
+
+@router.get("/evolution/drift")
+def evolution_drift(
+    scope: Optional[str] = None,
+    window: int = 30,
+    baseline: int = 100,
+    minSamples: int = 10,  # noqa: N803 - operator-facing name
+    threshold: float = 0.10,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Production drift signal: recent terminal runs vs the preceding window."""
+    from ..self_improvement.drift import detect_store_drift  # noqa: PLC0415
+
+    return {
+        "success": True,
+        **detect_store_drift(
+            service.store,
+            scope=scope,
+            window=max(1, min(int(window), 200)),
+            baseline=max(1, min(int(baseline), 500)),
+            min_samples=max(1, min(int(minSamples), 200)),
+            threshold=max(0.0, min(float(threshold), 1.0)),
+        ),
+    }
 
 
 @router.get("/evolution/metrics")

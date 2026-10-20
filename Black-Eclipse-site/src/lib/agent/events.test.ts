@@ -49,6 +49,19 @@ describe('normalizeHarnessEvent', () => {
     }
   });
 
+  it('names Python execution explicitly instead of a vague computation label', () => {
+    const e = normalizeHarnessEvent('tool.requested', {
+      type: 'tool.requested',
+      data: { name: 'analysis_run', toolCallId: 'call_py', detail: 'portfolio drawdown' },
+    });
+    expect(e).toMatchObject({
+      kind: 'activity_start',
+      item: { name: 'analysis_run', detail: 'portfolio drawdown', status: 'running' },
+    });
+    if (e?.kind === 'activity_start') expect(e.item.label).toBe('Executing Python');
+    expect(toolLabel('execute_python')).toBe('Executing Python');
+  });
+
   it('correlates tool.completed by toolCallId', () => {
     const e = normalizeHarnessEvent('tool.completed', {
       type: 'tool.completed',

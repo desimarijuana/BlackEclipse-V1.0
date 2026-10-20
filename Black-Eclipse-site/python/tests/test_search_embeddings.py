@@ -122,3 +122,45 @@ def test_embedding_service_cache_hit(tmp_path):
     service.last_stats = {}
     first = asyncio.run(service.embed_texts(["nvidia revenue"]))
     assert first.vectors[0] is not None
+
+
+class _RejectingProvider(EmbeddingProvider):
+    provider_id = "rejecting"
+    model = "rejecting"
+    dimensions = 2
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def embed_batch(self, texts):
+        self.calls += 1
+        raise EmbeddingProviderError("embedding endpoint returned 404", retryable=False)
+
+
+def test_embedding_service_opens_circuit_after_provider_wide_rejection(tmp_path):
+    """A provider that rejects every input must be asked ONCE, not per document.
+
+    The boot warm-index calls `embed_texts` for each document; a broken endpoint
+    used to produce one doomed request per document (thousands of 404s), which
+    starved the event loop and made every API route slow.
+    """
+    from harness.search.config import SearchConfig
+    from harness.search.errors import EmbeddingUnavailable
+
+    service = EmbeddingService(SearchConfig(db_path=str(tmp_path / "s.db")))
+    provider = _RejectingProvider()
+    service._provider = provider
+    service._available = True
+    service._provider_model = "rejecting/rejecting@1"
+    service._reason = ""
+
+    first = asyncio.run(service.embed_texts(["a", "b"]))
+    assert first.failures == 2
+    assert provider.calls == 1
+    assert not service.available
+    assert "rejected all" in service.reason
+
+    # The next document is refused without touching the network again.
+    with pytest.raises(EmbeddingUnavailable):
+        asyncio.run(service.embed_texts(["c"]))
+    assert provider.calls == 1

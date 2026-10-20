@@ -28,7 +28,7 @@ import { useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
 import { canHandleKeyboardEvent } from '@/lib/keyboard';
 
-export function BotsScreen() {
+export function BotsScreen({ active = true }: { active?: boolean }) {
   const t = useT();
   useHydrateBotAvatars();
   useHydrateBotGroups();
@@ -57,12 +57,15 @@ export function BotsScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
   const didAutoSelect = useRef(false);
 
-  // Initial load + a slow refresh so the list stays current across tabs.
+  // Initial load, then a slow refresh ONLY while Bots is the visible tab. The
+  // keep-alive mount means this component stays alive on every other tab; an
+  // unconditional interval kept fanning out list + status requests forever.
   useEffect(() => {
     void hydrate();
+    if (!active) return;
     const timer = setInterval(() => void hydrate(), 20000);
     return () => clearInterval(timer);
-  }, [hydrate]);
+  }, [hydrate, active]);
 
   // Deep link: /?tab=bots&bot=<id> or /?tab=bots&group=<id> (read once on mount).
   useEffect(() => {
@@ -187,6 +190,7 @@ export function BotsScreen() {
         ) : selectedBot ? (
           <BotChat
             bot={selectedBot}
+            active={active}
             busy={busyId === selectedBot.id}
             onClose={() => select(null)}
             onChanged={() => void hydrate()}

@@ -43,6 +43,21 @@ def test_detail_is_bounded():
     assert len(detail) <= activity.MAX_DETAIL_CHARS
 
 
+def test_analysis_detail_names_the_recipe_or_purpose_never_the_source():
+    assert activity.tool_detail("analysis_run", {"recipe": "sharpe", "purpose": "p"}) == "sharpe"
+    assert (
+        activity.tool_detail("analysis_run", {"purpose": "portfolio drawdown"})
+        == "portfolio drawdown"
+    )
+    detail = activity.tool_detail(
+        "analysis_run", {"purpose": "volatility", "source": "SECRET = 1\nresult = SECRET"}
+    )
+    assert detail == "volatility"
+    assert "SECRET" not in (detail or "")
+    long = activity.tool_detail("analysis_run", {"purpose": "a" * 500})
+    assert long is not None and len(long) <= activity.MAX_DETAIL_CHARS
+
+
 def test_command_summary_reports_exit_code():
     assert activity.tool_result_summary("terminal_run", {"status": "ok", "exitCode": 0}) == "exit 0"
     assert activity.tool_result_summary("terminal_run", {"status": "timed_out"}) == "timed out"

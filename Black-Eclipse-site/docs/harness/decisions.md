@@ -8295,6 +8295,52 @@ the operator surface-experiment form gains a scope input. Tests
 `test_rsl_loop.py` (measured surface creates one inert state). No new store,
 authority or activation path.
 
+## ADR-H249 — A candidate's derived state is addressable by candidate id and linked from the surface result
+
+**Decision.** `GET /evolution/candidates/{id}/state` returns the candidate's
+derived `HarnessState` rows (newest first) and the latest state as `state`; every
+route is operator-gated. The surface experiment result in the operator panel
+adds a `Find derived state` action that calls this route, then opens the same
+`SurfaceActivationCard` used by the conductor: scope selector, deterministic
+diff, base-digest match, refusal reasons and activation/rollback. The state is
+still created only by a measured verification; the lookup never creates one.
+
+**Why.** A queued surface experiment completes asynchronously. Without an
+addressable state, the operator has to guess which row in the harness-state list
+belongs to the candidate. A candidate-keyed read-only lookup closes the
+experiment → preview → activation flow without adding an authority or a second
+activation path.
+
+**Consequences.** New candidate-state route in `routers/evolution.py`; typed
+`EvolutionCandidateStateResult`, browser call and Next.js proxy; `Find derived
+state` and the shared `SurfaceActivationCard` in `rsl-operator-panel.tsx`. Tests
+`test_evolution_rsl_routes.py` (candidate state + remote refusal). No new store
+or write path.
+
+## ADR-H250 — Production drift is a read-only signal over terminal run windows, never an automatic harness change
+
+**Decision.** `self_improvement/drift.py` compares the newest `window` terminal
+`HarnessRun` rows with the immediately preceding `baseline` window. It maps only
+`completed` to success and `failed`/`error` to failure; cancelled/created/
+running rows are ignored. The signal is `unmeasured` when either side has fewer
+than `min_samples` terminal runs, `drift` only when the success-rate drop exceeds
+the threshold, and `stable` otherwise. Wilson intervals are reported with both
+rates. `GET /evolution/drift` exposes the deterministic signal per agent scope;
+the conductor UI shows status, recent/baseline rates, drop and reasons. A drift
+signal can inform a scoped optimization, but it never changes the current state,
+activates, lands or edits anything by itself.
+
+**Why.** Continual learning needs a way to notice that the world or the harness
+has regressed without treating a thin sample as proof. A bounded, read-only
+window comparison is explainable and honest; an automatic response would turn a
+noisy metric into an unauthorized change.
+
+**Consequences.** New `self_improvement/drift.py`, `GET /evolution/drift`,
+typed `EvolutionDriftSignal` contracts/browser call/proxy, and a drift card in
+`rsl-control-panel.tsx`. Tests `python/tests/test_drift.py` (stable, drift,
+unmeasured, scope, store read) and the route refusal test. No new store or write
+path.
+
 ## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
 
 **Decision.** W8.4's task-type verifier becomes the ONE authority for "done", and
@@ -8361,9 +8407,11 @@ and a record that guesses a missing fact is worse than one that admits the gap.
 **Consequences.** `run_outcome.py` (the table owner, `record_intent` /
 `read_intent`, `surface_summary`, `build_outcome_envelope`); the
 `ui_classify_request` tool records the verdict; the `prompt.plan` event gains
-the resolved surface + allowlist summary; `GET /runs/{id}/outcome` in
-`main.py`; `graph_context.surface_summary` re-exported by `graph.py` (the run
-graph stays under its size ratchet). Tests:
-`python/tests/test_run_outcome.py` (12). Docs:
+the resolved surface + allowlist summary; the run-scoped read routes
+(`/runs/{id}/events`, `/runs/{id}/explain`, `/runs/{id}/outcome`) move to the
+new `python/harness/routers/runs.py` — the paths are unchanged, and `main.py`
+drops back under the hard ceiling (1199 → 1166 lines);
+`graph_context.surface_summary` re-exported by `graph.py` (the run graph stays
+under its size ratchet). Tests: `python/tests/test_run_outcome.py` (12). Docs:
 `docs/harness/architecture.md` (the execution graph),
 `docs/harness/self-evolution-roadmap.md` (W1.3).

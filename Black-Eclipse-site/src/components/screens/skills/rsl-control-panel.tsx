@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/lib/i18n/use-t";
 import {
   activateEvolutionSurfaceStateBrowser,
+  getEvolutionDriftBrowser,
   getEvolutionRslStatusBrowser,
   getEvolutionSurfacePreviewBrowser,
   listEvolutionStatesBrowser,
@@ -19,6 +20,7 @@ import {
 } from "@/lib/harness/evolution-browser";
 import type {
   EvolutionCandidate,
+  EvolutionDriftSignal,
   EvolutionHarnessState,
   EvolutionHarnessStates,
   EvolutionRslStatus,
@@ -27,6 +29,7 @@ import type {
   EvolutionSurfacePreview,
 } from "@/lib/harness/evolution-client";
 import { cn } from "@/lib/utils";
+import { SurfaceActivationCard } from "./surface-activation-card";
 
 const SAMPLE_OPS = JSON.stringify(
   [
@@ -60,6 +63,8 @@ export function RslControlPanel() {
   } | null>(null);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const [activationScope, setActivationScope] = useState("eclipse-agent");
+  const [drift, setDrift] = useState<EvolutionDriftSignal | null>(null);
+  const [driftError, setDriftError] = useState<string | null>(null);
 
   const [candidateId, setCandidateId] = useState("");
   const [targetPath, setTargetPath] = useState("");
@@ -77,6 +82,16 @@ export function RslControlPanel() {
     }
   }, []);
   useEffect(() => { void loadStatus(); }, [loadStatus]);
+
+  const loadDrift = useCallback(async () => {
+    setDriftError(null);
+    try {
+      setDrift(await getEvolutionDriftBrowser());
+    } catch (err) {
+      setDriftError(err instanceof Error ? err.message : t("evolution.drift.loading"));
+    }
+  }, [t]);
+  useEffect(() => { void loadDrift(); }, [loadDrift]);
 
   const loadStates = useCallback(async () => {
     setStatesError(null);
@@ -269,6 +284,47 @@ export function RslControlPanel() {
       <div className="mt-4 border-t border-border/40 pt-3">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
+            <h5 className="text-xs font-semibold text-foreground">{t("evolution.drift.title")}</h5>
+            <p className="mt-1 text-[10px] text-muted-foreground">{t("evolution.drift.subtitle")}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadDrift()}
+            className="rounded-lg border border-border/50 px-2 py-1 text-[10px] text-muted-foreground transition hover:text-foreground"
+          >
+            {t("evolution.drift.refresh")}
+          </button>
+        </div>
+        {driftError && <p className="mt-2 text-[10px] text-rose-300">{driftError}</p>}
+        {!drift && !driftError && (
+          <p className="mt-2 text-[10px] text-muted-foreground">{t("evolution.drift.loading")}</p>
+        )}
+        {drift && (
+          <div className="mt-2 space-y-0.5 text-[10px] text-muted-foreground">
+            <p className={drift.status === "drift" ? "text-rose-300" : "text-emerald-300"}>
+              {t("evolution.drift.status", { status: drift.status })}
+            </p>
+            {drift.status === "unmeasured" ? (
+              <p>{t("evolution.drift.unmeasured")}</p>
+            ) : (
+              <>
+                <p>{t("evolution.drift.rates", {
+                  recent: `${Math.round((drift.current.rate ?? 0) * 100)}% (${drift.current.n})`,
+                  baseline: `${Math.round((drift.baseline.rate ?? 0) * 100)}% (${drift.baseline.n})`,
+                })}</p>
+                <p>{t("evolution.drift.drop", { drop: drift.drop ?? "UNMEASURED" })}</p>
+              </>
+            )}
+            {drift.reasons.map((reason) => (
+              <p key={reason}>{reason}</p>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 border-t border-border/40 pt-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
             <h5 className="text-xs font-semibold text-foreground">{t("evolution.states.title")}</h5>
             <p className="mt-1 text-[10px] text-muted-foreground">{t("evolution.states.subtitle")}</p>
           </div>
@@ -397,82 +453,19 @@ export function RslControlPanel() {
           )}
         </div>
         {preview && (
-          <div className="mt-3 rounded-lg border border-sky-400/20 bg-sky-400/5 p-2 text-[10px]">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="font-medium text-sky-300">{t("evolution.states.previewTitle")}</p>
-              <span className={preview.data.canActivate ? "text-emerald-300" : "text-rose-300"}>
-                {preview.data.canActivate
-                  ? t("evolution.states.canActivate")
-                  : t("evolution.states.cannotActivate")}
-              </span>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              <label className="text-muted-foreground">{t("evolution.states.scope")}</label>
-              <select
-                value={activationScope}
-                onChange={(event) => {
-                  const next = event.target.value;
-                  setActivationScope(next);
-                  void previewState(preview.state, next);
-                }}
-                className="rounded-lg border border-border/50 bg-background/40 px-2 py-1 text-[10px] text-foreground"
-              >
-                {preview.data.availableScopes.map((scope) => (
-                  <option key={scope} value={scope}>{scope}</option>
-                ))}
-              </select>
-              <span className={preview.data.baseDigestMatches ? "text-emerald-300" : "text-rose-300"}>
-                {preview.data.baseDigestMatches
-                  ? t("evolution.states.baseMatch")
-                  : t("evolution.states.baseMismatch")}
-              </span>
-            </div>
-            {preview.data.reasons.length > 0 && (
-              <ul className="mt-1 list-disc pl-4 text-rose-300">
-                {preview.data.reasons.map((reason) => (
-                  <li key={reason}>{reason}</li>
-                ))}
-              </ul>
-            )}
-            {preview.data.diff && (
-              <div className="mt-1 space-y-0.5 text-muted-foreground">
-                <p>{t("evolution.states.promptChange", {
-                  before: preview.data.diff.systemPromptBeforeChars,
-                  after: preview.data.diff.systemPromptAfterChars,
-                })}</p>
-                <p>{t("evolution.states.toolsRemoved", {
-                  tools: preview.data.diff.toolsRemoved.join(", ") || "none",
-                })}</p>
-                <p>{t("evolution.states.toolsAdded", {
-                  tools: preview.data.diff.toolsAdded.join(", ") || "none",
-                })}</p>
-                <p>{t("evolution.states.ceilings", {
-                  stepsBefore: preview.data.diff.maxStepsBefore,
-                  stepsAfter: preview.data.diff.maxStepsAfter,
-                  callsBefore: preview.data.diff.maxToolCallsBefore,
-                  callsAfter: preview.data.diff.maxToolCallsAfter,
-                })}</p>
-              </div>
-            )}
-            <div className="mt-2 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void activateState(preview.state, activationScope)}
-                disabled={!preview.data.canActivate || activatingId === preview.state.id}
-                className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-[10px] text-emerald-300 transition hover:bg-emerald-400/15 disabled:opacity-50"
-              >
-                {activatingId === preview.state.id
-                  ? t("evolution.states.activating")
-                  : t("evolution.states.activateScope", { scope: activationScope })}
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreview(null)}
-                className="rounded-lg border border-border/50 px-2 py-1 text-[10px] text-muted-foreground transition hover:text-foreground"
-              >
-                {t("evolution.states.close")}
-              </button>
-            </div>
+          <div className="mt-3">
+            <SurfaceActivationCard
+              state={preview.state}
+              preview={preview.data}
+              scope={activationScope}
+              onScopeChange={(next) => {
+                setActivationScope(next);
+                void previewState(preview.state, next);
+              }}
+              onActivate={() => void activateState(preview.state, activationScope)}
+              onClose={() => setPreview(null)}
+              activating={activatingId === preview.state.id}
+            />
           </div>
         )}
       </div>

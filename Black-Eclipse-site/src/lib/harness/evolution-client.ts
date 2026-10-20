@@ -280,6 +280,32 @@ export interface EvolutionSurfaceDiff {
   skillDraftIds: string[];
 }
 
+export interface EvolutionDriftWindow {
+  n: number;
+  successes: number;
+  rate: number | null;
+  ciLow: number | null;
+  ciHigh: number | null;
+}
+
+export interface EvolutionDriftSignal {
+  status: "stable" | "drift" | "unmeasured" | string;
+  scope: string;
+  window: number;
+  baselineWindow: number;
+  current: EvolutionDriftWindow;
+  baseline: EvolutionDriftWindow;
+  drop: number | null;
+  threshold: number;
+  reasons: string[];
+}
+
+export interface EvolutionCandidateStateResult {
+  candidateId: string;
+  state: EvolutionHarnessState | null;
+  states: EvolutionHarnessState[];
+}
+
 export interface EvolutionSurfacePreview {
   stateId: string;
   candidateId: string | null;
@@ -474,6 +500,17 @@ export async function promoteEvolutionState(
   );
 }
 
+export async function getEvolutionCandidateState(
+  candidateId: string,
+  scope?: string,
+): Promise<EvolutionCandidateStateResult> {
+  const query = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+  return request<EvolutionCandidateStateResult>(
+    `/evolution/candidates/${encodeURIComponent(candidateId)}/state${query}`,
+    { method: "GET" },
+  );
+}
+
 export async function getEvolutionSurfacePreview(
   stateId: string,
   scope?: string,
@@ -542,6 +579,20 @@ export async function proposeEvolutionCandidate(
 
 export async function getEvolutionRslStatus(): Promise<EvolutionRslStatus> {
   return request<EvolutionRslStatus>("/evolution/rsl", { method: "GET" });
+}
+
+export async function getEvolutionDrift(
+  input: { scope?: string; window?: number; baseline?: number; threshold?: number } = {},
+): Promise<EvolutionDriftSignal> {
+  const params = new URLSearchParams();
+  if (input.scope) params.set("scope", input.scope);
+  if (input.window) params.set("window", String(input.window));
+  if (input.baseline) params.set("baseline", String(input.baseline));
+  if (input.threshold != null) params.set("threshold", String(input.threshold));
+  const query = params.toString();
+  return request<EvolutionDriftSignal>(`/evolution/drift${query ? `?${query}` : ""}`, {
+    method: "GET",
+  });
 }
 
 export async function tickEvolutionRsl(): Promise<EvolutionRslTickResult> {

@@ -1357,7 +1357,7 @@ function StockChatContent() {
 
           {visited.has('bots') && (
             <div className={cn('w-full h-full', activeTab === 'bots' ? '' : 'hidden')}>
-              <BotsScreen />
+              <BotsScreen active={activeTab === 'bots'} />
             </div>
           )}
 

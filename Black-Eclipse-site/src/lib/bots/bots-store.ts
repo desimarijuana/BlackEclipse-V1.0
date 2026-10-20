@@ -62,6 +62,11 @@ let pinnedLoaded = false;
  *  overwrite a newer one (a stale list could resurrect a just-deleted bot). */
 let hydrateSeq = 0;
 
+/** One in-flight hydrate shared by every caller. The sidebar, the workspace and
+ *  action callbacks can all ask at once; they must not each fetch the list and
+ *  fan out a status request per bot. */
+let hydrateInFlight: Promise<void> | null = null;
+
 /** Bots whose DELETE is still in flight (or already succeeded). Hydrate drops
  *  them, so a concurrent refresh cannot re-add a row the operator just removed. */
 const deletedIds = new Set<string>();
@@ -181,33 +186,49 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
     deletedIds.delete(botId);
   },
 
-  hydrate: async () => {
+  hydrate: () => {
+    if (hydrateInFlight) return hydrateInFlight;
     // Load the persisted UI ledgers once, so pins/unread dots survive reloads.
     const seenRuns = seenLoaded ? get().seenRuns : loadSeenRuns();
     const pinnedIds = pinnedLoaded ? get().pinnedIds : loadPinnedIds();
     seenLoaded = true;
     pinnedLoaded = true;
     const seq = ++hydrateSeq;
-    try {
-      const bots = (await listAutomations()).filter((b) => !deletedIds.has(b.id));
+
+    const task = (async () => {
+      let bots: AutomationView[];
+      try {
+        bots = (await listAutomations()).filter((b) => !deletedIds.has(b.id));
+      } catch (err) {
+        if (seq !== hydrateSeq) return;
+        set({ loading: false, error: err instanceof Error ? err.message : 'failed to load bots' });
+        return;
+      }
+      if (seq !== hydrateSeq) return;
+
+      // Paint the list as soon as it arrives. Statuses drive only the unread dot
+      // and the subtitle, so they hydrate in the background instead of holding
+      // the whole workspace blank behind N extra round-trips.
+      set({ bots, seenRuns, pinnedIds, loading: false, error: null });
+      const sel = get().selectedId;
+      if (sel && !bots.some((b) => b.id === sel)) set({ selectedId: null });
+
       // Fetch status for every bot (not just active ones) so a paused bot with an
       // unseen run still surfaces its dot until the operator opens it.
       const candidates = bots.slice(0, MAX_STATUS_FETCH);
       const results = await Promise.allSettled(candidates.map((b) => getAutomationStatus(b.id)));
-      // A newer hydrate finished first — its snapshot is authoritative.
       if (seq !== hydrateSeq) return;
       const statusById: Record<string, AutomationStatusView> = {};
       results.forEach((r, i) => {
         if (r.status === 'fulfilled') statusById[candidates[i].id] = r.value;
       });
-      set({ bots, statusById, seenRuns, pinnedIds, loading: false, error: null });
-      // Drop a selection that no longer exists.
-      const sel = get().selectedId;
-      if (sel && !bots.some((b) => b.id === sel)) set({ selectedId: null });
-    } catch (err) {
-      if (seq !== hydrateSeq) return;
-      set({ loading: false, error: err instanceof Error ? err.message : 'failed to load bots' });
-    }
+      set({ statusById });
+    })().finally(() => {
+      hydrateInFlight = null;
+    });
+
+    hydrateInFlight = task;
+    return task;
   },
 
   select: (id) => {

@@ -43,6 +43,8 @@ import {
 
 export interface BotChatProps {
   bot: AutomationView;
+  /** False while the Bots tab is hidden behind the keep-alive mount. */
+  active?: boolean;
   busy: boolean;
   refreshKey?: number;
   onClose: () => void;
@@ -63,7 +65,7 @@ function newId(): string {
 const NO_MESSAGES: BotMessage[] = [];
 
 export function BotChat({
-  bot, busy, refreshKey = 0, onClose, onChanged, onRunNow, onDuplicate, onDelete,
+  bot, active = true, busy, refreshKey = 0, onClose, onChanged, onRunNow, onDuplicate, onDelete,
 }: BotChatProps) {
   const t = useT();
   useHydrateBotAvatars();
@@ -228,6 +230,8 @@ export function BotChat({
   // execution id. The first sweep seeds from history WITHOUT replaying it (only
   // the latest answer is surfaced, so an old thread is not dumped into view).
   useEffect(() => {
+    // Hidden keep-alive tab: do not poll history in the background.
+    if (!active) return;
     seenRunsRef.current = null;
     let cancelled = false;
 
@@ -280,7 +284,7 @@ export function BotChat({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [bot.id, appendScheduled]);
+  }, [bot.id, active, appendScheduled]);
 
   // Instagram-style read receipt: while this bot's thread is open, its latest run
   // is "seen". We key off the SAME id the sidebar flags as unread

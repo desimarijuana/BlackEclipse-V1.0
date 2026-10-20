@@ -133,6 +133,16 @@ def tool_detail(tool_name: str, args: dict[str, Any]) -> Optional[str]:
     if name == "scaffold_kit":
         kit = args.get("kit") or args.get("kit_id") or args.get("name")
         return _clip(kit) if kit else None
+    if name == "analysis_run":
+        # A Python analysis: name the ready-made recipe, else the plain-language
+        # purpose. Never the program source — it may embed data the user passed.
+        recipe = args.get("recipe")
+        if isinstance(recipe, str) and recipe.strip():
+            return _clip(recipe.strip())
+        purpose = args.get("purpose")
+        if isinstance(purpose, str) and purpose.strip():
+            return _clip(purpose.strip())
+        return "custom program"
     if name in _PATH_TOOLS:
         field = _PATH_TOOLS[name]
         value = args.get(field)

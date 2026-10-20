@@ -63,6 +63,13 @@ class EmbeddingService:
         self._provider_model = ""
         self._available = False
         self._reason = "not configured"
+        # A provider that rejects EVERY input in a batch (a 404 endpoint, a bad
+        # base URL, a missing model) is not going to accept the next document
+        # either. Tripping this circuit once keeps a boot warm-index from firing
+        # thousands of doomed requests — the index degrades to keyword-only until
+        # `configure()` resolves the provider again.
+        self._circuit_open = False
+        self._circuit_reason = ""
         self.last_stats: dict[str, Any] = {}
 
     # ── resolution ──────────────────────────────────────────────────────────
@@ -107,6 +114,7 @@ class EmbeddingService:
         cached_key = self._provider_model
         if self._provider is not None and cached_key == f"{provider_id}/{model}@{version}":
             self._available = True
+            self._reset_circuit()
             return
 
         api_key, base_url = self._credentials(provider_id, settings)
@@ -132,6 +140,7 @@ class EmbeddingService:
             self._provider_model = f"{provider_id}/{model}@{version}"
             self._available = True
             self._reason = ""
+            self._reset_circuit()
         except Exception as exc:  # noqa: BLE001 - constructor must never crash boot
             self._provider = None
             self._available = False
@@ -169,13 +178,17 @@ class EmbeddingService:
 
     # ── properties ──────────────────────────────────────────────────────────
 
+    def _reset_circuit(self) -> None:
+        self._circuit_open = False
+        self._circuit_reason = ""
+
     @property
     def available(self) -> bool:
-        return self._available and self._provider is not None
+        return self._available and not getattr(self, "_circuit_open", False) and self._provider is not None
 
     @property
     def reason(self) -> str:
-        return self._reason
+        return getattr(self, "_circuit_reason", "") or self._reason
 
     @property
     def provider_id(self) -> str:
@@ -249,6 +262,16 @@ class EmbeddingService:
             batch_result: BatchEmbedResult = await batcher.embed([texts[i] for i in pending])
             elapsed = batch_result.elapsed_ms
             failures = batch_result.failures
+            # Every input in this call failed and produced no vector at all. That
+            # is a provider-wide rejection (404 / wrong endpoint / missing model),
+            # not a partial batch: open the circuit so the caller stops asking and
+            # the index stays honestly keyword-only for the rest of this pass.
+            if pending and failures >= len(pending) and not any(v is not None for v in vectors):
+                self._circuit_open = True
+                self._circuit_reason = (
+                    f"embedding provider rejected all {len(pending)} input(s); "
+                    "semantic indexing disabled until reconfigured"
+                )
             new_entries: list[tuple[str, list[float]]] = []
             for slot, vector in zip(pending, batch_result.vectors):
                 vectors[slot] = vector

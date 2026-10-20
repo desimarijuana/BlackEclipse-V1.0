@@ -1192,7 +1192,15 @@ and memory model needed for a real climb:
   surface experiment now carries its target `scope` in `surfaceConfig` (part of
   the experiment signature), and a measured surface materializes exactly one
   inert `candidate` state for the operator list, so the preview/activation flow
-  starts from the experiment itself rather than a guessed scope.
+  starts from the experiment itself rather than a guessed scope. `GET
+  /evolution/candidates/{id}/state` addresses that state by candidate id and the
+  operator panel links `Find derived state` to the shared preview/activation
+  card (ADR-H249).
+- **Drift signal** — `self_improvement/drift.py` compares the newest terminal
+  run window with the preceding baseline, maps only completed/failed to
+  success/failure, reports Wilson intervals, and returns `unmeasured` on thin
+  data. `GET /evolution/drift` exposes it per agent scope; it is read-only and
+  never changes the current harness (ADR-H250).
 
 Config: `HARNESS_RSL_MODE=off|observe|propose|verify|auto`,
 `HARNESS_RSL_STRATEGY=rsl|hillclimb`, `HARNESS_RSL_GENERATIONS=1..3`,
@@ -1202,7 +1210,7 @@ Tests: `python/tests/test_rsl_{state,utility,replay,hillclimb}.py` (28),
 `python/tests/test_rsl_model_proposer.py`,
 `python/tests/test_worktree_invoker.py`, and
 `python/tests/test_rsl_loop.py` (auto mode + conductor entry + measured code
-decision). ADR-H239, H242–H248. The live-surface activation path is implemented
+decision). ADR-H239, H242–H250. The live-surface activation path is implemented
 behind an explicit operator preview, a base-digest check, per-agent scope
 selection and a rollback route; code candidates still land only through the
 existing promotion approval.

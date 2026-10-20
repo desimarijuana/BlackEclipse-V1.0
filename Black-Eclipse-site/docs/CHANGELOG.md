@@ -8,6 +8,22 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **fix(search,ui): stop Bots mode stalling behind a broken embedding provider
+  and a background polling loop.** Three independent causes. (1) The boot search
+  warm-index called `embed_texts` once per document; a provider that rejected
+  every input (the observed `localhost:11434/v1/embeddings 404`) produced
+  thousands of doomed requests on the runtime event loop, starving `/health` and
+  slowing every Python-proxy route. `EmbeddingService` now opens a circuit when
+  all pending inputs in a call fail with no vector, so the rest of the pass is
+  keyword-only until `configure()` resolves the provider again. (2) `hydrate()`
+  in the bots store awaited every per-bot status call before publishing the list;
+  it now paints the list first and hydrates statuses in the background, and
+  concurrent callers (sidebar + workspace) share one in-flight hydrate. (3) The
+  Bots workspace and the open bot thread kept polling every 20 s / 30 s while the
+  keep-alive tab was hidden; both now poll only while the Bots tab is active.
+  Tests: `python/tests/test_search_embeddings.py` (+1). No data/API shape change.
+  no doc change — perf/behavior fix, contracts unchanged.
+
 - **feat(server): split development and production into two independent
   servers.** `scripts/lib/profiles.js` is the ONE profile table: dev = app 3000 +
   harness 8765 + `.next-dev` + `.black-eclipse/dev/` runtime DBs, no proxy;
@@ -19,6 +35,31 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `black dev/eclipse`). Docs updated: `docs/environments.md` (new),
   `docs/QUICKSTART.md`, `docs/NAVIGATION.md`, `docs/local-hostname.md` (marked
   stale for the new proxy port), `.env.example`.
+
+- **feat(harness): W1.3 — the per-run outcome envelope.** One derived, read-only
+  record names how a run was routed: the intent verdict, the resolved surface +
+  allowlist, the refusal code and the capability gap (`GET /runs/{id}/outcome`).
+  Three of the four facts were already persisted (the run row's agent and
+  terminal error code, the `prompt.plan` event, the `ui.capability_gap` and
+  `recovery.decided` events); the intent verdict had no home — it died with the
+  `ui_classify_request` tool result — so that tool now records it once per run
+  (the FIRST verdict wins, because it is the routing). The module owns its own
+  `RunOutcome` table (the `run_lineage.py` pattern) so the ratcheted
+  `persistence.py` does not grow. The run-scoped read routes
+  (`/runs/{id}/events`, `/explain`, `/outcome`) moved to the new
+  `python/harness/routers/runs.py` so `main.py` stays under the hard ceiling
+  (1199 → 1166 lines; the paths are unchanged). A fact that was never recorded
+  is `null` — the envelope never guesses and never infers from prose. Tests:
+  `python/tests/test_run_outcome.py` (12). Docs updated:
+  `docs/harness/architecture.md`, `docs/harness/self-evolution-roadmap.md`,
+  `docs/harness/decisions.md` (ADR-H241).
+
+- **chore(repo): normalize two mixed line-ending files.**
+  `python/harness/capabilities/external.py` and
+  `src/components/screens/capability-studio/generated-section.tsx` mixed CRLF and
+  bare LF, which tripped the mixed-line-ending guard; both are now LF-only, with
+  no content change.
+  no doc change — line-ending hygiene only.
 
 ## 2026-10-19
 
@@ -94,21 +135,6 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   no doc change — line-ending hygiene only.
 
 - **feat(harness): W14 — completion is verified per task type against the evidence the runtime recorded.** `TaskType` gains `data`; every task-type verifier now reads the evidence the runtime really writes. `research` ⇒ traceable sources + a supported, evidence-linked claim + the uncertainty RECORDED (a partial answer naming no open gap is refused; a rejected engine verdict is refused). `document` ⇒ the artifact AND every section the contract required (named deterministically by `goal.parse_required_sections`; the delivered document records the headings it wrote). `workflow` ⇒ observed steps AND an observable state change — the stored run id is no longer accepted as a "result", so a workflow that started, called one tool and produced nothing is refused (the old check could never fail). `finance` ⇒ provenance + freshness + claim-to-evidence, deferring to the Evidence Engine's verdict. `data` ⇒ a reproducible calculation: a recorded formula with its inputs, or an analysis that pinned the program and the inputs it read (`analysis_tools.load_run_analyses` → the task outcome's `analyses` evidence). Three recordings were added so these rules can be checked at all: required document sections, the sandbox's `AnalysisRecord` rows, and an authored document's headings. Tests: `python/tests/test_tasks_verification.py` (37), `python/tests/test_w14_verification_evidence.py` (9).   Docs updated: `docs/harness/task-plan-system.md`, `docs/harness/self-evolution-roadmap.md`, `docs/harness/decisions.md` (ADR-H240).
-
-- **feat(harness): W1.3 — the per-run outcome envelope.** One derived, read-only
-  record names how a run was routed: the intent verdict, the resolved surface +
-  allowlist, the refusal code and the capability gap (`GET /runs/{id}/outcome`).
-  Three of the four facts were already persisted (the run row's agent and
-  terminal error code, the `prompt.plan` event, the `ui.capability_gap` and
-  `recovery.decided` events); the intent verdict had no home — it died with the
-  `ui_classify_request` tool result — so that tool now records it once per run
-  (the FIRST verdict wins, because it is the routing). The module owns its own
-  `RunOutcome` table (the `run_lineage.py` pattern) so the ratcheted
-  `persistence.py` does not grow. A fact that was never recorded is `null` — the
-  envelope never guesses and never infers from prose. Tests:
-  `python/tests/test_run_outcome.py` (12). Docs updated:
-  `docs/harness/architecture.md`, `docs/harness/self-evolution-roadmap.md`,
-  `docs/harness/decisions.md` (ADR-H241).
 
 - **chore(repo): normalize `src/app/globals.css` line endings.** Removed the lone
   CRLF left by an unrelated 17-line addition so the mixed-line-ending guard
@@ -724,6 +750,28 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `test_evolution_rsl_operator.py` (scope persisted) and `test_rsl_loop.py`
   (measured surface creates one state). Docs: `docs/harness/decisions.md`
   (ADR-H248), `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(harness,ui): RSL R9 — link a surface experiment to its derived state.**
+  Added operator-gated `GET /evolution/candidates/{id}/state` (latest derived
+  `HarnessState` plus the full list, newest first). The surface-experiment result
+  now offers `Find derived state`, then opens the shared
+  `SurfaceActivationCard` (scope selector, deterministic diff, base-digest match,
+  refusal reasons, activation) already used by the conductor. The lookup is
+  read-only and never creates a state. Tests:
+  `test_evolution_rsl_routes.py` (candidate state + remote refusal). Docs:
+  `docs/harness/decisions.md` (ADR-H249), `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(harness,ui): RSL R9 — production drift signal for continual learning.**
+  Added `python/harness/self_improvement/drift.py`: recent terminal `HarnessRun`
+  window vs the preceding baseline, mapping only completed/failed to
+  success/failure, Wilson intervals, `unmeasured` on thin data, and `drift` only
+  above the configured drop threshold. `GET /evolution/drift` exposes the
+  read-only signal per agent scope; the conductor panel shows status, recent vs
+  baseline rates, drop and reasons. Tests: `test_drift.py` (stable, drift,
+  unmeasured, scope, store read) and the remote-refusal route test. Docs:
+  `docs/harness/decisions.md` (ADR-H250), `docs/harness/architecture.md`,
   `docs/self-improvement/rsl-implementation-plan.md`.
 
 - **feat(ui): delete a bot from the Bots sidebar list.** Each bot row in the

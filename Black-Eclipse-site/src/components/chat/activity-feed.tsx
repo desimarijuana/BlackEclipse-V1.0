@@ -1,9 +1,10 @@
 'use client';
 
 // ── ActivityFeed — the tools/retrieval a turn used, as a collapsible group ───
-// Sits above the assistant prose. Expanded by default: the steps are visible,
-// with a one-line header summarising "N steps · N sources" (and any failure).
-// The header stays clickable to collapse/expand; a live run keeps it open.
+// Sits above the assistant prose. Expanded by default: EVERY step is visible —
+// the feed never traps steps behind its own scrollbar. Collapsing is the
+// user's choice via the header. The header names the latest running step, so
+// the current operation is readable even after the user collapses the list.
 //
 // Two presentation modes share this one component:
 //   compact  — the floating dock (tight rows)
@@ -50,6 +51,14 @@ export function ActivityFeed({ activities, status, compact = false, autoExpand =
   const working = status === 'queued' || status === 'planning' || status === 'tool_running' || status === 'streaming';
   const failures = useMemo(() => activities.filter((a) => a.status === 'failed').length, [activities]);
   const sources = useMemo(() => sourceCount(activities), [activities]);
+  // The step the agent is on right now (or the last one it finished). Named in
+  // the header so the newest step stays visible even when the list is collapsed.
+  const latest = useMemo(() => {
+    for (let i = activities.length - 1; i >= 0; i -= 1) {
+      if (activities[i].status === 'running') return activities[i];
+    }
+    return activities[activities.length - 1];
+  }, [activities]);
 
   // Expanded by default (the steps stay visible). While the agent works we keep
   // it open; a user who collapses it keeps that choice for the turn.
@@ -99,8 +108,13 @@ export function ActivityFeed({ activities, status, compact = false, autoExpand =
             : failures > 0 ? <AlertCircle size={compact ? 11 : 13} />
             : <Check size={compact ? 11 : 13} />}
         </span>
-        <span className={cn('min-w-0 flex-1', compact ? 'text-[11px]' : 'text-[12px]')}>
+        <span className={cn('min-w-0 flex-1 truncate', compact ? 'text-[11px]' : 'text-[12px]')}>
           <span className="font-medium text-foreground">{working ? 'Working' : 'Activity'}</span>
+          {working && latest && (
+            <span className="ml-1.5 text-foreground/80">
+              {latest.label}{latest.detail ? ` · ${latest.detail}` : ''}
+            </span>
+          )}
           <span className="ml-1.5 text-muted-foreground">{summary}</span>
         </span>
         <ChevronRight
@@ -113,15 +127,13 @@ export function ActivityFeed({ activities, status, compact = false, autoExpand =
         <div
           id={feedId}
           className={cn(compact ? 'space-y-0.5' : 'space-y-1')}
-          // The feed scrolls past a long tool list rather than growing without
-          // bound and pushing the answer off screen.
-          style={{ maxHeight: 280, overflowY: 'auto' }}
         >
           {activities.map((item, index) => (
             <ActivityItemRow
               key={item.id}
               item={item}
               compact={compact}
+              latest={working && latest?.id === item.id}
               capability={index === 0 ? capability : undefined}
             />
           ))}

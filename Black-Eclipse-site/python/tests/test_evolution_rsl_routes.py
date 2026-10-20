@@ -267,6 +267,24 @@ def test_surface_preview_and_scope_override(store, monkeypatch):
     assert states.get_state(state["id"])["scope"] == "eclipse-agent"
 
 
+def test_candidate_state_route_returns_the_derived_state(store):
+    candidate = _surface_candidate(store)
+    run_id = _accepted_rsl_run(store, candidate["id"], "rsl-candidate-state")
+    states = HarnessStateStore(store)
+    state = states.save_state({
+        "scope": "eclipse-agent", "snapshotDigest": "candidate",
+        "candidateId": candidate["id"], "acceptedRunId": run_id,
+        "metrics": {"aggregates": {"task_success": 0.8}},
+        "utility": 0.8, "status": "candidate",
+    })
+
+    result = evolution_router.candidate_harness_state(candidate["id"])
+    assert result["state"]["id"] == state["id"]
+    assert result["states"][0]["candidateId"] == candidate["id"]
+
+    assert evolution_router.candidate_harness_state("missing")["state"] is None
+
+
 def test_surface_activation_refuses_model_identity(store, monkeypatch):
     _use_surface_base(monkeypatch)
     candidate = _surface_candidate(store, model_name="other-model")
@@ -313,6 +331,7 @@ def test_every_rsl_route_refuses_a_remote_caller():
         ("get", "/evolution/experiments"),
         ("get", "/evolution/experiments/rsl-e1"),
         ("get", "/evolution/candidates/evo_x/evidence"),
+        ("get", "/evolution/candidates/evo_x/state"),
         ("get", "/evolution/lessons"),
         ("get", "/evolution/lessons/cand_x/outcomes"),
         ("get", "/evolution/states"),
@@ -327,6 +346,7 @@ def test_every_rsl_route_refuses_a_remote_caller():
         ("post", "/evolution/surface-experiments"),
         ("get", "/evolution/rsl"),
         ("post", "/evolution/rsl/tick"),
+        ("get", "/evolution/drift"),
         ("post", "/evolution/candidates/evo_x/prepare-landing"),
     ):
         response = getattr(client, method)(path)
