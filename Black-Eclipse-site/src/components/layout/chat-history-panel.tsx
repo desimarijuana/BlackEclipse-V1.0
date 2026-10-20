@@ -493,7 +493,7 @@ function HistorySelect<T extends string>({
         size="sm"
         title={title}
         className={cn(
-          'border-border/20 bg-transparent text-[11px] text-muted-foreground hover:bg-transparent hover:text-foreground dark:bg-transparent dark:hover:bg-transparent outline-none focus-visible:border-border/40 focus-visible:ring-0',
+          'history-select border-border/20 bg-transparent text-[11px] text-muted-foreground hover:bg-transparent hover:text-foreground dark:bg-transparent dark:hover:bg-transparent outline-none focus-visible:border-border/40 focus-visible:ring-0',
           className,
         )}
       >

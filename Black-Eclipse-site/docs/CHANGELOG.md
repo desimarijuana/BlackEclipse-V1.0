@@ -8,6 +8,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **fix(ui): the sidebar mode-switcher dropdown reads as real frosted glass and
+  the chat-history sort arrow is no longer oversized.** The mode menu used the
+  shared dropdown tier (`.glass-tooltip`), which is too faint over the
+  already-frosted rail; it is now cut from the SAME material as the nav bar it
+  belongs to (`.nav-menu-glass` reuses the sidebar's own tint + blur tokens,
+  dark/light + glass-off aware). The compact chat sort/filter selects shrank
+  their chevron from 16px to 12px to match the 28px trigger. Files:
+  `src/components/layout/sidebar.tsx`,
+  `src/components/layout/chat-history-panel.tsx`, `src/app/globals.css`. no doc
+  change — UI styling only.
+
 - **fix(ui): the activity feed shows the newest step and no longer hides steps
   behind its own scrollbar.** The feed keeps every step visible (the chat's own
   scroll follows it) and collapsing into the header remains the user's choice;

@@ -283,7 +283,7 @@ export function Sidebar({
                 <ChevronDown size={15} className="shrink-0 opacity-70" />
               </span>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-(--anchor-width)">
+            <DropdownMenuContent align="start" className="w-(--anchor-width) nav-menu-glass">
               {NAV_MODES.map(({ id, labelKey, icon: Icon }) => {
                 const isActive = navMode === id;
                 return (
