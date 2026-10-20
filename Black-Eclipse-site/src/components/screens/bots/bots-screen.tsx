@@ -19,9 +19,10 @@ import { CreateBotDialog } from '@/components/bots/create-bot-dialog';
 import { GroupChatDialog } from '@/components/bots/group-chat-dialog';
 import { GroupChatRoom } from '@/components/bots/group-chat-room';
 import {
-  createAutomation, deleteAutomation, runAutomationNow,
+  deleteAutomation, runAutomationNow,
   type AutomationView,
 } from '@/lib/harness/automation-browser';
+import { duplicateBot } from '@/lib/bots/duplicate';
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
@@ -234,35 +235,11 @@ export function BotsScreen() {
   );
 }
 
-/** Duplicate a bot's configuration as a new PAUSED draft so it can be reviewed
- *  before it ever runs. */
-async function duplicateBot(bot: AutomationView): Promise<AutomationView> {
-  return createAutomation({
-    name: `${bot.name} copy`,
-    description: bot.description ?? bot.action.objective ?? undefined,
-    state: 'paused',
-    trigger: {
-      type: bot.trigger.type,
-      cron: bot.trigger.cron,
-      intervalSeconds: bot.trigger.intervalSeconds,
-      runAt: bot.trigger.runAt,
-      timezone: bot.trigger.timezone,
-      // Carry the non-timed trigger fields too, so duplicating an event/condition
-      // bot does not silently downgrade it to an event type with no target.
-      eventType: bot.trigger.eventType,
-      eventFilter: bot.trigger.eventFilter,
-      condition: bot.trigger.condition,
-      startAt: bot.trigger.startAt,
-      endAt: bot.trigger.endAt,
-    },
-    condition: bot.condition ?? undefined,
-    action: {
-      type: bot.action.type,
-      objective: bot.action.objective,
-      agentId: bot.action.agentId,
-    },
-    tags: [...bot.tags.filter((x) => x !== 'bot'), 'bot'],
-  });
+/** Recency for defaulting to the most recent conversation: the last run, else
+ *  the last edit. */
+function recency(bot: AutomationView): number {
+  const ts = bot.lastRunAt ?? bot.updatedAt;
+  return ts ? Date.parse(ts) : 0;
 }
 
 function CenterEmpty({
@@ -288,11 +265,4 @@ function CenterEmpty({
       </div>
     </div>
   );
-}
-
-/** Recency for defaulting to the most recent conversation: the last run, else
- *  the last edit. */
-function recency(bot: AutomationView): number {
-  const ts = bot.lastRunAt ?? bot.updatedAt;
-  return ts ? Date.parse(ts) : 0;
 }

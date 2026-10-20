@@ -293,6 +293,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   rollout/flip checklist), `docs/NAVIGATION.md`, `docs/harness/architecture.md`,
   `docs/CHANGELOG.md`.
 
+- **feat(ui): delete a bot from the Bots sidebar list.** Each bot row in the
+  Bots navigation panel now has a three-dot menu with **Delete**, opening the
+  same destructive confirmation used by the Bots workspace. Deletion calls the
+  real `/api/automations` endpoint, clears the selection if the deleted bot was
+  open, and rehydrates the shared bot store. No doc change — UI affordance only,
+  contracts unchanged.
+
+- **feat(ui): per-bot sidebar menu — pin, rename, duplicate, reliable delete.**
+  The Bots sidebar three-dot menu (right-aligned) now also offers **Pin/Unpin**
+  (persisted in `localStorage`, pinned bots sort first with a pin glyph),
+  **Rename** (PATCH `/api/automations/{id}` with `{name}` via the existing edit
+  dialog) and **Duplicate configuration** (shared `duplicateBot` helper, moved
+  out of `bots-screen.tsx`). Delete now removes the row immediately via a new
+  optimistic `forget(id)` store action and cannot be resurrected: automation
+  GETs are `no-store` and `hydrate()` carries a monotonic sequence guard so a
+  stale response cannot overwrite newer state. Menu labels reuse the existing
+  `sidebar.pin`/`unpin`/`pinned`/`rename` keys to stay inside the `en.ts` line
+  budget. No doc change — UI affordance only, contracts unchanged.
+
 ## 2026-10-18
 
 - **feat(app,harness): RSL R5 — operator evidence and prepare-landing surface.**

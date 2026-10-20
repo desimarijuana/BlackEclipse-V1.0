@@ -42,6 +42,8 @@ export type {
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
     ...init,
+    // Automation state is live; a cached GET could resurrect a deleted bot.
+    cache: init.cache ?? "no-store",
     headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
   });
   const body = (await res.json().catch(() => ({}))) as T & { error?: string; detail?: string };
