@@ -19,6 +19,7 @@ import type {
   EvolutionLessonOutcomes,
   EvolutionLessonRetireResult,
   EvolutionMetrics,
+  EvolutionModelExperimentInput,
   EvolutionPareto,
   EvolutionModelProposeResult,
   EvolutionProposeInput,
@@ -305,6 +306,15 @@ export async function createEvolutionDriftCandidateBrowser(
   return api<EvolutionDriftCandidateResult>(
     `/api/evolution/drift/candidate${query ? `?${query}` : ""}`,
     { method: "POST", body: "{}" },
+  );
+}
+
+export async function createEvolutionModelExperimentBrowser(
+  input: EvolutionModelExperimentInput,
+): Promise<EvolutionSurfaceExperimentResult> {
+  return api<EvolutionSurfaceExperimentResult>(
+    "/api/evolution/model-experiments",
+    { method: "POST", body: JSON.stringify(input) },
   );
 }
 

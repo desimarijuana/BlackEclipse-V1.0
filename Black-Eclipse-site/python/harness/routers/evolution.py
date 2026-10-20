@@ -26,8 +26,10 @@ from ..deps import require_operator, service
 
 router = APIRouter(tags=["evolution"])
 from .evolution_drift import router as drift_router  # noqa: E402
+from .evolution_models import router as model_router  # noqa: E402
 
 router.include_router(drift_router)
+router.include_router(model_router)
 
 
 def _store() -> EvolutionStore:

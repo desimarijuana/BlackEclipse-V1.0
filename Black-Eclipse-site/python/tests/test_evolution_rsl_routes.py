@@ -18,7 +18,9 @@ from harness.self_improvement.models import HarnessSnapshot
 from harness.self_improvement.state import HarnessStateStore
 import harness.agents as agents_module
 import harness.routers.evolution as evolution_router
+from harness.routers.evolution_models import ModelExperimentRequest
 import harness.routers.evolution_drift as drift_router
+import harness.routers.evolution_models as model_router
 
 
 class _Service:
@@ -234,6 +236,36 @@ def _accepted_rsl_run(store: AgentMemoryStore, candidate_id: str, run_id: str) -
         },
     )
     return run_id
+
+
+def test_model_experiment_queues_a_trial_only_identity_change(store, monkeypatch):
+    _use_surface_base(monkeypatch, "eclipse-agent")
+
+    class _Loop:
+        config = type("C", (), {"mode": "verify", "trials": 1})()
+
+        def budget_ok(self):
+            return True
+
+        def wake(self):
+            return None
+
+    service = evolution_router.service
+    service._rsl_loop = _Loop()
+
+    result = model_router.create_model_experiment(
+        ModelExperimentRequest(
+            scope="eclipse-agent", provider="ollama", model="qwen3:8b",
+            temperature=0.2,
+        ),
+        _=True,
+    )
+    assert result["created"] is True
+    snapshot = result["candidate"]["surfaceConfig"]["snapshot"]
+    assert snapshot["modelProvider"] == "ollama"
+    assert snapshot["modelName"] == "qwen3:8b"
+    assert snapshot["temperature"] == 0.2
+    assert result["candidate"]["subjectType"] == "surface"
 
 
 def test_surface_state_activation_and_rollback(store, monkeypatch):

@@ -9,6 +9,7 @@ import { useT } from "@/lib/i18n/use-t";
 import {
   activateEvolutionSurfaceStateBrowser,
   adoptEvolutionLessonBrowser,
+  createEvolutionModelExperimentBrowser,
   createEvolutionSurfaceExperimentBrowser,
   getEvolutionCandidateStateBrowser,
   getEvolutionLessonOutcomesBrowser,
@@ -123,6 +124,10 @@ export function RslOperatorPanel() {
   const [surfaceTrials, setSurfaceTrials] = useState("1");
   const [surfaceSeed, setSurfaceSeed] = useState("0");
   const [surfaceProblem, setSurfaceProblem] = useState("");
+  const [modelProvider, setModelProvider] = useState("ollama");
+  const [modelName, setModelName] = useState("");
+  const [modelTemperature, setModelTemperature] = useState("");
+  const [modelRunning, setModelRunning] = useState(false);
   const [surfaceRunning, setSurfaceRunning] = useState(false);
   const [surfaceResult, setSurfaceResult] = useState<EvolutionSurfaceExperimentResult | null>(null);
   const [surfaceError, setSurfaceError] = useState<string | null>(null);
@@ -274,6 +279,39 @@ export function RslOperatorPanel() {
   }, [
     surfaceBase, surfaceCandidate, surfaceDataset, surfaceProblem, surfaceSeed,
     surfaceScope, surfaceSplit, surfaceTarget, surfaceTrials, t,
+  ]);
+
+  const runModelExperiment = useCallback(async () => {
+    setModelRunning(true);
+    setSurfaceError(null);
+    try {
+      if (!surfaceScope.trim() || surfaceScope === "global") {
+        throw new Error(t("evolution.surface.modelScope"));
+      }
+      if (!modelName.trim()) throw new Error(t("evolution.surface.modelName"));
+      const temperature = Number(modelTemperature);
+      setSurfaceResult(await createEvolutionModelExperimentBrowser({
+        scope: surfaceScope.trim(),
+        provider: modelProvider.trim() || "ollama",
+        model: modelName.trim(),
+        temperature: modelTemperature.trim() && Number.isFinite(temperature)
+          ? temperature
+          : undefined,
+        dataset: surfaceDataset.trim() || "benchmark_v1",
+        split: surfaceSplit as EvolutionSurfaceExperimentInput["split"],
+        targetDimension: surfaceTarget.trim() || "task_success",
+        trials: Number.isFinite(Number(surfaceTrials)) ? Number(surfaceTrials) : 1,
+        seed: Number.isFinite(Number(surfaceSeed)) ? Number(surfaceSeed) : 0,
+        problemStatement: surfaceProblem.trim() || undefined,
+      }));
+    } catch (err) {
+      setSurfaceError(err instanceof Error ? err.message : "model experiment failed");
+    } finally {
+      setModelRunning(false);
+    }
+  }, [
+    modelName, modelProvider, modelTemperature, surfaceDataset, surfaceProblem,
+    surfaceScope, surfaceSeed, surfaceSplit, surfaceTarget, surfaceTrials, t,
   ]);
 
   const findDerivedState = useCallback(async (candidateId: string, scope: string) => {
@@ -604,6 +642,41 @@ export function RslOperatorPanel() {
             value={surfaceProblem}
             onChange={(event) => setSurfaceProblem(event.target.value)}
           />
+        </div>
+        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          <input
+            className={inputClass}
+            placeholder={t("evolution.surface.modelProvider")}
+            value={modelProvider}
+            onChange={(event) => setModelProvider(event.target.value)}
+          />
+          <input
+            className={inputClass}
+            placeholder={t("evolution.surface.modelName")}
+            value={modelName}
+            onChange={(event) => setModelName(event.target.value)}
+          />
+          <input
+            className={inputClass}
+            placeholder={t("evolution.surface.modelTemperature")}
+            value={modelTemperature}
+            onChange={(event) => setModelTemperature(event.target.value)}
+          />
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void runModelExperiment()}
+            disabled={modelRunning || !modelName.trim()}
+            className="rounded-lg border border-violet-400/30 bg-violet-400/10 px-2.5 py-1 text-[11px] text-violet-300 transition hover:bg-violet-400/15 disabled:opacity-50"
+          >
+            {modelRunning
+              ? t("evolution.surface.modelRunning")
+              : t("evolution.surface.modelCompare")}
+          </button>
+          <span className="text-[9px] text-muted-foreground">
+            {t("evolution.surface.modelTrialOnly")}
+          </span>
         </div>
         <div className="mt-2 flex items-center gap-2">
           <button

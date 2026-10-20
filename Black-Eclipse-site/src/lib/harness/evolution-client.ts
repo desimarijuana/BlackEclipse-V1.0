@@ -486,6 +486,20 @@ export interface EvolutionSurfaceExperimentInput {
   sourceCategory?: string;
 }
 
+export interface EvolutionModelExperimentInput {
+  scope: string;
+  provider: string;
+  model: string;
+  temperature?: number | null;
+  dataset?: string;
+  taskIds?: string[];
+  split?: "optimization" | "validation" | "held_out" | "release";
+  targetDimension?: string;
+  trials?: number;
+  seed?: number;
+  problemStatement?: string;
+}
+
 export interface EvolutionSurfaceExperimentResult {
   success: boolean;
   candidate: EvolutionCandidate;
@@ -852,6 +866,15 @@ export async function createEvolutionSurfaceExperiment(
 ): Promise<EvolutionSurfaceExperimentResult> {
   return request<EvolutionSurfaceExperimentResult>(
     "/evolution/surface-experiments",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export async function createEvolutionModelExperiment(
+  input: EvolutionModelExperimentInput,
+): Promise<EvolutionSurfaceExperimentResult> {
+  return request<EvolutionSurfaceExperimentResult>(
+    "/evolution/model-experiments",
     { method: "POST", body: JSON.stringify(input) },
   );
 }

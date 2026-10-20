@@ -1202,6 +1202,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   shared scope. Docs: `docs/harness/decisions.md` (ADR-H261),
   `docs/harness/architecture.md`.
 
+- **feat(harness,ui): measured model-identity experiments.**
+  `POST /evolution/model-experiments` queues a trial-only comparison where only
+  provider/model/temperature differ from an agent's base snapshot; the surface
+  form exposes the fields. Live activation still refuses model identity. Docs:
+  ADR-H270, `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
 - **feat(harness): start RSL v2 with a Pareto frontier.**
   `self_improvement/pareto.py` compares recorded states on success, target,
   coverage, cost and latency; `GET /evolution/states/pareto` returns the

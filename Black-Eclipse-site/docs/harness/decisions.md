@@ -8744,6 +8744,23 @@ one comparable objective is not enough to claim dominance.
 component summary test. This is the first v2 slice; the acceptance path still
 uses `utility.acceptance`, so no existing decision changes.
 
+## ADR-H270 — Model-identity experiments are measured, never live
+
+**Decision.** `POST /evolution/model-experiments` builds a surface candidate from
+one agent's base snapshot with only provider/model/temperature changed, then
+queues the existing measured surface path. The operator form exposes the same
+fields. The surface preview still refuses model identity for live activation.
+
+**Why.** Model choice is a real self-improvement dimension and should be
+measurable on the same frozen tasks. Applying it live would move model resolution
+away from the front door and its credentials; that is a separate decision, so v2
+keeps the identity comparison trial-only.
+
+**Consequences.** `routers/evolution_models.py` (split out to respect the module
+size budget), the typed client/browser/proxy, the surface form's model fields, and
+`test_evolution_rsl_routes.py` (queued snapshot identity). No new verification or
+activation path.
+
 ## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
 
 **Decision.** W8.4's task-type verifier becomes the ONE authority for "done", and

@@ -1252,8 +1252,13 @@ dominator. It does not change `utility.acceptance`, budgets or activation.
 Tests: `python/tests/test_rsl_pareto.py`; the learning journey renders it through
 `ParetoFrontierCard`. ADR-H269.
 
-Next v2 slices: model-identity proposals; cross-scope lesson transfer; canary
-landing for code.
+**Model-identity experiments (2026-10-20).** `POST
+/evolution/model-experiments` queues one measured comparison where only the
+provider/model/temperature differ from the agent's base. The surface form exposes
+the fields. It is trial-only: live activation still refuses model identity
+(ADR-H270).
+
+Next v2 slices: cross-scope lesson transfer; canary landing for code.
 
 ---
 
