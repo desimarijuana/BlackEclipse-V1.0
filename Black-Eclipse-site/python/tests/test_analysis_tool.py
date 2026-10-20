@@ -95,3 +95,25 @@ def test_computed_result_is_labelled_and_carries_provenance():
     # The surface never names the mechanism.
     for word in ("interpreter", "argv", "stdout", "exit code"):
         assert word not in text.lower()
+
+
+def test_the_schema_names_the_ready_made_recipes():
+    """A recipe the model cannot see is a recipe it will never use."""
+    from harness.analysis_tools import analysis_schema, recipe_catalogue_text
+
+    catalogue = recipe_catalogue_text()
+    assert "returns_series" in catalogue
+    assert "prices" in catalogue  # the input names are visible too
+    description = analysis_schema()["properties"]["recipe"]["description"]
+    assert "returns_series" in description
+
+
+def test_a_failed_computation_shows_its_error():
+    """The model can only fix a program it can see the error from."""
+    from harness.code.execution import AnalysisResult
+    from harness.analysis_tools import _computed_text
+
+    result = AnalysisResult(status="failed", stderr="ModuleNotFoundError: No module named 'sklearn'")
+    text = _computed_text(result, "a thing")
+    assert "ModuleNotFoundError" in text
+    assert "sklearn" in text

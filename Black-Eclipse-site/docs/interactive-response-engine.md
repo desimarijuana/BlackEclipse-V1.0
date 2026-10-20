@@ -167,7 +167,7 @@ renderer to keep in sync.
 | | `details` | collapsible; native `<details>` |
 | Data | `metric_grid` | KPI cards; `unavailable: true` renders an explicit chip |
 | | `data_table` | sort + filter + paginate + TSV copy (all local) |
-| Visualization | `chart` | line, area, bar, stacked_bar, grouped_bar, pie, scatter, bubble, histogram, heatmap, treemap, sunburst, funnel, gauge, radar, waterfall |
+| Visualization | `chart` | line, area, bar, stacked_bar, grouped_bar, pie, scatter, bubble, histogram, heatmap, treemap, sunburst, funnel, gauge, radar, waterfall, **candlestick**, **ohlc** |
 | | `diagram` | flowchart, dependency, state — native SVG, read-only |
 | | `node_graph` | selectable node/edge graph — same layout engine; a node's `detail` shows on selection |
 | | `anatomy` | interactive isometric **mechanism figure**: a declarative scene (slab/cylinder `parts`, `wires`, `legend`, deterministic `stages`) compiled by the Anatomy-derived kit (`lib/anatomy/`, see its `NOTICE`). A stage's `readout` is the ONLY source of live text, so the animation can never invent a value. See ADR-047 and "Isometric mechanism figures" in §3. |
@@ -229,6 +229,18 @@ run to 500 chars because producers attach a short source/citation),
 `timeframe` plus chart-type synonyms (`financial_chart`), and node
 `name`/`title`→`label` / edge `source`/`target`→`from`/`to` (`diagram`,
 `node_graph`).
+
+**Candles and formulas (ADR-H242).** `chart` carries `candlestick`/`ohlc` as
+first-class types, and an OHLC point is `[open, high, low, close]` (the order
+people read a candle in; the renderer maps it to ECharts' `[open, close, lowest,
+highest]`). A series of quadruples is a price chart even when the type is left
+to the `auto` director, and a point that is not a quadruple is a gap — never a
+fabricated candle. The synonyms (`candle`, `candles`, `ohlc_bar`, `price_bar`)
+are RECOVERED in the repair pass for `chart` as well as `financial_chart`: a
+dropped enum left the block invalid and degraded it to prose, which is how a
+"candlestick chart" arrived as a text chart. A derived figure may carry
+`provenance.formula`, which is rendered under the metric and hero figures — a
+number without its formula is an assertion.
 
 **Tone.** Every `tone` (top-level and nested — `flow` steps/paths, `diagram`
 nodes/edges, …) is mapped onto the block's enum *or dropped* before validation.

@@ -283,9 +283,11 @@ class FakeService:
 
     def __init__(self):
         self.run_ids = []
+        self.autonomies = []
 
     async def run(self, request):
         self.run_ids.append(request.runId)
+        self.autonomies.append(request.autonomy)
         assert request.input.context["source"] == "task-scheduler"
         return _Result(request.runId, "completed")
 
@@ -303,3 +305,21 @@ async def test_production_executor_dispatches_a_real_run(mgr):
     assert mgr.get_task(a.id).status == TaskStatus.COMPLETED
     assert mgr.get_task(b.id).status == TaskStatus.COMPLETED
     assert len(service.run_ids) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_task_runs_with_the_autonomy_its_creator_declared(mgr):
+    """A task created for "build this widget" carries the profile it was given.
+
+    Without it the dispatched run had NO profile, so every write was refused
+    with `PROFILE_DENIED` and the task could only ever produce prose.
+    """
+    service = FakeService()
+    executor = build_task_executor(service, mgr)
+    scheduler = TaskScheduler(mgr, executor=executor, max_in_flight=4)
+    plan = mgr.create_plan(CreatePlanInput(name="engineering", metadata={"autonomy": "edit_verify"}))
+    task = mgr.create_task(CreateTaskInput(title="build the widget", plan_id=plan.id))
+    mgr.start_plan(plan.id)
+    await _drain(scheduler)
+    assert mgr.get_task(task.id).status == TaskStatus.COMPLETED
+    assert service.autonomies == ["edit_verify"]

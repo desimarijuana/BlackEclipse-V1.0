@@ -1,7 +1,7 @@
 ---
 title: Native Automation Engine
 status: Current
-last-verified: 2026-10-15
+last-verified: 2026-10-20
 ---
 
 # Native Automation Engine
@@ -243,6 +243,9 @@ execution carries a timeline (`AutomationExecutionEvent`), per-target delivery
 outcomes, and the run's **`output`** (the answer it produced, bounded) — so a
 finished unattended run is READABLE, not just "completed". `GET
 /automations/{id}/status` reports success rate, average duration, cost and tokens.
+`GET /automations/statuses` returns the same lifecycle fields plus only the latest
+execution per automation, in ONE request (optional `?ids=a,b`); it is the list /
+sidebar read, so rendering N bots never fans out N status calls.
 
 ## API and legacy compatibility
 

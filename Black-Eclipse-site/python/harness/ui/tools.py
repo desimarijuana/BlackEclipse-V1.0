@@ -204,7 +204,14 @@ async def _get_operation_status(args: dict[str, Any], ctx: ToolContext) -> Any:
 
 async def _list_blueprints(args: dict[str, Any], ctx: ToolContext) -> Any:
     try:
-        result = _service(ctx).list_blueprints(ListBlueprintsQuery(limit=int(args.get("limit") or 50)), owner_id=None)
+        # The Command Center's board is a MIRROR blueprint; hiding it left the
+        # agent unable to name the dashboard the user asked about, so a request
+        # like "show it in the Command Center" landed on some other page.
+        result = _service(ctx).list_blueprints(
+            ListBlueprintsQuery(limit=int(args.get("limit") or 50),
+                               include_dashboard_mirrors=True),
+            owner_id=None,
+        )
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
     # The id is in the structured payload; put it in the text too so the agent can

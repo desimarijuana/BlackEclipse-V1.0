@@ -29,6 +29,7 @@ def client():
 OPERATOR_ROUTES = [
     ("GET", "/automations", None),
     ("GET", "/automations/metrics", None),
+    ("GET", "/automations/statuses", None),
     ("POST", "/automations", {"name": "x", "trigger": {"type": "manual"}, "action": {"type": "run_agent", "objective": "x"}}),
     ("GET", "/automations/nope", None),
     ("PATCH", "/automations/nope", {"name": "x"}),
@@ -97,6 +98,26 @@ def test_create_validate_dry_run_and_history(client):
 
     assert client.delete(f"/automations/{automation_id}").json()["deleted"] == automation_id
     assert client.get(f"/automations/{automation_id}").status_code == 404
+
+
+def test_statuses_returns_latest_run_for_every_automation(client):
+    created = client.post("/automations", json={
+        "name": "Batch status",
+        "trigger": {"type": "manual"},
+        "action": {"type": "run_agent", "objective": "x"},
+    }).json()["automation"]
+    aid = created["id"]
+
+    statuses = client.get("/automations/statuses").json()["statuses"]
+    assert aid in statuses
+    assert statuses[aid]["automationId"] == aid
+    assert statuses[aid]["lastExecution"] is None
+
+    # The `ids` filter (the client may ask for a subset) is honored.
+    filtered = client.get(f"/automations/statuses?ids={aid}").json()["statuses"]
+    assert set(filtered) == {aid}
+
+    client.delete(f"/automations/{aid}")
 
 
 def test_invalid_cron_is_refused(client):

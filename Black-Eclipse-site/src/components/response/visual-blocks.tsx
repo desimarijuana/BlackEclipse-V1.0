@@ -167,6 +167,14 @@ export function StatHeroBlock({ block }: { block: StatHeroBlockType }) {
                     {stat.provenance.asOf}
                   </p>
                 )}
+                {stat.provenance?.formula && (
+                  <p
+                    className="mt-0.5 truncate font-mono text-[9.5px] text-muted-foreground/60"
+                    title={stat.provenance.formula}
+                  >
+                    {stat.provenance.formula}
+                  </p>
+                )}
               </div>
             );
           })}

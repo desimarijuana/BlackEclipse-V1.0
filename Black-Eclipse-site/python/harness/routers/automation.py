@@ -74,6 +74,16 @@ def create_monitor(body: dict[str, Any] = Body(...), _: bool = Depends(require_o
     return {"success": True, "automation": definition.public()}
 
 
+@router.get("/automations/statuses")
+def automation_statuses(ids: Optional[str] = None, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Latest run per automation in one response (the Bots sidebar's needs).
+
+    Declared before `/{automation_id}` so it is not read as an id.
+    """
+    wanted = [part for part in (ids or "").split(",") if part] or None
+    return {"success": True, "statuses": _svc().statuses(ids=wanted)}
+
+
 @router.get("/automations/{automation_id}")
 def get_automation(automation_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
     definition = _svc().get(automation_id)

@@ -1,0 +1,15 @@
+# The SANDBOX's numerical stack — the packages an `analysis_run` program may
+# import (the allowlist in `python/harness/code/execution.py`) plus the ones a
+# figure recipe draws with.
+#
+# Installed into the interpreter that RUNS the code (the vendored one on
+# Windows), not into the harness process: a computation must report the
+# environment it actually ran in (`package_lock_digest`).
+#
+# Installed by `scripts/setup-python.js` (and checked by `scripts/doctor.js`).
+# A missing one degrades honestly: a figure recipe without matplotlib fails
+# with a ModuleNotFoundError the model can see and act on — it never draws a
+# fabricated chart.
+numpy>=1.26
+pandas>=2.1
+matplotlib>=3.8

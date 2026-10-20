@@ -42,6 +42,11 @@ const ENUM_ALIASES: Record<string, string> = {
   failed: 'error', failure: 'error', errored: 'error',
   queued: 'pending', todo: 'pending', 'not-started': 'pending',
   'flow-chart': 'flowchart', 'state-map': 'state', 'dependency-graph': 'dependency',
+  // A candle chart spelled as a synonym must RECOVER, not be dropped: the
+  // dropped field left the block invalid and degraded it to prose.
+  candle: 'candlestick', candles: 'candlestick', candlesticks: 'candlestick',
+  ohlc_bar: 'candlestick', ohlc_bars: 'candlestick',
+  price_bar: 'candlestick', price_bars: 'candlestick',
 };
 
 function levenshtein(a: string, b: string): number {

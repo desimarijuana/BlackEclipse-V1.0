@@ -1207,13 +1207,13 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         handler=delegate_handler,
         permission="read", risk="low", timeout_ms=600_000,
     ))
-    from ..analysis_tools import analysis_run  # noqa: PLC0415
+    from ..analysis_tools import analysis_run, recipe_catalogue_text as _RECIPE_CATALOG  # noqa: PLC0415
 
     registry.register(ToolDefinition(
         name="analysis_run",
         description=(
             "Work something out from data with a short calculation — a return, a drawdown, "
-            "a correlation, a reconciliation, a what-if. Prefer a ready-made recipe; otherwise "
+            f"a correlation, a reconciliation, a what-if. Ready-made recipes: {_RECIPE_CATALOG}. Otherwise "
             "give a short program that reads `inputs` and puts its answer in `result`. The "
             "result is always labelled as worked out by Eclipse, never as data from a source. "
             "If a needed input is missing, ask — never invent it."

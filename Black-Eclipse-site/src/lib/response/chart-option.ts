@@ -72,6 +72,15 @@ function isTriple(p: unknown): p is [number, number, number] {
   return Array.isArray(p) && p.length >= 3;
 }
 
+/** An OHLC candle point: [open, high, low, close]. */
+function isOhlc(p: unknown): p is [number, number, number, number] {
+  return (
+    Array.isArray(p) &&
+    p.length >= 4 &&
+    p.every((v) => typeof v === 'number' && Number.isFinite(v))
+  );
+}
+
 function colorAt(palette: ChartPaletteColors, index: number): string {
   if (index === 0) return palette.primary;
   return palette.series[(index - 1) % palette.series.length] ?? palette.primary;
@@ -189,6 +198,9 @@ function monotonic(points: ReadonlyArray<[number, number]>): boolean {
  */
 export function directChartType(block: ChartBlock): Exclude<ChartBlock['chartType'], 'auto'> {
   const categories = block.categories ?? [];
+  // OHLC points ARE candles: a series of quadruples is a price chart, not a
+  // line through the closes.
+  if (block.series.some((s) => s.data.some(isOhlc))) return 'candlestick';
   if (categories.length > 0) {
     if (looksTemporal(categories)) return 'line';
     if (block.series.length > 1) return 'line';
@@ -604,6 +616,48 @@ export function buildChartOption(
           data: bars,
         },
       ],
+    } as EChartsOption;
+  }
+
+  // candlestick / ohlc — the point is [open, high, low, close]; ECharts wants
+  // [open, close, lowest, highest]. A point that is not a quadruple is a gap,
+  // never a fabricated candle.
+  if (chartType === 'candlestick' || chartType === 'ohlc') {
+    const cats = (block.categories ?? []).map(String);
+    return {
+      ...base,
+      tooltip: { ...base.tooltip, trigger: 'item', axisPointer: undefined },
+      xAxis: {
+        type: 'category',
+        data: cats,
+        axisLabel: { color: ink.label, fontSize: 10 },
+        axisLine: { lineStyle: { color: ink.split } },
+        splitLine: { show: false },
+      },
+      yAxis: {
+        type: 'value',
+        name: block.yLabel,
+        scale: true,
+        nameTextStyle: { color: ink.label, fontSize: 10 },
+        axisLabel: { color: ink.label, fontSize: 10 },
+        axisLine: { show: false },
+        splitLine: { show: true, lineStyle: { color: ink.split, type: 'dashed' } },
+      },
+      series: block.series.map((s, i) => {
+        const color = s.color ?? colorAt(palette, i);
+        return {
+          name: seriesName(block, i),
+          type: 'candlestick',
+          data: s.data.map((p) => (isOhlc(p) ? [p[0], p[3], p[2], p[1]] : null)),
+          itemStyle: {
+            color,
+            color0: withAlpha(color, 0.45),
+            borderColor: color,
+            borderColor0: withAlpha(color, 0.45),
+          },
+          emphasis: { focus: 'series' as const },
+        };
+      }),
     } as EChartsOption;
   }
 

@@ -8,13 +8,13 @@
 
 import { create } from 'zustand';
 import {
-  getAutomationStatus,
+  getAutomationStatuses,
   listAutomations,
-  type AutomationStatusView,
+  type AutomationStatusSummaryView,
   type AutomationView,
 } from '@/lib/harness/automation-browser';
 
-const MAX_STATUS_FETCH = 60;
+/** botId → its latest run. Filled by ONE batched request (not one per bot). */
 
 /** botId → the last execution id whose output the operator has actually seen
  *  in that bot's chat. The sidebar's unread dot is driven by this: a bot has an
@@ -73,7 +73,7 @@ const deletedIds = new Set<string>();
 
 interface BotsStore {
   bots: AutomationView[];
-  statusById: Record<string, AutomationStatusView>;
+  statusById: Record<string, AutomationStatusSummaryView>;
   /** botId → last seen execution id (drives the unread dot). */
   seenRuns: Record<string, string>;
   /** Record that a bot's latest run has been seen (clears its unread dot). */
@@ -213,16 +213,17 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
       const sel = get().selectedId;
       if (sel && !bots.some((b) => b.id === sel)) set({ selectedId: null });
 
-      // Fetch status for every bot (not just active ones) so a paused bot with an
-      // unseen run still surfaces its dot until the operator opens it.
-      const candidates = bots.slice(0, MAX_STATUS_FETCH);
-      const results = await Promise.allSettled(candidates.map((b) => getAutomationStatus(b.id)));
-      if (seq !== hydrateSeq) return;
-      const statusById: Record<string, AutomationStatusView> = {};
-      results.forEach((r, i) => {
-        if (r.status === 'fulfilled') statusById[candidates[i].id] = r.value;
-      });
-      set({ statusById });
+      // Fetch the latest run for every bot in ONE request (not one per bot) so a
+      // large bot list does not fan out N HTTP round-trips. Statuses drive only
+      // the unread dot and subtitle, so a failure keeps the previous map instead
+      // of blanking the sidebar.
+      try {
+        const statusById = await getAutomationStatuses();
+        if (seq !== hydrateSeq) return;
+        set({ statusById });
+      } catch {
+        /* keep the previous statuses; the next hydrate retries */
+      }
     })().finally(() => {
       hydrateInFlight = null;
     });

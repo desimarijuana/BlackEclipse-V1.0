@@ -316,3 +316,44 @@ describe('series weight and bands', () => {
     expect(option.series).toHaveLength(1);
   });
 });
+
+describe('candlestick charts', () => {
+  const OHLC = [
+    { type: 'chart', chartType: 'candlestick', categories: ['2026-01-02', '2026-01-03'],
+      series: [{ name: 'NVDA', data: [[10, 12, 9.5, 11], [11, 13, 10.5, 12.5]] }] },
+  ];
+
+  it('accepts a candlestick chart with OHLC points (it used to be rejected outright)', () => {
+    const block = chart(OHLC[0]);
+    expect(block.chartType).toBe('candlestick');
+    expect(block.series[0].data[0]).toEqual([10, 12, 9.5, 11]);
+  });
+
+  it('maps [open, high, low, close] onto the ECharts candle order', () => {
+    const option = buildChartOption(chart(OHLC[0]), palette) as any;
+    expect(option.series[0].type).toBe('candlestick');
+    // ECharts wants [open, close, lowest, highest].
+    expect(option.series[0].data[0]).toEqual([10, 11, 9.5, 12]);
+    expect(option.xAxis.data).toEqual(['2026-01-02', '2026-01-03']);
+  });
+
+  it('detects candles automatically when the type is left to the director', () => {
+    const block = chart({
+      type: 'chart', chartType: 'auto',
+      series: [{ name: 'NVDA', data: [[10, 12, 9.5, 11], [11, 13, 10.5, 12.5]] }],
+    });
+    expect(directChartType(block)).toBe('candlestick');
+    expect(resolveChartType(block)).toBe('candlestick');
+  });
+
+  it('leaves a non-quadruple point as a gap, never a fabricated candle', () => {
+    const option = buildChartOption(
+      chart({
+        type: 'chart', chartType: 'candlestick',
+        series: [{ name: 'NVDA', data: [[10, 12, 9.5, 11], null] }],
+      }),
+      palette,
+    ) as any;
+    expect(option.series[0].data[1]).toBeNull();
+  });
+});

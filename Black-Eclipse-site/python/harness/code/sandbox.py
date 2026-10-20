@@ -109,6 +109,10 @@ def build_env(extra: Optional[dict[str, str]] = None) -> dict[str, str]:
                 "no_proxy", "HARNESS_CALLBACK_TOKEN", "CRON_SECRET"):
         env.pop(key, None)
     env["PYTHONIOENCODING"] = "utf-8"
+    # No .pyc writes: the interpreter's tree is READ-only for a sandboxed
+    # program (the path confinement denies writes outside its own folder), and
+    # a bytecode cache would be a way to leave a file behind for the NEXT run.
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     if extra:
         env.update({str(k): str(v) for k, v in extra.items()})
     return env

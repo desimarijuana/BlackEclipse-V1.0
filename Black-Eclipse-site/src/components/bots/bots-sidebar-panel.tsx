@@ -28,7 +28,7 @@ import { duplicateBot } from '@/lib/bots/duplicate';
 import { ghostSpecFromId } from '@/lib/bots/ghost';
 import { executionLabel, isTerminalExecution } from '@/lib/bots/state';
 import { deleteAutomation, updateAutomation } from '@/lib/harness/automation-browser';
-import type { AutomationStatusView, AutomationView } from '@/lib/harness/automation-browser';
+import type { AutomationStatusSummaryView, AutomationView } from '@/lib/harness/automation-browser';
 import type { BotMessage } from '@/lib/bots/chat-store';
 
 /** Most-recent activity for a bot: its last chat message, else its last run,
@@ -37,7 +37,7 @@ function lastActivityMs(
   botId: string,
   fallback: string | undefined | null,
   byBot: Record<string, BotMessage[]>,
-  statusById: Record<string, AutomationStatusView>,
+  statusById: Record<string, AutomationStatusSummaryView>,
 ): number {
   const msgs = byBot[botId];
   const lastMsg = msgs && msgs.length > 0 ? Date.parse(msgs[msgs.length - 1].at) : 0;

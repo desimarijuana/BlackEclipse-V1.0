@@ -392,10 +392,21 @@ def test_prompt_char_ceiling():
     construct a missing capability (`capability_request` -> `capability_build`)
     instead of refusing, while keeping activation separate. One guidance
     paragraph; re-pinned to the measured size.
+
+    Raised to 33632 by the computed-results guidance: the agent must COMPUTE
+    in the sandbox (`analysis_run`) when the finance tools do not cover the
+    derivation — the previous prompt said financial models were "subject matter
+    you reason about and explain, not actions you execute", so the sandbox was
+    never used — and the reports guidance: a report/deliverable FILE is
+    `eclipse_report`, not prose. Two genuinely new capabilities, two guidance
+    paragraphs; re-pinned to the measured size.
+    Re-pinned 33632->33724 for the same guidance with the CORRECT import list
+    (the allowed numerical stack; a figure is drawn by the ready-made recipes,
+    not by the program).
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 31834, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 33724, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

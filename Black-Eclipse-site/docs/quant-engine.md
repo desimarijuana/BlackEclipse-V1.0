@@ -250,6 +250,24 @@ artifacts (a signal timeline, a plan, a report) or explicit typed errors, so the
 model has no tool that returns a fabricated result. Reports and plans always
 reference the experiment id / strategy version / seed they were built from.
 
+### Asking for a model (ADR-H242)
+
+Two things used to make "build me a quant model" unreachable:
+
+- **The request never routed here.** The intent classifier did not know that a
+  quantitative model is a software artifact, so the turn read as `not_code`
+  and never reached the quant tools or the sandbox. The vocabulary now carries
+  the SPECIFIC phrases (`quant model`, `trading model`, `alpha model`,
+  `factor model`, `momentum strategy`, `trading strategy`, `quant strategy`,
+  `backtest strategy`) — specific on purpose, because a bare "model" is a
+  finance word ("the business model") and a bare "strategy" is a conversation.
+- **The spec schema was opaque.** `create_strategy` declared its `strategy`
+  argument as a bare `object`, so the model had to guess the shape from
+  validation errors. The schema now publishes the real `StrategySpec` fields
+  (`id`, `name`, `universe.symbols`, `timeframes.primary`, `indicators[]`,
+  `rules.entry`/`rules.exit`, `risk`, `position_sizing`, `execution`) with a
+  minimal working example.
+
 ## Indicators, expressions & benchmark metrics
 
 - **Indicator library** (`indicators.py`): SMA, EMA, WMA, RMA, RSI, ATR, StdDev,

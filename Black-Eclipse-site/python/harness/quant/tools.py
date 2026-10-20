@@ -44,6 +44,7 @@ from .robustness import (
 )
 from .sdk_runtime import run_strategy_source
 from .strategy import bump_version, errors_only
+from .strategy_schema import STRATEGY_SCHEMA
 from .walkforward import WalkForwardConfig, WalkForwardEngine
 
 _CAPABILITY = {
@@ -916,13 +917,10 @@ async def run_robustness_analysis(args: dict[str, Any], ctx: Any) -> tuple[str, 
 
 # ── Registration ─────────────────────────────────────────────────────────────
 
-_STRATEGY_INPUT = {
-    "type": "object",
-    "properties": {
-        "strategy": {"type": "object", "description": "Structured strategy spec."},
-        "strategyYaml": {"type": "string", "description": "Strategy spec as YAML/JSON text."},
-    },
-}
+_STRATEGY_INPUT = {"type": "object", "properties": {
+    "strategy": STRATEGY_SCHEMA,
+    "strategyYaml": {"type": "string", "description": "Strategy spec as YAML/JSON text."},
+}}
 
 
 def register_quant_tools(registry: Any) -> list[str]:

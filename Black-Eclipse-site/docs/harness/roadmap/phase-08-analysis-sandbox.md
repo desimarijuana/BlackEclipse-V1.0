@@ -118,6 +118,18 @@ with `computed` instead of `external`.
 - No reading of `jdds.db` except through data the run already received as input.
 - Do not commit, push, or open a PR.
 
+> **Corrected 2026-10-20 (ADR-H242).** The three "no …" claims above were
+> SOURCE-level rules, and three vectors walked past them: an aliased
+> `__import__`, a URL built by concatenation, and `numpy`/`pandas` reading a
+> path directly. The sandbox now enforces the boundary at RUNTIME — a guarded
+> `__import__`, a safe `os`/`sys`/`importlib`/`builtins`, denied privilege
+> modules, an audit hook that refuses a network, a process, native code and any
+> file outside the program's own folder, and confined library readers/writers.
+> It is still a Python-level confinement: the child runs as the host user, so
+> the honest statement is "the program cannot reach the network, another
+> process, native code, or a file outside its own folder", not "the sandbox is
+> an OS boundary".
+
 ## 6. Exact contracts to create
 
 ### 6.1 The execution contract — `python/harness/code/execution.py`

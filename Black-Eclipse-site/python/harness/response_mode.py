@@ -226,7 +226,10 @@ def _directive_body(mode: str, learning: bool) -> str:
             "present a DATA VISUALIZATION. Retrieve the real values with tools "
             "FIRST, then render them with `chart`/`financial_chart`/`data_table`/"
             "`metric_grid`; every number must come from a tool result you hold or "
-            "be marked `unavailable`. Carry the source and as-of where relevant. "
+            "be marked `unavailable`. A price/OHLCV chart is a `chart` block with "
+            "`chartType: \"candlestick\"` and one [open, high, low, close] point "
+            "per bar (use `financial_chart` only for a symbol the user named). "
+            "Carry the source and as-of where relevant. "
             "Never invent a series, price or metric."
         )
     if mode == "simulation":

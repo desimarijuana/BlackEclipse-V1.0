@@ -447,7 +447,7 @@ def list_recipes() -> list[dict[str, Any]]:
 def run_recipe(
     name: str, inputs: dict[str, Any], *, output_dir: Optional[Path] = None,
     timeout_s: int = 120, tool_resolver: Optional[ToolResolver] = None,
-    kernel: Optional[Any] = None,
+    kernel: Optional[Any] = None, cancel_event: Optional[Any] = None,
 ) -> AnalysisResult:
     """Run a named recipe, or REFUSE honestly when a required input is missing.
 
@@ -495,6 +495,7 @@ def run_recipe(
         raise AnalysisError(INPUT_INVALID, str(exc)) from exc
     result = run_analysis(
         request, output_dir=output_dir, tool_resolver=tool_resolver, kernel=kernel,
+        cancel_event=cancel_event,
     )
     if result.status == "ok" and recipe.figure_kind:
         # The figure payload (§6.1): what was drawn, from which recorded inputs,

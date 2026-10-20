@@ -449,12 +449,15 @@ def block_headings(blocks: Optional[Sequence[dict[str, Any]]]) -> list[str]:
 
 def report_authored_document(
     ctx: Any, *, title: str, filename: str, headings: Sequence[str],
+    artifact_id: str = "", artifact_uri: str = "",
 ) -> None:
     """Report the document this run WROTE to the run's document collector.
 
     Best-effort and never fatal: the collector turns this into the bounded
     `authored` entry (its recorded section titles). Without a collector the
-    document still exists — only the recorded structure is missing.
+    document still exists — only the recorded structure is missing. The
+    artifact id travels with it, so the chat can offer the FILE instead of
+    leaving the user to hunt for it in the Artifact Center.
     """
     sink = getattr(ctx, "document_sink", None)
     if sink is None:
@@ -465,6 +468,8 @@ def report_authored_document(
             "kind": "authored_document",
             "title": title or filename,
             "state": "DELIVERED",
+            "artifactId": artifact_id or None,
+            "uri": artifact_uri or None,
             "ir": {"sections": [{"title": str(h)} for h in headings[:MAX_REPORTED_SECTIONS]]},
         })
     except Exception:  # noqa: BLE001 - the report is additive; never break the write

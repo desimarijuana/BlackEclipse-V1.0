@@ -8,6 +8,7 @@ import type {
   ActionView,
   AutomationMetricsView,
   AutomationState,
+  AutomationStatusSummaryView,
   AutomationStatusView,
   AutomationView,
   BreakerState,
@@ -26,6 +27,7 @@ export type {
   ActionView,
   AutomationMetricsView,
   AutomationState,
+  AutomationStatusSummaryView,
   AutomationStatusView,
   AutomationView,
   BreakerState,
@@ -149,6 +151,13 @@ export async function getAutomationStatus(id: string): Promise<AutomationStatusV
     `/api/automations/${encodeURIComponent(id)}/status`,
   );
   return body.status;
+}
+
+export async function getAutomationStatuses(): Promise<Record<string, AutomationStatusSummaryView>> {
+  const body = await api<{ statuses: Record<string, AutomationStatusSummaryView> }>(
+    "/api/automations/statuses",
+  );
+  return body.statuses ?? {};
 }
 
 export async function listAutomationHistory(id: string): Promise<ExecutionView[]> {

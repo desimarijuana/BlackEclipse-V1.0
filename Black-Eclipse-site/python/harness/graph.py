@@ -586,7 +586,7 @@ def build_graph(
         allowed=allowed,
         delegation_depth=int((request.input.context or {}).get("delegationDepth") or 0),
         # Phase 8: the analysis sandbox is OFF per run unless the caller enables it.
-        analysis_enabled=bool(request.analysisEnabled),
+        analysis_enabled=bool(request.analysisEnabled), cancel_event=cancel_event,
         # The approval store, so the terminal authorizer can claim a single-use
         # approval for an `ask`-classified command.
         approvals=approvals,

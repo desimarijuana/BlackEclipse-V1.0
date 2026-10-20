@@ -650,6 +650,25 @@ class AutomationStore:
         ).fetchone()
         return _exec_row(row) if row else None
 
+    def last_executions(self) -> dict[str, dict[str, Any]]:
+        """The latest execution per automation, in ONE query.
+
+        The sidebar needs only the last run of every bot (unread dot + subtitle).
+        Asking `last_execution` once per bot is an N+1 fan-out that grows with the
+        list; a window function collapses it to a single indexed scan.
+        """
+        rows = self._db.execute(
+            """
+            SELECT * FROM (
+              SELECT *, ROW_NUMBER() OVER (
+                PARTITION BY automationId ORDER BY startedAt DESC
+              ) AS rn
+              FROM AutomationExecution
+            ) WHERE rn = 1
+            """
+        ).fetchall()
+        return {row["automationId"]: _exec_row(row) for row in rows}
+
     # ── Execution timeline events ────────────────────────────────────────────
     def append_execution_event(self, execution_id: str, event_type: str, data: Optional[dict[str, Any]] = None) -> None:
         row = self._db.execute(

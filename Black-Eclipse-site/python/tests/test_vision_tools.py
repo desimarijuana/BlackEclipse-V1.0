@@ -160,4 +160,10 @@ def test_screenshot_tool_reports_unavailable_without_display(monkeypatch) -> Non
     result = asyncio.run(registry.execute("screenshot_analyze", "c1", {"question": "q"}, _ctx()))
     assert result.ok is True
     if result.data["ok"] is False:
-        assert result.data["error"]["errorClass"] in ("UNSUPPORTED_SOURCE", "NO_SOURCE", "NO_VISION_MODEL")
+        # An honest refusal, whichever reason applies: no model at all, a source
+        # this mode cannot read, or — when a cloud model IS configured — the
+        # local-only privacy policy refusing a SENSITIVE source (a screen
+        # capture) that may not leave the machine.
+        assert result.data["error"]["errorClass"] in (
+            "UNSUPPORTED_SOURCE", "NO_SOURCE", "NO_VISION_MODEL", "PRIVACY_REFUSED",
+        )

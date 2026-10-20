@@ -70,9 +70,12 @@ async def _report(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         return _err(exc)
 
     # The writer knows the headings it wrote: record them so a contract's
-    # required sections can be checked against the document (W14).
+    # required sections can be checked against the document (W14), with the
+    # artifact id so the chat can offer the file.
     report_authored_document(
         ctx, title=title, filename=filename, headings=block_headings(blocks),
+        artifact_id=str(getattr(artifact, "id", "") or ""),
+        artifact_uri=f"artifact://{getattr(artifact, 'id', '')}" if getattr(artifact, "id", "") else "",
     )
 
     mime = report_mime(raw_format)

@@ -9,12 +9,27 @@ const fs = require("fs");
 const path = require("path");
 
 const vendored = path.join(__dirname, "vendor", "python", "python.exe");
+const requirements = path.join(__dirname, "..", "python", "requirements.txt");
+const analysisRequirements = path.join(__dirname, "..", "python", "analysis-requirements.txt");
+
+// The SANDBOX runs in the vendored interpreter (`interpreter_path()` resolves
+// `scripts/vendor/python/python.exe`), never in whatever Python happens to be
+// on PATH. So on Windows the vendored one is provisioned FIRST and used for
+// every install — a system Python cannot serve the sandbox.
+if (process.platform === "win32" && !fs.existsSync(vendored)) {
+  console.log("[setup] Provisioning the vendored Python the sandbox runs in...");
+  try {
+    execSync(`node "${path.join(__dirname, "setup-embedded-python.js")}"`, { stdio: "inherit" });
+  } catch {
+    console.warn("[setup] Could not provision the vendored Python. The analysis sandbox");
+    console.warn("         will report SANDBOX_UNAVAILABLE until it exists.");
+  }
+}
+
 const candidates =
   process.platform === "win32"
     ? [fs.existsSync(vendored) ? vendored : null, "python", "python3", "py"].filter(Boolean)
     : ["python3", "python"];
-
-const requirements = path.join(__dirname, "..", "python", "requirements.txt");
 
 function hasModule(cmd, module, timeout = 20000) {
   try {
@@ -64,7 +79,28 @@ for (const cmd of candidates) {
     }
   }
 
-  // 3. Computer Use Engine backends (Pillow capture, Windows UIA + OCR). OPTIONAL
+  // 3. The SANDBOX's numerical stack (numpy, pandas, matplotlib). This is the
+  //    environment an `analysis_run` program executes in, so it must live in
+  //    the SAME interpreter the sandbox runs (the vendored one on Windows).
+  if (hasModule(cmd, "numpy") && hasModule(cmd, "pandas") && hasModule(cmd, "matplotlib")) {
+    console.log("[setup] Python analysis stack already installed.");
+  } else {
+    console.log("[setup] Installing the analysis stack (numpy, pandas, matplotlib)...");
+    try {
+      execSync(`"${cmd}" -m pip install -r "${analysisRequirements}" --disable-pip-version-check`, {
+        stdio: "inherit",
+        timeout: 600000,
+      });
+      console.log("[setup] Python analysis stack installed.");
+    } catch {
+      console.warn("[setup] Could not install the analysis stack. The sandbox can still run,");
+      console.warn("         but a computation that needs numpy/pandas/matplotlib will fail");
+      console.warn("         honestly. Install later with:");
+      console.warn(`         ${cmd} -m pip install -r python/analysis-requirements.txt`);
+    }
+  }
+
+  // 4. Computer Use Engine backends (Pillow capture, Windows UIA + OCR). OPTIONAL
   //    in effect: a missing one degrades to an honest UNAVAILABLE, but installing
   //    it by default makes the desktop toolset fully functional out of the box.
   //    The `-r requirements.txt` install above already includes these (with

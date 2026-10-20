@@ -304,6 +304,33 @@ class AutomationService:
             "lastExecution": self._store.last_execution(automation_id),
         }
 
+    def statuses(self, *, ids: Optional[list[str]] = None) -> dict[str, dict[str, Any]]:
+        """Lightweight status for every automation, in two queries total.
+
+        The Bots sidebar only renders the latest run (unread dot + subtitle), so
+        it must not call the full `status()` per bot: that fans out one HTTP
+        request and a 200-row execution scan per bot. Here the definitions and
+        the latest executions come back together; full counters stay available
+        from the per-bot `/status` route used by the Details panel.
+        """
+        definitions = self._store.list_automations(limit=1000)
+        wanted = set(ids) if ids else None
+        if wanted is not None:
+            definitions = [d for d in definitions if d.id in wanted]
+        latest = self._store.last_executions()
+        return {
+            d.id: {
+                "automationId": d.id,
+                "state": d.state,
+                "version": d.version,
+                "nextRunAt": d.next_run_at,
+                "lastRunAt": d.last_run_at,
+                "breaker": d.breaker,
+                "lastExecution": latest.get(d.id),
+            }
+            for d in definitions
+        }
+
     def metrics(self) -> dict[str, Any]:
         return self._engine.metrics()
 

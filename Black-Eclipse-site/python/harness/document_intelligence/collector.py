@@ -83,6 +83,10 @@ def _bounded(payload: dict[str, Any]) -> dict[str, Any]:
         "title": payload.get("title") or ir.get("title"),
         "fileName": ir.get("fileName"),
         "state": payload.get("state"),
+        # The artifact a document this run WROTE produced: the chat offers the
+        # file instead of leaving the user to hunt for it.
+        "artifactId": payload.get("artifactId"),
+        "uri": payload.get("uri"),
         "capabilities": payload.get("capabilities"),
         "pageCount": payload.get("pageCount"),
         "sheetCount": payload.get("sheetCount"),

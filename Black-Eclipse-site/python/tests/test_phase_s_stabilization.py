@@ -63,7 +63,14 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # reviews/candidates instead of guessing). Matches the same test.
     # Re-pinned 30897->31834 for the Capability Builder guidance (construct a
     # missing capability instead of refusing; activation stays separate).
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 31834
+    # Re-pinned 31834->33632 for the computed-results guidance (COMPUTE in the
+    # sandbox with `analysis_run` instead of answering in prose) and the
+    # reports guidance (a report FILE is `eclipse_report`). Matches the same
+    # test in `test_memory_tools.py`.
+    # Re-pinned 33632->33724 for the same guidance with the CORRECT import list
+    # (the allowed numerical stack; a figure is drawn by the ready-made
+    # recipes, not by the program). Matches the same test.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 33724
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -50,13 +51,29 @@ class AnalysisRunInput(BaseModel):
     reset: bool = False
 
 
+def recipe_catalogue_text() -> str:
+    """The ready-made recipes as ONE line, for the tool description.
+
+    Built from the registry, so the description can never drift from the
+    recipes that actually exist.
+    """
+    rows = []
+    for recipe in list_recipes():
+        names = ", ".join(str(i.get("name")) for i in recipe.get("inputs") or [])
+        rows.append(f"{recipe.get('name')}({names}) - {recipe.get('answers')}")
+    return "; ".join(rows)
+
+
 def analysis_schema() -> dict[str, Any]:
     return {
         "type": "object",
         "properties": {
             "recipe": {
                 "type": "string",
-                "description": "A ready-made analysis to run (preferred). Get the list from the tool description.",
+                "description": (
+                    "A ready-made analysis to run (preferred). The ready-made recipes are: "
+                    f"{recipe_catalogue_text()}"
+                ),
             },
             "source": {
                 "type": "string",
@@ -285,9 +302,15 @@ def _tool_resolver_for(ctx: ToolContext, deadline: float) -> Optional[ToolResolv
 
 
 def _computed_text(result: AnalysisResult, purpose: str) -> str:
-    """The plain, user-facing rendering — never interpreter/argv vocabulary."""
+    """The plain, user-facing rendering — never interpreter/argv vocabulary.
+
+    A failure carries its REASON: the model can only fix a program it can see
+    the error from, so a silent "I couldn't work that out" is a dead end.
+    """
     if result.status != "ok":
-        return f"I couldn't work that out ({result.status})."
+        detail = (result.stderr or "").strip()
+        tail = f" The error was: {detail[:600]}" if detail else ""
+        return f"I couldn't work that out ({result.status}).{tail}"
     lines = ["Worked out by Eclipse.", f"What: {purpose}."]
     for key, value in list(result.outputs.items())[:12]:
         lines.append(f"  {key}: {value}")
@@ -301,13 +324,54 @@ def _computed_text(result: AnalysisResult, purpose: str) -> str:
     return "\n".join(lines)
 
 
+def _analysis_allowed() -> bool:
+    """Whether the RUNTIME allows sandboxed computation at all (W14).
+
+    The per-run flag is a REQUEST; the operator's setting is the DECISION. A
+    client can ask for the sandbox, but it cannot switch on what the operator
+    switched off. `HARNESS_ANALYSIS_ENABLED=0` turns the whole surface off.
+    """
+    flag = os.environ.get("HARNESS_ANALYSIS_ENABLED", "1").strip().lower()
+    return flag not in ("0", "false", "no", "off")
+
+
+def _cancel_signal(ctx: ToolContext) -> Optional[Any]:
+    """The sandbox's cancel signal, mirroring the run's own (W14).
+
+    The runtime's cancel event is an `asyncio.Event`; the sandbox waits on a
+    `threading.Event`. A watcher task bridges them, so a cancelled run kills
+    the analysis process tree.
+    """
+    import threading  # noqa: PLC0415
+
+    source = getattr(ctx, "cancel_event", None)
+    if source is None:
+        return None
+    signal = threading.Event()
+    try:
+        loop = asyncio.get_running_loop()
+
+        async def _watch() -> None:
+            try:
+                await source.wait()
+            except Exception:  # noqa: BLE001 - a watcher must never raise
+                return
+            signal.set()
+
+        loop.create_task(_watch())
+    except Exception:  # noqa: BLE001 - no loop: the call is synchronous anyway
+        return None
+    return signal
+
+
 async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     from .code.tools import emit_code_event  # noqa: PLC0415
 
     model = AnalysisRunInput(**{k: v for k, v in args.items() if v is not None})
 
-    # Default OFF per run — discovery is not activation.
-    if not bool(getattr(ctx, "analysis_enabled", False)):
+    # Default OFF per run — discovery is not activation. The request asks for
+    # it; the operator's setting decides (W14).
+    if not bool(getattr(ctx, "analysis_enabled", False)) or not _analysis_allowed():
         await emit_code_event(ctx, "analysis.refused", {"code": ANALYSIS_NOT_ENABLED})
         return _refusal(ANALYSIS_NOT_ENABLED, "analysis isn't turned on for this session")
 
@@ -344,11 +408,15 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         if model.reset:
             reset_kernel_for_context(ctx)
         kernel = kernel_for_context(ctx)
+        # The run's cancellation becomes the sandbox's: a cancelled run kills
+        # its process tree instead of leaving a child behind (W14).
+        cancel = _cancel_signal(ctx)
         try:
             if model.recipe:
                 return run_recipe(
                     model.recipe, model.inputs, output_dir=output_dir,
                     timeout_s=model.timeout_s, tool_resolver=resolver, kernel=kernel,
+                    cancel_event=cancel,
                 )
             request = AnalysisRequest(
                 source=model.source or "",
@@ -362,6 +430,7 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
             )
             return run_analysis(
                 request, output_dir=output_dir, tool_resolver=resolver, kernel=kernel,
+                cancel_event=cancel,
             )
         finally:
             release_kernel(kernel)

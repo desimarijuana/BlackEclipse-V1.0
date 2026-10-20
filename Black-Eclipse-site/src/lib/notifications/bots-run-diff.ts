@@ -1,6 +1,6 @@
 // ── Bot run completion diffing ───────────────────────────────────────────────
 // Pure helper for the global bot-run watcher. Bots ARE automations; each bot's
-// latest execution is readable from GET /api/automations/{id}/status
+// latest execution is readable from the batched GET /api/automations/statuses
 // (`lastExecution`). This module answers the only question per poll: which bot
 // runs reached a NOTIFIABLE terminal state since the last one?
 //

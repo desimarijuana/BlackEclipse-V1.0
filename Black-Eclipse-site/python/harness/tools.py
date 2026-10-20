@@ -231,6 +231,10 @@ class ToolContext:
     # False: discovery is not activation. Set by the graph from
     # `RunRequest.analysisEnabled`.
     analysis_enabled: bool = False
+    # The run's cancellation signal (an `asyncio.Event`). A long-running
+    # sandbox call watches it and kills its process tree, so a cancelled run
+    # does not leave a child behind (W14).
+    cancel_event: Optional[Any] = None
     # The process-wide approval store (MCP 5G / code actions). Attached per run so
     # the `terminal_run` effect authorizer can claim a single-use approval for an
     # `ask`-classified command. None = no approvals reachable (an `ask` command

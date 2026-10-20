@@ -103,6 +103,20 @@ async function runBackgroundBootTasks(): Promise<void> {
     if (globalForBoot.__beBootBackgroundRan) return;
     globalForBoot.__beBootBackgroundRan = true;
 
+    // Pre-start the Python agent runtime FIRST. A cold spawn imports the entire
+    // agent stack (~9s on a warm machine, longer on a loaded one), and Bots is
+    // usually the first surface a user opens that needs it. The DB seeds and
+    // schedulers below run sequentially and can take a while, so scheduling this
+    // last meant Bots paid the whole cold start. Starting it here boots Python
+    // while the rest of the pipeline runs; concurrent requests still coalesce
+    // onto this same spawn. Non-blocking: the server is fully up.
+    void import("@/lib/harness/python-runtime")
+      .then((m) => m.ensurePythonRuntime())
+      .then((ok) => {
+        if (!ok) console.error("[startup] Python runtime unavailable — agent runs will 503");
+      })
+      .catch((err) => console.error("[startup] python runtime warm-up failed:", err));
+
     // Dynamic import keeps these out of the client bundle.
     const { startScheduler, warmUpAllMarkets, startUniverseSync } = await import("@/lib/scraper/scheduler");
     const { seedUniverse } = await import("@/lib/scraper/price-scraper");
@@ -216,21 +230,6 @@ async function runBackgroundBootTasks(): Promise<void> {
     } catch (err) {
       console.error("[startup] warm-up failed:", err);
     }
-
-    // Pre-start the Python agent runtime now, at boot, rather than lazily on the
-    // first harness request. A cold spawn imports the entire agent stack and, on
-    // a loaded / memory-constrained host, can take minutes — long enough that a
-    // synchronous first request used to time out and surface as spurious 503s
-    // (the front door would then kill and respawn the still-starting process in
-    // a loop). Starting it here gives it the full readiness budget while the
-    // server is otherwise idle. Non-blocking: the server is fully up while it
-    // warms, and concurrent requests coalesce onto this same spawn.
-    void import("@/lib/harness/python-runtime")
-      .then((m) => m.ensurePythonRuntime())
-      .then((ok) => {
-        if (!ok) console.error("[startup] Python runtime unavailable — agent runs will 503");
-      })
-      .catch((err) => console.error("[startup] python runtime warm-up failed:", err));
 
     // Price & condition alert monitor — starts exactly once, after the
     // scraper scheduler. Skipped in headless self-test runs.

@@ -96,6 +96,18 @@ async function install() {
   log("installing yfinance (live prices)...");
   run(`"${PYTHON_EXE}" -m pip install --disable-pip-version-check --quiet yfinance`, { stdio: "inherit" });
 
+  // The SANDBOX runs in THIS interpreter, so the numerical stack it needs must
+  // be installed here — not only in the harness process. Without numpy/pandas
+  // an `analysis_run` program cannot compute, and without matplotlib a figure
+  // recipe cannot draw.
+  const analysisReq = path.join(path.dirname(VENDOR_DIR), "..", "..", "python", "analysis-requirements.txt");
+  if (fs.existsSync(analysisReq)) {
+    log("installing the analysis stack (numpy, pandas, matplotlib)...");
+    run(`"${PYTHON_EXE}" -m pip install --disable-pip-version-check --quiet -r "${analysisReq}"`, {
+      stdio: "inherit",
+    });
+  }
+
   fs.writeFileSync(MARKER, `${VERSION}\n${new Date().toISOString()}\n`);
   log(`embedded Python ready at ${VENDOR_DIR}`);
 }

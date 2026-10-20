@@ -39,6 +39,7 @@ from pydantic.alias_generators import to_camel
 from . import sandbox as sandbox_mod
 from . import sandbox_tools as st
 from .commands import VENDORED_RELPATH, _resolve_executable
+from .sandbox_guard import GUARD_SOURCE
 
 _CAMEL = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
 
@@ -54,6 +55,11 @@ IMPORT_ALLOWLIST: tuple[str, ...] = (
 DEFAULT_TIMEOUT_S: int = 120
 DEFAULT_MEMORY_MB: int = 2048
 MAX_OUTPUT_BYTES: int = 200_000
+#: The result file is read only when it is this small: a program that writes a
+#: huge result must not make the HOST allocate it (W14).
+MAX_RESULT_BYTES: int = 4_000_000
+#: The same bound for a collected artifact file.
+MAX_ARTIFACT_BYTES: int = 64_000_000
 MAX_SOURCE_CHARS: int = 20_000
 # Resource limits applied to every analysis run (R3-02). The wall-clock timeout
 # is always enforced; these bound a runaway analysis in cpu/memory/processes.
@@ -244,6 +250,15 @@ class AnalysisResult(BaseModel):
     interpreter: str = ""
     package_lock_digest: Optional[str] = None
     duration_ms: int = 0
+    # The resource telemetry the backend MEASURED (W14). `None` = unmeasurable
+    # on this platform, never a fabricated zero. A memory/CPU/process kill is
+    # named in `resource_limit`, so a limit breach is not reported as a plain
+    # program error.
+    cpu_ms: Optional[float] = None
+    memory_peak_mb: Optional[float] = None
+    process_count: Optional[int] = None
+    resource_limit: Optional[str] = None
+    exit_code: Optional[int] = None
     provenance: Optional[Provenance] = None
     code: Optional[str] = None
 
@@ -260,6 +275,11 @@ class AnalysisResult(BaseModel):
             "interpreter": self.interpreter,
             "packageLockDigest": self.package_lock_digest,
             "durationMs": self.duration_ms,
+            "cpuMs": self.cpu_ms,
+            "memoryPeakMb": self.memory_peak_mb,
+            "processCount": self.process_count,
+            "resourceLimit": self.resource_limit,
+            "exitCode": self.exit_code,
             "provenance": self.provenance.to_dict() if self.provenance else None,
             "code": self.code,
         }
@@ -360,6 +380,12 @@ def check_imports(
         elif isinstance(node, ast.Name):
             if node.id == "__builtins__":
                 offenders.append("__builtins__")
+            elif node.id in _FORBIDDEN_CALL_NAMES:
+                # A forbidden name used as a VALUE (an alias: `f = __import__`)
+                # is the same escape as calling it — the runtime guard would
+                # refuse it anyway, but a clear refusal beats a runtime
+                # surprise.
+                offenders.append(f"{node.id} (name)")
         elif isinstance(node, ast.Constant):
             if isinstance(node.value, str) and "://" in node.value:
                 offenders.append("URL literal (network)")
@@ -386,18 +412,37 @@ def input_digest(value: Any) -> str:
     return _digest_text(canonical)
 
 
-def package_lock_digest() -> str:
-    """A digest of the resolved package set (name==version), for reproducibility."""
-    lines: list[str] = []
-    try:
-        from importlib.metadata import distributions  # noqa: PLC0415
+def _interpreter_site_packages() -> list[str]:
+    """The site-packages directories of the interpreter that runs the code."""
+    exe = interpreter_path()
+    if not exe:
+        return []
+    root = Path(exe).parent
+    out = [str(root / "Lib" / "site-packages"), str(root / "lib" / "site-packages")]
+    return [p for p in out if Path(p).is_dir()]
 
-        for dist in distributions():
-            try:
-                lines.append(f"{dist.metadata['Name']}=={dist.version}")
-            except Exception:  # noqa: BLE001
-                continue
-    except Exception:  # noqa: BLE001
+
+def package_lock_digest() -> str:
+    """A digest of the RESOLVED package set of the interpreter that runs code.
+
+    The harness process's own distributions are NOT the sandbox's environment:
+    hashing them would report an environment the computation never ran in. The
+    digest therefore covers the interpreter's installed distributions (name and
+    version), so two runs can be compared honestly.
+    """
+    lines: list[str] = []
+    for directory in _interpreter_site_packages():
+        try:
+            entries = sorted(Path(directory).glob("*.dist-info"))
+        except Exception:  # noqa: BLE001
+            continue
+        for entry in entries:
+            stem = entry.name[: -len(".dist-info")]
+            name, _, version = stem.rpartition("-")
+            if not name:
+                name, version = stem, ""
+            lines.append(f"{name}=={version}")
+    if not lines:
         return ""
     lines.sort(key=lambda s: s.lower())
     return _digest_text("\n".join(lines))
@@ -411,14 +456,28 @@ def interpreter_path() -> str:
 
 # ── The runner ───────────────────────────────────────────────────────────────
 
-ANALYSIS_PRELUDE = """\
+#: The prelude every sandboxed program runs under: the RESTRICTED BUILTINS, the
+#: RUNTIME GUARD (the import allowlist + the audit hook + the path confinement)
+#: and the read-only `eclipse_tools` channel.
+#:
+#: The AST allowlist in `check_imports` is a FIRST filter over the source; the
+#: guard below is the ENFORCEMENT POINT a program cannot talk around: the
+#: child's `__import__` is replaced by one that only imports an allowlisted
+#: module, and an audit hook denies the file, process, native-code and network
+#: operations a source check cannot see.
+ANALYSIS_PRELUDE = GUARD_SOURCE + """\
 import builtins, json, os, sys
 
 # The analysis program runs with a RESTRICTED builtin set: no open/eval/exec/
 # compile/input and no reflection helpers. `__import__` stays because `import`
-# statements need it; the AST allowlist decides which imports are legal. This is
-# what makes "no network" true by construction: no module that can open a socket
-# is reachable, and reflection cannot rebuild one.
+# statements need it — but `_guard_install` REPLACES it with one that only
+# imports an allowlisted module, so an alias buys nothing.
+#
+# HONEST SCOPE: this is a Python-level confinement (the program's own folder
+# for reading, its own output folder for writing, no network, no other
+# process, no native code). It is NOT an OS-level boundary: the child still
+# runs as the host user. The path confinement and the audit hook are what make
+# the program's own libraries obey it.
 _ALLOWED_BUILTINS = (
     "abs", "all", "any", "ascii", "bin", "bool", "bytearray", "bytes",
     "callable", "chr", "complex", "dict", "divmod", "enumerate", "filter",
@@ -520,6 +579,13 @@ def main():
         module = _tool_module(payload["tool_bindings"], memo, pending_path)
         sys.modules["eclipse_tools"] = module
         g["eclipse_tools"] = module
+    # The guard goes in BEFORE the program runs: the guarded `__import__`, the
+    # audit hook and the path confinement are the enforcement point.
+    _guard_install(
+        payload.get("import_allowlist") or [],
+        payload.get("read_roots") or [],
+        payload.get("write_roots") or [],
+    )
     src = payload["source"]
     code = compile(src, "<analysis>", "exec")
     exec(code, g)
@@ -553,6 +619,8 @@ class PreparedAnalysis:
     managed_path: Optional[Path]
     extra_allowlist: tuple[str, ...]
     package_lock_digest: str
+    #: The effective import allowlist, exactly as the RUNTIME guard enforces it.
+    import_allowlist: tuple[str, ...] = ()
 
 
 def prepare_analysis(
@@ -642,7 +710,35 @@ def prepare_analysis(
         managed_path=managed_path,
         extra_allowlist=extra_allowlist,
         package_lock_digest=package_lock_digest(),
+        # The RUNTIME guard enforces exactly this list, so the AST filter and
+        # the enforcement point can never disagree.
+        import_allowlist=tuple(IMPORT_ALLOWLIST) + tuple(extra_allowlist),
     )
+
+
+def guard_payload(
+    prepared: PreparedAnalysis, stage: Path, extra_paths: list[str],
+) -> dict[str, Any]:
+    """The runtime-guard parameters for one execution.
+
+    * `import_allowlist` — the modules the guarded `__import__` will import.
+    * `read_roots` — where a program may READ: its own folder, the
+      interpreter's own tree (its libraries) and the managed site-packages.
+    * `write_roots` — where it may WRITE: its own folder (the staging
+      directory, which is its own temporary workspace) and nothing else. The
+      host's control files are written AFTER the program returns, so a program
+      cannot pre-write a result.
+    """
+    roots = [str(stage)]
+    interpreter = Path(prepared.interpreter) if prepared.interpreter else None
+    if interpreter is not None:
+        roots.append(str(interpreter.parent))
+    roots.extend(extra_paths)
+    return {
+        "import_allowlist": list(prepared.import_allowlist),
+        "read_roots": roots,
+        "write_roots": [str(stage)],
+    }
 
 
 def resolve_tool_request(
@@ -725,14 +821,19 @@ def run_analysis(
     output_dir: Optional[Path] = None,
     tool_resolver: Optional[st.ToolResolver] = None,
     kernel: Optional[Any] = None,
+    cancel_event: Optional[Any] = None,
 ) -> AnalysisResult:
     """Run one analysis in the Phase 3 sandbox. Records enough to re-derive it.
 
     The program runs in an ISOLATED staging directory (never the repo): its inputs
     arrive as DATA on file, its relative writes land in staging, and only files it
-    declares as artefacts are collected. It has no path into the user's files, and
-    no network by construction (module allowlist + restricted builtins + no URL
-    literals), enforced on top of the OS process bounds.
+    declares as artefacts are collected. The RUNTIME GUARD (`sandbox_guard.py`)
+    confines it: a guarded `__import__` (only the allowlist), a safe
+    `os`/`sys`/`importlib`/`builtins`, the privilege modules denied, an audit
+    hook that refuses a network, a process, native code or a file outside the
+    program's own folder. The OS process bounds (memory, processes, wall clock)
+    sit on top of that. `cancel_event` kills the tree when the run is
+    cancelled, so no child outlives its run (W14).
 
     When a `tool_resolver` is attached, a program may also call the read-only
     `eclipse_tools` bindings. That channel is DETERMINISTIC REPLAY, not a live
@@ -770,6 +871,7 @@ def run_analysis(
         payload: dict[str, Any] = {
             "source": request.source, "inputs": inputs, "extra_paths": extra_paths,
         }
+        payload.update(guard_payload(prepared, stage, extra_paths))
         if allow_tools:
             payload.update({
                 "tool_bindings": list(tool_names),
@@ -819,7 +921,7 @@ def run_analysis(
                 memory_mb=DEFAULT_MEMORY_MB,
                 process_limit=MAX_PROCESSES,
             )
-            raw = sandbox_mod.run(spec)
+            raw = sandbox_mod.run(spec, cancel_event=cancel_event)
             duration_ms = int((time.monotonic() - t0) * 1000)
 
             if raw.timed_out:
@@ -828,6 +930,21 @@ def run_analysis(
                     input_digests=digests, interpreter=interpreter,
                     package_lock_digest=package_lock_digest(), duration_ms=duration_ms,
                     tool_calls=tool_calls, stderr=raw.output[:4_000],
+                    cpu_ms=raw.cpu_ms, memory_peak_mb=raw.memory_peak_mb,
+                    process_count=raw.process_count, resource_limit=raw.resource_limit,
+                    exit_code=raw.exit_code,
+                )
+            if raw.cancelled:
+                # The run was cancelled: the tree is killed, so nothing outlives
+                # it (W14). The verdict says so honestly.
+                return AnalysisResult(
+                    status="refused", code="CANCELLED", source_digest=source_digest,
+                    input_digests=digests, interpreter=interpreter,
+                    package_lock_digest=package_lock_digest(), duration_ms=duration_ms,
+                    tool_calls=tool_calls, stderr="the analysis was cancelled",
+                    cpu_ms=raw.cpu_ms, memory_peak_mb=raw.memory_peak_mb,
+                    process_count=raw.process_count, resource_limit=raw.resource_limit,
+                    exit_code=raw.exit_code,
                 )
 
             if raw.exit_code == st.TOOL_SENTINEL:
@@ -872,6 +989,10 @@ def run_analysis(
             ok = False
             if out_path.is_file():
                 try:
+                    # The result is BOUNDED before it is read: a program that
+                    # writes a huge result must not make the HOST allocate it.
+                    if out_path.stat().st_size > MAX_RESULT_BYTES:
+                        raise ValueError("the analysis result exceeded the result budget")
                     parsed = json.loads(out_path.read_text(encoding="utf-8"))
                     ok = bool(parsed.get("ok"))
                     outputs = _bounded_outputs(parsed.get("outputs") or {})
@@ -884,6 +1005,9 @@ def run_analysis(
                     input_digests=digests, interpreter=interpreter,
                     package_lock_digest=package_lock_digest(), duration_ms=duration_ms,
                     tool_calls=tool_calls, stderr=raw.output[:4_000],
+                    cpu_ms=raw.cpu_ms, memory_peak_mb=raw.memory_peak_mb,
+                    process_count=raw.process_count, resource_limit=raw.resource_limit,
+                    exit_code=raw.exit_code,
                 )
 
             artifacts = _collect_artifacts(output_dir, stage) if output_dir else []
@@ -894,6 +1018,9 @@ def run_analysis(
         input_digests=digests, interpreter=interpreter,
         package_lock_digest=package_lock_digest(), duration_ms=duration_ms,
         tool_calls=tool_calls,
+        cpu_ms=raw.cpu_ms, memory_peak_mb=raw.memory_peak_mb,
+        process_count=raw.process_count, resource_limit=raw.resource_limit,
+        exit_code=raw.exit_code,
         provenance=computed_provenance(request.purpose, source_digest=source_digest),
     )
 
@@ -938,6 +1065,13 @@ def _collect_artifacts(output_dir: Path, stage: Path) -> list[ArtifactRef]:
     output_dir.mkdir(parents=True, exist_ok=True)
     for path in sorted(source_dir.iterdir()):
         if not path.is_file():
+            continue
+        # A file the program wrote is copied only when it is this big: an
+        # unbounded copy would let a program fill the host's disk (W14).
+        try:
+            if path.stat().st_size > MAX_ARTIFACT_BYTES:
+                continue
+        except OSError:
             continue
         data = path.read_bytes()
         digest = hashlib.sha256(data).hexdigest()

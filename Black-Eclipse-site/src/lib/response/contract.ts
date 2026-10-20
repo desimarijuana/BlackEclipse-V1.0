@@ -101,6 +101,9 @@ const figureProvenanceSchema = z.object({
   asOf: shortString.optional(),
   freshness: shortString.optional(),
   method: shortString.optional(),
+  // The FORMULA the value was computed with. A derived number without its
+  // formula is an assertion; with it, it is auditable.
+  formula: shortString.optional(),
 });
 export type FigureProvenance = z.infer<typeof figureProvenanceSchema>;
 
@@ -127,6 +130,14 @@ const pointSchema = z.union([
   z.number().finite(),
   z.tuple([z.number().finite(), z.number().finite()]),
   z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]),
+  // A candlestick/OHLC point is [open, high, low, close] — the order people
+  // read a candle in. The renderer maps it to ECharts' [open, close, low, high].
+  z.tuple([
+    z.number().finite(),
+    z.number().finite(),
+    z.number().finite(),
+    z.number().finite(),
+  ]),
   z.null(),
 ]);
 
@@ -250,6 +261,8 @@ export const CHART_TYPES = [
   'gauge',
   'radar',
   'waterfall',
+  'candlestick',
+  'ohlc',
 ] as const;
 
 const chartBandSchema = z.object({

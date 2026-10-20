@@ -3,19 +3,19 @@
 // ── Bot run completion watcher ───────────────────────────────────────────────
 // Mounted once at the app root (src/app/layout.tsx). Bots are automations, so
 // this watches every ACTIVE bot's latest execution (GET /api/automations plus
-// one GET /api/automations/{id}/status per bot) and announces runs that
-// finished: a `bots`-tab notification, a toast, and the loud `taskdone` alarm
-// for completions (failures / timeouts / blocks use the regular alert cue).
+// ONE batched GET /api/automations/statuses) and announces runs that finished:
+// a `bots`-tab notification, a toast, and the loud `taskdone` alarm for
+// completions (failures / timeouts / blocks use the regular alert cue).
 //
 // The first successful poll seeds the tracking map without notifying — booting
-// the app never replays old runs. Statuses that fail to load keep their
-// previous tracking entry instead of being dropped, so a transient failure
-// cannot swallow a completion. The chat surfaces already show a run the
-// operator is watching; this watcher is the "you were elsewhere" channel.
+// the app never replays old runs. The batch status request is all-or-nothing,
+// so a failed poll keeps the previous tracking map and retries next tick. The
+// chat surfaces already show a run the operator is watching; this watcher is
+// the "you were elsewhere" channel.
 
 import { useEffect, useRef } from 'react';
 import { ALERT_NOTIFY_EVENT } from '@/lib/alerts/browser-notifier';
-import { getAutomationStatus, listAutomations } from '@/lib/harness/automation-browser';
+import { getAutomationStatuses, listAutomations } from '@/lib/harness/automation-browser';
 import {
   seedBotRuns,
   selectBotRunTransitions,
@@ -25,7 +25,7 @@ import {
 import type { NotificationRequest } from './store';
 
 const POLL_MS = 30_000;
-/** Status requests per tick are capped exactly like the Bots workspace store. */
+/** Bots announced per tick; the batched status call still covers the whole list. */
 const MAX_BOTS = 20;
 
 function announce(notification: BotRunNotification): void {
@@ -50,7 +50,7 @@ export function BotsRunWatcher() {
 
     const poll = async () => {
       // Throttle while hidden: this tick is the most expensive of the three
-      // watchers (list + one status call per active bot), so backing off to
+      // watchers (list + statuses for every active bot), so backing off to
       // every 2 min in the background saves a real fan-out.
       if (document.hidden && Date.now() - lastPollRef.current < 120_000) return;
       lastPollRef.current = Date.now();
@@ -58,19 +58,12 @@ export function BotsRunWatcher() {
         const automations = await listAutomations();
         if (cancelled) return;
         const active = automations.filter((a) => a.state === 'active').slice(0, MAX_BOTS);
-        const results = await Promise.allSettled(active.map((a) => getAutomationStatus(a.id)));
+        const statuses = await getAutomationStatuses();
         if (cancelled) return;
 
-        const views: WatchedBotRun[] = [];
-        const failedIds: string[] = [];
-        results.forEach((result, index) => {
-          const automation = active[index];
-          if (result.status === 'rejected') {
-            failedIds.push(automation.id);
-            return;
-          }
-          const last = result.value.lastExecution;
-          views.push({
+        const views: WatchedBotRun[] = active.map((automation) => {
+          const last = statuses[automation.id]?.lastExecution;
+          return {
             automationId: automation.id,
             automationName: automation.name,
             executionId: last?.id ?? null,
@@ -78,24 +71,16 @@ export function BotsRunWatcher() {
             errorClass: last?.errorClass ?? null,
             outcomeReason: last?.outcomeReason ?? null,
             output: last?.output ?? null,
-          });
+          };
         });
 
         if (!seededRef.current) {
-          if (failedIds.length > 0) return; // incomplete sweep — seed on a clean one
           seededRef.current = true;
           trackedRef.current = seedBotRuns(views);
           return;
         }
 
         const { notifications, next } = selectBotRunTransitions(views, trackedRef.current);
-        // Transient status failures keep their previous entry; otherwise the
-        // vanished-then-reappeared automation would re-seed and could swallow a
-        // completion that happened in between.
-        for (const id of failedIds) {
-          const prev = trackedRef.current.get(id);
-          if (prev) next.set(id, prev);
-        }
         trackedRef.current = next;
         for (const notification of notifications) announce(notification);
       } catch {

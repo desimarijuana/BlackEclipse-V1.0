@@ -29,6 +29,69 @@ describe('finalizeResponse — the render guarantee', () => {
     expect(result.response.blocks[0].type).toBe('chart');
   });
 
+  it('keeps a candlestick chart as a REAL chart (it used to degrade to prose)', () => {
+    const result = finalizeResponse({
+      blocks: [
+        {
+          type: 'chart',
+          chartType: 'candlestick',
+          categories: ['2026-01-02', '2026-01-03'],
+          series: [{ name: 'NVDA', data: [[10, 12, 9.5, 11], [11, 13, 10.5, 12.5]] }],
+        },
+      ],
+    });
+    expect(result.degraded).toHaveLength(0);
+    expect(result.response.blocks[0].type).toBe('chart');
+  });
+
+  it('recovers a chart that spells the type "candle" instead of dropping it', () => {
+    const result = finalizeResponse({
+      blocks: [
+        {
+          type: 'chart',
+          chartType: 'candle',
+          categories: ['d1'],
+          series: [{ name: 'NVDA', data: [[10, 12, 9.5, 11]] }],
+        },
+      ],
+    });
+    expect(result.degraded).toHaveLength(0);
+    const block = result.response.blocks[0];
+    expect(block.type).toBe('chart');
+    if (block.type === 'chart') expect(block.chartType).toBe('candlestick');
+  });
+
+  it('converts the ROW shape a model writes for a candle chart', () => {
+    // What the model actually produced: labelled rows, not categories+series.
+    const result = finalizeResponse({
+      blocks: [
+        {
+          type: 'chart',
+          chartType: 'candlestick',
+          title: 'NVDA daily candles',
+          xAxisLabel: 'Trading date',
+          yAxisLabel: 'Price (USD)',
+          data: [
+            { label: 'Sep 9', values: [225.28, 226.18, 223.46, 223.67] },
+            { label: 'Sep 10', values: [220.53, 220.99, 217.2, 218.36] },
+          ],
+        },
+      ],
+    });
+    expect(result.degraded).toHaveLength(0);
+    const block = result.response.blocks[0];
+    expect(block.type).toBe('chart');
+    if (block.type === 'chart') {
+      expect(block.categories).toEqual(['Sep 9', 'Sep 10']);
+      expect(block.series[0].data).toEqual([
+        [225.28, 226.18, 223.46, 223.67],
+        [220.53, 220.99, 217.2, 218.36],
+      ]);
+      expect(block.xLabel).toBe('Trading date');
+      expect(block.yLabel).toBe('Price (USD)');
+    }
+  });
+
   it('degrades a rejected block to readable content (never `unknown`, never an error)', () => {
     const result = finalizeResponse({
       blocks: [

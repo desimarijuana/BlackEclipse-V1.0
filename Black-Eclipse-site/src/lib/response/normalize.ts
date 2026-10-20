@@ -116,6 +116,18 @@ const FINANCIAL_CHART_TYPE_ALIASES: Record<string, string> = {
   heikinashi: 'heikin-ashi',
 };
 
+// The same synonyms for a plain `chart` block: "candlestick" is a chart type
+// there too, so a producer that says "candle" must not be rejected.
+const CHART_TYPE_ALIASES: Record<string, string> = {
+  candle: 'candlestick',
+  candles: 'candlestick',
+  candlesticks: 'candlestick',
+  ohlc_bar: 'candlestick',
+  ohlc_bars: 'candlestick',
+  price_bar: 'candlestick',
+  price_bars: 'candlestick',
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -334,10 +346,37 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
       const ct = out.chart_type ?? out.charttype;
       if (typeof ct === 'string') out.chartType = ct;
     }
+    if (typeof out.chartType === 'string') {
+      const mapped = CHART_TYPE_ALIASES[out.chartType.trim().toLowerCase()];
+      if (mapped) out.chartType = mapped;
+    }
     if (out.categories === undefined && out.labels !== undefined) out.categories = out.labels;
     // Chart.js-style producers spell the series array `datasets`; the contract
     // wants `series`. Without this the block fails with "series: expected array".
     if (out.series === undefined && Array.isArray(out.datasets)) out.series = out.datasets;
+    // ROW style: a producer may spell the data as labelled rows —
+    // `data: [{label, values: [o,h,l,c]}]` (what a model writes for a candle
+    // chart). The contract wants `categories` + `series[].data`; without this
+    // conversion the whole block is rejected and degrades to prose.
+    if (out.series === undefined && Array.isArray(out.data) && out.data.every(isRecord)) {
+      const rows = out.data as Array<Record<string, unknown>>;
+      const labelled = rows.every((r) => r.label !== undefined || r.values !== undefined);
+      if (labelled) {
+        const categories = rows.map((r) => (r.label === undefined ? '' : String(r.label)));
+        const values = rows.map((r) => (Array.isArray(r.values) ? r.values : []));
+        out.categories = categories;
+        out.series = [
+          {
+            name: typeof out.title === 'string' && out.title ? out.title : 'value',
+            data: values.map((v) => (v.length === 1 ? v[0] : v)),
+          },
+        ];
+        delete out.data;
+      }
+    }
+    // The axis labels have two spellings in the wild.
+    if (out.xLabel === undefined && typeof out.xAxisLabel === 'string') out.xLabel = out.xAxisLabel;
+    if (out.yLabel === undefined && typeof out.yAxisLabel === 'string') out.yLabel = out.yAxisLabel;
     if (Array.isArray(out.series)) {
       out.series = out.series.map((s) => {
         if (!isRecord(s)) return s;

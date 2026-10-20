@@ -86,6 +86,65 @@ so a program cannot smuggle a cached module.
 Python genuinely unavailable still fails honestly: no kernel and no one-shot
 means a refusal, never a simulated result.
 
+### The interpreter the code actually runs in
+
+The sandbox NEVER runs the harness's Python: it runs the **vendored**
+interpreter (`scripts/vendor/python/python.exe`, resolved by
+`code/commands.py::VENDORED_RELPATH`). Two consequences are now explicit:
+
+- **The environment is pinned, not incidental.** The numerical stack the
+  programs may import is pinned in `python/analysis-requirements.txt`
+  (numpy, pandas, matplotlib) and installed INTO that interpreter by
+  `scripts/setup-python.js` — which, on Windows, provisions the vendored
+  interpreter FIRST (a system Python cannot serve the sandbox).
+  `scripts/doctor.js` reports the stack's versions, so a stale or missing
+  stack is visible instead of guessed.
+- **The provenance digest describes the right environment.**
+  `code/execution.py::package_lock_digest` hashes the INTERPRETER's installed
+  distributions, not the harness process's: the harness's environment is not
+  the environment the computation ran in, and a digest that describes it would
+  be a false provenance claim.
+
+A program that needs a package the interpreter does not have fails with its
+own `ModuleNotFoundError` (returned to the model, so it can adapt) — never a
+fabricated result.
+
+### The runtime guard (round 4, W14)
+
+The AST walk in `code/execution.py::check_imports` is a **first filter**, not
+the enforcement point: a source check can be talked around. The enforcement
+point is `code/sandbox_guard.py`, which is executed **inside the child** before
+the program runs (both the one-shot runner and the persistent kernel):
+
+| Guard | What it stops |
+|---|---|
+| a **guarded `__import__`** | only the allowlist (plus the stdlib support the allowed numerical stack needs internally) — an alias (`f = __import__`) buys nothing |
+| a **safe `os` / `sys` / `importlib` / `builtins`** | `os.system`, `os.popen`, frame walking (`sys._getframe` → a proxy with no globals), `importlib.import_module`, and the real `exec`/`eval` (a safe pair re-applies the source rules to a dynamic string) |
+| **denied privilege modules** | `subprocess`, `socket`, `ssl`, `ctypes`, `multiprocessing` — importable by a library, unusable by the program |
+| an **audit hook** (`sys.addaudithook`) | a socket, another process, native code, and any file outside the program's own folder (writes) or its folder + the interpreter's tree (reads) |
+| **confined readers/writers** | `numpy.fromfile` / `pandas.read_csv` / `to_csv` — a source check cannot see inside a library |
+
+**Honest scope.** This is a *Python-level* confinement. The child still runs as
+the host user, so the accurate statement is: **the program cannot reach the
+network, another process, native code, or a file outside its own folder** — not
+"the sandbox is an OS boundary". The OS bounds (memory, process count, wall
+clock, tree kill) sit on top of it.
+
+### The operator's switch, cancellation and telemetry
+
+- **The operator decides.** `HARNESS_ANALYSIS_ENABLED=0` switches the surface
+  off for the whole runtime. The per-run `analysisEnabled` flag is a *request*:
+  it can no longer switch on what the operator switched off.
+- **Cancellation is real.** The run's cancel event is mirrored into the sandbox's
+  `threading.Event`, so a cancelled or timed-out analysis kills its process
+  tree (a child never outlives its run) and the verdict says `CANCELLED`.
+- **The telemetry is kept.** The backend's measured CPU time, peak RSS, process
+  count, the breached limit name and the exit code ride the `AnalysisResult`
+  and its blob — a memory kill is reported as a memory kill, not as a generic
+  program error. The result file and each collected artifact are size-checked
+  **before** they are read, so a program cannot make the host allocate without
+  limit.
+
 ## Recipes and generated capabilities
 
 `recipes.run_recipe(name, inputs, kernel=...)` passes the kernel through; active

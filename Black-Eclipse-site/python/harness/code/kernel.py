@@ -48,6 +48,7 @@ from .execution import (
     _bounded_outputs,
     _collect_artifacts,
     computed_provenance,
+    guard_payload,
     interpreter_path,
     prepare_analysis,
     resolve_tool_request,
@@ -163,6 +164,13 @@ def _run(command):
         module = _tool_module(command["tool_bindings"], memo, pending_path)
         sys.modules["eclipse_tools"] = module
         g["eclipse_tools"] = module
+    # The guard goes in BEFORE the program runs (same enforcement point as the
+    # one-shot runner): guarded `__import__`, audit hook, path confinement.
+    _guard_install(
+        command.get("import_allowlist") or [],
+        command.get("read_roots") or [],
+        command.get("write_roots") or [],
+    )
     code = compile(command["source"], "<analysis>", "exec")
     exec(code, g)
     out = g.get("result")
@@ -405,6 +413,9 @@ class Kernel:
                     else []
                 ),
             }
+            # The runtime guard travels with the command, so the kernel enforces
+            # exactly the same confinement as the one-shot runner.
+            command.update(guard_payload(prepared, self.stage, command["extra_paths"]))
             if prepared.allow_tools:
                 command.update({
                     "tool_bindings": list(prepared.tool_names),

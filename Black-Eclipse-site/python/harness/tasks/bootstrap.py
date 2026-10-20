@@ -88,6 +88,29 @@ def _plan_agent(manager: TaskManager, task: Task) -> str:
     return "eclipse-agent"
 
 
+def _task_autonomy(manager: TaskManager, task: Task) -> Optional[str]:
+    """The autonomy profile a task run may use (task metadata, then the plan's).
+
+    A task that was created for a job like "build this widget" carries the
+    profile the creator asked for (the UI engineering path stores
+    `autonomy: edit_verify` on its plan). Without it the dispatched run had NO
+    profile, so every write was refused with `PROFILE_DENIED` and the task
+    could only ever produce prose.
+    """
+    for source in (task.metadata or {}, _plan_metadata(manager, task)):
+        value = source.get("autonomy")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _plan_metadata(manager: TaskManager, task: Task) -> dict[str, Any]:
+    if not task.plan_id:
+        return {}
+    plan = manager._store.get_plan(task.plan_id)  # noqa: SLF001
+    return dict(getattr(plan, "metadata", None) or {})
+
+
 def _root_budget(service: Any, task: Task) -> Any:
     """The A2A `BudgetTracker` + root run id for a task, or None.
 
@@ -334,6 +357,7 @@ def build_task_executor(service: Any, manager: TaskManager):
                 ),
                 agentId=agent_id,
                 modelSettings=settings,
+                autonomy=_task_autonomy(manager, task),
                 callbackBaseUrl=os.environ.get("HARNESS_CALLBACK_URL", "http://127.0.0.1"),
                 callbackToken=os.environ.get("HARNESS_CALLBACK_TOKEN") or None,
             )

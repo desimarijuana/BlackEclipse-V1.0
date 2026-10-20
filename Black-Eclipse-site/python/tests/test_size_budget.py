@@ -128,6 +128,13 @@ RATCHET_PY: dict[str, int] = {
     # raising NOT_FOUND; a recorded incident) + the schema wording. May only
     # shrink; the next split candidate remains the search/symbols block.
     "code/tools.py": 1268,
+    # Grew past the hard ceiling with the RSL R9 drift surface (the
+    # `/api/evolution/drift` + `/api/evolution/candidates/{id}/state` routes and
+    # their request models) added to the EXISTING evolution route group — the
+    # plan's own note says to extend `routers/evolution.py` rather than add a
+    # new route group. Pinned to the measured tree; it may only shrink from
+    # here, and the drift surface is the split candidate.
+    "routers/evolution.py": 1316,
     # Re-pinned for the canonical `memory.created`/`memory.updated` Event System
     # emissions at the write/review seams. May only shrink from here.
     # Re-pinned 1845→1900 to the measured tree: the already-committed

@@ -322,3 +322,17 @@ def test_downloading_data_is_still_a_data_task_not_an_install() -> None:
     # A bare strong verb ("install X") has no data reading — the wrong-verdict
     # direction is the designed-safe one here (a narrow workspace profile).
     assert classify_code_request("install a helper for the portfolio").verdict == "code_change"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "build me a quant model",
+        "make me a momentum strategy",
+        "create a factor model for the market",
+    ],
+)
+def test_building_a_quant_model_is_code_work(query: str) -> None:
+    """A quant model is a software artifact: without it the turn read as
+    `not_code`, so it never reached the quant tools or the sandbox."""
+    assert classify_code_request(query).verdict in ("code_change", "data_task"), query

@@ -181,6 +181,18 @@ export interface AutomationStatusView {
   lastExecution: ExecutionView | null;
 }
 
+/** The lightweight batch status: what a list/sidebar actually renders. Full
+ *  counters stay on the per-bot `/status` route (the Details panel). */
+export interface AutomationStatusSummaryView {
+  automationId: string;
+  state: AutomationState;
+  version: number;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  breaker: BreakerState;
+  lastExecution: ExecutionView | null;
+}
+
 export interface AutomationMetricsView {
   automationCount: number;
   activeAutomationCount: number;
@@ -346,6 +358,14 @@ export async function getAutomationStatus(id: string): Promise<AutomationStatusV
     `/automations/${encodeURIComponent(id)}/status`, { method: "GET" },
   );
   return body.status;
+}
+
+/** Latest run per automation in ONE request — replaces the per-bot status fan-out. */
+export async function getAutomationStatuses(): Promise<Record<string, AutomationStatusSummaryView>> {
+  const body = await request<{ statuses: Record<string, AutomationStatusSummaryView> }>(
+    "/automations/statuses", { method: "GET" },
+  );
+  return body.statuses ?? {};
 }
 
 export async function listAutomationHistory(id: string): Promise<ExecutionView[]> {

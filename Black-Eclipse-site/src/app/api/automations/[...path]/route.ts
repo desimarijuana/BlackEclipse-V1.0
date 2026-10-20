@@ -12,6 +12,7 @@ import {
   getAutomationExecution,
   getAutomationMetrics,
   getAutomationStatus,
+  getAutomationStatuses,
   getAutomationTimeline,
   listAutomationHistory,
   listAutomationVersions,
@@ -48,6 +49,13 @@ async function handle(request: Request, path: string[], method: string): Promise
   // ── metrics ──────────────────────────────────────────────────────────────
   if (path.length === 1 && path[0] === "metrics" && method === "GET") {
     return NextResponse.json({ success: true, metrics: await getAutomationMetrics() });
+  }
+
+  // ── statuses (batch) ─────────────────────────────────────────────────────
+  // One round-trip for every bot's latest run. Must be handled BEFORE the
+  // `{id}` branch, otherwise "statuses" is treated as an automation id.
+  if (path.length === 1 && path[0] === "statuses" && method === "GET") {
+    return NextResponse.json({ success: true, statuses: await getAutomationStatuses() });
   }
 
   // ── executions/{id}[/timeline|cancel] ────────────────────────────────────

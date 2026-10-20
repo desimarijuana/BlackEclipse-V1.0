@@ -70,6 +70,14 @@ _SOFTWARE_OBJECTS = (
     "screener", "screen", "indicator", "automation", "integration",
     "plugin", "extension", "backend", "frontend", "ui", "report generator",
     "tracker", "chart", "scraper",
+    # A quantitative MODEL is a software artifact the user asks Eclipse to
+    # build ("build me a quant model"): without it the request read as
+    # `not_code`, so it never reached the quant tools or the sandbox. The
+    # phrases are SPECIFIC on purpose — a bare "model" is a finance word
+    # ("the business model"), and a bare "strategy" is a conversation.
+    "quant model", "trading model", "alpha model", "factor model",
+    "statistical model", "momentum strategy", "trading strategy",
+    "quant strategy", "backtest strategy",
     # software a user downloads or installs, and the skill it may arrive as
     "software", "program", "executable", "installer", "binary",
     "skill", "skills",

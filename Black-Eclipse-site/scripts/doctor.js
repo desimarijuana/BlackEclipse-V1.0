@@ -288,6 +288,40 @@ if (py) {
     console.log(`[setup] vendored python: ${fs.existsSync(vendored) ? "present" : "not present (system python only)"}`);
   }
 
+  // 6a-bis. The SANDBOX's numerical stack, in the interpreter the sandbox runs.
+  //     Reported with the versions, so "the sandbox is not up to date" is
+  //     visible without guessing: a missing stack is a repair command, never a
+  //     silent partial.
+  {
+    const sandboxPy = fs.existsSync(vendored) ? vendored : null;
+    if (!sandboxPy) {
+      console.log("[setup] analysis stack: not reported (no vendored interpreter)");
+    } else {
+      const versions = ["numpy", "pandas", "matplotlib"]
+        .map((mod) => {
+          try {
+            const out = execSync(`"${sandboxPy}" -c "import ${mod} as m; print(m.__version__)"`, {
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "ignore"],
+              timeout: 20000,
+            });
+            return `${mod}=${String(out).trim()}`;
+          } catch {
+            return `${mod}=MISSING`;
+          }
+        })
+        .join(" ");
+      if (versions.includes("MISSING")) {
+        console.warn(
+          `[setup] analysis stack: INCOMPLETE (${versions}) — a computed result that needs it will fail. Repair with:\n` +
+          `          npm run setup:python`
+        );
+      } else {
+        console.log(`[setup] analysis stack: ready (${versions})`);
+      }
+    }
+  }
+
   // 6b. Artifact directory (saved job reports). Create it when writable; report
   //     honestly and name the path when it is not.
   const artifacts = path.join(root, ".black-eclipse", "artifacts");

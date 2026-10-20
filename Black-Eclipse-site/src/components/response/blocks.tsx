@@ -303,6 +303,14 @@ export function MetricGridBlock({
                   {metric.provenance.asOf}
                 </p>
               )}
+              {metric.provenance?.formula && (
+                <p
+                  className="mt-0.5 truncate font-mono text-[9.5px] text-muted-foreground/60"
+                  title={metric.provenance.formula}
+                >
+                  {metric.provenance.formula}
+                </p>
+              )}
             </div>
           );
         })}
