@@ -164,6 +164,13 @@ def test_history_walks_back_through_the_same_runs(tmp_path):
         assert len(history["points"]) >= 2
         assert history["computedPoints"] == len(history["points"])
         assert history["requestedPoints"] == 3
+
+        older = drift_history(
+            store, scope="eclipse-agent", window=30, baseline=100,
+            min_samples=10, limit=1, step=30, offset=30,
+        )
+        assert older["offset"] == 30
+        assert older["points"][0]["offset"] == 30
     finally:
         store.close()
 

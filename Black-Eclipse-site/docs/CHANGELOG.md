@@ -1145,6 +1145,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   shared scope. Docs: `docs/harness/decisions.md` (ADR-H261),
   `docs/harness/architecture.md`.
 
+- **feat(harness,ui): drift inbox, dashboard widget and CI smokes.**
+  Drift transitions now become durable `notification.created` events readable at
+  `GET /evolution/drift/alerts`; the Command Center gains a `Production Drift`
+  widget; the drift card adds a sparkline and older/newer history paging; the
+  watch jitters its cadence; `/drift/scopes` accepts extra scopes; and CI runs
+  `npm run test:drift`. Docs: ADR-H267, `docs/harness/architecture.md`,
+  `docs/QUICKSTART.md`.
+
 - **perf(bots): paint from the last successful sweep.**
   The Bots store hydrates synchronously from a persisted cache and the run
   watcher reuses the shared store hydrate instead of issuing its own list +

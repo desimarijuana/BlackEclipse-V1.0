@@ -340,6 +340,7 @@ export interface EvolutionDriftHistory {
   baselineWindow: number;
   threshold: number;
   step: number;
+  offset: number;
   requestedPoints: number;
   computedPoints: number;
   truncated: boolean;
@@ -727,6 +728,7 @@ export function evolutionDriftScopesPath(
     threshold?: number;
     minSamples?: number;
     includeGlobal?: boolean;
+    scopes?: string;
   } = {},
 ): string {
   const params = new URLSearchParams();
@@ -737,6 +739,7 @@ export function evolutionDriftScopesPath(
   if (input.includeGlobal != null) {
     params.set("includeGlobal", input.includeGlobal ? "true" : "false");
   }
+  if (input.scopes) params.set("scopes", input.scopes);
   const query = params.toString();
   return `/evolution/drift/scopes${query ? `?${query}` : ""}`;
 }
@@ -748,6 +751,7 @@ export async function getEvolutionDriftScopes(
     threshold?: number;
     minSamples?: number;
     includeGlobal?: boolean;
+    scopes?: string;
   } = {},
 ): Promise<EvolutionDriftScopes> {
   return request<EvolutionDriftScopes>(evolutionDriftScopesPath(input), { method: "GET" });
@@ -762,6 +766,7 @@ export function evolutionDriftHistoryPath(
     minSamples?: number;
     limit?: number;
     step?: number;
+    offset?: number;
   } = {},
 ): string {
   const params = new URLSearchParams();
@@ -772,6 +777,7 @@ export function evolutionDriftHistoryPath(
   if (input.minSamples != null) params.set("minSamples", String(input.minSamples));
   if (input.limit != null) params.set("limit", String(input.limit));
   if (input.step != null) params.set("step", String(input.step));
+  if (input.offset != null) params.set("offset", String(input.offset));
   const query = params.toString();
   return `/evolution/drift/history${query ? `?${query}` : ""}`;
 }
@@ -785,6 +791,7 @@ export async function getEvolutionDriftHistory(
     minSamples?: number;
     limit?: number;
     step?: number;
+    offset?: number;
   } = {},
 ): Promise<EvolutionDriftHistory> {
   return request<EvolutionDriftHistory>(evolutionDriftHistoryPath(input), { method: "GET" });

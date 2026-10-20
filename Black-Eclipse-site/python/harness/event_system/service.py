@@ -202,6 +202,13 @@ class EventSystem:
             "evaluation.started", self._on_evaluation_started,
             consumer_id="events.rsl_wake", idempotent=True,
         ))
+        # A drift transition becomes a durable notification event. Consumers
+        # (the operator inbox / future channels) read `notification.created`;
+        # the drift watcher itself never writes an alert.
+        self._subscriptions.append(self.bus.subscribe(
+            "self_improvement.drift_detected", self._on_drift_detected,
+            consumer_id="events.drift_alert", idempotent=True,
+        ))
 
     async def _on_memory_candidate(self, event: EclipseEvent) -> None:
         if event.replay:
@@ -260,6 +267,30 @@ class EventSystem:
                 rsl_loop.wake()
         except Exception:  # noqa: BLE001 - waking the loop is best-effort
             pass
+
+    async def _on_drift_detected(self, event: EclipseEvent) -> None:
+        """Turn a drift transition into one durable notification event."""
+        if event.replay:
+            return
+        if event.depth >= MAX_CAUSATION_DEPTH:
+            self.metrics.inc("loopGuarded")
+            return
+        payload = event.payload or {}
+        scope = str(payload.get("scope") or "global")
+        await self.bus.publish(event.child(
+            "notification.created",
+            {
+                "kind": "drift",
+                "tab": "skills",
+                "scope": scope,
+                "drop": payload.get("drop"),
+                "title": "Production drift",
+                "body": f"Drift detected for {scope}",
+            },
+            source="self_improvement",
+            priority="high",
+            metadata={"kind": "drift_alert"},
+        ))
 
     def subscribe(self, filter_like: Any, handler: Any, **kwargs: Any) -> Subscription:
         return self.bus.subscribe(filter_like, handler, **kwargs)

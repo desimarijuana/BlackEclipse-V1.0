@@ -8686,6 +8686,25 @@ runtime.
 count fields, `tests/test_drift_watch.py` (boot + reset), the runbook route test,
 and `scripts/drift-app-smoke.mjs`. The QUICKSTART runbook documents the flow.
 
+## ADR-H267 — Drift reaches the operator inbox, the dashboard, and CI
+
+**Decision.** The event service consumes `self_improvement.drift_detected` and
+publishes a durable `notification.created` child (`kind=drift`). `GET
+/evolution/drift/alerts` reads that inbox from the event log. The Command Center
+gets a `drift-status` widget (per-scope chips + short trend). The drift card adds
+a trend sparkline and bounded older/newer history paging (`offset`), the watch
+jitters its cadence, `/drift/scopes` accepts extra `scopes`, and CI installs
+Chromium and runs `npm run test:drift`.
+
+**Why.** The watcher already detected drift, but only the open Skills screen
+could see it. A durable event/route makes the signal addressable by other
+surfaces; the dashboard widget keeps it visible without opening the journey. CI
+wiring keeps the browser smokes from rotting.
+
+**Consequences.** The event consumer + registry spec, the alerts route, the
+`DriftStatusWidget` registration, history `offset` plumbing, scopes merge,
+jitter, `npm run test:drift`, and the CI step. No new detector or write path.
+
 ## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
 
 **Decision.** W8.4's task-type verifier becomes the ONE authority for "done", and

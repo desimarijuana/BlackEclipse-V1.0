@@ -21,6 +21,7 @@ export async function GET(request: Request) {
         : params.get("includeGlobal") === "false"
           ? false
           : undefined,
+      scopes: params.get("scopes") ?? undefined,
     });
     return NextResponse.json({ success: true, ...overview });
   } catch (err) {

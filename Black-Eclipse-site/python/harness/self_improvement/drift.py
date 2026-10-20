@@ -210,6 +210,7 @@ def drift_history(
     threshold: float = 0.10,
     limit: int = 12,
     step: Optional[int] = None,
+    offset: int = 0,
 ) -> dict[str, Any]:
     """Compute the drift signal at successive points in the same run history.
 
@@ -222,22 +223,23 @@ def drift_history(
     cap_baseline = max(1, int(baseline))
     cap_limit = max(1, min(int(limit), 50))
     cap_step = max(1, int(step or cap_window))
+    cap_offset = max(0, int(offset))
     needed = cap_window + cap_baseline + cap_step * (cap_limit - 1)
     max_runs = 2000
-    runs = _store_runs(store, scope=scope, limit=min(needed, max_runs))
+    runs = _store_runs(store, scope=scope, limit=min(needed + cap_offset, max_runs))
     resolved_scope = scope or "global"
 
     points: list[dict[str, Any]] = []
     for index in range(cap_limit):
-        offset = index * cap_step
-        sliced = runs[offset:offset + cap_window + cap_baseline]
+        point_offset = cap_offset + index * cap_step
+        sliced = runs[point_offset:point_offset + cap_window + cap_baseline]
         signal = drift_signal(
             sliced, scope=resolved_scope, window=cap_window,
             baseline=cap_baseline, min_samples=min_samples,
             threshold=threshold,
         )
         points.append({
-            "offset": offset,
+            "offset": point_offset,
             "at": sliced[0].get("createdAt") if sliced else None,
             "status": signal["status"],
             "drop": signal["drop"],
@@ -253,6 +255,7 @@ def drift_history(
         "baselineWindow": cap_baseline,
         "threshold": max(0.0, float(threshold)),
         "step": cap_step,
+        "offset": cap_offset,
         "requestedPoints": cap_limit,
         "computedPoints": len(points),
         "truncated": needed > max_runs or len(points) < cap_limit,

@@ -12,6 +12,7 @@ export async function GET(request: Request) {
   const minSamplesValue = Number(params.get("minSamples") ?? 10);
   const limitValue = Number(params.get("limit") ?? 12);
   const stepValue = params.get("step");
+  const offsetValue = Number(params.get("offset") ?? 0);
   try {
     const history = await getEvolutionDriftHistory({
       scope: params.get("scope") ?? undefined,
@@ -23,6 +24,7 @@ export async function GET(request: Request) {
       step: stepValue != null && Number.isFinite(Number(stepValue))
         ? Number(stepValue)
         : undefined,
+      offset: Number.isFinite(offsetValue) ? offsetValue : 0,
     });
     return NextResponse.json({ success: true, ...history });
   } catch (err) {

@@ -156,7 +156,10 @@ not re-alert the same episode, and a reset run history clears that state. The
 policy inputs are remembered across reloads, and the journey badge raises one
 notification per drifting scope per day. `npm run test:drift-ui` exercises the
 card in isolation; `npm run test:drift-app` drives the real app shell
-(Skills → Journey) with mocked network data.
+(Skills → Journey) with mocked network data. The Command Center's `Production
+Drift` widget shows the same per-scope overview and trend, and drift
+transitions are also recorded as durable notifications (`GET
+/evolution/drift/alerts`). CI runs both browser smokes.
 
 ## Where your data lives
 

@@ -142,6 +142,7 @@ export function RslControlPanel({
   const [activationScope, setActivationScope] = useState("eclipse-agent");
   const [drift, setDrift] = useState<EvolutionDriftSignal | null>(null);
   const [driftHistory, setDriftHistory] = useState<EvolutionDriftHistory | null>(null);
+  const [historyOffset, setHistoryOffset] = useState(0);
   const [driftScopes, setDriftScopes] = useState<EvolutionDriftScopes | null>(null);
   const [initialPolicy] = useState(storedDriftPolicy);
   const [driftWindow, setDriftWindow] = useState(initialPolicy.window);
@@ -193,6 +194,10 @@ export function RslControlPanel({
   useEffect(() => { void loadStatus(); }, [loadStatus]);
 
   useEffect(() => {
+    setHistoryOffset(0);
+  }, [driftScope, driftWindow, driftBaseline, driftThreshold, driftMinSamples]);
+
+  useEffect(() => {
     try {
       window.localStorage.setItem(DRIFT_POLICY_KEY, JSON.stringify({
         window: driftWindow,
@@ -218,7 +223,8 @@ export function RslControlPanel({
           scope: requestScope, ...policy, minSamples: driftMinSamples,
         }),
         getEvolutionDriftHistoryBrowser({
-          scope: requestScope, ...policy, minSamples: driftMinSamples, limit: 12,
+          scope: requestScope, ...policy, minSamples: driftMinSamples,
+          limit: 12, offset: historyOffset,
         }),
         getEvolutionDriftScopesBrowser({
           ...policy, minSamples: driftMinSamples, includeGlobal: false,
@@ -230,7 +236,7 @@ export function RslControlPanel({
     } catch (err) {
       setDriftError(err instanceof Error ? err.message : t("evolution.drift.loading"));
     }
-  }, [driftBaseline, driftMinSamples, driftThreshold, driftWindow, requestScope, t]);
+  }, [driftBaseline, driftMinSamples, driftThreshold, driftWindow, historyOffset, requestScope, t]);
   useEffect(() => {
     const timer = window.setTimeout(() => { void loadDrift(); }, 350);
     return () => window.clearTimeout(timer);
@@ -480,10 +486,14 @@ export function RslControlPanel({
           </span>
           <span>{t("evolution.rsl.k", { k: status.k })}</span>
           {status.driftWatch && (
-            <span>
+            <span
+              title={Object.entries(status.driftWatch.last)
+                .map(([scope, state]) => `${scope}: ${state}`)
+                .join(", ")}
+            >
               {t("evolution.rsl.driftWatch", {
                 state: status.driftWatch.enabled
-                  ? `${status.driftWatch.intervalSeconds}s`
+                  ? `${status.driftWatch.intervalSeconds}s ${status.driftWatch.running ? "running" : "stopped"}`
                   : "off",
               })}
             </span>
@@ -681,6 +691,38 @@ export function RslControlPanel({
                       {point.drop == null ? point.status : `${Math.round(point.drop * 100)}%`}
                     </span>
                   ))}
+                </div>
+                <div className="mt-1 flex h-8 items-end gap-0.5">
+                  {driftHistory.points.slice().reverse().map((point) => (
+                    <span
+                      key={`bar:${point.offset}`}
+                      title={`-${point.offset}: ${point.status}`}
+                      className={cn(
+                        "min-h-[2px] flex-1 rounded-t",
+                        point.status === "drift" ? "bg-rose-400/60" : "bg-emerald-400/40",
+                      )}
+                      style={{
+                        height: `${Math.max(6, ((point.drop ?? 0) / Math.max(0.01, ...driftHistory.points.map((row) => row.drop ?? 0))) * 100)}%`,
+                      }}
+                    />
+                  ))}
+                </div>
+                <div className="mt-1 flex gap-2 text-[9px]">
+                  <button
+                    type="button"
+                    onClick={() => setHistoryOffset((value) => Math.max(0, value - 12))}
+                    disabled={historyOffset === 0}
+                    className="rounded border border-border/40 px-1.5 py-0.5 text-muted-foreground disabled:opacity-40"
+                  >
+                    {t("evolution.drift.historyNewer")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHistoryOffset((value) => value + 12)}
+                    className="rounded border border-border/40 px-1.5 py-0.5 text-muted-foreground"
+                  >
+                    {t("evolution.drift.historyOlder")}
+                  </button>
                 </div>
               </div>
             )}

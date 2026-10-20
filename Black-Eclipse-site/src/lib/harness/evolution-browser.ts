@@ -231,6 +231,7 @@ export async function getEvolutionDriftScopesBrowser(
     threshold?: number;
     minSamples?: number;
     includeGlobal?: boolean;
+    scopes?: string;
   } = {},
 ): Promise<EvolutionDriftScopes> {
   const params = new URLSearchParams();
@@ -241,6 +242,7 @@ export async function getEvolutionDriftScopesBrowser(
   if (input.includeGlobal != null) {
     params.set("includeGlobal", input.includeGlobal ? "true" : "false");
   }
+  if (input.scopes) params.set("scopes", input.scopes);
   const query = params.toString();
   return api<EvolutionDriftScopes>(
     `/api/evolution/drift/scopes${query ? `?${query}` : ""}`,
@@ -256,6 +258,7 @@ export async function getEvolutionDriftHistoryBrowser(
     minSamples?: number;
     limit?: number;
     step?: number;
+    offset?: number;
   } = {},
 ): Promise<EvolutionDriftHistory> {
   const params = new URLSearchParams();
@@ -266,6 +269,7 @@ export async function getEvolutionDriftHistoryBrowser(
   if (input.minSamples != null) params.set("minSamples", String(input.minSamples));
   if (input.limit != null) params.set("limit", String(input.limit));
   if (input.step != null) params.set("step", String(input.step));
+  if (input.offset != null) params.set("offset", String(input.offset));
   const query = params.toString();
   return api<EvolutionDriftHistory>(
     `/api/evolution/drift/history${query ? `?${query}` : ""}`,

@@ -48,6 +48,36 @@ def evolution_drift(
     }
 
 
+@router.get("/evolution/drift/alerts")
+def drift_alerts(
+    limit: int = 50,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Recent durable drift notifications from the event log (operator inbox)."""
+    from ..event_system.emit import get_event_system  # noqa: PLC0415
+
+    system = get_event_system()
+    if system is None:
+        return {"success": True, "alerts": []}
+    try:
+        events = system.store.query(type="notification.created", limit=max(1, min(int(limit), 200)))
+    except Exception:  # noqa: BLE001 - an unreadable event log is an empty inbox
+        return {"success": True, "alerts": []}
+    alerts = [
+        {
+            "id": event.id,
+            "at": event.timestamp,
+            "scope": (event.payload or {}).get("scope"),
+            "drop": (event.payload or {}).get("drop"),
+            "title": (event.payload or {}).get("title"),
+            "body": (event.payload or {}).get("body"),
+        }
+        for event in events
+        if (event.payload or {}).get("kind") == "drift"
+    ]
+    return {"success": True, "alerts": alerts}
+
+
 @router.get("/evolution/drift/scopes")
 def evolution_drift_scopes(
     window: int = 30,
@@ -55,12 +85,16 @@ def evolution_drift_scopes(
     minSamples: int = 10,  # noqa: N803 - operator-facing name
     threshold: float = 0.10,
     includeGlobal: bool = True,  # noqa: N803 - operator-facing name
+    scopes: Optional[str] = None,
     _: bool = Depends(require_operator),
 ) -> dict[str, Any]:
-    """Read-only drift signal for every configured scope (one overview read)."""
+    """Read-only drift signal for every configured (or supplied) scope."""
     from ..self_improvement.drift import detect_store_drift  # noqa: PLC0415
 
-    scopes = _surface_scopes()
+    scopes = list(dict.fromkeys([
+        *_surface_scopes(),
+        *[item.strip() for item in str(scopes or "").split(",") if item.strip()],
+    ]))
     signals = [
         {
             "scope": scope,
@@ -88,6 +122,7 @@ def evolution_drift_history(
     threshold: float = 0.10,
     limit: int = 12,
     step: Optional[int] = None,
+    offset: int = 0,
     _: bool = Depends(require_operator),
 ) -> dict[str, Any]:
     """Read-only drift signals at successive points in the existing run history."""
@@ -105,6 +140,7 @@ def evolution_drift_history(
             threshold=max(0.0, min(float(threshold), 1.0)),
             limit=max(1, min(int(limit), 50)),
             step=max(1, min(int(step), 200)) if step is not None else None,
+            offset=max(0, min(int(offset), 2000)),
         ),
     }
 

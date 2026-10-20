@@ -30,6 +30,7 @@
     "test:evals": "node scripts/test-evals.js",
     "test:drift-ui": "node scripts/drift-ui-smoke.mjs",
     "test:drift-app": "node scripts/drift-app-smoke.mjs",
+    "test:drift": "node scripts/drift-ui-smoke.mjs && node scripts/drift-app-smoke.mjs",
     "rsl:smoke": "node scripts/rsl-smoke.js",
     "test:anatomy": "node scripts/anatomy-smoke.cjs",
     "test:smoke": "node scripts/test-python.js smoke",

@@ -76,8 +76,11 @@ reads every configured scope on `HARNESS_DRIFT_WATCH_SECONDS` (default 300; 0
 disables) and publishes `self_improvement.drift_detected` only on a transition
 into drift; it persists the last status per scope (`DriftWatchState`), clears it
 when the run history is reset, exposes health on `/evolution/rsl`, and never
-creates a candidate. The learning-journey badge raises the shared notification
-once per scope per day. A drift candidate's signature includes the newest-run
+creates a candidate. The event service turns a drift transition into a durable
+`notification.created` event (`kind=drift`), readable through `GET
+/evolution/drift/alerts`; the learning-journey badge raises the shared
+notification once per scope per day, and the Command Center has a
+`drift-status` widget. A drift candidate's signature includes the newest-run
 `anchor`, so a later episode is a new candidate. The conductor
 panel shares one scope with the experiment panel, edits
 window/baseline/threshold/minSamples, collapses unmeasured overview rows,

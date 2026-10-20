@@ -167,6 +167,8 @@ export const evolution = {
   'evolution.drift.history': 'Recent signal history',
   'evolution.drift.historyNow': 'now',
   'evolution.drift.historyTruncated': 'truncated: {computed}/{requested} points',
+  'evolution.drift.historyNewer': 'newer',
+  'evolution.drift.historyOlder': 'older',
   'evolution.drift.candidateScope': 'Candidate scope: {scope}',
   'evolution.drift.viewEvidence': 'View evidence',
   'evolution.drift.subtitle': 'Recent terminal runs compared with the preceding window.',

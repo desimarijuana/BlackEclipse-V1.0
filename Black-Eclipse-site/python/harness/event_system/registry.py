@@ -267,6 +267,7 @@ def _build_default_specs() -> list[EventTypeSpec]:
         _spec("self_improvement.experiment_completed", description="An RSL experiment completed with a recorded decision", producer=("self_improvement",), consumers=("self_improvement",), priority="low", retention_days=180),
         _spec("self_improvement.drift_detected", description="A configured scope transitioned into production drift", producer=("self_improvement",), consumers=("self_improvement",), priority="low", retention_days=90),
         _spec("self_improvement.drift_candidate_created", description="An operator opened an inert candidate from a drift signal", producer=("self_improvement",), consumers=("self_improvement",), priority="low", retention_days=180),
+        _spec("notification.created", description="A durable operator notification was raised", producer=("events", "self_improvement"), consumers=("operator",), priority="high", retention_days=90),
         _spec("recovery.completed", description="A recovery attempt completed", producer=("self_improvement",), retention_days=180),
     ]
 

@@ -77,5 +77,10 @@ jobs:
       - name: Tests (Vitest + Python)
         run: npm test
 
+      - name: Drift browser smokes
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:drift
+
       - name: Evaluation gates
         run: npm run test:evals

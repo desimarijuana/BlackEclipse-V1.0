@@ -48,6 +48,7 @@ import {
   MarketRegimeWidget, WhatChangedWidget, OpportunityScannerWidget, MarketDriversWidget,
 } from './intelligence-widgets';
 import { AgentActivityWidget, RecentResearchWidget, AIInsightsWidget } from './ai-widgets';
+import { DriftStatusWidget } from './drift-status-widget';
 import {
   InvestorEyeWidget, INVESTOR_EYE_RANGE_FIELD, INVESTOR_EYE_LENS_FIELD,
 } from './investor-eye-widget';
@@ -208,6 +209,7 @@ const CORE_WIDGETS: WidgetDefinition[] = [
   def('agent-activity', 'ai', 'Agent Activity', 'Active agents and their tasks.', 'bot', ['medium', 'large'], () => <AgentActivityWidget />, ['agent:activity']),
   def('recent-research', 'ai', 'Recent Research', 'Recent agent research reports.', 'file-text', ['medium', 'large'], () => <RecentResearchWidget />, ['agent:activity']),
   def('ai-insights', 'ai', 'AI Insights', 'Engine brief and change feed.', 'brain', ['medium', 'large'], () => <AIInsightsWidget />, ['agent:activity']),
+  def('drift-status', 'ai', 'Production Drift', 'Agent scopes currently drifting, with a short trend.', 'activity', ['small', 'medium'], () => <DriftStatusWidget />),
 
   // ── Charts ──
   def('asset-chart', 'markets', 'Asset Chart', 'Line chart with EMA 20/50 and RSI 14.', 'line-chart', ['large', 'full'], () => <AssetChartWidget />, ['chart:asset:AAPL']),

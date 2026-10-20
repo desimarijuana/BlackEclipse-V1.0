@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -121,7 +122,7 @@ class DriftWatcher:
     async def _run(self) -> None:
         while not self._stopping:
             try:
-                await asyncio.sleep(self.interval_seconds)
+                await asyncio.sleep(self.interval_seconds + random.uniform(0, self.interval_seconds * 0.1))
             except asyncio.CancelledError:
                 return
             if self._stopping:

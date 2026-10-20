@@ -586,6 +586,12 @@ def test_drift_scopes_overview_returns_one_signal_per_scope(store, monkeypatch):
         row["scope"] for row in agents_only["signals"]
     }
 
+    custom = drift_router.evolution_drift_scopes(
+        window=30, baseline=100, minSamples=10, threshold=0.1,
+        includeGlobal=False, scopes="custom-agent", _=True,
+    )
+    assert "custom-agent" in {row["scope"] for row in custom["signals"]}
+
 
 def test_drift_operator_runbook_sequence(store, monkeypatch):
     """The documented sequence: overview -> history -> signal -> candidate -> evidence."""
@@ -650,6 +656,7 @@ def test_every_rsl_route_refuses_a_remote_caller():
         ("get", "/evolution/rsl"),
         ("post", "/evolution/rsl/tick"),
         ("get", "/evolution/drift"),
+        ("get", "/evolution/drift/alerts"),
         ("get", "/evolution/drift/scopes"),
         ("get", "/evolution/drift/history"),
         ("post", "/evolution/drift/candidate"),
