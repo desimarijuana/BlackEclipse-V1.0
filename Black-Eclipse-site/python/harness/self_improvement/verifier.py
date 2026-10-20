@@ -260,6 +260,7 @@ async def verify_surface_candidate(
     *,
     config: Any,
     eval_store: Optional[Any] = None,
+    skill_store: Optional[Any] = None,
 ) -> dict[str, Any]:
     """Verify a stored surface candidate through the measured benchmark path.
 
@@ -279,7 +280,10 @@ async def verify_surface_candidate(
     except (TypeError, ValueError) as exc:
         raise SurfaceConfigError("SURFACE_SNAPSHOT_INVALID", str(exc)) from exc
     try:
-        validate_snapshot(base, snapshot)
+        validate_snapshot(
+            base, snapshot,
+            known_skill_ids=set(snapshot.skillDraftIds) if skill_store is not None else None,
+        )
     except SnapshotError as exc:
         raise SurfaceConfigError(exc.code, exc.detail) from exc
 
@@ -321,6 +325,7 @@ async def verify_surface_candidate(
         trials=trials,
         seed=seed,
         temperature=snapshot.temperature,
+        skill_store=skill_store,
         metadata={
             "kind": "rsl",
             "proposalId": proposal_id,
@@ -361,6 +366,7 @@ async def verify_surface(
     trials: int = 3,
     seed: Optional[int] = None,
     temperature: Optional[float] = None,
+    skill_store: Optional[Any] = None,
     metadata: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Benchmark a validated snapshot through the real evaluator.
@@ -369,7 +375,7 @@ async def verify_surface(
     candidate runs in the isolated invoker; the comparison is recorded on an
     `EvaluationRun` with the RSL experiment metadata.
     """
-    invoker = CandidateAgentInvoker(store, snapshot, base=base)
+    invoker = CandidateAgentInvoker(store, snapshot, base=base, skill_store=skill_store)
     run_store = eval_store or EvaluationStore(store)
     runner = EvaluationRunner(store, invoker=invoker, eval_store=run_store)
     proposal = ImprovementProposal(

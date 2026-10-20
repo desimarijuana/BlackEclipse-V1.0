@@ -78,6 +78,7 @@ const SAMPLE_CANDIDATE_SNAPSHOT = JSON.stringify(
     toolNames: [],
     maxSteps: 8,
     maxToolCalls: 8,
+    skillDraftIds: [],
   },
   null,
   2,
@@ -545,6 +546,7 @@ export function RslOperatorPanel() {
       <section className="glass-card-subtle p-4">
         <h4 className="text-xs font-semibold text-foreground">{t("evolution.surface.title")}</h4>
         <p className="mt-1 text-[10px] text-muted-foreground">{t("evolution.surface.subtitle")}</p>
+        <p className="mt-1 text-[10px] text-muted-foreground">{t("evolution.surface.draftHint")}</p>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           <textarea
             className={`${inputClass} font-mono`}

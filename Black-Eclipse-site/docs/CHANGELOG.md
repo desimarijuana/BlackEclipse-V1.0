@@ -1164,6 +1164,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   shared scope. Docs: `docs/harness/decisions.md` (ADR-H261),
   `docs/harness/architecture.md`.
 
+- **feat(harness): complete RSL v1 with v1b skill-draft trials.**
+  A candidate snapshot may carry inert `skillDraftIds`; the invoker validates
+  them against the skill store (draft status + required tools), injects their
+  instructions into the trial prompt, and live activation still refuses them.
+  Added the RSL v1 acceptance record and updated the plan status. Docs:
+  `docs/harness/decisions.md` (ADR-H268),
+  `docs/self-improvement/rsl-v1-acceptance.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
 - **feat(harness,ui): drift inbox, dashboard widget and CI smokes.**
   Drift transitions now become durable `notification.created` events readable at
   `GET /evolution/drift/alerts`; the Command Center gains a `Production Drift`

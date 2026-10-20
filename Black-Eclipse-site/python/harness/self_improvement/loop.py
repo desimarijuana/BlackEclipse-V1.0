@@ -513,9 +513,15 @@ class RSLLoop:
             elif subject_type == "surface":
                 # The ONLY measured path: a validated snapshot runs on the real
                 # evaluator against a baseline of the same base snapshot.
+                surface_kwargs = {
+                    "config": self.config,
+                    "eval_store": self.eval_store,
+                }
+                skill_store = getattr(self.service, "skill_store", None)
+                if skill_store is not None:
+                    surface_kwargs["skill_store"] = skill_store
                 verification = await verifier.verify_surface_candidate(
-                    self.run_store, candidate,
-                    config=self.config, eval_store=self.eval_store,
+                    self.run_store, candidate, **surface_kwargs,
                 )
             else:
                 verification = await asyncio.to_thread(

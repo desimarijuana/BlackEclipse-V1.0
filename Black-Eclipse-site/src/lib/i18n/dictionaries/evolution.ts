@@ -57,6 +57,7 @@ export const evolution = {
   'evolution.recursive.result': 'k={k} · {decision} · {benchmark}',
   'evolution.surface.title': 'Surface experiment',
   'evolution.surface.subtitle': 'Benchmark a bounded prompt/tool configuration against the same base snapshot. The run is queued, measured, and never applied.',
+  'evolution.surface.draftHint': 'A candidate snapshot may list inert skill draft ids in skillDraftIds; they are measured in the trial but never activated live.',
   'evolution.surface.base': 'Base snapshot JSON',
   'evolution.surface.candidate': 'Candidate snapshot JSON',
   'evolution.surface.scope': 'Agent scope (global or an agent id)',

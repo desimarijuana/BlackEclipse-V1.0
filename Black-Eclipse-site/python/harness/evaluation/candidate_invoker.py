@@ -58,8 +58,18 @@ class SnapshotError(ValueError):
         return {"code": self.code, "message": self.detail}
 
 
-def validate_snapshot(base: HarnessSnapshot, candidate: HarnessSnapshot) -> HarnessSnapshot:
-    """Return `candidate` when it is a bounded variation of `base`, else raise."""
+def validate_snapshot(
+    base: HarnessSnapshot,
+    candidate: HarnessSnapshot,
+    *,
+    known_skill_ids: Optional[set[str]] = None,
+) -> HarnessSnapshot:
+    """Return `candidate` when it is a bounded variation of `base`, else raise.
+
+    `known_skill_ids` is the explicit v1b authorization set: inert draft ids
+    loaded from the skill store. Without it, any draft not already in the base
+    snapshot is refused (the safe default for every legacy caller).
+    """
     if not isinstance(base, HarnessSnapshot) or not isinstance(candidate, HarnessSnapshot):
         raise SnapshotError("SNAPSHOT_INVALID", "base and candidate must be HarnessSnapshot values")
 
@@ -81,10 +91,11 @@ def validate_snapshot(base: HarnessSnapshot, candidate: HarnessSnapshot) -> Harn
         )
     extra_skills = sorted(set(candidate.skillDraftIds) - set(base.skillDraftIds))
     if extra_skills:
-        raise SnapshotError(
-            "SNAPSHOT_UNKNOWN_SKILL",
-            "skill drafts not in the base set: " + ", ".join(extra_skills),
-        )
+        if known_skill_ids is None or not set(extra_skills).issubset(known_skill_ids):
+            raise SnapshotError(
+                "SNAPSHOT_UNKNOWN_SKILL",
+                "skill drafts not authorized for this trial: " + ", ".join(extra_skills),
+            )
     return candidate
 
 
@@ -131,6 +142,7 @@ class CandidateAgentInvoker:
         snapshot: HarnessSnapshot,
         *,
         base: HarnessSnapshot,
+        skill_store: Optional[Any] = None,
         allow_live_bridge: bool = False,
     ) -> None:
         if allow_live_bridge:
@@ -140,8 +152,66 @@ class CandidateAgentInvoker:
             )
         self.store = store
         self.base = base
-        self.snapshot = validate_snapshot(base, snapshot)
+        self.skill_store = skill_store
+        drafts = self._authorized_drafts(snapshot)
+        self.snapshot = validate_snapshot(
+            base, snapshot, known_skill_ids=set(drafts),
+        )
+        self._draft_prompt = self._draft_instructions(drafts)
         install_model_seam()
+
+    def _authorized_drafts(self, snapshot: HarnessSnapshot) -> dict[str, Any]:
+        """Only an existing, inert draft with satisfiable tools may be added."""
+        extra = sorted(set(snapshot.skillDraftIds) - set(self.base.skillDraftIds))
+        if not extra:
+            return {}
+        if self.skill_store is None:
+            raise SnapshotError(
+                "SNAPSHOT_UNKNOWN_SKILL",
+                "skill drafts require a skill store for validation",
+            )
+        drafts: dict[str, Any] = {}
+        for skill_id in extra:
+            skill = self.skill_store.get_skill(skill_id)
+            if not skill or str(skill.get("status") or "") != "draft":
+                raise SnapshotError(
+                    "SNAPSHOT_UNKNOWN_SKILL",
+                    f"{skill_id} is not an inert draft",
+                )
+            version = self.skill_store.get_version(
+                skill_id, str(skill.get("latestVersion") or skill.get("latest_version") or "0.1.0"),
+            )
+            manifest = (version or {}).get("manifest") or {}
+            required = set(str(tool) for tool in (manifest.get("requiredTools") or ()))
+            if not required.issubset(set(snapshot.toolNames)):
+                raise SnapshotError(
+                    "SNAPSHOT_UNKNOWN_SKILL",
+                    f"{skill_id} requires tools outside the candidate allowlist: "
+                    + ", ".join(sorted(required - set(snapshot.toolNames))),
+                )
+            drafts[skill_id] = {
+                "name": manifest.get("name") or skill.get("name") or skill_id,
+                "description": manifest.get("description") or skill.get("description") or "",
+                "instructions": (version or {}).get("instructions") or "",
+            }
+        return drafts
+
+    def _draft_instructions(self, drafts: dict[str, Any]) -> str:
+        if not drafts:
+            return ""
+        blocks = []
+        for skill_id, draft in drafts.items():
+            blocks.append(
+                f"### Draft skill: {draft['name']} ({skill_id})\n"
+                f"{str(draft['description'])[:600]}\n\n"
+                f"{str(draft['instructions'])[:2500]}"
+            )
+        return (
+            "\n\n## Inert draft skills available for this trial\n"
+            "These drafts are unvalidated. Follow them only when their procedure "
+            "fits the task, and state any limitation you hit.\n\n"
+            + "\n\n".join(blocks)
+        )[:8000]
 
     def _agent_for(self, task: Any, registry: Any) -> AgentConfig:
         registered = set(registry.names())
@@ -162,6 +232,7 @@ class CandidateAgentInvoker:
             getattr(limits, "max_turns", self.snapshot.maxSteps) or self.snapshot.maxSteps
         )
         return self.snapshot.to_agent_config().model_copy(update={
+            "systemPrompt": self.snapshot.systemPrompt + self._draft_prompt,
             "tools": allowed,
             "maxSteps": min(self.snapshot.maxSteps, task_max_steps),
             "maxToolCalls": min(self.snapshot.maxToolCalls, task_max_tool_calls),

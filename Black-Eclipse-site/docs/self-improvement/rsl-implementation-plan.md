@@ -64,8 +64,8 @@ code-verifier bugs: `_resolved_for` built no `WorkspaceBinding` (every write was
 refused as `NO_BINDING`) and `_make_check_runner` returned an un-awaited
 coroutine instead of a sync callable. Regression test:
 `test_code_verifier_runs_the_owning_test_in_a_real_worktree`. v1b skill-draft
-proposals and the v1c model proposer remain deferred; no surface snapshot can be
-activated. ADR-H233 records the subject-type decision.
+trials and the v1c model proposer are now implemented (ADR-H268). ADR-H233
+records the subject-type decision.
 
 **Who this is for:** anyone implementing the loop that turns Eclipse's own
 observed failures into verified, operator-approved improvements to its harness.
@@ -141,6 +141,9 @@ One real recurring production failure travels the whole chain:
 8. The change is applied through `code/selfhost.py` (restart/build verdict),
    health-checked, and rolled back atomically if the check fails.
 9. A lesson with `cue` + `evidence` is stored and retrieved by a later task.
+9b. An inert skill draft can be listed in a candidate snapshot, measured in the
+   trial (instructions + required tools validated), and is still refused for
+   live activation.
 10. A rejected candidate is reverted and never activates.
 11. The loop is restart-safe, budget-capped and auditable.
 
@@ -589,7 +592,7 @@ task and is graded, with zero writes to production state.
 v1a code proposer, tests-only code verifier, surface benchmark verifier,
 landing preview, recorder and lifespan wiring are in place. Code patches record
 `benchmark="UNMEASURED"`; only surface candidates can claim a measured delta.
-v1b skill drafts and v1c model proposals are deferred to R6/R7.
+v1b skill drafts and v1c model proposals are now implemented (v1b: inert drafts in candidate trials; v1c: flag-gated model proposer).
 
 Tasks:
 
@@ -605,7 +608,7 @@ Tasks:
   - v1a (implemented): `propose_from_ops(store, candidate_id, actor=...)` —
     operator/agent-supplied ops, validated by `assert_landable_target` (target
     and every op path) + `propose_ops` + the RSL denylist;
-  - v1b/v1c (deferred to R6/R7): skill-draft proposals and a bounded model
+  - v1b/v1c (implemented): inert skill drafts in candidate trials and a bounded model
     proposer behind their own flags.
 - `self_improvement/verifier.py`:
   - `verify_code(store, candidate_id, ctx=...)`: owning tests in a worktree via
@@ -905,7 +908,7 @@ within `HARNESS_RSL_MAX_COST_USD`, and a critical regression has not occurred.
 A rejected candidate is reverted/never activated; a bad landed change uses the
 existing promotion rollback. `k>1` is a cost decision, not an autonomy grant.
 
-**Still deferred after this runbook:** v1b skill-draft proposals, the v1c model
+**Implemented after this runbook:** v1b skill-draft trials, the v1c model
 proposer, the live surface bridge, and surface landing.
 
 ---

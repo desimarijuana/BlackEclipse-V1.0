@@ -8705,6 +8705,26 @@ wiring keeps the browser smokes from rotting.
 `DriftStatusWidget` registration, history `offset` plumbing, scopes merge,
 jitter, `npm run test:drift`, and the CI step. No new detector or write path.
 
+## ADR-H268 — v1b: inert skill drafts are trial-only inputs, never live
+
+**Decision.** A candidate snapshot may add `skillDraftIds` that are not in the
+base only when a skill store proves each id is `status=draft`, its current
+version's `requiredTools` are a subset of the candidate's tools, and its
+instructions are injected into the candidate trial prompt. The base snapshot is
+never mutated, live activation still refuses any `skillDraftIds`, and the
+operator surface documents the field.
+
+**Why.** v1b is the skill half of self-improvement. Making a draft measurable in
+a trial is useful; making it live without the existing skill evaluation and
+promotion path would bypass that path. The store check keeps "unknown draft id"
+a structured refusal instead of an arbitrary prompt injection.
+
+**Consequences.** `validate_snapshot(known_skill_ids=...)`,
+`CandidateAgentInvoker(skill_store=...)` with `_authorized_drafts` /
+`_draft_instructions`, `skill_store` passed from the conductor through the
+surface verifier, the surface-form hint, and `test_rsl_skill_drafts.py`. No new
+activation path.
+
 ## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
 
 **Decision.** W8.4's task-type verifier becomes the ONE authority for "done", and
