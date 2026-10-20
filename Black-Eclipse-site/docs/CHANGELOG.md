@@ -8,6 +8,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **fix(ui): the activity feed shows the newest step and no longer hides steps
+  behind its own scrollbar.** The feed keeps every step visible (the chat's own
+  scroll follows it) and collapsing into the header remains the user's choice;
+  while a run is live the header names the current step and that row is gently
+  foregrounded. Python execution is now explicit: `analysis_run` reads
+  "Executing Python" (with the recipe/plain purpose as its detail) instead of
+  "Working it out", and the `execute_*` tools have plain labels. Files:
+  `src/components/chat/activity-feed.tsx`, `activity-item.tsx`,
+  `src/lib/agent/response-model.ts`, `python/harness/code/activity.py`. Tests:
+  `events.test.ts`, `test_code_activity.py`. no doc change — UI behavior only.
+
 - **fix(search,ui): stop Bots mode stalling behind a broken embedding provider
   and a background polling loop.** Three independent causes. (1) The boot search
   warm-index called `embed_texts` once per document; a provider that rejected
