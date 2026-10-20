@@ -36,6 +36,13 @@ umpy/pandas are **already installed** in the runtime and the analysis
   (26), src/lib/harness/charts.test.ts, src/app/api/harness/charts/route.test.ts.
   docs updated: docs/chart-engine.md, docs/DECISIONS.md (ADR-050),
   skills/ARCHITECT.md (ADR-050), docs/ARCHITECTURE.md, docs/NAVIGATION.md.
+- **docs(rsl): publish the RSL v2 plan.**
+  Added `docs/self-improvement/rsl-v2-plan.md` with the remaining v2 phases
+  (canary landing, continuous climb scheduling, multi-objective search,
+  identity expansion, hardening), safety floor and definition of done; linked
+  it from `docs/NAVIGATION.md`. docs updated:
+  `docs/self-improvement/rsl-v2-plan.md`, `docs/NAVIGATION.md`.
+
 - **feat(harness): opt-in cross-scope lesson transfer.**
   `HARNESS_RSL_LESSON_TRANSFER=on` lets a cue-matched adopted lesson from
   another recorded scope be retrieved; the default remains exact-scoped, and
