@@ -70,6 +70,7 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
   const pinnedIds = useBotsStore((s) => s.pinnedIds);
   const togglePin = useBotsStore((s) => s.togglePin);
   const forget = useBotsStore((s) => s.forget);
+  const release = useBotsStore((s) => s.release);
   const openCreate = useBotsStore((s) => s.openCreate);
   const openGroupCreate = useBotsStore((s) => s.openGroupCreate);
   const avatars = useBotAvatarStore((s) => s.avatars);
@@ -77,8 +78,6 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
   const byGroup = useBotGroupsStore((s) => s.byGroup);
   const byBot = useBotChatStore((s) => s.byBot);
   const [deleteTarget, setDeleteTarget] = useState<AutomationView | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<AutomationView | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [renaming, setRenaming] = useState(false);
@@ -201,21 +200,23 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
   };
 
   const confirmDelete = async () => {
-    if (!deleteTarget || deleting) return;
+    if (!deleteTarget) return;
     const id = deleteTarget.id;
-    setDeleting(true);
-    setDeleteError(null);
+    // Remove the row and close the dialog before the request: the runtime can
+    // take seconds to answer, and the operator must not be blocked meanwhile.
+    setActionError(null);
+    setDeleteTarget(null);
+    if (selectedId === id) select(null);
+    forget(id);
     try {
       await deleteAutomation(id);
-      if (selectedId === id) select(null);
-      // Remove it locally at once; the refresh below can never resurrect it.
-      forget(id);
-      setDeleteTarget(null);
+      // Reconcile in the background; `forget` keeps it out of any hydrate.
       await hydrate();
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : 'delete failed');
-    } finally {
-      setDeleting(false);
+      // The delete failed — bring the bot back from the server's list.
+      release(id);
+      setActionError(err instanceof Error ? err.message : 'delete failed');
+      await hydrate();
     }
   };
 
@@ -495,10 +496,7 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
       <Dialog
         open={Boolean(deleteTarget)}
         onOpenChange={(next) => {
-          if (!next && !deleting) {
-            setDeleteTarget(null);
-            setDeleteError(null);
-          }
+          if (!next) setDeleteTarget(null);
         }}
       >
         <DialogContent>
@@ -508,16 +506,11 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
               {t('bots.deleteConfirm')} {deleteTarget ? `“${deleteTarget.name}”` : ''}
             </DialogDescription>
           </DialogHeader>
-          {deleteError && (
-            <p className="rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-300">
-              {deleteError}
-            </p>
-          )}
           <DialogFooter>
-            <Button variant="ghost" disabled={deleting} onClick={() => setDeleteTarget(null)}>
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
               {t('bots.cancel')}
             </Button>
-            <Button variant="destructive" disabled={deleting} onClick={() => void confirmDelete()}>
+            <Button variant="destructive" onClick={() => void confirmDelete()}>
               {t('bots.delete')}
             </Button>
           </DialogFooter>

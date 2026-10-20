@@ -62,6 +62,10 @@ let pinnedLoaded = false;
  *  overwrite a newer one (a stale list could resurrect a just-deleted bot). */
 let hydrateSeq = 0;
 
+/** Bots whose DELETE is still in flight (or already succeeded). Hydrate drops
+ *  them, so a concurrent refresh cannot re-add a row the operator just removed. */
+const deletedIds = new Set<string>();
+
 interface BotsStore {
   bots: AutomationView[];
   statusById: Record<string, AutomationStatusView>;
@@ -75,6 +79,8 @@ interface BotsStore {
   togglePin: (botId: string) => void;
   /** Drop a deleted bot from the local list immediately. */
   forget: (botId: string) => void;
+  /** Undo a `forget` when the delete request failed (bot must come back). */
+  release: (botId: string) => void;
   loading: boolean;
   error: string | null;
   /** The selected bot, or null. Mutual exclusive with `selectedGroupId`. */
@@ -149,6 +155,7 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
   },
 
   forget: (botId) => {
+    deletedIds.add(botId);
     const { bots, statusById, seenRuns, pinnedIds, selectedId } = get();
     const nextSeen = { ...seenRuns };
     delete nextSeen[botId];
@@ -170,6 +177,10 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
     });
   },
 
+  release: (botId) => {
+    deletedIds.delete(botId);
+  },
+
   hydrate: async () => {
     // Load the persisted UI ledgers once, so pins/unread dots survive reloads.
     const seenRuns = seenLoaded ? get().seenRuns : loadSeenRuns();
@@ -178,7 +189,7 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
     pinnedLoaded = true;
     const seq = ++hydrateSeq;
     try {
-      const bots = await listAutomations();
+      const bots = (await listAutomations()).filter((b) => !deletedIds.has(b.id));
       // Fetch status for every bot (not just active ones) so a paused bot with an
       // unseen run still surfaces its dot until the operator opens it.
       const candidates = bots.slice(0, MAX_STATUS_FETCH);

@@ -312,6 +312,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `sidebar.pin`/`unpin`/`pinned`/`rename` keys to stay inside the `en.ts` line
   budget. No doc change — UI affordance only, contracts unchanged.
 
+- **fix(ui): bot delete is instant and repeatable.** The runtime's DELETE can take
+  seconds, and the sidebar waited for it before removing the row: the
+  confirmation dialog stayed open with a disabled button, so a second delete
+  looked dead. Delete now closes the dialog and removes the row optimistically,
+  then sends the request. A suppression set keeps concurrent hydrates from
+  re-adding the row; a failed request releases it and rehydrates so the bot
+  comes back with the error shown. No doc change — UI behaviour only, contracts
+  unchanged.
+
 ## 2026-10-18
 
 - **feat(app,harness): RSL R5 — operator evidence and prepare-landing surface.**
