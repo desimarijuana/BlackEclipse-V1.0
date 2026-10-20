@@ -8,6 +8,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **test(rsl): automated v1 acceptance passed.**
+  `npm run rsl:smoke` passed (code candidate `evaluated_ok`, measured surface
+  `benchmark_rejected`, budget 2/3) and the focused acceptance suite passed
+  (`65 passed`: state, utility, replay, hill climb, lesson feedback, drift,
+  drift watch, v1b skill drafts, surface e2e, self-improvement e2e). The live
+  operator experiment is still the manual sign-off described in
+  `docs/self-improvement/rsl-v1-acceptance.md`. docs updated:
+  `docs/CHANGELOG.md`.
+
 - **fix(ui): the sidebar mode-switcher dropdown reads as real frosted glass and
   the chat-history sort arrow is no longer oversized.** The mode menu used the
   shared dropdown tier (`.glass-tooltip`), which is too faint over the
