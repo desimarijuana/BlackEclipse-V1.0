@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
 from harness.code.evolution_store import EvolutionStore
+from harness.eclipse_memory import EclipseMemoryStore
 from harness.evaluation.store import EvaluationStore
 from harness.persistence import AgentMemoryStore
 from harness.schemas import AgentConfig
@@ -16,11 +18,13 @@ from harness.self_improvement.models import HarnessSnapshot
 from harness.self_improvement.state import HarnessStateStore
 import harness.agents as agents_module
 import harness.routers.evolution as evolution_router
+import harness.routers.evolution_drift as drift_router
 
 
 class _Service:
-    def __init__(self, store: AgentMemoryStore) -> None:
+    def __init__(self, store: AgentMemoryStore, skill_store=None) -> None:
         self.store = store
+        self.skill_store = skill_store
 
     def evolution_store(self) -> EvolutionStore:
         return EvolutionStore(self.store)
@@ -29,8 +33,12 @@ class _Service:
 @pytest.fixture()
 def store(tmp_path, monkeypatch):
     memory = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
-    monkeypatch.setattr(evolution_router, "service", _Service(memory))
+    lessons = EclipseMemoryStore(str(tmp_path / "eclipse-memory.db"))
+    service = _Service(memory, lessons)
+    monkeypatch.setattr(evolution_router, "service", service)
+    monkeypatch.setattr(drift_router, "service", service)
     yield memory
+    lessons.close()
     memory.close()
 
 
@@ -171,7 +179,7 @@ def _use_surface_base(monkeypatch, *agent_ids: str):
         )
 
 
-def _surface_candidate(store: AgentMemoryStore, *, model_name=None) -> dict:
+def _surface_candidate(store: AgentMemoryStore, *, model_name=None, task_ids=None) -> dict:
     base = HarnessSnapshot(
         systemPrompt="base prompt", toolNames=("tool_a", "tool_b"),
         maxSteps=8, maxToolCalls=10,
@@ -189,7 +197,8 @@ def _surface_candidate(store: AgentMemoryStore, *, model_name=None) -> dict:
         "surfaceConfig": {
             "base": base.to_dict(), "snapshot": snapshot.to_dict(),
             "dataset": "benchmark_v1", "split": "validation",
-            "taskIds": ["core.echo.001"], "targetDimension": "task_success",
+            "taskIds": list(task_ids or ["core.echo.001"]),
+            "targetDimension": "task_success",
             "trials": 1,
         },
         "status": "evaluated_ok",
@@ -241,6 +250,34 @@ def test_surface_preview_and_scope_override(store, monkeypatch):
     _use_surface_base(monkeypatch, "eclipse-agent", "code-agent")
     candidate = _surface_candidate(store)
     run_id = _accepted_rsl_run(store, candidate["id"], "rsl-surface-preview")
+    eval_store = EvaluationStore(store)
+    eval_store.add_metric(
+        runId=run_id, scope="overall", dimension="task_success",
+        value=0.9, sampleSize=2,
+    )
+    eval_store.add_trial(
+        runId=run_id, taskId="core.echo.001", trialIndex=0, passed=True,
+        score={"task_success": 1.0}, status="passed",
+    )
+    eval_store.create_run(
+        id="rsl-baseline-preview", suite="surface-baseline",
+        datasetName="benchmark_v1", datasetVersion="1", datasetChecksum="abc",
+        config={"kind": "rsl-baseline"}, metadata={"kind": "rsl-baseline"},
+        status="completed",
+    )
+    eval_store.add_metric(
+        runId="rsl-baseline-preview", scope="overall", dimension="task_success",
+        value=0.7, sampleSize=2,
+    )
+    eval_store.add_trial(
+        runId="rsl-baseline-preview", taskId="core.echo.001", trialIndex=0,
+        passed=False, score={"task_success": 0.0}, status="failed",
+    )
+    surface_config = dict(candidate["surfaceConfig"])
+    surface_config["baselineRunId"] = "rsl-baseline-preview"
+    EvolutionStore(store).update_candidate(
+        candidate["id"], surfaceConfig=surface_config,
+    )
     states = HarnessStateStore(store)
     state = states.save_state({
         "scope": "eclipse-agent", "snapshotDigest": "candidate",
@@ -255,6 +292,19 @@ def test_surface_preview_and_scope_override(store, monkeypatch):
     assert preview["diff"]["toolsRemoved"] == ["tool_b"]
     assert preview["diff"]["maxStepsAfter"] == 6
     assert "eclipse-agent" in preview["availableScopes"]
+    assert preview["evidence"]["run"]["id"] == run_id
+    assert preview["evidence"]["metrics"][0]["dimension"] == "task_success"
+    assert preview["evidence"]["trials"][0]["taskId"] == "core.echo.001"
+    assert "trajectory" not in preview["evidence"]["trials"][0]
+    assert preview["evidence"]["target"]["dimension"] == "task_success"
+    assert preview["evidence"]["target"]["before"] == 0.7
+    assert preview["evidence"]["target"]["after"] == 0.9
+    assert round(preview["evidence"]["target"]["delta"], 3) == 0.2
+    task_delta = preview["evidence"]["taskDeltas"][0]
+    assert task_delta["taskId"] == "core.echo.001"
+    assert task_delta["before"] == 0.0
+    assert task_delta["after"] == 1.0
+    assert task_delta["delta"] == 1.0
 
     activated = evolution_router.activate_surface_state(
         state["id"],
@@ -265,6 +315,65 @@ def test_surface_preview_and_scope_override(store, monkeypatch):
     assert states.current("code-agent")["id"] == activated["state"]["id"]
     # The original state remains in its own scope.
     assert states.get_state(state["id"])["scope"] == "eclipse-agent"
+
+
+def test_surface_preview_blocks_a_critical_task_regression(store, monkeypatch):
+    _use_surface_base(monkeypatch)
+    candidate = _surface_candidate(
+        store, task_ids=["core.echo.001", "safety.forbidden_tool.001"],
+    )
+    run_id = _accepted_rsl_run(store, candidate["id"], "rsl-surface-critical")
+    eval_store = EvaluationStore(store)
+    eval_store.add_metric(
+        runId=run_id, scope="overall", dimension="task_success",
+        value=0.9, sampleSize=2,
+    )
+    eval_store.add_trial(
+        runId=run_id, taskId="core.echo.001", trialIndex=0, passed=True,
+        score={"task_success": 1.0}, status="passed",
+    )
+    eval_store.add_trial(
+        runId=run_id, taskId="safety.forbidden_tool.001", trialIndex=0,
+        passed=False, score={"task_success": 0.0}, status="failed",
+    )
+    eval_store.create_run(
+        id="rsl-baseline-critical", suite="surface-baseline",
+        datasetName="benchmark_v1", datasetVersion="1", datasetChecksum="abc",
+        config={"kind": "rsl-baseline"}, metadata={"kind": "rsl-baseline"},
+        status="completed",
+    )
+    eval_store.add_metric(
+        runId="rsl-baseline-critical", scope="overall", dimension="task_success",
+        value=0.7, sampleSize=2,
+    )
+    eval_store.add_trial(
+        runId="rsl-baseline-critical", taskId="core.echo.001", trialIndex=0,
+        passed=False, score={"task_success": 0.0}, status="failed",
+    )
+    eval_store.add_trial(
+        runId="rsl-baseline-critical", taskId="safety.forbidden_tool.001", trialIndex=0,
+        passed=True, score={"task_success": 1.0}, status="passed",
+    )
+    surface_config = dict(candidate["surfaceConfig"])
+    surface_config["baselineRunId"] = "rsl-baseline-critical"
+    EvolutionStore(store).update_candidate(
+        candidate["id"], surfaceConfig=surface_config,
+    )
+    state = HarnessStateStore(store).save_state({
+        "scope": "eclipse-agent", "snapshotDigest": "candidate",
+        "candidateId": candidate["id"], "acceptedRunId": run_id,
+        "metrics": {"aggregates": {"task_success": 0.9}},
+        "utility": 0.9, "status": "candidate",
+    })
+
+    preview = evolution_router.preview_surface_state(state["id"], scope="eclipse-agent")
+
+    assert preview["canActivate"] is False
+    assert any("critical task regressed" in reason for reason in preview["reasons"])
+    assert [row["taskId"] for row in preview["evidence"]["criticalDeltas"]] == [
+        "safety.forbidden_tool.001",
+    ]
+    assert preview["evidence"]["criticalDeltas"][0]["delta"] == -1.0
 
 
 def test_candidate_state_route_returns_the_derived_state(store):
@@ -323,6 +432,161 @@ def test_surface_activation_refuses_an_unmeasured_state(store, monkeypatch):
     assert refused.value.status_code == 409
 
 
+def test_retire_lesson_route_marks_a_measured_non_positive_lesson(store):
+    lessons = evolution_router.service.skill_store
+    lessons.save_candidate({
+        "id": "lesson-retire", "candidateType": "adopted_lesson",
+        "title": "market timeout", "signature": "sig-lesson-retire",
+        "proposedLesson": "retry once", "status": "adopted",
+    })
+    outcomes = LessonOutcomeStore(store)
+    for index in range(5):
+        outcomes.record_injections(
+            f"injected-{index}", [{"id": "lesson-retire"}], ["lesson-retire"],
+        )
+        outcomes.record_run_outcome(f"injected-{index}", "failed")
+    for index in range(5):
+        outcomes.record_injections(
+            f"control-{index}",
+            [{"id": "lesson-retire"}, {"id": "control"}], [],
+        )
+        outcomes.record_run_outcome(f"control-{index}", "completed")
+
+    result = evolution_router.retire_lesson("lesson-retire")
+    assert result["retired"] is True
+    assert result["stats"]["status"] == "measured"
+    assert result["stats"]["lift"] <= 0
+    assert lessons.get_candidate("lesson-retire")["status"] == "retired"
+
+
+def _insert_terminal_runs(
+    store: AgentMemoryStore, *, agent: str, completed: int, failed: int,
+    day: int = 20, start: int = 0,
+) -> None:
+    db = store._db
+    origin = datetime(2026, 10, day, tzinfo=timezone.utc)
+
+    def stamp(index: int) -> str:
+        return (origin + timedelta(minutes=start + index)).isoformat()
+
+    for index in range(completed):
+        value = stamp(index)
+        db.execute(
+            "INSERT INTO HarnessRun (id, agentId, status, input, createdAt, updatedAt) "
+            "VALUES (?, ?, 'completed', '{}', ?, ?)",
+            (f"{agent}-ok-{day}-{start + index}", agent, value, value),
+        )
+    for index in range(failed):
+        value = stamp(completed + index)
+        db.execute(
+            "INSERT INTO HarnessRun (id, agentId, status, input, createdAt, updatedAt) "
+            "VALUES (?, ?, 'failed', '{}', ?, ?)",
+            (f"{agent}-bad-{day}-{start + index}", agent, value, value),
+        )
+    db.commit()
+
+
+def test_drift_routes_report_available_scopes_and_scope_the_signal(store, monkeypatch):
+    _use_surface_base(monkeypatch, "eclipse-agent", "code-agent")
+    _insert_terminal_runs(
+        store, agent="eclipse-agent", completed=10, failed=20, day=21,
+    )
+    _insert_terminal_runs(
+        store, agent="eclipse-agent", completed=100, failed=0, day=20,
+    )
+    _insert_terminal_runs(
+        store, agent="code-agent", completed=30, failed=0, day=22,
+    )
+
+    signal = drift_router.evolution_drift(
+        scope="eclipse-agent", window=30, baseline=100,
+        minSamples=10, threshold=0.1, _=True,
+    )
+    assert signal["success"] is True
+    assert signal["status"] == "drift"
+    assert signal["scope"] == "eclipse-agent"
+    assert {"global", "eclipse-agent", "code-agent"} <= set(signal["availableScopes"])
+
+    created = drift_router.create_drift_candidate(
+        scope="eclipse-agent", window=30, baseline=100,
+        minSamples=10, threshold=0.1, _=True,
+    )
+    assert created["created"] is True
+    assert created["signal"]["scope"] == "eclipse-agent"
+    assert created["candidate"]["subjectType"] == "drift"
+    assert created["candidate"]["sourceCategory"] == "drift"
+
+    again = drift_router.create_drift_candidate(
+        scope="eclipse-agent", window=30, baseline=100,
+        minSamples=10, threshold=0.1, _=True,
+    )
+    assert again["created"] is False
+    assert again["reason"] == "already_exists"
+
+
+def test_drift_history_route_reports_offsets_and_policy(store, monkeypatch):
+    _use_surface_base(monkeypatch, "eclipse-agent")
+    _insert_terminal_runs(store, agent="eclipse-agent", completed=10, failed=20, day=21)
+    _insert_terminal_runs(store, agent="eclipse-agent", completed=100, failed=0, day=20)
+
+    history = drift_router.evolution_drift_history(
+        scope="eclipse-agent", window=30, baseline=100, minSamples=10,
+        threshold=0.1, limit=3, step=30, _=True,
+    )
+    assert history["success"] is True
+    assert history["scope"] == "eclipse-agent"
+    assert history["step"] == 30
+    assert history["points"][0]["status"] == "drift"
+    assert history["points"][0]["offset"] == 0
+    assert history["points"][1]["offset"] == 30
+    assert "availableScopes" in history
+
+
+def test_drift_signal_to_candidate_to_evidence(store, monkeypatch):
+    _use_surface_base(monkeypatch, "eclipse-agent")
+    _insert_terminal_runs(store, agent="eclipse-agent", completed=10, failed=20, day=21)
+    _insert_terminal_runs(store, agent="eclipse-agent", completed=100, failed=0, day=20)
+
+    created = drift_router.create_drift_candidate(
+        scope="eclipse-agent", window=30, baseline=100,
+        minSamples=10, threshold=0.1, _=True,
+    )
+    assert created["created"] is True
+    candidate_id = created["candidate"]["id"]
+
+    evidence = evolution_router.candidate_evidence(candidate_id, _=True)
+    assert evidence["candidate"]["subjectType"] == "drift"
+    assert evidence["candidate"]["status"] == "inert"
+    assert "eclipse-agent" in evidence["candidate"]["problemStatement"]
+    assert evidence["experiments"] == []
+    assert evidence["attempts"] == []
+
+
+def test_drift_scopes_overview_returns_one_signal_per_scope(store, monkeypatch):
+    _use_surface_base(monkeypatch, "eclipse-agent", "code-agent")
+    _insert_terminal_runs(store, agent="eclipse-agent", completed=30, failed=0)
+    _insert_terminal_runs(store, agent="code-agent", completed=10, failed=20, day=21)
+
+    overview = drift_router.evolution_drift_scopes(
+        window=30, baseline=100, minSamples=10, threshold=0.1, _=True,
+    )
+    assert overview["success"] is True
+    assert {"global", "eclipse-agent", "code-agent"} <= set(overview["availableScopes"])
+    by_scope = {
+        row["scope"]: row["signal"]["status"] for row in overview["signals"]
+    }
+    assert by_scope["eclipse-agent"] in {"stable", "unmeasured"}
+    assert by_scope["code-agent"] == "unmeasured"
+
+    agents_only = drift_router.evolution_drift_scopes(
+        window=30, baseline=100, minSamples=10, threshold=0.1,
+        includeGlobal=False, _=True,
+    )
+    assert "global" not in {
+        row["scope"] for row in agents_only["signals"]
+    }
+
+
 def test_every_rsl_route_refuses_a_remote_caller():
     from harness import main as main_module
 
@@ -334,6 +598,7 @@ def test_every_rsl_route_refuses_a_remote_caller():
         ("get", "/evolution/candidates/evo_x/state"),
         ("get", "/evolution/lessons"),
         ("get", "/evolution/lessons/cand_x/outcomes"),
+        ("post", "/evolution/lessons/cand_x/retire"),
         ("get", "/evolution/states"),
         ("post", "/evolution/states/hstate_x/promote"),
         ("post", "/evolution/states/hstate_x/activate-surface"),
@@ -343,10 +608,14 @@ def test_every_rsl_route_refuses_a_remote_caller():
         ("post", "/evolution/candidates/evo_x/lessons"),
         ("post", "/evolution/candidates/evo_x/recursive"),
         ("post", "/evolution/candidates/evo_x/propose"),
+        ("post", "/evolution/candidates/evo_x/model-propose"),
         ("post", "/evolution/surface-experiments"),
         ("get", "/evolution/rsl"),
         ("post", "/evolution/rsl/tick"),
         ("get", "/evolution/drift"),
+        ("get", "/evolution/drift/scopes"),
+        ("get", "/evolution/drift/history"),
+        ("post", "/evolution/drift/candidate"),
         ("post", "/evolution/candidates/evo_x/prepare-landing"),
     ):
         response = getattr(client, method)(path)

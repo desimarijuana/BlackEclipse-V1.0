@@ -437,6 +437,7 @@ Tasks:
   | `HARNESS_RSL_LEASE_SECONDS` | `1800` | stale `evaluating` reclaim |
   | `HARNESS_RSL_MAX_WALL_SECONDS` | `1800` | one experiment |
   | `HARNESS_RSL_MAX_COST_USD` | `5` | hard budget; unknown cost stops verification |
+  | `HARNESS_DRIFT_WATCH_SECONDS` | `300` | read-only drift cadence; `0` disables |
 
 - `config.py` tests: defaults, clamps, mode off is a no-op.
 
@@ -1138,8 +1139,10 @@ and memory model needed for a real climb:
   control rates with Wilson intervals and a lift only at sufficient evidence
   (3 injected + 3 control); `rank_lessons` promotes measured positive lift and
   leaves thin evidence in place. `retire_unhelpful` is an inert lifecycle action
-  behind `HARNESS_RSL_LESSON_RETIRE` (off by default). This closes the lesson
-  loop: injection is measured, not merely observed.
+  behind `HARNESS_RSL_LESSON_RETIRE` (off by default). The lessons panel's `Lift`
+  action reads `/evolution/lessons/{id}/outcomes` and shows injected/control rates
+  inline; a measured non-positive lesson can be retired through the operator
+  route. This closes the lesson loop: injection is measured, not merely observed.
 - **Conductor entry** — `RSLLoop.run_hillclimb` is reachable only in `verify`
   mode with `HARNESS_RSL_STRATEGY=hillclimb`. It loads the current
   `HarnessState`, uses the configured `k`/`HARNESS_RSL_GENERATIONS`, caps
@@ -1167,9 +1170,11 @@ and memory model needed for a real climb:
   `PYTHONPATH` points at the patched worktree. The child gets a temp DB, a
   curated non-secret environment, no live bridge and a timeout; the patched code
   is never imported into the host. `benchmark_decision` accepts only a measured
-  target improvement with no critical regression. The result is recorded on an
-  `EvaluationRun` and returned to `verify_code`; the candidate never lands.
-  Opt-in: `HARNESS_RSL_CODE_BENCHMARK=off` by default.
+  target improvement with no critical regression, including the per-task
+  safety/adversarial veto (a critical task drop rejects even when the aggregate
+  improved). The result is recorded on an `EvaluationRun` and returned to
+  `verify_code`; the candidate never lands. Opt-in:
+  `HARNESS_RSL_CODE_BENCHMARK=off` by default.
 - **Operator surfaces** — `GET /evolution/states` (current pointers + recent
   immutable rows), `POST /evolution/states/{id}/promote` (state pointer only;
   supersedes the prior current row, never writes code or consumes an approval),
@@ -1187,7 +1192,11 @@ and memory model needed for a real climb:
   surface cannot contaminate a measurement. `GET
   /evolution/states/{id}/surface-preview` returns the same decision the
   activation uses: prompt/tools/ceiling diff, base-digest match, accepted
-  decision, available scopes and every refusal reason. Scoped activation creates
+  decision, available scopes, every refusal reason, and the accepted run's
+  bounded metrics/trials (trajectory stripped), baseline metrics/trials, the
+  target before/after/delta, a measured per-task delta table with missing
+  sides `UNMEASURED`, and a critical-regression veto for safety/adversarial
+  tasks (ADR-H254/H255/H256). Scoped activation creates
   a new immutable state for that agent scope; the source state is untouched. A
   surface experiment now carries its target `scope` in `surfaceConfig` (part of
   the experiment signature), and a measured surface materializes exactly one
@@ -1200,7 +1209,17 @@ and memory model needed for a real climb:
   run window with the preceding baseline, maps only completed/failed to
   success/failure, reports Wilson intervals, and returns `unmeasured` on thin
   data. `GET /evolution/drift` exposes it per agent scope; it is read-only and
-  never changes the current harness (ADR-H250).
+  never changes the current harness (ADR-H250). `POST
+  /evolution/drift/candidate` turns a `drift` signal into ONE inert `drift`
+  candidate (no target/ops, deduped by scope/window/threshold) so the operator
+  can stage ops or run the model proposer through the existing
+  propose → verify → land flow (ADR-H251). `POST
+  /evolution/candidates/{id}/model-propose` runs the model proposer for that
+  candidate and persists validated children; the drift card links it as
+  `Propose with model` and then `Run verify tick`, showing the verified
+  candidate/decision/benchmark; a verified code child can then `Prepare landing`
+  and complete the existing `PromoteChange` preview → single-use approval →
+  apply/rollback card in place (ADR-H252).
 
 Config: `HARNESS_RSL_MODE=off|observe|propose|verify|auto`,
 `HARNESS_RSL_STRATEGY=rsl|hillclimb`, `HARNESS_RSL_GENERATIONS=1..3`,
@@ -1210,7 +1229,7 @@ Tests: `python/tests/test_rsl_{state,utility,replay,hillclimb}.py` (28),
 `python/tests/test_rsl_model_proposer.py`,
 `python/tests/test_worktree_invoker.py`, and
 `python/tests/test_rsl_loop.py` (auto mode + conductor entry + measured code
-decision). ADR-H239, H242–H250. The live-surface activation path is implemented
+decision). ADR-H239, H242–H253. The live-surface activation path is implemented
 behind an explicit operator preview, a base-digest check, per-agent scope
 selection and a rollback route; code candidates still land only through the
 existing promotion approval.

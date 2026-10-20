@@ -45,6 +45,7 @@ def _candidate_row(row: Any) -> dict[str, Any]:
         "targetPath": row["targetPath"],
         "proposedOps": json.loads(row["proposedOpsJson"]) if row["proposedOpsJson"] else None,
         "subjectType": row["subjectType"] if "subjectType" in row.keys() else "code",
+        "scope": row["scope"] if "scope" in row.keys() else None,
         "surfaceConfig": (
             json.loads(row["surfaceConfigJson"]) if row["surfaceConfigJson"] else None
         ),
@@ -100,6 +101,7 @@ class EvolutionStore:
               targetPath        TEXT,
               proposedOpsJson   TEXT,
               subjectType       TEXT NOT NULL DEFAULT 'code',
+              scope             TEXT,
               surfaceConfigJson TEXT,
               status            TEXT NOT NULL DEFAULT 'inert',
               refusalCode       TEXT,
@@ -122,6 +124,7 @@ class EvolutionStore:
             "EvolutionCandidate", "subjectType",
             "subjectType TEXT NOT NULL DEFAULT 'code'",
         )
+        self._ensure_column("EvolutionCandidate", "scope", "scope TEXT")
         self._ensure_column(
             "EvolutionCandidate", "surfaceConfigJson", "surfaceConfigJson TEXT",
         )
@@ -171,14 +174,15 @@ class EvolutionStore:
         self._db.execute(
             """INSERT OR REPLACE INTO EvolutionCandidate
                (id, signature, sourceCategory, observedCount, problemStatement, targetPath,
-                proposedOpsJson, subjectType, surfaceConfigJson, status, refusalCode,
+                proposedOpsJson, subjectType, scope, surfaceConfigJson, status, refusalCode,
                 activatedVersion, previousVersion, createdByRunId, createdAt, updatedAt)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 record["id"], record["signature"], record["sourceCategory"],
                 int(record["observedCount"]), record["problemStatement"], record.get("targetPath"),
                 json.dumps(record["proposedOps"]) if record.get("proposedOps") is not None else None,
                 record.get("subjectType", "code"),
+                record.get("scope"),
                 json.dumps(record["surfaceConfig"]) if record.get("surfaceConfig") is not None else None,
                 record.get("status", "inert"), record.get("refusalCode"),
                 record.get("activatedVersion"), record.get("previousVersion"),
@@ -223,7 +227,7 @@ class EvolutionStore:
             "proposedOps": "proposedOpsJson", "activatedVersion": "activatedVersion",
             "previousVersion": "previousVersion", "observedCount": "observedCount",
             "problemStatement": "problemStatement", "subjectType": "subjectType",
-            "surfaceConfig": "surfaceConfigJson",
+            "scope": "scope", "surfaceConfig": "surfaceConfigJson",
         }
         sets: list[str] = []
         params: list[Any] = []

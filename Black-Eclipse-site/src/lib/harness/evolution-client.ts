@@ -21,7 +21,8 @@ export interface EvolutionCandidate {
   problemStatement: string;
   targetPath: string | null;
   proposedOps?: Array<Record<string, unknown>> | null;
-  subjectType?: "code" | "surface";
+  subjectType?: "code" | "surface" | "drift";
+  scope?: string | null;
   surfaceConfig?: Record<string, unknown> | null;
   createdByRunId?: string | null;
   status: EvolutionStatus;
@@ -123,6 +124,12 @@ export interface EvolutionRslStatus {
   startedToday: number;
   remainingToday: number;
   budgetExhausted: boolean;
+  driftWatch?: {
+    enabled: boolean;
+    intervalSeconds: number;
+    running: boolean;
+    last: Record<string, string>;
+  };
   tickSeconds?: number;
   leaseSeconds?: number;
   trials?: number;
@@ -248,6 +255,13 @@ export interface EvolutionLessonOutcomes {
   outcomes: EvolutionLessonOutcome[];
 }
 
+export interface EvolutionLessonRetireResult {
+  lessonId: string;
+  retired: boolean;
+  stats: EvolutionLessonStats;
+  reason: string;
+}
+
 export interface EvolutionSurfaceActivation {
   id: string;
   stateId: string;
@@ -298,12 +312,100 @@ export interface EvolutionDriftSignal {
   drop: number | null;
   threshold: number;
   reasons: string[];
+  availableScopes?: string[];
+}
+
+export interface EvolutionDriftHistoryPoint {
+  offset: number;
+  at: string | null;
+  status: string;
+  drop: number | null;
+  current: EvolutionDriftWindow;
+  baseline: EvolutionDriftWindow;
+}
+
+export interface EvolutionDriftScopeSignal {
+  scope: string;
+  signal: EvolutionDriftSignal;
+}
+
+export interface EvolutionDriftScopes {
+  availableScopes: string[];
+  signals: EvolutionDriftScopeSignal[];
+}
+
+export interface EvolutionDriftHistory {
+  scope: string;
+  window: number;
+  baselineWindow: number;
+  threshold: number;
+  step: number;
+  requestedPoints: number;
+  truncated: boolean;
+  points: EvolutionDriftHistoryPoint[];
+  availableScopes?: string[];
+}
+
+export interface EvolutionModelProposeResult {
+  candidateId: string;
+  children: EvolutionCandidate[];
+}
+
+export interface EvolutionDriftCandidateResult {
+  created: boolean;
+  reason: string;
+  candidate: EvolutionCandidate | null;
+  signal: EvolutionDriftSignal;
 }
 
 export interface EvolutionCandidateStateResult {
   candidateId: string;
   state: EvolutionHarnessState | null;
   states: EvolutionHarnessState[];
+}
+
+export interface EvolutionSurfaceEvidenceMetric {
+  dimension: string;
+  value: number | null;
+  sampleSize?: number;
+  scope?: string;
+  category?: string;
+}
+
+export interface EvolutionSurfaceEvidenceTrial {
+  taskId: string;
+  trialIndex?: number;
+  passed: number | boolean;
+  unmeasured: number | boolean;
+  status: string;
+}
+
+export interface EvolutionSurfaceTaskDelta {
+  taskId: string;
+  before: number | null;
+  after: number | null;
+  beforeN: number;
+  afterN: number;
+  delta: number | null;
+}
+
+export interface EvolutionSurfaceEvidence {
+  run: EvolutionExperiment;
+  metrics: EvolutionSurfaceEvidenceMetric[];
+  trials: EvolutionSurfaceEvidenceTrial[];
+  baseline: {
+    run: EvolutionExperiment | null;
+    metrics: EvolutionSurfaceEvidenceMetric[];
+    trials: EvolutionSurfaceEvidenceTrial[];
+  } | null;
+  taskDeltas: EvolutionSurfaceTaskDelta[];
+  criticalDeltas: EvolutionSurfaceTaskDelta[];
+  target: {
+    dimension: string;
+    before: number | null;
+    after: number | null;
+    delta: number | null;
+  } | null;
 }
 
 export interface EvolutionSurfacePreview {
@@ -318,6 +420,7 @@ export interface EvolutionSurfacePreview {
   canActivate: boolean;
   reasons: string[];
   diff: EvolutionSurfaceDiff | null;
+  evidence: EvolutionSurfaceEvidence | null;
   previousState: EvolutionHarnessState | null;
 }
 
@@ -479,6 +582,15 @@ export async function getEvolutionLessonOutcomes(
   );
 }
 
+export async function retireEvolutionLesson(
+  lessonId: string,
+): Promise<EvolutionLessonRetireResult> {
+  return request<EvolutionLessonRetireResult>(
+    `/evolution/lessons/${encodeURIComponent(lessonId)}/retire`,
+    { method: "POST", body: "{}" },
+  );
+}
+
 export async function listEvolutionStates(
   input: { scope?: string; status?: string; limit?: number } = {},
 ): Promise<EvolutionHarnessStates> {
@@ -577,22 +689,120 @@ export async function proposeEvolutionCandidate(
   );
 }
 
+export async function modelProposeEvolutionCandidate(
+  candidateId: string,
+  k?: number,
+): Promise<EvolutionModelProposeResult> {
+  const query = k != null ? `?k=${encodeURIComponent(String(k))}` : "";
+  return request<EvolutionModelProposeResult>(
+    `/evolution/candidates/${encodeURIComponent(candidateId)}/model-propose${query}`,
+    { method: "POST", body: "{}" },
+  );
+}
+
 export async function getEvolutionRslStatus(): Promise<EvolutionRslStatus> {
   return request<EvolutionRslStatus>("/evolution/rsl", { method: "GET" });
 }
 
 export async function getEvolutionDrift(
-  input: { scope?: string; window?: number; baseline?: number; threshold?: number } = {},
+  input: { scope?: string; window?: number; baseline?: number; threshold?: number; minSamples?: number } = {},
 ): Promise<EvolutionDriftSignal> {
   const params = new URLSearchParams();
   if (input.scope) params.set("scope", input.scope);
   if (input.window) params.set("window", String(input.window));
   if (input.baseline) params.set("baseline", String(input.baseline));
   if (input.threshold != null) params.set("threshold", String(input.threshold));
+  if (input.minSamples != null) params.set("minSamples", String(input.minSamples));
   const query = params.toString();
   return request<EvolutionDriftSignal>(`/evolution/drift${query ? `?${query}` : ""}`, {
     method: "GET",
   });
+}
+
+export function evolutionDriftScopesPath(
+  input: {
+    window?: number;
+    baseline?: number;
+    threshold?: number;
+    minSamples?: number;
+    includeGlobal?: boolean;
+  } = {},
+): string {
+  const params = new URLSearchParams();
+  if (input.window) params.set("window", String(input.window));
+  if (input.baseline) params.set("baseline", String(input.baseline));
+  if (input.threshold != null) params.set("threshold", String(input.threshold));
+  if (input.minSamples != null) params.set("minSamples", String(input.minSamples));
+  if (input.includeGlobal != null) {
+    params.set("includeGlobal", input.includeGlobal ? "true" : "false");
+  }
+  const query = params.toString();
+  return `/evolution/drift/scopes${query ? `?${query}` : ""}`;
+}
+
+export async function getEvolutionDriftScopes(
+  input: {
+    window?: number;
+    baseline?: number;
+    threshold?: number;
+    minSamples?: number;
+    includeGlobal?: boolean;
+  } = {},
+): Promise<EvolutionDriftScopes> {
+  return request<EvolutionDriftScopes>(evolutionDriftScopesPath(input), { method: "GET" });
+}
+
+export function evolutionDriftHistoryPath(
+  input: {
+    scope?: string;
+    window?: number;
+    baseline?: number;
+    threshold?: number;
+    minSamples?: number;
+    limit?: number;
+    step?: number;
+  } = {},
+): string {
+  const params = new URLSearchParams();
+  if (input.scope) params.set("scope", input.scope);
+  if (input.window) params.set("window", String(input.window));
+  if (input.baseline) params.set("baseline", String(input.baseline));
+  if (input.threshold != null) params.set("threshold", String(input.threshold));
+  if (input.minSamples != null) params.set("minSamples", String(input.minSamples));
+  if (input.limit != null) params.set("limit", String(input.limit));
+  if (input.step != null) params.set("step", String(input.step));
+  const query = params.toString();
+  return `/evolution/drift/history${query ? `?${query}` : ""}`;
+}
+
+export async function getEvolutionDriftHistory(
+  input: {
+    scope?: string;
+    window?: number;
+    baseline?: number;
+    threshold?: number;
+    minSamples?: number;
+    limit?: number;
+    step?: number;
+  } = {},
+): Promise<EvolutionDriftHistory> {
+  return request<EvolutionDriftHistory>(evolutionDriftHistoryPath(input), { method: "GET" });
+}
+
+export async function createEvolutionDriftCandidate(
+  input: { scope?: string; window?: number; baseline?: number; threshold?: number; minSamples?: number } = {},
+): Promise<EvolutionDriftCandidateResult> {
+  const params = new URLSearchParams();
+  if (input.scope) params.set("scope", input.scope);
+  if (input.window) params.set("window", String(input.window));
+  if (input.baseline) params.set("baseline", String(input.baseline));
+  if (input.threshold != null) params.set("threshold", String(input.threshold));
+  if (input.minSamples != null) params.set("minSamples", String(input.minSamples));
+  const query = params.toString();
+  return request<EvolutionDriftCandidateResult>(
+    `/evolution/drift/candidate${query ? `?${query}` : ""}`,
+    { method: "POST", body: "{}" },
+  );
 }
 
 export async function tickEvolutionRsl(): Promise<EvolutionRslTickResult> {
@@ -608,8 +818,11 @@ export async function createEvolutionSurfaceExperiment(
   );
 }
 
-export async function evolutionMetrics(): Promise<EvolutionMetrics> {
-  return request<EvolutionMetrics>("/evolution/metrics", { method: "GET" });
+export async function evolutionMetrics(windowDays = 90): Promise<EvolutionMetrics> {
+  return request<EvolutionMetrics>(
+    `/evolution/metrics?windowDays=${encodeURIComponent(String(windowDays))}`,
+    { method: "GET" },
+  );
 }
 
 /** The plain state key for a candidate. The ONE place a state word is chosen. */

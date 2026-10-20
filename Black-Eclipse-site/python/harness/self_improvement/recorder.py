@@ -93,6 +93,8 @@ def record_code_experiment(
         "decision": decision or ("tests_passed" if verification.get("passed") else "tests_failed"),
         "targetPath": candidate.get("targetPath"),
         "sourceCategory": candidate.get("sourceCategory"),
+        "subjectType": str(candidate.get("subjectType") or "code"),
+        "scope": str((candidate.get("surfaceConfig") or {}).get("scope") or "global"),
         "testsPassed": bool(verification.get("passed")),
         "checks": (verification.get("report") or {}).get("checks") or [],
         "measuredTrials": int(
@@ -164,6 +166,7 @@ def record_surface_experiment(
         "accepted": bool(record.get("accepted")) if record else False,
         "measured": record.get("measured"),
         "targetDimension": verification.get("targetDimension"),
+        "scope": str((candidate.get("surfaceConfig") or {}).get("scope") or "global"),
     }
     attempt_id: Optional[str] = None
     if evolution is not None:

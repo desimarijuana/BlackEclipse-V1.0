@@ -61,9 +61,11 @@ const RATCHET: Record<string, number> = {
   // + `sidebar.graph*` keys (Gateway dialog + graph browser). May only shrink.
   // Re-pinned 1253→1254: Graph Studio added one nav key (`nav.graphStudio`).
   // Re-pinned 1254→1255: Graph Studio became a dedicated sidebar MODE, which
-  // needs its own switcher label (`sidebar.graphStudio`). The standing split
-  // candidate is still per-domain dictionary modules. May only shrink.
-  "src/lib/i18n/dictionaries/en.ts": 1255,
+  // needs its own switcher label (`sidebar.graphStudio`). Re-pinned 1255→1262
+  // for the in-flight evolution/operator surface keys, then 1262→1263 for the
+  // drift-candidate badge. The standing split candidate is still per-domain
+  // dictionary modules. May only shrink.
+  "src/lib/i18n/dictionaries/en.ts": 1263,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file

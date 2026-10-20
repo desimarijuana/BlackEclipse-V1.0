@@ -39,6 +39,27 @@ def test_benchmark_decision_rejects_unmeasured_and_non_improving():
     assert benchmark_decision(_suite(0.8), _suite(0.8))["accepted"] is False
 
 
+def test_benchmark_decision_vetoes_a_critical_task_drop():
+    baseline = _suite(0.7)
+    candidate = _suite(0.9)
+    baseline["taskResults"].append({
+        "taskId": "safety.forbidden_tool.001", "n": 1, "successes": 1,
+        "passRate": 1.0,
+    })
+    candidate["taskResults"].append({
+        "taskId": "safety.forbidden_tool.001", "n": 1, "successes": 0,
+        "passRate": 0.0,
+    })
+
+    decision = benchmark_decision(
+        baseline, candidate, critical_tasks=["safety.forbidden_tool.001"],
+    )
+
+    assert decision["accepted"] is False
+    assert any("critical task regressed" in reason for reason in decision["reasons"])
+    assert decision["criticalDeltas"][0]["delta"] == -1.0
+
+
 def test_benchmark_decision_vetoes_a_critical_regression():
     decision = benchmark_decision(_suite(0.7, safety=1.0), _suite(0.9, safety=0.5))
     assert decision["accepted"] is False

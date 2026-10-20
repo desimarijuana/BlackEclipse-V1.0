@@ -30,7 +30,7 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping, Optional
+from typing import Any, Callable, Iterable, Mapping, Optional
 
 from ..code import evolution, patch, policy, worktree
 from ..code.workspace import ResolvedWorkspace
@@ -343,6 +343,22 @@ def run_suite_in_worktree(
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def _critical_task_ids(config: BenchmarkConfig) -> set[str]:
+    """The dataset's safety/adversarial/critical task ids for this benchmark."""
+    try:
+        from ..evaluation.tasks import load_builtin_dataset, select_tasks  # noqa: PLC0415
+        from ..self_improvement.replay import critical_task_ids  # noqa: PLC0415
+
+        dataset = load_builtin_dataset(config.dataset)
+        tasks = select_tasks(dataset, split=config.split)
+        wanted = {str(task_id) for task_id in (config.task_ids or ()) if str(task_id)}
+        if wanted:
+            tasks = [task for task in tasks if task.id in wanted]
+        return set(critical_task_ids(tasks))
+    except Exception:  # noqa: BLE001 - unavailable metadata is not a veto
+        return set()
+
+
 def benchmark_decision(
     baseline: Mapping[str, Any],
     candidate: Mapping[str, Any],
@@ -350,8 +366,14 @@ def benchmark_decision(
     target_dimension: str = "task_success",
     min_improvement: float = 0.0,
     gates: Optional[tuple] = None,
+    critical_tasks: Iterable[str] = (),
 ) -> dict[str, Any]:
-    """Accept only a measured target improvement with no critical regression."""
+    """Accept only a measured target improvement with no critical regression.
+
+    `critical_tasks` is the per-task veto set (safety/adversarial/critical tasks);
+    a measured drop on any of them rejects the candidate even when the aggregate
+    target improved.
+    """
     baseline_agg = dict(baseline.get("aggregates") or {})
     candidate_agg = dict(candidate.get("aggregates") or {})
     measured = int(candidate.get("measuredTrials") or 0)
@@ -361,21 +383,39 @@ def benchmark_decision(
         {"aggregates": baseline_agg}, {"aggregates": candidate_agg},
         gates or DEFAULT_GATES,
     )
-    critical = [
+    critical_regressions = [
         item for item in outcome["regressions"]
         if any(
             gate.dimension == item.get("dimension") and gate.critical
             for gate in (gates or DEFAULT_GATES)
         )
     ]
+    baseline_rates = _task_rates(baseline)
+    candidate_rates = _task_rates(candidate)
+    critical_deltas = []
+    for task_id in sorted({str(task_id) for task_id in critical_tasks if str(task_id)}):
+        before = baseline_rates.get(task_id)
+        after = candidate_rates.get(task_id)
+        if before is not None and after is not None and after < before:
+            critical_deltas.append({
+                "taskId": task_id,
+                "before": before,
+                "after": after,
+                "delta": round(after - before, 6),
+            })
     reasons: list[str] = []
     if measured <= 0:
         reasons.append("no measured trials")
     if target_before is None or target_after is None:
         reasons.append(f"target {target_dimension} is UNMEASURED")
-    if critical:
+    if critical_regressions:
         reasons.append("critical regression: " + ", ".join(
-            str(item.get("dimension")) for item in critical
+            str(item.get("dimension")) for item in critical_regressions
+        ))
+    if critical_deltas:
+        reasons.append("critical task regressed: " + ", ".join(
+            f"{item['taskId']} ({item['before']:.3f} → {item['after']:.3f})"
+            for item in critical_deltas
         ))
     if not reasons and float(target_after) - float(target_before) <= float(min_improvement):
         reasons.append(
@@ -391,6 +431,7 @@ def benchmark_decision(
         "measured": measured,
         "regressions": outcome["regressions"],
         "warnings": outcome["warnings"],
+        "criticalDeltas": critical_deltas,
     }
 
 
@@ -492,6 +533,7 @@ def run_candidate_benchmark(
             baseline, candidate_result,
             target_dimension=settings.target_dimension,
             min_improvement=settings.min_improvement,
+            critical_tasks=_critical_task_ids(settings),
         )
         run_id = _record_benchmark(
             eval_store, candidate, config=settings,

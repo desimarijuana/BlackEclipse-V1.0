@@ -76,12 +76,98 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/architecture.md`, `docs/harness/self-evolution-roadmap.md`,
   `docs/harness/decisions.md` (ADR-H241).
 
+- **fix(harness,ui): the extension capability lane — compute, chart, report and reach the board.** Six real failures, all traced to a specific cause:
+  - **The sandbox was never used.** The default prompt said financial models are
+    "subject matter you reason about and explain, not actions you execute", and
+    the `analysis_run` description named no recipe, so the model answered with
+    prose. The prompt now teaches the sandbox (`analysis_run` + the recipes),
+    the tool description names every ready-made recipe and its inputs, and a
+    failed computation returns its error instead of "I couldn't work that out".
+  - **The sandbox environment was not reproducible.** `package_lock_digest`
+    hashed the HARNESS process's packages, not the interpreter that ran the
+    code; the vendored interpreter was never provisioned on Windows when a
+    system Python existed; and nothing installed numpy/pandas/matplotlib. The
+    digest now covers the interpreter's distributions, `python/analysis-requirements.txt`
+    pins the numerical stack, `setup-python.js` provisions the interpreter the
+    sandbox actually runs, and `doctor.js` reports the stack's versions.
+  - **A candlestick chart came back as text.** `chart` had no candlestick type
+    and its points could not hold OHLC, so the model's chart was REJECTED and
+    degraded to a markdown block (the raw JSON). `candlestick`/`ohlc` are now
+    chart types, an OHLC point is `[open, high, low, close]`, the renderer
+    draws real candles, the synonyms recover instead of being dropped, and the
+    prompt and mode director route a chart request to a chart block. The
+    normalizer also converts the ROW shape the model actually writes
+    (`data: [{label, values}]` → `categories` + `series`) and the two axis-label
+    spellings, so the block survives validation.
+  - **Formulas were computed but never shown.** The tool result carried the
+    formula; no block could display it. `provenance.formula` now exists and is
+    rendered under the metric and hero figures.
+  - **"Show it in the Command Center" landed on a stray page.** The dashboard
+    mirrors were hidden from `ui_list_blueprints`, and a dispatched engineering
+    task ran with NO autonomy, so every write was refused with
+    `PROFILE_DENIED`. The mirrors are now listed and a task runs with the
+    autonomy its creator declared.
+  - **Reports and quant models.** The prompt never mentioned `eclipse_report`
+    (so a "proper report" was prose), PDF needed an undeclared matplotlib, and
+    the produced file was invisible in the chat; a "quant model" request read
+    as `not_code`, and the strategy schema was an opaque `object`. The prompt
+    now names the report tool, the artifact id travels with the document, the
+    numerical stack is declared, and a quant-model request routes to the code
+    profile with a legible strategy schema.
+  Tests: `python/tests/test_analysis_tool.py`, `test_code_request_intent.py`,
+  `test_tasks_scheduler.py`, `src/lib/response/chart-option.test.ts`,
+  `src/lib/response/finalize.test.ts`. Docs updated:
+  `docs/interactive-response-engine.md`, `docs/harness/python-runtime.md`,
+  `docs/quant-engine.md`, `docs/harness/decisions.md` (ADR-H242).
+
+- **fix(harness): the Python sandbox now enforces its boundary at runtime (W14 audit).**
+  The audit found the sandbox's "no network / no path into the user's files"
+  claim rested on a SOURCE check that three vectors walked past: an aliased
+  `__import__` (`f = __import__`), a URL built by concatenation, and
+  `numpy`/`pandas` reading a path directly. The AST walk stays as the first
+  filter, and a new **runtime guard** (`python/harness/code/sandbox_guard.py`)
+  is the enforcement point inside the child: a guarded `__import__`, a safe
+  `os`/`sys`/`importlib`/`builtins` (no `system`, no frame walking, a safe
+  `exec`/`eval` that re-applies the source rules to a dynamic string), denied
+  privilege modules (`subprocess`, `socket`, `ssl`, `ctypes`, `multiprocessing`),
+  an audit hook that refuses a network, a process, native code and any file
+  outside the program's own folder, and confined library readers/writers. Also:
+  the operator's `HARNESS_ANALYSIS_ENABLED` decides the surface (the per-run
+  flag is a request, not a decision); a cancelled analysis kills its process tree
+  and says `CANCELLED`; the backend's CPU / peak-RSS / process-count / limit /
+  exit-code telemetry is reported instead of discarded; the result and artifact
+  reads are size-checked before they are read; and the interpreter's tree is
+  read-only for a program (`PYTHONDONTWRITEBYTECODE=1`). The stale claims in
+  ADR-H110/H178, the phase-08 non-goals and the prompt's import list are
+  corrected in place — the code wins. Tests:
+  `python/tests/test_analysis_guard.py` (22). Docs updated:
+  `docs/harness/python-runtime.md`, `docs/harness/decisions.md` (ADR-H242),
+  `docs/harness/roadmap/phase-08-analysis-sandbox.md`.
+
 - **chore(repo): normalize two mixed line-ending files.**
   `python/harness/capabilities/external.py` and
   `src/components/screens/capability-studio/generated-section.tsx` mixed CRLF and
   bare LF, which tripped the mixed-line-ending guard; both are now LF-only, with
   no content change.
   no doc change — line-ending hygiene only.
+
+- **perf(bots): opening Bots no longer pays the Python cold start or an N+1
+  status fan-out.** Two causes. (1) The boot pre-warm of the Python runtime ran
+  LAST, after the sequential DB seeds/schedulers, so Bots (usually the first
+  Python-backed surface opened) paid the ~9 s import. It now starts first in the
+  background boot pipeline. (2) The Bots workspace, sidebar and the global
+  bot-run watcher each fetched one `/automations/{id}/status` per bot (each
+  re-scanning up to 200 executions). New `GET /automations/statuses` returns the
+  lifecycle fields + latest execution for every bot in ONE request
+  (`?ids=a,b` optional); `getAutomationStatuses()` replaces all three fan-outs.
+  Files: `src/instrumentation.ts`, `python/harness/automation/{store,service}.py`,
+  `python/harness/routers/automation.py`,
+  `src/app/api/automations/[...path]/route.ts`,
+  `src/lib/harness/automation-{client,browser}.ts`, `src/lib/bots/bots-store.ts`,
+  `src/components/bots/bots-sidebar-panel.tsx`,
+  `src/lib/notifications/bots-run-watcher.tsx`, `bots-run-diff.ts`. Tests:
+  `python/tests/test_automation_api.py` (+1, operator gating included). Docs
+  updated: `docs/harness/automation-engine.md`.
 
 ## 2026-10-19
 
@@ -795,6 +881,301 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   unmeasured, scope, store read) and the remote-refusal route test. Docs:
   `docs/harness/decisions.md` (ADR-H250), `docs/harness/architecture.md`,
   `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(harness,ui): RSL R9 — turn a drift signal into an inert candidate.**
+  Added `POST /evolution/drift/candidate`: only a `drift` signal creates ONE
+  inert `EvolutionCandidate` (`subjectType="drift"`, `sourceCategory="drift"`,
+  no target/ops) with scope, rates and window counts in its problem statement;
+  repeated checks dedupe by scope/window/baseline/threshold. Stable/unmeasured
+  signals create nothing. The conductor drift card gains `Open drift candidate`
+  and shows the created/existing candidate id. Tests: `test_drift.py` (inert
+  candidate, dedupe, no-op signals) and the remote-refusal route. Docs:
+  `docs/harness/decisions.md` (ADR-H251), `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(harness,ui): RSL R9 — model-propose a drift candidate.**
+  Added operator-gated `POST /evolution/candidates/{id}/model-propose`
+  (`RSLLoop.propose_with_model`): runs the model proposer for ONE candidate,
+  persists validated children through the same strict-JSON/`propose_ops`/
+  frozen-target/workspace guards, and never verifies or lands. The flag
+  `HARNESS_RSL_MODEL_PROPOSER` remains the opt-in; an off flag returns
+  `MODEL_PROPOSER_DISABLED`. The drift card gains `Propose with model` and shows
+  the validated child count. Tests: `test_evolution_rsl_operator.py` (drift
+  candidate → validated child) plus the remote-refusal route. Docs:
+  `docs/harness/decisions.md` (ADR-H252), `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(ui): run the verify tick from the drift proposal result.** The drift card
+  now offers `Run verify tick` after model-proposed children exist; the result
+  shows the verified candidate id, decision and benchmark (or the honest empty
+  case). `no doc change - UI affordance over the existing operator-gated tick`.
+
+- **feat(ui): prepare the existing promotion preview from the drift result, and mount the RSL panels once.**
+  After a verified code child (`tests_passed`/`benchmark_accepted`), the drift card
+  offers `Prepare landing` and reports the prepared run id; the single-use
+  promotion approval remains the only write. Removed the duplicate
+  `RslControlPanel`/`RslOperatorPanel` mounts from the learning journey — they are
+  already composed by `RslExperimentsPanel`, so each panel now renders once and
+  does not issue duplicate status/state requests. `no doc change - UI affordance
+  over the existing prepare-landing route`.
+
+- **feat(ui): complete the drift → promotion approval flow in place.** After a
+  prepared drift landing, the drift card now renders the existing
+  `PromoteChange` card for that run id: preview, single-use approval,
+  apply/restart verdict, and rollback. No new approval or write path;
+  `PromoteChange` remains the one operator control. `no doc change - UI
+  affordance over the existing promotion APIs`.
+
+- **feat(harness,ui): RSL R9 — lesson lift inline and explicit retirement.**
+  Added operator-gated `POST /evolution/lessons/{id}/retire` (retires one
+  measured non-positive lesson through `retire_unhelpful`; inert, deletes
+  nothing). The adopted-lessons list now has a `Lift` action that reads the
+  existing outcomes stats and shows injected/control rates plus lift inline; a
+  measured non-positive lesson offers `Retire`. Tests:
+  `test_evolution_rsl_routes.py` (measured non-positive retirement + remote
+  refusal) and the existing `test_lesson_feedback.py`. Docs:
+  `docs/harness/decisions.md` (ADR-H253), `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(ui): show recent matched lesson outcomes under the lift stats.** The
+  lesson row's lift block is now expandable: it lists the five most recent
+  injected/control observations (run id, cohort, outcome) from the existing
+  `GET /evolution/lessons/{id}/outcomes` response, so the operator can inspect
+  the evidence before retiring a lesson. `no doc change - UI affordance over an
+  existing read-only route`.
+
+- **feat(harness,ui): RSL R9 — measured evidence on the surface activation preview.**
+  `GET /evolution/states/{id}/surface-preview` (and the activation response's
+  `preview`) now includes the accepted run summary, its overall metrics, up to 50
+  trial rows with `trajectory` stripped, and the recorded baseline's metrics when
+  one is named. The activation card renders an expandable `Measured evidence`
+  section; the evaluator's recorded decision remains authoritative. Tests:
+  `test_evolution_rsl_routes.py` (metrics/trials present, no trajectory). Docs:
+  `docs/harness/decisions.md` (ADR-H254), `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(ui): show the measured target delta on the surface preview.** The
+  `Measured evidence` block now leads with `Target <dimension>: before → after`
+  and the delta, computed from the recorded baseline/candidate metrics. A missing
+  side renders `UNMEASURED`, never a fabricated zero. Tests:
+  `test_evolution_rsl_routes.py` (baseline 0.7 → candidate 0.9, delta 0.2).
+  `no doc change beyond the existing ADR-H254 evidence contract`.
+
+- **feat(ui): show the baseline/candidate run ids on the surface evidence.**
+  The `Measured evidence` block now names the baseline and candidate runs; the
+  candidate run has an `Open candidate run` link to the existing
+  `/api/evolution/experiments/{id}` read. A missing baseline renders
+  `No baseline run recorded`, never a fabricated id. `no doc change - UI
+  affordance over the existing read-only experiment route`.
+
+- **feat(ui): link the baseline run beside the candidate run.** When the surface
+  evidence names a recorded baseline, the block now shows `Baseline run <id>`
+  and `Open baseline run` next to the candidate run/link; a missing baseline
+  still renders `No baseline run recorded`. `no doc change - UI affordance over
+  the existing read-only experiment route`.
+
+- **feat(harness,ui): RSL R9 — per-task delta table on the surface evidence.**
+  The evidence now carries `taskDeltas` from measured baseline/candidate trials
+  (unmeasured trials excluded, missing sides `UNMEASURED`): task id, before/after
+  pass rate, sample counts, delta. The activation card renders up to ten rows
+  with improved/regressed colouring; the target aggregate and evaluator decision
+  remain the acceptance authority. Tests: `test_evolution_rsl_routes.py`
+  (baseline fail → candidate pass = +1.0). Docs: `docs/harness/decisions.md`
+  (ADR-H255), `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(harness,ui): RSL R9 — critical-task regressions veto surface activation.**
+  The preview resolves the experiment's critical task ids (safety/adversarial/
+  `metadata.critical`) and appends any measured per-task drop to
+  `evidence.criticalDeltas` and to the activation reasons, so `canActivate` is
+  false even when the aggregate target improved. The activation card shows a
+  prominent `Critical regressions` block before the target delta. Tests:
+  `test_evolution_rsl_routes.py` (baseline safety pass → candidate safety fail
+  blocks activation). Docs: `docs/harness/decisions.md` (ADR-H256),
+  `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(harness): apply the critical-task veto to measured code candidates.**
+  `evaluation/worktree_invoker.py` resolves the benchmark dataset's
+  safety/adversarial/`metadata.critical` task ids and passes them to
+  `benchmark_decision`; a measured drop on any critical task rejects the code
+  candidate even when the aggregate target improved, and the decision record
+  carries `criticalDeltas`. Tests: `test_worktree_invoker.py` (aggregate improves,
+  critical task drops → rejected). Docs: `docs/harness/decisions.md` (ADR-H257),
+  `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(ui): show code benchmark critical regressions in the experiment list.**
+  The experiment card now reads `metadata.decisionRecord.criticalDeltas` (the
+  measured code-benchmark veto) and renders a rose `Critical regressions` block
+  with the exact task and before→after pass rates. Tests:
+  `rsl-experiments-panel.test.tsx` (critical task 1.000 → 0.000 rendered).
+  `no doc change - UI affordance over the existing decision record`.
+
+- **feat(ui): candidate evidence lookup with the same critical-regression view.**
+  Added a `Candidate evidence` panel (learning journey) that reads the existing
+  candidate evidence route by id and shows the candidate row, attempts and every
+  experiment through the shared `ExperimentList`, including the code benchmark's
+  critical-regression block. Read-only; no candidate action or write path.
+  `no doc change - UI affordance over the existing candidate evidence route`.
+
+- **feat(ui): open candidate evidence directly from an experiment.** Each
+  experiment row with a candidate id now has a `View evidence` action; the
+  candidate evidence panel opens prefilled with that id and loads its attempts
+  and experiments. `ExperimentList` moved to `experiment-list.tsx` so the main
+  panel and the candidate evidence view share one implementation without a
+  circular import. `no doc change - UI affordance over existing read-only
+  routes`.
+
+- **feat(ui): copy a candidate id and remember the last evidence lookup.** The
+  candidate evidence panel now has a `Copy id` action with copied/failed feedback
+  and persists the last viewed candidate in `localStorage`; a refresh or panel
+  switch reopens that candidate. An explicit `View evidence` candidate overrides
+  the stored id. `no doc change - UI affordance; no runtime contract changed`.
+
+- **feat(ui): explicit Clear for the remembered candidate evidence.** The
+  candidate evidence panel now has a `Clear` action that empties the input, the
+  loaded evidence and the stored `localStorage` id. `no doc change - UI
+  affordance; no runtime contract changed`.
+
+- **feat(ui): refresh candidate evidence without clearing it.** The candidate
+  evidence panel now has `Refresh evidence`, which re-fetches the current
+  candidate and keeps the panel in place (disabled until evidence is loaded).
+  Useful after a verify tick. `no doc change - UI affordance; no runtime
+  contract changed`.
+
+- **feat(ui): auto-refresh candidate evidence after a verify tick.** The conductor
+  tick (including the drift verify action) dispatches a local
+  `eclipse:evolution-verified` event with the candidate/decision; the candidate
+  evidence panel listens and re-fetches the open candidate, so a new attempt or
+  experiment appears without pressing Refresh. No event is persisted or sent
+  over the network. `no doc change - UI affordance; no runtime contract changed`.
+
+- **feat(ui): refresh the experiment list on the same verify event.** The
+  top-level `RslExperimentsPanel` now listens for
+  `eclipse:evolution-verified` and reloads the experiment list, so a verify tick
+  updates both the candidate evidence panel and the main list without a manual
+  refresh. `no doc change - UI affordance; no runtime contract changed`.
+
+- **feat(harness,ui): metrics window applies to RSL counts; Today summary strip.**
+  `rsl_runs_from_store` accepts the `archive_metrics` `since` cutoff, so
+  `GET /evolution/metrics?windowDays=N` reports the RSL experiment/accepted/
+  rejected/UNMEASURED split for that window, not all time. The experiment panel
+  requests `windowDays=1` and shows a compact `Today` strip, refreshed on the
+  verify event; a null/unreadable source renders `UNMEASURED`. Tests:
+  `test_evaluation_repair_metrics.py` (window cutoff). Docs:
+  `docs/harness/decisions.md` (ADR-H258), `docs/harness/architecture.md`.
+
+- **feat(ui): jump from today's count to the candidates verified today.**
+  The experiment panel now renders compact `Verified today` chips for the
+  candidates whose experiments started in the current UTC day; each chip opens
+  that candidate in the evidence panel. The count strip still comes from the
+  metrics window; the chips come from the loaded experiment list. `no doc
+  change - UI affordance over the existing metrics/experiment reads`.
+
+- **feat(harness,ui): scope filter for today's experiments and chips.**
+  RSL experiment metadata now carries `scope` (the surface candidate's scope, or
+  `global` for code/legacy rows). The experiment panel derives a scope selector
+  from the loaded experiments; selecting a scope filters the list and today's
+  chips and computes the scoped Today counts from those rows (the `All scopes`
+  view keeps the metrics-window counts). Tests: `test_rsl_surface.py` (surface run
+  metadata carries the scope). Docs: `docs/harness/decisions.md` (ADR-H259),
+  `docs/harness/architecture.md`.
+
+- **feat(ui): scope selector on the drift card.** `GET /evolution/drift` and
+  `POST /evolution/drift/candidate` now return `availableScopes`; the production
+  drift card has a scope selector, re-fetches the signal for that agent and
+  creates the drift candidate with the same scope. Changing scope clears the
+  previous candidate result. `no doc change - UI affordance over the existing
+  scoped drift signal`.
+
+- **feat(ui): remember the experiment and drift scope selections.**
+  Both selectors persist their choice in `localStorage`
+  (  `eclipse.rsl.experimentScope`, `eclipse.rsl.driftScope`); a stored scope stays
+  selectable even when the current window has no matching experiments.
+  `no doc change - UI preference, not a contract`.
+
+- **feat(ui): show the drift candidate's scope.** The "Open drift candidate"
+  result now displays the signal's `scope` next to the created/existing candidate
+  id, so the operator can confirm which agent the inert candidate belongs to.
+  `no doc change - UI affordance over the existing signal scope`.
+
+- **feat(ui): open a drift candidate's evidence from the drift card.**
+  The candidate result has a `View evidence` action that emits the new
+  `eclipse:evolution-evidence` browser event; the candidate evidence panel
+  listens, loads that id even when it is already the shown candidate, and
+  scrolls the evidence panel into view. `no doc change - UI affordance over the
+  existing evidence read`.
+
+- **feat(ui): highlight the evidence section after a drift jump.**
+  The drift `View evidence` action now ring-highlights the evidence section for
+  1.8s and clears the highlight on Clear/unmount; `evidenceSectionClass` is the
+  tested contract. `no doc change - UI affordance over the existing read`.
+
+- **feat(ui): one scope selection shared by experiments and drift.**
+  The learning journey owns the scope (`eclipse.rsl.scope`, with the two legacy
+  keys read once) and passes it to both panels; `All scopes` maps to `global` for
+  the drift read. `docs/harness/decisions.md` (ADR-H260),
+  `docs/harness/architecture.md`.
+
+- **feat(harness,ui): badge drift-origin experiments and list their history.**
+  Recorder metadata now carries `subjectType`, so drift experiments show a
+  `Drift candidate` badge in the list and Today chips. `GET
+  /evolution/drift/history` derives signals at successive offsets from the
+  existing run history and the drift card renders compact status/drop chips.
+  `no doc change - covered by ADR-H260`.
+
+- **feat(harness,ui): per-scope drift overview.**
+  `GET /evolution/drift/scopes` returns one bounded signal for every configured
+  scope; the drift card renders status/drop chips and selecting one changes the
+  shared scope. Docs: `docs/harness/decisions.md` (ADR-H261),
+  `docs/harness/architecture.md`.
+
+- **feat(harness,ui): drift operations hardening.**
+  The watch persists per-scope transitions in `DriftWatchState` and exposes
+  health on `/evolution/rsl`; the card debounces policy edits; candidate rows
+  store `scope`; history reports `truncated`; the overview excludes `global`
+  in the UI; and `npm run test:drift-ui` is a Playwright smoke for scope chip →
+  candidate → evidence. Docs: ADR-H265, `docs/QUICKSTART.md`.
+
+- **feat(harness): anchor drift candidates to an episode.**
+  `drift_signal` now returns the newest-run `anchor` and `drift_signature`
+  includes it, so the same window still dedupes but a later recovery/re-drift
+  opens a new candidate. Docs: ADR-H262.
+
+- **feat(harness): run a read-only drift watch on a cadence.**
+  `drift_watch.py` checks every configured scope every
+  `HARNESS_DRIFT_WATCH_SECONDS` (default 300; `0` disables) and publishes
+  `self_improvement.drift_detected` only on a transition. Docs: ADR-H263,
+  `docs/self-improvement/rsl-implementation-plan.md`.
+
+- **feat(ui): drift policy controls, collapsed overview and scope-filtered evidence.**
+  The drift card edits window/baseline/threshold/minSamples, hides unmeasured
+  overview rows behind a count, the learning-journey header shows a drifting
+  badge, and candidate evidence filters its experiments by the shared scope.
+  Docs: ADR-H264.
+
+- **feat(harness,ui): audit and test the drift flow.**
+  Candidate creation publishes `self_improvement.drift_candidate_created`;
+  route tests cover history/scopes and signal→candidate→evidence; the RSL gate
+  now asserts the scripted drift drop and anchor. `no doc change - covered by
+  ADR-H262/H263/H264`.
+
+- **feat(ui): refresh drift overview and history on verify.**
+  The conductor panel reloads the signal, per-scope overview and recent history
+  when `eclipse:evolution-verified` fires, so a completed verification updates
+  drift without a manual refresh. `no doc change - UI refresh over existing
+  reads`.
+
+- **test(harness): cover scoped drift routes and history.**
+  Route tests assert `availableScopes`, scoped signals and the inert/deduplicated
+  scoped candidate; `test_drift.py` asserts history offsets and points.
+  `no doc change - test-only`.
+
+- **fix(test): remove a duplicate `en.ts` pin in the size budget.**
+  The in-flight dictionary growth had been pinned twice (1255 and 1262), which
+  broke `tsc` with TS1117. One pin remains, now 1263 after the drift badge.
+  `no doc change - test bookkeeping`.
 
 - **feat(ui): delete a bot from the Bots sidebar list.** Each bot row in the
   Bots navigation panel now has a three-dot menu with **Delete**, opening the

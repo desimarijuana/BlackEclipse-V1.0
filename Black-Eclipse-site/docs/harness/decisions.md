@@ -2871,6 +2871,13 @@ with a `Provenance` record. The rule, enforced in code and not in a prompt:
 4. Imports are checked by an **AST walk** (never `eval`/`exec` on the source, never
    a regex as the only guard) against an explicit allowlist; there is no network.
 
+   **Corrected 2026-10-20 (ADR-H242):** the AST walk is a FIRST filter, not the
+   enforcement point — an alias (`f = __import__`) or a concatenated URL walked
+   past it. The sandbox now enforces the boundary at RUNTIME (guarded import, safe
+   `os`/`sys`/`importlib`/`builtins`, denied privilege modules, audit hook,
+   confined readers) and the operator's `HARNESS_ANALYSIS_ENABLED` setting, not
+   the client's per-run flag, decides whether the surface is on at all.
+
 The tool is **off per run** (`RunRequest.analysisEnabled`, default `False`) — the
 same "discovery is not activation" discipline the MCP layer applies (ADR-H39). A
 missing input is a QUESTION, not a guess: the recipes refuse with a plain prompt
@@ -6051,6 +6058,15 @@ fixed in the same change (`test_service_background_parity.py`). Owner docs:
 
 ## ADR-H178 — The execution substrate is honest and reachable: runtime tools admitted at the authorizer seam, analysis limits enforced, "no network" true by construction
 
+**Superseded in part (2026-10-20, ADR-H242).** Clause 3's "true BY
+CONSTRUCTION" was a source-level claim that did not hold: the AST guard could be
+talked around (`f = __import__`; a URL built by concatenation), and the OS
+process bounds said nothing about the filesystem or the network. The sandbox now
+enforces it at RUNTIME (a guarded `__import__`, a safe `os`/`sys`/`importlib`/
+`builtins`, denied privilege modules, an audit hook, confined readers) — see
+ADR-H242. The decision below is kept for its history; the corrections are in
+ADR-H242.
+
 **Decision.** Four changes to one contract:
 
   1. The composed effect authorizer gains an admission branch for the execution
@@ -8341,6 +8357,312 @@ typed `EvolutionDriftSignal` contracts/browser call/proxy, and a drift card in
 unmeasured, scope, store read) and the route refusal test. No new store or write
 path.
 
+## ADR-H251 — A drift signal becomes an inert `drift` candidate only by an explicit operator action
+
+**Decision.** `POST /evolution/drift/candidate` runs the same read-only drift
+detector and, only for a `drift` signal, materializes ONE inert
+`EvolutionCandidate` (`subjectType="drift"`, `sourceCategory="drift"`,
+`status="inert"`) with the scope, success-rate drop, window sizes and the
+observed counts in its problem statement. It has no target or operations: a
+drift signal is evidence, not a patch. The episode identity is the scope/window/
+baseline/threshold tuple, so repeated checks do not create duplicate candidates.
+Stable or unmeasured signals create nothing. The operator can then stage ops
+manually, use the model proposer, or run a surface experiment; verification and
+landing remain the existing paths. The conductor's drift card exposes an
+`Open drift candidate` action and shows the created/existing candidate id.
+
+**Why.** A drift signal should be actionable without pretending the runtime
+knows which change fixes it. An inert candidate gives the operator a durable,
+addressable piece of evidence that enters the same candidate → propose → verify →
+land flow, while the missing target/ops keeps the "no invented patch" rule.
+
+**Consequences.** `record_drift_candidate`/`drift_signature` in
+`self_improvement/drift.py`; `POST /evolution/drift/candidate`; typed
+`EvolutionDriftCandidateResult`, browser call and Next.js proxy; an
+`Open drift candidate` control in `rsl-control-panel.tsx`. Tests
+`test_drift.py` (inert candidate, dedupe, stable/unmeasured no-op) and the remote
+refusal route test. No new store, authority or activation path.
+
+## ADR-H252 — An operator may run the model proposer for ONE candidate, and the drift card links it directly
+
+**Decision.** `POST /evolution/candidates/{id}/model-propose` runs the model
+proposer for one candidate through `RSLLoop.propose_with_model` and persists its
+validated child candidates exactly as the autonomous propose tick does: strict
+JSON, `propose_many`/`propose_ops`, frozen-target guard, workspace confinement;
+the route never verifies or lands. It is operator-gated and refuses when
+`HARNESS_RSL_MODEL_PROPOSER` is off. The drift card's `Open drift candidate`
+result gains `Propose with model`, so `drift → inert candidate → validated
+children → verify tick → operator land` is one visible flow. Manual
+operator-supplied ops remain available through the existing `propose` route.
+
+**Why.** A drift candidate deliberately has no target or ops. The model proposer
+is the constructive next step, but making it automatic would turn a drift signal
+into an unreviewed cost. An explicit per-candidate call keeps the operator in
+control while avoiding the guesswork of finding the candidate and re-entering
+its id in another form.
+
+**Consequences.** Public `RSLLoop.propose_with_model`; the model-propose route;
+typed `EvolutionModelProposeResult`, browser call and Next.js proxy; a
+`Propose with model` button and child-count result in the drift card. Tests
+`test_evolution_rsl_operator.py` (validated child from a drift candidate) and the
+remote refusal route. No new authority; verification/landing stay unchanged.
+
+## ADR-H253 — Lesson lift is visible at the lesson row, and retirement is an explicit operator action
+
+**Decision.** The adopted-lessons list in `rsl-operator-panel.tsx` gets a `Lift`
+action per lesson. It reads the existing `LessonOutcome` stats (injected vs
+control counts/rates, Wilson intervals, lift, status) and shows them inline.
+When the stats are `measured` and lift is non-positive, the row offers `Retire`;
+`POST /evolution/lessons/{id}/retire` calls `retire_unhelpful` for that one
+lesson. Retirement is inert: it marks the `LearningCandidate` `retired`, deletes
+nothing, changes no authority and enables no skill. A thin or unmeasured lesson
+cannot be retired through this route.
+
+**Why.** The outcome telemetry is only useful if the operator can see it at the
+point of decision. The lesson row is that point. Keeping retirement explicit
+avoids silently removing a hint on noisy or insufficient data.
+
+**Consequences.** New lesson-retire route; typed
+`EvolutionLessonRetireResult`, browser call and Next.js proxy; `Lift`/`Retire`
+controls and inline stats in the lessons list. Tests
+`test_evolution_rsl_routes.py` (measured non-positive lesson retirement + remote
+refusal) and `test_lesson_feedback.py`. No new store or authority.
+
+## ADR-H254 — The surface activation preview carries the accepted run's metrics and bounded trials, never trajectories
+
+**Decision.** `GET /evolution/states/{id}/surface-preview` (and the activation
+response's `preview` block) now includes `evidence`: the accepted run summary,
+its overall metrics, up to 50 trial rows with `trajectory` removed, and the same
+bounded view of the recorded baseline run when one is named. The activation card
+renders this as an expandable `Measured evidence` section (metrics, recent
+trials, baseline metrics). The evidence is read-only and is never used to
+recompute the decision; the evaluator's recorded decision remains authoritative.
+
+**Why.** The operator should see the evidence behind a measured surface, not
+just a utility number. Reusing the existing `get_experiment` shape keeps the data
+bounded and consistent with the experiments panel; stripping trajectories avoids
+leaking raw traces into the activation surface.
+
+**Consequences.** `_surface_context` attaches the evidence; typed
+`EvolutionSurfaceEvidence` contracts and `Measured evidence` rendering in
+`surface-activation-card.tsx`. Tests `test_evolution_rsl_routes.py` (preview
+includes metrics/trials and no trajectory). No new store or write path.
+
+## ADR-H255 — Surface preview evidence includes a measured per-task delta table, with missing tasks rendered UNMEASURED
+
+**Decision.** The evidence block also carries `taskDeltas`: for every task in
+the recorded baseline or candidate trials, the measured pass rate before/after
+(unmeasured trials excluded), the measured sample counts, and the delta when
+both sides exist. The activation card renders up to ten rows; a missing side is
+`UNMEASURED`, never zero. The target-dimension aggregate and the evaluator's
+decision remain the acceptance authority; the per-task table is explanatory
+evidence only.
+
+**Why.** An aggregate target can hide a regression on an individual task. The
+operator needs to see which tasks improved or regressed before activating a
+surface. Excluding unmeasured trials keeps the delta honest.
+
+**Consequences.** `_task_rates`/`_task_deltas` in `routers/evolution.py`; typed
+`EvolutionSurfaceTaskDelta`, `baseline.trials`, and a compact table in
+`surface-activation-card.tsx`. Tests `test_evolution_rsl_routes.py` (baseline
+fail → candidate pass = +1.0). No new store or write path.
+
+## ADR-H256 — A regressed safety/adversarial task vetoes surface activation even when the aggregate target improved
+
+**Decision.** `_surface_context` resolves the critical task ids for the surface
+experiment's dataset/split (`replay.critical_task_ids`: `safety`/`adversarial`
+categories and `metadata.critical`). Any measured per-task drop on one of those
+tasks is appended to `evidence.criticalDeltas` and to the activation `reasons`,
+so `canActivate` is false. The preview renders a prominent `Critical regressions`
+block before the target delta. The evaluator's recorded decision is still shown;
+activation is simply refused while the critical drop exists.
+
+**Why.** A surface can improve the aggregate `task_success` while breaking a
+safety or adversarial task. The aggregate is not allowed to hide that. The
+activation-time veto is conservative and deterministic; it does not rewrite the
+evaluator's decision or introduce a second scoring system.
+
+**Consequences.** `_critical_task_ids_for_payload` and the critical-delta reason
+in `routers/evolution.py`; typed `criticalDeltas` and a rose-colored block in
+`surface-activation-card.tsx`. Tests
+`test_evolution_rsl_routes.py` (baseline safety pass → candidate safety fail
+blocks activation). No new store or authority.
+
+## ADR-H257 — The measured code benchmark uses the same per-task critical veto as surface activation
+
+**Decision.** `evaluation/worktree_invoker.py` resolves the dataset's
+safety/adversarial/`metadata.critical` task ids for the benchmark config and
+passes them to `benchmark_decision`. A measured pass-rate drop on any critical
+task rejects the code candidate even when the aggregate target improved; the
+decision record carries `criticalDeltas`. Missing/unavailable task metadata does
+not create a veto. The measured-only acceptance and the existing aggregate
+`DEFAULT_GATES` remain in force; this adds a per-task floor, not a second
+scoring system.
+
+**Why.** A code change that improves the aggregate but breaks a safety task is
+not an improvement. The surface path already has this veto; the measured code
+path must use the same rule, otherwise the same candidate would pass or fail
+depending on which subject type it was staged as.
+
+**Consequences.** `_critical_task_ids` in `evaluation/worktree_invoker.py`;
+`benchmark_decision(..., critical_tasks=...)` and `criticalDeltas` in the
+decision record. Tests `test_worktree_invoker.py` (aggregate improves but a
+critical task drops → rejected). No new store, authority or acceptance path.
+
+## ADR-H258 — The metrics window applies to RSL counts, and the experiment panel shows today's split
+
+**Decision.** `rsl_runs_from_store` accepts the same `since` cutoff as the rest of
+`archive_metrics`, so `GET /evolution/metrics?windowDays=N` reports RSL
+experiments/accepted/rejected/unmeasured for that window rather than all time.
+The experiment panel requests `windowDays=1` and shows a compact `Today` strip:
+experiments, accepted, rejected and `UNMEASURED`, with a null/unreadable source
+rendered `UNMEASURED`. The strip refreshes on the existing
+`eclipse:evolution-verified` event.
+
+**Why.** A "today" summary that silently counted all-time runs would be wrong,
+and the existing panel had no single-glance answer to "what did the loop do
+today?". Making the window explicit keeps the metric honest and reusable by the
+gate.
+
+**Consequences.** Optional `since` on `rsl_runs_from_store`; `windowDays` on the
+Next.js metrics proxy and `evolutionMetrics`; a `Today` strip in
+`rsl-experiments-panel.tsx`. Tests `test_evaluation_repair_metrics.py` (window
+cutoff). No new store or metric source.
+
+## ADR-H259 — Experiments carry a scope, and the experiment panel filters today's strip/chips by it
+
+**Decision.** RSL experiment metadata carries `scope`: the surface candidate's
+`surfaceConfig.scope`, or `global` for code/legacy experiments. The experiment
+panel exposes a scope selector derived from the loaded experiments; choosing a
+scope filters the experiment list and today's candidate chips, and computes the
+scoped Today counts from those loaded experiments. The unscoped (`all`) view
+keeps the metrics-window counts. Missing scope reads as `global`. The filter is
+read-only and does not change which runs exist or which one is accepted.
+
+**Why.** A global count cannot answer "what did the code agent do today?".
+Carrying the scope on the experiment (rather than re-deriving it from a
+candidate lookup) keeps the evidence row self-describing. Falling back to
+`global` keeps old rows honest without inventing a scope.
+
+**Consequences.** `scope` in the code/surface recorder metadata and
+`verify_surface` run metadata; scope selector/visible-experiment/today-chip
+filtering in `rsl-experiments-panel.tsx`. Tests
+`test_rsl_surface.py` (surface run metadata carries the scope). No new store,
+authority or metric source.
+
+## ADR-H260 — One scope selection drives experiments and drift, and drift history is derived from existing runs
+
+**Decision.** The learning journey owns one scope value, stored under
+`eclipse.rsl.scope` and shared by the experiment panel and the production drift
+card (`all` maps to `global` for the drift read). Experiment metadata carries
+`subjectType`, and drift rows are badged in the experiment list and Today chips.
+`GET /evolution/drift/history` computes the same drift signal at successive
+offsets in the existing run history (window, baseline, step, limit) instead of
+persisting a separate signal log.
+
+**Why.** Two independent scope selectors could show evidence for different
+agents at once. Deriving history from runs keeps one source of truth and needs no
+migration; the points are retrospective windows, not recorded operator actions.
+The badge makes a drift-origin experiment recognizable without a second lookup.
+
+**Consequences.** `drift_history` in `self_improvement/drift.py`; the history
+route and Next.js proxy; shared `scope`/`onScopeChange` props on
+`RslControlPanel`; legacy scope keys are read once and the new key wins. Tests
+`test_drift.py` (history offsets), `test_evolution_rsl_routes.py` (scoped signal,
+available scopes, scoped inert candidate), and the component drift-badge test.
+
+## ADR-H261 — Drift is readable as a per-scope overview, not one scope at a time
+
+**Decision.** `GET /evolution/drift/scopes` returns one bounded signal for every
+configured scope (`global` plus the agent presets) in a single read. The drift
+card renders them as status/drop chips; choosing a chip selects that shared
+scope. The overview is read-only and never creates a candidate by itself.
+
+**Why.** A single selected signal hides a drifting agent behind a stable one.
+The operator needs "which agent is drifting?" before deciding where to look.
+Returning the existing `detect_store_drift` shape per scope keeps the semantics
+identical to `/evolution/drift`; there is no new detector.
+
+**Consequences.** The route in `routers/evolution.py`, the typed client/browser
+functions and the Next.js proxy, and overview chips in `rsl-control-panel.tsx`.
+Tests `test_evolution_rsl_routes.py` (one signal per scope + remote refusal).
+No new store, write path or acceptance authority.
+
+## ADR-H262 — A drift candidate is one episode, anchored to the newest run
+
+**Decision.** `drift_signal` returns an `anchor` (the newest current-window run
+id, else its timestamp) and `drift_signature` includes it. Deduplication still
+collapses repeated reads of the same window, but a later episode with new runs
+opens a new candidate even at the same scope/window/threshold policy.
+
+**Why.** Without an episode anchor, a scope that recovered and drifted again
+could never get a new candidate: the old signature matched forever. Including
+the newest run keeps the signature deterministic without inventing a time
+window or a second store.
+
+**Consequences.** `anchor` on the signal and in the signature; the candidate
+problem statement still records the measured rates. Tests `test_drift.py`
+(same window dedupes, new anchor creates a second candidate).
+
+## ADR-H263 — Drift watch runs on a bounded cadence and publishes transitions
+
+**Decision.** `self_improvement/drift_watch.py` reads every configured scope on
+`HARNESS_DRIFT_WATCH_SECONDS` (default 300; `0` disables) and publishes
+`self_improvement.drift_detected` only when a scope transitions into `drift`.
+It is read-only: no candidate, surface, or harness mutation. The task starts in
+the lifespan beside the RSL loop and stops before the event system.
+
+**Why.** Detection that only happens when an operator opens the card is not
+monitoring. A transition-only event keeps the signal actionable without a
+notification storm, and the no-op when no event system is installed keeps tests
+and CLI use side-effect-free.
+
+**Consequences.** `drift_watch.py`, boot start/stop, the event registry spec,
+and `tests/test_drift_watch.py` (transition-only publication). No new store.
+
+## ADR-H264 — Drift policy, unmeasured scopes and scope-filtered evidence are operator-visible
+
+**Decision.** The drift card carries window/baseline/threshold/minSamples and
+sends them to the signal, history, overview and candidate reads. The per-scope
+overview collapses `unmeasured` rows (except the selected scope) into a count,
+and the learning-journey header shows a `drifting` badge. The candidate evidence
+panel filters its experiment list by the shared scope and labels the active
+scope. Candidate creation publishes `self_improvement.drift_candidate_created`.
+
+**Why.** Defaults hide the policy that produced a signal, and unmeasured agent
+rows crowd out the actionable ones. The evidence list already carries a scope;
+showing a different agent's experiments under one candidate's evidence is
+misleading.
+
+**Consequences.** Policy inputs and helper paths in the client/browser, the
+scopes/history proxies, `rsl-drift-badge.tsx`, and the `scope` prop on
+`CandidateEvidencePanel`. Tests `evolution-client.test.ts` (proxy paths),
+component tests (badge selection, drift badge), and route tests (evidence flow).
+No new detector or authority.
+
+## ADR-H265 — Drift operations are restart-safe, debounced and scoped end to end
+
+**Decision.** The drift watch persists its last status per scope in the additive
+`DriftWatchState` table, so a restart does not republish an existing drift. Its
+health is exposed on `/evolution/rsl`. The drift card debounces policy edits
+(350 ms) and the per-scope overview excludes `global` by default in the UI
+(`includeGlobal=false`) to avoid duplicating agent rows. Drift candidates store
+`scope` on the candidate row. History reports `truncated` when the bounded
+2000-run read cannot honour the requested offsets. A Playwright smoke
+(`npm run test:drift-ui`) bundles the real components, mocks only fetch, and
+exercises scope chip → candidate → evidence in Chromium.
+
+**Why.** Re-alerting every boot, fetching on every keystroke, and hiding the
+policy/scope behind opaque defaults are operational defects, not cosmetic ones.
+The candidate scope is the one fact the evidence view cannot re-derive once a
+drift candidate has no experiments.
+
+**Consequences.** `DriftWatchState` (created idempotently by the watcher),
+`scope` on `EvolutionCandidate` (additive column), `driftWatch` in the loop
+status, `includeGlobal` on the scopes route/client, `truncated` on history, and
+the browser smoke script. Tests: drift-watch restart, route includeGlobal,
+client paths, full Vitest and the smoke. No new authority.
+
 ## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
 
 **Decision.** W8.4's task-type verifier becomes the ONE authority for "done", and
@@ -8415,3 +8737,137 @@ drops back under the hard ceiling (1199 → 1166 lines);
 under its size ratchet). Tests: `python/tests/test_run_outcome.py` (12). Docs:
 `docs/harness/architecture.md` (the execution graph),
 `docs/harness/self-evolution-roadmap.md` (W1.3).
+## ADR-H242 — The sandbox is the computation surface, and the rendered answer carries its own evidence
+
+**Decision.** Six fixes, one rule: *a computed answer must be computed by the
+sandbox and must carry the evidence that proves it.*
+
+1. **The sandbox is advertised and used.** The default prompt states that
+   financial models are subject matter Eclipse both reasons about AND computes
+   (`analysis_run` in the sandbox), names the ready-made recipes, and requires
+   the formula, the inputs and the result for a computed answer. The
+   `analysis_run` tool description lists every recipe and its inputs (built
+   from the registry, so it cannot drift), and a failed computation returns its
+   bounded stderr — a model can only fix a program it can see the error from.
+2. **The sandbox environment is reproducible.** `package_lock_digest` hashes the
+   INTERPRETER's distributions, not the harness process's: the harness's
+   environment is not the environment the code ran in. The numerical stack is
+   pinned in `python/analysis-requirements.txt`, installed into the interpreter
+   the sandbox runs (`scripts/setup-python.js` provisions the vendored
+   interpreter on Windows BEFORE choosing one, because the sandbox never uses a
+   system Python), and `scripts/doctor.js` reports the stack's versions so
+   "the sandbox is stale" is visible instead of guessed.
+3. **A candle is a chart.** `candlestick`/`ohlc` are first-class `chart` types
+   and an OHLC point is `[open, high, low, close]`; the renderer draws real
+   candles (a point that is not a quadruple is a gap, never a fabricated
+   candle). The synonyms ("candle", "candles", "ohlc_bar") RECOVER in the
+   repair pass instead of being dropped — a dropped enum left the block invalid
+   and degraded it to prose, which is exactly the "text chart" a user saw.
+4. **A formula is shown.** `provenance.formula` exists on the figure
+   provenance and is rendered under the metric and hero figures. A derived
+   number without its formula is an assertion.
+5. **The board is reachable and a dispatched task may write.** The dashboard
+   mirrors are listed (they were hidden, so the agent could not name the
+   Command Center), and a task runs with the autonomy its creator declared (the
+   UI engineering path stores `autonomy: edit_verify` on its plan; nothing read
+   it back, so every write was refused with `PROFILE_DENIED` and the task could
+   only produce prose).
+6. **A report is a file, and a quant model is buildable.** The prompt names
+   `eclipse_report` for a report/deliverable request, the produced artifact id
+   travels with the document record so the chat can offer the file, the
+   numerical stack is declared in `python/requirements.txt` (the PDF report
+   backend needs matplotlib), and a "build me a quant model" request routes to
+   the code profile with a legible `StrategySpec` schema instead of an opaque
+   `object`.
+
+**Why.** Every one of these was a report that the runtime could not honour:
+"it did not execute code", "it did not show formulas", "a candlestick chart
+came back as text", "the clock is not on the Command Center", "give me a proper
+report", "build me a quant model". Each had a specific, findable cause — a
+prompt that steered the model away from the tool, a schema that rejected a
+legitimate answer, a dispatch that dropped the profile the creator asked for.
+Fixing the cause is what makes the capability real; the alternative (a
+prose-shaped apology) is what the system was already doing.
+
+**Consequences.** `prompts.py` (the computed-results, documents and reports
+sections), `response_mode.py` (the visualization directive),
+`analysis_tools.py` (`recipe_catalogue_text`, the failure text),
+`code/tools.py` (the recipe catalogue in the tool description),
+`code/execution.py` (`package_lock_digest` over the interpreter),
+`code/request_intent.py` (the quant-model vocabulary), `tasks/bootstrap.py`
+(`_task_autonomy`), `ui/tools.py` (the mirrors), `documents/authoring.py` +
+`documents/{tools,report_tools}.py` (the artifact id),
+`document_intelligence/collector.py` (the artifact id + section titles),
+`quant/tools.py` (the `StrategySpec` schema), `src/lib/response/contract.ts`
+(the chart types, the OHLC point, `provenance.formula`), `chart-option.ts` (the
+candle renderer + the director), `normalize.ts`/`repair.ts` (the synonyms),
+`src/components/response/{blocks,visual-blocks}.tsx` (the formula line),
+`python/analysis-requirements.txt`, `scripts/setup-python.js`,
+`scripts/setup-embedded-python.js`, `scripts/doctor.js`. Tests:
+`python/tests/test_analysis_tool.py`, `test_code_request_intent.py`,
+`test_tasks_scheduler.py`, `src/lib/response/chart-option.test.ts`,
+`src/lib/response/finalize.test.ts`. Docs:
+`docs/interactive-response-engine.md`, `docs/harness/python-runtime.md`,
+`docs/quant-engine.md`.
+## ADR-H242 — The sandbox enforces its boundary at runtime, the operator decides, and the telemetry is kept
+
+**Decision.** The Python sandbox's boundary is enforced where a program cannot
+talk around it, the operator's setting decides whether the surface exists at
+all, and the measurements the backend takes are reported instead of discarded.
+
+1. **A runtime guard** (`python/harness/code/sandbox_guard.py`, executed inside
+   the child before the program runs):
+   - a **guarded `__import__`** — only the allowlist (and the stdlib support the
+     allowed numerical stack needs internally) can be imported, so an alias
+     (`f = __import__`) buys nothing;
+   - a **safe `os` / `sys` / `importlib` / `builtins`** — the modules that
+     carry privilege are replaced: no `system`, no `popen`, no frame walking
+     (a frame proxy with no globals), no `import_module` escape hatch; a safe
+     `exec`/`eval` that re-applies the source rules to a dynamic string;
+   - **denied privilege modules** — `subprocess`, `socket`, `ssl`, `ctypes`,
+     `multiprocessing` can be imported by a library but every call raises;
+   - an **audit hook** (`sys.addaudithook`, which cannot be uninstalled) that
+     refuses a network, a process, native code, and any file outside the
+     program's own folder (writes) or its folder + the interpreter's tree
+     (reads);
+   - **confined readers/writers** — the file entry points of `numpy`/`pandas`
+     are wrapped, because a source check cannot see inside them.
+   The AST walk stays as the first filter (it refuses earlier, with a clearer
+   message) and the source gate now also refuses a forbidden name used as a
+   VALUE (`f = __import__`).
+2. **The operator decides.** `HARNESS_ANALYSIS_ENABLED=0` switches the whole
+   surface off for the runtime. The per-run `analysisEnabled` flag is a REQUEST;
+   it can no longer switch on what the operator switched off.
+3. **Cancellation is real.** The run's cancel event is mirrored into the
+   sandbox's `threading.Event`, so a cancelled or timed-out analysis kills its
+   process tree instead of leaving a child behind (up to 600 s) — the verdict
+   says `CANCELLED`.
+4. **The telemetry is kept.** The backend's measured CPU time, peak RSS,
+   process count, the breached limit name and the exit code now ride the
+   `AnalysisResult` and its blob. A memory kill is reported as a memory kill,
+   not as a generic program error.
+5. **The reads are bounded.** The result file and each collected artifact are
+   size-checked BEFORE they are read, so a program cannot make the host
+   allocate or copy without limit.
+
+**Why.** The audit found the sandbox's security claim rested on a source check
+that three separate vectors walked past (`__import__` aliased, a URL built by
+concatenation, `numpy`/`pandas` reading a path directly). The claim was also
+written down as fact in the code, the ADRs and the prompt. The fix is not a
+bigger allowlist — it is an enforcement point the program cannot negotiate with,
+plus honest documentation of what it does and does not cover.
+
+**Consequences.** New `python/harness/code/sandbox_guard.py`; `code/execution.py`
+(the guard is installed by both runners, the bounded reads, the telemetry, the
+cancellation); `code/kernel.py` (the same guard in the persistent kernel);
+`analysis_tools.py` (the operator switch, the cancel signal);
+`harness/tools.py` + `graph.py` (the cancel event reaches the tool);
+`code/sandbox.py` (`PYTHONDONTWRITEBYTECODE=1` — the interpreter's tree is
+read-only for a program, so no bytecode cache is left behind); `prompts.py` (the
+allowed import list is now the truth). Tests:
+`python/tests/test_analysis_guard.py` (22) — the alias, the concatenated URL, the
+host file read/write, the process, the socket, the dunder chain, the operator
+switch, the telemetry and the cancellation. Docs:
+`docs/harness/python-runtime.md`, `docs/harness/decisions.md` (ADR-H110/H178
+corrected in place), `docs/harness/roadmap/phase-08-analysis-sandbox.md` (the
+non-goals corrected).

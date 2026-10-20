@@ -39,6 +39,7 @@ def _surface_candidate(evolution: EvolutionStore) -> dict:
             "base": base.to_dict(),
             "snapshot": candidate.to_dict(),
             "dataset": "benchmark_v1",
+            "scope": "eclipse-agent",
             "taskIds": ["core.echo.001"],
             "split": "validation",
             "targetDimension": "task_success",
@@ -75,6 +76,7 @@ async def test_surface_candidate_records_a_measured_run_and_its_baseline(store):
     assert run is not None
     assert run["metadata"]["kind"] == "rsl"
     assert run["metadata"]["surface"] is True
+    assert run["metadata"]["scope"] == "eclipse-agent"
     assert run["metadata"]["baselineRunId"] == result["baselineRunId"]
     assert run["metadata"]["targetDimension"] == "task_success"
 

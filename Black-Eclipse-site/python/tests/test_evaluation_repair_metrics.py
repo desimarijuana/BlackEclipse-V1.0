@@ -73,6 +73,33 @@ def test_suite_metrics_measure_cost_and_safety_honestly():
     assert metrics_from_suite(failing)["cost_per_success"] is None  # no success
 
 
+def test_rsl_runs_from_store_respects_the_window_cutoff(tmp_path):
+    from harness.evaluation.repair_metrics import rsl_runs_from_store
+    from harness.evaluation.store import EvaluationStore
+    from harness.persistence import AgentMemoryStore
+
+    store = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
+    try:
+        eval_store = EvaluationStore(store)
+        for run_id, started in (
+            ("old-run", "2026-01-01T00:00:00Z"),
+            ("new-run", "2026-10-20T00:00:00Z"),
+        ):
+            eval_store.create_run(
+                id=run_id, suite="rsl-code", datasetName="owning-tests",
+                datasetVersion="1", datasetChecksum="abc", status="completed",
+                startedAt=started,
+                config={"kind": "rsl", "benchmark": "MEASURED"},
+                metadata={"accepted": True},
+            )
+        runs = rsl_runs_from_store(
+            store, since="2026-10-01T00:00:00Z",
+        )
+        assert [run["id"] for run in runs] == ["new-run"]
+    finally:
+        store.close()
+
+
 def test_the_block_reports_every_dimension_with_missing_sources_unmeasured():
     metrics = collect_self_evolution_metrics(suite=None, incidents=None, tasks=None)
     assert set(metrics) == {

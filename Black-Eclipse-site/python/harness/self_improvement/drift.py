@@ -9,9 +9,12 @@ never mutates the current harness by itself.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Mapping, Optional
 
+from ..code.evolution_store import EvolutionStore
 from ..evaluation.stats import wilson_interval
 
 SUCCESS = "success"
@@ -98,6 +101,10 @@ def drift_signal(
     baseline_rows = resolved[cap_window:cap_window + cap_baseline]
     current = _rate_block([row.status for row in current_rows])
     previous = _rate_block([row.status for row in baseline_rows])
+    anchor = (
+        current_rows[0].runId or current_rows[0].createdAt
+        if current_rows else None
+    )
 
     reasons: list[str] = []
     if current["n"] < min_n:
@@ -114,6 +121,7 @@ def drift_signal(
             "baseline": previous,
             "drop": None,
             "threshold": cap_threshold,
+            "anchor": anchor,
             "reasons": reasons,
         }
 
@@ -135,6 +143,7 @@ def drift_signal(
         "baseline": previous,
         "drop": drop,
         "threshold": cap_threshold,
+        "anchor": anchor,
         "reasons": reasons,
     }
 
@@ -191,6 +200,123 @@ def detect_store_drift(
     )
 
 
+def drift_history(
+    store: Any,
+    *,
+    scope: Optional[str] = None,
+    window: int = 30,
+    baseline: int = 100,
+    min_samples: int = 10,
+    threshold: float = 0.10,
+    limit: int = 12,
+    step: Optional[int] = None,
+) -> dict[str, Any]:
+    """Compute the drift signal at successive points in the same run history.
+
+    Point zero is the current window. Each later point moves `step` runs back
+    (default: one window), so the result is a deterministic, read-only history
+    over existing runs rather than a separate signal log. Thin points stay
+    `unmeasured`; no rate is fabricated.
+    """
+    cap_window = max(1, int(window))
+    cap_baseline = max(1, int(baseline))
+    cap_limit = max(1, min(int(limit), 50))
+    cap_step = max(1, int(step or cap_window))
+    needed = cap_window + cap_baseline + cap_step * (cap_limit - 1)
+    max_runs = 2000
+    runs = _store_runs(store, scope=scope, limit=min(needed, max_runs))
+    resolved_scope = scope or "global"
+
+    points: list[dict[str, Any]] = []
+    for index in range(cap_limit):
+        offset = index * cap_step
+        sliced = runs[offset:offset + cap_window + cap_baseline]
+        signal = drift_signal(
+            sliced, scope=resolved_scope, window=cap_window,
+            baseline=cap_baseline, min_samples=min_samples,
+            threshold=threshold,
+        )
+        points.append({
+            "offset": offset,
+            "at": sliced[0].get("createdAt") if sliced else None,
+            "status": signal["status"],
+            "drop": signal["drop"],
+            "current": signal["current"],
+            "baseline": signal["baseline"],
+        })
+        if len(sliced) < cap_window + cap_baseline:
+            break
+
+    return {
+        "scope": resolved_scope,
+        "window": cap_window,
+        "baselineWindow": cap_baseline,
+        "threshold": max(0.0, float(threshold)),
+        "step": cap_step,
+        "requestedPoints": cap_limit,
+        "truncated": needed > max_runs,
+        "points": points,
+    }
+
+
+def drift_signature(signal: Mapping[str, Any]) -> str:
+    """One drift episode identity: scope + window policy, not the noisy rate."""
+    raw = json.dumps({
+        "scope": signal.get("scope") or "global",
+        "window": signal.get("window"),
+        "baselineWindow": signal.get("baselineWindow"),
+        "threshold": signal.get("threshold"),
+        "anchor": signal.get("anchor"),
+    }, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
+def record_drift_candidate(store: Any, signal: Mapping[str, Any]) -> dict[str, Any]:
+    """Materialize an inert `drift` candidate for a detected regression.
+
+    The candidate has no target or operations: a drift signal is evidence, not a
+    patch. The operator can inspect it, stage ops, run the model proposer, or use
+    a surface experiment; verification/landing stay the existing paths. One
+    candidate per scope/window/threshold episode is deduplicated by signature.
+    """
+    if store is None:
+        return {"created": False, "reason": "store_unavailable", "candidate": None}
+    if str(signal.get("status") or "") != DRIFT:
+        return {
+            "created": False,
+            "reason": f"signal is {signal.get('status') or UNMEASURED}",
+            "candidate": None,
+        }
+    evolution = EvolutionStore(store)
+    signature = drift_signature(signal)
+    existing = evolution.get_by_signature(signature)
+    if existing is not None:
+        return {"created": False, "reason": "already_exists", "candidate": existing}
+
+    scope = str(signal.get("scope") or "global")
+    drop = signal.get("drop")
+    current = signal.get("current") or {}
+    baseline = signal.get("baseline") or {}
+    problem = (
+        f"Production success for {scope} dropped {drop} over the last "
+        f"{signal.get('window')} terminal runs "
+        f"({current.get('successes')}/{current.get('n')} vs "
+        f"{baseline.get('successes')}/{baseline.get('n')} in the preceding window)."
+    )[:1000]
+    candidate = evolution.save_candidate({
+        "signature": signature,
+        "sourceCategory": "drift",
+        "observedCount": int(current.get("n") or 1),
+        "problemStatement": problem,
+        "targetPath": None,
+        "proposedOps": None,
+        "subjectType": "drift",
+        "scope": scope,
+        "status": "inert",
+    })
+    return {"created": True, "reason": "drift", "candidate": candidate}
+
+
 __all__ = [
     "DRIFT",
     "FAILURE",
@@ -199,5 +325,8 @@ __all__ = [
     "UNMEASURED",
     "RunOutcome",
     "detect_store_drift",
+    "drift_history",
     "drift_signal",
+    "drift_signature",
+    "record_drift_candidate",
 ]

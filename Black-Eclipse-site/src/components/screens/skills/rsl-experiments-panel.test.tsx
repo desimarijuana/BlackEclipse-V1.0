@@ -6,9 +6,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { TranslateFn } from "@/lib/i18n/translate";
 import type { EvolutionExperiment } from "@/lib/harness/evolution-client";
-import { ExperimentList } from "./rsl-experiments-panel";
+import { ExperimentList } from "./experiment-list";
 import { RslControlPanel } from "./rsl-control-panel";
 import { RslOperatorPanel } from "./rsl-operator-panel";
+import {
+  CandidateEvidencePanel,
+  evidenceSectionClass,
+} from "./candidate-evidence-panel";
+import { driftingScopes } from "./rsl-drift-badge";
 
 const t = ((key: string, vars?: Record<string, string | number>) => {
   const labels: Record<string, string> = {
@@ -18,6 +23,10 @@ const t = ((key: string, vars?: Record<string, string | number>) => {
     "evolution.experiment.testsPassed": "Owning tests passed",
     "evolution.experiment.testsFailed": "Owning tests failed",
     "evolution.experiment.measuredTrials": `${vars?.count ?? 0} measured trial(s)`,
+    "evolution.experiment.criticalRegressions": `Critical regressions (${vars?.count ?? 0})`,
+    "evolution.experiment.criticalRegression": `${vars?.taskId ?? ""}: ${vars?.before ?? ""} → ${vars?.after ?? ""}`,
+    "evolution.experiment.viewEvidence": "View evidence",
+    "evolution.experiment.driftCandidate": "Drift candidate",
     "evolution.experiment.prepareLanding": "Prepare landing",
     "evolution.experiment.preparing": "Preparing…",
     "evolution.experiment.prepared": `Prepared ${vars?.runId ?? ""}`,
@@ -110,6 +119,17 @@ describe("ExperimentList", () => {
     expect(html).toContain("python/harness/foo.py");
   });
 
+  it("offers view evidence for a candidate experiment", () => {
+    const html = renderToStaticMarkup(
+      <ExperimentList
+        experiments={[experiment()]}
+        t={t}
+        onViewEvidence={() => undefined}
+      />,
+    );
+    expect(html).toContain("View evidence");
+  });
+
   it("never offers landing for a failed experiment", () => {
     const failed = experiment({
       metadata: {
@@ -140,6 +160,27 @@ describe("ExperimentList", () => {
     expect(html).not.toContain("Prepare landing");
   });
 
+  it("shows a code benchmark's critical task regression", () => {
+    const measured = experiment({
+      suite: "rsl-code-benchmark",
+      metadata: {
+        kind: "rsl", proposalId: "evo_critical", benchmark: "MEASURED",
+        measuredTrials: 2, decision: "benchmark_rejected",
+        decisionRecord: {
+          accepted: false,
+          criticalDeltas: [{
+            taskId: "safety.forbidden_tool.001", before: 1.0, after: 0.0,
+          }],
+        },
+      },
+    });
+    const html = renderToStaticMarkup(
+      <ExperimentList experiments={[measured]} t={t} onPrepare={() => undefined} />,
+    );
+    expect(html).toContain("Critical regressions (1)");
+    expect(html).toContain("safety.forbidden_tool.001: 1.000 → 0.000");
+  });
+
   it("shows the target dimension for a measured surface experiment", () => {
     const surface = experiment({
       suite: "improvement",
@@ -157,12 +198,56 @@ describe("ExperimentList", () => {
     expect(html).not.toContain("Prepare landing");
   });
 
+  it("badges a drift candidate's experiment", () => {
+    const drift = experiment({
+      metadata: {
+        kind: "rsl", proposalId: "evo_drift", benchmark: "UNMEASURED",
+        decision: "tests_passed", subjectType: "drift",
+      },
+    });
+    const html = renderToStaticMarkup(
+      <ExperimentList experiments={[drift]} t={t} onPrepare={() => undefined} />,
+    );
+    expect(html).toContain("Drift candidate");
+  });
+
   it("renders the conductor status, tick and proposal controls", () => {
     const html = renderToStaticMarkup(<RslControlPanel />);
     expect(html).toContain("RSL conductor");
     expect(html).toContain("Run tick now");
     expect(html).toContain("Stage a code proposal");
     expect(html).toContain("Loading conductor status...");
+  });
+
+  it("renders the candidate evidence lookup", () => {
+    const html = renderToStaticMarkup(<CandidateEvidencePanel />);
+    expect(html).toContain("Candidate evidence");
+    expect(html).toContain("View evidence");
+    expect(html).toContain("Refresh evidence");
+    expect(html).toContain("Clear");
+  });
+
+  it("selects only drifting scopes for the journey badge", () => {
+    const signal = (scope: string, status: string) => ({
+      scope,
+      signal: {
+        status, scope, window: 30, baselineWindow: 100,
+        current: { n: 30, successes: 10, rate: 0.3, ciLow: 0, ciHigh: 1 },
+        baseline: { n: 100, successes: 90, rate: 0.9, ciLow: 0, ciHigh: 1 },
+        drop: status === "drift" ? 0.6 : null, threshold: 0.1, reasons: [],
+      },
+    });
+    expect(driftingScopes({
+      availableScopes: ["global", "code-agent", "eclipse-agent"],
+      signals: [signal("global", "stable"), signal("code-agent", "drift")],
+    })).toEqual(["code-agent"]);
+    expect(driftingScopes(null)).toEqual([]);
+  });
+
+  it("highlights the evidence section after a drift jump", () => {
+    expect(evidenceSectionClass(false)).not.toContain("ring-2");
+    expect(evidenceSectionClass(true)).toContain("ring-2");
+    expect(evidenceSectionClass(true)).toContain("ring-sky-400/40");
   });
 
   it("renders the lesson adoption and recursive operator surfaces", () => {

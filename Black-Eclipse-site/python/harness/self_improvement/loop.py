@@ -159,6 +159,7 @@ class RSLLoop:
         """The operator's bounded view of mode, lifecycle and daily budget."""
         started = self.evolution.experiments_started_since(_utc_day_start())
         maximum = max(0, int(self.config.max_experiments_per_day))
+        watch = getattr(self.service, "_drift_watch", None)
         return {
             **self.health(),
             "startedToday": started,
@@ -168,6 +169,9 @@ class RSLLoop:
             "leaseSeconds": self.config.lease_seconds,
             "trials": self.config.trials,
             "maxCostUsd": self.config.max_cost_usd,
+            "driftWatch": watch.health() if watch is not None else {
+                "enabled": False, "intervalSeconds": 0, "running": False, "last": {},
+            },
         }
 
     async def run_recursive(
@@ -428,6 +432,24 @@ class RSLLoop:
                 refused.append({"candidateId": candidate["id"], **exc.to_dict()})
         return {"mode": "propose", "proposed": proposed, "refused": refused,
                 "processed": proposed}
+
+    async def propose_with_model(
+        self, candidate: dict[str, Any], *, k: Optional[int] = None,
+    ) -> list[str]:
+        """Operator-triggered model proposal for ONE candidate.
+
+        The autonomous propose tick uses the same path. The flag stays the
+        opt-in; an explicit call still refuses when the model proposer is off.
+        Returns the persisted child candidate ids (never verifies or lands).
+        """
+        if not self.config.model_proposer:
+            raise proposer.ProposalRefused(
+                "MODEL_PROPOSER_DISABLED",
+                "set HARNESS_RSL_MODEL_PROPOSER=on to use the model proposer",
+            )
+        return await self._propose_with_model(
+            candidate, k=max(1, int(k if k is not None else self.config.k)),
+        )
 
     async def _propose_with_model(
         self, candidate: dict[str, Any], *, k: int,

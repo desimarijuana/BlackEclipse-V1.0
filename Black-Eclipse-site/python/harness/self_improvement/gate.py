@@ -17,6 +17,7 @@ from ..code.evolution_store import EvolutionStore
 from ..evaluation.repair_metrics import metrics_from_rsl_runs, rsl_runs_from_store
 from ..evaluation.store import EvaluationStore
 from ..persistence import AgentMemoryStore
+from .drift import DRIFT, drift_signal
 from .recursion import run_recursive
 
 
@@ -122,6 +123,33 @@ def run_offline_rsl_gate() -> dict[str, Any]:
             failures.append("metric block misclassified the experiment")
         if metrics.get("regression_rate") != 0.0:
             failures.append("metric block did not measure regression_rate as 0.0")
+
+        current = [
+            {"runId": f"gate-ok-{index}", "agentId": "gate-agent",
+             "status": "completed" if index < 10 else "failed",
+             "createdAt": f"2026-10-21T00:{index:02d}:00Z"}
+            for index in range(30)
+        ]
+        baseline = [
+            {"runId": f"gate-base-{index}", "agentId": "gate-agent",
+             "status": "completed",
+             "createdAt": f"2026-10-20T00:{index:02d}:00Z"}
+            for index in range(100)
+        ]
+        drift = drift_signal(
+            current + baseline, scope="gate-agent", window=30, baseline=100,
+        )
+        summary["drift"] = {
+            "status": drift.get("status"),
+            "drop": drift.get("drop"),
+            "anchor": drift.get("anchor"),
+        }
+        if drift.get("status") != DRIFT:
+            failures.append("drift gate did not detect the scripted regression")
+        if drift.get("drop") is None or float(drift["drop"]) <= 0.1:
+            failures.append("drift gate did not measure a drop above threshold")
+        if not drift.get("anchor"):
+            failures.append("drift gate did not pin an episode anchor")
     except Exception as exc:  # noqa: BLE001 - a gate reports the failure, never hides it
         failures.append(f"{type(exc).__name__}: {exc}")
     finally:
@@ -137,6 +165,7 @@ def run_offline_rsl_gate() -> dict[str, Any]:
 def format_rsl_gate_report(result: dict[str, Any]) -> str:
     summary = result.get("summary") or {}
     metrics = summary.get("metrics") or {}
+    drift = summary.get("drift") or {}
     return (
         f"rsl gate: {'PASS' if result.get('passed') else 'FAIL'} "
         f"k={summary.get('k')} selection={summary.get('selection')} "
@@ -145,7 +174,8 @@ def format_rsl_gate_report(result: dict[str, Any]) -> str:
         f"accepted={metrics.get('rsl_accepted')} "
         f"rejected={metrics.get('rsl_rejected')} "
         f"unmeasured={metrics.get('rsl_unmeasured')} "
-        f"regression_rate={metrics.get('regression_rate')}"
+        f"regression_rate={metrics.get('regression_rate')} "
+        f"drift={drift.get('status')} drift_drop={drift.get('drop')}"
         + (f" failures={result.get('failures')}" if result.get("failures") else "")
     )
 

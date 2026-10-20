@@ -17,8 +17,7 @@ import { formatWhen, LoadingState } from "./skill-ui";
 import { FullPageButton, KIND_COLOR, LearningGraphChart } from "./learning-graph";
 import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { RslExperimentsPanel } from "./rsl-experiments-panel";
-import { RslControlPanel } from "./rsl-control-panel";
-import { RslOperatorPanel } from "./rsl-operator-panel";
+import { RslDriftBadge } from "./rsl-drift-badge";
 
 const KIND_STYLE: Record<string, string> = {
   memory: "border-violet-400/30 bg-violet-400/10 text-violet-300",
@@ -110,7 +109,10 @@ export function LearningJourneyPanel() {
     <div className="animate-fade-in-up">
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <h3 className="font-serif text-sm font-semibold tracking-tight text-foreground">Learning journey</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="font-serif text-sm font-semibold tracking-tight text-foreground">Learning journey</h3>
+            <RslDriftBadge />
+          </div>
           <p className="mt-1 text-[11px] text-muted-foreground max-w-2xl leading-relaxed">
             How each skill and memory came to exist — created from, corrected by, superseded by, promoted from.
             Derived from canonical records; read-only, scope-isolated, and never a second source of truth.
@@ -220,8 +222,6 @@ export function LearningJourneyPanel() {
         </div>
       )}
 
-      <RslControlPanel />
-      <RslOperatorPanel />
       <RslExperimentsPanel />
 
       {/* Full-page graph — portaled to <body> so a transformed ancestor cannot

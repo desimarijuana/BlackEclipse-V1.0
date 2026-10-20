@@ -8,11 +8,16 @@ import { useCallback, useEffect, useState } from "react";
 import { useT } from "@/lib/i18n/use-t";
 import {
   activateEvolutionSurfaceStateBrowser,
+  createEvolutionDriftCandidateBrowser,
   getEvolutionDriftBrowser,
+  getEvolutionDriftHistoryBrowser,
+  getEvolutionDriftScopesBrowser,
   getEvolutionRslStatusBrowser,
+  modelProposeEvolutionCandidateBrowser,
   getEvolutionSurfacePreviewBrowser,
   listEvolutionStatesBrowser,
   listEvolutionSurfaceActivationsBrowser,
+  prepareEvolutionLandingBrowser,
   promoteEvolutionStateBrowser,
   proposeEvolutionCandidateBrowser,
   rollbackEvolutionSurfaceActivationBrowser,
@@ -20,16 +25,56 @@ import {
 } from "@/lib/harness/evolution-browser";
 import type {
   EvolutionCandidate,
+  EvolutionDriftCandidateResult,
+  EvolutionDriftHistory,
+  EvolutionDriftScopes,
   EvolutionDriftSignal,
   EvolutionHarnessState,
   EvolutionHarnessStates,
+  EvolutionLandingResult,
+  EvolutionModelProposeResult,
   EvolutionRslStatus,
   EvolutionRslTickResult,
   EvolutionSurfaceActivation,
   EvolutionSurfacePreview,
 } from "@/lib/harness/evolution-client";
 import { cn } from "@/lib/utils";
+import { PromoteChange } from "@/components/chat/promote-change";
+import {
+  EVOLUTION_EVIDENCE_EVENT,
+  EVOLUTION_VERIFIED_EVENT,
+  type EvolutionEvidenceEventDetail,
+  type EvolutionVerifiedEventDetail,
+} from "@/lib/harness/evolution-events";
 import { SurfaceActivationCard } from "./surface-activation-card";
+
+function announceVerified(result: EvolutionRslTickResult) {
+  if (typeof window === "undefined" || !result.candidateId) return;
+  window.dispatchEvent(new CustomEvent<EvolutionVerifiedEventDetail>(
+    EVOLUTION_VERIFIED_EVENT,
+    {
+      detail: {
+        candidateId: result.candidateId,
+        stateId: result.stateId,
+        decision: result.decision,
+      },
+    },
+  ));
+}
+
+const RSL_SCOPE_KEY = "eclipse.rsl.scope";
+const DRIFT_SCOPE_KEY = "eclipse.rsl.driftScope";
+
+function storedDriftScope(): string {
+  if (typeof window === "undefined") return "global";
+  try {
+    return window.localStorage.getItem(RSL_SCOPE_KEY)
+      ?? window.localStorage.getItem(DRIFT_SCOPE_KEY)
+      ?? "global";
+  } catch {
+    return "global";
+  }
+}
 
 const SAMPLE_OPS = JSON.stringify(
   [
@@ -44,7 +89,13 @@ const SAMPLE_OPS = JSON.stringify(
   2,
 );
 
-export function RslControlPanel() {
+export function RslControlPanel({
+  scope,
+  onScopeChange,
+}: {
+  scope?: string;
+  onScopeChange?: (scope: string) => void;
+} = {}) {
   const t = useT();
   const [status, setStatus] = useState<EvolutionRslStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -64,7 +115,38 @@ export function RslControlPanel() {
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const [activationScope, setActivationScope] = useState("eclipse-agent");
   const [drift, setDrift] = useState<EvolutionDriftSignal | null>(null);
+  const [driftHistory, setDriftHistory] = useState<EvolutionDriftHistory | null>(null);
+  const [driftScopes, setDriftScopes] = useState<EvolutionDriftScopes | null>(null);
+  const [driftWindow, setDriftWindow] = useState(30);
+  const [driftBaseline, setDriftBaseline] = useState(100);
+  const [driftThreshold, setDriftThreshold] = useState(0.1);
+  const [driftMinSamples, setDriftMinSamples] = useState(10);
+  const [localScope, setLocalScope] = useState(storedDriftScope);
+  const driftScope = scope ?? localScope;
+  const requestScope = driftScope === "all" ? "global" : driftScope;
+  const chooseDriftScope = (next: string) => {
+    if (scope === undefined) setLocalScope(next);
+    onScopeChange?.(next);
+    setDriftCandidate(null);
+    try {
+      window.localStorage.setItem(RSL_SCOPE_KEY, next);
+      window.localStorage.setItem(DRIFT_SCOPE_KEY, next);
+    } catch {
+      // Persistence is best-effort; the in-memory selection still works.
+    }
+  };
   const [driftError, setDriftError] = useState<string | null>(null);
+  const [driftCandidate, setDriftCandidate] = useState<EvolutionDriftCandidateResult | null>(null);
+  const [driftCandidateLoading, setDriftCandidateLoading] = useState(false);
+  const [driftProposal, setDriftProposal] = useState<EvolutionModelProposeResult | null>(null);
+  const [driftProposalLoading, setDriftProposalLoading] = useState(false);
+  const [driftProposalError, setDriftProposalError] = useState<string | null>(null);
+  const [driftVerifyResult, setDriftVerifyResult] = useState<EvolutionRslTickResult | null>(null);
+  const [driftVerifyLoading, setDriftVerifyLoading] = useState(false);
+  const [driftVerifyError, setDriftVerifyError] = useState<string | null>(null);
+  const [driftLanding, setDriftLanding] = useState<EvolutionLandingResult | null>(null);
+  const [driftLandingLoading, setDriftLandingLoading] = useState(false);
+  const [driftLandingError, setDriftLandingError] = useState<string | null>(null);
 
   const [candidateId, setCandidateId] = useState("");
   const [targetPath, setTargetPath] = useState("");
@@ -86,12 +168,72 @@ export function RslControlPanel() {
   const loadDrift = useCallback(async () => {
     setDriftError(null);
     try {
-      setDrift(await getEvolutionDriftBrowser());
+      const policy = {
+        window: driftWindow,
+        baseline: driftBaseline,
+        threshold: driftThreshold,
+      };
+      const [signal, history, scopes] = await Promise.all([
+        getEvolutionDriftBrowser({
+          scope: requestScope, ...policy, minSamples: driftMinSamples,
+        }),
+        getEvolutionDriftHistoryBrowser({
+          scope: requestScope, ...policy, minSamples: driftMinSamples, limit: 12,
+        }),
+        getEvolutionDriftScopesBrowser({
+          ...policy, minSamples: driftMinSamples, includeGlobal: false,
+        }),
+      ]);
+      setDrift(signal);
+      setDriftHistory(history);
+      setDriftScopes(scopes);
     } catch (err) {
       setDriftError(err instanceof Error ? err.message : t("evolution.drift.loading"));
     }
+  }, [driftBaseline, driftMinSamples, driftThreshold, driftWindow, requestScope, t]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadDrift(); }, 350);
+    return () => window.clearTimeout(timer);
+  }, [loadDrift]);
+
+  useEffect(() => {
+    const handler = () => { void loadDrift(); };
+    window.addEventListener(EVOLUTION_VERIFIED_EVENT, handler);
+    return () => window.removeEventListener(EVOLUTION_VERIFIED_EVENT, handler);
+  }, [loadDrift]);
+
+  const openDriftCandidate = useCallback(async () => {
+    setDriftCandidateLoading(true);
+    setDriftError(null);
+    try {
+      setDriftCandidate(await createEvolutionDriftCandidateBrowser({
+        scope: requestScope,
+        window: driftWindow,
+        baseline: driftBaseline,
+        threshold: driftThreshold,
+        minSamples: driftMinSamples,
+      }));
+    } catch (err) {
+      setDriftError(err instanceof Error ? err.message : "drift candidate failed");
+    } finally {
+      setDriftCandidateLoading(false);
+    }
+  }, [driftBaseline, driftMinSamples, driftThreshold, driftWindow, requestScope]);
+
+  const proposeDriftCandidate = useCallback(async (candidateId: string) => {
+    setDriftProposalLoading(true);
+    setDriftProposalError(null);
+    setDriftProposal(null);
+    try {
+      setDriftProposal(await modelProposeEvolutionCandidateBrowser(candidateId));
+    } catch (err) {
+      setDriftProposalError(
+        err instanceof Error ? err.message : t("evolution.drift.proposalError"),
+      );
+    } finally {
+      setDriftProposalLoading(false);
+    }
   }, [t]);
-  useEffect(() => { void loadDrift(); }, [loadDrift]);
 
   const loadStates = useCallback(async () => {
     setStatesError(null);
@@ -107,6 +249,37 @@ export function RslControlPanel() {
     }
   }, [t]);
   useEffect(() => { void loadStates(); }, [loadStates]);
+
+  const verifyDriftProposal = useCallback(async () => {
+    setDriftVerifyLoading(true);
+    setDriftVerifyError(null);
+    setDriftVerifyResult(null);
+    try {
+      const result = await tickEvolutionRslBrowser();
+      setDriftVerifyResult(result);
+      announceVerified(result);
+      await Promise.all([loadStates(), loadDrift()]);
+    } catch (err) {
+      setDriftVerifyError(
+        err instanceof Error ? err.message : t("evolution.drift.verifyError"),
+      );
+    } finally {
+      setDriftVerifyLoading(false);
+    }
+  }, [loadDrift, loadStates, t]);
+
+  const prepareDriftLanding = useCallback(async (candidateId: string) => {
+    setDriftLandingLoading(true);
+    setDriftLandingError(null);
+    setDriftLanding(null);
+    try {
+      setDriftLanding(await prepareEvolutionLandingBrowser(candidateId));
+    } catch (err) {
+      setDriftLandingError(err instanceof Error ? err.message : "prepare landing failed");
+    } finally {
+      setDriftLandingLoading(false);
+    }
+  }, []);
 
   const promoteState = useCallback(async (state: EvolutionHarnessState) => {
     setPromotingId(state.id);
@@ -167,7 +340,9 @@ export function RslControlPanel() {
     setTickError(null);
     setTickResult(null);
     try {
-      setTickResult(await tickEvolutionRslBrowser());
+      const result = await tickEvolutionRslBrowser();
+      setTickResult(result);
+      announceVerified(result);
       await loadStatus();
     } catch (err) {
       setTickError(err instanceof Error ? err.message : "RSL tick failed");
@@ -204,6 +379,12 @@ export function RslControlPanel() {
 
   const inputClass =
     "w-full rounded-lg border border-border/50 bg-background/40 px-2.5 py-1.5 text-[11px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40";
+  const overviewSignals = (driftScopes?.signals ?? []).filter((row) => (
+    row.signal.status !== "unmeasured"
+    || row.scope === driftScope
+    || (row.scope === "global" && driftScope === "all")
+  ));
+  const hiddenOverview = (driftScopes?.signals.length ?? 0) - overviewSignals.length;
 
   return (
     <section className="glass-card-subtle p-4">
@@ -258,6 +439,15 @@ export function RslControlPanel() {
             })}
           </span>
           <span>{t("evolution.rsl.k", { k: status.k })}</span>
+          {status.driftWatch && (
+            <span>
+              {t("evolution.rsl.driftWatch", {
+                state: status.driftWatch.enabled
+                  ? `${status.driftWatch.intervalSeconds}s`
+                  : "off",
+              })}
+            </span>
+          )}
           {status.tickSeconds != null && (
             <span>{t("evolution.rsl.tickSeconds", { seconds: status.tickSeconds })}</span>
           )}
@@ -287,14 +477,112 @@ export function RslControlPanel() {
             <h5 className="text-xs font-semibold text-foreground">{t("evolution.drift.title")}</h5>
             <p className="mt-1 text-[10px] text-muted-foreground">{t("evolution.drift.subtitle")}</p>
           </div>
-          <button
-            type="button"
-            onClick={() => void loadDrift()}
-            className="rounded-lg border border-border/50 px-2 py-1 text-[10px] text-muted-foreground transition hover:text-foreground"
-          >
-            {t("evolution.drift.refresh")}
-          </button>
+          <div className="flex flex-wrap items-center gap-1">
+            <label className="text-[10px] text-muted-foreground">
+              {t("evolution.drift.scope")}
+            </label>
+            <select
+              value={driftScope}
+              onChange={(event) => chooseDriftScope(event.target.value)}
+              className="rounded-lg border border-border/50 bg-background/40 px-1.5 py-1 text-[10px] text-foreground"
+            >
+              {Array.from(new Set([
+                "all",
+                ...(drift?.availableScopes ?? []).filter((item) => item !== "global"),
+                ...(driftScope !== "all" ? [driftScope] : []),
+              ])).map((item) => (
+                <option key={item} value={item}>
+                  {item === "all" ? t("evolution.experiment.scopeAll") : item}
+                </option>
+              ))}
+            </select>
+            <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              {t("evolution.drift.window")}
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={driftWindow}
+                onChange={(event) => setDriftWindow(Math.max(1, Number(event.target.value) || 1))}
+                className="w-12 rounded border border-border/50 bg-background/40 px-1 py-1 text-[10px] text-foreground"
+              />
+            </label>
+            <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              {t("evolution.drift.baseline")}
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={driftBaseline}
+                onChange={(event) => setDriftBaseline(Math.max(1, Number(event.target.value) || 1))}
+                className="w-14 rounded border border-border/50 bg-background/40 px-1 py-1 text-[10px] text-foreground"
+              />
+            </label>
+            <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              {t("evolution.drift.threshold")}
+              <input
+                type="number"
+                min={0}
+                max={1}
+                step={0.01}
+                value={driftThreshold}
+                onChange={(event) => setDriftThreshold(Math.max(0, Number(event.target.value) || 0))}
+                className="w-14 rounded border border-border/50 bg-background/40 px-1 py-1 text-[10px] text-foreground"
+              />
+            </label>
+            <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              {t("evolution.drift.minSamples")}
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={driftMinSamples}
+                onChange={(event) => setDriftMinSamples(Math.max(1, Number(event.target.value) || 1))}
+                className="w-12 rounded border border-border/50 bg-background/40 px-1 py-1 text-[10px] text-foreground"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => void loadDrift()}
+              className="rounded-lg border border-border/50 px-2 py-1 text-[10px] text-muted-foreground transition hover:text-foreground"
+            >
+              {t("evolution.drift.refresh")}
+            </button>
+          </div>
         </div>
+        {overviewSignals.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-1 text-[9px]">
+            <span className="text-muted-foreground">{t("evolution.drift.overview")}</span>
+            {overviewSignals.map(({ scope: item, signal }) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => chooseDriftScope(item === "global" ? "all" : item)}
+                className={cn(
+                  "rounded border px-1.5 py-0.5 transition",
+                  driftScope === item || (item === "global" && driftScope === "all")
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : signal.status === "drift"
+                      ? "border-rose-400/30 bg-rose-400/10 text-rose-300 hover:bg-rose-400/15"
+                      : signal.status === "stable"
+                        ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300 hover:bg-emerald-400/15"
+                        : "border-border/40 bg-background/30 text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {item === "global" ? t("evolution.experiment.scopeAll") : item}
+                {" "}
+                {signal.drop == null
+                  ? signal.status
+                  : `${Math.round(signal.drop * 100)}%`}
+              </button>
+            ))}
+            {hiddenOverview > 0 && (
+              <span className="text-muted-foreground">
+                {t("evolution.drift.overviewHidden", { count: hiddenOverview })}
+              </span>
+            )}
+          </div>
+        )}
         {driftError && <p className="mt-2 text-[10px] text-rose-300">{driftError}</p>}
         {!drift && !driftError && (
           <p className="mt-2 text-[10px] text-muted-foreground">{t("evolution.drift.loading")}</p>
@@ -318,6 +606,149 @@ export function RslControlPanel() {
             {drift.reasons.map((reason) => (
               <p key={reason}>{reason}</p>
             ))}
+            {driftHistory && driftHistory.points.length > 1 && (
+              <div className="mt-1">
+                <p>
+                  {t("evolution.drift.history")}
+                  {driftHistory.truncated ? ` (${t("evolution.drift.historyTruncated")})` : ""}
+                </p>
+                <div className="mt-0.5 flex flex-wrap gap-1">
+                  {driftHistory.points.map((point) => (
+                    <span
+                      key={point.offset}
+                      title={point.at ?? undefined}
+                      className={cn(
+                        "rounded border px-1.5 py-0.5 text-[9px]",
+                        point.status === "drift"
+                          ? "border-rose-400/30 bg-rose-400/10 text-rose-300"
+                          : point.status === "stable"
+                            ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
+                            : "border-border/40 bg-background/30 text-muted-foreground",
+                      )}
+                    >
+                      {point.offset === 0 ? t("evolution.drift.historyNow") : `-${point.offset}`}
+                      {" "}
+                      {point.drop == null ? point.status : `${Math.round(point.drop * 100)}%`}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {drift.status === "drift" && (
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void openDriftCandidate()}
+                  disabled={driftCandidateLoading}
+                  className="rounded-lg border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-[10px] text-rose-300 transition hover:bg-rose-400/15 disabled:opacity-50"
+                >
+                  {driftCandidateLoading
+                    ? t("evolution.drift.openingCandidate")
+                    : t("evolution.drift.openCandidate")}
+                </button>
+                {driftCandidate?.candidate && (
+                  <>
+                    <span className="text-emerald-300">
+                      {driftCandidate.created
+                        ? t("evolution.drift.candidateCreated", { id: driftCandidate.candidate.id })
+                        : t("evolution.drift.candidateExists", { id: driftCandidate.candidate.id })}
+                    </span>
+                    <span className="rounded border border-border/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {t("evolution.drift.candidateScope", {
+                        scope: driftCandidate.signal.scope ?? requestScope,
+                      })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        window.dispatchEvent(
+                          new CustomEvent<EvolutionEvidenceEventDetail>(
+                            EVOLUTION_EVIDENCE_EVENT,
+                            { detail: { candidateId: driftCandidate.candidate!.id } },
+                          ),
+                        );
+                      }}
+                      className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-2 py-1 text-[10px] text-sky-300 transition hover:bg-sky-400/15"
+                    >
+                      {t("evolution.drift.viewEvidence")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void proposeDriftCandidate(driftCandidate.candidate!.id)}
+                      disabled={driftProposalLoading}
+                      className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-2 py-1 text-[10px] text-sky-300 transition hover:bg-sky-400/15 disabled:opacity-50"
+                    >
+                      {driftProposalLoading
+                        ? t("evolution.drift.proposing")
+                        : t("evolution.drift.propose")}
+                    </button>
+                    {driftProposal && (
+                      <span className="text-emerald-300">
+                        {t("evolution.drift.proposed", { count: driftProposal.children.length })}
+                      </span>
+                    )}
+                    {driftProposalError && (
+                      <span className="text-rose-300">{driftProposalError}</span>
+                    )}
+                    {driftProposal && (
+                      <button
+                        type="button"
+                        onClick={() => void verifyDriftProposal()}
+                        disabled={driftVerifyLoading}
+                        className="rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-300 transition hover:bg-emerald-400/15 disabled:opacity-50"
+                      >
+                        {driftVerifyLoading
+                          ? t("evolution.drift.verifying")
+                          : t("evolution.drift.verify")}
+                      </button>
+                    )}
+                    {driftVerifyResult?.candidateId && (
+                      <span className={driftVerifyResult.decision?.includes("rejected") ? "text-rose-300" : "text-emerald-300"}>
+                        {t("evolution.drift.verified", {
+                          id: driftVerifyResult.candidateId,
+                          decision: driftVerifyResult.decision ?? "none",
+                          benchmark: driftVerifyResult.benchmark ?? "UNMEASURED",
+                        })}
+                      </span>
+                    )}
+                    {driftVerifyResult && !driftVerifyResult.candidateId && (
+                      <span className="text-muted-foreground">
+                        {t("evolution.drift.verifyEmpty")}
+                      </span>
+                    )}
+                    {driftVerifyError && (
+                      <span className="text-rose-300">{driftVerifyError}</span>
+                    )}
+                    {driftVerifyResult?.candidateId
+                      && ["tests_passed", "benchmark_accepted"].includes(
+                        driftVerifyResult.decision ?? "",
+                      ) && (
+                      <button
+                        type="button"
+                        onClick={() => void prepareDriftLanding(driftVerifyResult.candidateId!)}
+                        disabled={driftLandingLoading}
+                        className="rounded-lg border border-primary/30 bg-primary/10 px-2 py-1 text-[10px] text-primary transition hover:bg-primary/15 disabled:opacity-50"
+                      >
+                        {driftLandingLoading
+                          ? t("evolution.drift.preparingLanding")
+                          : t("evolution.drift.prepareLanding")}
+                      </button>
+                    )}
+                    {driftLanding && (
+                      <div className="w-full">
+                        <span className="text-[10px] text-emerald-300">
+                          {t("evolution.drift.landingPrepared", { runId: driftLanding.runId })}
+                        </span>
+                        <PromoteChange runId={driftLanding.runId} compact />
+                      </div>
+                    )}
+                    {driftLandingError && (
+                      <span className="text-rose-300">{driftLandingError}</span>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

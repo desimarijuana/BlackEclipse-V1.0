@@ -11,13 +11,16 @@ import {
   adoptEvolutionLessonBrowser,
   createEvolutionSurfaceExperimentBrowser,
   getEvolutionCandidateStateBrowser,
+  getEvolutionLessonOutcomesBrowser,
   getEvolutionSurfacePreviewBrowser,
   listEvolutionLessonsBrowser,
+  retireEvolutionLessonBrowser,
   runEvolutionRecursiveBrowser,
 } from "@/lib/harness/evolution-browser";
 import type {
   EvolutionHarnessState,
   EvolutionLesson,
+  EvolutionLessonOutcomes,
   EvolutionRecursiveResult,
   EvolutionRecursiveVariant,
   EvolutionSurfaceExperimentInput,
@@ -89,6 +92,10 @@ export function RslOperatorPanel() {
   const t = useT();
   const [lessons, setLessons] = useState<EvolutionLesson[]>([]);
   const [lessonError, setLessonError] = useState<string | null>(null);
+  const [lessonOutcomes, setLessonOutcomes] = useState<Record<string, EvolutionLessonOutcomes>>({});
+  const [lessonLiftLoading, setLessonLiftLoading] = useState<string | null>(null);
+  const [lessonRetiring, setLessonRetiring] = useState<string | null>(null);
+  const [lessonLiftError, setLessonLiftError] = useState<string | null>(null);
 
   const [candidateId, setCandidateId] = useState("");
   const [validationRunId, setValidationRunId] = useState("");
@@ -134,6 +141,39 @@ export function RslOperatorPanel() {
     }
   }, []);
   useEffect(() => { void loadLessons(); }, [loadLessons]);
+
+  const loadLessonLift = useCallback(async (lessonId: string) => {
+    setLessonLiftLoading(lessonId);
+    setLessonLiftError(null);
+    try {
+      const result = await getEvolutionLessonOutcomesBrowser(lessonId);
+      setLessonOutcomes((current) => ({ ...current, [lessonId]: result }));
+    } catch (err) {
+      setLessonLiftError(
+        err instanceof Error ? err.message : t("evolution.lesson.liftError"),
+      );
+    } finally {
+      setLessonLiftLoading(null);
+    }
+  }, [t]);
+
+  const retireLesson = useCallback(async (lessonId: string) => {
+    setLessonRetiring(lessonId);
+    setLessonLiftError(null);
+    try {
+      const result = await retireEvolutionLessonBrowser(lessonId);
+      setLessonOutcomes((current) => ({ ...current, [lessonId]: {
+        lessonId, stats: result.stats, outcomes: [],
+      } }));
+      await loadLessons();
+    } catch (err) {
+      setLessonLiftError(
+        err instanceof Error ? err.message : t("evolution.lesson.liftError"),
+      );
+    } finally {
+      setLessonRetiring(null);
+    }
+  }, [loadLessons, t]);
 
   const adopt = useCallback(async () => {
     setAdopting(true);
@@ -297,11 +337,18 @@ export function RslOperatorPanel() {
             {lessonError}
           </p>
         )}
+        {lessonLiftError && (
+          <p className="mb-2 rounded-lg border border-rose-400/30 bg-rose-400/5 px-2 py-1 text-[10px] text-rose-300">
+            {lessonLiftError}
+          </p>
+        )}
         {lessons.length === 0 ? (
           <p className="text-[11px] text-muted-foreground">{t("evolution.lesson.empty")}</p>
         ) : (
           <ul className="space-y-2">
-            {lessons.map((lesson) => (
+            {lessons.map((lesson) => {
+              const outcome = lessonOutcomes[lesson.id];
+              return (
               <li key={lesson.id} className="rounded-lg border border-border/40 bg-background/30 p-2">
                 <p className="text-[11px] font-medium text-foreground">{lesson.cue ?? lesson.id}</p>
                 <p className="mt-0.5 text-[10px] text-muted-foreground">{lesson.proposedLesson}</p>
@@ -309,8 +356,86 @@ export function RslOperatorPanel() {
                   {lesson.validationRunId ?? t("evolution.lesson.unvalidated")}
                   {lesson.adoptedArtifactId ? ` · ${lesson.adoptedArtifactId}` : ""}
                 </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void loadLessonLift(lesson.id)}
+                    disabled={lessonLiftLoading === lesson.id}
+                    className="rounded-lg border border-sky-400/30 bg-sky-400/10 px-2 py-1 text-[10px] text-sky-300 transition hover:bg-sky-400/15 disabled:opacity-50"
+                  >
+                    {lessonLiftLoading === lesson.id
+                      ? t("evolution.lesson.liftLoading")
+                      : t("evolution.lesson.lift")}
+                  </button>
+                  {outcome && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {t("evolution.lesson.liftStatus", {
+                        status: outcome.stats.status,
+                      })}
+                      {" · "}
+                      {t("evolution.lesson.liftRates", {
+                        injected: outcome.stats.injectedRate == null
+                          ? "UNMEASURED"
+                          : outcome.stats.injectedRate.toFixed(2),
+                        injectedN: outcome.stats.injected,
+                        control: outcome.stats.controlRate == null
+                          ? "UNMEASURED"
+                          : outcome.stats.controlRate.toFixed(2),
+                        controlN: outcome.stats.control,
+                      })}
+                      {" · "}
+                      {t("evolution.lesson.liftValue", {
+                        value: outcome.stats.lift == null
+                          ? "UNMEASURED"
+                          : outcome.stats.lift.toFixed(3),
+                      })}
+                    </span>
+                  )}
+                  {outcome && outcome.stats.status === "measured"
+                    && (outcome.stats.lift ?? 0) <= 0
+                    && !lessonRetiring && (
+                    <button
+                      type="button"
+                      onClick={() => void retireLesson(lesson.id)}
+                      disabled={lessonRetiring === lesson.id}
+                      className="rounded-lg border border-rose-400/30 bg-rose-400/10 px-2 py-1 text-[10px] text-rose-300 transition hover:bg-rose-400/15 disabled:opacity-50"
+                    >
+                      {lessonRetiring === lesson.id
+                        ? t("evolution.lesson.retiring")
+                        : t("evolution.lesson.retire")}
+                    </button>
+                  )}
+                  {lessonRetiring === lesson.id && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {t("evolution.lesson.retiring")}
+                    </span>
+                  )}
+                </div>
+                {outcome && outcome.outcomes.length > 0 && (
+                  <details className="mt-1.5 text-[9.5px] text-muted-foreground">
+                    <summary className="cursor-pointer select-none">
+                      {t("evolution.lesson.outcomeEvidence", {
+                        count: outcome.outcomes.length,
+                      })}
+                    </summary>
+                    <ul className="mt-1 space-y-0.5 font-mono">
+                      {outcome.outcomes.slice(0, 5).map((row) => (
+                        <li key={row.id}>
+                          {t("evolution.lesson.outcomeRow", {
+                            runId: row.runId,
+                            cohort: row.injected
+                              ? t("evolution.lesson.outcomeInjected")
+                              : t("evolution.lesson.outcomeControl"),
+                            outcome: row.outcome,
+                          })}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
 

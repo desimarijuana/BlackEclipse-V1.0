@@ -141,6 +141,19 @@ in [`../README.md`](../README.md) is authoritative; in short:
   rollout and operator runbook in
   [`self-improvement/rsl-implementation-plan.md`](self-improvement/rsl-implementation-plan.md) §5.1.
   Test it without touching your data with `npm run rsl:smoke`.
+- `HARNESS_DRIFT_WATCH_SECONDS` — how often the read-only drift watch checks
+  every configured scope (default `300`; `0` disables). It publishes a drift
+  transition event but never creates a candidate.
+
+**Drift runbook.** Leave the watch at its default interval. When a scope
+transitions, the Learning Journey header shows `N drifting` and the production
+drift card lists the scope with its drop. Select the scope, adjust window /
+baseline / threshold / minSamples if needed, inspect the recent history, then use
+**Open drift candidate** to create the inert candidate. From there the existing
+propose → verify → land flow applies; drift never lands or activates anything on
+its own. The watcher's last status is persisted, so restarting the runtime does
+not re-alert the same episode. `npm run test:drift-ui` exercises the card in a
+real browser with mocked network data.
 
 ## Where your data lives
 

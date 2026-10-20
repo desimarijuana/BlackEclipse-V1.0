@@ -5,6 +5,9 @@
 import type {
   EvolutionCandidateEvidence,
   EvolutionCandidateStateResult,
+  EvolutionDriftCandidateResult,
+  EvolutionDriftHistory,
+  EvolutionDriftScopes,
   EvolutionDriftSignal,
   EvolutionExperiment,
   EvolutionExperimentDetail,
@@ -14,6 +17,9 @@ import type {
   EvolutionLesson,
   EvolutionLessonInput,
   EvolutionLessonOutcomes,
+  EvolutionLessonRetireResult,
+  EvolutionMetrics,
+  EvolutionModelProposeResult,
   EvolutionProposeInput,
   EvolutionProposeResult,
   EvolutionRecursiveResult,
@@ -40,6 +46,14 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     );
   }
   return body as T;
+}
+
+export async function getEvolutionMetricsBrowser(
+  windowDays = 90,
+): Promise<EvolutionMetrics> {
+  return api<EvolutionMetrics>(
+    `/api/evolution/metrics?windowDays=${encodeURIComponent(String(windowDays))}`,
+  );
 }
 
 export async function listEvolutionExperimentsBrowser(limit = 50): Promise<EvolutionExperiment[]> {
@@ -90,6 +104,15 @@ export async function getEvolutionLessonOutcomesBrowser(
 ): Promise<EvolutionLessonOutcomes> {
   return api<EvolutionLessonOutcomes>(
     `/api/evolution/lessons/${encodeURIComponent(lessonId)}/outcomes?limit=${encodeURIComponent(String(limit))}`,
+  );
+}
+
+export async function retireEvolutionLessonBrowser(
+  lessonId: string,
+): Promise<EvolutionLessonRetireResult> {
+  return api<EvolutionLessonRetireResult>(
+    `/api/evolution/lessons/${encodeURIComponent(lessonId)}/retire`,
+    { method: "POST", body: "{}" },
   );
 }
 
@@ -183,15 +206,92 @@ export async function getEvolutionRslStatusBrowser(): Promise<EvolutionRslStatus
 }
 
 export async function getEvolutionDriftBrowser(
-  input: { scope?: string; window?: number; baseline?: number; threshold?: number } = {},
+  input: {
+    scope?: string;
+    window?: number;
+    baseline?: number;
+    threshold?: number;
+    minSamples?: number;
+  } = {},
 ): Promise<EvolutionDriftSignal> {
   const params = new URLSearchParams();
   if (input.scope) params.set("scope", input.scope);
   if (input.window) params.set("window", String(input.window));
   if (input.baseline) params.set("baseline", String(input.baseline));
   if (input.threshold != null) params.set("threshold", String(input.threshold));
+  if (input.minSamples != null) params.set("minSamples", String(input.minSamples));
   const query = params.toString();
   return api<EvolutionDriftSignal>(`/api/evolution/drift${query ? `?${query}` : ""}`);
+}
+
+export async function getEvolutionDriftScopesBrowser(
+  input: {
+    window?: number;
+    baseline?: number;
+    threshold?: number;
+    minSamples?: number;
+    includeGlobal?: boolean;
+  } = {},
+): Promise<EvolutionDriftScopes> {
+  const params = new URLSearchParams();
+  if (input.window) params.set("window", String(input.window));
+  if (input.baseline) params.set("baseline", String(input.baseline));
+  if (input.threshold != null) params.set("threshold", String(input.threshold));
+  if (input.minSamples != null) params.set("minSamples", String(input.minSamples));
+  if (input.includeGlobal != null) {
+    params.set("includeGlobal", input.includeGlobal ? "true" : "false");
+  }
+  const query = params.toString();
+  return api<EvolutionDriftScopes>(
+    `/api/evolution/drift/scopes${query ? `?${query}` : ""}`,
+  );
+}
+
+export async function getEvolutionDriftHistoryBrowser(
+  input: {
+    scope?: string;
+    window?: number;
+    baseline?: number;
+    threshold?: number;
+    minSamples?: number;
+    limit?: number;
+    step?: number;
+  } = {},
+): Promise<EvolutionDriftHistory> {
+  const params = new URLSearchParams();
+  if (input.scope) params.set("scope", input.scope);
+  if (input.window) params.set("window", String(input.window));
+  if (input.baseline) params.set("baseline", String(input.baseline));
+  if (input.threshold != null) params.set("threshold", String(input.threshold));
+  if (input.minSamples != null) params.set("minSamples", String(input.minSamples));
+  if (input.limit != null) params.set("limit", String(input.limit));
+  if (input.step != null) params.set("step", String(input.step));
+  const query = params.toString();
+  return api<EvolutionDriftHistory>(
+    `/api/evolution/drift/history${query ? `?${query}` : ""}`,
+  );
+}
+
+export async function createEvolutionDriftCandidateBrowser(
+  input: {
+    scope?: string;
+    window?: number;
+    baseline?: number;
+    threshold?: number;
+    minSamples?: number;
+  } = {},
+): Promise<EvolutionDriftCandidateResult> {
+  const params = new URLSearchParams();
+  if (input.scope) params.set("scope", input.scope);
+  if (input.window) params.set("window", String(input.window));
+  if (input.baseline) params.set("baseline", String(input.baseline));
+  if (input.threshold != null) params.set("threshold", String(input.threshold));
+  if (input.minSamples != null) params.set("minSamples", String(input.minSamples));
+  const query = params.toString();
+  return api<EvolutionDriftCandidateResult>(
+    `/api/evolution/drift/candidate${query ? `?${query}` : ""}`,
+    { method: "POST", body: "{}" },
+  );
 }
 
 export async function tickEvolutionRslBrowser(): Promise<EvolutionRslTickResult> {
@@ -206,5 +306,16 @@ export async function proposeEvolutionCandidateBrowser(
   return api<EvolutionProposeResult>(
     `/api/evolution/candidates/${encodeURIComponent(candidateId)}/propose`,
     { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export async function modelProposeEvolutionCandidateBrowser(
+  candidateId: string,
+  k?: number,
+): Promise<EvolutionModelProposeResult> {
+  const query = k != null ? `?k=${encodeURIComponent(String(k))}` : "";
+  return api<EvolutionModelProposeResult>(
+    `/api/evolution/candidates/${encodeURIComponent(candidateId)}/model-propose${query}`,
+    { method: "POST", body: "{}" },
   );
 }

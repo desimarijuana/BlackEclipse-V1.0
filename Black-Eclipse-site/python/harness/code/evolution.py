@@ -436,9 +436,11 @@ def archive_metrics(store: Any, window_days: int = 90) -> dict[str, Any]:
         rsl_runs_from_store,
     )
 
-    rsl_metrics = metrics_from_rsl_runs(rsl_runs_from_store(store, limit=500))
-
     cutoff = _days_ago(window_days)
+    rsl_metrics = metrics_from_rsl_runs(
+        rsl_runs_from_store(store, limit=500, since=cutoff),
+    )
+
     rows = db.execute(
         "SELECT a.outcome, a.costMicros, a.tokensUsed, c.sourceCategory "
         "FROM EvolutionAttempt a JOIN EvolutionCandidate c ON c.id = a.candidateId "

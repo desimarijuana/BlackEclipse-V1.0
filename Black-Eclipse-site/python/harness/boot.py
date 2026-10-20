@@ -112,6 +112,13 @@ async def _boot() -> None:
     from .self_improvement.loop import RSLLoop
     service._rsl_loop = RSLLoop(service)
     await service._rsl_loop.start()
+    # Drift watch: read-only cadence over every configured scope. It publishes a
+    # transition into drift and never creates a candidate or mutates a surface.
+    # Disabled with HARNESS_DRIFT_WATCH_SECONDS=0.
+    from .self_improvement.drift_watch import DriftWatcher  # noqa: PLC0415
+
+    service._drift_watch = DriftWatcher(service)
+    await service._drift_watch.start()
     # Native Automation Engine (ADR-H152): one durable scheduler/trigger router
     # beside the three TS refresh loops, which stay exactly as they are.
     await service.start_automation()
@@ -241,6 +248,9 @@ async def _shutdown() -> None:
     from .event_system.bootstrap import stop_events
     await service.stop_artifacts()
     await service.stop_tasks()
+    drift_watch = getattr(service, "_drift_watch", None)
+    if drift_watch is not None:
+        await drift_watch.stop()
     await stop_events(service)
     await service.stop_automation()
     orchestration = getattr(service, "orchestration", None)

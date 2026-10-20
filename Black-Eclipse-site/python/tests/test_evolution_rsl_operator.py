@@ -13,6 +13,7 @@ from harness.evaluation.store import EvaluationStore
 from harness.persistence import AgentMemoryStore
 from harness.self_improvement.config import RSLConfig
 from harness.self_improvement.loop import RSLLoop
+from harness.self_improvement.proposer import CandidateProposal
 import harness.routers.evolution as evolution_router
 from harness.routers.evolution import (
     LessonAdoptionRequest,
@@ -309,6 +310,47 @@ async def test_recursive_route_persists_children_and_records_the_experiment(env,
     assert run["metadata"]["kind"] == "rsl-recursion"
     assert run["config"]["k"] == 2
     assert len(result["children"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_model_propose_route_persists_a_validated_child(env):
+    candidate = EvolutionStore(env["store"]).save_candidate({
+        "signature": f"drift-{uuid.uuid4().hex}",
+        "sourceCategory": "drift",
+        "observedCount": 30,
+        "problemStatement": "production success dropped",
+        "subjectType": "drift",
+        "status": "inert",
+    })
+
+    async def fake_model(item, k, actor):
+        assert item["id"] == candidate["id"]
+        return [CandidateProposal(
+            id="v1", kind="domain",
+            targetPath="python/harness/rsl_operator_drift.py",
+            ops=({
+                "op": "create", "path": "python/harness/rsl_operator_drift.py",
+                "content": "VALUE = 1\n", "reason": "drift proposal",
+            },),
+        )]
+
+    loop = RSLLoop(
+        service=None,
+        config=RSLConfig(mode="verify", model_proposer=True, k=1),
+        run_store=env["store"],
+        evolution=EvolutionStore(env["store"]),
+        eval_store=EvaluationStore(env["store"]),
+        model_propose_fn=fake_model,
+    )
+    env["service"]._rsl_loop = loop
+
+    result = await evolution_router.model_propose_candidate(candidate["id"], k=1)
+    assert result["success"] is True
+    child = result["children"][0]
+    assert child["status"] == "proposed"
+    assert child["sourceCategory"] == "drift"
+    assert child["targetPath"] == "python/harness/rsl_operator_drift.py"
+    assert child["proposedOps"][0]["op"] == "create"
 
 
 @pytest.mark.asyncio

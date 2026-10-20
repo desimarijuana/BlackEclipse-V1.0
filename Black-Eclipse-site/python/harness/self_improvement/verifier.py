@@ -325,6 +325,10 @@ async def verify_surface_candidate(
             "kind": "rsl",
             "proposalId": proposal_id,
             "sourceCategory": candidate.get("sourceCategory"),
+            "subjectType": str(candidate.get("subjectType") or "surface"),
+            "scope": str(
+                (candidate.get("surfaceConfig") or {}).get("scope") or "global"
+            ),
             "targetDimension": target_dimension,
             "datasetName": getattr(dataset, "name", ""),
             "datasetVersion": getattr(dataset, "version", ""),

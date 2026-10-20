@@ -178,20 +178,31 @@ def is_rsl_run(run: dict[str, Any]) -> bool:
     )
 
 
-def rsl_runs_from_store(store: Any, *, limit: int = 500) -> list[dict[str, Any]]:
+def rsl_runs_from_store(
+    store: Any, *, limit: int = 500, since: Optional[str] = None,
+) -> list[dict[str, Any]]:
     """Completed/partial RSL runs from an `agent-memory.db`-backed store.
 
     Read-only and fail-closed: an unreadable table returns an empty list, which
     the caller renders as a measured zero only when it explicitly passed a store.
+    `since` is an ISO cutoff applied to `startedAt` (the same window as the rest
+    of `archive_metrics`).
     """
     db = getattr(store, "_db", None)
     if db is None:
         return []
     try:
-        rows = db.execute(
-            "SELECT * FROM EvaluationRun ORDER BY startedAt DESC LIMIT ?",
-            (max(1, min(int(limit), 2000)),),
-        ).fetchall()
+        if since:
+            rows = db.execute(
+                "SELECT * FROM EvaluationRun WHERE startedAt >= ? "
+                "ORDER BY startedAt DESC LIMIT ?",
+                (since, max(1, min(int(limit), 2000))),
+            ).fetchall()
+        else:
+            rows = db.execute(
+                "SELECT * FROM EvaluationRun ORDER BY startedAt DESC LIMIT ?",
+                (max(1, min(int(limit), 2000)),),
+            ).fetchall()
     except Exception:  # noqa: BLE001 - no table means no RSL experiments
         return []
     runs: list[dict[str, Any]] = []

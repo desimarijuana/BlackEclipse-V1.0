@@ -25,6 +25,9 @@ from ..code.evolution_store import EvolutionStore
 from ..deps import require_operator, service
 
 router = APIRouter(tags=["evolution"])
+from .evolution_drift import router as drift_router  # noqa: E402
+
+router.include_router(drift_router)
 
 
 def _store() -> EvolutionStore:
@@ -350,6 +353,45 @@ def propose_candidate_route(
     return {"success": True, "candidate": updated}
 
 
+@router.post("/evolution/candidates/{candidate_id}/model-propose")
+async def model_propose_candidate(
+    candidate_id: str,
+    k: Optional[int] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Run the model proposer for ONE candidate and persist its validated children.
+
+    The model proposer must be enabled; the route never verifies or lands. A
+    drift/observation candidate with no target can become a real child candidate
+    here without inventing a patch: every op still passes `propose_ops`, the
+    frozen target guard and workspace confinement.
+    """
+    from ..self_improvement.proposer import ProposalRefused  # noqa: PLC0415
+
+    candidate = _store().get_candidate(candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if candidate.get("subjectType") == "surface":
+        raise HTTPException(
+            status_code=400,
+            detail="surface candidates use POST /evolution/surface-experiments",
+        )
+    loop = getattr(service, "_rsl_loop", None)
+    if loop is None:
+        raise HTTPException(status_code=503, detail="RSL loop unavailable")
+    try:
+        child_ids = await loop.propose_with_model(candidate, k=k)
+    except ProposalRefused as exc:
+        status = 409 if exc.code == "MODEL_PROPOSER_DISABLED" else 400
+        raise HTTPException(status_code=status, detail=exc.code) from exc
+    evolution = _store()
+    return {
+        "success": True,
+        "candidateId": candidate_id,
+        "children": [evolution.get_candidate(child_id) for child_id in child_ids],
+    }
+
+
 @router.get("/evolution/experiments")
 def list_experiments(
     limit: int = 50, _: bool = Depends(require_operator),
@@ -416,6 +458,32 @@ def lesson_outcomes(
         "lessonId": lesson_id,
         "stats": store.stats(lesson_id).to_dict(),
         "outcomes": store.recent(lesson_id, limit=cap),
+    }
+
+
+@router.post("/evolution/lessons/{lesson_id}/retire")
+def retire_lesson(
+    lesson_id: str, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Retire a measured non-positive lesson. Inert lifecycle action; no delete."""
+    from ..self_improvement.lesson_feedback import (  # noqa: PLC0415
+        LessonOutcomeStore,
+        retire_unhelpful,
+    )
+
+    outcomes = LessonOutcomeStore(service.store)
+    stats = outcomes.stats(lesson_id)
+    retired = retire_unhelpful(_lesson_store(), outcomes, [lesson_id])
+    return {
+        "success": True,
+        "lessonId": lesson_id,
+        "retired": bool(retired),
+        "stats": stats.to_dict(),
+        "reason": (
+            "measured non-positive lift"
+            if retired else
+            "not retired: the lesson needs measured non-positive lift"
+        ),
     }
 
 
@@ -508,6 +576,66 @@ def _surface_diff(base: Any, snapshot: Any) -> dict[str, Any]:
     }
 
 
+def _task_rates(trials: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Measured per-task pass rates; an all-unmeasured task is omitted."""
+    buckets: dict[str, list[bool]] = {}
+    for trial in trials:
+        if bool(trial.get("unmeasured")):
+            continue
+        task_id = str(trial.get("taskId") or "")
+        if not task_id:
+            continue
+        buckets.setdefault(task_id, []).append(bool(trial.get("passed")))
+    return {
+        task_id: {
+            "n": len(values),
+            "successes": sum(1 for value in values if value),
+            "rate": sum(1 for value in values if value) / len(values),
+        }
+        for task_id, values in buckets.items()
+    }
+
+
+def _task_deltas(
+    baseline: dict[str, dict[str, Any]],
+    candidate: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for task_id in sorted(set(baseline) | set(candidate)):
+        before = baseline.get(task_id)
+        after = candidate.get(task_id)
+        before_rate = before["rate"] if before else None
+        after_rate = after["rate"] if after else None
+        rows.append({
+            "taskId": task_id,
+            "before": before_rate,
+            "after": after_rate,
+            "beforeN": before["n"] if before else 0,
+            "afterN": after["n"] if after else 0,
+            "delta": (
+                round(float(after_rate) - float(before_rate), 6)
+                if before_rate is not None and after_rate is not None else None
+            ),
+        })
+    return rows
+
+
+def _critical_task_ids_for_payload(payload: dict[str, Any]) -> set[str]:
+    """The frozen critical/safety task ids named by a surface experiment."""
+    try:
+        from ..evaluation.tasks import load_builtin_dataset, select_tasks  # noqa: PLC0415
+        from ..self_improvement.replay import critical_task_ids  # noqa: PLC0415
+
+        dataset = load_builtin_dataset(str(payload.get("dataset") or "benchmark_v1"))
+        tasks = select_tasks(dataset, split=str(payload.get("split") or "validation"))
+        wanted = {str(task_id) for task_id in (payload.get("taskIds") or []) if str(task_id)}
+        if wanted:
+            tasks = [task for task in tasks if task.id in wanted]
+        return set(critical_task_ids(tasks))
+    except Exception:  # noqa: BLE001 - an unavailable dataset is not a veto
+        return set()
+
+
 def _surface_context(state_id: str, scope: Optional[str] = None) -> dict[str, Any]:
     """Build the shared preview/activation decision for one harness state."""
     from ..agents import DEFAULT_AGENT_ID, get_agent  # noqa: PLC0415
@@ -569,6 +697,80 @@ def _surface_context(state_id: str, scope: Optional[str] = None) -> dict[str, An
                 "SURFACE_LIVE_UNSUPPORTED: model identity is resolved by the front door"
             )
 
+    evidence = None
+    if accepted_run is not None:
+        eval_store = _eval_store()
+        run_meta = accepted_run.get("metadata") or {}
+        baseline_run_id = str(
+            payload.get("baselineRunId")
+            or run_meta.get("baselineRunId")
+            or ""
+        ).strip()
+        baseline_run = eval_store.get_run(baseline_run_id) if baseline_run_id else None
+        metrics = eval_store.list_metrics(str(accepted_run["id"]), scope="overall")
+        baseline_metrics = (
+            eval_store.list_metrics(baseline_run_id, scope="overall")
+            if baseline_run is not None else []
+        )
+        candidate_trials = [
+            {key: value for key, value in trial.items() if key != "trajectory"}
+            for trial in eval_store.list_trials(str(accepted_run["id"]))[:50]
+        ]
+        baseline_trials = (
+            [
+                {key: value for key, value in trial.items() if key != "trajectory"}
+                for trial in eval_store.list_trials(baseline_run_id)[:50]
+            ]
+            if baseline_run is not None else []
+        )
+        target_dimension = str(payload.get("targetDimension") or "task_success")
+        before = next(
+            (row.get("value") for row in baseline_metrics
+             if row.get("dimension") == target_dimension),
+            None,
+        )
+        after = next(
+            (row.get("value") for row in metrics
+             if row.get("dimension") == target_dimension),
+            None,
+        )
+        evidence = {
+            "run": _run_summary(accepted_run),
+            "metrics": metrics,
+            "trials": candidate_trials,
+            "baseline": {
+                "run": _run_summary(baseline_run) if baseline_run is not None else None,
+                "metrics": baseline_metrics,
+                "trials": baseline_trials,
+            } if baseline_run_id else None,
+            "taskDeltas": _task_deltas(
+                _task_rates(baseline_trials),
+                _task_rates(candidate_trials),
+            ),
+            "target": {
+                "dimension": target_dimension,
+                "before": before,
+                "after": after,
+                "delta": (
+                    float(after) - float(before)
+                    if before is not None and after is not None else None
+                ),
+            },
+        }
+        critical_ids = _critical_task_ids_for_payload(payload)
+        critical_deltas = [
+            row for row in evidence["taskDeltas"]
+            if row["taskId"] in critical_ids
+            and row["delta"] is not None
+            and row["delta"] < 0
+        ]
+        evidence["criticalDeltas"] = critical_deltas
+        for row in critical_deltas:
+            reasons.append(
+                f"critical task regressed: {row['taskId']} "
+                f"({row['before']:.3f} → {row['after']:.3f})"
+            )
+
     reference_agent = chosen if chosen != "global" else DEFAULT_AGENT_ID
     base_digest_matches = None
     if base is not None:
@@ -594,6 +796,7 @@ def _surface_context(state_id: str, scope: Optional[str] = None) -> dict[str, An
         "baseDigestMatches": base_digest_matches,
         "accepted": decision is not None,
         "acceptedDecision": decision,
+        "evidence": evidence,
         "previousState": previous,
         "canActivate": not reasons,
         "reasons": reasons,
@@ -622,6 +825,7 @@ def preview_surface_state(
         "canActivate": context["canActivate"],
         "reasons": context["reasons"],
         "diff": context["diff"],
+        "evidence": context["evidence"],
         "previousState": context["previousState"],
     }
 
@@ -680,6 +884,7 @@ def activate_surface_state(
             "referenceAgent": context["referenceAgent"],
             "baseDigestMatches": context["baseDigestMatches"],
             "diff": context["diff"],
+            "evidence": context["evidence"],
         },
     }
 
@@ -1049,31 +1254,6 @@ async def rsl_tick(_: bool = Depends(require_operator)) -> dict[str, Any]:
     if loop is None:
         raise HTTPException(status_code=503, detail="RSL loop unavailable")
     return {"success": True, **await loop.tick()}
-
-
-@router.get("/evolution/drift")
-def evolution_drift(
-    scope: Optional[str] = None,
-    window: int = 30,
-    baseline: int = 100,
-    minSamples: int = 10,  # noqa: N803 - operator-facing name
-    threshold: float = 0.10,
-    _: bool = Depends(require_operator),
-) -> dict[str, Any]:
-    """Production drift signal: recent terminal runs vs the preceding window."""
-    from ..self_improvement.drift import detect_store_drift  # noqa: PLC0415
-
-    return {
-        "success": True,
-        **detect_store_drift(
-            service.store,
-            scope=scope,
-            window=max(1, min(int(window), 200)),
-            baseline=max(1, min(int(baseline), 500)),
-            min_samples=max(1, min(int(minSamples), 200)),
-            threshold=max(0.0, min(float(threshold), 1.0)),
-        ),
-    }
 
 
 @router.get("/evolution/metrics")
