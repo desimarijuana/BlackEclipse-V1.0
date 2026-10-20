@@ -458,9 +458,17 @@ def run_recipe(
     """
     recipe = get_recipe(name)
     if recipe is None:
+        # Name the catalogue: a model that GUESSED a recipe name (it cannot
+        # see the tool description's list reliably) must be able to correct
+        # itself in one more call, not give up on the whole request.
+        catalogue = ", ".join(sorted(r["name"] for r in list_recipes()))
         return AnalysisResult(
             status="refused", code="RECIPE_NOT_FOUND",
-            stderr=f"no recipe named {name!r}",
+            stderr=(
+                f"no recipe named {name!r}. The ready-made recipes are: "
+                f"{catalogue}. Call one of those names exactly, with its "
+                f"declared inputs."
+            ),
         )
     provided = inputs or {}
     missing = [

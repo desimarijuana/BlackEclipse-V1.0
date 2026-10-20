@@ -124,9 +124,53 @@ async def run_statistical_analysis(args: dict[str, Any], ctx: Any) -> tuple[str,
         )
         if store is not None and envelope.get("status") == "ok":
             _maybe_artifact(store, envelope)
+        await _publish_computed(ctx, envelope)
         return _render(envelope), envelope
     except Exception as exc:  # noqa: BLE001
         return _error("run_statistical_analysis", args, exc)
+
+
+async def _publish_computed(ctx: Any, envelope: dict[str, Any]) -> None:
+    """Publish the engine's computed metrics as a resolvable computed result.
+
+    Without this a metric the engine computed had NO record in the transcript:
+    the renderer could not resolve a reference to it, so it was shown as
+    "this number has no record of where it came from" — the honest refusal for a
+    number nobody can trace. The metrics are deterministic and carry their own
+    provenance, so they travel the same way the sandbox's computed result does.
+    """
+    results = envelope.get("results")
+    if not isinstance(results, dict) or not results:
+        return
+    outputs: dict[str, Any] = {}
+    for key, value in list(results.items())[:50]:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            outputs[str(key)] = value
+    if not outputs:
+        return
+    provenance = envelope.get("provenance") or {}
+    dataset = provenance.get("dataset") if isinstance(provenance, dict) else None
+    label = "Stats engine"
+    if isinstance(dataset, dict) and dataset.get("symbols"):
+        label = f"Stats engine — {', '.join(str(s) for s in dataset['symbols'][:3])}"
+    detail = "deterministic statistical engine"
+    if isinstance(dataset, dict):
+        detail = f"interval {dataset.get('interval') or '1d'}"
+        if dataset.get("start") or dataset.get("end"):
+            detail += f", {dataset.get('start') or 'start'} → {dataset.get('end') or 'now'}"
+    try:
+        from ..code.events import emit_code_event  # noqa: PLC0415
+
+        await emit_code_event(ctx, "analysis.completed", {
+            "status": "ok",
+            "source": "stats",
+            "result": {
+                "outputs": outputs,
+                "provenance": {"label": label, "detail": detail},
+            },
+        })
+    except Exception:  # noqa: BLE001 - a publication must never break the tool
+        return
 
 
 def _maybe_artifact(store: Any, envelope: dict[str, Any]) -> None:

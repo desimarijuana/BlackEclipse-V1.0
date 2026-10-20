@@ -305,7 +305,11 @@ def test_prompt_has_no_phantom_capabilities():
 
     # No tool that LOOKS like an invocation may be named unless it is in the
     # agent's allowlist (a namespaced `mcp__…` name is a user-directed surface).
-    allowed = set(ECLIPSE_AGENT.tools)
+    # The sandbox's OWN read-only bindings (`eclipse_tools`) are a real surface
+    # too — the prompt may name them.
+    from harness.code.sandbox_tools import tool_names as sandbox_tool_names
+
+    allowed = set(ECLIPSE_AGENT.tools) | set(sandbox_tool_names())
     for token in re.findall(r"`([a-z][a-z0-9_]*)\(", prompt):
         assert token in allowed or token.startswith("mcp_"), (
             f"prompt invokes tool {token!r} which is not in the agent allowlist"
@@ -406,7 +410,7 @@ def test_prompt_char_ceiling():
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 33724, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 34032, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

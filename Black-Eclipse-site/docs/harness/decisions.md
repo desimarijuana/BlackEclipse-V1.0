@@ -8913,3 +8913,36 @@ switch, the telemetry and the cancellation. Docs:
 `docs/harness/python-runtime.md`, `docs/harness/decisions.md` (ADR-H110/H178
 corrected in place), `docs/harness/roadmap/phase-08-analysis-sandbox.md` (the
 non-goals corrected).
+## ADR-H243 — A computed number is renderable only when it carries its provenance, and a refused name must name the alternatives
+
+**Decision.** Two rules the adversarial probe of the sandbox made concrete.
+
+1. **A computed number is renderable only with its provenance.** The renderer
+   resolves a figure against the turn's computed-result blob; a number the
+   STATS engine computed had no such blob, so the transcript showed the honest
+   refusal "this number has no record of where it came from" — correct, but it
+   meant a real, deterministic, audited metric could not be shown. The stats
+   engine now publishes its metrics as the same kind of computed result the
+   sandbox produces (`outputs` + `provenance`), so every computed number in a
+   transcript is traceable to the engine, the series and the window.
+2. **A refusal that could be corrected in one more call must name the
+   correction.** A model that GUESSED a recipe name (`max_drawdown`; the real
+   ones are `drawdown_profile`, `drawdown_figure`, …) got a bare
+   `RECIPE_NOT_FOUND` and no catalogue, and gave up on the whole request. The
+   refusal now lists the ready-made recipes and their inputs. The same rule
+   applies to the prompt: it names a recipe name exactly, and it tells the model
+   to let the PROGRAM fetch its series (`eclipse_tools.price_history`) — a
+   dataset tool's row count is not a series.
+
+**Why.** The boundary being solid is not the same as the capability being
+usable: the probe's escapes all failed, while the one prompt that asked for
+real work lost four of its five deliverables to three small gaps (a missing
+catalogue, a series that never arrived, a metric with no provenance). An agent
+that cannot correct its own mistake in one call will abandon the task, and the
+user sees nothing — the failure looks like the model, not like the runtime.
+
+**Consequences.** `code/recipes.py` (the catalogue in the refusal);
+`stats/tools.py` (`_publish_computed`); `prompts.py` (the two rules);
+`python/tests/test_analysis_guard.py` (the catalogue and the published
+provenance); `python/tests/test_memory_tools.py` (the sandbox's own bindings are
+a real surface the prompt may name). Docs: `docs/CHANGELOG.md`.

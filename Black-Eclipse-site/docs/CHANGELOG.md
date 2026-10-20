@@ -144,6 +144,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/python-runtime.md`, `docs/harness/decisions.md` (ADR-H242),
   `docs/harness/roadmap/phase-08-analysis-sandbox.md`.
 
+- **fix(harness): the capability chain the adversarial probe exposed.** A five-prompt
+  adversarial probe (alias import, concatenated URL, host file read/write,
+  process, socket, dunder chain) found the boundary itself solid — every escape
+  was refused, and the model declined consistently — but it exposed four
+  product defects in the working path: a **guessed recipe name** (`max_drawdown`
+  does not exist; `drawdown_profile` does) failed with a bare
+  `RECIPE_NOT_FOUND`, so the refusal now **lists the ready-made recipes**; the
+  close series never reached the sandbox (a dataset tool's row count is not a
+  series), so the prompt now says to let the **program** fetch it
+  (`eclipse_tools.price_history`); the stats engine's computed metrics had no
+  provenance, so the transcript showed "this number has no record of where it
+  came from" — the engine now **publishes its metrics as a resolvable computed
+  result** with their provenance, like the sandbox's; and the prompt names the
+  two rules (use a recipe name exactly; let the program fetch the series). The
+  honest-failure path was already right: an unlisted issuer with no daily bars
+  is refused by name, with real alternatives. Tests:
+  `python/tests/test_analysis_guard.py` (+2). Docs updated:
+  `docs/harness/decisions.md` (ADR-H243).
+
 - **chore(repo): normalize two mixed line-ending files.**
   `python/harness/capabilities/external.py` and
   `src/components/screens/capability-studio/generated-section.tsx` mixed CRLF and

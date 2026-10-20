@@ -70,7 +70,10 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # Re-pinned 33632->33724 for the same guidance with the CORRECT import list
     # (the allowed numerical stack; a figure is drawn by the ready-made
     # recipes, not by the program). Matches the same test.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 33724
+    # Re-pinned 33724->34032 for the same paragraph with the two missing rules
+    # (use a recipe name EXACTLY; let the PROGRAM fetch its series via
+    # eclipse_tools.price_history). Matches the same test.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 34032
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

@@ -199,3 +199,55 @@ def test_a_cancelled_analysis_says_so_and_leaves_no_child() -> None:
     result = run_analysis(request, cancel_event=signal)
     assert result.status != "ok"
     assert result.code == "CANCELLED"
+
+
+# ── The recipe catalogue and the computed-result provenance ───────────────────
+
+
+def test_a_wrong_recipe_name_is_refused_with_the_catalogue() -> None:
+    """A model that GUESSED a recipe name must be able to correct itself in
+    one more call — the refusal lists the real names."""
+    from harness.code.recipes import list_recipes, run_recipe
+
+    result = run_recipe("max_drawdown", {"prices": [1, 2]})
+    assert result.status == "refused"
+    assert result.code == "RECIPE_NOT_FOUND"
+    for recipe in list_recipes():
+        assert recipe["name"] in (result.stderr or "")
+
+
+def test_the_stats_engines_computed_metrics_carry_their_provenance() -> None:
+    """A number the engine computed must be resolvable in the transcript —
+    otherwise it renders as 'this number has no record of where it came from'."""
+    from harness.stats.tools import _publish_computed
+
+    published: list[tuple[str, dict]] = []
+
+    class _Ctx:
+        emitter = None
+        log = staticmethod(lambda *a, **k: None)
+
+    async def _emit(_ctx, event_type, data):
+        published.append((event_type, data))
+
+    import harness.code.events as events_mod
+
+    original = events_mod.emit_code_event
+    events_mod.emit_code_event = _emit  # type: ignore[assignment]
+    try:
+        import asyncio
+
+        asyncio.run(_publish_computed(_Ctx(), {
+            "status": "ok",
+            "results": {"maxDrawdown": -0.2022, "sharpe": 1.1},
+            "provenance": {"dataset": {"symbols": ["NVDA"], "interval": "1d"}},
+        }))
+    finally:
+        events_mod.emit_code_event = original  # type: ignore[assignment]
+
+    assert published, "the computed result was not published"
+    event_type, data = published[0]
+    assert event_type == "analysis.completed"
+    result = data["result"]
+    assert result["outputs"]["maxDrawdown"] == -0.2022
+    assert "NVDA" in result["provenance"]["label"]
