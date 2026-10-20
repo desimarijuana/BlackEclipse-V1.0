@@ -62,20 +62,47 @@ class DriftWatcher:
                 pass
         self._task = None
 
-    def _load_last(self) -> None:
+    def _load_last(self) -> bool:
         """Restore the last status per scope so a restart does not re-alert."""
         db = getattr(getattr(self.service, "store", None), "_db", None)
         if db is None:
-            return
+            return False
         try:
             db.execute(
                 "CREATE TABLE IF NOT EXISTS DriftWatchState ("
                 "scope TEXT PRIMARY KEY, status TEXT NOT NULL, updatedAt TEXT NOT NULL)"
             )
+            # A reset database (no terminal runs) must not inherit an old
+            # episode's "already alerted" state.
+            remaining = db.execute(
+                "SELECT COUNT(*) AS n FROM HarnessRun "
+                "WHERE status IN ('completed','failed','error','cancelled')"
+            ).fetchone()
+            if remaining is None or int(remaining["n"]) == 0:
+                db.execute("DELETE FROM DriftWatchState")
+                db.commit()
+                self._last = {}
+                return True
             rows = db.execute("SELECT scope, status FROM DriftWatchState").fetchall()
             self._last.update({str(row["scope"]): str(row["status"]) for row in rows})
         except Exception:  # noqa: BLE001 - a missing state table is a cold start
             self._last = {}
+        return False
+
+    def _prune(self, scopes: list[str]) -> None:
+        """Drop state for scopes that no longer exist (bounded retention)."""
+        db = getattr(getattr(self.service, "store", None), "_db", None)
+        if db is None or not scopes:
+            return
+        try:
+            placeholders = ",".join("?" for _ in scopes)
+            db.execute(
+                f"DELETE FROM DriftWatchState WHERE scope NOT IN ({placeholders})",
+                scopes,
+            )
+            db.commit()
+        except Exception:  # noqa: BLE001 - retention is best-effort
+            pass
 
     def _save_last(self, scope: str, status: str) -> None:
         db = getattr(getattr(self.service, "store", None), "_db", None)
@@ -110,8 +137,10 @@ class DriftWatcher:
         if store is None:
             return {"checked": 0, "drifted": []}
         if not self._loaded:
-            self._load_last()
+            empty = self._load_last()
             self._loaded = True
+            if empty:
+                return {"checked": 0, "drifted": []}
         from ..agents import AGENT_PRESETS  # noqa: PLC0415
         from .drift import DRIFT, detect_store_drift  # noqa: PLC0415
 
@@ -143,6 +172,7 @@ class DriftWatcher:
                     "[harness-py] drift detected for %s: drop=%s",
                     scope, signal.get("drop"),
                 )
+        self._prune(scopes)
         return {"checked": len(scopes), "drifted": drifted}
 
     def health(self) -> dict[str, Any]:

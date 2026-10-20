@@ -162,6 +162,8 @@ def test_history_walks_back_through_the_same_runs(tmp_path):
         assert history["points"][0]["offset"] == 0
         assert history["points"][1]["offset"] == 30
         assert len(history["points"]) >= 2
+        assert history["computedPoints"] == len(history["points"])
+        assert history["requestedPoints"] == 3
     finally:
         store.close()
 

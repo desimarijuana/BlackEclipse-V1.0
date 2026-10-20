@@ -9,6 +9,43 @@ import { useT } from "@/lib/i18n/use-t";
 import { getEvolutionDriftScopesBrowser } from "@/lib/harness/evolution-browser";
 import type { EvolutionDriftScopes } from "@/lib/harness/evolution-client";
 import { EVOLUTION_VERIFIED_EVENT } from "@/lib/harness/evolution-events";
+import { ALERT_NOTIFY_EVENT } from "@/lib/alerts/browser-notifier";
+import type { NotificationRequest } from "@/lib/notifications/store";
+
+const NOTIFIED_KEY = "eclipse.rsl.driftNotified";
+
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function unseenScopes(scopes: string[]): string[] {
+  if (scopes.length === 0) return [];
+  try {
+    const raw = window.localStorage.getItem(NOTIFIED_KEY);
+    const parsed = raw ? JSON.parse(raw) as { date?: string; scopes?: string[] } : {};
+    if (parsed.date !== todayUtc()) return scopes;
+    const seen = new Set(Array.isArray(parsed.scopes) ? parsed.scopes : []);
+    return scopes.filter((scope) => !seen.has(scope));
+  } catch {
+    return scopes;
+  }
+}
+
+function rememberScopes(scopes: string[]): void {
+  try {
+    const raw = window.localStorage.getItem(NOTIFIED_KEY);
+    const parsed = raw ? JSON.parse(raw) as { date?: string; scopes?: string[] } : {};
+    const seen = parsed.date === todayUtc() && Array.isArray(parsed.scopes)
+      ? parsed.scopes
+      : [];
+    window.localStorage.setItem(NOTIFIED_KEY, JSON.stringify({
+      date: todayUtc(),
+      scopes: Array.from(new Set([...seen, ...scopes])),
+    }));
+  } catch {
+    // A blocked storage API only means the alert can repeat.
+  }
+}
 
 export function driftingScopes(overview: EvolutionDriftScopes | null): string[] {
   return (overview?.signals ?? [])
@@ -22,13 +59,27 @@ export function RslDriftBadge() {
 
   const load = useCallback(async () => {
     try {
-      setScopes(driftingScopes(await getEvolutionDriftScopesBrowser({
+      const next = driftingScopes(await getEvolutionDriftScopesBrowser({
         includeGlobal: false,
-      })));
+      }));
+      setScopes(next);
+      const fresh = unseenScopes(next);
+      if (fresh.length > 0) {
+        const detail: NotificationRequest = {
+          id: `drift:${todayUtc()}:${fresh.join(",")}`,
+          title: t("evolution.drift.notifyTitle"),
+          body: t("evolution.drift.notifyBody", { scopes: fresh.join(", ") }),
+          tab: "skills",
+          kind: "agent",
+          sound: "notification",
+        };
+        window.dispatchEvent(new CustomEvent(ALERT_NOTIFY_EVENT, { detail }));
+        rememberScopes(fresh);
+      }
     } catch {
       setScopes([]);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void load(); }, [load]);
 

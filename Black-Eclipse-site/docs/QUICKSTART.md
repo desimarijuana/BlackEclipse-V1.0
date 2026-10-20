@@ -152,8 +152,11 @@ baseline / threshold / minSamples if needed, inspect the recent history, then us
 **Open drift candidate** to create the inert candidate. From there the existing
 propose → verify → land flow applies; drift never lands or activates anything on
 its own. The watcher's last status is persisted, so restarting the runtime does
-not re-alert the same episode. `npm run test:drift-ui` exercises the card in a
-real browser with mocked network data.
+not re-alert the same episode, and a reset run history clears that state. The
+policy inputs are remembered across reloads, and the journey badge raises one
+notification per drifting scope per day. `npm run test:drift-ui` exercises the
+card in isolation; `npm run test:drift-app` drives the real app shell
+(Skills → Journey) with mocked network data.
 
 ## Where your data lives
 

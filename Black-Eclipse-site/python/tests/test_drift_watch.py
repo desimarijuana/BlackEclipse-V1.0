@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -63,5 +64,35 @@ async def test_drift_watch_publishes_only_on_transition(tmp_path, monkeypatch):
         third = await restarted.check()
         assert third["drifted"] == []
         assert len(published) == 2
+
+        # A reset database clears the persisted episode instead of inheriting it.
+        store._db.execute("DELETE FROM HarnessRun")
+        store._db.commit()
+        cleaned = DriftWatcher(_Service(store), interval_seconds=0)
+        await cleaned.check()
+        rows = store._db.execute("SELECT COUNT(*) AS n FROM DriftWatchState").fetchone()
+        assert int(rows["n"]) == 0
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_start_runs_checks_and_stop_cancels(tmp_path, monkeypatch):
+    store = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
+    calls: list[int] = []
+
+    async def fake_check():
+        calls.append(1)
+        return {"checked": 0, "drifted": []}
+
+    try:
+        watcher = DriftWatcher(_Service(store), interval_seconds=1)
+        monkeypatch.setattr(watcher, "check", fake_check)
+        await watcher.start()
+        await asyncio.sleep(1.2)
+        assert watcher.health()["running"] is True
+        await watcher.stop()
+        assert calls
+        assert watcher.health()["running"] is False
     finally:
         store.close()

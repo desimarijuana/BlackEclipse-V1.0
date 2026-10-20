@@ -64,6 +64,32 @@ function announceVerified(result: EvolutionRslTickResult) {
 
 const RSL_SCOPE_KEY = "eclipse.rsl.scope";
 const DRIFT_SCOPE_KEY = "eclipse.rsl.driftScope";
+const DRIFT_POLICY_KEY = "eclipse.rsl.driftPolicy";
+
+interface DriftPolicy {
+  window: number;
+  baseline: number;
+  threshold: number;
+  minSamples: number;
+}
+
+function storedDriftPolicy(): DriftPolicy {
+  const fallback: DriftPolicy = { window: 30, baseline: 100, threshold: 0.1, minSamples: 10 };
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(DRIFT_POLICY_KEY);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<DriftPolicy>;
+    return {
+      window: Math.max(1, Number(parsed.window) || fallback.window),
+      baseline: Math.max(1, Number(parsed.baseline) || fallback.baseline),
+      threshold: Math.max(0, Number(parsed.threshold) || fallback.threshold),
+      minSamples: Math.max(1, Number(parsed.minSamples) || fallback.minSamples),
+    };
+  } catch {
+    return fallback;
+  }
+}
 
 function storedDriftScope(): string {
   if (typeof window === "undefined") return "global";
@@ -117,10 +143,11 @@ export function RslControlPanel({
   const [drift, setDrift] = useState<EvolutionDriftSignal | null>(null);
   const [driftHistory, setDriftHistory] = useState<EvolutionDriftHistory | null>(null);
   const [driftScopes, setDriftScopes] = useState<EvolutionDriftScopes | null>(null);
-  const [driftWindow, setDriftWindow] = useState(30);
-  const [driftBaseline, setDriftBaseline] = useState(100);
-  const [driftThreshold, setDriftThreshold] = useState(0.1);
-  const [driftMinSamples, setDriftMinSamples] = useState(10);
+  const [initialPolicy] = useState(storedDriftPolicy);
+  const [driftWindow, setDriftWindow] = useState(initialPolicy.window);
+  const [driftBaseline, setDriftBaseline] = useState(initialPolicy.baseline);
+  const [driftThreshold, setDriftThreshold] = useState(initialPolicy.threshold);
+  const [driftMinSamples, setDriftMinSamples] = useState(initialPolicy.minSamples);
   const [localScope, setLocalScope] = useState(storedDriftScope);
   const driftScope = scope ?? localScope;
   const requestScope = driftScope === "all" ? "global" : driftScope;
@@ -164,6 +191,19 @@ export function RslControlPanel({
     }
   }, []);
   useEffect(() => { void loadStatus(); }, [loadStatus]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DRIFT_POLICY_KEY, JSON.stringify({
+        window: driftWindow,
+        baseline: driftBaseline,
+        threshold: driftThreshold,
+        minSamples: driftMinSamples,
+      }));
+    } catch {
+      // Persistence is best-effort; the in-memory policy still works.
+    }
+  }, [driftBaseline, driftMinSamples, driftThreshold, driftWindow]);
 
   const loadDrift = useCallback(async () => {
     setDriftError(null);
@@ -552,7 +592,12 @@ export function RslControlPanel({
         </div>
         {overviewSignals.length > 0 && (
           <div className="mt-2 flex flex-wrap items-center gap-1 text-[9px]">
-            <span className="text-muted-foreground">{t("evolution.drift.overview")}</span>
+            <span
+              className="text-muted-foreground"
+              title={t("evolution.drift.overviewHint")}
+            >
+              {t("evolution.drift.overview")}
+            </span>
             {overviewSignals.map(({ scope: item, signal }) => (
               <button
                 key={item}
@@ -610,7 +655,12 @@ export function RslControlPanel({
               <div className="mt-1">
                 <p>
                   {t("evolution.drift.history")}
-                  {driftHistory.truncated ? ` (${t("evolution.drift.historyTruncated")})` : ""}
+                  {driftHistory.truncated
+                    ? ` (${t("evolution.drift.historyTruncated", {
+                      computed: driftHistory.computedPoints,
+                      requested: driftHistory.requestedPoints,
+                    })})`
+                    : ""}
                 </p>
                 <div className="mt-0.5 flex flex-wrap gap-1">
                   {driftHistory.points.map((point) => (

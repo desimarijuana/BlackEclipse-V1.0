@@ -341,6 +341,7 @@ export interface EvolutionDriftHistory {
   threshold: number;
   step: number;
   requestedPoints: number;
+  computedPoints: number;
   truncated: boolean;
   points: EvolutionDriftHistoryPoint[];
   availableScopes?: string[];

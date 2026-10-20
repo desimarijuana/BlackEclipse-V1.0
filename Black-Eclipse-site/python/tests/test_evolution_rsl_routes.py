@@ -587,6 +587,43 @@ def test_drift_scopes_overview_returns_one_signal_per_scope(store, monkeypatch):
     }
 
 
+def test_drift_operator_runbook_sequence(store, monkeypatch):
+    """The documented sequence: overview -> history -> signal -> candidate -> evidence."""
+    _use_surface_base(monkeypatch, "eclipse-agent")
+    _insert_terminal_runs(store, agent="eclipse-agent", completed=10, failed=20, day=21)
+    _insert_terminal_runs(store, agent="eclipse-agent", completed=100, failed=0, day=20)
+
+    overview = drift_router.evolution_drift_scopes(
+        window=30, baseline=100, minSamples=10, threshold=0.1,
+        includeGlobal=False, _=True,
+    )
+    assert any(row["scope"] == "eclipse-agent" for row in overview["signals"])
+
+    history = drift_router.evolution_drift_history(
+        scope="eclipse-agent", window=30, baseline=100, minSamples=10,
+        threshold=0.1, limit=2, step=30, _=True,
+    )
+    assert history["points"][0]["status"] == "drift"
+
+    signal = drift_router.evolution_drift(
+        scope="eclipse-agent", window=30, baseline=100,
+        minSamples=10, threshold=0.1, _=True,
+    )
+    assert signal["status"] == "drift"
+
+    created = drift_router.create_drift_candidate(
+        scope="eclipse-agent", window=30, baseline=100,
+        minSamples=10, threshold=0.1, _=True,
+    )
+    assert created["created"] is True
+
+    evidence = evolution_router.candidate_evidence(
+        created["candidate"]["id"], _=True,
+    )
+    assert evidence["candidate"]["scope"] == "eclipse-agent"
+    assert evidence["candidate"]["status"] == "inert"
+
+
 def test_every_rsl_route_refuses_a_remote_caller():
     from harness import main as main_module
 

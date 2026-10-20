@@ -74,9 +74,11 @@ successive offsets in the existing run history (no separate signal log);
 operator can see which agent is drifting. `self_improvement/drift_watch.py`
 reads every configured scope on `HARNESS_DRIFT_WATCH_SECONDS` (default 300; 0
 disables) and publishes `self_improvement.drift_detected` only on a transition
-into drift; it persists the last status per scope (`DriftWatchState`), exposes
-health on `/evolution/rsl`, and never creates a candidate. A drift candidate's signature includes
-the newest-run `anchor`, so a later episode is a new candidate. The conductor
+into drift; it persists the last status per scope (`DriftWatchState`), clears it
+when the run history is reset, exposes health on `/evolution/rsl`, and never
+creates a candidate. The learning-journey badge raises the shared notification
+once per scope per day. A drift candidate's signature includes the newest-run
+`anchor`, so a later episode is a new candidate. The conductor
 panel shares one scope with the experiment panel, edits
 window/baseline/threshold/minSamples, collapses unmeasured overview rows,
 shows status/rates/drop/reasons plus recent history, refreshes them on the

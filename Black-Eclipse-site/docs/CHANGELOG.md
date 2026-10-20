@@ -169,6 +169,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/tests/test_automation_api.py` (+1, operator gating included). Docs
   updated: `docs/harness/automation-engine.md`.
 
+- **perf(bots): Bots now paints in milliseconds, not after a network round-trip.**
+  The bot list + latest runs are cached in `localStorage` (`be_bots_cache_v1`)
+  and seed the store synchronously, so a cold page load (or a deep link to a bot)
+  renders the real workspace immediately while the refresh runs. The root
+  bot-run watcher now hydrates the SHARED store (one list + one batched status
+  call, no duplicate sweep) at app boot, so opening Bots later needs no request
+  on the critical path; the cache is only rewritten when the payload changes,
+  and a failed refresh keeps the cached list and shows the error banner. The
+  Bots screen chunk is prefetched 3 s after the shell is interactive so the first
+  click does not wait on a dynamic import. Files:
+  `src/lib/bots/bots-store.ts`,
+  `src/lib/notifications/bots-run-watcher.tsx`. no doc change — perf/behavior
+  fix; no data or API contract changed.
+
 ## 2026-10-19
 
 - **fix(shell): the sidebar mode is now per browser tab/window.** Switching to
@@ -1130,6 +1144,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   scope; the drift card renders status/drop chips and selecting one changes the
   shared scope. Docs: `docs/harness/decisions.md` (ADR-H261),
   `docs/harness/architecture.md`.
+
+- **feat(harness,ui): drift operations are testable end to end.**
+  Policy persists in `eclipse.rsl.driftPolicy`; the journey badge raises one
+  notification per scope per day; the watch clears state on a reset history and
+  prunes retired scopes; history exposes `computedPoints`; boot start/stop and
+  the documented runbook are tested; and `npm run test:drift-app` drives the
+  real Next.js shell (Skills → Journey) with a mocked API. Docs: ADR-H266,
+  `docs/QUICKSTART.md`, `docs/harness/architecture.md`.
 
 - **feat(harness,ui): drift operations hardening.**
   The watch persists per-scope transitions in `DriftWatchState` and exposes

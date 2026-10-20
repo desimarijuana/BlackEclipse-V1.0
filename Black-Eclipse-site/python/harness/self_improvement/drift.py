@@ -254,7 +254,8 @@ def drift_history(
         "threshold": max(0.0, float(threshold)),
         "step": cap_step,
         "requestedPoints": cap_limit,
-        "truncated": needed > max_runs,
+        "computedPoints": len(points),
+        "truncated": needed > max_runs or len(points) < cap_limit,
         "points": points,
     }
 

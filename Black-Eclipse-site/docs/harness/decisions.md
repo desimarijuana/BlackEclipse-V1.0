@@ -8663,6 +8663,29 @@ status, `includeGlobal` on the scopes route/client, `truncated` on history, and
 the browser smoke script. Tests: drift-watch restart, route includeGlobal,
 client paths, full Vitest and the smoke. No new authority.
 
+## ADR-H266 — Drift operations are testable end to end and survive the real shell
+
+**Decision.** Drift policy (window/baseline/threshold/minSamples) persists in
+`eclipse.rsl.driftPolicy`. The learning-journey badge raises the shared
+`be:alert-notify` notification once per scope per UTC day when drift appears.
+The watch clears persisted state when no terminal runs remain (a reset DB) and
+prunes state for retired scopes. History reports `computedPoints` alongside
+`requestedPoints` and marks truncation when either the run cap or the data
+shortens the series. A boot-level test covers start/stop, and
+`npm run test:drift-app` drives the real Next.js shell (Skills → Journey) with a
+mocked HTTP API.
+
+**Why.** A policy that resets on reload, a drift event nobody is told about, a
+stale episode that survives a reset, and an untested boot path are operational
+gaps. The component-only browser smoke could not catch a broken deep link or
+shell navigation; the full-shell smoke does, without requiring the Python
+runtime.
+
+**Consequences.** `DRIFT_POLICY_KEY`, the notification dispatch in
+`rsl-drift-badge.tsx`, reset/prune branches in `drift_watch.py`, the history
+count fields, `tests/test_drift_watch.py` (boot + reset), the runbook route test,
+and `scripts/drift-app-smoke.mjs`. The QUICKSTART runbook documents the flow.
+
 ## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
 
 **Decision.** W8.4's task-type verifier becomes the ONE authority for "done", and
