@@ -8,6 +8,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-19
 
+- **fix(perf): second browser tab no longer re-downloads the whole dev bundle.** Dev
+  Turbopack chunks/CSS were served `Cache-Control: no-store`, so every new tab
+  re-fetched and re-parsed the ~22 MB client graph. `next.config.ts` now serves
+  `/_next/static/chunks/*` immutable in dev only (URLs are content-hashed; HTML
+  and RSC stay `no-store`), and enables `optimizePackageImports` for the
+  `@phosphor-icons/react` barrel. `bin/black.js` and `scripts/up.js` now leave an
+  already-running server untouched instead of killing and cold-booting it
+  (`--restart` keeps the old behavior); `isUp` probes without following the
+  canonical-host redirect so a healthy TLS-fronted server is not read as down.
+  Docs updated: `docs/QUICKSTART.md`.
+
 - **feat(harness): RSL controlled smoke test + real worktree verifier fixes.**
   Added `npm run rsl:smoke` (`python/harness/self_improvement/smoke.py` +
   `scripts/rsl-smoke.js`): a disposable git repo with a failing owning test is

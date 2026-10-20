@@ -1,6 +1,27 @@
 import type { NextConfig } from "next";
 
+const isDev = process.env.NODE_ENV === "development";
+
 const nextConfig: NextConfig = {
+  // Turbopack emits content-hashed chunk URLs in dev (e.g. `chat_131e4e29._.js`).
+  // Next still marks every dev chunk/CSS response `no-store`, so a SECOND browser
+  // tab re-downloads and re-parses the entire ~20 MB client graph instead of
+  // reusing the first tab's copy. Production already serves these immutable, so
+  // mirror that in dev only: the hashed URL changes whenever the chunk does.
+  // HTML/RSC payloads stay uncached, so HMR and fresh data are unaffected.
+  headers: isDev
+    ? async () => [
+        {
+          source: "/_next/static/chunks/:path*",
+          headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+        },
+      ]
+    : undefined,
+  experimental: {
+    // The icon surface re-exports ~250 icons from a 9k-icon barrel. Without
+    // this, the full icon definition set (~1.5 MB) lands in the boot chunk.
+    optimizePackageImports: ["@phosphor-icons/react"],
+  },
   // Dev and production builds get separate output directories. `next dev`
   // deletes `BUILD_ID`, which invalidated the cached production build and made
   // every `black eclipse` / `npm run up` pay a full rebuild. Next sets

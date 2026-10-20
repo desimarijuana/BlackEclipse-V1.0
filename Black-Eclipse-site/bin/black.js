@@ -63,7 +63,21 @@ async function stop() {
 }
 
 // ─── black eclipse ─────────────────────────────────────────────────────────
-async function eclipse() {
+async function eclipse({ restart = false } = {}) {
+  // Opening Eclipse again (another terminal tab, a second shell, a pinned
+  // command) must NOT tear down the healthy server that is already serving the
+  // open browser tab. Restarting costs doctor + a possible multi-minute build +
+  // a cold boot, which is exactly what made a second open feel like it hung.
+  // A loaded machine can take several seconds to answer its first request
+  // (dev server still booting, background warm-up); a short probe would read
+  // that as "down" and trigger the very restart this guard exists to avoid.
+  const running = await isUp(PORT, 10_000);
+  if (running && !restart && process.env.BE_FORCE_BUILD !== "1") {
+    log(`already running (HTTP ${running}) — leaving it up: http://blackeclipse`);
+    log(`use "black eclipse --restart" (or "black build") to force a rebuild`);
+    return;
+  }
+
   log(`starting Black Eclipse → http://blackeclipse`);
 
   // 1. Self-heal the environment (deps, prisma client, DB, python bridge).
@@ -193,7 +207,7 @@ async function main() {
   switch (sub) {
     case "eclipse":
     case "start":
-      await eclipse();
+      await eclipse({ restart: rest.includes("--restart") });
       break;
     case "dev":
       runLocalHost({ mode: "dev", port: argValue("-p", PORT) });

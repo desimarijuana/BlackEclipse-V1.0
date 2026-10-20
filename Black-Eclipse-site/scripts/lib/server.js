@@ -155,9 +155,16 @@ function startDev(port) {
 }
 
 /** Probe whether something answers HTTP on the port. */
-async function isUp(port) {
+async function isUp(port, timeoutMs = 4000) {
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(4000) });
+    // Do not follow redirects: the local-host launcher sets BE_CANONICAL_HOST,
+    // so 127.0.0.1:port answers with a 307 to the TLS hostname. Following it
+    // makes Node reject the locally-trusted certificate and report a live
+    // server as down (which then used to trigger an unnecessary restart).
+    const res = await fetch(`http://127.0.0.1:${port}/`, {
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: "manual",
+    });
     return res.status;
   } catch {
     return null;

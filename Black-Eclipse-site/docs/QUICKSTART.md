@@ -1,7 +1,7 @@
 ---
 title: Quickstart
 status: Current
-last-verified: 2026-10-15
+last-verified: 2026-10-19
 ---
 
 # Quickstart
@@ -86,6 +86,13 @@ Because of steps 4–7, the first minute can look sparse and then fill in.
 > chunk budget is ignored under Turbopack and no longer needed). If you only need
 > to *use* the app, prefer `npm run up`: production chunks are prebuilt and serve
 > instantly (first paint ~200ms, no per-route compile).
+>
+> Opening the app in a **second browser tab** no longer re-downloads that graph:
+> Turbopack dev chunk URLs are content-hashed and are now served immutable
+> (HTML/RSC stays `no-store`), so only the first tab pays the download/parse
+> cost. `black eclipse` and `npm run up` also leave an already-running server
+> alone — opening Eclipse again just reports the live URL; use
+> `black eclipse --restart` (or `npm run up -- --restart`) to force a restart.
 
 ### Headless one-shot (scripting / CI)
 
