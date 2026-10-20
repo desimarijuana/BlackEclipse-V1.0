@@ -19,6 +19,7 @@ import type {
   EvolutionLessonOutcomes,
   EvolutionLessonRetireResult,
   EvolutionMetrics,
+  EvolutionPareto,
   EvolutionModelProposeResult,
   EvolutionProposeInput,
   EvolutionProposeResult,
@@ -124,6 +125,15 @@ export async function listEvolutionStatesBrowser(
   if (input.status) params.set("status", input.status);
   params.set("limit", String(input.limit ?? 50));
   return api<EvolutionHarnessStates>(`/api/evolution/states?${params.toString()}`);
+}
+
+export async function getEvolutionStatesParetoBrowser(
+  input: { scope?: string; limit?: number } = {},
+): Promise<EvolutionPareto> {
+  const params = new URLSearchParams();
+  if (input.scope) params.set("scope", input.scope);
+  params.set("limit", String(input.limit ?? 100));
+  return api<EvolutionPareto>(`/api/evolution/states/pareto?${params.toString()}`);
 }
 
 export async function promoteEvolutionStateBrowser(

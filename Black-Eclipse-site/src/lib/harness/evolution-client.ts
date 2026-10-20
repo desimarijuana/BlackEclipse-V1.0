@@ -220,6 +220,21 @@ export interface EvolutionHarnessStates {
   states: EvolutionHarnessState[];
 }
 
+export interface EvolutionParetoState {
+  id: string | null;
+  scope: string | null;
+  status: string | null;
+  utility: number | null;
+  vector: Record<string, number | null>;
+}
+
+export interface EvolutionPareto {
+  objectives: Record<string, "max" | "min" | string>;
+  frontier: string[];
+  dominated: Record<string, string>;
+  states: EvolutionParetoState[];
+}
+
 export interface EvolutionLessonStats {
   lessonId: string;
   injected: number;
@@ -603,6 +618,21 @@ export async function listEvolutionStates(
   return request<EvolutionHarnessStates>(`/evolution/states?${params.toString()}`, {
     method: "GET",
   });
+}
+
+export function evolutionStatesParetoPath(
+  input: { scope?: string; limit?: number } = {},
+): string {
+  const params = new URLSearchParams();
+  if (input.scope) params.set("scope", input.scope);
+  params.set("limit", String(input.limit ?? 100));
+  return `/evolution/states/pareto?${params.toString()}`;
+}
+
+export async function getEvolutionStatesPareto(
+  input: { scope?: string; limit?: number } = {},
+): Promise<EvolutionPareto> {
+  return request<EvolutionPareto>(evolutionStatesParetoPath(input), { method: "GET" });
 }
 
 export async function promoteEvolutionState(

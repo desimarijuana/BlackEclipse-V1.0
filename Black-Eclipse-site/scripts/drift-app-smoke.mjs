@@ -81,6 +81,10 @@ function apiBody(pathname) {
   if (pathname.includes("/api/evolution/experiments")) {
     return { success: true, experiments: [] };
   }
+  if (pathname.includes("/api/evolution/states/pareto")) {
+    return { success: true, objectives: { success: "max", cost: "min" },
+      frontier: [], dominated: {}, states: [] };
+  }
   if (pathname.includes("/api/evolution/states")) {
     return { success: true, current: null, currents: [], states: [] };
   }
@@ -110,7 +114,12 @@ try {
   await page.getByRole("button", { name: /^Journey$/ }).first().click();
   await page.getByText("Learning journey", { exact: true }).first().waitFor({ timeout: 60_000 });
   await page.getByText("Production drift").first().waitFor({ timeout: 30_000 });
-  await page.getByRole("button", { name: /eclipse-agent/ }).click();
+  try {
+    await page.getByRole("button", { name: /eclipse-agent/ }).click();
+  } catch (err) {
+    console.log("BODY:", (await page.locator("body").innerText()).slice(0, 2500));
+    throw err;
+  }
   await page.getByRole("button", { name: /Open drift candidate/i }).click();
   await page.getByText(/Candidate scope: global/).waitFor();
   await page.getByRole("button", { name: /View evidence/i }).first().click();

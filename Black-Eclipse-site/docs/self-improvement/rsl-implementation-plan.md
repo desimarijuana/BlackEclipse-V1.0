@@ -1249,10 +1249,11 @@ Dominance requires at least two comparable objectives, no worse on each, and one
 strict improvement; missing objectives are neutral. `GET
 /evolution/states/pareto` returns the frontier and each dominated state's
 dominator. It does not change `utility.acceptance`, budgets or activation.
-Tests: `python/tests/test_rsl_pareto.py`. ADR-H269.
+Tests: `python/tests/test_rsl_pareto.py`; the learning journey renders it through
+`ParetoFrontierCard`. ADR-H269.
 
-Next v2 slices: surface the frontier in the operator panel; model-identity
-proposals; cross-scope lesson transfer; canary landing for code.
+Next v2 slices: model-identity proposals; cross-scope lesson transfer; canary
+landing for code.
 
 ---
 

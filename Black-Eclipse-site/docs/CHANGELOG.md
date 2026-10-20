@@ -1186,8 +1186,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 - **feat(harness): start RSL v2 with a Pareto frontier.**
   `self_improvement/pareto.py` compares recorded states on success, target,
   coverage, cost and latency; `GET /evolution/states/pareto` returns the
-  non-dominated set and each dominated state's dominator. Acceptance, budgets
-  and activation are unchanged. Docs: ADR-H269,
+  non-dominated set and each dominated state's dominator; the learning journey
+  renders it in `ParetoFrontierCard`. Acceptance, budgets and activation are
+  unchanged. Docs: ADR-H269,
   `docs/harness/architecture.md`,
   `docs/self-improvement/rsl-implementation-plan.md`.
 

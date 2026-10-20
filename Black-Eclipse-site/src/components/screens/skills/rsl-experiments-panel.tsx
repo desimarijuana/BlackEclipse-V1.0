@@ -21,6 +21,7 @@ import type {
 } from "@/lib/harness/evolution-client";
 import { CandidateEvidencePanel } from "./candidate-evidence-panel";
 import { experimentCandidateId, ExperimentList } from "./experiment-list";
+import { ParetoFrontierCard } from "./pareto-frontier-card";
 import { RslControlPanel } from "./rsl-control-panel";
 import { RslOperatorPanel } from "./rsl-operator-panel";
 
@@ -168,6 +169,7 @@ export function RslExperimentsPanel() {
       </div>
       <div className="mb-4">
         <RslControlPanel scope={scope} onScopeChange={chooseScope} />
+        <ParetoFrontierCard scope={scope} />
       </div>
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-border/40 bg-background/30 px-2.5 py-1.5 text-[10px] text-muted-foreground">
         <span className="font-medium text-foreground">{t("evolution.experiment.todayTitle")}</span>

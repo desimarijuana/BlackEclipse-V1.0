@@ -14,6 +14,7 @@ import {
   evidenceSectionClass,
 } from "./candidate-evidence-panel";
 import { driftingScopes } from "./rsl-drift-badge";
+import { paretoSummary } from "./pareto-frontier-card";
 
 const t = ((key: string, vars?: Record<string, string | number>) => {
   const labels: Record<string, string> = {
@@ -242,6 +243,20 @@ describe("ExperimentList", () => {
       signals: [signal("global", "stable"), signal("code-agent", "drift")],
     })).toEqual(["code-agent"]);
     expect(driftingScopes(null)).toEqual([]);
+  });
+
+  it("summarises the Pareto frontier without inventing a best state", () => {
+    expect(paretoSummary(null)).toEqual({ frontier: 0, dominated: 0, total: 0 });
+    expect(paretoSummary({
+      objectives: { success: "max", cost: "min" },
+      frontier: ["a", "c"],
+      dominated: { b: "a" },
+      states: [
+        { id: "a", scope: "global", status: "candidate", utility: 0.8, vector: {} },
+        { id: "b", scope: "global", status: "candidate", utility: 0.6, vector: {} },
+        { id: "c", scope: "global", status: "candidate", utility: 0.7, vector: {} },
+      ],
+    })).toEqual({ frontier: 2, dominated: 1, total: 3 });
   });
 
   it("highlights the evidence section after a drift jump", () => {

@@ -8739,9 +8739,10 @@ hides genuine trade-offs. A Pareto view makes those trade-offs visible without
 changing acceptance, budgets or activation. Missing objectives are neutral, and
 one comparable objective is not enough to claim dominance.
 
-**Consequences.** The pure module, the operator route, and
-`test_rsl_pareto.py`. This is the first v2 slice; the acceptance path still uses
-`utility.acceptance`, so no existing decision changes.
+**Consequences.** The pure module, the operator route, the typed front door and
+`ParetoFrontierCard` in the learning journey, and `test_rsl_pareto.py` plus the
+component summary test. This is the first v2 slice; the acceptance path still
+uses `utility.acceptance`, so no existing decision changes.
 
 ## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
 
