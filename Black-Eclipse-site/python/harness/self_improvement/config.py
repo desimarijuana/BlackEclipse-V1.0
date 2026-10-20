@@ -87,6 +87,9 @@ class RSLConfig:
     lesson_transfer: bool = False
     model_proposer: bool = False
     code_benchmark: bool = False
+    canary: bool = False
+    canary_split: str = 'held_out'
+    canary_tolerance: float = 0.05
 
     @property
     def is_off(self) -> bool:
@@ -124,6 +127,11 @@ class RSLConfig:
             lesson_transfer=_env_bool(env, "HARNESS_RSL_LESSON_TRANSFER", False),
             model_proposer=_env_bool(env, "HARNESS_RSL_MODEL_PROPOSER", False),
             code_benchmark=_env_bool(env, "HARNESS_RSL_CODE_BENCHMARK", False),
+            canary=_env_bool(env, "HARNESS_RSL_CANARY", False),
+            canary_split=str(env.get("HARNESS_RSL_CANARY_SPLIT", "held_out")),
+            canary_tolerance=_env_float(
+                env, "HARNESS_RSL_CANARY_TOLERANCE", 0.05, 0.0, 1.0,
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -144,6 +152,9 @@ class RSLConfig:
             "lessonTransfer": self.lesson_transfer,
             "modelProposer": self.model_proposer,
             "codeBenchmark": self.code_benchmark,
+            "canary": self.canary,
+            "canarySplit": self.canary_split,
+            "canaryTolerance": self.canary_tolerance,
         }
 
 

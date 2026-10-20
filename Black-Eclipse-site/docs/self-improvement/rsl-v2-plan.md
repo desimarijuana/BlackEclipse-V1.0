@@ -18,7 +18,7 @@ datasets) stays frozen, and there is no new runtime, queue or database.
 | Multi-objective Pareto frontier + operator card | Done |
 | Trial-only model-identity experiments | Done |
 | Opt-in cross-scope lesson transfer | Done |
-| Canary landing for code | Next |
+| Canary split for code (pre-landing) | Done |
 | Continuous climb scheduling | Planned |
 | Multi-objective search integration | Planned |
 | Model-identity live activation | Decision required |
@@ -110,7 +110,7 @@ approval path, and a rollback plan.
 
 ## Definition of done for v2
 
-1. A code change canary-lands, health-checks and rolls back atomically.
+1. A code candidate survives a canary split before landing; post-landing\n   restart/health canary remains the next seam.
 2. A bounded climb can be scheduled and paused; budgets and leases hold.
 3. Pareto selection is opt-in and never auto-promotes.
 4. One identity expansion (model or skill) is either implemented through the

@@ -101,6 +101,11 @@ def verify_code_benchmark(
         trials=max(1, int(getattr(config, "trials", 1) or 1)),
         target_dimension="task_success",
         min_improvement=0.0,
+        canary_split=(
+            str(getattr(config, "canary_split", "held_out") or "held_out")
+            if getattr(config, "canary", False) else ""
+        ),
+        canary_tolerance=float(getattr(config, "canary_tolerance", 0.05) or 0.0),
     )
     result = run_candidate_benchmark(
         candidate, config=settings, eval_store=eval_store,

@@ -442,6 +442,9 @@ Tasks:
   | `HARNESS_RSL_MAX_COST_USD` | `5` | hard budget; unknown cost stops verification |
   | `HARNESS_DRIFT_WATCH_SECONDS` | `300` | read-only drift cadence; `0` disables |
   | `HARNESS_RSL_LESSON_TRANSFER` | `off` | allow cue-matched lessons across scopes (still measured) |
+  | `HARNESS_RSL_CANARY` | `off` | require a second split before a code candidate can be prepared |
+  | `HARNESS_RSL_CANARY_SPLIT` | `held_out` | which split the canary uses |
+  | `HARNESS_RSL_CANARY_TOLERANCE` | `0.05` | allowed target drop on the canary |
 
 - `config.py` tests: defaults, clamps, mode off is a no-op.
 

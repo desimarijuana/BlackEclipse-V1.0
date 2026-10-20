@@ -8777,6 +8777,25 @@ silently widening scope would make the retrieval contract unpredictable.
 and the graph-context pass-through, plus `test_rsl_lessons.py` (default excludes
 another scope; opt-in includes it). No new activation path.
 
+## ADR-H272 — A code candidate must survive a canary split before it can be prepared for landing
+
+**Decision.** When `HARNESS_RSL_CANARY=on`, `run_candidate_benchmark` runs the
+same patched worktree on a second split (default `held_out`) after the validation
+comparison. The validation decision is accepted only when the canary is measured,
+does not drop the target beyond `HARNESS_RSL_CANARY_TOLERANCE` (default 0.05), and
+has no critical-task regression. The canary record rides on the decision record;
+nothing lands automatically.
+
+**Why.** A validation win can be an overfit. A second disjoint split is the
+cheapest honest check before the operator prepares a landing. This is a
+pre-landing canary in a disposable worktree; it does not require restarting the
+live process, so it fits the existing RSL conductor.
+
+**Consequences.** `evaluation/canary.py` (`assess_canary`),
+`BenchmarkConfig.canary_*`, the verifier/config env plumbing, and
+`test_worktree_invoker.py` (accepted validation win rejected by the canary).
+No new write path; `evaluated_ok` still requires the canary to pass.
+
 ## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
 
 **Decision.** W8.4's task-type verifier becomes the ONE authority for "done", and

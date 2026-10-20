@@ -28,7 +28,7 @@ import subprocess
 import sys
 import tempfile
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Optional
 
@@ -70,6 +70,10 @@ class BenchmarkConfig:
     target_dimension: str = "task_success"
     min_improvement: float = 0.0
     timeout_s: float = DEFAULT_TIMEOUT_S
+    canary_split: str = ''
+    canary_task_ids: tuple[str, ...] = ()
+    canary_trials: int = 1
+    canary_tolerance: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -80,6 +84,10 @@ class BenchmarkConfig:
             "targetDimension": self.target_dimension,
             "minImprovement": float(self.min_improvement),
             "timeoutSeconds": float(self.timeout_s),
+            "canarySplit": self.canary_split or None,
+            "canaryTaskIds": list(self.canary_task_ids),
+            "canaryTrials": int(self.canary_trials),
+            "canaryTolerance": float(self.canary_tolerance),
         }
 
 
@@ -514,6 +522,21 @@ def run_candidate_benchmark(
                 "decision": "benchmark_baseline_failed",
                 "detail": baseline.get("error") or baseline.get("stderr"),
             }
+        canary_before = None
+        if settings.canary_split:
+            canary_settings = replace(
+                settings,
+                split=settings.canary_split,
+                task_ids=tuple(settings.canary_task_ids),
+                trials=max(1, int(settings.canary_trials)),
+            )
+            canary_before = runner(prepared.root, canary_settings)
+            if not canary_before.get("ok"):
+                return {
+                    "ok": False, "benchmark": "UNMEASURED",
+                    "decision": "canary_baseline_failed",
+                    "detail": canary_before.get("error") or canary_before.get("stderr"),
+                }
         applied = prepared.apply()
         if not applied.get("ok"):
             return {
@@ -535,6 +558,32 @@ def run_candidate_benchmark(
             min_improvement=settings.min_improvement,
             critical_tasks=_critical_task_ids(settings),
         )
+        canary = None
+        if canary_before is not None:
+            from .canary import assess_canary  # noqa: PLC0415
+
+            canary_after = runner(prepared.root, replace(
+                settings,
+                split=settings.canary_split,
+                task_ids=tuple(settings.canary_task_ids),
+                trials=max(1, int(settings.canary_trials)),
+            ))
+            canary = assess_canary(
+                canary_before, canary_after,
+                target_dimension=settings.target_dimension,
+                critical_tasks=_critical_task_ids(settings),
+                tolerance=settings.canary_tolerance,
+            )
+            if not canary.get("passed"):
+                decision = {
+                    **decision,
+                    "accepted": False,
+                    "reasons": [
+                        *(decision.get("reasons") or []),
+                        *(canary.get("reasons") or []),
+                    ],
+                    "canary": canary,
+                }
         run_id = _record_benchmark(
             eval_store, candidate, config=settings,
             baseline=baseline, candidate_result=candidate_result,
@@ -549,6 +598,7 @@ def run_candidate_benchmark(
             "decisionRecord": decision,
             "baseline": baseline,
             "candidate": candidate_result,
+            "canary": canary,
             "taskRates": _task_rates(candidate_result),
         }
     except BenchmarkError as exc:

@@ -137,6 +137,33 @@ def test_run_candidate_benchmark_runs_baseline_then_candidate():
     assert released == [True]
 
 
+def test_canary_split_can_reject_an_accepted_validation_win():
+    rates = iter([0.7, 0.9, 0.8, 0.5])
+    calls = []
+
+    def run_suite(_root, _config):
+        calls.append(_config.split)
+        return _suite(next(rates))
+
+    def prepare(_candidate):
+        return PreparedWorktree(
+            id="cw-test", root=Path("C:/worktree"),
+            apply=lambda: {"ok": True}, release=lambda: None,
+        )
+
+    result = run_candidate_benchmark(
+        {"id": "evo_1"},
+        config=BenchmarkConfig(split="validation", canary_split="held_out"),
+        prepare=prepare,
+        run_suite=run_suite,
+    )
+
+    assert result["ok"] is True
+    assert result["passed"] is False
+    assert result["canary"]["decision"] == "canary_rejected"
+    assert calls == ["validation", "held_out", "validation", "held_out"]
+
+
 def test_run_candidate_benchmark_refuses_when_apply_fails():
     released = []
 

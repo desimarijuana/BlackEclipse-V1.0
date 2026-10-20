@@ -36,6 +36,14 @@ umpy/pandas are **already installed** in the runtime and the analysis
   (26), src/lib/harness/charts.test.ts, src/app/api/harness/charts/route.test.ts.
   docs updated: docs/chart-engine.md, docs/DECISIONS.md (ADR-050),
   skills/ARCHITECT.md (ADR-050), docs/ARCHITECTURE.md, docs/NAVIGATION.md.
+- **feat(harness): add a canary split before code landing.**
+  `HARNESS_RSL_CANARY=on` re-runs the patched worktree on a second split
+  (`held_out` by default) after validation; an unmeasured canary, a target drop
+  beyond tolerance, or a critical regression rejects the candidate. Docs:
+  ADR-H272, `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`,
+  `docs/self-improvement/rsl-v2-plan.md`.
+
 - **docs(rsl): publish the RSL v2 plan.**
   Added `docs/self-improvement/rsl-v2-plan.md` with the remaining v2 phases
   (canary landing, continuous climb scheduling, multi-objective search,
