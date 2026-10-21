@@ -44,7 +44,7 @@ and lives in the terminal and the progress log; it is never shown to a user.
 ask for; a class with no fixture is published as `not measured yet` with its
 reason, never omitted.
 
-4 of 22 classes are not measured yet.
+0 of 24 classes are not measured yet.
 
 | What you can ask for | Can Eclipse do it today? | Proof | What is missing |
 |---|---|---|---|
@@ -66,7 +66,9 @@ reason, never omitted.
 | `capability.class.documentAttachment` | `capability.status.yes` | `vitest:src/lib/chat/extract.test.ts`, `vitest:src/lib/chat/session-store.test.ts` | — |
 | `capability.class.figureProvenance` | `capability.status.yes` | `pytest:python/tests/test_analysis_recipes.py::test_drawdown_figure_writes_a_real_png_artifact_that_verifies`, `pytest:python/tests/test_analysis_recipes.py::test_a_figure_run_carries_its_payload_on_the_run_blob`, `pytest:python/tests/test_analysis_recipes.py::test_monte_carlo_is_bounded_seeded_and_samples_the_supplied_returns`, `vitest:src/components/chat/artifact-view.test.tsx`, `vitest:src/lib/harness/analysis-types.test.ts`, `pytest:python/tests/test_analysis_execution.py` | — |
 | `capability.class.advisoryVerification` | `capability.status.yes` | `pytest:python/tests/test_advisory_gate.py`, `pytest:python/tests/test_advisory_ledger.py` | — |
-| `capability.class.priceAuthority` | `capability.status.notMeasuredYet` | `harness.retrieval.authority` | Not graded yet — the source-choice logic is tested in pieces, not end to end. |
-| `capability.class.promotion` | `capability.status.notMeasuredYet` | `harness.code.actions` | Not graded yet — putting a change into your files is tested in pieces, not end to end. |
-| `capability.class.scrapingBreadth` | `capability.status.notMeasuredYet` | `harness.acquire.registry` | Not graded yet — only a few kinds of data sources are set up. |
-| `capability.class.messagingGateway` | `capability.status.notMeasuredYet` | `harness.gateway` | Not built yet. |
+| `capability.class.priceAuthority` | `capability.status.yes` | graded through `harness.retrieval.authority` | — |
+| `capability.class.promotion` | `capability.status.yes` | graded through `harness.code.promotion` | — |
+| `capability.class.scrapingBreadth` | `capability.status.yes` | graded through `harness.acquire.registry` | — |
+| `capability.class.codeIntel` | `capability.status.yes` | graded through `harness.code.intel.manager` | — |
+| `capability.class.codeChatRouting` | `capability.status.yes` | graded through `harness.code.request_intent` | — |
+| `capability.class.contextCompaction` | `capability.status.yes` | graded through `harness.compaction` | — |

@@ -9737,3 +9737,77 @@ ceiling ON PURPOSE.
 and the shared working tree still carries another stream's uncommitted work;
 a tag must name a merged state. The release note and the version are the
 preparation, and the tag is the last step of the merge.
+
+## ADR-H296 - The benchmarks are GENERATED and published, the live tier is a lane, and no capability is published unmeasured
+
+**Decision.** Four things.
+
+**The published benchmark file is GENERATED.** `docs/harness/benchmarks.md` is
+written by `python -m harness.evaluation.report` (or `npm run eval:benchmarks`)
+and NEVER hand-edited, so a number cannot be quietly improved. A test
+regenerates it and compares: the committed file must match a fresh generation
+except for the run id, the commit, and the two timing-derived dimensions
+(`latency` and `reliability`) - which are MEASUREMENTS of a real loop against
+a real sandbox, not verdicts, and legitimately differ between two runs.
+
+**The two tiers are kept apart, and named.** The OFFLINE tier replaces the
+model with a recorded script: it measures the RUNTIME - the tool surface, the
+policy, the graders, the wiring - and it is labelled that way. The LIVE tier
+runs a REAL model and is the only tier that measures the agent. Both carry
+their dataset, checksum, agent version, commit and grader version; a number
+without its provenance is a rumour, and a rumour in a benchmark table is worse
+than an empty row.
+
+**The live tier is a LANE, and it never fabricates.**
+`harness/evaluation/live_gate.py` runs the live tier with a configured
+provider and records the result with the provenance the store requires. With
+no provider it returns the honest reason - "NOT MEASURED" - and exits 0.
+`scripts/run-live-evals.js` is the entry point; `.github/workflows/
+live-evals.yml` runs it NIGHTLY (it costs money and it is not deterministic),
+and SKIPS rather than failing when no secret is configured. Until a live run
+has actually happened, the live tier is published as missing, on purpose.
+
+**No capability class is published unmeasured.** The registry had four classes
+marked "not measured yet", and one ("messaging_gateway") said "Not built yet".
+Three of them are now graded END TO END, through the real modules:
+`price_authority` (the authority ARBITRATES a disagreement rather than taking
+the first answer, and the conflict is recorded), `promotion` (the full
+landing round trip - preview, apply, rollback, re-apply - asserted on the real
+bytes in a real folder), and `scraping_breadth` (the registry knows more than
+one KIND of data source). Three classes that had no row at all were added:
+`code_intel`, `code_chat_routing` and `context_compaction`. The
+`messaging_gateway` class is RETIRED - it names a capability that is not
+built, and a published class for something that does not exist is worse than
+an unmeasured one, because the registry is what a reader trusts. It comes back
+with a fixture when it is built.
+
+**Why.** The evaluation framework was already first-rate - the real graph, 17
+graders, 22 dimensions with un-averagable criticals, `pass@k` with Wilson
+intervals, flakiness classification, frozen baselines stamped with the commit,
+per-dimension regression detection, a worktree invoker, a canary split, a
+verdict-leak tripwire, and a team-vs-single benchmark that returned a NEGATIVE
+verdict and therefore did not ship. Almost nobody builds that.
+
+And then: the offline tier REPLACED the model with a recorded program, the
+live tier existed but was reachable only by hand, no number a stranger could
+check had ever been published, and four capability classes were published
+unmeasured. A harness that cannot be measured by anyone else is a harness that
+has to be taken on trust - and "we measured it ourselves" is exactly the claim
+this harness refuses to make.
+
+**Consequences.** `python/harness/evaluation/report.py` (`to_benchmarks`,
+`write_benchmarks`, a `__main__`), `python/harness/evaluation/live_gate.py`,
+`python/harness/code/eval/capabilities.py` (three fixtures closed, three
+classes added, one retired), `scripts/generate-benchmarks.js`,
+`scripts/run-live-evals.js`, `python/tests/test_published_benchmarks.py`,
+`.github/workflows/live-evals.yml`, `docs/harness/benchmarks.md` (generated),
+and the regenerated `docs/harness/capability-statement.md` - **24 capability
+classes, 24 measured, 0 not measured yet.**
+
+**What is NOT here.** The external SWE-bench suite. Importing it needs a
+network fetch of a dataset this repository does not carry, and a dataset
+adapter for a task shape the harness does not yet have. Shipping an adapter
+that has never seen the dataset would be a claim, not a measurement. The
+honest next step is the adapter WITH a real dataset file, and the honest
+current state is that this harness's numbers are its own - clearly labelled as
+such, and comparable only to a harness that publishes the same way.

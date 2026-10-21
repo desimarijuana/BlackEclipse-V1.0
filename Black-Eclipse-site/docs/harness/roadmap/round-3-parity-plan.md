@@ -610,7 +610,7 @@ duplicated ADR numbers, and a phase-20 doc whose own counts are stale.
 
 ### W8 — Live measurement, an external suite, and published numbers
 
-> **Closes:** E1–E5, E7, F4 · **Moves:** Eval +0.15 · **ADR:** H287
+> **Closes:** E1–E5, E7, F4 · **Moves:** Eval +0.15 · **ADR:** H296 · ✅ **Done 2026-10-21** — the benchmark file is GENERATED, the live tier is a lane that publishes NOT MEASURED rather than a guess, and the capability registry is 24 measured / 0 unmeasured; the external SWE-bench suite is NOT included (it needs a dataset this repository does not carry, and shipping an adapter that has never seen it would be a claim, not a measurement)
 > **Priority: 1 — the plan's credibility workstream.**
 
 **Why.** The evaluation framework is genuinely first-rate: the **real**

@@ -596,6 +596,18 @@ naming one of them. The response-contract loss was a visible defect:
 response-schema digest and the response-mode plan, so a coding turn produced a
 degraded structured response with no error.
 
+**The benchmarks are GENERATED, and the live tier is a lane (ADR-H296).**
+`docs/harness/benchmarks.md` is written by a generator and never hand-edited,
+so a number cannot be quietly improved - a test regenerates it and compares.
+The two tiers are kept APART and named: the OFFLINE tier replaces the model
+with a recorded script, so it measures the RUNTIME (the tool surface, the
+policy, the graders, the wiring) and says so; the LIVE tier runs a real model
+and is the only tier that measures the agent. Both carry their dataset,
+checksum, agent version, commit and grader version. The live lane never
+fabricates: with no provider it publishes "NOT MEASURED" with the reason and
+exits 0, and the nightly workflow SKIPS rather than failing when no secret is
+configured.
+
 **The decision record, the size ceiling and the release (ADR-H295).**
 A decision series that cannot be referenced is not a record. The harness
 series had seven DUPLICATE numbers and five gaps, so "ADR-H242" named two

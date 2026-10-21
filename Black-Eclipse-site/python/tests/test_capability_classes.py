@@ -41,10 +41,18 @@ def test_every_class_is_named_and_unmeasured_classes_state_a_reason():
 def test_the_runner_grades_the_real_modules_and_reports_unmeasured_honestly():
     report = run_capability_eval()
     assert report.passed, [r.detail for r in report.failed]
-    # Unmeasured classes are reported as unmeasured WITH a reason — not pass/fail.
-    assert report.unmeasured
-    for result in report.unmeasured:
-        assert result.detail
+    # Round 3 / W8 (ADR-H296): EVERY registered class is now measured. A
+    # capability that is published but not graded is a capability a reader
+    # cannot trust, and the `messaging_gateway` class - which named something
+    # that is not built - was retired rather than left as an excuse.
+    #
+    # The gate for a class that IS unmeasured stays: it must carry a reason,
+    # and it must never be reported as a pass or a failure.
+    assert not report.unmeasured, [
+        r.id for r in report.unmeasured
+    ]
+    for result in report.measured:
+        assert result.status in ("passed", "failed")
     assert check_capability_floors(report)["passed"] is True
 
 
