@@ -729,6 +729,20 @@ def prepare_analysis(
             stderr="no isolation primitive is available on this computer",
         )
 
+    # Fail CLOSED when the operator demands a real isolation primitive: the
+    # local backend caps memory, the process count and the tree, but it does
+    # not confine the filesystem or the network. Running there anyway would
+    # present a weaker boundary as if it were the requested one.
+    if not sandbox_mod.isolation_satisfied():
+        return AnalysisResult(
+            status="refused", code=SANDBOX_UNAVAILABLE, source_digest=source_digest,
+            input_digests=digests, duration_ms=int((time.monotonic() - t0) * 1000),
+            stderr=(
+                "the operator requires a real isolation primitive and the local "
+                "backend does not provide filesystem or network isolation"
+            ),
+        )
+
     interpreter = interpreter_path()
     if not interpreter:
         return AnalysisResult(

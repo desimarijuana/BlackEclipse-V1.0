@@ -167,16 +167,19 @@ def resolve_agent(request: RunRequest) -> AgentConfig:
     return get_agent(request.agentId or DEFAULT_AGENT_ID)
 
 
-DEFAULT_CHAT_MAX_STEPS = 12
+DEFAULT_CHAT_MAX_STEPS = 24
 CHAT_MAX_STEPS_CEILING = 32
 
 
 def chat_step_budget(agent: AgentConfig, request: Any) -> int:
     """The model-step budget for one run (QA Round 1, Q5).
 
-    The ordinary chat agent defaults to 12 steps: 8 was too tight for a
-    multi-tool navigation turn (the QA run hit the cap mid-navigation). An
-    operator can override with `ECLIPSE_CHAT_MAX_STEPS` (clamped 1..32). An
+    The ordinary chat agent defaults to 24 steps: 8 was too tight for a
+    multi-tool navigation turn, and 12 was too tight for a request that carries
+    several deliverables (fetch → compute → chart → report → widget): the run
+    spent its budget on the data work and never produced the file or the
+    widget. An operator can override with `ECLIPSE_CHAT_MAX_STEPS` (clamped
+    1..32). An
     EXPLICIT per-run `agent` config wins over both — the caller asked for it.
     """
     base = int(agent.maxSteps or 8)
@@ -472,6 +475,9 @@ def build_graph(
         # A skill run is composed with an agent id of the form `skill:<id>`; its
         # memory saves carry execution-lesson provenance, not explicit-user.
         is_skill_run=agent.id.startswith("skill:"),
+        # The resolved agent (prompt, allowlist, surface policy) so a delegated
+        # child inherits the same context policy as its parent.
+        agent=agent,
         data_bridge=data_bridge,
         retrieval_cache=retrieval_cache,
         emitter=emitter,
@@ -1206,7 +1212,7 @@ async def execute_run(
     # clearly-labelled non-authoritative context. Memory is scoped to the user
     # and bounded by a character budget; a retrieval failure must never block the
     # run (it is recorded in the retrieval audit instead).
-    memory_block = await _memory_context(request, memory_service, emitter)
+    memory_block = await _memory_context(request, memory_service, emitter, agent=agent)
 
     # The always-available compact profile is materialized ONCE here, at run
     # start: a memory saved during this run is visible to LATER runs, never to
@@ -1217,7 +1223,7 @@ async def execute_run(
 
     # A bounded, relevant-only skill manifest (never all skills); a hint only.
     skill_manifest, skill_manifest_version = await _skill_manifest_context(
-        request, skill_registry, memory_service, emitter,
+        request, skill_registry, memory_service, emitter, agent=agent,
     )
     lesson_manifest, _lesson_ids = await _lesson_manifest_context(request, memory_service, store, emitter)
 
@@ -1669,6 +1675,21 @@ async def execute_run(
     # video tool ran), shaped for the chat's live job card. Deterministic from
     # real submitted job handles only — a failed submission is never collected.
     video_blob = video_collector.to_blob()
+    # Surface guardrails (v3 P3): a measured, activated surface may require the
+    # finished answer to satisfy deterministic rules. A violation FAILS the run
+    # with a named code instead of shipping the answer. A guardrail can only
+    # reject an answer; it never grants a tool, a permission or an effect.
+    guardrail_violation = _guardrail_failure(agent, output, store, request.runId)
+    if guardrail_violation is not None:
+        store.update_run(
+            request.runId, status="failed", error=guardrail_violation,
+            finishedAt=now_iso(),
+        )
+        try:
+            await emitter.emit("run.failed", guardrail_violation)
+        except Exception:  # noqa: BLE001 - the event must never mask the failure
+            pass
+        return _result(request.runId, "failed", store, guardrail_violation, output)
     store.update_run(
         request.runId, status="completed", output=output, finishedAt=now_iso(),
         context=context_blob,
@@ -2196,6 +2217,44 @@ def _user_message(request: RunRequest) -> str:
             + "\n\n".join(parts)
         )
     return text
+
+
+def _guardrail_failure(
+    agent: AgentConfig,
+    output: str,
+    store: AgentMemoryStore,
+    run_id: str,
+) -> Optional[dict[str, Any]]:
+    """The run error when the finished answer breaks a surface guardrail.
+
+    A guardrail is a runtime rule, not a prompt hint: it is checked once, at the
+    end of the run, against what the run really did (the persisted tool
+    executions) and what it really answered. A broken guardrail implementation
+    must never break the run, so any failure here degrades to "no violation".
+    """
+    guardrails = tuple(getattr(agent, "guardrails", ()) or ())
+    max_chars = getattr(agent, "maxAnswerChars", None)
+    if not guardrails and max_chars is None:
+        return None
+    try:
+        from .self_improvement.guardrails import (  # noqa: PLC0415
+            evaluate_guardrails,
+            guardrail_error,
+        )
+
+        try:
+            tool_calls = len(store.list_tool_executions(run_id))
+        except Exception:  # noqa: BLE001 - an unreadable ledger is "unknown"
+            tool_calls = 0
+        violations = evaluate_guardrails(
+            guardrails,
+            output=output or "",
+            tool_calls=tool_calls,
+            max_answer_chars=max_chars,
+        )
+        return guardrail_error(violations)
+    except Exception:  # noqa: BLE001 - a broken guardrail never breaks the run
+        return None
 
 
 def _result(run_id: str, status: str, store: AgentMemoryStore, error: Optional[dict[str, Any]], output: Optional[str] = None) -> RunResult:

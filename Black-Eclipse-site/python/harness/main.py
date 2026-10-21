@@ -56,6 +56,7 @@ from .routers.advisory import router as advisory_router
 from .routers.automation import router as automation_router
 from .routers.code_intel import router as code_intel_router
 from .routers.runs import router as runs_router
+from .routers.sandbox import router as sandbox_router
 from .routers.computer import router as computer_router
 from .routers.events import router as events_router
 from .routers.evaluation import router as evaluation_router
@@ -119,6 +120,7 @@ app.include_router(code_router)
 app.include_router(channels_router)
 app.include_router(code_intel_router)
 app.include_router(runs_router)
+app.include_router(sandbox_router)
 app.include_router(browser_router)
 app.include_router(computer_router)
 app.include_router(events_router)

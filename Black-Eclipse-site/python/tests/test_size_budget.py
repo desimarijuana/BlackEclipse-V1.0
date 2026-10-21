@@ -116,10 +116,19 @@ RATCHET_PY: dict[str, int] = {
     # shared working tree (a run records itself and its artifacts in the project
     # it names). Not the surface work. May only shrink; the run-blob attachment
     # block is the split candidate alongside the other collector wiring.
+    # Re-pinned 2238->2241 for the chat step budget (12 -> 24 steps) and the
+    # longer rationale it carries. May only shrink from here.
+    # Re-pinned 2241->2297 for the surface guardrail enforcement (the terminal
+    # check plus its helper), the delegated-child context seam and the in-flight
+    # shared-tree growth. The guardrail block is the split candidate alongside
+    # the other collector wiring.
     # Re-pinned to 1203 for the in-flight QUANT-TOOL wiring on the shared
     # working tree (the quant tool surface grew past the hard ceiling). May only
     # shrink; the quant tool list is the split candidate.
-    "quant/tools.py": 1203,
+    # Re-pinned 1203->1229 for the backtest worker-thread + wall-clock timeout:
+    # a CPU-bound backtest now runs in a worker thread with an honest timeout
+    # instead of blocking the event loop. May only shrink from here.
+    "quant/tools.py": 1229,
     # Re-pinned to 1212 for the ONE-SEARCH-PRIMITIVE consolidation (Round 3 /
     # W5, ADR-H284): `search_files` gained the exclude/extension/directory
     # filters that only `find_files` carried, and the definition factory gained
@@ -127,7 +136,7 @@ RATCHET_PY: dict[str, int] = {
     # surface duplicates `code/tools.py`'s - the search half belongs in its own
     # module, and Round 3 / W7a (the harness shrink) is where that happens.
     "code/fs_tools.py": 1212,
-    "graph.py": 2238,
+    "graph.py": 2297,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -149,7 +158,10 @@ RATCHET_PY: dict[str, int] = {
     # plan's own note says to extend `routers/evolution.py` rather than add a
     # new route group. Pinned to the measured tree; it may only shrink from
     # here, and the drift surface is the split candidate.
-    "routers/evolution.py": 1316,
+    # Re-pinned 1316->1322 for the surface context policy, the surface
+    # guardrails and the weekly report route group. May only shrink from here;
+    # the drift surface is the split candidate.
+    "routers/evolution.py": 1323,
     # Re-pinned for the canonical `memory.created`/`memory.updated` Event System
     # emissions at the write/review seams. May only shrink from here.
     # Re-pinned 1845→1900 to the measured tree: the already-committed

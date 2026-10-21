@@ -795,3 +795,23 @@ async def test_evidence_release_gate_is_a_noop_without_citations(store, monkeypa
     assert result.status == "completed"
     assert result.output == "AAPL trades at 237.42."
     assert not [e for e in store.list_events("run_test") if e["type"] == "evidence.release_gate"]
+
+@pytest.mark.asyncio
+async def test_a_surface_guardrail_fails_a_run_that_breaks_it(store, monkeypatch):
+    # A guardrail is a RUNTIME rule: the answer is produced, checked, and the
+    # run fails with a named code instead of shipping the answer.
+    model = ScriptedModel([AIMessage(content="AAPL is 100. No source.")])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+    guarded = AgentConfig(
+        id="guarded", name="Guarded", systemPrompt="sys", tools=[],
+        maxSteps=2, guardrails=("require_tool_before_answer",),
+    )
+
+    result = await graph_module.execute_run(
+        request(agent=guarded), registry(), FakeBridge({}), store,
+    )
+
+    assert result.status == "failed"
+    assert result.error is not None
+    assert result.error.code == "GUARDRAIL_TOOL_REQUIRED"
+    assert store.get_run("run_test")["status"] == "failed"

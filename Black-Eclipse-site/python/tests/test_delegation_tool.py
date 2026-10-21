@@ -135,3 +135,40 @@ def test_delegation_blob_is_persisted_and_old_rows_stay_readable(tmp_path):
     store.create_run("run_other", "eclipse-agent", {"query": "x"})
     assert store.get_run("run_other") is not None
     store.close()
+
+def test_a_surface_subagent_prompt_reaches_the_child(monkeypatch):
+    """A delegated child inherits the surface's bounded prompt - and nothing else."""
+    seen: list = []
+
+    async def fake_execute_run(request, *args, **kwargs):
+        seen.append(request)
+        return _FakeResult(request.runId)
+
+    monkeypatch.setattr(graph_mod, "execute_run", fake_execute_run)
+
+    from harness.schemas import AgentConfig
+
+    parent = AgentConfig(
+        id="eclipse-agent", name="Eclipse", systemPrompt="parent prompt",
+        tools=["delegate", "workspace_read"],
+        subagentPrompt="Report the numbers and the source of each one.",
+    )
+    reg = ToolRegistry()
+    register_code_tools(reg)
+    result = asyncio.run(reg.execute(
+        "delegate", "c1", {"children": [{"goal": "a"}]},
+        _ctx(agent=parent),
+    ))
+    assert result.ok is True
+    assert len(seen) == 1
+    child = seen[0]
+    assert child.agent is not None
+    assert "Report the numbers and the source of each one." in child.agent.systemPrompt
+    # The child's tools are the NARROWED set, not the parent's full allowlist.
+    assert child.agent.tools is not None
+    assert set(child.agent.tools) <= {"delegate", "workspace_read"}
+    from harness.agents import get_agent
+
+    assert len(child.agent.tools) < len(get_agent("eclipse-agent").tools or [])
+    # The parent's own prompt is still the base of the child's.
+    assert child.agent.systemPrompt.startswith("You are Eclipse Agent")

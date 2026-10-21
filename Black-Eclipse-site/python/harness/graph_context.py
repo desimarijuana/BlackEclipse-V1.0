@@ -24,7 +24,10 @@ from .tools import ToolRegistry
 
 
 async def _memory_context(
-    request: RunRequest, memory_service: Optional[Any], emitter: RunEmitter
+    request: RunRequest,
+    memory_service: Optional[Any],
+    emitter: RunEmitter,
+    agent: Optional[AgentConfig] = None,
 ) -> str:
     """Build the recalled-memory block for this turn (or "" when none).
 
@@ -33,6 +36,10 @@ async def _memory_context(
     leak into another's run, and it is budgeted so it cannot flood the context.
     """
     if memory_service is None:
+        return ""
+    # A surface may switch recalled memory OFF for this scope ("off" /
+    # "profile_only"). The store itself is untouched; only the INJECTION stops.
+    if getattr(agent, "memoryPolicy", None) in ("off", "profile_only"):
         return ""
     # A hard-off store surfaces nothing: no retrieval, no injection. This is the
     # other half of surface honesty — a disabled store must not still put memory
@@ -105,6 +112,9 @@ async def _profile_context(
     """
     if memory_service is None:
         return "", None
+    # A surface may switch the persistent profile off for this scope.
+    if getattr(agent, "memoryPolicy", None) == "off":
+        return "", None
     # A skill child-run composes its own prompt; a persistent profile would be
     # noise there and is not the agent identity the user configured.
     if agent.id.startswith("skill:"):
@@ -149,6 +159,7 @@ async def _skill_manifest_context(
     skill_registry: Optional[Any],
     memory_service: Optional[Any] = None,
     emitter: Optional[RunEmitter] = None,
+    agent: Optional[AgentConfig] = None,
 ) -> tuple[str, Optional[str]]:
     """A bounded, relevant-only skill manifest for this run (never all skills).
 
@@ -184,8 +195,17 @@ async def _skill_manifest_context(
 
     from .prompt_segments import build_skill_manifest  # noqa: PLC0415
 
+    # A surface may narrow (or switch off) the skill manifest for this scope.
+    # The manifest is a HINT; narrowing it removes hints, never a capability.
+    policy = getattr(agent, "skillManifest", None)
+    if policy == "none":
+        return "", None
+    limit = {"top3": 3, "top8": 8}.get(policy or "")
+
     query = request.input.query or request.input.ticker or ""
-    return build_skill_manifest(skill_registry, query)
+    if limit is None:
+        return build_skill_manifest(skill_registry, query)
+    return build_skill_manifest(skill_registry, query, limit=limit)
 
 
 async def _lesson_manifest_context(

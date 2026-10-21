@@ -317,6 +317,35 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/harness/prompts.py`. docs updated: `docs/chat-ui-audit.md`,
   `docs/interactive-response-engine.md`.
 
+- **feat(runtime): a surface can carry its own policy, and the sandbox fails
+  closed.**
+  A live surface (a profile, a bot, a group) can now set `memoryPolicy`
+  (`off` / `profile_only`), `guardrails`, `maxAnswerChars` and a
+  `subagentPrompt`. The runtime ENFORCES it: a finished answer that breaks a
+  surface's guardrails fails the run with a named code
+  (`GUARDRAIL_TOOL_REQUIRED`, `GUARDRAIL_CITATION_MISSING`,
+  `GUARDRAIL_ANSWER_TOO_LONG`) instead of shipping as a completed result, and
+  a delegated child inherits its parent's context policy - the surface adds
+  prompt evidence, never a tool or a permission.
+  A turn is bounded by a ceiling that MIRRORS the front door's
+  `MAX_QUERY_LENGTH`, so the runtime accepts everything the front door lets
+  through and reports an honest CONTEXT_OVERFLOW instead of a hard rejection.
+  The sandbox fails CLOSED when the operator demands a real isolation
+  primitive (`HARNESS_SANDBOX_REQUIRED=1`): the local backend caps memory, the
+  process count and the tree, but it does NOT confine the filesystem or the
+  network, so the analysis path refuses rather than presenting a weaker
+  boundary as the requested one. Analyses pass through a concurrency gate
+  (`HARNESS_ANALYSIS_CONCURRENCY`, default 2) so a burst cannot stampede the
+  host.
+  The chat agent's step budget is 24 by default (8 was too tight for a
+  navigation turn, 12 for a turn carrying several deliverables); an operator
+  can override it with `ECLIPSE_CHAT_MAX_STEPS` (clamped 1..32).
+  Files: `python/harness/{main.py,tools.py,schemas.py,graph.py,graph_context.py,analysis_tools.py,delegation_tools.py}`,
+  `python/harness/code/{sandbox.py,execution.py}`, `python/harness/routers/sandbox.py`,
+  `src/lib/harness/{errors.ts,validation.ts}`. Tests: `python/tests/test_{chat_step_budget,delegation_tool,graph,qa_round1_acceptance,sandbox_surface,surface_context_policy,size_budget,quant_routes}.py`,
+  `src/lib/harness/validation.test.ts`. docs updated:
+  `docs/harness/architecture.md`.
+
 ## 2026-10-20
 
 - **fix(charts): the full-view chart no longer collides with the app's header.**
@@ -1912,6 +1941,26 @@ umpy/pandas are **already installed** in the runtime and the analysis
   child inherits the prompt and the narrowed tools), `test_rsl_snapshot.py`
   (bounded + digest). Docs updated: `docs/self-improvement/rsl-v3-plan.md`,
   `docs/harness/decisions.md` (ADR-H289), `docs/harness/architecture.md`.
+- **feat(eval): the corpus gate joins the release gate, and the corpus carries
+  replay fixtures (v3 P4/P1 slice).**
+  `python/harness/evaluation/baselines/corpus_v1.json` is the COMMITTED record
+  of what the corpus measures today - the stable measures only, because cost,
+  latency and token usage move on every run and are never pinned.
+  `scripts/check-all.js` (the repo's real release gate; the GitHub workflows
+  never ran from this subfolder) now ends with the corpus gate: a critical
+  regression (task success, safety, hallucination rate, financial accuracy,
+  routing) fails the release. Refreshing the baseline is a deliberate act
+  (`npm run rsl:nightly -- --dataset all --write-baseline <file>`).
+  `replay_v1.json` joins the corpus as six AUTHORED replay fixtures in the
+  shape the replay builder produces from real runs (expected behavior = the
+  recorded tool sequence, never an invented answer); they are live-only, so the
+  scripted tier reports them UNMEASURED rather than pretending a stale model
+  response replays. The corpus is now 68 tasks. Files:
+  `python/harness/evaluation/{nightly.py,datasets/replay_v1.json,baselines/corpus_v1.json}`,
+  `scripts/{rsl-nightly.js,check-all.js}`. Tests:
+  `python/tests/test_evaluation_nightly.py` (the committed baseline is the
+  gate; a broken baseline file is refused). Docs updated:
+  `docs/harness/agent-evaluation.md`, `docs/self-improvement/rsl-v3-plan.md`.
 
 ## 2026-10-19
 

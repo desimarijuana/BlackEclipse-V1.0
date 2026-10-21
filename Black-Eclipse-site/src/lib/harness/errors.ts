@@ -19,6 +19,11 @@ export type HarnessErrorCode =
   | "TOOL_BUDGET_EXCEEDED"
   | "CANCELLED"
   | "PERSISTENCE_ERROR"
+  // Surface guardrails (v3 P3): the finished answer broke a rule the
+  // activated surface set, so the run failed instead of shipping the answer.
+  | "GUARDRAIL_TOOL_REQUIRED"
+  | "GUARDRAIL_CITATION_MISSING"
+  | "GUARDRAIL_ANSWER_TOO_LONG"
   | "INTERNAL_ERROR";
 
 export interface HarnessErrorJson {

@@ -380,6 +380,44 @@ def _cancel_signal(ctx: ToolContext) -> Optional[Any]:
     return signal
 
 
+def _slots() -> "asyncio.Semaphore":
+    """The admission gate for analyses (one per event loop).
+
+    The sandbox is CPU- and memory-heavy; without a bound, a burst of runs
+    would stampede the host and every other request with it. The limit is the
+    operator's (`HARNESS_ANALYSIS_CONCURRENCY`, default 2).
+    """
+    limit = 2
+    raw = (os.environ.get("HARNESS_ANALYSIS_CONCURRENCY", "") or "").strip()
+    if raw:
+        try:
+            parsed = int(raw)
+            if parsed > 0:
+                limit = parsed
+        except ValueError:
+            limit = 2
+    loop = asyncio.get_running_loop()
+    sem = getattr(loop, "_eclipse_analysis_slots", None)
+    if sem is None or getattr(sem, "_eclipse_limit", None) != limit:
+        sem = asyncio.Semaphore(limit)
+        setattr(sem, "_eclipse_limit", limit)
+        setattr(loop, "_eclipse_analysis_slots", sem)
+    return sem
+
+
+def _queue_wait_s() -> float:
+    """How long a run may wait for a slot before the queue is called full."""
+    raw = (os.environ.get("HARNESS_ANALYSIS_QUEUE_WAIT_S", "") or "").strip()
+    if raw:
+        try:
+            value = float(raw)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    return 30.0
+
+
 async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     from .code.tools import emit_code_event  # noqa: PLC0415
 
@@ -453,8 +491,23 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
 
     try:
         # The sandbox is synchronous; run it OFF the event loop so a read-only
-        # bridge call can be posted back to this loop while it waits.
-        result = await asyncio.to_thread(_run_sync)
+        # bridge call can be posted back to this loop while it waits. The
+        # admission gate bounds how many analyses run at once: a burst waits
+        # for a slot, and a full queue is told so honestly instead of quietly
+        # piling up against the host.
+        slot = _slots()
+        try:
+            await asyncio.wait_for(slot.acquire(), timeout=_queue_wait_s())
+        except asyncio.TimeoutError:
+            await emit_code_event(ctx, "analysis.refused", {"code": "ANALYSIS_QUEUE_FULL"})
+            return _refusal(
+                "ANALYSIS_QUEUE_FULL",
+                "the analysis queue is full — try again in a moment",
+            )
+        try:
+            result = await asyncio.to_thread(_run_sync)
+        finally:
+            slot.release()
     except AnalysisError as exc:
         await emit_code_event(ctx, "analysis.refused", {"code": exc.code})
         return _refusal(exc.code, exc.reason)

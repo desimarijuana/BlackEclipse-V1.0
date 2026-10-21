@@ -75,8 +75,8 @@ def test_q4_local_app_reads_are_bounded_and_advertised():
     assert registry.get("app_api_get").permission == "read"
 
 
-def test_q5_chat_budget_defaults_to_twelve(monkeypatch):
+def test_q5_chat_budget_defaults_to_twenty_four(monkeypatch):
     from harness.agents import ECLIPSE_AGENT
 
     monkeypatch.delenv("ECLIPSE_CHAT_MAX_STEPS", raising=False)
-    assert chat_step_budget(ECLIPSE_AGENT, SimpleNamespace(agent=None)) == 12
+    assert chat_step_budget(ECLIPSE_AGENT, SimpleNamespace(agent=None)) == 24
