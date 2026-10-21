@@ -64,6 +64,42 @@ async def test_improving_neighbor_is_accepted_and_persisted():
     assert result["generations"][0]["records"][0]["decision"] == "accepted"
 
 
+async def test_pareto_objective_accepts_a_tradeoff_that_single_rejects():
+    current = _current(0.7)
+    current["metrics"] = {
+        "aggregates": {"task_success": 0.7, "cost": 0.5, "latency": 1.0}, "measuredTrials": 10,
+    }
+    candidate = _candidate("trade", success=0.69)
+    candidate["validation"] = {
+        "aggregates": {"task_success": 0.7, "cost": 0.4, "latency": 2.0}, "measuredTrials": 10,
+    }
+
+    async def propose(state, k, generation, rejected):
+        return [candidate] if generation == 0 else []
+
+    async def evaluate(item, split):
+        return item["validation"] if split == "validation" else item["replay"]
+
+    single = await run_hillclimb(
+        current, propose=propose, evaluate=evaluate,
+        replay_baseline={"a": 1.0, "b": 1.0},
+        config=HillClimbConfig(generations=1, k=1, max_plateau=1),
+    )
+    pareto = await run_hillclimb(
+        current, propose=propose, evaluate=evaluate,
+        replay_baseline={"a": 1.0, "b": 1.0},
+        config=HillClimbConfig(
+            generations=1, k=1, max_plateau=1, objective="pareto",
+        ),
+    )
+
+    assert single["accepted"] == []
+    print("REASONS", pareto["generations"][0]["records"][0]["reasons"])
+    assert pareto["accepted"]
+    assert pareto["objective"] == "pareto"
+    assert pareto["pareto"]["frontier"]
+
+
 async def test_critical_regression_is_rejected_even_with_a_higher_score():
     candidate = _candidate("regress", success=0.95, safety=0.5)
 

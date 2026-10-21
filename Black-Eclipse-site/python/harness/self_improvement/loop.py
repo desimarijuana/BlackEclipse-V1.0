@@ -151,6 +151,7 @@ class RSLLoop:
             "maxExperimentsPerDay": self.config.max_experiments_per_day,
             "k": self.config.k,
             "generations": self.config.generations,
+            "objective": self.config.objective,
             "modelProposer": self.config.model_proposer,
             "codeBenchmark": self.config.code_benchmark,
         }
@@ -287,6 +288,7 @@ class RSLLoop:
         )
         settings = hillclimb.HillClimbConfig(
             generations=self.config.generations,
+            objective=self.config.objective,
             k=self.config.k,
             require_replay=True,
             max_evaluations=remaining,

@@ -93,6 +93,7 @@ export const evolution = {
   'evolution.rsl.lifecycle': '{state} / {busy}',
   'evolution.rsl.budget': 'Budget: {used}/{max} today ({remaining} left)',
   'evolution.rsl.k': 'Candidates per experiment: {k}',
+  'evolution.rsl.objective': 'Objective: {objective}',
   'evolution.rsl.tickSeconds': 'Periodic tick: {seconds}s',
   'evolution.rsl.driftWatch': 'Drift watch: {state}',
   'evolution.rsl.tickResult': 'Tick {mode}: {count} candidate(s), decision {decision}',

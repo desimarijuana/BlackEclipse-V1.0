@@ -35,6 +35,7 @@ class HillClimbConfig:
     max_forgetting: float = 0.02
     require_replay: bool = True
     max_evaluations: Optional[int] = None
+    objective: str = "single"
     weights: UtilityWeights = field(default_factory=UtilityWeights)
 
 
@@ -63,6 +64,31 @@ def _state_metrics(state: Mapping[str, Any]) -> Any:
     if "aggregates" in state:
         return state.get("aggregates") or {}
     return {}
+
+
+def _pareto_accepts(
+    current_metrics: Any,
+    candidate_metrics: Any,
+    decision: Mapping[str, Any],
+    *,
+    weights: UtilityWeights,
+) -> bool:
+    """v2 trade-off acceptance: candidate is measured, no critical veto, not dominated."""
+    from .pareto import dominates, vector  # noqa: PLC0415
+
+    if decision.get("accepted"):
+        return True
+    if any(str(reason).startswith("critical regression") for reason in decision.get("reasons") or []):
+        return False
+    if decision.get("candidate", {}).get("measuredTrials", 0) <= 0:
+        return False
+    current = vector(current_metrics, weights=weights)
+    candidate = vector(candidate_metrics, weights=weights)
+    if sum(value is not None for value in current.values()) < 2:
+        return False
+    if sum(value is not None for value in candidate.values()) < 2:
+        return False
+    return not dominates(current, candidate)
 
 
 def _candidate_id(candidate: Mapping[str, Any]) -> Optional[str]:
@@ -154,6 +180,21 @@ async def run_hillclimb(
                 decision = acceptance(
                     _state_metrics(state), validation, weights=settings.weights,
                 )
+                if (
+                    settings.objective == "pareto"
+                    and not decision["accepted"]
+                    and _pareto_accepts(
+                        _state_metrics(state), validation, decision,
+                        weights=settings.weights,
+                    )
+                ):
+                    decision = {
+                        **decision,
+                        "accepted": True,
+                        "reasons": [
+                            "pareto trade-off (not dominated by the current state)"
+                        ],
+                    }
             except Exception as exc:  # noqa: BLE001 - a failed evaluation is a rejection
                 records.append({
                     **candidate, "decision": "rejected",
@@ -257,6 +298,11 @@ async def run_hillclimb(
             stop_reason = "plateau"
             break
 
+    pareto = None
+    if settings.objective == "pareto":
+        from .pareto import frontier  # noqa: PLC0415
+
+        pareto = frontier([*accepted, state])
     return {
         "current": state,
         "accepted": accepted,
@@ -265,6 +311,8 @@ async def run_hillclimb(
         "stopReason": stop_reason,
         "replayBaseline": retained,
         "scope": state_scope,
+        "objective": settings.objective,
+        "pareto": pareto,
     }
 
 

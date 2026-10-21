@@ -79,6 +79,7 @@ class RSLConfig:
     trials: int = 3
     k: int = 1
     generations: int = 1
+    objective: str = 'single'
     tick_seconds: int = 300
     lease_seconds: int = 1800
     max_wall_seconds: int = 1800
@@ -105,11 +106,14 @@ class RSLConfig:
         env: Mapping[str, str] = os.environ if environ is None else environ
         raw_mode = str(env.get(_MODE_ENV, DEFAULT_MODE)).strip().lower()
         mode = raw_mode if raw_mode in MODES else DEFAULT_MODE
+        raw_objective = str(env.get("HARNESS_RSL_OBJECTIVE", "single")).strip().lower()
+        objective = raw_objective if raw_objective in ("single", "pareto") else "single"
         raw_strategy = str(env.get(_STRATEGY_ENV, DEFAULT_STRATEGY)).strip().lower()
         strategy = raw_strategy if raw_strategy in STRATEGIES else DEFAULT_STRATEGY
         return cls(
             mode=mode,
             strategy=strategy,
+            objective=objective,
             max_candidates=_env_int(env, "HARNESS_RSL_MAX_CANDIDATES", 5, 1, 50),
             max_experiments_per_day=_env_int(
                 env, "HARNESS_RSL_MAX_EXPERIMENTS_PER_DAY", 3, 0, 50,
@@ -143,6 +147,7 @@ class RSLConfig:
             "maxExperimentsPerDay": self.max_experiments_per_day,
             "trials": self.trials,
             "k": self.k,
+            "objective": self.objective,
             "generations": self.generations,
             "tickSeconds": self.tick_seconds,
             "leaseSeconds": self.lease_seconds,

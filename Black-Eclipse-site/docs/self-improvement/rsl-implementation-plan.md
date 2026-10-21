@@ -445,6 +445,7 @@ Tasks:
   | `HARNESS_RSL_CANARY` | `off` | require a second split before a code candidate can be prepared |
   | `HARNESS_RSL_CANARY_SPLIT` | `held_out` | which split the canary uses |
   | `HARNESS_RSL_CANARY_TOLERANCE` | `0.05` | allowed target drop on the canary |
+  | `HARNESS_RSL_OBJECTIVE` | `single` | `single` weighted utility or `pareto` opt-in climb |
 
 - `config.py` tests: defaults, clamps, mode off is a no-op.
 

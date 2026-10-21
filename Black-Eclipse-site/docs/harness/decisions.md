@@ -8796,6 +8796,24 @@ live process, so it fits the existing RSL conductor.
 `test_worktree_invoker.py` (accepted validation win rejected by the canary).
 No new write path; `evaluated_ok` still requires the canary to pass.
 
+## ADR-H273 — Pareto search is an opt-in climb mode
+
+**Decision.** `HARNESS_RSL_OBJECTIVE=single|pareto` selects the climb acceptance
+mode. `single` is unchanged. In `pareto`, a neighbor that the weighted utility
+rejects is still eligible when it is measured, has no critical regression, and
+is not Pareto-dominated by the current state on at least two comparable
+objectives. The climb returns its frontier in `pareto`; persistence and operator
+promotion are unchanged.
+
+**Why.** A single weighted score hides genuine trade-offs (cheaper at slightly
+higher latency). Making the mode explicit keeps existing runs reproducible and
+prevents a trade-off from silently becoming the new default.
+
+**Consequences.** `hillclimb._pareto_accepts`, `HillClimbConfig.objective`,
+`RSLConfig.objective`, the status payload/UI label, and
+`test_rsl_hillclimb.py` (single rejects the trade-off, pareto keeps it). No new
+activation path.
+
 ## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
 
 **Decision.** W8.4's task-type verifier becomes the ONE authority for "done", and

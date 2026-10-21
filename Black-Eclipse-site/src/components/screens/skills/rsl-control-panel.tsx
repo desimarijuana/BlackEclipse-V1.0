@@ -485,6 +485,9 @@ export function RslControlPanel({
             })}
           </span>
           <span>{t("evolution.rsl.k", { k: status.k })}</span>
+          {status.objective && (
+            <span>{t("evolution.rsl.objective", { objective: status.objective })}</span>
+          )}
           {status.driftWatch && (
             <span
               title={Object.entries(status.driftWatch.last)

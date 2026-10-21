@@ -20,7 +20,7 @@ datasets) stays frozen, and there is no new runtime, queue or database.
 | Opt-in cross-scope lesson transfer | Done |
 | Canary split for code (pre-landing) | Done |
 | Continuous climb scheduling | Planned |
-| Multi-objective search integration | Planned |
+| Multi-objective search integration | Done |
 | Model-identity live activation | Decision required |
 | Skill-draft promotion path | Decision required |
 

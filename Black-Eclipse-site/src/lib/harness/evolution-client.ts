@@ -124,6 +124,9 @@ export interface EvolutionRslStatus {
   startedToday: number;
   remainingToday: number;
   budgetExhausted: boolean;
+  objective?: "single" | "pareto" | string;
+  strategy?: string;
+  generations?: number;
   driftWatch?: {
     enabled: boolean;
     intervalSeconds: number;
