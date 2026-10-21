@@ -190,6 +190,13 @@ def run_prop_firm_monte_carlo(
         cost_to_pass = cfg.fee_per_attempt + (expected_resets or 0.0) * cfg.reset_fee
 
     ev = _percentiles(path_ev)
+    if not (cfg.fee_per_attempt or cfg.reset_fee):
+        # No fee means the economics are an UPPER BOUND. Say so, loudly, in the
+        # report - a missing input must never quietly flatter a number.
+        warnings.append(
+            "PROP_FIRM_NO_FEE_SUPPLIED: no fee or reset fee was supplied, so the "
+            "net expected value is GROSS of every cost. Pass the firm's current "
+            "price to get a forecast rather than an upper bound.")
     report: dict[str, Any] = {
         "available": True,
         "firm": {
@@ -254,9 +261,12 @@ def run_prop_firm_monte_carlo(
             "resampleUnit": "trading_day",
             "feePerAttempt": cfg.fee_per_attempt,
             "resetFee": cfg.reset_fee,
+            "feeSupplied": bool(cfg.fee_per_attempt or cfg.reset_fee),
             "rulesAsOf": spec.as_of,
-            "note": "fees are taken from the caller; the engine never invents a "
-                    "price. Pass the firm's current fee.",
+            "note": ("the net EV above is NET of the fee and reset fee you "
+                     "supplied. The engine never invents a price, so with no fee "
+                     "supplied the EV is GROSS of every cost - treat it as an "
+                     "upper bound, not a forecast."),
         },
     }
     return report

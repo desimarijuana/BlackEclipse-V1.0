@@ -801,6 +801,101 @@ def _register_report_artifact(ctx: Any, markdown: str, experiment_id: str,
         return None
 
 
+# ── The trade-log analysis ───────────────────────────────────────────────────
+
+async def analyse_trade_log(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Read a trade log against the conditions in which each entry happened."""
+    t = _t()
+    try:
+        from .trade_log import analyse_trade_log as _analyse
+
+        trades = args.get("trades")
+        source = "trades"
+        if not trades:
+            trades = await _journal_trades(ctx)
+            source = "journal"
+            if not trades:
+                return ("ERROR - the Journal has no trades to analyse. Pass `trades` "
+                        "explicitly, or record some first.",
+                        {"status": "ERROR",
+                         "error": {"code": "TRADE_LOG_EMPTY"}})
+
+        symbols = list(args.get("symbols") or []) or sorted(
+            {str(tr.get("symbol") or "") for tr in trades if tr.get("symbol")})
+        series = await _bars_for_symbols(ctx, symbols, args)
+        if not series:
+            return ("ERROR - no bars could be loaded for "
+                    f"{', '.join(symbols) or 'the traded symbols'}; the entries "
+                    "cannot be placed in their market conditions.",
+                    {"status": "ERROR",
+                     "error": {"code": "TRADE_LOG_NO_BARS"}})
+
+        analysis = _analyse(list(trades), series)
+        payload = analysis.to_dict()
+        payload["source"] = source
+        payload["symbols"] = symbols
+
+        best = max(payload["byRegime"].items(),
+                   key=lambda kv: float(kv[1].get("netPnl") or 0.0),
+                   default=(None, {}))
+        return (f"{payload['entryCount']} trade(s) read against their own market "
+                f"conditions ({source}): net {payload['totals']['netPnl']}, "
+                f"{payload['coverage']['regimeCount']} regime(s) seen, "
+                f"best regime {best[0]}. "
+                f"{len(payload['warnings'])} warning(s).",
+                {"status": "OK", **payload})
+    except Exception as exc:  # noqa: BLE001
+        return t._err(exc)
+
+
+async def _journal_trades(ctx: Any) -> list[dict[str, Any]]:
+    """The Journal's trades, through the same front door the journal tool uses."""
+    from ..journal_tools import _journal_request
+
+    status, payload = await _journal_request("GET", "/api/journal/trades")
+    if status >= 400:
+        return []
+    return list((payload or {}).get("trades") or [])
+
+
+async def _bars_for_symbols(ctx: Any, symbols: list[str],
+                            args: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """The bars each traded symbol has, from the ONE market data gateway."""
+    market = getattr(ctx, "market", None)
+    gateway = getattr(market, "gateway", None) if market is not None else None
+    if gateway is None:
+        return {}
+    interval = str(args.get("interval") or "1d")
+    start = args.get("start")
+    end = args.get("end")
+    out: dict[str, list[dict[str, Any]]] = {}
+    for symbol in symbols:
+        if not symbol:
+            continue
+        try:
+            series = await gateway.get_historical_prices(
+                symbol, None, start=start, end=end, interval=interval)
+        except Exception:  # noqa: BLE001 - a symbol we cannot load is reported
+            continue
+        rows = getattr(series, "bars", None)
+        if rows is None and isinstance(series, dict):
+            rows = series.get("bars")
+        if not rows:
+            continue
+        out[symbol] = [
+            {"time": getattr(row, "timestamp", None) or row.get("timestamp")
+                if isinstance(row, dict) else getattr(row, "timestamp", None),
+             "o": getattr(row, "open", None) if not isinstance(row, dict) else row.get("open"),
+             "h": getattr(row, "high", None) if not isinstance(row, dict) else row.get("high"),
+             "l": getattr(row, "low", None) if not isinstance(row, dict) else row.get("low"),
+             "c": getattr(row, "close", None) if not isinstance(row, dict) else row.get("close"),
+             "v": getattr(row, "volume", None) if not isinstance(row, dict) else row.get("volume"),
+             }
+            for row in rows
+        ]
+    return out
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 def register_advanced_tools(registry: Any) -> list[str]:
@@ -1015,6 +1110,20 @@ def register_advanced_tools(registry: Any) -> list[str]:
          "the source each number came from and the date it was read. Use it "
          "before running a prop-firm simulation.",
          list_prop_firm_rules, {"type": "object", "properties": {}, "required": []})
+
+    _def("analyse_trade_log",
+         "Read a closed-trade log against the conditions in which each entry "
+         "happened: every entry is placed on the regime of its entry bar (the same "
+         "causal trend x volatility classifier the Edge Report uses), the P&L is "
+         "attributed per regime, and the concentration of the profit is measured. "
+         "Takes the Journal's own trades when no log is passed.",
+         analyse_trade_log, {"type": "object", "properties": {
+             "trades": {"type": "array", "items": {"type": "object"},
+                        "description": "the closed trades; omit to use the Journal"},
+             "symbols": {"type": "array", "items": {"type": "string"}},
+             "interval": {"type": "string"},
+             "start": {"type": "string"}, "end": {"type": "string"}},
+             "required": []}, 180_000, long_running=True)
 
     _def("generate_edge_report",
          "Build the Edge Report for a stored backtest: the A-F grade, the four "

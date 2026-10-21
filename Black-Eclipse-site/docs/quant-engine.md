@@ -621,6 +621,36 @@ routes `POST /quant/prop-firm` and `GET /quant/prop-firm/firms`. A real
 trading log comes from the `journal_trades` tool, whose output the simulation
 tool consumes.
 
+## The trade-log analysis (`quant/trade_log.py`)
+
+A trade log on its own says what you made. It does not say **when** you made
+it, which is the question that decides whether a strategy is worth trading:
+did the money come from one lucky hour, or from a condition you could expect
+to meet again?
+
+The analysis answers that from the same machinery the Edge Report uses:
+
+- every entry is placed on the **regime of its entry bar** - the same causal
+  trend x volatility classifier - so the log is read in the SAME vocabulary as
+  the verdict, the Monte-Carlo and the report. One regime language, not two.
+- the realised P&L is attributed **per regime**, with the share of gross
+  positive P&L each regime carries;
+- the **concentration** of the profit is measured: the share of gross positive
+  P&L the best few entries carry, which is the difference between an edge and a
+  streak. A concentrated log is flagged, because a streak is not a rule;
+- each entry carries its own context (regime, trend, volatility, ATR, the
+  distance from entry to exit in ATR terms), so one trade can be interrogated.
+
+Entries that cannot be placed on a bar of their own symbol's series are
+counted in the totals and reported as **unclassified** - they are never given
+a regime they were not measured in.
+
+It is a **measurement**, not a verdict: it never says a strategy is good. It
+says where the money came from, and what it could not measure.
+
+Surfaces: the agent tool `analyse_trade_log` (which reads the Journal's own
+trades when no log is passed); the route `POST /quant/trade-log`.
+
 ## The Edge Report (`quant/edge_report.py`)
 
 The verdict, the regimes and the Monte-Carlo used to be three answers in three

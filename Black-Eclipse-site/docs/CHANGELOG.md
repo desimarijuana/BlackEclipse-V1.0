@@ -7,6 +7,38 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-21
+- **feat(quant): the trade-log analysis - where the money actually came from.**
+  A trade log on its own says what you made; it does not say WHEN you made it,
+  which is the question that decides whether a strategy is worth trading. Every
+  entry is now placed on the regime of its entry bar - the SAME causal trend x
+  volatility classifier the Edge Report uses, so the log, the verdict, the
+  Monte-Carlo and the report all speak ONE regime language instead of two - the
+  realised P&L is attributed per regime, the concentration of the profit is
+  measured (the share of gross positive P&L the best few entries carry), and
+  each entry carries its own context: regime, trend, volatility, ATR and the
+  distance from entry to exit in ATR terms. A log whose profit sits in one
+  streak is FLAGGED, because a streak is not a rule. Entries that cannot be
+  placed on a bar of their own symbol's series are counted in the totals and
+  reported as unclassified - they are never given a regime they were not
+  measured in. It is a measurement, not a verdict: it never says a strategy is
+  good, it says where the money came from and what it could not measure.
+  Surfaces: the tool `analyse_trade_log` (which reads the Journal's own trades
+  when no log is passed) and the route POST /quant/trade-log. Files:
+  python/harness/quant/trade_log.py (new),
+  python/harness/quant/advanced_tools.py, python/harness/quant/tools.py,
+  python/harness/routers/quant_reports.py. Tests:
+  python/tests/test_quant_trade_log.py (9). docs updated: docs/quant-engine.md.
+
+- **fix(quant): a prop-firm EV with no fee in it is now marked as an upper
+  bound.** The engine never invents a price - the caller supplies the fee and
+  the reset fee - which is right, but it left a trap: a caller who forgot
+  `feePerAttempt` got an optimistic expected value with nothing flagging the
+  omission. The report now carries `assumptions.feeSupplied`, says outright
+  that the EV is GROSS of every cost when no fee was given, and raises
+  `PROP_FIRM_NO_FEE_SUPPLIED`. A missing input must never quietly flatter a
+  number. Files: python/harness/quant/propfirm_mc.py. Tests:
+  python/tests/test_quant_trade_log.py. docs updated: docs/quant-engine.md.
+
 - **feat(harness): a project proposes what to do next, from its own evidence.**
   The curated view says where a project stands; this says what to do about it,
   and it may only say it from evidence the project ACTUALLY holds. A strategy

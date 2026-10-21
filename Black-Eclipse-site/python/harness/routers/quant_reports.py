@@ -234,6 +234,73 @@ async def prop_firm_firms_route(_: bool = Depends(require_operator)) -> dict:
     return {"firms": list_firms()}
 
 
+class TradeLogBody(BaseModel):
+    trades: Optional[list[dict[str, Any]]] = None
+    symbols: Optional[list[str]] = None
+    interval: str = "1d"
+    start: Optional[str] = None
+    end: Optional[str] = None
+
+
+@router.post("/quant/trade-log")
+async def trade_log_route(body: TradeLogBody,
+                          _: bool = Depends(require_operator)) -> dict:
+    """Read a closed-trade log against the conditions in which each entry happened."""
+    from ..quant.trade_log import analyse_trade_log
+
+    trades = list(body.trades or [])
+    if not trades:
+        raise HTTPException(status_code=422,
+                            detail="provide `trades` (a closed-trade log)")
+    symbols = list(body.symbols or []) or sorted(
+        {str(t.get("symbol") or "") for t in trades if t.get("symbol")})
+    if not symbols:
+        raise HTTPException(status_code=422,
+                            detail="the trades name no symbol, so no market can be "
+                                   "read for them")
+
+    from ..market.gateway import MarketDataGateway
+
+    gateway = MarketDataGateway(
+        service.server_bridge(),
+        cache=getattr(service, "market_cache", None),
+        router=getattr(service, "market_router", None),
+    )
+    series: dict[str, list[dict[str, Any]]] = {}
+    for symbol in symbols:
+        try:
+            bars = await gateway.get_historical_prices(
+                symbol, None, start=body.start, end=body.end,
+                interval=body.interval)
+        except Exception:  # noqa: BLE001 - a symbol we cannot load is reported
+            continue
+        rows = getattr(bars, "bars", None)
+        if rows is None and isinstance(bars, dict):
+            rows = bars.get("bars")
+        if not rows:
+            continue
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            if isinstance(row, dict):
+                out.append({"time": row.get("timestamp"), "o": row.get("open"),
+                            "h": row.get("high"), "l": row.get("low"),
+                            "c": row.get("close"), "v": row.get("volume")})
+            else:
+                out.append({"time": getattr(row, "timestamp", None),
+                            "o": getattr(row, "open", None),
+                            "h": getattr(row, "high", None),
+                            "l": getattr(row, "low", None),
+                            "c": getattr(row, "close", None),
+                            "v": getattr(row, "volume", None)})
+        series[symbol] = out
+    if not series:
+        raise HTTPException(status_code=422,
+                            detail=f"no bars could be loaded for {', '.join(symbols)}")
+
+    analysis = analyse_trade_log(trades, series)
+    return {"status": "OK", **analysis.to_dict()}
+
+
 class EdgeReportBody(BaseModel):
     experimentId: str
     monteCarloExperimentId: Optional[str] = None
