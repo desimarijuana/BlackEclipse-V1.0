@@ -93,6 +93,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   python/tests/test_size_budget.py.
   no doc change - a size ratchet.
 
+- **docs(rsl): the P2 row names what the gate actually measures.** The
+  per-scope concurrency cap and the deterministic selection are not in flight
+  in P2, so the row now names the one thing that is: the cost per accepted
+  improvement, and the proof that real usage survives into the experiment
+  report. Files: docs/self-improvement/rsl-v3-plan.md.
+  docs updated: docs/self-improvement/rsl-v3-plan.md.
+
 ## 2026-10-20
 
 - **fix(harness): re-pin the prompt ceiling after the sandbox-rules guidance.**

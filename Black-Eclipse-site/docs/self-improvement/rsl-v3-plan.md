@@ -128,7 +128,7 @@ P3 work.
 | Phase | Goal | Gate |
 |---|---|---|
 | P1 (rest) | replay/adversarial/finance datasets, live-model tier, native benchmark adapter | a published report with Wilson intervals and a reproducible benchmark table |
-| P2 (rest) | per-scope concurrency + cost per accepted improvement | concurrency cap and budget proven; deterministic selection |
+| P2 (rest) | cost per accepted improvement reporting | real usage survives into the experiment report |
 | P3 (rest) | guardrails, memory policy, subagent prompts, skill-manifest policy | an accepted non-prompt surface survives verify, canary, preview, activation and rollback |
 | P4 | Operator digest, drift → candidate automation, nightly `rsl:bench` | one week of unattended runs with a readable report and a planted regression caught in CI |
 
