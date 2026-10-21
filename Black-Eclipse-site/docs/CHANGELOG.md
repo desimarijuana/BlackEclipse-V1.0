@@ -282,6 +282,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **fix(charts): the full-view chart no longer collides with the app's header.**
+  The focus overlay lived inside the chat's stacking context, so the top bar and
+  the price ribbon painted OVER the chart and its toolbar. The full view is now
+  **portalled to `<body>`** (the app's rule for floating surfaces), sits at
+  `z-[300]` — above every layer of the shell — and its opaque backdrop
+  (`bg-background/95`) hides the header entirely, so a full-width chart is a
+  full-width chart. The focused chart also fills the viewport height instead of
+  a fixed 640 px. Verified in the real app: the overlay computes to
+  `position: fixed`, `z-index: 300`, 1440×900, over the ribbon's `z-index: 50`.
+  File: `src/components/response/response-chart.tsx`. docs updated:
+  `docs/CHANGELOG.md`.
+
 - **fix(macro): a provider's HTML error page can no longer become an
   observation (silent corruption).** FRED's graph endpoint answered a site-wide
   maintenance page with HTTP **200**. The FRED source split that page into
@@ -1844,6 +1856,24 @@ umpy/pandas are **already installed** in the runtime and the analysis
   `package.json`. Tests: `python/tests/test_evaluation_nightly.py` (2). Docs
   updated: `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/agent-evaluation.md`,
   `docs/harness/decisions.md` (ADR-H288), `docs/QUICKSTART.md`.
+- **feat(rsl): a delegated child inherits the surface's context policy (v3 P3
+  slice 4).** A delegated child ran the SAME agent preset as its parent, so a
+  surface that improved the parent's prompt did nothing for the child - and the
+  child is where the fan-out work happens. A surface may now carry
+  `subagentPrompt` (≤4,000 chars): the child keeps its own preset prompt, gains
+  the surface's bounded instructions, and its tools are the NARROWED set the
+  delegation already computed. It is prompt evidence - no tool, no ceiling, no
+  permission, no effect - and the delegation path is unchanged when the field is
+  absent. That closes the editable-surface set: prompt, tool guidance, tool
+  subset, ceilings, context policy, guardrails and the delegated child's
+  prompt. Files: `python/harness/schemas.py`, `python/harness/tools.py`
+  (`ToolContext.agent`), `python/harness/graph.py`,
+  `python/harness/delegation_tools.py`,
+  `python/harness/self_improvement/{models,live_surface}.py`,
+  `python/harness/routers/evolution.py`. Tests: `test_delegation_tool.py` (the
+  child inherits the prompt and the narrowed tools), `test_rsl_snapshot.py`
+  (bounded + digest). Docs updated: `docs/self-improvement/rsl-v3-plan.md`,
+  `docs/harness/decisions.md` (ADR-H289), `docs/harness/architecture.md`.
 
 ## 2026-10-19
 
