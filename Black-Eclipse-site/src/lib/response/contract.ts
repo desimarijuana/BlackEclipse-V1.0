@@ -297,18 +297,29 @@ const chartSeriesSchema = z.object({
 const CHART_MARK_TYPES = [
   'line', 'area', 'bar', 'scatter', 'band', 'rule', 'label', 'box', 'violin',
   'histogram', 'errorbar', 'heatmap', 'pie', 'donut', 'candlestick', 'waterfall',
-  'ridge', 'stem',
+  'ridge', 'stem', 'treemap', 'sunburst', 'funnel', 'sankey',
+  // The 3D family: a point cloud, a surface.
+  'scatter3d', 'surface',
 ] as const;
 
 const chartMarkSchema = z.object({
   type: z.enum(CHART_MARK_TYPES),
   name: shortString.optional(),
-  y: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
-  x: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  y: z.array(z.union([z.number().finite(), z.string().max(80), z.null()])).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  x: z.array(z.union([z.number().finite(), z.string().max(80), z.null()])).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   values: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   lower: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   upper: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   sizes: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  /** The third dimension (a 3D mark's z). */
+  z: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  /** A treemap/sunburst node's parent ("" is the root). */
+  parents: z.array(shortString).max(200).optional(),
+  /** Per-item colours (a treemap's tiles, a sunburst's branches). */
+  colors: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).max(200).optional(),
+  /** A sankey's links: the source node index, the target node index, the weight. */
+  sources: z.array(z.number().int().min(0)).max(500).optional(), targets: z.array(z.number().int().min(0)).max(500).optional(),
+  weights: z.array(z.number().finite()).max(500).optional(),
   matrix: z.array(z.array(z.number().finite())).max(200).optional(),
   labels: z.array(shortString).max(50).optional(),
   rowLabels: z.array(shortString).max(50).optional(),

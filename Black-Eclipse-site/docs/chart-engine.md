@@ -61,12 +61,17 @@ invented for it.
 `line` · `area` · `bar` · `scatter` · `band` · `rule` · `label` · `box` ·
 `violin` · `histogram` · `errorbar` · `heatmap` · `pie` · `donut` ·
 `candlestick` · `waterfall` · `ridge` · `stem` · `treemap` · `sunburst` ·
-`funnel` · `sankey`
+`funnel` · `sankey` · `scatter3d` · `surface`
 
-A mark may set: `name` (the legend), `y` / `x` / `values` / `lower` /
+A mark may set: `name` (the legend), `y` / `x` / `z` / `values` / `lower` /
 `upper` / `sizes` / `matrix` / `labels` / `rowLabels` / `colLabels`, `color`,
 `alpha`, `width`, `style` (`solid` / `dashed` / `dotted`), `fill`, `label`,
 `yAxis` (`left` / `right` — a dual-axis chart), `stack` and `bins`.
+
+**3D is a mark, not a separate chart.** `scatter3d` (a point cloud) and
+`surface` (a grid) carry a third dimension (`z`) and live in the figure's
+`scene` — a camera, three axes and a cube — so the reader can orbit, zoom and
+pick points. The flat axes step aside for a 3D chart.
 
 A panel may set: `title`, `xLabel`, `yLabel`, `valueFormat`, `logScale` and
 `height` (its share of the figure). A scene is up to 6 panels.

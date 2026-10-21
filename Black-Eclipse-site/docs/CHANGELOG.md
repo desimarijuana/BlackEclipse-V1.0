@@ -187,6 +187,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **feat(charts): 3D charts — a 3D mark, not a separate chart.** The chart
+  engine can now draw in three dimensions: `scatter3d` (a point cloud) and
+  `surface` (a grid) carry a third dimension (`z`) and live in the figure's
+  `scene` — a camera, three axes, a cube — so the reader can orbit, zoom and
+  pick points. Because the chart is a live Plotly figure, the 3D view is as
+  interactive as the flat one (drag to orbit, scroll to zoom, hover for the
+  point). The flat axes step aside for a 3D chart, and the mark's `x`/`y` now
+  accept labels as well as numbers (a 3D bar's categories). Files:
+  `python/harness/charts/scene.py` (the 3D marks + the `z` axis),
+  `python/harness/charts/plotly_figure.py` (the 3D traces and the scene
+  layout), `src/lib/response/contract.ts` (the model's 3D marks),
+  `src/lib/harness/charts.ts`, `python/harness/prompts.py`. Tests:
+  `python/tests/test_chart_3d.py` (4). docs updated: `docs/chart-engine.md`,
+  `docs/CHANGELOG.md`.
+
 - **feat(charts): the chat's charts are REAL charts now — vector, zoomable,
   pannable, with a legend.** A picture cannot be zoomed, so the engine now
   authors each chart as a **Plotly figure** in Python (`plotly_figure.py`) and

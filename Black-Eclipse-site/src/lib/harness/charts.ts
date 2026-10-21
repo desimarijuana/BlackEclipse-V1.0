@@ -76,14 +76,19 @@ export interface ChartMark {
   type:
     | "line" | "area" | "bar" | "scatter" | "band" | "rule" | "label"
     | "box" | "violin" | "histogram" | "errorbar" | "heatmap" | "pie"
-    | "donut" | "candlestick" | "waterfall" | "ridge" | "stem";
+    | "donut" | "candlestick" | "waterfall" | "ridge" | "stem"
+    | "treemap" | "sunburst" | "funnel" | "sankey"
+    // The 3D family.
+    | "scatter3d" | "surface";
   name?: string;
-  y?: Array<number | null>;
-  x?: Array<number | null>;
+  y?: Array<number | string | null>;
+  x?: Array<number | string | null>;
   values?: Array<number | null>;
   lower?: Array<number | null>;
   upper?: Array<number | null>;
   sizes?: Array<number | null>;
+  /** The third dimension (a 3D mark's z). */
+  z?: Array<number | null>;
   matrix?: number[][];
   labels?: string[];
   rowLabels?: string[];

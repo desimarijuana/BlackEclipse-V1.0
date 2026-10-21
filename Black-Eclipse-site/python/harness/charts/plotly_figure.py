@@ -268,6 +268,31 @@ def _mark_traces(
         })
         return traces
 
+    if mark.type == "scatter3d":
+        traces.append({
+            "type": "scatter3d", "name": name, "scene": "scene",
+            "x": mark.x or [], "y": mark.y or [], "z": mark.z or [],
+            "mode": "markers",
+            "marker": {
+                "color": mark.z or [],
+                "size": 5,
+                "colorscale": "Viridis",
+                "showscale": True,
+                "colorbar": {"title": {"text": "z"}},
+            },
+        })
+        return traces
+
+    if mark.type == "surface":
+        traces.append({
+            "type": "surface", "name": name, "scene": "scene",
+            "z": mark.matrix or [],
+            "x": mark.x or None, "y": mark.y or None,
+            "colorscale": "Viridis",
+            "showscale": True,
+        })
+        return traces
+
     if mark.type == "treemap":
         traces.append({
             "type": "treemap", "name": name,
@@ -460,6 +485,20 @@ def _scene_layout(spec: ChartSpec, theme: ChartTheme, panels: list[ChartPanel]) 
     return layout
 
 
+#: The 3D scene: the axes, the camera and the box's proportions.
+def _scene3d_layout(spec: ChartSpec) -> dict[str, Any]:
+    """The layout of a 3D chart: a camera, three axes, and a box."""
+    return {
+        "scene": {
+            "xaxis": {"title": {"text": spec.x_label or "x"}, "backgroundcolor": "rgba(0,0,0,0)", "gridcolor": GRID, "showbackground": False},
+            "yaxis": {"title": {"text": spec.y_label or "y"}, "backgroundcolor": "rgba(0,0,0,0)", "gridcolor": GRID, "showbackground": False},
+            "zaxis": {"title": {"text": "z"}, "backgroundcolor": "rgba(0,0,0,0)", "gridcolor": GRID, "showbackground": False},
+            "aspectmode": "cube",
+            "camera": {"eye": {"x": 1.6, "y": 1.5, "z": 1.1}},
+        }
+    }
+
+
 def build_figure(spec: ChartSpec, theme: ChartTheme) -> dict[str, Any]:
     """The spec → a Plotly figure (JSON-serialisable)."""
     try:
@@ -482,6 +521,11 @@ def build_figure(spec: ChartSpec, theme: ChartTheme) -> dict[str, Any]:
                         trace["yaxis"] = f"y{suffix}"
                     traces.append(trace)
         layout = _scene_layout(spec, theme, panels)
+        if any(trace.get("type") in ("scatter3d", "surface") for trace in traces):
+            # A 3D chart lives in its own scene; the flat axes would fight it.
+            layout.pop("xaxis", None)
+            layout.pop("yaxis", None)
+            layout.update(_scene3d_layout(spec))
         figure = go.Figure(data=traces, layout=layout)
         return json.loads(figure.to_json())
 

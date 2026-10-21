@@ -45,6 +45,9 @@ MarkType = Literal[
     "sunburst",
     "funnel",
     "sankey",
+    # The 3D family: a point cloud, a surface.
+    "scatter3d",
+    "surface",
 ]
 
 
@@ -56,10 +59,12 @@ class ChartMark(BaseModel):
     type: MarkType
     name: Optional[str] = Field(default=None, max_length=120)
 
-    #: The values along the category (or y) axis.
-    y: list[Optional[float]] = Field(default_factory=list)
-    #: Explicit x values (a scatter, a line over a numeric axis).
-    x: list[Optional[float]] = Field(default_factory=list)
+    #: The values along the category (or y) axis. A NUMBER, or a label (a 3D
+    #: bar's categories).
+    y: list[Optional[float] | str] = Field(default_factory=list)
+    #: Explicit x values (a scatter, a line over a numeric axis). A NUMBER, or
+    #: a label (a 3D bar's categories).
+    x: list[Optional[float] | str] = Field(default_factory=list)
     #: A distribution's samples (a box plot, a violin, a histogram).
     values: list[Optional[float]] = Field(default_factory=list)
     #: The band's lower/upper edges (a forecast band, an error bar).
@@ -98,6 +103,8 @@ class ChartMark(BaseModel):
     sources: list[int] = Field(default_factory=list)
     targets: list[int] = Field(default_factory=list)
     weights: list[float] = Field(default_factory=list)
+    #: The third dimension (a 3D mark's z).
+    z: list[Optional[float]] = Field(default_factory=list)
 
 
 class ChartPanel(BaseModel):
