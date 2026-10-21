@@ -92,6 +92,8 @@ class AgenticService:
         # The read-only repository navigator (Phase 1): five read tools on the
         # SAME registry. No write/execute tool is registered.
         register_code_tools(self.registry)
+        from .charts import install_chart_tools as _install_chart_tools  # noqa: PLC0415  # chart engine: SPEC data, never code
+        _install_chart_tools(self.registry)
         # Change review (Phase 19): report the repo's rules over the task diff.
         from .code.review_tools import register_review_tools  # noqa: PLC0415
 
@@ -113,6 +115,16 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - the research engine must never block boot
             self.evidence_store = None
             log.warning("web research engine unavailable", exc_info=True)
+        # The scraper lane: collect data the vault does not have, by running a
+        # generated program whose only way out is the host-mediated page fetch.
+        # It reuses the SAME bridge transport and the analysis sandbox — it adds
+        # no second network path.
+        try:
+            from .scraper.tools import register_scraper_tools  # noqa: PLC0415
+
+            register_scraper_tools(self.registry)
+        except Exception:  # noqa: BLE001 - the scraper lane must never block boot
+            log.warning("scraper lane unavailable", exc_info=True)
         # The Market Data Layer: canonical market-data tools, a provider-routing
         # gateway, a mandatory data-quality engine, provenance into the Evidence &
         # Research Engine, and real-time streaming. Boot wiring lives in

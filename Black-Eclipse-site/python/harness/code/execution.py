@@ -318,6 +318,7 @@ def check_imports(
     extra_allowlist: tuple[str, ...] = (),
     *,
     tool_names: tuple[str, ...] = (),
+    allow_url_literals: bool = False,
 ) -> list[str]:
     """Walk the source's imports with ``ast``; return what is NOT allowed.
 
@@ -336,6 +337,12 @@ def check_imports(
     `eclipse_tools` is not allowed at all; when non-empty the plain
     `import eclipse_tools` form is allowed and only those attributes may be
     called (no alias / from-import, so the static check is unambiguous).
+
+    `allow_url_literals` is set ONLY by the host, and only for a run whose
+    fetch channel is the host-mediated, policy-checked `web_page` binding. A URL
+    literal is then just a string: the program still cannot open a socket
+    (`socket`/`ssl` stay denied), so the URL can only be resolved through the
+    host's SSRF-hardened transport.
     """
     try:
         tree = ast.parse(source)
@@ -387,7 +394,11 @@ def check_imports(
                 # surprise.
                 offenders.append(f"{node.id} (name)")
         elif isinstance(node, ast.Constant):
-            if isinstance(node.value, str) and "://" in node.value:
+            if (
+                not allow_url_literals
+                and isinstance(node.value, str)
+                and "://" in node.value
+            ):
                 offenders.append("URL literal (network)")
     # De-duplicate, stable order.
     seen: list[str] = []
@@ -627,11 +638,17 @@ def prepare_analysis(
     request: AnalysisRequest,
     *,
     tool_resolver: Optional[st.ToolResolver] = None,
+    tool_allowlist: Optional[tuple[str, ...]] = None,
+    allow_url_literals: bool = False,
 ) -> PreparedAnalysis | AnalysisResult:
     """Validate a request and resolve the isolation primitive, or refuse it.
 
     This is the single pre-execution gate. A refusal is returned as a finished
     ``AnalysisResult``; a success carries everything both runners need.
+
+    `tool_allowlist` is the HOST's choice of bindings (the analysis lane gets
+    the data reads; the scraper lane gets the web binding). `None` keeps the
+    analysis lane's own set.
     """
     t0 = time.monotonic()
     source_digest = _digest_text(request.source)
@@ -655,10 +672,24 @@ def prepare_analysis(
         managed_path, managed_modules = None, []
 
     extra_allowlist = tuple(request.extra_imports) + tuple(managed_modules)
-    tool_names = st.tool_names() if allow_tools else ()
     if allow_tools:
+        if tool_allowlist is None:
+            tool_names = st.tool_names()
+        else:
+            try:
+                tool_names = st.select_tool_names(tool_allowlist)
+            except ValueError as exc:
+                return AnalysisResult(
+                    status="refused", code=st.TOOL_NOT_ALLOWED, source_digest=source_digest,
+                    duration_ms=int((time.monotonic() - t0) * 1000), stderr=str(exc),
+                )
         extra_allowlist = extra_allowlist + ("eclipse_tools",)
-    offenders = check_imports(request.source, extra_allowlist, tool_names=tool_names)
+    else:
+        tool_names = ()
+    offenders = check_imports(
+        request.source, extra_allowlist, tool_names=tool_names,
+        allow_url_literals=bool(allow_url_literals and allow_tools),
+    )
     if offenders:
         tool_offenders = [
             item for item in offenders
@@ -758,6 +789,7 @@ def resolve_tool_request(
     interpreter: str,
     package_lock: str,
     started: float,
+    tool_call_limit: int = st.MAX_TOOL_CALLS,
 ) -> Optional[AnalysisResult]:
     """Validate and resolve one pending read; returns a terminal result on error.
 
@@ -780,10 +812,10 @@ def resolve_tool_request(
         capability, params = st.validate_tool_request(request_name, request_args)
     except st.ToolRequestError as exc:
         return failed("refused", exc.code, exc.reason)
-    if len(tool_calls) >= st.MAX_TOOL_CALLS:
+    if len(tool_calls) >= tool_call_limit:
         return failed(
             "refused", st.TOOL_LIMIT,
-            f"the analysis asked for more than {st.MAX_TOOL_CALLS} data reads",
+            f"the analysis asked for more than {tool_call_limit} data reads",
         )
 
     key = st.cache_key(str(request_name), request_args)
@@ -828,6 +860,9 @@ def run_analysis(
     tool_resolver: Optional[st.ToolResolver] = None,
     kernel: Optional[Any] = None,
     cancel_event: Optional[Any] = None,
+    tool_allowlist: Optional[tuple[str, ...]] = None,
+    allow_url_literals: bool = False,
+    tool_call_limit: int = st.MAX_TOOL_CALLS,
 ) -> AnalysisResult:
     """Run one analysis in the Phase 3 sandbox. Records enough to re-derive it.
 
@@ -853,7 +888,10 @@ def run_analysis(
         )
 
     t0 = time.monotonic()
-    prepared = prepare_analysis(request, tool_resolver=tool_resolver)
+    prepared = prepare_analysis(
+        request, tool_resolver=tool_resolver, tool_allowlist=tool_allowlist,
+        allow_url_literals=allow_url_literals,
+    )
     if isinstance(prepared, AnalysisResult):
         return prepared
 
@@ -986,6 +1024,7 @@ def run_analysis(
                     tool_resolver=tool_resolver, source_digest=source_digest,
                     input_digests=digests, interpreter=interpreter,
                     package_lock=package_lock_digest(), started=t0,
+                    tool_call_limit=tool_call_limit,
                 )
                 if failure is not None:
                     return failure

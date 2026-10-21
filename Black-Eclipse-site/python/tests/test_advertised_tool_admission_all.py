@@ -108,6 +108,9 @@ def _args_for(registry: ToolRegistry) -> dict:
         "packages": ["demo"],
         # Skill lifecycle writes: activation needs a version, the learning switch a mode.
         "version": "1.0.0", "mode": "off",
+        # The scraper lane's consent is per DOMAIN, so its authorizer reads the
+        # address the collection starts from.
+        "target_url": "https://example.com/table",
     }
 
 

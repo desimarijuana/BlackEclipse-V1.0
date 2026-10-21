@@ -1,7 +1,7 @@
 ---
 title: Backtesting & Simulation Engine — Audit, Tool Coverage & Blockers
 status: Current
-last-verified: 2026-10-11
+last-verified: 2026-10-20
 ---
 
 # Backtesting & Simulation Engine — Audit, Tool Coverage & Blockers
@@ -51,8 +51,11 @@ what exists.
 | `run_multiple_testing_diagnostics` (beyond the 16) | **added** | `multiple_testing.py` (Deflated Sharpe + PBO/CSCV) |
 | Options: `price_option`, `implied_volatility`, `analyze_option_strategy` (beyond the 16) | **added** | `options.py` (reuses `market.greeks`) |
 | Futures: `build_continuous_contract` (beyond the 16) | **added** | `futures.py` (splice + back-adjustment) |
+| Regime-aware uncertainty: `run_regime_monte_carlo` (beyond the 16) | **added** | `regime.py` + `montecarlo.py` (`regime_block_bootstrap`) |
+| Evidence grading: `grade_strategy_edge` (beyond the 16) | **added** | `verdict.py` (A–F verdict + overfit tells) |
+| Prop-firm evaluation: `run_prop_firm_simulation`, `list_prop_firm_rules` (beyond the 16) | **added** | `propfirm.py` + `propfirm_mc.py` (real rules as data, day-level resampling) |
 
-All 16 are registered in `quant/tools.py` (`QUANT_TOOLS`, now **63** tools) and
+All 16 are registered in `quant/tools.py` (`QUANT_TOOLS`, now **72** tools) and
 allowlisted automatically through `harness/agents.py`. `run_event_driven_backtest`
 and `run_vectorized_backtest` carry `metadata.engine` provenance.
 
@@ -90,6 +93,20 @@ and `run_vectorized_backtest` carry `metadata.engine` provenance.
   splice/adjustment.
 - `python/tests/test_quant_routes.py` — the advanced REST endpoints are registered
   and `/quant/costs` executes end-to-end.
+- `python/tests/test_quant_regime_verdict.py` — the regime classifier (causality,
+  label axes, refusal on too few bars), trade placement and per-regime
+  attribution, the regime-block Monte-Carlo (attribution payload, seed
+  reproducibility, preserve mode, refused mix) and the Edge Verdict (grade
+  caps, critical flags, weight redistribution, overfit tells).
+- `python/tests/test_quant_propfirm.py` — the prop-firm rules: every built-in
+  spec validates and is sourced, unknown firms and unknown sizes are refused
+  rather than guessed, the trailing maximum loss never moves down and locks at
+  the starting balance, a daily loss limit pauses instead of failing, the
+  Topstep consistency target raises the profit target instead of failing the
+  account, the FTMO consistency rule is judged over the period rather than on
+  day one, an access period that expires fails the evaluation while a shorter
+  log is inconclusive, and the Monte-Carlo is reproducible, reports the
+  outcome distribution and uses the fees it was given.
 - Full Python suite: **5555 passed, 16 skipped (opt-in live), 0 failed** (full
   run); the `-k "quant or stats"` subset shows one **pre-existing, unrelated**
   `test_artifacts_api::test_stats_and_tags` ordering failure that does not appear

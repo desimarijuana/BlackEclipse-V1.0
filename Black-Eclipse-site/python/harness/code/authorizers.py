@@ -137,6 +137,16 @@ def build_effect_authorizer(
 
     code_authorizer = make_bot_authorizer(code_authorizer)
 
+    # The scraper lane: `scraper_run` writes and runs a generated scraper. It is
+    # admitted HERE and gated by a per-DOMAIN operator approval (kind
+    # `scraper_domain`): the first collection from a site asks, and the consent
+    # for that site is then remembered as a revocable standing grant.
+    from ..scraper.authorizers import make_scraper_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_scraper_authorizer(
+        approvals, run_id, workspace_id or "", emitter, inner=code_authorizer,
+    )
+
     # The acquire loop: `skill_install`/`skill_uninstall` (GitHub skills) and
     # `mcp_install` (a preset MCP integration) each require a single-use,
     # digest-bound operator approval — the same card/decision store every other

@@ -1,9 +1,12 @@
 """Monte-Carlo analysis.
 
-Four perturbation families over a base backtest:
+Five perturbation families over a base backtest:
 
   * `trade_reshuffle`      — reorder the realized trade P&L sequence,
   * `return_bootstrap`     — resample the periodic returns with replacement,
+  * `regime_block_bootstrap` — resample **blocks of consecutive trades that
+    happened in the same market regime**, so the serial clustering of good and
+    bad conditions survives the resample,
   * `parameter_perturbation` — re-run with parameters jittered within a band,
   * `execution_perturbation` — re-run with commission/slippage scaled.
 
@@ -11,6 +14,12 @@ Every simulation is seeded, so the same inputs and seed reproduce the same
 distribution. Outputs the 5/25/50/75/95 percentiles of return, probability of
 loss, probability of ruin, expected and worst drawdown, and the return
 distribution.
+
+The three resampling families are not interchangeable. `trade_reshuffle` and
+`return_bootstrap` treat observations as independent, which understates the
+tail of any strategy whose edge clusters in one market condition. The regime
+block method exists to answer the harder question: *how does this edge behave
+when the conditions that produced it come in runs, as they actually do?*
 """
 
 from __future__ import annotations
@@ -33,7 +42,11 @@ class MonteCarloError(ValueError):
     pass
 
 
-_METHODS = {"trade_reshuffle", "return_bootstrap", "parameter_perturbation", "execution_perturbation"}
+_METHODS = {"trade_reshuffle", "return_bootstrap", "regime_block_bootstrap",
+            "parameter_perturbation", "execution_perturbation"}
+
+#: How the regime block method treats the mix of regimes across the sample.
+REGIME_MIX_MODES = ("resample", "preserve")
 
 
 @dataclass
@@ -47,6 +60,10 @@ class MonteCarloConfig:
     execution_perturbation: dict[str, float] = field(default_factory=dict)
     initial_capital: float = 100_000.0
     risk_free_rate: float = 0.0
+    # `regime_block_bootstrap` only.
+    regime_mix: str = "resample"          # resample | preserve
+    regime_block_length: float = 1.0      # mean consecutive blocks per draw
+    regime_config: dict[str, Any] = field(default_factory=dict)
 
 
 def _max_drawdown(equity: list[float]) -> float:
@@ -82,8 +99,62 @@ def _percentiles(values: list[float], points: list[int]) -> dict[str, float]:
     for p in points:
         out[f"p{p}"] = float(np.percentile(arr, p))
     out["mean"] = float(arr.mean())
-    out["std"] = float(arr.std(ddof=1)) if len(arr) > 1 else 0.0
+    out["std"] = float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
     return out
+
+
+def _resample_blocks_shuffling(rng: random.Random, blocks: list[list[int]],
+                               target: int, mean_length: float) -> list[int]:
+    """Draw whole blocks with replacement until `target` trades are collected.
+
+    Blocks are drawn in random order, so the *arrival* of conditions changes
+    between paths while the clustering inside a block does not. `mean_length` is
+    the expected number of consecutive blocks per draw (1.0 = classic block
+    bootstrap; higher values preserve longer runs).
+    """
+    count = len(blocks)
+    if count == 0 or target <= 0:
+        return []
+    out: list[int] = []
+    p = 1.0 / max(1.0, float(mean_length))
+    guard = 0
+    while len(out) < target and guard < 100_000:
+        guard += 1
+        start = rng.randrange(count)
+        length = 1
+        while rng.random() > p and length < count:
+            length += 1
+        for j in range(length):
+            out.extend(blocks[(start + j) % count])
+    return out[:target]
+
+
+def _resample_blocks_preserving_mix(rng: random.Random, blocks: list[list[int]],
+                                    labels: list[Optional[str]]) -> list[int]:
+    """Replace every original block with a drawn block of the same regime.
+
+    The chronology and the regime mix of the original run are kept exactly;
+    only the *content* of each block changes. This answers "what if the same
+    conditions had produced different trades?".
+    """
+    pools: dict[str, list[list[int]]] = {}
+    for block in blocks:
+        key = labels[block[0]] if block else None
+        key = key if key is not None else "unassigned"
+        pools.setdefault(key, []).append(block)
+
+    drawn: list[int] = []
+    for block in blocks:
+        key = labels[block[0]] if block else None
+        key = key if key is not None else "unassigned"
+        pool = pools.get(key) or []
+        if not pool:
+            drawn.extend(block)
+            continue
+        same_length = [b for b in pool if len(b) == len(block)]
+        pick = rng.choice(same_length) if same_length else rng.choice(pool)
+        drawn.extend(pick)
+    return drawn
 
 
 class MonteCarloEngine:
@@ -132,6 +203,11 @@ class MonteCarloEngine:
         ruinations = 0
         failures = 0
         warnings: list[dict[str, Any]] = []
+        regime_attribution: dict[str, Any] = {}
+        regime_blocks_count = 0
+        regime_mix = c.regime_mix
+        regime_pnl_samples: dict[str, list[float]] = {}
+        regime_count_samples: dict[str, list[int]] = {}
 
         if c.method == "trade_reshuffle":
             pnls = [t["netPnl"] for t in base.trades]
@@ -159,6 +235,59 @@ class MonteCarloEngine:
                     equity.append(equity[-1] * (1.0 + r0))
                 r, dd, ruined = self._path_stats(equity)
                 returns.append(r); drawdowns.append(dd); ruinations += int(ruined)
+        elif c.method == "regime_block_bootstrap":
+            from .regime import (RegimeConfig, attribute_regimes, classify_dataset,
+                                 label_trades, regime_blocks)
+
+            if c.regime_mix not in REGIME_MIX_MODES:
+                raise MonteCarloError(
+                    f"unknown regime mix {c.regime_mix!r}; expected one of "
+                    f"{', '.join(REGIME_MIX_MODES)}")
+            try:
+                regime_config = RegimeConfig(**(c.regime_config or {}))
+            except (TypeError, ValueError) as exc:
+                raise MonteCarloError(f"invalid regime config: {exc}") from exc
+
+            series_by_symbol = classify_dataset(self.dataset, regime_config)
+            labels, placement = label_trades(base.trades, series_by_symbol)
+            if placement["unassigned"]:
+                warnings.append(warn(
+                    "REGIME_LABEL_UNAVAILABLE",
+                    f"{placement['unassigned']} trade(s) could not be attached to a "
+                    "market regime; they were resampled as their own group",
+                    detail=placement["unassignedReasons"]))
+            pnls = [float(t.get("netPnl") or 0.0) for t in base.trades]
+            regime_attribution = attribute_regimes(base.trades, labels)
+            blocks = regime_blocks(labels)
+            regime_blocks_count = len(blocks)
+            if not pnls:
+                warnings.append(warn("NO_TRADES",
+                                     "base run produced no trades; nothing to resample"))
+            regime_pnl_samples: dict[str, list[float]] = {}
+            regime_count_samples: dict[str, list[int]] = {}
+            total = len(pnls)
+            for _i in range(c.simulations):
+                self._report(_i + 1, c.simulations)
+                if c.regime_mix == "preserve":
+                    drawn = _resample_blocks_preserving_mix(rng, blocks, labels)
+                else:
+                    drawn = _resample_blocks_shuffling(
+                        rng, blocks, total, c.regime_block_length)
+                equity = [c.initial_capital]
+                pnl_path: dict[str, float] = {}
+                count_path: dict[str, int] = {}
+                for idx in drawn:
+                    pnl = pnls[idx]
+                    equity.append(equity[-1] + pnl)
+                    key = labels[idx] if labels[idx] is not None else "unassigned"
+                    pnl_path[key] = pnl_path.get(key, 0.0) + pnl
+                    count_path[key] = count_path.get(key, 0) + 1
+                r, dd, ruined = self._path_stats(equity)
+                returns.append(r); drawdowns.append(dd); ruinations += int(ruined)
+                for key, value in pnl_path.items():
+                    regime_pnl_samples.setdefault(key, []).append(value)
+                for key, value in count_path.items():
+                    regime_count_samples.setdefault(key, []).append(value)
         elif c.method == "parameter_perturbation":
             base_dict = self.strategy.to_dict()
             paths = list(c.perturbation.keys()) or _numeric_paths(base_dict)
@@ -242,6 +371,22 @@ class MonteCarloEngine:
             "baseMetrics": {k: base.metrics.get(k) for k in
                             ("total_return", "sharpe", "max_drawdown", "trade_count")},
         }
+        if c.method == "regime_block_bootstrap":
+            contributions: dict[str, Any] = {}
+            for label, samples in regime_pnl_samples.items():
+                arr = np.array(samples, dtype=float)
+                counts = regime_count_samples.get(label) or []
+                contributions[label] = {
+                    "meanPnl": round(float(arr.mean()), 6) if arr.size else None,
+                    "p5Pnl": round(float(np.percentile(arr, 5)), 6) if arr.size else None,
+                    "p95Pnl": round(float(np.percentile(arr, 95)), 6) if arr.size else None,
+                    "meanTrades": round(float(np.mean(counts)), 4) if counts else None,
+                    "pathsObserved": int(arr.size),
+                }
+            payload["regimeAttribution"] = regime_attribution
+            payload["regimeBlocks"] = regime_blocks_count
+            payload["regimeMix"] = regime_mix
+            payload["regimeContributions"] = contributions
         metrics = {
             "expected_return": pct["mean"], "median_return": pct["p50"],
             "p5_return": pct["p5"], "p95_return": pct["p95"],
@@ -261,6 +406,10 @@ class MonteCarloEngine:
             "executionPerturbation": c.execution_perturbation,
             "initialCapital": c.initial_capital,
         }
+        if c.method == "regime_block_bootstrap":
+            configuration["regimeMix"] = c.regime_mix
+            configuration["regimeBlockLength"] = c.regime_block_length
+            configuration["regimeConfig"] = dict(c.regime_config or {})
         return ResearchResult(
             kind="monte_carlo", status="OK", metadata=metadata, configuration=configuration,
             metrics=metrics, warnings=warnings,

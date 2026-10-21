@@ -124,4 +124,24 @@ describe("web_collect capability", () => {
     expect(result.extraction).toBe("text");
     expect(result.text).toBe('{"ok":true}');
   });
+
+  it("returns the page's links as absolute web addresses (what pagination needs)", async () => {
+    const result = await webCollectCapability(
+      { url: URL_, links: true },
+      { get: htmlGet(SELECTOR_HTML) },
+    );
+    expect(result.status).toBe("OK");
+    const links = result.links as Array<{ href: string; text: string }>;
+    expect(links.map((link) => link.href)).toEqual([
+      "https://example.com/a",
+      "https://example.com/b",
+      "https://example.com/c",
+    ]);
+    expect(links[0].text).toBe("Alpha IR");
+  });
+
+  it("does not return links unless they were asked for", async () => {
+    const result = await webCollectCapability({ url: URL_ }, { get: htmlGet(SELECTOR_HTML) });
+    expect(result.links).toBeUndefined();
+  });
 });

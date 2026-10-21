@@ -345,7 +345,9 @@ def list_workspaces(
 # authorizers created (e.g. `New-Item`). They MUST be listed here, or a pending
 # command approval is created but never shown — the agent reports "blocked" and
 # the user has no way to approve it.
-_REVIEWABLE_APPROVAL_KINDS = ("code_action", "terminal_command", "shell_command", "code_promote")
+_REVIEWABLE_APPROVAL_KINDS = (
+    "code_action", "terminal_command", "shell_command", "code_promote", "scraper_domain",
+)
 
 
 @router.get("/code/approvals")

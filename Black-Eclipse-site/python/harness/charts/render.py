@@ -119,18 +119,18 @@ def _draw_line_family(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> 
     longest = max((len(s.data) for s in series), default=0)
     positions, labels = _axis_categories(spec, longest)
     plotted = False
-    for index, series in enumerate(series):
-        values = series.data
+    for index, entry in enumerate(series):
+        values = entry.data
         if not values:
             continue
-        color = series.color or theme.series_color(index)
+        color = entry.color or theme.series_color(index)
         xs = list(range(len(values)))
         ys = [float(v) if v is not None else float("nan") for v in values]
-        style = series.style or ("area" if spec.kind == "area" else "line")
+        style = entry.style or ("area" if spec.kind == "area" else "line")
         if style == "bar":
-            ax.bar(xs, ys, color=color, width=0.7, label=series.name, alpha=0.9)
+            ax.bar(xs, ys, color=color, width=0.7, label=entry.name, alpha=0.9)
         elif style == "scatter":
-            ax.scatter(xs, ys, color=color, s=18, label=series.name)
+            ax.scatter(xs, ys, color=color, s=18, label=entry.name)
         else:
             if spec.smooth and len(ys) > 2:
                 finite = [(i, v) for i, v in enumerate(ys) if not math.isnan(v)]
@@ -141,26 +141,38 @@ def _draw_line_family(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> 
                     ys = list(np.interp(dense, fx, fy))
                     xs = list(dense)
             if style == "area":
-                ax.fill_between(xs, ys, color=color, alpha=0.22, label=series.name)
-                ax.plot(xs, ys, color=color, linewidth=1.6, label=series.name)
+                ax.fill_between(xs, ys, color=color, alpha=0.22, label=entry.name)
+                ax.plot(xs, ys, color=color, linewidth=1.6, label=entry.name)
             elif style == "step":
-                ax.step(xs, ys, where="post", color=color, linewidth=1.6, label=series.name)
+                ax.step(xs, ys, where="post", color=color, linewidth=1.6, label=entry.name)
             else:
-                ax.plot(xs, ys, color=color, linewidth=1.6, label=series.name)
+                ax.plot(xs, ys, color=color, linewidth=1.6, label=entry.name)
             if spec.show_points:
                 ax.scatter(xs, ys, color=color, s=14)
+        band = entry.band
+        if band and band.lower and band.upper:
+            # A forecast band: the range the series lives in, drawn as a
+            # translucent area. It is presentation, never a probability.
+            lower = [float(v) if v is not None else float("nan") for v in band.lower]
+            upper = [float(v) if v is not None else float("nan") for v in band.upper]
+            count = min(len(lower), len(upper))
+            if count > 1:
+                ax.fill_between(
+                    list(range(count)), lower[:count], upper[:count],
+                    color=color, alpha=0.16, linewidth=0,
+                )
         plotted = True
     if spec.stacked and len(series) > 1:
         # A stacked family is drawn as cumulative areas so the stack is real.
         ax.clear()
         bottom = [0.0] * longest
-        for index, series in enumerate(series):
-            values = list(series.data) + [None] * (longest - len(series.data))
+        for index, entry in enumerate(series):
+            values = list(entry.data) + [None] * (longest - len(entry.data))
             ys = [float(v) if v is not None else 0.0 for v in values]
-            color = series.color or theme.series_color(index)
+            color = entry.color or theme.series_color(index)
             ax.fill_between(
                 positions, bottom, [b + y for b, y in zip(bottom, ys)],
-                color=color, alpha=0.55, label=series.name,
+                color=color, alpha=0.55, label=entry.name,
             )
             bottom = [b + y for b, y in zip(bottom, ys)]
     if not plotted:
@@ -178,25 +190,25 @@ def _draw_bar_family(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> N
     positions, labels = _axis_categories(spec, longest)
     if spec.stacked:
         bottom = [0.0] * longest
-        for index, series in enumerate(series):
-            values = list(series.data) + [None] * (longest - len(series.data))
+        for index, entry in enumerate(series):
+            values = list(entry.data) + [None] * (longest - len(entry.data))
             ys = [float(v) if v is not None else 0.0 for v in values]
-            color = series.color or theme.series_color(index)
+            color = entry.color or theme.series_color(index)
             ax.bar(
                 positions, ys, bottom=bottom, color=color, width=0.68,
-                label=series.name, alpha=0.92,
+                label=entry.name, alpha=0.92,
             )
             bottom = [b + y for b, y in zip(bottom, ys)]
     else:
         width = 0.8 / max(1, len(series))
-        for index, series in enumerate(series):
-            values = list(series.data) + [None] * (longest - len(series.data))
+        for index, entry in enumerate(series):
+            values = list(entry.data) + [None] * (longest - len(entry.data))
             ys = [float(v) if v is not None else float("nan") for v in values]
-            color = series.color or theme.series_color(index)
+            color = entry.color or theme.series_color(index)
             offset = (index - (len(series) - 1) / 2) * width
             ax.bar(
                 [p + offset for p in positions], ys, width=width, color=color,
-                label=series.name, alpha=0.92,
+                label=entry.name, alpha=0.92,
             )
     if len(labels) <= 24:
         ax.set_xticks(positions)

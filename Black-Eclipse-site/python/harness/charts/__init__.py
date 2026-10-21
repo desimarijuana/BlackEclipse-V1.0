@@ -29,6 +29,11 @@ from .spec import (
 from .theme import DARK_THEME, LIGHT_THEME, get_theme
 from .tools import chart_schema, python_chart, register_chart_tools
 
+def install_chart_tools(registry: object) -> None:
+    """One-line bootstrap seam so `service.py` stays within its size budget."""
+    register_chart_tools(registry)
+
+
 __all__ = [
     "CHART_RENDER_FAILED",
     "CHART_RENDER_UNAVAILABLE",
@@ -44,6 +49,7 @@ __all__ = [
     "RenderedChart",
     "chart_schema",
     "get_theme",
+    "install_chart_tools",
     "python_chart",
     "register_chart_artifact",
     "register_chart_tools",

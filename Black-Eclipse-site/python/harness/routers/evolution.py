@@ -1258,6 +1258,24 @@ async def rsl_tick(_: bool = Depends(require_operator)) -> dict[str, Any]:
     return {"success": True, **await loop.tick()}
 
 
+@router.post("/evolution/rsl/climb/pause")
+def pause_rsl_climb(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    loop = getattr(service, "_rsl_loop", None)
+    if loop is None:
+        raise HTTPException(status_code=503, detail="RSL loop unavailable")
+    loop.pause_climb()
+    return {"success": True, "climbPaused": True}
+
+
+@router.post("/evolution/rsl/climb/resume")
+def resume_rsl_climb(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    loop = getattr(service, "_rsl_loop", None)
+    if loop is None:
+        raise HTTPException(status_code=503, detail="RSL loop unavailable")
+    loop.resume_climb()
+    return {"success": True, "climbPaused": False}
+
+
 @router.get("/evolution/states/pareto")
 def states_pareto(
     scope: Optional[str] = None,

@@ -201,6 +201,10 @@ WEB_RESEARCH_TOOLS = [
     # Bounded page collection: fetch ONE page and extract repeated records with a
     # CSS selector (or its tables). The agent-shaped acquisition route (R3-04).
     "web_scrape",
+    # The scraper lane: when the answer is not on the page (and not in the
+    # vault), write and run a scraper for the site that has it. Per-domain
+    # operator approval; the rows are stored as COLLECTED data.
+    "scraper_run",
     "research_plan",
     "research_query",
     "research_start",
@@ -469,6 +473,9 @@ ECLIPSE_AGENT = AgentConfig(
         # Phase 8: the analysis sandbox (compute a derived metric). OFF per run
         # unless the caller enables it (`RunRequest.analysisEnabled`).
         "analysis_run",
+        # The chart engine: draw a chart from a validated spec (data only).
+        # The picture is a computed artifact, never a source.
+        "python_chart",
         # Phase 9: build a finance tool from a ready-made shape. Gated by the
         # run's editing profile (a workspace-bound code.write).
         "scaffold_kit",

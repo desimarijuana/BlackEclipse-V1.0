@@ -148,7 +148,8 @@ src/components/
   layout/         sidebar, top-bar, price-ribbon, global-search, agentation
   chat/           chat-specific pieces
   ui/             reusable primitives (button, card, dialog, tab-bar, …)
-  chart/          the ECharts/TradingView chart widget
+  chart/          the ECharts/TradingView chart widget (being retired)
+  charts/         the chart surface — the picture drawn by the Python chart engine
   journal/        trading journal UI
   market-workspace/  the multi-panel market grid UI
   workspace/      the customizable widget-grid UI
@@ -1910,6 +1911,33 @@ the client zustand `useSoundStore` (`be_sounds_v3`; the key was bumped from
 `message` and the engine moved to Web Audio). Sound
 is **opt-in**: defaults are OFF, 12% volume (deliberately subtle), mode `all`,
 pack `eclipse`.
+
+## The chart engine (Python, not the browser)
+
+Eclipse draws its charts with the **Python runtime**, not with a browser
+charting library. A chart is described by a validated **chart spec** — data
+only (a kind, some series, a title), never a callback, a URL or a path — and
+the runtime draws it with `matplotlib` into a **transparent** PNG, using the
+app's own palette, so the picture sits on the frosted glass card without
+hiding the frost. The picture is recorded in the Artifact Center and fetched
+back by the browser as an artifact, so a chart is downloadable, versioned and
+shareable.
+
+```
+python/harness/charts/     spec.py · theme.py · render.py · service.py · tools.py
+python/harness/routers/charts.py   POST /charts/render (operator-gated)
+src/lib/harness/charts.ts          the browser client
+src/app/api/harness/charts/route.ts  the front-door proxy
+src/components/charts/python-chart.tsx  the chart surface
+```
+
+Three doors onto the one engine: the `python_chart` **agent tool** (a
+malformed spec is a refusal that names the missing part), the **operator
+route** the front door calls, and the **browser client**. A figure is always
+`computed` and never evidence; a missing `matplotlib` is a named refusal, not
+an empty picture. Full contract, the surface inventory and the **ECharts
+retirement plan**: [`docs/chart-engine.md`](chart-engine.md). Decision:
+**ADR-050**.
 
 ## Module boundaries (terminal · shared · backend · harness)
 

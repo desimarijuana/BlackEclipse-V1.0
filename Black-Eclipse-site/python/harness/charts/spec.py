@@ -74,6 +74,8 @@ class ChartSeries(BaseModel):
     #: How the series is drawn when the chart supports more than one drawing
     #: style (a bar chart with a line overlay, for instance).
     style: Optional[Literal["line", "area", "bar", "step", "scatter"]] = None
+    #: An optional range around the series, drawn as a translucent band.
+    band: Optional[ChartBand] = None
 
 
 class ChartPoint(BaseModel):
@@ -86,6 +88,19 @@ class ChartPoint(BaseModel):
     label: Optional[str] = Field(default=None, max_length=120)
     size: Optional[float] = Field(default=None, gt=0)
     color: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class ChartBand(BaseModel):
+    """A range drawn around a series (a confidence cone, a forecast band).
+
+    The band is presentation weight, never a probability or a claim: it says
+    "the series lives between these two lines", nothing more.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    lower: list[Optional[float]] = Field(default_factory=list)
+    upper: list[Optional[float]] = Field(default_factory=list)
 
 
 class Candle(BaseModel):

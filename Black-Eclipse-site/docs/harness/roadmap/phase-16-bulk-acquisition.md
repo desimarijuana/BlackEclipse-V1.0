@@ -184,6 +184,15 @@ No HTTP client, no network. So a Monte Carlo over *downloaded* data cannot be bu
 inside Eclipse at all: the compute half exists, the acquisition half does not, and
 the user is left to fetch the data themselves. That is exactly the report.
 
+> **Superseded in part (2026-10-20, ADR-051).** The compute/acquire split still
+> holds — `RunSpec(network=False)` is unchanged and the analysis sandbox still
+> has no network. What changed is that the runtime can now **acquire** through a
+> different door: the **scraper lane** (`docs/harness/scraper-lane.md`) runs a
+> generated program whose only way out is the host-mediated `web_page` binding
+> (the same `web_collect` capability `web_scrape` uses). The acquisition half
+> therefore exists — for a site the user names, with the operator's per-domain
+> consent — while the raw-network half still does not.
+
 **(d) There is no permission noun for it.** `skills/permissions.py` holds
 `SAFE_PERMISSIONS` (`data.read`, `research.read`, `analysis.execute`,
 `report.generate`, `skill.invoke`, `portfolio.read`, `external.network`) and

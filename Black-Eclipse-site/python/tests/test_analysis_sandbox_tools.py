@@ -65,10 +65,20 @@ def _resolver(calls: list[tuple[str, dict]], payload: dict | None = None):
 
 def test_binding_set_is_read_only_and_minimal():
     assert st.tool_names() == ("market_snapshot", "live_quote", "price_history")
-    for binding in st.TOOL_BINDINGS.values():
+    # The analysis sandbox's own bindings are all data reads.
+    for name in st.tool_names():
+        binding = st.TOOL_BINDINGS[name]
         assert binding.capability in st.tool_names()
         assert "write" not in binding.name
         assert "search" not in binding.name
+    # The web binding exists for the scraper lane ONLY: it is never part of the
+    # analysis sandbox's set, so an analysis program still cannot reach the net.
+    assert st.WEB_TOOL_NAMES == ("web_page",)
+    assert "web_page" not in st.tool_names()
+    for name in st.WEB_TOOL_NAMES:
+        binding = st.TOOL_BINDINGS[name]
+        assert binding.capability == "web_collect"
+        assert "write" not in binding.name
 
 
 def test_validate_normalizes_and_rejects_bad_requests():

@@ -86,5 +86,30 @@ class HttpDataBridge(DataBridge):
         log.warning("data bridge failed (%s): %s", capability, last_exc)
         return {"status": "UNAVAILABLE", "error": str(last_exc)}
 
+    async def post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST a JSON body to a front-door route that WRITES.
+
+        The read bridge above is read-only by design. The scraper lane is the
+        one place the runtime hands collected rows back to the front door (which
+        owns the vault), so it gets its own explicit, narrow seam rather than a
+        write-capable `/api/harness/data`.
+        """
+        import httpx
+
+        headers = {"Content-Type": "application/json"}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        url = f"{self._base}/{str(path).lstrip('/')}"
+        try:
+            async with httpx.AsyncClient(timeout=self._NETWORK_TIMEOUT_S) as client:
+                response = await client.post(url, headers=headers, json=payload)
+            if response.status_code >= 400:
+                return {"ok": False, "error": f"the front door refused the rows (HTTP {response.status_code})"}
+            body = response.json()
+        except Exception as exc:  # noqa: BLE001 - a transport failure is an honest failure
+            log.warning("bridge write failed (%s): %s", path, exc)
+            return {"ok": False, "error": str(exc)}
+        return body if isinstance(body, dict) else {"ok": False, "error": "unreadable answer"}
+
 
 __all__ = ["HttpDataBridge"]

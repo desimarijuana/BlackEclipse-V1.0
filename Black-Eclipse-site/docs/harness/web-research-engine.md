@@ -303,6 +303,15 @@ returned is **COLLECTED, untrusted page data** — the page is the source, never
 Eclipse. This is one page, one request, one answer: bulk/scheduled acquisition
 remains the phase-16 capability and is deliberately not built here.
 
+### When one page is not enough: the scraper lane
+
+`web_scrape` cannot walk to page 2, join two pages, or reshape the records.
+When the answer needs that, the **scraper lane** takes over: the agent writes a
+program that fetches pages through the SAME `web_collect` capability and leaves
+its records in `result`. It adds no second transport and no second parser — see
+[`scraper-lane.md`](scraper-lane.md) for the contract, the per-domain consent
+and the honesty rules.
+
 ## What is deliberately NOT here
 
 - No second search-provider chain: `web_providers` wraps the existing bridge

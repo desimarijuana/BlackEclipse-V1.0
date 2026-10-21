@@ -26,6 +26,7 @@ const MAX_TABLES = 5;
 const MAX_COLS = 40;
 const MAX_TEXT_CHARS = 20_000;
 const MAX_CELL_CHARS = 500;
+const MAX_LINKS = 100;
 
 function collapse(value: string): string {
   return value.replace(/\s+/g, " ").trim();
@@ -128,6 +129,32 @@ export async function webCollectCapability(
 
   const $ = cheerio.load(res.text);
   result.title = cellText($("title").first().text()) || null;
+
+  // The LINKS are what make pagination possible for a generated scraper: the
+  // program reads "next page" hrefs from here and asks for the next page. They
+  // are absolute (resolved against the page's final URL) and http(s)-only, so a
+  // relative or non-web target never leaves the web.
+  if (params.links === true) {
+    const base = res.url || url;
+    const links: Array<{ href: string; text: string }> = [];
+    const seen = new Set<string>();
+    $("a[href]").each((_, anchor) => {
+      if (links.length >= MAX_LINKS) return;
+      const raw = $(anchor).attr("href");
+      if (!raw) return;
+      let absolute: string;
+      try {
+        absolute = new URL(raw, base).toString();
+      } catch {
+        return;
+      }
+      if (!/^https?:/i.test(absolute)) return;
+      if (seen.has(absolute)) return;
+      seen.add(absolute);
+      links.push({ href: absolute, text: cellText($(anchor).text()) });
+    });
+    result.links = links;
+  }
 
   const selector = String(params.selector ?? "").trim();
   if (selector) {

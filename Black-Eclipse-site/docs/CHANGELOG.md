@@ -123,6 +123,16 @@ umpy/pandas are **already installed** in the runtime and the analysis
   (26), src/lib/harness/charts.test.ts, src/app/api/harness/charts/route.test.ts.
   docs updated: docs/chart-engine.md, docs/DECISIONS.md (ADR-050),
   skills/ARCHITECT.md (ADR-050), docs/ARCHITECTURE.md, docs/NAVIGATION.md.
+- **feat(charts,scraper,quant): land the Python chart engine, scraper lane and
+  quant analysis additions.** Charts now render from a validated spec through
+  the Python engine into Artifact Center PNGs; the scraper lane generates a
+  program for data the vault lacks through the existing sandbox; quant adds
+  regime classification, the Edge Verdict, prop-firm rules/Monte-Carlo and the
+  supporting routes/tools. Docs updated:
+  `docs/chart-engine.md`, `docs/harness/scraper-lane.md`, `docs/quant-engine.md`,
+  `docs/backtesting-engine.md`, `docs/harness/web-research-engine.md`,
+  `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, `docs/NAVIGATION.md`.
+
 - **docs(rsl): close v2 with decisions and acceptance evidence.**
   Model identity remains trial-only (ADR-H275); skill drafts promote through the
   existing skills lifecycle (ADR-H276); v2 acceptance is slice-level (ADR-H277).

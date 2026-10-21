@@ -525,6 +525,175 @@ def _freeze(value: Any) -> Any:
     return value
 
 
+# ── Regime-aware uncertainty and the edge verdict ────────────────────────────
+
+async def run_regime_monte_carlo(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Resample the trade sequence in blocks of same-regime runs."""
+    t = _t()
+    try:
+        from .datasets import dataset_from_strategy
+        from .montecarlo import MonteCarloConfig, MonteCarloEngine
+
+        store = t._store(ctx)
+        strategy = await t._load_strategy(store, args)
+        dataset = await dataset_from_strategy(
+            t._gateway(ctx), strategy, start=args.get("start"), end=args.get("end"),
+            symbols=args.get("symbols"))
+        config = MonteCarloConfig(
+            method="regime_block_bootstrap",
+            simulations=int(args.get("simulations") or 1000),
+            seed=int(args.get("seed") or 42),
+            ruin_threshold=float(args.get("ruinThreshold") or 0.5),
+            regime_mix=str(args.get("regimeMix") or "resample"),
+            regime_block_length=float(args.get("regimeBlockLength") or 1.0),
+            regime_config=dict(args.get("regimeConfig") or {}),
+            initial_capital=float(args.get("initialCapital") or 100_000.0),
+            risk_free_rate=float(args.get("riskFreeRate") or 0.0),
+        )
+        result = MonteCarloEngine(strategy, dataset, config).run()
+        exp_id = None
+        if t._flag(args, "save", True):
+            exp_id = store.save_experiment(
+                result, strategy_id=strategy.id, strategy_version=strategy.version,
+                kind="monte_carlo")
+        payload = result.to_dict()
+        payload["experimentId"] = exp_id
+        attribution = payload.get("regimeAttribution") or {}
+        regimes = attribution.get("regimes") or {}
+        blocks = payload.get("regimeBlocks") or 0
+        detail = ", ".join(
+            f"{label}: {int(bucket.get('trades') or 0)} trades, "
+            f"net {float(bucket.get('netPnl') or 0.0):.2f}"
+            for label, bucket in list(regimes.items())[:6]) or "no regime was labelled"
+        return (f"Regime-block Monte-Carlo: {blocks} same-regime block(s), mix="
+                f"{payload.get('regimeMix')}, {payload.get('successful')} path(s). "
+                f"P(loss)={payload.get('probabilityOfLoss')}%, "
+                f"P(ruin)={payload.get('probabilityOfRuin')}%. {detail}.",
+                {"status": "OK", **payload})
+    except Exception as exc:  # noqa: BLE001
+        return t._err(exc)
+
+
+async def grade_strategy_edge(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Grade the evidence behind a strategy's edge (A-F) and name the tells."""
+    t = _t()
+    try:
+        from .verdict import grade_edge
+
+        store = t._store(ctx)
+        experiment_id = args.get("experimentId")
+        monte_carlo_id = args.get("monteCarloExperimentId")
+
+        if experiment_id:
+            artifact = store.read_artifact(str(experiment_id))
+            metrics = artifact.get("metrics") or {}
+            trades = artifact.get("trades") or []
+            equity = artifact.get("equityCurve") or []
+            strategy_id = args.get("strategyId")
+        else:
+            if not args.get("strategyId"):
+                return ("ERROR - provide `experimentId` or `strategyId`.",
+                        {"status": "ERROR",
+                         "error": {"code": "EDGE_VERDICT_INPUT_REQUIRED"}})
+            strategy = await t._load_strategy(store, args)
+            result = await t._run_one(strategy, t._gateway(ctx), args)
+            metrics = result.metrics
+            trades = result.trades
+            equity = result.equity_curve
+            strategy_id = strategy.id
+
+        monte_carlo = store.read_artifact(str(monte_carlo_id)) if monte_carlo_id else None
+        regimes = (monte_carlo or {}).get("regimeAttribution")
+
+        verdict = grade_edge(metrics=metrics, trades=trades, equity_curve=equity,
+                             monte_carlo=monte_carlo, regimes=regimes)
+        verdict["strategyId"] = strategy_id
+        verdict["experimentId"] = experiment_id
+        verdict["monteCarloExperimentId"] = monte_carlo_id
+        return (verdict["summary"], {"status": "OK", "verdict": verdict})
+    except Exception as exc:  # noqa: BLE001
+        return t._err(exc)
+
+
+# ── Prop-firm evaluation ─────────────────────────────────────────────────────
+
+async def run_prop_firm_simulation(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Evaluate a trade log against a prop firm's real rules."""
+    t = _t()
+    try:
+        from .propfirm import get_spec, list_firms
+        from .propfirm_mc import PropFirmMonteCarloConfig, run_prop_firm_monte_carlo
+
+        firm = str(args.get("firm") or "").strip()
+        if not firm:
+            return (f"ERROR - provide `firm`. Known firms: "
+                    f"{', '.join(f['id'] for f in list_firms())}.",
+                    {"status": "ERROR",
+                     "error": {"code": "PROP_FIRM_REQUIRED",
+                               "available": [f["id"] for f in list_firms()]}})
+        spec = get_spec(firm)
+        size = spec.size(str(args.get("size") or ""))
+
+        trades = args.get("trades")
+        if trades is None:
+            experiment_id = args.get("experimentId")
+            if not experiment_id:
+                return ("ERROR - provide `trades` (a closed-trade log) or "
+                        "`experimentId` (a stored backtest to read the trades "
+                        "from). For a real trading log, call `journal_trades` "
+                        "first and pass its trades here.",
+                        {"status": "ERROR",
+                         "error": {"code": "PROP_FIRM_INPUT_REQUIRED"}})
+            store = t._store(ctx)
+            artifact = store.read_artifact(str(experiment_id))
+            trades = artifact.get("trades") or []
+
+        config = PropFirmMonteCarloConfig(
+            simulations=int(args.get("simulations") or 500),
+            seed=int(args.get("seed") or 42),
+            resample=str(args.get("resample") or "block"),
+            block_length=float(args.get("blockLength") or 1.0),
+            fee_per_attempt=float(args.get("feePerAttempt") or 0.0),
+            reset_fee=float(args.get("resetFee") or 0.0),
+            simulate_funded=bool(args.get("simulateFunded", True)),
+        )
+        report = run_prop_firm_monte_carlo(list(trades), spec, size, config)
+        if not report.get("available"):
+            return (f"Prop-firm simulation unavailable: {report.get('reason')}",
+                    {"status": "OK", **report})
+
+        mc = report["monteCarlo"]
+        baseline = report["baseline"]["evaluation"]
+        outcomes = ", ".join(f"{k}={v}" for k, v in mc["outcomes"].items() if v)
+        return (f"{spec.name} {size.label}: pass probability "
+                f"{mc['passProbability']:.1f}% over {mc['simulations']} resampled "
+                f"paths ({outcomes}). The log as it actually happened: "
+                f"{baseline['status']} - {baseline['reason']}. "
+                f"Rules as of {spec.as_of}; confirm them with the firm.",
+                {"status": "OK", **report})
+    except Exception as exc:  # noqa: BLE001
+        return t._err(exc)
+
+
+async def list_prop_firm_rules(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """The prop-firm rule sets the engine knows, with their source and date."""
+    t = _t()
+    try:
+        from .propfirm import list_firms
+
+        firms = list_firms()
+        lines = [
+            f"{f['name']} ({f['id']}) - sizes: "
+            f"{', '.join(s['id'] for s in f['sizes'])}; rules as of {f['asOf']}"
+            for f in firms
+        ]
+        lines.append("Firm rules change often: confirm the numbers with the firm "
+                     "before acting on them.")
+        return ("\n".join(lines), {"status": "OK", "firms": firms})
+    except Exception as exc:  # noqa: BLE001
+        return t._err(exc)
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 def register_advanced_tools(registry: Any) -> list[str]:
@@ -683,6 +852,63 @@ def register_advanced_tools(registry: Any) -> list[str]:
              "initialCapital": {"type": "number"}, "riskFreeRate": {"type": "number"}},
              "required": []}, 180_000, long_running=True)
 
+    _def("run_regime_monte_carlo",
+         "Resample a strategy's trade sequence in blocks of consecutive trades that "
+         "occurred in the same market regime (trend x volatility, classified causally "
+         "from the same bars), so the clustering of good and bad conditions survives "
+         "the resample. Reports the regime attribution of realised P&L and the "
+         "per-regime contribution across paths.",
+         run_regime_monte_carlo, {"type": "object", "properties": {
+             **_backtest_schema["properties"],
+             "regimeMix": {"type": "string", "enum": ["resample", "preserve"]},
+             "regimeBlockLength": {"type": "number"},
+             "regimeConfig": {"type": "object"}},
+             "required": ["strategyId"]}, 180_000, long_running=True)
+
+    _def("grade_strategy_edge",
+         "Grade the evidence behind a strategy's edge from A to F across edge, "
+         "robustness, risk and sample size, and name the overfit tells (a "
+         "suspiciously smooth equity curve, P&L concentrated in a few trades, "
+         "expectancy not positive, a sample too small to tell from luck). Reads a "
+         "stored experiment or runs the backtest; optionally folds in a "
+         "regime-block Monte-Carlo result.",
+         grade_strategy_edge, {"type": "object", "properties": {
+             "strategyId": {"type": "string"}, "version": {"type": "string"},
+             "experimentId": {"type": "string"},
+             "monteCarloExperimentId": {"type": "string"},
+             "symbols": {"type": "array", "items": {"type": "string"}},
+             "start": {"type": "string"}, "end": {"type": "string"},
+             "initialCapital": {"type": "number"}, "riskFreeRate": {"type": "number"},
+             "randomSeed": {"type": "integer"}},
+             "required": []}, 180_000, long_running=True)
+
+    _def("run_prop_firm_simulation",
+         "Evaluate a closed-trade log against a prop firm's REAL evaluation rules "
+         "(profit target, maximum loss, daily loss limit, consistency rule, access "
+         "period, payout split), then resample the trading days to estimate the "
+         "pass probability, the days-to-pass and the net expected value. Reports "
+         "the rule set's source and date; firm rules change, so they must be "
+         "confirmed with the firm. Intraday equity is not modelled and says so.",
+         run_prop_firm_simulation, {"type": "object", "properties": {
+             "firm": {"type": "string",
+                      "description": "topstep | apex_eod | ftmo_pro | tpt_pro"},
+             "size": {"type": "string", "description": "the account size id"},
+             "trades": {"type": "array", "items": {"type": "object"}},
+             "experimentId": {"type": "string"},
+             "simulations": {"type": "integer"}, "seed": {"type": "integer"},
+             "resample": {"type": "string", "enum": ["block", "iid"]},
+             "blockLength": {"type": "number"},
+             "feePerAttempt": {"type": "number"},
+             "resetFee": {"type": "number"},
+             "simulateFunded": {"type": "boolean"}},
+             "required": ["firm", "size"]}, 180_000, long_running=True)
+
+    _def("list_prop_firm_rules",
+         "List the prop-firm rule sets the engine knows, with every account size, "
+         "the source each number came from and the date it was read. Use it "
+         "before running a prop-firm simulation.",
+         list_prop_firm_rules, {"type": "object", "properties": {}, "required": []})
+
     return list(ADVANCED_TOOLS)
 
 
@@ -697,6 +923,10 @@ ADVANCED_TOOLS: tuple[str, ...] = (
     "run_bootstrap_test",
     "compare_backtests",
     "run_multiple_testing_diagnostics",
+    "run_regime_monte_carlo",
+    "grade_strategy_edge",
+    "run_prop_firm_simulation",
+    "list_prop_firm_rules",
     "price_option",
     "implied_volatility",
     "analyze_option_strategy",

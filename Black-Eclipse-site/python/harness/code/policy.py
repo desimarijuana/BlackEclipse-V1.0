@@ -453,6 +453,13 @@ def acquisition_grants(profile: str) -> frozenset[str]:
 # (`code/authorizers.py`); the handler enforces the switch and the budget.
 DATA_COLLECT_TOOLS: tuple[str, ...] = ("acquire",)
 
+# The scraper lane's tools. `scraper_run` writes a generated program, fetches
+# pages through the host's safe transport and stores what it collected. It is
+# NOT part of the `data.collect` family: the operator's consent for this lane is
+# per DOMAIN (the `scraper_domain` approval kind), not the bulk-acquisition
+# switch, because a scraper collects a dataset the user asked for on the spot.
+SCRAPER_TOOLS: tuple[str, ...] = ("scraper_run",)
+
 # The file-system subsystem's mutating tools (Phase FS). They are code.write
 # tools: removed at `plan_only`, admitted at `edit_verify`, and each path is
 # re-checked by the handler → `permissions.require` → `decide_write`.

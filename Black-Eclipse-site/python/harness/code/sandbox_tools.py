@@ -22,6 +22,7 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
@@ -36,6 +37,10 @@ TOOL_SENTINEL = 75
 # Bounds: a program may make at most this many DISTINCT host calls. Replaying is
 # cheap; a call that is already memoized costs nothing.
 MAX_TOOL_CALLS = 8
+# The ceiling a caller MAY raise the call budget to. A scraper legitimately needs
+# more than one page (pagination, several sources); the bound is still finite and
+# is set by the HOST, never by the program.
+MAX_TOOL_CALLS_CEILING = 64
 MAX_TOOL_ARGS_BYTES = 4_096
 # The whole pending request on disk, including the tool name and JSON envelope.
 # Checked BEFORE reading so a hostile argument value cannot balloon host memory.
@@ -56,6 +61,10 @@ ToolResolver = Callable[[str, dict[str, Any]], dict[str, Any]]
 _SYMBOL_RE = re.compile(r"^[A-Z0-9.^=\-]{1,32}$")
 _MARKET_RE = re.compile(r"^[A-Z0-9 /&+_.\-]{1,24}$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_MAX_URL_CHARS = 2_000
+_MAX_SELECTOR_CHARS = 500
+_MAX_FIELD_NAME_CHARS = 64
+_MAX_FIELDS = 40
 
 _INTERVALS = (
     "1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo",
@@ -67,9 +76,11 @@ _RANGES = ("1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max
 class ParamSpec:
     """One accepted argument. Unknown arguments are refused, never forwarded."""
 
-    kind: str  # symbol | market | choice | date
+    kind: str  # symbol | market | choice | date | url | selector | fields | bool | int
     required: bool = False
     choices: tuple[str, ...] = ()
+    minimum: int = 0
+    maximum: int = 0
 
 
 @dataclass(frozen=True)
@@ -115,7 +126,35 @@ TOOL_BINDINGS: dict[str, ToolBinding] = {
             "end": ParamSpec("date"),
         },
     ),
+    # The WEB binding. It is deliberately NOT part of `DATA_TOOL_NAMES`: the
+    # analysis sandbox stays network-free, and only the scraper lane (which
+    # fetches pages through the same hardened host transport) may use it.
+    "web_page": ToolBinding(
+        name="web_page",
+        capability="web_collect",
+        description=(
+            "Fetch ONE page and read it: repeated records by CSS selector, the "
+            "page's tables, or its links. The host does the fetching (safe "
+            "transport, size and time caps) and the extraction is deterministic."
+        ),
+        params={
+            "url": ParamSpec("url", required=True),
+            "selector": ParamSpec("selector"),
+            "fields": ParamSpec("fields"),
+            "attribute": ParamSpec("attribute"),
+            "tables": ParamSpec("bool"),
+            "links": ParamSpec("bool"),
+            "max_rows": ParamSpec("int", minimum=1, maximum=500),
+        },
+    ),
 }
+
+#: The data bindings the analysis sandbox may use (no network).
+DATA_TOOL_NAMES: tuple[str, ...] = (
+    "market_snapshot", "live_quote", "price_history",
+)
+#: The web binding — the scraper lane's only way out of the sandbox.
+WEB_TOOL_NAMES: tuple[str, ...] = ("web_page",)
 
 
 class ToolRequestError(ValueError):
@@ -140,11 +179,27 @@ class ToolCallRef(BaseModel):
     args_digest: str
     result_digest: str
     status: str = "OK"
-    round: int = Field(0, ge=0, le=MAX_TOOL_CALLS)
+    round: int = Field(0, ge=0, le=MAX_TOOL_CALLS_CEILING)
 
 
 def tool_names() -> tuple[str, ...]:
-    return tuple(TOOL_BINDINGS)
+    """The bindings the ANALYSIS sandbox may use: the data reads, no network."""
+    return DATA_TOOL_NAMES
+
+
+def select_tool_names(names: tuple[str, ...]) -> tuple[str, ...]:
+    """The named bindings, validated against the table.
+
+    The HOST picks the set (the analysis lane gets the data reads; the scraper
+    lane gets the web binding), so a program can never widen its own reach.
+    """
+    out: list[str] = []
+    for name in names:
+        if name not in TOOL_BINDINGS:
+            raise ValueError(f"no such data tool: {name!r}")
+        if name not in out:
+            out.append(name)
+    return tuple(out)
 
 
 def canonical_args(args: Mapping[str, Any]) -> str:
@@ -208,6 +263,70 @@ def _validate_param(name: str, spec: ParamSpec, value: Any) -> Any:
         except ValueError as exc:
             raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} is not a real date") from exc
         return text
+    if spec.kind == "url":
+        if not isinstance(value, str):
+            raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} must be text")
+        text = value.strip()
+        if len(text) > _MAX_URL_CHARS:
+            raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} is too long")
+        parsed = urlsplit(text)
+        if parsed.scheme.lower() not in ("http", "https"):
+            raise ToolRequestError(
+                TOOL_ARGS_INVALID, f"{name} must be an http or https address",
+            )
+        if not parsed.hostname:
+            raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} has no host")
+        if parsed.username or parsed.password:
+            raise ToolRequestError(
+                TOOL_ARGS_INVALID, f"{name} must not carry credentials",
+            )
+        return text
+    if spec.kind == "selector":
+        if not isinstance(value, str):
+            raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} must be text")
+        text = value.strip()
+        if not text or len(text) > _MAX_SELECTOR_CHARS:
+            raise ToolRequestError(
+                TOOL_ARGS_INVALID,
+                f"{name} must be a CSS selector of 1..{_MAX_SELECTOR_CHARS} characters",
+            )
+        return text
+    if spec.kind == "attribute":
+        if not isinstance(value, str):
+            raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} must be text")
+        text = value.strip()
+        if not text or len(text) > _MAX_SELECTOR_CHARS:
+            raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} is not a usable attribute name")
+        return text
+    if spec.kind == "fields":
+        if not isinstance(value, dict):
+            raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} must be an object")
+        if len(value) > _MAX_FIELDS:
+            raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} has too many fields")
+        out: dict[str, str] = {}
+        for key, child in value.items():
+            name_text = str(key).strip()
+            child_text = str(child).strip()
+            if not name_text or len(name_text) > _MAX_FIELD_NAME_CHARS:
+                raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} has an unusable field name")
+            if not child_text or len(child_text) > _MAX_SELECTOR_CHARS:
+                raise ToolRequestError(
+                    TOOL_ARGS_INVALID, f"{name}.{name_text} is not a usable selector",
+                )
+            out[name_text] = child_text
+        return out
+    if spec.kind == "bool":
+        if not isinstance(value, bool):
+            raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} must be true or false")
+        return value
+    if spec.kind == "int":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} must be a whole number")
+        if spec.minimum and value < spec.minimum:
+            raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} must be at least {spec.minimum}")
+        if spec.maximum and value > spec.maximum:
+            raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} must be at most {spec.maximum}")
+        return value
     raise ToolRequestError(TOOL_ARGS_INVALID, f"{name} has an unsupported kind")
 
 
@@ -279,8 +398,10 @@ def memo_size(memo: Mapping[str, Any]) -> int:
 
 
 __all__ = [
+    "DATA_TOOL_NAMES",
     "MAX_TOOL_ARGS_BYTES",
     "MAX_TOOL_CALLS",
+    "MAX_TOOL_CALLS_CEILING",
     "MAX_TOOL_MEMO_BYTES",
     "MAX_TOOL_REQUEST_BYTES",
     "MAX_TOOL_RESULT_BYTES",
@@ -292,6 +413,7 @@ __all__ = [
     "TOOL_RESOLVE_FAILED",
     "TOOL_RESULT_TOO_LARGE",
     "TOOL_SENTINEL",
+    "WEB_TOOL_NAMES",
     "ToolBinding",
     "ToolCallRef",
     "ToolRequestError",
@@ -302,6 +424,7 @@ __all__ = [
     "digest_args",
     "digest_result",
     "memo_size",
+    "select_tool_names",
     "tool_names",
     "validate_tool_request",
 ]

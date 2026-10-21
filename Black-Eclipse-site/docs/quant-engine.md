@@ -1,7 +1,7 @@
 ---
 title: Quant Engine — Trading, Backtesting & Research
 status: Current
-last-verified: 2026-10-11
+last-verified: 2026-10-20
 ---
 
 # Quant Engine — Trading, Backtesting & Research
@@ -64,7 +64,11 @@ market data → indicator context → signal (rules) → risk → order
 | Parameter spaces (dotted paths, ranges, grid/sample) | `quant/params.py` |
 | Optimization (grid/random/evolutionary/Bayesian, objectives, Pareto, stability) | `quant/optimize.py` |
 | Walk-forward (train/test, IS/OOS/combined, divergence) | `quant/walkforward.py` |
-| Monte-Carlo (reshuffle/bootstrap/parameter/execution perturbation) | `quant/montecarlo.py` |
+| Monte-Carlo (reshuffle/bootstrap/regime-block/parameter/execution perturbation) | `quant/montecarlo.py` |
+| Causal market-regime classification (trend × volatility) + trade attribution | `quant/regime.py` |
+| The Edge Verdict (A–F grade over edge/robustness/risk/sample + overfit tells) | `quant/verdict.py` |
+| Prop-firm evaluation rules as data (targets, drawdown, daily loss, consistency) | `quant/propfirm.py` |
+| Prop-firm Monte-Carlo (pass probability, days-to-pass, payout EV) | `quant/propfirm_mc.py` |
 | Sensitivity + robustness + overfitting safeguards | `quant/robustness.py` |
 | Shared research-result envelope | `quant/research.py` |
 | Strategy + experiment persistence, artifacts | `quant/store.py` |
@@ -449,14 +453,171 @@ futures contracts are deliberately not claimed.
   optimized **only** on the training slice (a test that mutates test-only bars
   asserts the chosen params do not move), then evaluated on the unseen test
   slice. Reports in-sample / out-of-sample / combined and the IS→OOS divergence.
-- **Monte-Carlo** (`montecarlo.py`): trade reshuffle, return bootstrap, parameter
-  perturbation, execution perturbation; percentiles, probability of loss/ruin,
-  expected/worst drawdown; seeded and reproducible.
+- **Monte-Carlo** (`montecarlo.py`): trade reshuffle, return bootstrap, regime-block
+  bootstrap, parameter perturbation, execution perturbation; percentiles, probability
+  of loss/ruin, expected/worst drawdown; seeded and reproducible.
 - **Sensitivity / robustness** (`robustness.py`): one-at-a-time parameter sweeps
   (best value, collapse, stability), cost sensitivity, trade concentration,
   sample size and regime dependence combine into a deterministic verdict
   (`robust` / `fragile` / `insufficient_evidence`) with plain-language
   conclusions derived from measured evidence.
+
+## Regimes, the regime-block Monte-Carlo and the Edge Verdict
+
+Two questions a single backtest cannot answer: **where did the P&L come from**,
+and **should this edge be trusted with real capital**. Two modules answer them,
+and they are deliberately separate from the other research engines — those say
+*how sensitive* and *how uncertain*; these say *which conditions carried the
+result* and *is the evidence good enough*.
+
+### Regimes (`quant/regime.py`)
+
+A regime is the state of the market on two independent axes:
+
+- **trend** — `up` / `down` / `flat`, measured as the distance between a fast and
+  a slow EMA **in ATR units**, so the measure is comparable across instruments
+  and across volatility regimes;
+- **volatility** — `high` / `normal` / `low`, measured as realised volatility
+  against its own trailing median.
+
+Two properties are enforced, not assumed:
+
+1. **Causality.** Every value at bar *i* uses bars *<= i* only, so a regime
+   label can be attached to a trade taken at *i* without smuggling future
+   information into it.
+2. **Self-containment.** The regime is derived from the *same bars the backtest
+   used* — not a second vendor, not a macro series, not a hand-set label — so a
+   regime attribution is reproducible from the stored artifact alone.
+
+The module then places each trade on the regime of its **entry bar** and
+attributes realised P&L per regime. `grossPositiveShare` is relative to
+**gross positive** P&L, so a regime that only ever lost cannot claim a positive
+share by accident.
+
+### The regime-block Monte-Carlo (`montecarlo.py`, method `regime_block_bootstrap`)
+
+The three resampling families are not interchangeable. `trade_reshuffle` and
+`return_bootstrap` treat observations as independent, which **understates the
+tail** of any strategy whose edge clusters in one market condition. The regime
+block method partitions the trade sequence into maximal same-regime runs and
+resamples *whole blocks*, so the clustering of good and bad conditions
+survives the resample.
+
+Two mixes, both explicit:
+
+- `resample` — blocks are drawn with replacement and re-ordered, so the
+  *arrival* of conditions changes between paths while the clustering inside a
+  block does not;
+- `preserve` — every original block is replaced by a drawn block **of the same
+  regime**, so the chronology and the regime mix are kept exactly and only the
+  content changes.
+
+Output adds `regimeAttribution` (realised P&L per regime), `regimeBlocks`,
+`regimeMix` and `regimeContributions` (the mean / p5 / p95 P&L each regime
+contributes across paths). Trades that cannot be placed on a regime are counted
+and reported (`REGIME_LABEL_UNAVAILABLE`), never silently dropped.
+
+### The Edge Verdict (`quant/verdict.py`)
+
+`grade_edge` reads the metrics, trades, equity curve, and optionally a
+Monte-Carlo result, and grades the **evidence** on four axes — `edge`
+(profit factor, Sharpe, expectancy), `robustness` (Monte-Carlo probability of
+loss and tail return), `risk` (max drawdown, ulcer index) and `sample` (trade
+count) — into a grade from **A to F**.
+
+- An axis that cannot be judged (no Monte-Carlo, no trades) has its weight
+  **redistributed** and is named in `assumptions.notGradedOn` — never scored as
+  zero and never assumed perfect.
+- A **critical flag caps the grade**: a non-positive expectancy, a profit
+  factor below one, or a sample too small to tell an edge apart from luck cannot
+  be averaged away by a good Sharpe.
+- The **overfit tells** it names: a suspiciously smooth equity curve (lag-1
+  autocorrelation of per-period returns), P&L concentrated in a few trades, a
+  high Monte-Carlo probability of loss, and dependence on a single market
+  regime.
+
+The verdict grades what was measured and says what it could not measure. It is
+a judgement about evidence, not advice.
+
+Surfaces: agent tools `run_regime_monte_carlo` and `grade_strategy_edge`;
+routes `POST /quant/regime-monte-carlo` and `POST /quant/edge-verdict` (the
+latter persists the verdict as an `edge_verdict` experiment artifact). Both are
+reachable from the front door through the existing `/api/backtest/*` proxy.
+
+## Prop-firm evaluation (the rules as data)
+
+A prop firm sells a funded account for a fee, and the fee is only worth paying
+if the trader reaches the profit target **without breaching the risk limits**.
+Two modules make that question answerable instead of a matter of opinion.
+
+### The rules (`quant/propfirm.py`)
+
+Every limit — profit target, maximum loss, daily loss limit, consistency rule,
+access period, payout split, payout cap — is a **field on a spec**, not a
+branch in the code. A firm the engine has never heard of is still supported:
+the caller passes their own spec. Three properties are enforced:
+
+1. **The rules are data.** `PropFirmSpec` holds an evaluation phase and a
+   funded phase plus the account sizes.
+2. **Every spec is sourced and dated.** A spec carries `source` and `as_of`.
+   Firm rules change constantly, so the engine reports the spec it used and
+   tells the trader to confirm it against the firm's own page. It never
+   pretends a built-in spec is current.
+3. **The simulation states its own blindness.** Prop firms liquidate on
+   *intraday* equity, including unrealised P&L. A log of closed trades cannot
+   reconstruct an intraday drawdown that recovered before the close, so every
+   report carries `PROP_INTRADAY_EQUITY_NOT_MODELED`.
+
+Built-in specs (read from each firm's own published page on **2026-10-20**):
+
+| Firm | Sizes | Profit target | Maximum loss | Daily loss | Consistency | Access | Payout |
+|---|---|---|---|---|---|---|---|
+| `topstep` (Trading Combine / XFA) | 50K/100K/150K | $3,000/$6,000/$9,000 | $2,000/$3,000/$4,500 (trailing, locks at the start) | $1,000/$2,000/$3,000 (session break, **not** a breach) | best day ≤ 55% of the target — **raises the target**, never fails | — | 90/10, cap $5,000, min $125, 5 qualifying days |
+| `apex_eod` (EOD evaluation / EOD PA) | 25K/50K/100K/150K | $1,500/$3,000/$6,000/$9,000 | $1,000/$2,000/$3,000/$4,000 (EOD-recalculated, static ceiling at start + $100) | $500/$1,000/$1,500/$2,000 (session break, **not** a breach) | none | 30 days | 100% (EOD PA) |
+| `ftmo_pro` (2-step challenge / Sim-funded) | 50K/100K/150K | $3,000/$6,000/$9,000 | 10% of initial, static | 5% of initial, recalculated daily — **is** a breach | best day ≤ 50% of total profit — **is** a breach | — | 90%, 5 qualifying days, every 5 days |
+| `tpt_pro` (Test / PRO) | 50K | $3,000 | $2,000 (EOD trailing) | none | best day < 50% of the target — **warns only** | — | 80/20, day one, daily |
+
+Only sizes whose numbers appear on the firm's own page are encoded (TPT
+publishes the 50K comparison on its product page; the others are not encoded
+rather than guessed). An unknown size is refused.
+
+### The rules engine
+
+`simulate_phase` applies one phase's rules to a sequence of trading days and
+returns exactly one outcome: `passed`, `failed_max_loss`, `failed_daily_loss`,
+`failed_consistency`, `failed_access_period`, `inconclusive_history` or
+`inconclusive_no_trades`.
+
+Two behaviours are worth naming because they are easy to get wrong:
+
+- **A log shorter than the access period is `inconclusive`, not `failed`.**
+  Ten days of history cannot decide a 30-day evaluation.
+- **A consistency rule measured against the *total profit* is decided at the
+  decision points, not day by day.** On the first profitable day the best day
+  *is* the whole profit, so a mid-flight reading would condemn every trader.
+  A rule measured against the *profit target* (Topstep, TPT) is read day by
+  day, because that is how the target itself moves.
+
+### The Monte-Carlo (`quant/propfirm_mc.py`)
+
+The uncertainty is expressed by resampling **trading days**, not trades. The
+rules are day-based (a daily loss limit, an end-of-day drawdown, an access
+period), and a trader's days cluster — a good streak is three good days, not
+three good trades scattered across a month. Two modes: `block` (a stationary
+bootstrap over the day sequence, so streaks survive) and `iid` (which flatters
+the result and is the honest lower bar).
+
+Every path is evaluated against the **real** rules, so a path can fail exactly
+the way a live account fails. The report carries the pass probability, the
+outcome distribution, days-to-pass, the funded-phase payout distribution, and
+the economics — net EV per attempt, expected attempts, expected resets to
+pass and cost to pass. **Fees come from the caller**; the engine never invents
+a price.
+
+Surfaces: agent tools `run_prop_firm_simulation` and `list_prop_firm_rules`;
+routes `POST /quant/prop-firm` and `GET /quant/prop-firm/firms`. A real
+trading log comes from the `journal_trades` tool, whose output the simulation
+tool consumes.
 
 ## Relationship to the Portfolio Accounting Engine
 
