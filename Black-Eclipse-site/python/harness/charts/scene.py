@@ -16,11 +16,19 @@ invents a point, a value or a scale.
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .spec import _CAMEL, ChartHighlight, ChartReferenceLine
+
+#: Every primitive the engine can draw.
+MARK_TYPES = frozenset({
+    "line", "area", "bar", "scatter", "band", "rule", "label", "box", "violin",
+    "histogram", "errorbar", "heatmap", "pie", "donut", "candlestick",
+    "waterfall", "ridge", "stem", "treemap", "sunburst", "funnel", "sankey",
+    "scatter3d", "surface",
+})
 
 MarkType = Literal[
     "line",
@@ -56,12 +64,39 @@ class ChartMark(BaseModel):
 
     model_config = _CAMEL
 
-    type: MarkType
+    type: str = Field(default="line", max_length=40)
     name: Optional[str] = Field(default=None, max_length=120)
 
     #: The values along the category (or y) axis. A NUMBER, or a label (a 3D
     #: bar's categories).
     y: list[Optional[float] | str] = Field(default_factory=list)
+    #: The same values under the name a SERIES uses (`data`). An alias for `y`.
+    data: list[Optional[float] | str] = Field(default_factory=list)
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def _known_type(cls, value: Any) -> str:
+        """The mark's primitive, normalised.
+
+        A producer may write a synonym (`candles`, `bars`, `donut`) or a word
+        the engine does not know (`price`). An unknown type becomes a `line`:
+        the mark is still drawn (with its values), instead of the whole chart
+        being refused.
+        """
+        raw = str(value or "line").strip().lower()
+        aliases = {
+            "candles": "candlestick", "candle": "candlestick", "ohlc": "candlestick",
+            "bars": "bar", "columns": "bar", "line_chart": "line",
+            "donut": "donut", "doughnut": "donut", "points": "scatter",
+            "boxplot": "box", "violinplot": "violin", "area_chart": "area",
+        }
+        resolved = aliases.get(raw, raw)
+        return resolved if resolved in MARK_TYPES else "line"
+
+    @property
+    def the_values(self) -> list[Optional[float] | str]:
+        """The mark's values, whether they arrived as `y` or as `data`."""
+        return self.y or self.data
     #: Explicit x values (a scatter, a line over a numeric axis). A NUMBER, or
     #: a label (a 3D bar's categories).
     x: list[Optional[float] | str] = Field(default_factory=list)

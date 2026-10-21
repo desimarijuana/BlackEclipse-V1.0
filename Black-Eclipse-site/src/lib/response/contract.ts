@@ -303,9 +303,11 @@ const CHART_MARK_TYPES = [
 ] as const;
 
 const chartMarkSchema = z.object({
-  type: z.enum(CHART_MARK_TYPES),
+  /** The mark's primitive. An UNKNOWN type falls back to `line`: one odd mark must never cost the reader every other panel. */
+  type: z.enum(CHART_MARK_TYPES).catch('line'),
   name: shortString.optional(),
   y: z.array(z.union([z.number().finite(), z.string().max(80), z.null()])).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  data: z.array(z.union([z.number().finite(), z.string().max(80), z.null()])).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   x: z.array(z.union([z.number().finite(), z.string().max(80), z.null()])).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   values: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   lower: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
@@ -313,11 +315,8 @@ const chartMarkSchema = z.object({
   sizes: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   /** The third dimension (a 3D mark's z). */
   z: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
-  /** A treemap/sunburst node's parent ("" is the root). */
-  parents: z.array(shortString).max(200).optional(),
-  /** Per-item colours (a treemap's tiles, a sunburst's branches). */
-  colors: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).max(200).optional(),
-  /** A sankey's links: the source node index, the target node index, the weight. */
+  /** A treemap/sunburst node's parent ("" is the root); per-item colours; a sankey's links. */
+  parents: z.array(shortString).max(200).optional(), colors: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).max(200).optional(),
   sources: z.array(z.number().int().min(0)).max(500).optional(), targets: z.array(z.number().int().min(0)).max(500).optional(),
   weights: z.array(z.number().finite()).max(500).optional(),
   matrix: z.array(z.array(z.number().finite())).max(200).optional(),

@@ -120,8 +120,9 @@ export function ResponseChart({ block, height = 260, className, focusable = true
   const card = (
     <div
       className={cn(
-        'glass-card-subtle w-fit max-w-full rounded-xl p-3',
-        focused && 'w-full max-w-[1400px] shadow-2xl',
+        // Plain: no glass panel behind a chart - the chart IS the surface.
+        'w-full',
+        focused && 'max-w-[1400px]',
       )}
     >
       {focusable && (
@@ -148,22 +149,32 @@ export function ResponseChart({ block, height = 260, className, focusable = true
         </div>
       )}
       {state.status === 'ready' ? (
-        <div className={cn('relative', focused ? 'w-full' : 'w-fit max-w-full')}>
+        <div className={cn('relative mx-auto w-full', focused ? 'max-w-[1400px]' : 'max-w-[1100px]')}>
           {/* The LIVE chart: vector, zoomable, pannable, with a hover readout.
               The drawn picture is the fallback (and the export). */}
           <PlotlyChart
             figure={state.chart}
             fallbackSrc={state.src}
-            height={focused ? 560 : Math.max(260, height)}
+            height={focused ? 640 : Math.max(420, height)}
             alt={block.title ?? 'Chart'}
-            className={focused ? 'w-full' : 'w-[860px] max-w-full'}
+            className="w-full"
           />
           {plan.notes.length > 0 && (
             <p className="mt-1 text-[10px] text-muted-foreground/70">{plan.notes.join(' ')}</p>
           )}
         </div>
       ) : (
-        <div className="w-full animate-pulse" style={{ height }} aria-busy="true" />
+        <div
+          className="flex w-full items-center justify-center rounded-xl border border-border/10"
+          style={{ height }}
+          aria-busy="true"
+          data-testid="response-chart-loading"
+        >
+          <span className="flex items-center gap-2 text-xs text-muted-foreground/70">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+            Drawing the chart…
+          </span>
+        </div>
       )}
     </div>
   );

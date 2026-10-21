@@ -187,6 +187,24 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **fix(charts): a chart that "was not loading" now loads — and the chat's
+  charts are plain, centred and big.** **The cause:** the engine refused the
+  WHOLE spec when one mark used a shape it did not know (the contract
+  tolerated it, the engine did not), so a block with one odd mark came back
+  as a 400 and the chart never drew. The engine now normalises a mark the way
+  the contract does — a synonym (`candles`, `bars`, `doughnut`) is mapped, an
+  unknown type becomes a `line`, and a mark may carry its values under
+  `data` (the name a series uses) as well as `y` — so **one odd mark can
+  never cost the reader every other panel**. **The look:** the chart no longer
+  sits on a glass card (the chart IS the surface now), it is **centred** in the
+  column and as **large** as the column allows (up to 1100 px wide, 420 px
+  tall; 640 px in the focus view), and the loading state says **"Drawing the
+  chart…"** instead of showing an empty pulse — the first chart after a runtime
+  start can take a while, and an empty box read as broken. Files:
+  `python/harness/charts/scene.py` (the tolerant mark), `src/lib/response/contract.ts`
+  (the `data` alias), `src/components/response/response-chart.tsx` (the look).
+  docs updated: `docs/CHANGELOG.md`.
+
 - **feat(charts): 3D charts — a 3D mark, not a separate chart.** The chart
   engine can now draw in three dimensions: `scatter3d` (a point cloud) and
   `surface` (a grid) carry a third dimension (`z`) and live in the figure's
@@ -1536,6 +1554,27 @@ umpy/pandas are **already installed** in the runtime and the analysis
   wall-clock timeout instead of blocking the event loop). Both were red on the
   shared working tree before this re-pin; the standing split candidates are
   unchanged. Files: `python/tests/test_size_budget.py`.
+- **fix(harness): the shared tree's own regressions are repaired - the chat step
+  budget, the prompt ratchet and the Python size ratchet.** The in-flight work
+  raised the ordinary chat budget from 12 to 24 model steps (12 was too tight
+  for a request that carries several deliverables) and grew the agent prompt to
+  35,251 characters, but its own tests still pinned the old numbers, so the
+  suite was red: the budget assertions now expect 24, the prompt ceiling is
+  re-pinned 34,804->35,251 in both places that measure it, and the Python size
+  ratchet is re-pinned for `graph.py` (2238->2241) and `quant/tools.py`
+  (1203->1229). Full Python suite: 7919 passed, 27 skipped. Files:
+  `python/tests/test_chat_step_budget.py`,
+  `python/tests/test_qa_round1_acceptance.py`,
+  `python/tests/test_memory_tools.py`,
+  `python/tests/test_phase_s_stabilization.py`,
+  `python/tests/test_size_budget.py`.
+- **fix(front door): the in-flight price-history window change keeps its own
+  tests honest.** The bridge now carries the caller's start/end window into the
+  transport instead of filtering the rows afterwards, so the two call
+  expectations had to name the new argument (and the TS size ratchet is
+  re-pinned 1400->1408 for the same change). Full vitest: 3696 passed;
+  `npx tsc --noEmit` clean. Files: `src/lib/harness/data-bridge-identity.test.ts`,
+  `src/lib/harness/data-bridge-phase2.test.ts`, `src/lib/size-budget.test.ts`.
 
 ## 2026-10-19
 
