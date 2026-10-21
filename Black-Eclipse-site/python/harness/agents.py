@@ -251,7 +251,6 @@ WEB_RESEARCH_TOOLS = [
 CODE_NAVIGATOR_TOOLS = [
     "workspace_status",
     "workspace_list",
-    "workspace_search",
     "workspace_read",
     "workspace_docs",
     "workspace_patch_apply",
@@ -261,7 +260,7 @@ CODE_NAVIGATOR_TOOLS = [
     # File-system subsystem (Phase FS): list/read/search/symbols/references/
     # metadata/index/watch plus the minimal-patch edit tools. The write half is
     # removed at `plan_only`; every path is re-checked by the handler.
-    "list_directory", "read_file", "search_text", "search_files", "find_files",
+    "list_directory", "read_file", "search_text", "search_files",
     "search_symbols", "find_references", "file_metadata", "file_hash",
     "file_permissions", "index_workspace", "watch_file", "watch_directory",
     "verify_file", "validate_changes", "git_status",
@@ -350,6 +349,10 @@ ECLIPSE_AGENT = AgentConfig(
         # verified datasets.
         *QUANT_TOOLS,
     *PROJECT_TOOLS,
+        # The pine-script tools ride in through `*QUANT_TOOLS` (which now splats
+        # `PINE_TOOLS`), so they are declared EXACTLY ONCE. Splatting them here
+        # as well declared `run_pine_script` twice and broke the durable
+        # "a tool is declared twice" invariant.
         # Statistical Analysis & Feature Engineering Engine: fourteen
         # deterministic statistical tools (returns, volatility, correlation,
         # beta, drawdown, stationarity, cointegration, autocorrelation,
@@ -591,12 +594,12 @@ CODE_NAVIGATOR = AgentConfig(
 # MCP reach. The tools listed are the REAL names Phases 1-3 registered.
 CODE_AGENT_TOOLS = [
     # Read / navigate (Phase 1)
-    "workspace_status", "workspace_list", "workspace_search",
+    "workspace_status", "workspace_list",
     "workspace_read", "workspace_docs",
     # Change (Phase 2) â€” effectful; removed at plan_only
     "workspace_patch_apply", "workspace_diff", "workspace_revert",
     # File-system subsystem (Phase FS) â€” read/inspect first, then minimal edits.
-    "list_directory", "read_file", "search_text", "search_files", "find_files",
+    "list_directory", "read_file", "search_text", "search_files",
     "search_symbols", "find_references", "file_metadata", "file_hash",
     "file_permissions", "index_workspace", "watch_file", "watch_directory",
     "verify_file", "validate_changes", "git_status",
@@ -786,14 +789,14 @@ CODE_AGENT = AgentConfig(
 # and deliberately NO external action â€” `code_commit`/`code_push`/`code_open_pr`/
 # `code_deploy` stay on the Code Tasks surface where the approval panel lives.
 CHAT_CODE_TOOLS: tuple[str, ...] = (
-    "workspace_status", "workspace_list", "workspace_search",
+    "workspace_status", "workspace_list",
     "workspace_read", "workspace_docs",
     "workspace_patch_apply", "workspace_diff", "workspace_revert",
     "command_run", "terminal_run", "shell_run", "shell_spawn",
     "process_output", "process_kill", "process_list",
     # File-system subsystem (Phase FS): read/inspect always; the write/edit half
     # is removed at `plan_only` by the ONE policy authority.
-    "list_directory", "read_file", "search_text", "search_files", "find_files",
+    "list_directory", "read_file", "search_text", "search_files",
     "search_symbols", "find_references", "file_metadata", "file_hash",
     "file_permissions", "index_workspace", "watch_file", "watch_directory",
     "verify_file", "validate_changes", "git_status",

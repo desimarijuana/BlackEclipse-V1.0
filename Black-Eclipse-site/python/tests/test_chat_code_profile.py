@@ -18,7 +18,6 @@ from harness.tools import ToolRegistry
 EXPECTED = (
     'workspace_status',
     'workspace_list',
-    'workspace_search',
     'workspace_read',
     'workspace_docs',
     'workspace_patch_apply',
@@ -35,7 +34,6 @@ EXPECTED = (
     'read_file',
     'search_text',
     'search_files',
-    'find_files',
     'search_symbols',
     'find_references',
     'file_metadata',

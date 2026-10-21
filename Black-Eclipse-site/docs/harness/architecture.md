@@ -596,6 +596,28 @@ naming one of them. The response-contract loss was a visible defect:
 response-schema digest and the response-mode plan, so a coding turn produced a
 degraded structured response with no error.
 
+**The search surface is two tools, and the engine is always named (ADR-H284).**
+A model asks two questions about a codebase - "what does this SAY?" and "what
+files are there?" - and the harness answers them with exactly two tools:
+`search_text` for file CONTENTS and `search_files` for file NAMES. The older
+names (`workspace_search`, `find_files`) stay callable for one release as
+DEPRECATED ALIASES; the registry warns once per run naming the replacement,
+and the agent surfaces carry the canonical names only.
+
+`search_text` is ripgrep-first with a bounded Python fallback, and **the
+answer always names the engine that produced it** (`ripgrep` or
+`python-scan`) - a slow result is explainable rather than mysterious. Before
+ADR-H284 the workspace-level search ran its own naive Python walk while the fs
+subsystem's `search_text` was already ripgrep-first, and the slow one had the
+friendlier name and sat first in every surface. `search_files` now carries
+every filter `find_files` had (exclude, extensions, directoriesOnly,
+filesOnly, includeHidden, includeIgnored), so nothing was lost in the
+consolidation.
+
+A search goes through the code capability, so it needs a code profile - the
+Phase-0 rule (no profile, no code capability), and it closes a hole: the old
+workspace-level search bypassed the code policy entirely.
+
 **The outcome envelope (round 4, W1.3).** A run that did not get done must be
 diagnosable from ONE record, not from a replay of scattered facts. The
 envelope (`python/harness/run_outcome.py`) names the four facts the meta loop

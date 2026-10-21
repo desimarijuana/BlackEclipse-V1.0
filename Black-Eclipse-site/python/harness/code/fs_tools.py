@@ -145,7 +145,13 @@ class SearchTextInput(_Base):
 
 class SearchFilesInput(_Base):
     pattern: str = Field(..., min_length=1, max_length=200)
+    exclude: Optional[list[str]] = Field(None, max_length=32)
+    extensions: Optional[list[str]] = Field(None, max_length=32)
     path: str = "."
+    directoriesOnly: bool = False  # noqa: N815
+    filesOnly: bool = False  # noqa: N815
+    includeHidden: bool = False  # noqa: N815
+    includeIgnored: bool = False  # noqa: N815
     limit: int = Field(500, ge=1, le=500)
 
 
@@ -355,6 +361,9 @@ _INPUT_SCHEMAS: dict[str, dict[str, Any]] = {
     }, ["query"]),
     "search_files": _obj({
         "pattern": {**_STR, "description": "Glob on file names/paths (e.g. **/*.tsx)."},
+        "exclude": {"type": "array", "items": _STR}, "extensions": {"type": "array", "items": _STR},
+        "directoriesOnly": {**_BOOL}, "filesOnly": {**_BOOL},
+        "includeHidden": {**_BOOL}, "includeIgnored": {**_BOOL},
         "path": {**_STR}, "limit": {**_INT},
     }, ["pattern"]),
     "find_files": _obj({
@@ -752,7 +761,12 @@ async def _search_files(args: dict[str, Any], ctx: ToolContext) -> tuple[str, An
     model = SearchFilesInput(**_present(args))
     text, payload = await _dispatch(
         ctx, "search_files", kind="read", path=model.path, verb="Searched files",
-        run=lambda svc: svc.search_files(model.pattern, path=model.path, limit=model.limit),
+        run=lambda svc: svc.search_files(
+            model.pattern, exclude=model.exclude, extensions=model.extensions,
+            path=model.path, directories_only=model.directoriesOnly,
+            files_only=model.filesOnly, include_hidden=model.includeHidden,
+            include_ignored=model.includeIgnored, limit=model.limit,
+        ),
     )
     if isinstance(payload, dict) and payload.get("status") == "ok":
         lines = [f"{payload['count']} file(s) matching {model.pattern!r}:"]
@@ -1133,7 +1147,7 @@ _DESCRIPTIONS: dict[str, str] = {
     "delete_directory": "Remove a folder; a non-empty folder needs recursive=true.",
     "search_text": "Search file contents (literal or regex) via ripgrep with a bounded fallback. Returns path:line:column.",
     "search_files": "Find files by name/path glob.",
-    "find_files": "Find files by include/exclude globs and extensions.",
+    "find_files": "DEPRECATED - use search_files, which is the same implementation and takes these filters too.",
     "search_symbols": "Find functions/classes/types/etc. with AST-aware parsing where available.",
     "find_references": "Find usages of a symbol (index-backed when available, else a word scan).",
     "patch_file": "One minimal edit (replace/insert/delete/append/prepend) with a stale-hash guard.",
@@ -1157,6 +1171,11 @@ _DESCRIPTIONS: dict[str, str] = {
 
 def _definition(name: str) -> ToolDefinition:
     write = name in _WRITE_TOOLS
+    # Round 3 / W5 (ADR-H284): `find_files` and `search_files` were always ONE
+    # implementation with two front-doors. `search_files` is now the canonical
+    # one and carries every filter; `find_files` stays callable for a release
+    # and the registry warns once per run naming its replacement.
+    replacement = {"find_files": "search_files"}.get(name)
     risk = {
         "delete_file": "medium", "delete_directory": "high", "move_file": "medium",
         "multi_file_patch": "high", "apply_diff": "medium", "write_file": "medium",
@@ -1170,6 +1189,8 @@ def _definition(name: str) -> ToolDefinition:
         risk=risk,
         timeout_ms=60_000 if write else 30_000,
         effect="write" if write else None,
+        deprecated=replacement is not None,
+        replacement=replacement,
     )
 
 

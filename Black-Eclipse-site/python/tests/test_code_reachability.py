@@ -20,7 +20,7 @@ def _allowed(reg: ToolRegistry, autonomy: str | None) -> set[str]:
     return set(allowed or ())
 
 READ_TOOLS = {
-    "workspace_status", "workspace_list", "workspace_search",
+    "workspace_status", "workspace_list",
     "workspace_read", "workspace_docs", "workspace_diff",
 }
 

@@ -33,6 +33,26 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: docs/chart-engine.md, docs/interactive-response-engine.md,
   docs/DECISIONS.md (ADR-050), skills/ARCHITECT.md (ADR-050).
 
+- **feat(harness): ONE search primitive, and the engine is always named**
+  (Round 3 / W5, ADR-H284). The harness answers two questions about a codebase
+  - "what does this SAY?" and "what files are there?" - with exactly two tools:
+  `search_text` (contents, ripgrep-first with a bounded Python fallback) and
+  `search_files` (names, now carrying every filter `find_files` had: exclude,
+  extensions, directoriesOnly, filesOnly, includeHidden, includeIgnored). The
+  older names (`workspace_search`, `find_files`) stay callable for one release
+  as DEPRECATED ALIASES, the registry warns once per run naming the
+  replacement, and the agent surfaces carry the canonical names only. Before
+  this, the tool the model reached for FIRST was the slow one: the workspace
+  search ran its own naive Python walk while the fs subsystem's `search_text`
+  was already ripgrep-first. The old `workspace_search` also bypassed the code
+  policy entirely; the search now goes through the code capability, so it needs
+  a code profile. The workspace walker moved to its own module
+  (`python/harness/code/scan.py`) so the ratcheted core file shrinks.
+  Files: python/harness/code/scan.py, fs_tools.py, tools.py, agents.py;
+  python/tests/test_code_search_surface.py, test_code_tools.py,
+  test_chat_code_profile.py, test_code_reachability.py.
+  docs updated: docs/NAVIGATION.md, docs/harness/architecture.md.
+
 ## 2026-10-20
 
 - **fix(harness): re-pin the prompt ceiling after the sandbox-rules guidance.**

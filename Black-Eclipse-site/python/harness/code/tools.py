@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..tools import ToolContext, ToolDefinition, ToolRegistry
 from . import commands as commands_mod
+from .scan import iter_scan_files as _iter_scan_files  # noqa: PLC0415
 from . import policy
 from . import patch as patch_mod
 from . import sandbox as sandbox_mod
@@ -40,7 +41,6 @@ from .workspace import (
     MAX_READ_LINES,
     MAX_SCAN_BYTES,
     MAX_SCAN_FILES,
-    MAX_SEARCH_MS,
     ResolvedWorkspace,
     WorkspaceDenial,
     confine,
@@ -51,7 +51,6 @@ from .workspace import (
 from ..session_index import redact_span, secret_pattern_name
 
 _DOCS_WINDOW_LINES = 6
-_SEARCH_DEADLINE_CHECK_LINES = 200
 
 
 # ── Input models (pydantic, extra="forbid") ─────────────────────────────────
@@ -386,108 +385,68 @@ async def _list(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 # ── workspace_search ────────────────────────────────────────────────────────
 
 
-def _iter_scan_files(ws: ResolvedWorkspace, base: str) -> Iterator[Tuple[str, Path]]:
-    """Yield `(rel, Path)` for text files under `base`, ignore-aware and bounded.
-
-    `base` may name a single file too: the model often points at the one file it
-    means, and refusing that (`NOT_A_DIRECTORY`/`NOT_FOUND`) was a real incident.
-    """
-    start = confine(ws, base or ".")
-    if start.is_file():
-        rel = start.relative_to(ws.root).as_posix()
-        if not policy.is_ignored(rel) and not is_binary(start):
-            yield rel, start
-        return
-    if not start.is_dir():
-        raise WorkspaceDenial("NOT_FOUND", "That isn't a folder Eclipse can search.", path=base)
-    scanned = 0
-    total_bytes = 0
-    for dirpath, dirnames, filenames in os.walk(start, followlinks=False):
-        current = Path(dirpath)
-        dirnames[:] = [d for d in dirnames if d not in policy.IGNORED_DIRS]
-        for name in filenames:
-            full = current / name
-            rel = full.relative_to(ws.root).as_posix()
-            if policy.is_ignored(rel):
-                continue
-            try:
-                size = full.stat().st_size
-            except OSError:
-                continue
-            if total_bytes + size > MAX_SCAN_BYTES:
-                return
-            if is_binary(full):
-                continue
-            total_bytes += size
-            scanned += 1
-            if scanned > MAX_SCAN_FILES:
-                return
-            yield rel, full
-
-
 async def _search(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Search file contents - a DEPRECATED ALIAS of the fs subsystem's search.
+
+    Round 3 / W5 (ADR-H284): this used to run its OWN naive Python scan while
+    the fs subsystem's `search_text` was ALREADY ripgrep-first. The tool the
+    model reached for FIRST was therefore the slow one - and the fast one was
+    one name away in a surface that listed both.
+
+    The two are now ONE implementation. This delegates to it, so the same
+    engine answers, and the engine ALWAYS says which one it was - a slow result
+    is explainable rather than mysterious.
+
+    It still works: deprecation is advisory, and the registry warns once per
+    run naming `search_text`. The legacy payload field `filesScanned` is gone
+    (nothing read it) and is replaced by `engine` + `filesWithMatches`, both of
+    which are exact.
+    """
     ws: Optional[ResolvedWorkspace] = getattr(ctx, "workspace", None)
     if ws is None:
         await emit_code_event(ctx, "code.refused", {"tool": "workspace_search", "code": "WORKSPACE_UNAVAILABLE"})
         return _no_workspace("workspace_search")
     model = WorkspaceSearchInput(**_present(args))
-    flags = re.MULTILINE if model.caseSensitive else re.MULTILINE | re.IGNORECASE
+    from .fs import errors as fs_err  # noqa: PLC0415
+    from .fs_tools import _read_service  # noqa: PLC0415
+
     try:
-        regex = re.compile(model.pattern, flags)
-    except re.error as exc:
-        return f"That search pattern isn't valid: {exc}", {"status": "refused", "code": "INVALID_PATTERN"}
-    started = time.monotonic()
-    deadline_ms = MAX_SEARCH_MS
-    matches: list[dict[str, Any]] = []
-    files_scanned = 0
-    truncated = False
-    try:
-        files = _iter_scan_files(ws, model.path)
-    except WorkspaceDenial as denial:
-        await emit_code_event(ctx, "code.refused", {"tool": "workspace_search", "code": denial.code, "path": denial.path})
-        return _refusal("workspace_search", denial)
-    for rel, full in files:
-        files_scanned += 1
-        try:
-            text = full.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        all_lines = text.splitlines()
-        for index, line in enumerate(all_lines):
-            if index % _SEARCH_DEADLINE_CHECK_LINES == 0 and (time.monotonic() - started) * 1000 > deadline_ms:
-                truncated = True
-                break
-            if not regex.search(line):
-                continue
-            low = max(0, index - model.contextLines)
-            high = min(len(all_lines), index + model.contextLines + 1)
-            context = [{"line": n + 1, "text": all_lines[n]} for n in range(low, high)]
-            matches.append({"path": rel, "line": index + 1, "text": line, "context": context})
-            if len(matches) >= model.maxMatches:
-                truncated = True
-                break
-        if truncated:
-            break
-    elapsed = int((time.monotonic() - started) * 1000)
-    lines = [f"{len(matches)} match(es) for /{model.pattern}/:"]
+        result = _read_service(ctx).search_text(
+            model.pattern,
+            path=model.path,
+            regex=True,
+            case_sensitive=model.caseSensitive,
+            max_results=model.maxMatches,
+            context_lines=model.contextLines,
+        )
+    except fs_err.FsError as exc:
+        await emit_code_event(ctx, "code.refused", {
+            "tool": "workspace_search", "code": exc.code, "path": exc.path,
+        })
+        return f"REFUSED ({exc.code}): {exc.reason}", exc.to_dict()
+
+    matches = list(result.get("matches") or [])
+    engine = str(result.get("engine") or "unknown")
+    lines = [f"{len(matches)} match(es) for /{model.pattern}/ (via {engine}):"]
     for match in matches:
-        lines.append(f"{match['path']}:{match['line']}: {match['text'].strip()}")
-    if truncated:
-        lines.append(f"[results truncated after {len(matches)} matches across {files_scanned} files]")
+        text = str(match.get("text") or "").strip()
+        lines.append(f"{match.get('path')}:{match.get('line')}: {text}")
+    if result.get("truncated"):
+        lines.append(f"[results truncated after {len(matches)} matches]")
     await emit_code_event(ctx, "code.searched", {
-        "pattern": model.pattern, "matches": len(matches),
-        "filesScanned": files_scanned, "truncated": truncated, "ms": elapsed,
+        "pattern": model.pattern, "matches": len(matches), "engine": engine,
+        "truncated": bool(result.get("truncated")), "ms": result.get("ms"),
     })
     return "\n".join(lines), {
         "status": "ok",
         "pattern": model.pattern,
+        "engine": engine,
         "matches": matches,
         "count": len(matches),
-        "filesScanned": files_scanned,
-        "truncated": truncated,
-        "ms": elapsed,
+        "filesWithMatches": len({str(m.get("path")) for m in matches}),
+        "truncated": bool(result.get("truncated")),
+        "ms": result.get("ms"),
     }
-
 
 # ── workspace_read ──────────────────────────────────────────────────────────
 
@@ -1041,6 +1000,7 @@ _CODE_TOOL_NAMES = (
 def _definition(
     name: str, description: str, handler: Any, timeout_ms: int,
     *, permission: str = "read", risk: str = "low", effect: Optional[str] = None,
+    deprecated: bool = False, replacement: Optional[str] = None,
 ) -> ToolDefinition:
     return ToolDefinition(
         name=name,
@@ -1051,6 +1011,8 @@ def _definition(
         risk=risk,
         timeout_ms=timeout_ms,
         effect=effect,
+        deprecated=deprecated,
+        replacement=replacement,
     )
 
 
@@ -1092,10 +1054,13 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
     ))
     registry.register(_definition(
         "workspace_search",
-        "Search the project's file contents with a regular expression. Every hit is "
-        "reported as path:line. Bounded by matches, files, bytes and a wall-clock "
-        "deadline; a deadline yields partial results marked truncated. Read-only.",
+        "DEPRECATED - use search_text, which is the same search on a faster engine. "
+        "Search the project's file contents with a regular expression; every hit is "
+        "reported as path:line and the answer names the engine that produced it. "
+        "Bounded by matches, files, bytes and a wall-clock deadline; a deadline "
+        "yields partial results marked truncated. Read-only.",
         _search, 20_000,
+        deprecated=True, replacement="search_text",
     ))
     registry.register(_definition(
         "workspace_read",

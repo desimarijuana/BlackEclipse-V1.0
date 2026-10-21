@@ -46,8 +46,17 @@ def _fixture_ws(tmp_path: Path) -> ResolvedWorkspace:
     return ResolvedWorkspace(id="ws_fixture", root=real, base_revision="unknown", strategy="checkout", binding=binding)
 
 
-def _ctx(ws: ResolvedWorkspace | None, emitter: _FakeEmitter | None = None) -> ToolContext:
-    return ToolContext(run_id="run_test", log=lambda *_: None, workspace=ws, emitter=emitter)
+def _ctx(
+    ws: ResolvedWorkspace | None, emitter: _FakeEmitter | None = None,
+    autonomy: str | None = "edit_verify",
+) -> ToolContext:
+    """A code-tool context. Round 3 / W5: the search now goes through the code
+    capability, so it needs a profile - the Phase-0 rule (no profile, no code
+    capability). `autonomy=None` builds the profile-less context on purpose."""
+    return ToolContext(
+        run_id="run_test", log=lambda *_: None, workspace=ws, emitter=emitter,
+        autonomy=autonomy,
+    )
 
 
 def _registry() -> ToolRegistry:
@@ -114,6 +123,17 @@ def test_fixture_question_returns_a_real_path_line(tmp_path):
     assert top["path"].endswith("valuation.md")
     assert top["startLine"] >= 1
     assert "path" in top and "startLine" in top
+
+
+def test_search_without_a_code_profile_is_refused(tmp_path):
+    """A code tool needs a code profile. The search used to bypass that check."""
+    ws = _fixture_ws(tmp_path)
+    registry = _registry()
+    result = _run(_call(
+        registry, "workspace_search", {"pattern": "dividend-discount"}, _ctx(ws, autonomy=None),
+    ))
+    assert result.data.get("status") == "refused"
+    assert result.data.get("code")
 
 
 def test_search_reports_path_line(tmp_path):
