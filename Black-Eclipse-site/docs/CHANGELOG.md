@@ -285,12 +285,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 - **fix(charts): the full-view chart no longer collides with the app's header.**
   The focus overlay lived inside the chat's stacking context, so the top bar and
   the price ribbon painted OVER the chart and its toolbar. The full view is now
-  **portalled to `<body>`** (the app's rule for floating surfaces), sits at
-  `z-[300]` — above every layer of the shell — and its opaque backdrop
-  (`bg-background/95`) hides the header entirely, so a full-width chart is a
-  full-width chart. The focused chart also fills the viewport height instead of
-  a fixed 640 px. Verified in the real app: the overlay computes to
-  `position: fixed`, `z-index: 300`, 1440×900, over the ribbon's `z-index: 50`.
+  **portalled to `<body>`** (the app's rule for floating surfaces) and sits at
+  `z-[300]` - above every layer of the shell - so the chart's toolbar is clear
+  of the header. The backdrop is unchanged: the same frosted blur it has always
+  been (`bg-black/55 backdrop-blur-sm`), so the app reads through it. The
+  focused chart also fills the viewport height instead of a fixed 640 px.
+  Verified in the real app: the overlay computes to `position: fixed`,
+  `z-index: 300`, 1440x900, above the price ribbon's `z-index: 50`.
   File: `src/components/response/response-chart.tsx`. docs updated:
   `docs/CHANGELOG.md`.
 

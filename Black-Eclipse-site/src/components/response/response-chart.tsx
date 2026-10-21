@@ -192,12 +192,13 @@ export function ResponseChart({ block, height = 260, className, focusable = true
   // The full view is PORTALLED to <body>: inside the chat it would live in the
   // chat's stacking context, so the app's own header (the top bar and the
   // price ribbon) would paint OVER the chart and collide with its toolbar. On
-  // <body> the overlay sits above the shell, and its opaque backdrop hides the
-  // header entirely - a full-width chart is a full-width chart.
+  // <body> the overlay sits above the shell, so the chart's toolbar is clear of
+  // the header - and the backdrop stays the same frosted blur it has always
+  // been, so the app reads through it.
   if (typeof document === 'undefined') return card;
   return createPortal(
     <div
-      className="fixed inset-0 z-[300] flex flex-col bg-background/95 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[300] flex flex-col bg-black/55 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label={block.title ? `Chart: ${block.title}` : 'Chart focus view'}
