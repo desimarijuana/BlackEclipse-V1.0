@@ -253,7 +253,6 @@ CODE_NAVIGATOR_TOOLS = [
     "workspace_list",
     "workspace_read",
     "workspace_docs",
-    "workspace_patch_apply",
     "workspace_diff",
     "workspace_revert",
     "command_run",
@@ -266,8 +265,8 @@ CODE_NAVIGATOR_TOOLS = [
     "verify_file", "validate_changes", "git_status",
     "write_file", "create_file", "delete_file", "move_file", "copy_file",
     "rename_file", "create_directory", "delete_directory",
-    "patch_file", "replace_text", "insert_text", "delete_text",
-    "apply_diff", "multi_file_patch", "edit_file",
+    "insert_text", "delete_text", "code_edit",
+    "apply_diff",
     # Terminal subsystem: foreground execution, persistent shells, background
     # processes and ports. The effectful ones are removed at `plan_only`.
     "execute_command",
@@ -597,7 +596,7 @@ CODE_AGENT_TOOLS = [
     "workspace_status", "workspace_list",
     "workspace_read", "workspace_docs",
     # Change (Phase 2) â€” effectful; removed at plan_only
-    "workspace_patch_apply", "workspace_diff", "workspace_revert",
+    "workspace_diff", "workspace_revert",
     # File-system subsystem (Phase FS) â€” read/inspect first, then minimal edits.
     "list_directory", "read_file", "search_text", "search_files",
     "search_symbols", "find_references", "file_metadata", "file_hash",
@@ -605,8 +604,8 @@ CODE_AGENT_TOOLS = [
     "verify_file", "validate_changes", "git_status",
     "write_file", "create_file", "delete_file", "move_file", "copy_file",
     "rename_file", "create_directory", "delete_directory",
-    "patch_file", "replace_text", "insert_text", "delete_text",
-    "apply_diff", "multi_file_patch", "edit_file",
+    "insert_text", "delete_text", "code_edit",
+    "apply_diff",
     # Command broker (Phase 3) â€” effectful; removed at plan_only
     "command_run",
     # Generic terminal (Phase D) â€” effectful; removed at plan_only. Safe
@@ -791,7 +790,7 @@ CODE_AGENT = AgentConfig(
 CHAT_CODE_TOOLS: tuple[str, ...] = (
     "workspace_status", "workspace_list",
     "workspace_read", "workspace_docs",
-    "workspace_patch_apply", "workspace_diff", "workspace_revert",
+    "workspace_diff", "workspace_revert",
     "command_run", "terminal_run", "shell_run", "shell_spawn",
     "process_output", "process_kill", "process_list",
     # File-system subsystem (Phase FS): read/inspect always; the write/edit half
@@ -802,8 +801,8 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "verify_file", "validate_changes", "git_status",
     "write_file", "create_file", "delete_file", "move_file", "copy_file",
     "rename_file", "create_directory", "delete_directory",
-    "patch_file", "replace_text", "insert_text", "delete_text",
-    "apply_diff", "multi_file_patch", "edit_file",
+    "insert_text", "delete_text", "code_edit",
+    "apply_diff",
     # Terminal subsystem (persistent shells + background processes + ports).
     "execute_command",
     "open_shell", "close_shell", "run_shell_command",

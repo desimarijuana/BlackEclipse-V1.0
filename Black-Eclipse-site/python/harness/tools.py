@@ -103,6 +103,48 @@ class ToolResult:
     total_chars: int = 0
 
 
+# ── The per-run READ LEDGER (Round 3 / W3, ADR-H282) ───────────────────────
+#
+# Which files this run has READ, and the hash each had at the time. It is the
+# evidence the ONE edit tool insists on: a file may be changed only if this run
+# read it, and only if it has not changed since.
+#
+# It lives here, in the lowest module, because EVERY read tool feeds it and the
+# registry is the one place that sees every tool's result. Putting it in the
+# code subsystem would make `harness.tools` depend on `harness.code`, and the
+# code tools already depend on `harness.tools` - a cycle.
+#
+# The state is a plain dict on the shared `ToolContext` (one per run), the same
+# shape the registry's "warn once per run" deprecation set uses. The paths are
+# WORKSPACE-RELATIVE and POSIX-style, so the ledger is independent of which
+# copy of the tree the run is bound to.
+
+_READ_LEDGER_ATTR = "_read_ledger"
+
+
+def read_ledger(ctx: ToolContext) -> dict[str, str]:
+    """The files this run has read, mapped to the hash they had.
+
+    A fresh (empty) ledger when the context cannot hold one - a frozen context
+    must never break a tool call.
+    """
+    ledger = getattr(ctx, _READ_LEDGER_ATTR, None)
+    if ledger is None:
+        ledger = {}
+        try:
+            setattr(ctx, _READ_LEDGER_ATTR, ledger)
+        except Exception:  # noqa: BLE001 - a frozen ctx must not break the call
+            return {}
+    return ledger
+
+
+def record_read(ctx: ToolContext, path: str, digest: str) -> None:
+    """Record that this run read `path`, and the hash it had."""
+    if not path or not digest:
+        return
+    read_ledger(ctx)[str(path)] = str(digest)
+
+
 @dataclass
 class ToolContext:
     run_id: str
@@ -580,6 +622,14 @@ class ToolRegistry:
                 advisory_sink(name, clean, data)
             except Exception:  # noqa: BLE001 - collection must not break a run
                 pass
+        # Round 3 / W3 (ADR-H282): a read that returns a file hash FEEDS the
+        # per-run read ledger. ONE place, so every read tool participates - the
+        # model does not have to remember to read a file a particular way before
+        # it may change it.
+        if tool.permission == "read" and isinstance(data, dict):
+            read_path, read_digest = data.get("path"), data.get("sha256")
+            if isinstance(read_path, str) and isinstance(read_digest, str) and read_digest:
+                record_read(ctx, read_path, read_digest)
         # Bound the model-facing text at this single seam; `data` is untouched.
         bounded_text, truncated, shown_chars, total_chars = bound_tool_text(str(text))
         return ToolResult(

@@ -338,6 +338,11 @@ def code_grants(autonomy: str) -> frozenset[str]:
 # named separately because the runtime authorizer's admission branch covers
 # exactly this family plus APP_RUNTIME_WRITE_TOOLS (R3-02).
 EXECUTION_WRITE_TOOLS: tuple[str, ...] = (
+  # Round 3 / W3 (ADR-H282): the ONE text-edit tool. It is a WRITE tool, so
+  # `plan_only` removes it and `edit_verify` keeps it - exactly like the tool
+  # it replaces. A new tool that is not in this set is a tool `plan_only`
+  # cannot restrain, which is the bug this line prevents.
+  "code_edit",
     "execute_code", "execute_python", "execute_javascript", "execute_typescript",
     "execute_sql", "execute_shell", "build_project", "test_project",
     "run_verification", "start_service", "stop_service", "restart_service",

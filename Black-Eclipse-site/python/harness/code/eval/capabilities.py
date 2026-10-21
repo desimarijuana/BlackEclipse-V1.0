@@ -170,6 +170,13 @@ CLASSES: tuple[CapabilityClass, ...] = (
     # content search and one name search, that the deprecated names still work
     # and now run on the same engine, and that the canonical name search kept
     # every filter the old one had.
+    # Round 3 / W3 (ADR-H282): the ONE edit tool and the two rules that make it
+    # safe - the file must have been READ by this run, and it must not have
+    # changed since. The gates assert the refusals, the deprecations, the
+    # policy classification and the path recovery.
+    CapabilityClass("code_edit_contract", "capability.class.codeEditContract", "test_gate",
+                    "harness.code.edit_tools",
+                    ("pytest:python/tests/test_code_edit_primitive.py",)),
     CapabilityClass("code_search", "capability.class.codeSearch", "test_gate",
                     "harness.code.fs.search",
                     ("pytest:python/tests/test_code_search_surface.py",)),

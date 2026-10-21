@@ -44,7 +44,7 @@ and lives in the terminal and the progress log; it is never shown to a user.
 ask for; a class with no fixture is published as `not measured yet` with its
 reason, never omitted.
 
-4 of 20 classes are not measured yet.
+4 of 21 classes are not measured yet.
 
 | What you can ask for | Can Eclipse do it today? | Proof | What is missing |
 |---|---|---|---|
@@ -53,6 +53,7 @@ reason, never omitted.
 | `capability.class.testFirst` | `capability.status.yes` | `test-first` (graded by the code gate in this run) | — |
 | `capability.class.repair` | `capability.status.yes` | `failing-check-repair` (graded by the code gate in this run) | — |
 | `capability.class.codeVerifyRepairLoop` | `capability.status.yes` | `failing-check-repair-in-graph` (graded by the code gate in this run) | — |
+| `capability.class.codeEditContract` | `capability.status.yes` | `pytest:python/tests/test_code_edit_primitive.py` | — |
 | `capability.class.codeSearch` | `capability.status.yes` | `pytest:python/tests/test_code_search_surface.py` | — |
 | `capability.class.job` | `capability.status.yes` | `job-definition` (graded by the code gate in this run) | — |
 | `capability.class.kit` | `capability.status.yes` | `kit-scaffold` (graded by the code gate in this run) | — |

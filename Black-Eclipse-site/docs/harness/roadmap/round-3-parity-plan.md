@@ -316,7 +316,7 @@ has all of it.
 
 ### W3 — One edit primitive, a mandatory stale guard, and a reviewable landing
 
-> **Closes:** C4, C5, C8, C9 · **Moves:** ACI +0.15, Safe +0.08 · **ADR:** H282
+> **Closes:** C4, C5, C8, C9 · **Moves:** ACI +0.15, Safe +0.08 · **ADR:** H285 · ✅ **Done 2026-10-20** — one edit tool, a mandatory read guard, path recovery; and FOUR deprecations, not the thirteen this plan sketched - the other nine are distinct operations one tool cannot express
 > **Priority: 1 — three stacks become one.**
 
 **Why.** The agent can change a file three ways, and none of them requires

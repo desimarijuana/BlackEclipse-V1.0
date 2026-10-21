@@ -596,6 +596,32 @@ naming one of them. The response-contract loss was a visible defect:
 response-schema digest and the response-mode plan, so a coding turn produced a
 degraded structured response with no error.
 
+**One edit tool, and it insists the run read the file (ADR-H285).** A *text
+edit* is ONE tool: `code_edit` (`path`, `oldText`, `newText`,
+`expectedOccurrences`). It replaces text; the operations that are genuinely
+different - creating a file, deleting one, moving one, inserting without a
+replace target, deleting a line range, applying a prepared diff - stay as the
+tools they are. What went is the DUPLICATION: `replace_text`, `patch_file`,
+`edit_file`, `multi_file_patch` and `workspace_patch_apply` are deprecated,
+still callable, and each names its replacement.
+
+Two rules make the one tool safe, and both are enforced in code:
+
+- **A file may only be changed if THIS RUN read it.** The per-run READ LEDGER
+  (`harness.tools.read_ledger`) records every file a read tool returned a hash
+  for, and the registry feeds it in ONE place - so every read tool
+  participates. An edit to a file the run never read is refused with
+  `FILE_NOT_READ`, and the refusal names the read that would make it legal.
+- **A file may only be changed if it has not changed since it was read.** The
+  ledger's hash is passed to the edit engine as `expected_hash`, so the
+  engine's own `STALE_FILE` refusal fires - the same code, the same recovery
+  hint, in one place. An ambiguous match is refused too, never guessed.
+
+`code_edit` is a WRITE tool in the ONE policy authority, so `plan_only`
+removes it and `edit_verify` keeps it - exactly like the tool it replaces. A
+wrong path comes back with up to five nearest candidates rather than a bare
+"that file isn't there".
+
 **The search surface is two tools, and the engine is always named (ADR-H284).**
 A model asks two questions about a codebase - "what does this SAY?" and "what
 files are there?" - and the harness answers them with exactly two tools:

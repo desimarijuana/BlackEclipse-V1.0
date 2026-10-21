@@ -8,6 +8,48 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-21
 
+- **fix(harness): ONE edit tool, and it insists the run read the file.** The
+  harness had THREE ways to change a file's contents and ELEVEN more
+  file-lifecycle tools, spread over two subsystems - and NONE of them required
+  proof that the model had seen the file it was about to change. `expectedHash`
+  was accepted everywhere and required NOWHERE, so the model could write to a
+  file it had never read, and a file that had changed underneath it was
+  overwritten silently. The text-edit surface is now ONE tool, `code_edit`
+  (`path`, `oldText`, `newText`, `expectedOccurrences`), with two rules
+  enforced in code. **A file may only be changed if THIS RUN read it**: the
+  per-run READ LEDGER records every file a read tool returned a hash for, the
+  registry feeds it in ONE place so every read tool participates, and an edit
+  to a file the run never read is refused with `FILE_NOT_READ` - the refusal
+  names the read that would make the edit legal. **A file may only be changed
+  if it has not changed since it was read**: the ledger's hash is passed to
+  the edit engine as `expected_hash`, so the engine's own `STALE_FILE`
+  refusal fires - the same code, the same recovery hint, in one place. An
+  ambiguous match is refused, never guessed. `code_edit` is a WRITE tool in the
+  ONE policy authority, so `plan_only` removes it and `edit_verify` keeps it -
+  exactly like the tool it replaces. A wrong path comes back with up to five
+  nearest candidates instead of a bare "that file isn't there". The mutators
+  `code_edit` subsumes are DEPRECATED, still callable, and name their
+  replacement (`replace_text`, `patch_file` and `edit_file` name `code_edit`;
+  `multi_file_patch` names `apply_diff`; `workspace_patch_apply` names
+  `code_edit`). The genuinely DIFFERENT operations - create, delete, move,
+  copy, rename, the directory tools, insert, line-range delete, unified diff -
+  are NOT deprecated: removing those would remove capability, not duplication.
+  The plan had sketched thirteen deprecations; the audit showed nine of them
+  are distinct operations one edit tool cannot express, so the honest set is
+  the four text-edit paths it actually subsumes. `workspace_read` now returns
+  the file's hash, so a workspace-level read feeds the ledger too. Three new
+  adversarial cases (S12 never-read, S13 stale-file, S14 ambiguous-match)
+  attack the real enforcing modules, and the `code_edit_contract` capability
+  class makes the whole contract measured. Files:
+  python/harness/code/edit_tools.py (new), python/harness/tools.py,
+  python/harness/code/fs/errors.py, python/harness/code/policy.py,
+  python/harness/code/tools.py, python/harness/code/fs_tools.py,
+  python/harness/agents.py,
+  python/harness/code/eval/{safety_cases,safety,capabilities}.py,
+  python/tests/test_code_edit_primitive.py (new, 13 cases). ADR-H285. docs
+  updated: docs/harness/decisions.md, docs/harness/architecture.md,
+  docs/NAVIGATION.md, docs/harness/capability-statement.md.
+
 - **fix(plugins): the bundled SEC reference plugin is source, not a scratch
   dir.** `.gitignore` carried a bare `sec/` pattern - a gitignore pattern with
   no leading slash matches a directory of that name at ANY depth - so it was

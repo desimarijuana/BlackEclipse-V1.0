@@ -451,6 +451,16 @@ async def _search(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 # ── workspace_read ──────────────────────────────────────────────────────────
 
 
+def _file_hash(target: Path) -> str:
+    """The file's sha256 - the token the read ledger and the edit guard share."""
+    from .fs.metadata import hash_file  # noqa: PLC0415
+
+    try:
+        return hash_file(target)
+    except OSError:
+        return ""
+
+
 async def _read(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     ws: Optional[ResolvedWorkspace] = getattr(ctx, "workspace", None)
     if ws is None:
@@ -520,6 +530,10 @@ async def _read(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         "nextStartLine": next_start,
         "redactedLines": redacted_lines,
         "content": numbered,
+        # Round 3 / W3 (ADR-H282): the hash of the WHOLE file, so this read
+        # feeds the per-run read ledger and the one edit tool can insist the
+        # file was read before it is changed.
+        "sha256": _file_hash(target),
     }
 
 
@@ -1023,9 +1037,12 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
     from .command_tools import command_run  # noqa: PLC0415
     from .terminal_tools import terminal_run, terminal_schema  # noqa: PLC0415
     # The fs subsystem's tools are registered first; handlers build a service lazily.
+    from .edit_tools import register_edit_tools  # noqa: PLC0415
     from .fs_tools import register_fs_tools  # noqa: PLC0415
 
     fs_names = register_fs_tools(registry)
+    # Round 3 / W3 (ADR-H282): the ONE text-edit tool.
+    register_edit_tools(registry)
 
     _INPUT_SCHEMAS["terminal_run"] = terminal_schema()
     from .shell_tools import (  # noqa: PLC0415
@@ -1082,6 +1099,7 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         "workspace_status to see which. The whole change is validated before any byte is "
         "written — a refusal applies nothing. Requires the run's editing profile.",
         _patch_apply, 60_000, permission="write", risk="medium", effect="write",
+        deprecated=True, replacement="code_edit",
     ))
     registry.register(_definition(
         "workspace_diff",

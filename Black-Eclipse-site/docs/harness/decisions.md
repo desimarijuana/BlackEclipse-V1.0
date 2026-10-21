@@ -9491,3 +9491,70 @@ wrappers, the int-flag write detection); `code/recipes.py` (the prompt names
 the input); `analysis_tools.py` (30 values + the notice);
 `src/lib/agent/use-agent-run.ts` (the merge). Tests:
 `python/tests/test_analysis_guard.py` (27). Docs: `docs/CHANGELOG.md`.
+
+## ADR-H285 - ONE edit tool, and it insists the run read the file
+
+**Decision.** The text-edit surface is ONE tool: `code_edit`
+(`path`, `oldText`, `newText`, `expectedOccurrences`). It REPLACES text, and
+two rules make it safe:
+
+1. **A file may only be changed if THIS RUN read it.** The per-run read
+   ledger (`harness.tools.read_ledger`) records every file a read tool returned
+   a hash for. An edit to a file the run never read is REFUSED with
+   `FILE_NOT_READ`, and the refusal names the read that would make the edit
+   legal. The registry feeds the ledger in ONE place, so every read tool
+   participates - the model does not have to read a file a particular way
+   before it may change it.
+2. **A file may only be changed if it has not changed since it was read.** The
+   ledger's hash is passed to the edit engine as `expected_hash`, so the
+   engine's own `STALE_FILE` refusal fires - the same code, the same recovery
+   hint, in one place.
+
+The mutators `code_edit` subsumes are DEPRECATED, still callable, and name
+their replacement: `replace_text`, `patch_file` and `edit_file` name
+`code_edit`; `multi_file_patch` names `apply_diff`; `workspace_patch_apply`
+names `code_edit`. The genuinely DIFFERENT operations are NOT deprecated and
+stay: `write_file`, `create_file`, `delete_file`, `move_file`, `copy_file`,
+`rename_file`, the directory tools, `insert_text`, `delete_text` and
+`apply_diff`. Removing those would remove capability, not duplication.
+
+`code_edit` is a WRITE tool in `code/policy.py`, so `plan_only` removes it and
+`edit_verify` keeps it - exactly like the tool it replaces. A wrong path comes
+back with up to five nearest candidates (exact basename, then suffix, then a
+bounded fuzzy match) instead of a bare "that file isn't there".
+
+**Why.** The harness had THREE ways to change a file's contents and ELEVEN more
+file-lifecycle tools, spread over two subsystems - and NONE of them required
+proof that the model had seen the file it was about to change. `expectedHash`
+was accepted everywhere and required NOWHERE, so the model could write to a
+file it had never read, and a file that had changed underneath it was
+overwritten silently. `edit_file`'s inspect packet already did this for ONE
+tool, and the fs engine already refused an ambiguous match and a stale base;
+the DUPLICATION was that three different front-doors each re-implemented (or
+skipped) those rules.
+
+The plan sketched deprecating thirteen mutators. The audit showed nine of them
+are genuinely distinct operations - file lifecycle, directory operations,
+insertion, line-range deletion - that one edit tool cannot express.
+Deprecating them would have removed capability while looking like a
+consolidation, so the honest set is the four text-edit paths `code_edit`
+actually subsumes.
+
+**Consequences.** `python/harness/code/edit_tools.py` (the tool, the ledger
+contract and the path recovery), `python/harness/tools.py` (the per-run read
+ledger and the ONE registry hook that feeds it), `python/harness/code/fs/errors.py`
+(the `FILE_NOT_READ` code and its recovery hint),
+`python/harness/code/policy.py` (`code_edit` in the WRITE set),
+`python/harness/code/tools.py` (`code_edit` registered, `workspace_patch_apply`
+deprecated, and `workspace_read` now returns the file's hash so a
+workspace-level read feeds the ledger too),
+`python/harness/code/fs_tools.py` (the four mutators deprecated),
+`python/harness/agents.py` (the three surfaces carry the ONE edit tool),
+`python/harness/code/eval/safety_cases.py`, `python/harness/code/eval/safety.py`
+and `python/harness/code/eval/capabilities.py` (the S12 / S13 / S14 adversarial
+cases and the `code_edit_contract` class). Tests
+`python/tests/test_code_edit_primitive.py` (13 cases) plus the updated
+`test_code_agent.py`, `test_chat_code_profile.py`, `test_code_reachability.py`
+and `test_surface_resolution.py` (the pinned surfaces). Docs:
+`docs/harness/architecture.md`, `docs/NAVIGATION.md`,
+`docs/harness/roadmap/round-3-parity-plan.md`.

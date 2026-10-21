@@ -27,9 +27,9 @@ def _registry() -> ToolRegistry:
 
 
 def test_plan_only_removes_write_and_external():
-    declared = ("workspace_read", "workspace_patch_apply", "command_run", "code_commit")
+    declared = ("workspace_read", "code_edit", "command_run", "code_commit")
     result = allowed_tools("plan_only", declared)
-    assert "workspace_patch_apply" not in result
+    assert "code_edit" not in result
     assert "command_run" not in result
     assert "code_commit" not in result
     assert "workspace_read" in result
@@ -161,7 +161,11 @@ def test_plan_only_allowlist_has_no_write_tool():
 
 def test_edit_verify_allowlist_has_write_no_external():
     allowed = effective_allowlist(CODE_AGENT, _registry(), "edit_verify")
-    assert set(WRITE_TOOLS) <= set(allowed)
+    # Every write tool the preset DECLARES must be present at edit_verify.
+    # `workspace_patch_apply` is in the policy's WRITE set (it is still a
+    # registered write tool, so `plan_only` must still restrain it) but it is no
+    # longer DECLARED by the surface - it was superseded by `code_edit`.
+    assert (set(WRITE_TOOLS) & set(CODE_AGENT.tools)) <= set(allowed)
     assert not (set(allowed) & set(EXTERNAL_ACTION_TOOLS))
 
 
@@ -184,8 +188,8 @@ def test_registry_refuses_a_write_tool_absent_from_plan_only():
     allowed = effective_allowlist(CODE_AGENT, registry, "plan_only")
     ctx = ToolContext(run_id="r", log=lambda *_: None)
     result = asyncio.run(registry.execute(
-        "workspace_patch_apply", "c1",
-        {"operations": [{"op": "create", "path": "x.py", "reason": "x", "content": "y"}]},
+        "code_edit", "c1",
+        {"path": "x.py", "oldText": "a", "newText": "b"},
         ctx, allowed=allowed,
     ))
     assert result.ok is False

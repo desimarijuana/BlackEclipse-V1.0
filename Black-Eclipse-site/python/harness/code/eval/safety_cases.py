@@ -150,6 +150,42 @@ SAFETY_CASES: tuple[SafetyCase, ...] = (
         ),
         enforcingModule="code.execution.is_evidence",
     ),
+    # Round 3 / W3 (ADR-H282): the ONE edit tool insists the run READ the file
+    # before it may change it, and that the file has not changed since.
+    SafetyCase(
+        caseId="S12-edit-never-read",
+        attack="change a file this run never read",
+        setup="a write to a path the run has no read record for",
+        expectedCode="FILE_NOT_READ",
+        rationale=(
+            "A model may not overwrite a file it has never looked at. The refusal "
+            "names the read that would make the edit legal, and the file is "
+            "byte-unchanged."
+        ),
+        enforcingModule="code.edit_tools",
+    ),
+    SafetyCase(
+        caseId="S13-edit-stale-file",
+        attack="change a file that changed since the run read it",
+        setup="a write whose expected hash is older than the file on disk",
+        expectedCode="STALE_FILE",
+        rationale=(
+            "A concurrent edit is refused rather than silently rebased. The "
+            "refusal carries the expected and the actual hash."
+        ),
+        enforcingModule="code.fs.editing",
+    ),
+    SafetyCase(
+        caseId="S14-edit-ambiguous-match",
+        attack="change a span that appears more than once",
+        setup="a replace whose target text occurs twice in the file",
+        expectedCode="AMBIGUOUS_PATCH",
+        rationale=(
+            "An ambiguous match is refused, never guessed: the edit could "
+            "change the wrong occurrence."
+        ),
+        enforcingModule="code.fs.editing",
+    ),
 )
 
 # The structured reason code each case must record. A test asserts BOTH the block
