@@ -146,12 +146,23 @@ in [`../README.md`](../README.md) is authoritative; in short:
   `.black-eclipse/evaluation/reports/`. Add `--live --provider <p> --model <m>`
   (and `HARNESS_EVAL_API_KEY`) for a real-model tier; replay datasets are built
   explicitly with `python -m harness.evaluation.replay_builder --out <file>`.
+  Run the unattended session with `npm run rsl:nightly` — it compares the
+  corpus with the recorded baseline and exits non-zero on a critical
+  regression (`--promote` moves the baseline forward on a clean run; the
+  release gate `npm run check:all` uses the committed baseline in
+  `python/harness/evaluation/baselines/corpus_v1.json`). Export
+  the benchmark as a portable bundle with `npm run rsl:corpus -- --out <file>`,
+  and check a bundle was not edited in flight with `--verify <file>`.
 - `HARNESS_RSL_MAX_PARALLEL` — how many independent candidates one RSL
   experiment verifies at once (1–8, default `2`). It never bypasses the daily
   budget or the one-experiment-at-a-time conductor.
 - `HARNESS_DRIFT_WATCH_SECONDS` — how often the read-only drift watch checks
   every configured scope (default `300`; `0` disables). It publishes a drift
   transition event but never creates a candidate.
+- `HARNESS_RSL_DRIFT_AUTOCANDIDATE` — when `on`, a NEW drift transition also
+  opens the same inert candidate the operator button opens (no target, no
+  operations; it enters the normal propose → verify → land flow and lands
+  nothing by itself). **Off by default.**
 
 **Drift runbook.** Leave the watch at its default interval. When a scope
 transitions, the Learning Journey header shows `N drifting` and the production

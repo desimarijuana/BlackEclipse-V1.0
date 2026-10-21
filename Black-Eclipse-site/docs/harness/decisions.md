@@ -9545,3 +9545,147 @@ capability is missing; the runtime has to hand over what it already knows.
 artifact's location), `code/sandbox_tools.py` (`tool_signatures`),
 `code/recipes.py` (the catalogue in the refusal). Tests:
 `python/tests/test_analysis_guard.py` (30). Docs: `docs/CHANGELOG.md`.
+## ADR-H285 - A surface may narrow the CONTEXT it injects, never widen its authority
+
+**Decision.** A live surface may carry two context policies, both closed sets:
+
+- `skillManifest`: `none` | `top3` | `top8` - how many skills are listed as a
+  hint in the prompt (the manifest is a hint; narrowing it removes hints, never
+  a capability).
+- `memoryPolicy`: `off` | `profile_only` | `profile_plus_search` - whether
+  recalled memory, the persistent profile, or both are injected. `off` injects
+  neither; `profile_only` keeps the stable profile and drops the recall.
+
+Both live on `AgentConfig` and on `HarnessSnapshot` (digest-additive: an empty
+policy is not part of the identity, so older snapshots keep their digest). An
+unknown value is refused - never treated as the default. Neither policy grants
+a tool, a permission or an effect, and neither changes the tool allowlist.
+
+**Why.** The surface could previously change the prompt, the tool subset and the
+ceilings. It could not express "this agent should not be reminded of past
+notes" or "list fewer skills" - the two most common operator requests, and both
+are context questions rather than authority questions.
+
+**Consequences.** `schemas.py` (`AgentConfig.skillManifest` / `memoryPolicy` +
+the closed sets), `self_improvement/models.py` (the snapshot fields),
+`self_improvement/live_surface.py` (the live application),
+`graph_context.py` (the injection bounds), `routers/evolution.py` (the surface
+experiment request carries them). Tests: `test_surface_context_policy.py`,
+`test_rsl_snapshot.py`, `test_live_surface.py`. Docs:
+`docs/self-improvement/rsl-v3-plan.md`.
+## ADR-H286 - A guardrail is a runtime rule: it fails the run, it never instructs the model
+
+**Decision.** A live surface may carry `guardrails` (a closed set) and
+`maxAnswerChars`:
+
+- `require_tool_before_answer` - the run executed at least one tool.
+- `require_citation` - the answer carries at least one citation (the evaluator's
+  own citation parser decides what a citation IS).
+- `maxAnswerChars` - the answer is not longer than the given bound.
+
+They are checked ONCE, at the end of the run, against what the run really did
+(the persisted tool executions) and what it really answered. A violation FAILS
+the run with a named code (`GUARDRAIL_TOOL_REQUIRED`,
+`GUARDRAIL_CITATION_MISSING`, `GUARDRAIL_ANSWER_TOO_LONG`) and the answer is
+not shipped as a completed result. A broken guardrail implementation degrades to
+"no violation" - it can never break a run.
+
+**Why.** Everything the surface could change before this was prompt text, tool
+subset or ceilings: all either advisory or authority. An operator who wants
+"this agent must show its sources" needs a rule the RUNTIME enforces, and a rule
+that only lives in the prompt is a request, not a guarantee.
+
+**Consequences.** `self_improvement/guardrails.py` (the evaluation),
+`schemas.py` (`AgentConfig.guardrails` / `maxAnswerChars` + the error codes),
+`self_improvement/models.py` (the snapshot fields), `self_improvement/live_surface.py`
+(the live application), `graph.py` (the terminal check), `routers/evolution.py`
+(the experiment request). Tests: `test_rsl_guardrails.py`,
+`test_graph.py` (a run that breaks a guardrail fails with the named code),
+`test_live_surface.py`, `test_rsl_snapshot.py`. Docs:
+`docs/self-improvement/rsl-v3-plan.md`.
+## ADR-H287 - The loop reports on itself, and a drift episode may open its own candidate
+
+**Decision.** Two operator rules for RSL v3.
+
+1. **There is ONE summary, and it is honest.** `GET /evolution/rsl/report`
+   (and the weekly card in the operator panel) returns what the loop did in a
+   window: experiments, accepted / rejected / unmeasured, the real cost and the
+   cost per accepted improvement, the candidates in flight, the lessons adopted
+   and where production is drifting. A measure that was never taken reads
+   `UNKNOWN`; it is never a fabricated zero. The same digest renders as
+   Markdown, so it can be read by a person or by CI.
+2. **A drift episode may open its OWN inert candidate - off by default.**
+   `HARNESS_RSL_DRIFT_AUTOCANDIDATE=on` lets the drift watch create, on a NEW
+   transition into drift, the SAME inert candidate the operator route creates.
+   The candidate carries no target and no operations: it is evidence that enters
+   the existing propose -> verify -> land flow. It never lands, never activates
+   and never bypasses the operator. With the flag off (the default) the watch
+   stays exactly as it was: read-only.
+
+**Why.** A loop that cannot report on itself is invisible, and an invisible
+loop is either ignored or trusted blindly. The digest is the difference between
+"the loop is on" and "here is what it did this week, and it cost $0.25". And a
+regression that only becomes visible when a human opens a card is not
+monitored - but the automation must stay opt-in, because an automatic candidate
+is still a change to the queue of work.
+
+**Consequences.** `self_improvement/report.py` (the digest), `routers/evolution_report.py`
+(the route group), `self_improvement/drift_watch.py` (the opt-in candidate),
+`src/components/screens/skills/rsl-weekly-card.tsx` (the card),
+`src/lib/harness/evolution-{client,browser}.ts` + the Next.js proxy. Tests:
+`test_rsl_digest.py`, `test_drift_watch.py` (the opt-in candidate),
+`rsl-weekly-card.test.tsx`. Docs: `docs/self-improvement/rsl-v3-plan.md`.
+## ADR-H288 - The unattended session is a GATE: it fails on a critical regression, and the baseline only moves forward on a clean run
+
+**Decision.** `npm run rsl:nightly` runs the corpus once (the deterministic
+tier), compares the result with the recorded baseline through the EXISTING
+per-dimension regression gates, writes a dated JSON + Markdown report, and
+exits non-zero when a CRITICAL measure regressed (task success, safety score,
+hallucination rate, financial accuracy, routing). Cost, latency and token
+movements are reported as warnings and do not fail the session.
+
+The baseline moves forward only when the run is clean AND the caller passes
+`--promote`: a worse run never silently becomes the new normal. With no
+baseline yet, the first run reports what it measured and passes.
+
+**Why.** A loop that is only ever watched is not verified. The gate that
+already existed (`scripts/test-evals.js`) proves the corpus passes TODAY; this
+proves the corpus has not got WORSE since the recorded baseline. A gate that
+cannot fail is decoration, so the regression is PLANTED in a test: a task that
+does not pass must make the session say FAIL and name the measure.
+
+**Consequences.** `evaluation/nightly.py` (the session, the verdict, the
+report), `scripts/rsl-nightly.js` + `npm run rsl:nightly`. The baseline,
+regression gates and report writers are the existing ones
+(`evaluation/baseline.py`, `evaluation/regression.py`,
+`evaluation/report.py`) - no second gate, no second baseline store. Tests:
+`test_evaluation_nightly.py` (the planted regression must fail the session and
+the report). Docs: `docs/self-improvement/rsl-v3-plan.md`,
+`docs/harness/agent-evaluation.md`.
+## ADR-H289 - A delegated child inherits the parent's context policy, and the surface may give it a prompt
+
+**Decision.** A surface may carry `subagentPrompt` (≤4,000 characters). When it
+is set, the DELEGATION tool builds the child's agent explicitly: the child's own
+preset prompt, plus the surface's bounded instructions, and the child's tools
+are the NARROWED set the delegation already computed (the parent's allowlist,
+or the child's request within it).
+
+The prompt is evidence, not authority: it cannot add a tool, raise a ceiling,
+change a permission or grant an effect - the child's allowlist is still the
+narrowed one, and the child is still a normal `execute_run` with a parent link.
+Without the field the delegation path is exactly as it was.
+
+**Why.** A delegated child runs the SAME agent preset as its parent, so a
+surface that improves the parent's prompt did nothing for the child - and the
+child is where the fan-out work actually happens. The child's tool set is
+narrowed by the delegation layer, so naming the child's prompt next to that
+narrowing is the honest place to state it.
+
+**Consequences.** `schemas.py` (`AgentConfig.subagentPrompt`),
+`self_improvement/models.py` (the snapshot field), `self_improvement/live_surface.py`
+(the live application), `tools.py` (`ToolContext.agent` - the resolved agent of
+the run), `graph.py` (the context carries it), `delegation_tools.py` (the child
+agent is built explicitly when the surface set a prompt). Tests:
+`test_delegation_tool.py` (the child inherits the prompt and the narrowed
+tools), `test_rsl_snapshot.py` (bounded + digest). Docs:
+`docs/self-improvement/rsl-v3-plan.md`.
