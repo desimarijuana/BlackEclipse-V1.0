@@ -104,7 +104,7 @@ def _mark_traces(
     traces: list[dict[str, Any]] = []
 
     if mark.type in ("line", "area", "ridge", "stem"):
-        ys = mark.y or []
+        ys = mark.the_values or []
         x = _x_values(mark, len(ys))
         if mark.type == "area":
             traces.append({
@@ -132,7 +132,7 @@ def _mark_traces(
         return traces
 
     if mark.type == "bar":
-        ys = mark.y or []
+        ys = mark.the_values or []
         traces.append({
             "type": "bar", "x": _x_values(mark, len(ys)), "y": ys, "name": name,
             "marker": {"color": color},
@@ -141,7 +141,7 @@ def _mark_traces(
         return traces
 
     if mark.type == "scatter":
-        ys = mark.y or []
+        ys = mark.the_values or []
         sizes = [s for s in (mark.sizes or []) if s is not None]
         traces.append({
             "type": "scatter", "x": _x_values(mark, len(ys)), "y": ys, "name": name,
@@ -184,7 +184,7 @@ def _mark_traces(
         return traces
 
     if mark.type == "label":
-        ys = mark.y or []
+        ys = mark.the_values or []
         traces.append({
             "type": "scatter", "x": _x_values(mark, len(ys)), "y": ys, "name": name,
             "mode": "text", "text": [mark.label or ""] * len(ys),
@@ -216,7 +216,7 @@ def _mark_traces(
         return traces
 
     if mark.type == "errorbar":
-        ys = mark.y or []
+        ys = mark.the_values or []
         lower = mark.lower or []
         upper = mark.upper or []
         count = min(len(ys), len(lower), len(upper))
@@ -260,7 +260,7 @@ def _mark_traces(
         return traces
 
     if mark.type == "waterfall":
-        values = mark.y or []
+        values = mark.the_values or []
         traces.append({
             "type": "waterfall", "x": _x_values(mark, len(values)), "y": values, "name": name,
             "increasing": {"marker": {"color": "#22c55e"}},
@@ -271,7 +271,7 @@ def _mark_traces(
     if mark.type == "scatter3d":
         traces.append({
             "type": "scatter3d", "name": name, "scene": "scene",
-            "x": mark.x or [], "y": mark.y or [], "z": mark.z or [],
+            "x": mark.x or [], "y": mark.the_values or [], "z": mark.z or [],
             "mode": "markers",
             "marker": {
                 "color": mark.z or [],

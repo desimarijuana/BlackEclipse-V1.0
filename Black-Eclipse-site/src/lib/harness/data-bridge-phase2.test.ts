@@ -204,7 +204,9 @@ describe("fetchCapability — price_history", () => {
     expect(result.status).toBe("OK");
     // A 31-day window picks a covering range — never "max" (the old behaviour
     // returned everything and the renderer truncated head+tail).
-    expect(fetchYahooBatchRaw).toHaveBeenCalledWith(["AAPL"], "US", "1d", "1mo");
+    expect(fetchYahooBatchRaw).toHaveBeenCalledWith(
+      ["AAPL"], "US", "1d", "1mo", { start: "2025-12-01", end: "2025-12-31" },
+    );
     const dates = (result.series as Array<{ date: string }>).map((r) => r.date);
     expect(dates).toEqual(["2025-12-10", "2025-12-31"]);
     expect(result.window).toEqual({ start: "2025-12-01", end: "2025-12-31" });

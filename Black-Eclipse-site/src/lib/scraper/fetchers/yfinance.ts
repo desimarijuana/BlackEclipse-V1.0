@@ -149,14 +149,23 @@ export async function fetchYahooBatchRaw(
   symbols: string[],
   market: string,
   interval?: string,
-  period?: string
+  period?: string,
+  window?: { start?: string; end?: string },
 ): Promise<BridgeQuotesOutput> {
   const clean = symbols.map((s) => s.trim().toUpperCase()).filter(Boolean);
   if (clean.length === 0) return { quotes: {} };
 
   // Passing interval/period switches the bridge to its history path
   // (one shared yf.download for all symbols) instead of the quote path.
-  const extraArgs = interval && period ? [interval, period] : [];
+  // An EXPLICIT window travels with it: the bridge passes start/end to
+  // yfinance, so the series really covers the requested days (a rolling
+  // `period` silently starts later and shortens the series).
+  const extraArgs: string[] = [];
+  if (interval && period) extraArgs.push(interval, period);
+  if (window?.start) {
+    extraArgs.push(window.start);
+    extraArgs.push(window.end ?? "");
+  }
 
   const { stdout } = await runPythonBridge(BRIDGE_PATH, [market, clean.join(","), ...extraArgs], {
     timeout: 60000,

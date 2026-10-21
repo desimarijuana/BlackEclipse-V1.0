@@ -392,6 +392,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/lib/agent/registry.test.ts`, `src/app/api/harness/chat/route.test.ts`.
   docs updated: `docs/chat-ui-audit.md`.
 
+- **fix(market): the yfinance window travels explicitly, and a chart's `data`
+  alias actually draws.**
+  A 1y range was requested from yfinance as a rolling `period`, which is
+  anchored to "now": a request for 2025-10-20..2026-10-20 came back starting
+  on the 21st - a silently short series that changes every return, drawdown
+  and statistic computed from it. The window is now passed to yfinance as
+  explicit `start`/`end`, so the series really covers the requested days.
+  The chat's chart spec carries the scene fields the newer marks need (`z`,
+  `parents`, `colors`, `sources`, `targets`, `weights`), and the Python
+  figure reads a mark's values through the model's own accessor, so a mark
+  that arrives as `data` instead of `y` is drawn instead of coming out
+  empty.
+  Files: `scripts/yfinance_bridge.py`, `python/harness/charts/plotly_figure.py`,
+  `src/lib/scraper/fetchers/yfinance.ts`, `src/lib/response/chart-spec.ts`.
+  Tests: `python/tests/test_yfinance_bridge_window.py`,
+  `src/lib/scraper/fetchers/yfinance-window.test.ts`,
+  `src/lib/harness/data-bridge-{identity,phase2}.test.ts`. docs updated:
+  `docs/CHANGELOG.md`.
+
 ## 2026-10-20
 
 - **fix(charts): the full-view chart no longer collides with the app's header.**
