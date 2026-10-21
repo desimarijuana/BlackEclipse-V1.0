@@ -286,6 +286,54 @@ const chartSeriesSchema = z.object({
   band: chartBandSchema.optional(),
 });
 
+/**
+ * The chart SCENE: a stack of panels, each a stack of marks.
+ *
+ * A fixed list of chart kinds can only draw the charts someone thought of. A
+ * scene is compositional: a violin, a box plot, a Gantt, a funnel, a ridgeline
+ * or a dual-axis chart is a COMPOSITION of the primitives, so the model can
+ * draw any chart the user asks for without a new kind being invented for it.
+ */
+const CHART_MARK_TYPES = [
+  'line', 'area', 'bar', 'scatter', 'band', 'rule', 'label', 'box', 'violin',
+  'histogram', 'errorbar', 'heatmap', 'pie', 'donut', 'candlestick', 'waterfall',
+  'ridge', 'stem',
+] as const;
+
+const chartMarkSchema = z.object({
+  type: z.enum(CHART_MARK_TYPES),
+  name: shortString.optional(),
+  y: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  x: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  values: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  lower: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  upper: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  sizes: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  matrix: z.array(z.array(z.number().finite())).max(200).optional(),
+  labels: z.array(shortString).max(50).optional(),
+  rowLabels: z.array(shortString).max(50).optional(),
+  colLabels: z.array(shortString).max(50).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  alpha: z.number().min(0).max(1).optional(),
+  width: z.number().positive().optional(),
+  style: z.enum(['solid', 'dashed', 'dotted']).optional(),
+  fill: z.boolean().optional(),
+  label: shortString.optional(),
+  yAxis: z.enum(['left', 'right']).optional(),
+  stack: shortString.optional(),
+  bins: z.number().int().min(1).max(200).optional(),
+});
+
+const chartPanelSchema = z.object({
+  title: shortString.optional(),
+  xLabel: shortString.optional(),
+  yLabel: shortString.optional(),
+  marks: z.array(chartMarkSchema).min(1).max(24),
+  valueFormat: z.enum(['percent', 'currency', 'compact', 'r', 'number']).optional(),
+  logScale: z.boolean().optional(),
+  height: z.number().positive().optional(),
+});
+
 const chartBlock = z.object({
   type: z.literal('chart'),
   id: idString.optional(),
@@ -299,12 +347,23 @@ const chartBlock = z.object({
   xLabel: shortString.optional(),
   yLabel: shortString.optional(),
   categories: z.array(z.union([z.string().max(80), z.number()])).max(RESPONSE_LIMITS.maxCategories).optional(),
-  series: z.array(chartSeriesSchema).min(1).max(RESPONSE_LIMITS.maxSeries),
+  series: z.array(chartSeriesSchema).max(RESPONSE_LIMITS.maxSeries).default([]),
+  /**
+   * The compositional form: panels of marks. When present, the chart is drawn
+   * as a SCENE and `series` is not needed. This is how the model draws ANY
+   * chart the user asks for.
+   */
+  panels: z.array(chartPanelSchema).min(1).max(6).optional(),
   legend: z.boolean().default(true),
   zoom: z.boolean().default(false),
   smooth: z.boolean().default(false),
   stacked: z.boolean().default(false),
-});
+}).refine(
+  // A chart needs SOMETHING to draw: the simple form (series) or the
+  // compositional form (panels of marks).
+  (block) => block.series.length > 0 || (block.panels?.length ?? 0) > 0,
+  { message: 'a chart needs either series or panels' },
+);
 
 const diagramNodeSchema = z.object({
   id: idString,

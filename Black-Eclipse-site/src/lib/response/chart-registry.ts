@@ -1,42 +1,25 @@
-// ── The chat chart engine registry ───────────────────────────────────────────
-// A chat chart block can be drawn by EITHER engine:
+// ── The drawn-chart registry ────────────────────────────────────────────────
+// A chat chart block is drawn by the Python chart engine (matplotlib) in the
+// runtime, and the picture is stored as an ARTIFACT. This registry maps the
+// block's id to that artifact's id, so the export helpers can fetch the PNG
+// without threading refs through the whole render tree.
 //
-//   * `eclipse` — the interactive ECharts chart (the original): a live canvas
-//     with a crosshair, a tooltip and a legend.
-//   * `python`  — the picture the Python chart engine (matplotlib) draws in
-//     the runtime, fetched back as an artifact.
-//
-// This registry holds BOTH: the live ECharts instance for the interactive
-// path, and the artifact id for the drawn path. The export helpers ask both,
-// so a chart exports the same way whichever engine drew it.
+// Entries are removed on unmount — no leaks.
 
-import type { ECharts } from 'echarts';
-
-const instances = new Map<string, ECharts>();
 const artifacts = new Map<string, string>();
 
-/** Register the live ECharts instance of a chart block. */
-export function registerChart(id: string, instance: ECharts): void {
-  instances.set(id, instance);
+/** Record the artifact that holds a chart block's picture. */
+export function registerChartArtifact(chartId: string, artifactId: string): void {
+  artifacts.set(chartId, artifactId);
 }
 
-export function unregisterChart(id: string): void {
-  instances.delete(id);
-  artifacts.delete(id);
+export function unregisterChart(chartId: string): void {
+  artifacts.delete(chartId);
 }
 
-export function getChart(id: string): ECharts | null {
-  return instances.get(id) ?? null;
-}
-
-/** Register the artifact that holds a chart block's drawn picture. */
-export function registerChartArtifact(id: string, artifactId: string): void {
-  artifacts.set(id, artifactId);
-}
-
-/** The artifact id for a drawn chart block, or null when it has none. */
-export function getChartArtifact(id: string): string | null {
-  return artifacts.get(id) ?? null;
+/** The artifact id for a chart block, or null when it has none. */
+export function getChartArtifact(chartId: string): string | null {
+  return artifacts.get(chartId) ?? null;
 }
 
 /**

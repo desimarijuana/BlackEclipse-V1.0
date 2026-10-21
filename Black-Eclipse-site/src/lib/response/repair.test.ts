@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { responseBlockMeta } from './schema-meta';
+import { describeResponseBlocks } from '@/lib/harness/response-bridge';
 import { repairUnknownBlock } from './repair';
 import { finalizeResponse } from './finalize';
 
@@ -19,10 +20,36 @@ describe('schema-meta introspection (drives repair, cannot drift)', () => {
 
     const series = fields.find((f) => f.name === 'series');
     expect(series?.kind).toBe('array');
-    expect(series?.required).toBe(true);
+    // `series` is now OPTIONAL: a chart may arrive as a SCENE (panels of marks)
+    // instead, so the simple form defaults to an empty array.
+    expect(series?.required).toBe(false);
     const name = series?.element?.fields?.find((f) => f.name === 'name');
     expect(name?.required).toBe(true);
     expect(name?.kind).toBe('string');
+  });
+
+  it('exposes the SCENE form (panels of marks) so any chart can be drawn', () => {
+    const fields = chartMeta().fields;
+    const panels = fields.find((f) => f.name === 'panels');
+    expect(panels?.kind).toBe('array');
+    // The panel's own fields (one level in).
+    const marks = panels?.element?.fields?.find((f) => f.name === 'marks');
+    expect(marks?.kind).toBe('array');
+    // The mark itself is an object - the shape the engine draws.
+    expect(marks?.element?.kind).toBe('object');
+  });
+
+  it('tells the MODEL the whole mark vocabulary (the bridge read-back)', () => {
+    // The repair meta is deliberately bounded, but the model must be able to
+    // see every mark the engine can draw - otherwise "any chart" is a promise
+    // the model cannot keep.
+    const chart = describeResponseBlocks().find((b) => b.type === 'chart');
+    const panels = chart?.fields.find((f) => f.name === 'panels');
+    const marks = panels?.itemDetail?.find((f) => f.name === 'marks');
+    const markType = marks?.itemDetail?.find((f) => f.name === 'type');
+    expect(markType?.kind).toContain('violin');
+    expect(markType?.kind).toContain('box');
+    expect(markType?.kind).toContain('candlestick');
   });
 
   it('flags defaulted/optional fields as not required', () => {

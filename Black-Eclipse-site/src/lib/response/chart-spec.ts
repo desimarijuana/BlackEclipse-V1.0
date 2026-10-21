@@ -106,16 +106,17 @@ export function directChartType(block: ChartBlock): Exclude<ChartBlock['chartTyp
   // OHLC points ARE candles: a series of quadruples is a price chart, not a
   // line through the closes.
   if (block.series.some((s) => s.data.some(isOhlc))) return 'candlestick';
+  const series = block.series ?? [];
   if (categories.length > 0) {
     if (looksTemporal(categories)) return 'line';
-    if (block.series.length > 1) return 'line';
-    return (block.series[0]?.data.length ?? 0) <= 12 ? 'bar' : 'line';
+    if (series.length > 1) return 'line';
+    return (series[0]?.data.length ?? 0) <= 12 ? 'bar' : 'line';
   }
-  if (block.series.some((s) => s.data.some(isTriple))) return 'bubble';
-  if (block.series.every((s) => pairsIn(s).length > 0 && monotonic(pairsIn(s)))) {
+  if (series.some((s) => s.data.some(isTriple))) return 'bubble';
+  if (series.every((s) => pairsIn(s).length > 0 && monotonic(pairsIn(s)))) {
     return 'line';
   }
-  if (block.series.some((s) => s.data.some(isPair))) return 'scatter';
+  if (series.some((s) => s.data.some(isPair))) return 'scatter';
   return 'line';
 }
 
@@ -126,7 +127,8 @@ export function resolveChartType(block: ChartBlock): Exclude<ChartBlock['chartTy
 
 /** True when the block has enough data to be worth drawing. */
 export function chartHasData(block: ChartBlock): boolean {
-  return block.series.some((s) => Array.isArray(s.data) && s.data.some((p) => p != null));
+  if (block.panels && block.panels.length > 0) return true;
+  return (block.series ?? []).some((s) => Array.isArray(s.data) && s.data.some((p) => p != null));
 }
 
 // ── The mapping ─────────────────────────────────────────────────────────────
@@ -168,6 +170,57 @@ const KIND_BY_BLOCK_TYPE: Record<
   ohlc: { kind: 'candlestick' },
 };
 
+/**
+ * The scene spec: the block's panels and marks, as the engine takes them.
+ *
+ * The only thing translated is the field NAMES (the block is camelCase, the
+ * engine is too) and the theme. The marks go through untouched: what the model
+ * composed is what gets drawn.
+ */
+function sceneSpec(block: ChartBlock, options: ChartPlanOptions): ChartSpec {
+  const panels = (block.panels ?? []).map((panel) => ({
+    title: panel.title,
+    xLabel: panel.xLabel,
+    yLabel: panel.yLabel,
+    valueFormat: panel.valueFormat,
+    logScale: panel.logScale,
+    height: panel.height,
+    marks: panel.marks.map((mark) => ({
+      type: mark.type,
+      name: mark.name,
+      y: mark.y,
+      x: mark.x,
+      values: mark.values,
+      lower: mark.lower,
+      upper: mark.upper,
+      sizes: mark.sizes,
+      matrix: mark.matrix,
+      labels: mark.labels,
+      rowLabels: mark.rowLabels,
+      colLabels: mark.colLabels,
+      color: mark.color,
+      alpha: mark.alpha,
+      width: mark.width,
+      style: mark.style,
+      fill: mark.fill,
+      label: mark.label,
+      yAxis: mark.yAxis,
+      stack: mark.stack,
+      bins: mark.bins,
+    })),
+  }));
+  return {
+    kind: 'scene',
+    title: block.title ?? undefined,
+    subtitle: block.description ?? undefined,
+    source: block.source ?? undefined,
+    panels,
+    theme: options.theme ?? 'eclipse-dark',
+    width: options.width ?? 960,
+    height: options.height ?? 520,
+  };
+}
+
 export interface ChartPlan {
   /** The spec to send to the chart engine. */
   spec: ChartSpec;
@@ -203,6 +256,12 @@ export function chartBlockToSpec(
   block: ChartBlock,
   options: ChartPlanOptions = {},
 ): ChartPlan | null {
+  // The SCENE form: the model composed the chart out of panels and marks, so
+  // the engine draws exactly that. Nothing is invented and nothing is mapped.
+  if (block.panels && block.panels.length > 0) {
+    return { spec: sceneSpec(block, options), kind: 'scene', notes: [] };
+  }
+
   if (!chartHasData(block)) return null;
 
   const blockType = resolveChartType(block);
@@ -222,7 +281,7 @@ export function chartBlockToSpec(
     height: options.height ?? 420,
   };
 
-  const first = block.series[0];
+  const first = (block.series ?? [])[0];
 
   // ── pie / donut ───────────────────────────────────────────────────────────
   if (kind === 'pie') {
@@ -235,6 +294,7 @@ export function chartBlockToSpec(
 
   // ── radar ────────────────────────────────────────────────────────────────
   if (kind === 'radar') {
+    if (!first) return null;
     const values = first.data.map(pointValue);
     spec.labels = categoryNames(block, values.length);
     spec.values = values.map((v) => (v == null ? 0 : v));
@@ -243,6 +303,7 @@ export function chartBlockToSpec(
 
   // ── waterfall ────────────────────────────────────────────────────────────
   if (kind === 'waterfall') {
+    if (!first) return null;
     const values = first.data.map(pointValue);
     spec.categories = categoryNames(block, values.length);
     spec.series = [
@@ -257,6 +318,7 @@ export function chartBlockToSpec(
 
   // ── candlestick / ohlc ───────────────────────────────────────────────────
   if (kind === 'candlestick') {
+    if (!first) return null;
     const candles = first.data
       .map((p) => (isOhlc(p) ? { open: p[0], high: p[1], low: p[2], close: p[3] } : null))
       .filter((c): c is { open: number; high: number; low: number; close: number } => c !== null);
@@ -268,13 +330,14 @@ export function chartBlockToSpec(
 
   // ── heatmap ──────────────────────────────────────────────────────────────
   if (kind === 'heatmap') {
-    const width = Math.max(...block.series.map((s) => s.data.length), 0);
+    const rows = block.series ?? [];
+    const width = Math.max(...rows.map((s) => s.data.length), 0);
     if (!width) return null;
-    const matrix = block.series.map((s) =>
+    const matrix = rows.map((s) =>
       Array.from({ length: width }, (_, i) => pointValue(s.data[i]) ?? 0),
     );
     spec.matrix = matrix;
-    spec.rowLabels = block.series.map((s) => s.name);
+    spec.rowLabels = rows.map((s) => s.name);
     spec.colLabels = categoryNames(block, width);
     return { spec, kind, notes };
   }
@@ -282,7 +345,7 @@ export function chartBlockToSpec(
   // ── scatter / bubble ─────────────────────────────────────────────────────
   if (kind === 'scatter') {
     const points: Array<{ x: number; y: number; label?: string; size?: number }> = [];
-    for (const series of block.series) {
+    for (const series of block.series ?? []) {
       for (const p of series.data) {
         if (!isPair(p)) continue;
         const point: { x: number; y: number; label?: string; size?: number } = {
@@ -303,6 +366,7 @@ export function chartBlockToSpec(
 
   // ── histogram ────────────────────────────────────────────────────────────
   if (kind === 'histogram') {
+    if (!first) return null;
     const values = first.data.map(pointValue);
     spec.series = [{ name: first.name || 'Values', data: values }];
     return { spec, kind, notes };
@@ -310,10 +374,10 @@ export function chartBlockToSpec(
 
   // ── line / area / bar ────────────────────────────────────────────────────
   const hasCategories = (block.categories?.length ?? 0) > 0;
-  if (!hasCategories && block.series.some((s) => s.data.some(isPair))) {
+  if (!hasCategories && (block.series ?? []).some((s) => s.data.some(isPair))) {
     // Points without categories and without a category axis are a scatter.
     const points: Array<{ x: number; y: number }> = [];
-    for (const series of block.series) {
+    for (const series of block.series ?? []) {
       for (const p of series.data) {
         if (!isPair(p)) continue;
         points.push({ x: p[0], y: p[1] });
@@ -326,9 +390,9 @@ export function chartBlockToSpec(
     return { spec, kind: 'scatter', notes };
   }
 
-  const longest = Math.max(...block.series.map((s) => s.data.length), 0);
+  const longest = Math.max(...(block.series ?? []).map((s) => s.data.length), 0);
   spec.categories = categoryNames(block, longest);
-  const series: NonNullable<ChartSpec['series']> = block.series.map((s) => {
+  const series: NonNullable<ChartSpec['series']> = (block.series ?? []).map((s) => {
     const entry: NonNullable<ChartSpec['series']>[number] = {
       name: s.name || 'Series 1',
       data: s.data.map(pointValue),

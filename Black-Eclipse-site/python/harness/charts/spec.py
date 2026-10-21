@@ -57,6 +57,9 @@ ChartKind = Literal[
     "radar",
     "gauge",
     "treemap",
+    # The compositional form: panels of marks (see `scene.py`). Any chart is a
+    # composition of the primitives, so a new chart is not a new "kind".
+    "scene",
 ]
 
 ChartTheme = Literal["eclipse-dark", "eclipse-light"]
@@ -237,6 +240,9 @@ class ChartSpec(BaseModel):
     reference_lines: list[ChartReferenceLine] = Field(default_factory=list)
     #: Shaded spans of the category axis (a recession, a regime).
     highlights: list[ChartHighlight] = Field(default_factory=list)
+    #: A COMPOSITIONAL chart: panels of marks. When this is present the chart is
+    #: drawn as a scene, and `kind` is only the scene's default.
+    panels: list["ChartPanel"] = Field(default_factory=list)
     #: An optional volume pane under the chart (a price chart's volume bars).
     volume_data: list[Optional[float]] = Field(default_factory=list)
     #: The volume bars' colours (one per bar, or empty for the theme's own).
@@ -314,6 +320,11 @@ class ChartSpec(BaseModel):
         if kind == "gauge":
             if self.value is None:
                 raise ValueError("a gauge needs a value")
+        if kind == "scene":
+            if not self.panels:
+                raise ValueError("a scene needs at least one panel")
+            if not any(panel.marks for panel in self.panels):
+                raise ValueError("a scene needs at least one mark")
         if kind == "treemap":
             if not self.tiles:
                 raise ValueError("a treemap needs tiles")
@@ -356,6 +367,12 @@ class ChartSpec(BaseModel):
         if kind == "candlestick":
             return f"candlestick chart of {len(self.candles)} bars"
         return f"{kind} chart of {len(self.values)} values"
+
+
+# Resolve the forward reference (`ChartSpec.panels` -> `ChartPanel`).
+from .scene import ChartPanel  # noqa: E402  (circular-import resolution)
+
+ChartSpec.model_rebuild()
 
 
 __all__ = [

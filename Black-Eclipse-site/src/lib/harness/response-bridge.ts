@@ -23,7 +23,13 @@ import type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
 
 const MAX_VALIDATE_CHARS = 200_000;
 
-type FieldInfo = { name: string; required: boolean; kind: string; itemFields?: string[] };
+type FieldInfo = { name: string; required: boolean; kind: string; itemFields?: string[];
+  /**
+   * For array kinds: the element object's fields, one level deeper. The
+   * SCENE's mark vocabulary lives here (`panels` -> `marks` -> a mark's
+   * fields), so the model can see every chart the engine can draw.
+   */
+  itemDetail?: FieldInfo[] };
 
 /** Unwrap optional/default/nullable wrappers to the underlying schema. */
 function unwrap(schema: unknown): unknown {
@@ -97,6 +103,46 @@ function countBlockStats(blocks: unknown[]): BlockStats {
   return { blockTypes, refs, computedRefs };
 }
 
+/**
+ * Describe an array's ELEMENT object: its field names, and (one level deeper)
+ * the fields of an array-of-objects inside it.
+ *
+ * The depth matters: a chart SCENE is `panels` -> `marks` -> a mark's fields,
+ * and the mark's `type` is the vocabulary of every chart the engine can draw.
+ * Without that level the model could see that a scene exists but not what a
+ * mark may be.
+ */
+function describeItem(element: unknown, depth = 0): { names: string[]; detail?: FieldInfo[] } {
+  const elementDef = defOf(element);
+  if (elementDef?.type !== "object") return { names: [] };
+  const shape = (element as { shape?: Record<string, unknown> }).shape ?? {};
+  // NOTE: a `type` field is NOT skipped here. At the BLOCK level it is the
+  // discriminator (skipped by the caller), but inside a scene it is the
+  // MARK's primitive - the whole vocabulary of charts the engine can draw.
+  const names = Object.keys(shape);
+  if (depth <= 0) return { names };
+  const detail: FieldInfo[] = [];
+  for (const [name, schema] of Object.entries(shape)) {
+    const bare = unwrap(schema);
+    const bareDef = defOf(bare);
+    let itemFields: string[] | undefined;
+    let itemDetail: FieldInfo[] | undefined;
+    if (bareDef?.type === "array") {
+      const nested = describeItem(unwrap(bareDef.element), depth - 1);
+      itemFields = nested.names;
+      itemDetail = nested.detail;
+    }
+    detail.push({
+      name,
+      required: !(schema as { isOptional?: () => boolean }).isOptional?.(),
+      kind: kindOf(schema),
+      ...(itemFields ? { itemFields } : {}),
+      ...(itemDetail ? { itemDetail } : {}),
+    });
+  }
+  return { names, detail };
+}
+
 function describeOption(option: unknown): { type: string; fields: FieldInfo[] } {
   const shape = ((option as { shape?: Record<string, unknown> }).shape ?? {}) as Record<string, unknown>;
   const typeDef = defOf(shape.type);
@@ -108,20 +154,19 @@ function describeOption(option: unknown): { type: string; fields: FieldInfo[] } 
     const bare = unwrap(schema);
     const bareDef = defOf(bare);
     let itemFields: string[] | undefined;
+    let itemDetail: FieldInfo[] | undefined;
     if (bareDef?.type === "array") {
       const element = unwrap(bareDef.element);
-      const elementDef = defOf(element);
-      if (elementDef?.type === "object") {
-        itemFields = Object.keys((element as { shape?: Record<string, unknown> }).shape ?? {}).filter(
-          (k) => k !== "type",
-        );
-      }
+      const described = describeItem(element, 2);
+      itemFields = described.names;
+      itemDetail = described.detail;
     }
     fields.push({
       name,
       required: !(schema as { isOptional?: () => boolean }).isOptional?.(),
       kind: kindOf(schema),
       ...(itemFields ? { itemFields } : {}),
+      ...(itemDetail ? { itemDetail } : {}),
     });
   }
   return { type, fields };

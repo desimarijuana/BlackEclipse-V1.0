@@ -15,7 +15,9 @@
 export type ChartKind =
   | "line" | "area" | "bar" | "stackedBar" | "pie" | "donut" | "scatter"
   | "histogram" | "heatmap" | "candlestick" | "waterfall" | "radar"
-  | "gauge" | "treemap";
+  | "gauge" | "treemap"
+  // The compositional form: panels of marks (any chart).
+  | "scene";
 
 export type ChartTheme = "eclipse-dark" | "eclipse-light";
 
@@ -69,6 +71,45 @@ export interface ChartReferenceLine {
   dashed?: boolean;
 }
 
+/** One drawn primitive of a scene. */
+export interface ChartMark {
+  type:
+    | "line" | "area" | "bar" | "scatter" | "band" | "rule" | "label"
+    | "box" | "violin" | "histogram" | "errorbar" | "heatmap" | "pie"
+    | "donut" | "candlestick" | "waterfall" | "ridge" | "stem";
+  name?: string;
+  y?: Array<number | null>;
+  x?: Array<number | null>;
+  values?: Array<number | null>;
+  lower?: Array<number | null>;
+  upper?: Array<number | null>;
+  sizes?: Array<number | null>;
+  matrix?: number[][];
+  labels?: string[];
+  rowLabels?: string[];
+  colLabels?: string[];
+  color?: string;
+  alpha?: number;
+  width?: number;
+  style?: "solid" | "dashed" | "dotted";
+  fill?: boolean;
+  label?: string;
+  yAxis?: "left" | "right";
+  stack?: string;
+  bins?: number;
+}
+
+/** One panel of a scene: its own axes, its own marks. */
+export interface ChartPanel {
+  title?: string;
+  xLabel?: string;
+  yLabel?: string;
+  marks: ChartMark[];
+  valueFormat?: "percent" | "currency" | "compact" | "r" | "number";
+  logScale?: boolean;
+  height?: number;
+}
+
 export interface ChartSpec {
   kind: ChartKind;
   title?: string;
@@ -107,6 +148,8 @@ export interface ChartSpec {
   referenceLines?: ChartReferenceLine[];
   /** Shaded spans of the category axis (a recession, a regime). */
   highlights?: Array<{ start: number; end: number; color?: string; label?: string }>;
+  /** A compositional chart: panels of marks (any chart). */
+  panels?: ChartPanel[];
   /** An optional volume pane under the chart (a price chart's volume bars). */
   volumeData?: Array<number | null>;
   /** The volume bars' colours (one per bar). */

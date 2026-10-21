@@ -630,11 +630,12 @@ untouched.
 
 Every block is wrapped in `BlockBoundary` (a React error boundary), so a chart
 failure cannot destroy the surrounding answer. The chart component
-(`response-chart.tsx`) can draw a chart with EITHER engine: the interactive
-ECharts chart (the default) or the picture the runtime's Python chart engine
-draws (`docs/chart-engine.md`, ADR-050), which comes back as an artifact. The
-user picks with the toggle on the chart; the choice is remembered. `MermaidBlock`
-is imported **statically**: it lazy-loads
+(`response-chart.tsx`) draws the chart with the runtime's Python chart engine
+(`docs/chart-engine.md`, ADR-050): the picture comes back as an artifact. The
+chat has no ECharts path. A chart block may also arrive as a **SCENE** -
+`panels` of `marks` - so the model can draw ANY chart the user asks for, not
+just the kinds someone pre-loaded. `MermaidBlock` is imported **statically**: it
+lazy-loads
 the heavy `mermaid` package inside its own effect, so wrapping the tiny wrapper in
 its own `next/dynamic` only added a redundant chunk-load failure path that could
 surface a scary render error instead of the block's inline card. Mermaid renders
@@ -695,8 +696,8 @@ light-mode fill.
 
 ### Chart & diagram presentation
 
-Every visual surface uses the frosted-glass system: the ECharts canvas, the
-drawn chart picture (a transparent PNG, so the frost behind it still shows),
+Every visual surface uses the frosted-glass system: the drawn chart picture
+(a transparent PNG, so the frost behind it still shows),
 the Mermaid/diagram/node-graph SVGs and the loading skeletons all sit in
 `.glass-card-subtle` containers rather than flat `border + bg-accent` fills.
 
@@ -883,7 +884,7 @@ mapping + `coerceResponsePlan`).
 | REND-002 | Per-block error isolation | `response-view.tsx` `BlockBoundary` | code review | Verified |
 | REND-003 | Markdown/content blocks | `components/response/blocks.tsx` | tsc | Verified |
 | REND-004 | Rich text reuses existing Markdown | `markdown.tsx` | existing suite | Verified |
-| CHART-001 | Chart blocks: ECharts (default) or the Python chart engine | `chart-option.ts`, `chart-spec.ts`, `response-chart.tsx` | chart-option.test.ts, chart-spec.test.ts, chart-engine.test.ts | Verified |
+| CHART-001 | Chart blocks, drawn by the Python chart engine (simple form or a SCENE of marks) | `chart-spec.ts`, `response-chart.tsx` | chart-spec.test.ts, test_chart_scene.py | Verified |
 | CHART-002 | Lazy chart loading | `response-view.tsx` dynamic | tsc/build | Verified |
 | DIAG-001 | Interactive diagrams (SVG) | `diagram-layout.ts`, `diagram-block.tsx` | diagram-layout.test.ts | Verified |
 | DATA-001 | Interactive data table | `data-table-block.tsx` | tsc | Verified |

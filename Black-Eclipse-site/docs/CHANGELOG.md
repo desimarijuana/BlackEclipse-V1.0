@@ -6,7 +6,33 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
-## 2026-10-20
+## 2026-10-21
+
+- **feat(charts): the chat's charts are drawn by the PYTHON engine, and ANY chart
+  can be drawn.** The chat's `chart` block no longer has an ECharts path: the
+  block is turned into a validated chart **SPEC** (data only - a kind, some
+  series, a title - never a callback, a URL or a path) and the runtime draws it
+  with `matplotlib` into a transparent PNG in the app's own palette, recorded in
+  the Artifact Center and fetched back as an artifact. The chat's ECharts option
+  builder (`chart-option.ts`) and the engine-preference store are **deleted**.
+  **The ceiling is gone:** a chart block may also arrive as a **SCENE** -
+  `panels` of `marks` - which is compositional rather than a fixed list of
+  kinds, so a violin, a box plot, a Gantt, a funnel, a ridgeline, an error-bar
+  chart or a dual-axis chart is a composition of the primitives (`line`, `area`,
+  `bar`, `scatter`, `band`, `rule`, `label`, `box`, `violin`, `histogram`,
+  `errorbar`, `heatmap`, `pie`, `donut`, `candlestick`, `waterfall`, `ridge`,
+  `stem`) instead of needing a new kind invented for it. The marks are drawn
+  exactly as the model writes them, and the schema read-back now describes the
+  mark vocabulary so the model can see it. The rest of the app stays on ECharts.
+  Files: python/harness/charts/scene.py, scene_render.py, render.py, spec.py,
+  tools.py; src/lib/response/chart-spec.ts, chart-registry.ts, contract.ts,
+  export.ts, response-chart.tsx; src/lib/harness/response-bridge.ts;
+  src/lib/response/chart-option.ts, chart-engine.ts (deleted);
+  python/tests/test_chart_scene.py; src/lib/response/chart-spec.test.ts,
+  repair.test.ts.
+  docs updated: docs/chart-engine.md, docs/interactive-response-engine.md,
+  docs/DECISIONS.md (ADR-050), skills/ARCHITECT.md (ADR-050).
+
 ## 2026-10-20
 
 - **fix(harness): re-pin the prompt ceiling after the sandbox-rules guidance.**

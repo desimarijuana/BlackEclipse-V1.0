@@ -6,7 +6,7 @@
 import type { ParsedResponse, TableCell, ValidatedBlock } from './contract';
 import { finalizeParsed } from './finalize';
 import { toMarkdownProjection } from './projection';
-import { fetchChartPng, getChart } from './chart-registry';
+import { fetchChartPng } from './chart-registry';
 import { inlineText, parseMarkdown } from '@/lib/chat/markdown';
 
 export function downloadBlob(filename: string, blob: Blob): void {
@@ -117,20 +117,11 @@ export function downloadTableCsv(
  * export is the picture the user is looking at.
  */
 export async function downloadChartPng(chartId: string, name: string): Promise<boolean> {
+  // A chat chart is drawn by the chart engine, so its picture IS an artifact:
+  // the bytes are fetched back from the Artifact Center.
   const artifact = await fetchChartPng(chartId);
-  if (artifact) {
-    downloadBlob(safeName(name, 'png'), artifact.blob);
-    return true;
-  }
-  const chart = getChart(chartId);
-  if (!chart) return false;
-  const dataUrl = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#0f0f0f' });
-  const a = document.createElement('a');
-  a.href = dataUrl;
-  a.download = safeName(name, 'png');
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  if (!artifact) return false;
+  downloadBlob(safeName(name, 'png'), artifact.blob);
   return true;
 }
 
@@ -336,7 +327,6 @@ export async function responseToPdf(response: ParsedResponse): Promise<Blob> {
         // Either engine: the drawn picture is an artifact, the interactive
         // chart is a live canvas.
         const artifact = block.id ? await fetchChartPng(block.id) : null;
-        const chart = artifact ? null : block.id ? getChart(block.id) : null;
         if (artifact) {
           try {
             const dataUrl = await blobToDataUrl(artifact.blob);
@@ -351,16 +341,6 @@ export async function responseToPdf(response: ParsedResponse): Promise<Blob> {
             doc.rect(margin, y, imgWidth, imgHeight, 'F');
             doc.addImage(dataUrl, 'PNG', margin, y, imgWidth, imgHeight);
             y += imgHeight + 14;
-          } catch {
-            missing.push(`chart (${block.title ?? 'untitled'}) could not be captured`);
-          }
-        } else if (chart) {
-          try {
-            const dataUrl = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#ffffff' });
-            const imgWidth = contentWidth;
-            ensureSpace(180);
-            doc.addImage(dataUrl, 'PNG', margin, y, imgWidth, imgWidth * 0.5);
-            y += imgWidth * 0.5 + 14;
           } catch {
             missing.push(`chart (${block.title ?? 'untitled'}) could not be captured`);
           }

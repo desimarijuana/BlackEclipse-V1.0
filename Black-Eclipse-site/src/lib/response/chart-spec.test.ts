@@ -57,6 +57,41 @@ describe('the visual director', () => {
   });
 });
 
+describe('the SCENE form (any chart)', () => {
+  it('passes the panels and marks straight through to the engine', () => {
+    const plan = chartBlockToSpec(
+      block({
+        chartType: 'line',
+        series: [],
+        panels: [
+          {
+            title: 'Price',
+            marks: [
+              { type: 'line', name: 'Close', y: [100, 104] },
+              { type: 'band', lower: [98, 102], upper: [102, 106] },
+            ],
+          },
+        ],
+      } as never),
+    );
+    expect(plan?.spec.kind).toBe('scene');
+    expect(plan?.spec.panels).toHaveLength(1);
+    expect(plan?.spec.panels?.[0].marks).toHaveLength(2);
+    expect(plan?.spec.panels?.[0].marks[0].y).toEqual([100, 104]);
+    expect(plan?.notes).toEqual([]);
+  });
+
+  it('a scene needs no series at all', () => {
+    const plan = chartBlockToSpec(
+      block({
+        chartType: 'line',
+        panels: [{ marks: [{ type: 'violin', values: [1, 2, 3] }] }],
+      } as never),
+    );
+    expect(plan?.spec.kind).toBe('scene');
+  });
+});
+
 describe('chartBlockToSpec', () => {
   it('returns null when the block carries no data', () => {
     expect(chartBlockToSpec(block({ chartType: 'line', series: [{ name: 'a', data: [] }] }))).toBeNull();

@@ -126,6 +126,71 @@ def chart_schema() -> dict[str, Any]:
                 "type": "string", "enum": ["eclipse-dark", "eclipse-light"],
                 "description": "The palette family. The dark one matches the app's default surface.",
             },
+            "panels": {
+                "type": "array",
+                "description": (
+                    "A COMPOSITIONAL chart: panels of marks, drawn exactly as given. Use this "
+                    "for anything the simple kinds do not cover (a violin, a box plot, a Gantt, a "
+                    "funnel, a ridgeline, a dual-axis chart). Each panel has its own axes and marks."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "xLabel": {"type": "string"},
+                        "yLabel": {"type": "string"},
+                        "valueFormat": {
+                            "type": "string",
+                            "enum": ["percent", "currency", "compact", "r", "number"],
+                            "description": "How the value axis is written.",
+                        },
+                        "logScale": {"type": "boolean", "description": "Draw the value axis on a log scale."},
+                        "height": {"type": "number", "description": "The panel's height relative to the others."},
+                        "marks": {
+                            "type": "array",
+                            "description": "The drawn things. Each mark carries its own data.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "type": {
+                                        "type": "string",
+                                        "enum": [
+                                            "line", "area", "bar", "scatter", "band", "rule", "label",
+                                            "box", "violin", "histogram", "errorbar", "heatmap", "pie",
+                                            "donut", "candlestick", "waterfall", "ridge", "stem",
+                                        ],
+                                        "description": "The primitive to draw.",
+                                    },
+                                    "name": {"type": "string", "description": "The series name (the legend)."},
+                                    "y": {"type": "array", "items": {"type": ["number", "null"]}, "description": "The values."},
+                                    "x": {"type": "array", "items": {"type": ["number", "null"]}, "description": "Explicit x values."},
+                                    "values": {"type": "array", "items": {"type": ["number", "null"]}, "description": "A distribution's samples (a box, a violin, a histogram)."},
+                                    "lower": {"type": "array", "items": {"type": ["number", "null"]}, "description": "The band's lower edge."},
+                                    "upper": {"type": "array", "items": {"type": ["number", "null"]}, "description": "The band's upper edge."},
+                                    "sizes": {"type": "array", "items": {"type": ["number", "null"]}, "description": "The scatter's point sizes."},
+                                    "matrix": {"type": "array", "items": {"type": "array", "items": {"type": "number"}}, "description": "The cells (a heatmap) or the OHLC rows (a candlestick)."},
+                                    "labels": {"type": "array", "items": {"type": "string"}, "description": "The slice labels (a pie/donut)."},
+                                    "rowLabels": {"type": "array", "items": {"type": "string"}},
+                                    "colLabels": {"type": "array", "items": {"type": "string"}},
+                                    "color": {"type": "string", "description": "#rrggbb."},
+                                    "alpha": {"type": "number", "description": "0-1."},
+                                    "width": {"type": "number"},
+                                    "style": {"type": "string", "enum": ["solid", "dashed", "dotted"]},
+                                    "fill": {"type": "boolean", "description": "Fill the area under a line."},
+                                    "label": {"type": "string", "description": "A text label at the mark."},
+                                    "yAxis": {"type": "string", "enum": ["left", "right"], "description": "Which value axis the mark belongs to (a dual-axis chart)."},
+                                    "stack": {"type": "string", "description": "The stack the mark joins."},
+                                    "bins": {"type": "integer", "description": "The histogram's bin count."},
+                                },
+                                "required": ["type"],
+                                "additionalProperties": False,
+                            },
+                        },
+                    },
+                    "required": ["marks"],
+                    "additionalProperties": False,
+                },
+            },
             "width": {"type": "integer", "description": "The picture width in pixels (320-2400)."},
             "height": {"type": "integer", "description": "The picture height in pixels (240-2400)."},
         },

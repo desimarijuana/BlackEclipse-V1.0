@@ -89,14 +89,14 @@ def _axis_categories(spec: ChartSpec, length: int) -> Any:
     return list(range(length)), [str(i) for i in range(length)]
 
 
-def _format_value(value: float, spec: ChartSpec) -> str:
+def _format_value(value: float, spec: ChartSpec, value_format: Optional[str] = None) -> str:
     """Write an axis value the way the chart says it should be read.
 
     The engine draws numbers; a chart whose values are percents or dollars
     says so in the spec, so the reader is never left guessing what `0.25`
     means.
     """
-    fmt = spec.value_format
+    fmt = value_format or spec.value_format
     if fmt == "percent":
         scaled = value * 100 if abs(value) <= 1 else value
         return f"{scaled:.0f}%"
@@ -602,6 +602,75 @@ def _draw_treemap(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> None
     ax.axis("off")
 
 
+def _render_scene(spec: ChartSpec, theme: ChartTheme, plt: Any) -> bytes:
+    """Render a SCENE: a stack of panels, each a stack of marks.
+
+    This is how "any chart" is drawn: a violin, a Gantt, a funnel, a ridgeline
+    or a dual-axis chart is not a new kind - it is a composition of the
+    primitives.
+    """
+    from .scene_render import draw_mark  # noqa: PLC0415
+
+    panels = spec.panels
+    count = len(panels)
+    heights = [float(p.height or 1.0) for p in panels]
+    total = sum(heights) or 1.0
+    ratios = [h / total for h in heights]
+
+    figure = plt.figure(figsize=(spec.width / 100.0, spec.height / 100.0), dpi=100)
+    grid = figure.add_gridspec(count, 1, height_ratios=ratios, hspace=0.34)
+    axes = [figure.add_subplot(grid[i]) for i in range(count)]
+
+    for panel, ax in zip(panels, axes):
+        setattr(ax, "_eclipse_theme", theme)
+        for index, mark in enumerate(panel.marks):
+            draw_mark(ax, mark, theme, index, panel)
+        if panel.title:
+            ax.set_title(panel.title, loc="left", fontsize=11, fontweight="bold", color=theme.ink, pad=8)
+        if panel.x_label:
+            ax.set_xlabel(panel.x_label, color=theme.muted, fontsize=9)
+        if panel.y_label:
+            ax.set_ylabel(panel.y_label, color=theme.muted, fontsize=9)
+        if panel.value_format:
+            def formatter(value: float, _position: Any = None, _fmt: str = panel.value_format) -> str:
+                return _format_value(float(value), spec, _fmt)
+
+            try:
+                ax.yaxis.set_major_formatter(formatter)
+            except Exception:  # noqa: BLE001
+                pass
+        if panel.log_scale:
+            try:
+                ax.set_yscale("log")
+            except Exception:  # noqa: BLE001
+                pass
+        for line in panel.reference_lines:
+            ax.axhline(
+                line.value, color=line.color or theme.muted, linewidth=1.0,
+                linestyle="--" if line.dashed else "-", alpha=0.85,
+            )
+        for span in panel.highlights:
+            try:
+                ax.axvspan(span.start - 0.5, span.end + 0.5, color=span.color or "#ff3e3e", alpha=0.12, linewidth=0)
+            except Exception:  # noqa: BLE001
+                continue
+        labelled = [m for m in panel.marks if m.name]
+        if len(labelled) > 1:
+            ax.legend(loc="upper left", bbox_to_anchor=(0, -0.12), ncol=min(4, len(labelled)), fontsize=8)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        figure.tight_layout(rect=(0, 0.05 if (spec.footnote or spec.source) else 0, 1, 1))
+    if spec.footnote:
+        figure.text(0.01, 0.015, spec.footnote, ha="left", va="bottom", color=theme.muted, fontsize=8.5)
+    if spec.source:
+        figure.text(0.99, 0.015, spec.source, ha="right", va="bottom", color=theme.muted, fontsize=8.5)
+    buffer = io.BytesIO()
+    figure.savefig(buffer, format="png", transparent=True)
+    plt.close(figure)
+    return buffer.getvalue()
+
+
 _DISPATCH = {
     "line": _draw_line_family,
     "area": _draw_line_family,
@@ -629,11 +698,14 @@ def render_chart(spec: ChartSpec) -> bytes:
     plt = _pyplot()
     theme = get_theme(spec.theme)
     kind = spec.kind
-    drawer = _DISPATCH.get(kind)
-    if drawer is None:  # pragma: no cover - the spec's Literal already refuses it
-        raise ChartRenderError(CHART_SPEC_INVALID, f"unknown chart kind {kind!r}")
 
     with plt.rc_context(theme.rc):
+        if spec.panels:
+            # A scene owns its figure: it has one panel per row.
+            return _render_scene(spec, theme, plt)
+        drawer = _DISPATCH.get(kind)
+        if drawer is None:  # pragma: no cover - the spec's Literal already refuses it
+            raise ChartRenderError(CHART_SPEC_INVALID, f"unknown chart kind {kind!r}")
         has_volume = any(v is not None for v in spec.volume_data)
         if has_volume:
             # A price chart's volume pane: the chart on top, the volume below.
