@@ -263,6 +263,23 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   src/lib/chat/paste.test.ts (new), src/lib/chat/extract.test.ts,
   src/lib/harness/validation.test.ts. docs updated: docs/chat-ui-audit.md.
 
+- **fix(chat): the pasted-text chip is now readable, and Enter sends it.**
+  Two things the first cut got wrong. (1) A chip you cannot open is a black
+  box: clicking a pasted-text chip now opens a glass preview with the full text
+  (a real file opens the session file). (2) The composer refused to send with
+  nothing typed, so a paste followed by Enter did nothing at all. Now a paste
+  sent with an empty composer IS the message — the text is taken back out of
+  the attachment list and sent as the query, so it is never also injected as a
+  document (no double tokens); with only FILE attachments and no text, a
+  neutral "Read the attached document." is sent instead of a dead click. The
+  send button is enabled whenever there is something to send. The floating
+  dock keeps inserting a long paste as text (it has no chip UI, so intercepting
+  there would swallow the paste). Files: src/components/chat/attachment-preview.tsx
+  (new), src/lib/chat/use-session.ts, src/components/chat/chat-input.tsx,
+  src/components/chat/empty-state.tsx, src/components/chat/chat-dock.tsx,
+  src/components/screens/stock-chat.tsx. Tests: src/lib/chat/paste.test.ts.
+  docs updated: docs/chat-ui-audit.md.
+
 ## 2026-10-20
 
 ""- **feat(agent): a missing data series is now a ROUTE, not a dead end — the
@@ -1731,6 +1748,27 @@ umpy/pandas are **already installed** in the runtime and the analysis
   `test_rsl_snapshot.py`, `test_live_surface.py`. Docs updated:
   `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/decisions.md`
   (ADR-H285), `docs/harness/architecture.md`.
+- **feat(rsl): guardrails the runtime ENFORCES (v3 P3 slice 3).** Everything a
+  surface could change before this was prompt text, a tool subset or a ceiling:
+  all either advisory or authority. A surface may now carry a closed set of
+  `guardrails` plus `maxAnswerChars`: `require_tool_before_answer` (the run
+  executed at least one tool), `require_citation` (the answer carries a
+  citation, judged by the evaluator's own citation parser) and an answer-length
+  bound. They are checked ONCE, at the end of the run, against what the run
+  really did (the persisted tool executions) and what it really answered: a
+  violation FAILS the run with a named code (`GUARDRAIL_TOOL_REQUIRED`,
+  `GUARDRAIL_CITATION_MISSING`, `GUARDRAIL_ANSWER_TOO_LONG`) and the answer is
+  not shipped as a completed result. A broken guardrail implementation degrades
+  to "no violation" - it can never break a run. The codes are part of the
+  runtime error contract on both sides (Python `HarnessErrorCode` + the TS
+  union). Files: `python/harness/self_improvement/guardrails.py` (new),
+  `python/harness/schemas.py`, `python/harness/graph.py`,
+  `python/harness/self_improvement/{models,live_surface}.py`,
+  `python/harness/routers/evolution.py`, `src/lib/harness/errors.ts`. Tests:
+  `python/tests/test_rsl_guardrails.py` (6), `test_graph.py` (a run that breaks
+  a guardrail fails with the named code), `test_live_surface.py`,
+  `test_rsl_snapshot.py`. Docs updated: `docs/self-improvement/rsl-v3-plan.md`,
+  `docs/harness/decisions.md` (ADR-H286), `docs/harness/architecture.md`.
 
 ## 2026-10-19
 

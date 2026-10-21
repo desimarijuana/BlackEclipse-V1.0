@@ -49,7 +49,13 @@ import {
   githubSearchCapability,
   structuredConnectorCapability,
 } from "@/lib/harness/data-bridge-education";
-import { fetchHistorySeriesFallback } from "@/lib/harness/data-bridge-history";
+import {
+  fetchHistorySeriesFallback,
+  fetchMarketDataHistory,
+  isMarketDataSymbol,
+  marketDataAssetClass,
+  resolveHistoryParams,
+} from "@/lib/harness/data-bridge-history";
 import {
   liveCompanyProfile,
   readCachedStatements,
@@ -1116,22 +1122,59 @@ async function priceHistory(params: Record<string, unknown>): Promise<DataBridge
   const symbol = String(params.symbol ?? "").trim().toUpperCase();
   if (!symbol) return unavailableClass("invalid_request", "symbol is required");
   const rawMarket = params.market;
-  const interval = String(params.period ?? params.interval ?? "1d").trim().toLowerCase();
-  const start = typeof params.start === "string" ? params.start : undefined;
-  const end = typeof params.end === "string" ? params.end : undefined;
+  // `interval` is a BAR SIZE ("1d"); `period`/`range` is a WINDOW ("1y", "5y",
+  // "max"). Conflating them asked the provider for a "1y bar", which is not a
+  // bar at all - the request came back empty and a multi-year history read as
+  // no data. The two are now read from their own fields, and a `period` that
+  // is really a bar size is still honoured as one.
+  // The bar size and the window are DIFFERENT fields (`resolveHistoryParams`
+  // owns the rules): `period: "1y"` is a WINDOW, not a bar size.
+  const { interval, window: requestedWindow, start, end } = resolveHistoryParams(params);
   // An explicit window picks a covering range for the bridge transport and is
-  // enforced on the rows below; without one the legacy `range` default applies.
+  // enforced on the rows below; without one the caller's window applies.
   const bounds = windowBounds(start, end);
-  const range = coveringRangeFor(
-    bounds.startMs,
-    bounds.endMs,
-    String(params.range ?? "1y").trim().toLowerCase(),
-  );
+  const range = coveringRangeFor(bounds.startMs, bounds.endMs, requestedWindow);
 
   // Identity first: history for an unresolvable market must not silently fetch a
   // bare ticker either.
   const resolved = await resolveAnyInstrument(symbol, rawMarket, termsFromParams(params));
-  if (!resolved.ok) return identityFailureResult(resolved.failure);
+  if (!resolved.ok) {
+    // A market-data symbol (an index, a future, a currency index) has no
+    // instrument row - that is a COVERAGE GAP, not an identity failure. It is
+    // fetched from Yahoo and labelled as market data.
+    if (resolved.failure.reason === "not_found" && isMarketDataSymbol(symbol)) {
+      const marketData = await fetchMarketDataHistory(symbol, range, interval, {
+        start,
+        end,
+      });
+      if (marketData) {
+        const rows = marketData.series.map((bar) => ({
+          date: bar.date,
+          open: bar.open,
+          high: bar.high,
+          low: bar.low,
+          close: bar.close,
+          volume: bar.volume,
+        }));
+        return {
+          status: "OK",
+          symbol,
+          market: "US",
+          assetClass: marketDataAssetClass(symbol),
+          currency: "USD",
+          instrumentId: `US:${symbol}`,
+          interval,
+          provider: "yfinance",
+          transport: marketData.transport,
+          marketData: true,
+          ...(bounds.startMs != null ? { window: { start: start ?? null, end: end ?? null } } : {}),
+          series: rows,
+          asOf: rows[rows.length - 1]?.date ?? null,
+        };
+      }
+    }
+    return identityFailureResult(resolved.failure);
+  }
   const { identity } = resolved;
 
   // TWO transports, one provider. First the batched Yahoo bridge (one python
@@ -1140,10 +1183,18 @@ async function priceHistory(params: Record<string, unknown>): Promise<DataBridge
   // `/api/price-history` uses) answers without Python. Both label the provider
   // `yfinance`; the `transport` field names the code path — never conflated.
   try {
-    const data = await fetchYahooBatchRaw([identity.symbol], identity.market, interval, range);
+    const data = await fetchYahooBatchRaw(
+      [identity.symbol],
+      identity.market,
+      interval,
+      range,
+      start ? { start, end } : undefined,
+    );
     const key = Object.keys(data.history ?? {})[0];
     const allRows = key ? data.history?.[key] : undefined;
-    // The bridge cannot express period1/period2, so the window is enforced here.
+    // The bridge now carries the window itself; the filter below stays as a
+    // belt-and-braces guard so a transport that ignores it cannot widen the
+    // answer past the window the caller asked for.
     const rows = Array.isArray(allRows)
       ? allRows.filter((r) => timestampWithinWindow(String(r?.date ?? r?.timestamp ?? ""), bounds))
       : undefined;
