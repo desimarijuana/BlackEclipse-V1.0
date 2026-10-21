@@ -193,6 +193,7 @@ def _surface_snapshot(value: SurfaceSnapshotInput, base: Any = None) -> Any:
     return HarnessSnapshot(
         systemPrompt=value.systemPrompt,
         toolNames=tuple(pick("toolNames", ()) or ()),
+        toolGuidance=str(pick("toolGuidance", "") or ""),
         maxSteps=int(pick("maxSteps", 8)),
         maxToolCalls=int(pick("maxToolCalls", 8)),
         modelProvider=pick("modelProvider", None),

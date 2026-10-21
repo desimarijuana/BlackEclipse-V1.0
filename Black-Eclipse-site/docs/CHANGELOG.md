@@ -81,6 +81,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   workflow.py, python/harness/evaluation/runner.py.
   no doc change - a test-hygiene repair inside the harness.
 
+- **fix(harness): the surface snapshot carries the tool guidance.** A
+  snapshot that drops the guidance turns "the model was told" into "the model
+  was never told" on replay. Files: python/harness/routers/evolution.py.
+  no doc change - one added field on an existing payload.
+
 ## 2026-10-20
 
 - **fix(harness): re-pin the prompt ceiling after the sandbox-rules guidance.**
