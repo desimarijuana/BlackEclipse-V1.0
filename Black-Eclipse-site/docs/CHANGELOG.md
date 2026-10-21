@@ -280,6 +280,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   src/components/screens/stock-chat.tsx. Tests: src/lib/chat/paste.test.ts.
   docs updated: docs/chat-ui-audit.md.
 
+- **style(response): notice cards drop the left accent bar.** Every response
+  notice/warning surface (callouts, unsupported-block and diagnostic cards,
+  diagram/render failures, curriculum gaps, node details) shared `NoticeCard`'s
+  vertical tone gradient strip on the left edge. Removed the strip and its
+  palette entries so the cards keep only the frosted surface, tone icon chip,
+  tinted title and wash/glow. Files:
+  src/components/response/blocks.tsx. no doc change — styling only, contracts
+  unchanged.
+
 ## 2026-10-20
 
 - **fix(charts): the full-view chart no longer collides with the app's header.**
