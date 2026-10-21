@@ -68,6 +68,7 @@ class RSLLoop:
         code_benchmark_fn: Any = None,
         recorder_fn: Any = None,
         state_store: Optional[HarnessStateStore] = None,
+        climb_runner: Any = None,
     ) -> None:
         self.service = service
         self.config = config or RSLConfig.from_env()
@@ -87,6 +88,10 @@ class RSLLoop:
         self.model_propose_fn = model_propose_fn
         self.code_benchmark_fn = code_benchmark_fn
         self.recorder_fn = recorder_fn or recorder.record_code_experiment
+        self.climb_runner = climb_runner
+        self._climb_paused = False
+        self._next_climb_at = 0.0
+        self._last_climb: Optional[dict[str, Any]] = None
         self._task: Optional[asyncio.Task[Any]] = None
         self._wake = asyncio.Event()
         self._busy = False
@@ -120,6 +125,10 @@ class RSLLoop:
             await self.resume()
         except Exception:  # noqa: BLE001 - resume is best-effort
             pass
+        self._next_climb_at = (
+            time.monotonic() + self.config.climb_seconds
+            if self._climb_enabled() else 0.0
+        )
         try:
             # Process anything already proposed before the first periodic tick.
             await self.tick()
@@ -137,6 +146,42 @@ class RSLLoop:
                 await self.tick()
             except Exception:  # noqa: BLE001 - one tick never kills the loop
                 pass
+
+    def _climb_enabled(self) -> bool:
+        return bool(
+            self.config.climb_seconds > 0
+            and self.climb_runner is not None
+            and self.config.mode in ("verify", "auto")
+            and self.config.strategy == "hillclimb"
+        )
+
+    async def _maybe_climb(self) -> None:
+        if not self._climb_enabled() or self._climb_paused:
+            return
+        if time.monotonic() < self._next_climb_at:
+            return
+        if self._busy or not self.budget_ok():
+            self._next_climb_at = time.monotonic() + self.config.climb_seconds
+            return
+        self._next_climb_at = time.monotonic() + self.config.climb_seconds
+        try:
+            result = self.climb_runner(self, self.config.climb_scope)
+            if inspect.isawaitable(result):
+                result = await result
+            self._last_climb = result if isinstance(result, dict) else {"result": result}
+        except Exception as exc:  # noqa: BLE001 - one climb failure is recorded
+            self._last_climb = {
+                "error": f"{type(exc).__name__}: {exc}",
+                "at": now_iso(),
+            }
+
+    def pause_climb(self) -> None:
+        self._climb_paused = True
+
+    def resume_climb(self) -> None:
+        self._climb_paused = False
+        if self._climb_enabled():
+            self._next_climb_at = time.monotonic() + self.config.climb_seconds
 
     def wake(self) -> None:
         self._wake.set()
@@ -167,6 +212,15 @@ class RSLLoop:
             "remainingToday": max(0, maximum - started),
             "budgetExhausted": started >= maximum,
             "tickSeconds": self.config.tick_seconds,
+            "climbSeconds": self.config.climb_seconds,
+            "climbScope": self.config.climb_scope,
+            "climbPaused": self._climb_paused,
+            "climbEnabled": self._climb_enabled(),
+            "nextClimbInSeconds": (
+                max(0, round(self._next_climb_at - time.monotonic()))
+                if self._climb_enabled() and not self._climb_paused else None
+            ),
+            "lastClimb": self._last_climb,
             "leaseSeconds": self.config.lease_seconds,
             "trials": self.config.trials,
             "maxCostUsd": self.config.max_cost_usd,

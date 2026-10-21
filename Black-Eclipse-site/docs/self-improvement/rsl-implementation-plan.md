@@ -446,6 +446,8 @@ Tasks:
   | `HARNESS_RSL_CANARY_SPLIT` | `held_out` | which split the canary uses |
   | `HARNESS_RSL_CANARY_TOLERANCE` | `0.05` | allowed target drop on the canary |
   | `HARNESS_RSL_OBJECTIVE` | `single` | `single` weighted utility or `pareto` opt-in climb |
+  | `HARNESS_RSL_CLIMB_SECONDS` | `0` | scheduled climb cadence; `0` disables |
+  | `HARNESS_RSL_CLIMB_SCOPE` | `global` | scope for a scheduled climb |
 
 - `config.py` tests: defaults, clamps, mode off is a no-op.
 

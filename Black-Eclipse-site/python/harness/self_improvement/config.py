@@ -81,6 +81,8 @@ class RSLConfig:
     generations: int = 1
     objective: str = 'single'
     tick_seconds: int = 300
+    climb_seconds: int = 0
+    climb_scope: str = 'global'
     lease_seconds: int = 1800
     max_wall_seconds: int = 1800
     max_cost_usd: float = 5.0
@@ -122,6 +124,8 @@ class RSLConfig:
             k=_env_int(env, "HARNESS_RSL_K", 1, 1, 8),
             generations=_env_int(env, "HARNESS_RSL_GENERATIONS", 1, 1, 3),
             tick_seconds=_env_int(env, "HARNESS_RSL_TICK_SECONDS", 300, 10, 3600),
+            climb_seconds=_env_int(env, "HARNESS_RSL_CLIMB_SECONDS", 0, 0, 86400),
+            climb_scope=str(env.get("HARNESS_RSL_CLIMB_SCOPE", "global")),
             lease_seconds=_env_int(env, "HARNESS_RSL_LEASE_SECONDS", 1800, 60, 86400),
             max_wall_seconds=_env_int(
                 env, "HARNESS_RSL_MAX_WALL_SECONDS", 1800, 30, 7200,
@@ -150,6 +154,8 @@ class RSLConfig:
             "objective": self.objective,
             "generations": self.generations,
             "tickSeconds": self.tick_seconds,
+            "climbSeconds": self.climb_seconds,
+            "climbScope": self.climb_scope,
             "leaseSeconds": self.lease_seconds,
             "maxWallSeconds": self.max_wall_seconds,
             "maxCostUsd": self.max_cost_usd,

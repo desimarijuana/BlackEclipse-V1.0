@@ -48,6 +48,34 @@ def _candidate(
     })
 
 
+@pytest.mark.asyncio
+async def test_scheduled_climb_runs_once_due_and_pauses(store):
+    calls: list[str] = []
+
+    async def climb_runner(loop, scope):
+        calls.append(scope)
+        return {"accepted": [], "scope": scope}
+
+    loop = RSLLoop(
+        service=None,
+        config=RSLConfig(
+            mode="auto", strategy="hillclimb", climb_seconds=30,
+            climb_scope="eclipse-agent",
+        ),
+        run_store=store, evolution=_evolution(store),
+        climb_runner=climb_runner,
+    )
+    loop._next_climb_at = 0
+    await loop._maybe_climb()
+    assert calls == ["eclipse-agent"]
+
+    loop.pause_climb()
+    loop._next_climb_at = 0
+    await loop._maybe_climb()
+    assert calls == ["eclipse-agent"]
+    assert loop.status()["climbPaused"] is True
+
+
 def _loop(store, evolution, *, mode: str = "verify", verify_fn=None,
           propose_fn=None, code_benchmark_fn=None, recorder_fn=None,
           **overrides) -> RSLLoop:

@@ -8814,6 +8814,24 @@ prevents a trade-off from silently becoming the new default.
 `test_rsl_hillclimb.py` (single rejects the trade-off, pareto keeps it). No new
 activation path.
 
+## ADR-H274 — A scheduled climb runs only through an injected runner
+
+**Decision.** `HARNESS_RSL_CLIMB_SECONDS` (0 = off) and
+`HARNESS_RSL_CLIMB_SCOPE` let the conductor run a climb on a cadence. The actual
+search is an injected `climb_runner(loop, scope)`; without one the schedule is
+inert. `pause_climb`/`resume_climb` and `POST /evolution/rsl/climb/{pause,resume}`
+control it, and status reports the interval, next run, pause state and last
+result. The daily budget, busy flag and mode/strategy gates still apply.
+
+**Why.** A scheduler must not invent proposals or evaluations. Keeping the
+runner injectable lets a real proposer/evaluator (or a test) own the search while
+the conductor owns cadence, budget and pause. A missing runner is honest
+(`climbEnabled=false`), not a fake climb.
+
+**Consequences.** `RSLConfig.climb_seconds/climb_scope`, the loop scheduler and
+pause API, the typed status/UI, and `test_rsl_loop.py` (one due run, pause stops
+it). No activation path.
+
 ## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
 
 **Decision.** W8.4's task-type verifier becomes the ONE authority for "done", and

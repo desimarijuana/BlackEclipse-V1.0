@@ -127,6 +127,12 @@ export interface EvolutionRslStatus {
   objective?: "single" | "pareto" | string;
   strategy?: string;
   generations?: number;
+  climbSeconds?: number;
+  climbScope?: string;
+  climbPaused?: boolean;
+  climbEnabled?: boolean;
+  nextClimbInSeconds?: number | null;
+  lastClimb?: Record<string, unknown> | null;
   driftWatch?: {
     enabled: boolean;
     intervalSeconds: number;
@@ -879,6 +885,15 @@ export async function createEvolutionModelExperiment(
   return request<EvolutionSurfaceExperimentResult>(
     "/evolution/model-experiments",
     { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export async function setEvolutionClimbPaused(
+  paused: boolean,
+): Promise<{ climbPaused: boolean }> {
+  return request<{ climbPaused: boolean }>(
+    `/evolution/rsl/climb/${paused ? "pause" : "resume"}`,
+    { method: "POST", body: "{}" },
   );
 }
 

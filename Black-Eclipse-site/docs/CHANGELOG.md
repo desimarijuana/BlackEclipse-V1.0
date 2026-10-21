@@ -8,6 +8,50 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **feat(quant): prop-firm evaluation - the rules as data, and a Monte-Carlo
+  over trading days.** A prop firm sells a funded account for a fee, and the fee
+  is only worth paying if the trader reaches the profit target **without
+  breaching the risk limits**. That question is now answerable instead of a
+  matter of opinion. Every limit - profit target, maximum loss, daily loss
+  limit, consistency rule, access period, payout split, payout cap - is a
+  **field on a spec**, not a branch in the code, so a firm the engine has never
+  heard of is still supported: the caller passes their own spec. Built-in specs
+  for **Topstep**, **Apex Trader Funding (EOD)**, **FTMO (2-step Pro)** and
+  **Take Profit Trader** were read from each firm's own published page on
+  2026-10-20, and every spec carries its `source` and `as_of` so the engine
+  reports the rules it used and tells the trader to confirm them - firm rules
+  change constantly and the engine never pretends a built-in spec is current.
+  Only sizes whose numbers appear on the firm's own page are encoded; an
+  unknown size is **refused**, never guessed. Two behaviours are named because
+  they are easy to get wrong: a log shorter than the access period is
+  `inconclusive`, **not** `failed` (ten days of history cannot decide a 30-day
+  evaluation), and a consistency rule measured against the *total profit* is
+  decided at the decision points rather than day by day (on the first
+  profitable day the best day IS the whole profit, so a mid-flight reading
+  would condemn every trader). The uncertainty is expressed by resampling
+  **trading days**, not trades: the rules are day-based and a trader's days
+  cluster, so a good streak is three good days, not three good trades
+  scattered across a month. Two modes - `block` (a stationary bootstrap over
+  the day sequence, so streaks survive) and `iid` (which flatters the result
+  and is the honest lower bar). Every path is evaluated against the **real**
+  rules, so a path can fail exactly the way a live account fails. The report
+  carries the pass probability, the outcome distribution, days-to-pass, the
+  funded-phase payout distribution and the economics - net EV per attempt,
+  expected attempts, expected resets to pass, cost to pass. **Fees come from
+  the caller**; the engine never invents a price. And the blindness is stated:
+  prop firms liquidate on *intraday* equity including unrealised P&L, which a
+  log of closed trades cannot reconstruct, so every report carries
+  `PROP_INTRADAY_EQUITY_NOT_MODELED`. Surfaces: the agent tools
+  `run_prop_firm_simulation` and `list_prop_firm_rules`, and the routes POST
+  /quant/prop-firm and GET /quant/prop-firm/firms. A real trading log comes
+  from the existing `journal_trades` tool, whose output the simulation tool
+  consumes. Files: python/harness/quant/propfirm.py (new),
+  python/harness/quant/propfirm_mc.py (new),
+  python/harness/quant/advanced_tools.py, python/harness/quant/tools.py,
+  python/harness/routers/quant.py. Tests: python/tests/test_quant_propfirm.py
+  (25), python/tests/test_quant_routes.py. docs updated: docs/quant-engine.md,
+  docs/backtesting-engine.md.
+
 - **feat(quant): regimes, a regime-aware Monte-Carlo and the Edge Verdict - the
   engine can now say WHERE an edge came from and WHETHER it should be trusted.**
   Two new modules answer the two questions a single backtest cannot. (1) A
@@ -79,6 +123,15 @@ umpy/pandas are **already installed** in the runtime and the analysis
   (26), src/lib/harness/charts.test.ts, src/app/api/harness/charts/route.test.ts.
   docs updated: docs/chart-engine.md, docs/DECISIONS.md (ADR-050),
   skills/ARCHITECT.md (ADR-050), docs/ARCHITECTURE.md, docs/NAVIGATION.md.
+- **feat(harness,ui): scheduled climb with pause/resume.**
+  `HARNESS_RSL_CLIMB_SECONDS`/`HARNESS_RSL_CLIMB_SCOPE` run an injected climb
+  runner on a cadence; without a runner the schedule is inert. Added pause and
+  resume routes, status/next-run display and the operator toggle. Budget, busy,
+  mode and strategy gates still apply. Docs: ADR-H274,
+  `docs/harness/architecture.md`,
+  `docs/self-improvement/rsl-implementation-plan.md`,
+  `docs/self-improvement/rsl-v2-plan.md`.
+
 - **feat(harness): opt-in Pareto climb mode.**
   `HARNESS_RSL_OBJECTIVE=pareto` lets the climb retain a measured, non-critical
   trade-off that the weighted utility rejects when the current state does not

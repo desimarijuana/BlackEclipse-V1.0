@@ -318,6 +318,15 @@ export async function createEvolutionModelExperimentBrowser(
   );
 }
 
+export async function setEvolutionClimbPausedBrowser(
+  paused: boolean,
+): Promise<{ climbPaused: boolean }> {
+  return api<{ climbPaused: boolean }>(
+    `/api/evolution/rsl/climb/${paused ? "pause" : "resume"}`,
+    { method: "POST", body: "{}" },
+  );
+}
+
 export async function tickEvolutionRslBrowser(): Promise<EvolutionRslTickResult> {
   return api<EvolutionRslTickResult>("/api/evolution/rsl/tick", {
     method: "POST", body: "{}",

@@ -19,7 +19,7 @@ datasets) stays frozen, and there is no new runtime, queue or database.
 | Trial-only model-identity experiments | Done |
 | Opt-in cross-scope lesson transfer | Done |
 | Canary split for code (pre-landing) | Done |
-| Continuous climb scheduling | Planned |
+| Continuous climb scheduling | Done (runner injectable) |
 | Multi-objective search integration | Done |
 | Model-identity live activation | Decision required |
 | Skill-draft promotion path | Decision required |

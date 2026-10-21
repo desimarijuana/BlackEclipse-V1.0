@@ -21,6 +21,7 @@ import {
   promoteEvolutionStateBrowser,
   proposeEvolutionCandidateBrowser,
   rollbackEvolutionSurfaceActivationBrowser,
+  setEvolutionClimbPausedBrowser,
   tickEvolutionRslBrowser,
 } from "@/lib/harness/evolution-browser";
 import type {
@@ -125,6 +126,7 @@ export function RslControlPanel({
   const t = useT();
   const [status, setStatus] = useState<EvolutionRslStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [climbToggling, setClimbToggling] = useState(false);
   const [ticking, setTicking] = useState(false);
   const [tickResult, setTickResult] = useState<EvolutionRslTickResult | null>(null);
   const [tickError, setTickError] = useState<string | null>(null);
@@ -397,6 +399,20 @@ export function RslControlPanel({
     }
   }, [loadStatus]);
 
+  const toggleClimb = useCallback(async () => {
+    if (!status) return;
+    setClimbToggling(true);
+    setStatusError(null);
+    try {
+      await setEvolutionClimbPausedBrowser(!status.climbPaused);
+      await loadStatus();
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "climb toggle failed");
+    } finally {
+      setClimbToggling(false);
+    }
+  }, [loadStatus, status]);
+
   const stageProposal = useCallback(async () => {
     setProposing(true);
     setProposalError(null);
@@ -464,6 +480,7 @@ export function RslControlPanel({
         </p>
       )}
       {status ? (
+        <>
         <div className="mt-2 grid gap-1 text-[10px] text-muted-foreground sm:grid-cols-3">
           <span className={cn(
             "font-medium",
@@ -504,7 +521,29 @@ export function RslControlPanel({
           {status.tickSeconds != null && (
             <span>{t("evolution.rsl.tickSeconds", { seconds: status.tickSeconds })}</span>
           )}
+          {status.climbEnabled && (
+            <span>
+              {t("evolution.rsl.climb", {
+                state: status.climbPaused
+                  ? "paused"
+                  : `${status.nextClimbInSeconds ?? 0}s`,
+              })}
+            </span>
+          )}
         </div>
+        {status.climbEnabled && (
+          <button
+            type="button"
+            onClick={() => void toggleClimb()}
+            disabled={climbToggling}
+            className="mt-1 rounded-lg border border-border/50 px-2 py-0.5 text-[10px] text-muted-foreground transition hover:text-foreground disabled:opacity-50"
+          >
+            {status.climbPaused
+              ? t("evolution.rsl.climbResume")
+              : t("evolution.rsl.climbPause")}
+          </button>
+        )}
+        </>
       ) : (
         !statusError && <p className="mt-2 text-[10px] text-muted-foreground">{t("evolution.rsl.loading")}</p>
       )}
