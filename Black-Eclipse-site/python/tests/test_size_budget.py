@@ -127,7 +127,11 @@ RATCHET_PY: dict[str, int] = {
     # surface duplicates `code/tools.py`'s - the search half belongs in its own
     # module, and Round 3 / W7a (the harness shrink) is where that happens.
     "code/fs_tools.py": 1225,
-    "graph.py": 2238,
+    # Re-pinned 2238->2241 for the Round 3 / W4 repo map (the map and the
+    # seeded relevant slice are built per run and joined to the prompt-cache
+    # key). Not the surface work. May only shrink; the repo-map call site is
+    # a split candidate alongside the other per-run block wiring.
+    "graph.py": 2241,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.

@@ -9598,3 +9598,54 @@ conversation forward. The skeleton ALWAYS runs. Tests
 `python/tests/test_history_compaction.py` (12 cases). Docs:
 `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
 `docs/harness/roadmap/round-3-parity-plan.md`.
+
+## ADR-H287 - The model is TOLD the shape of the project, and the index's freshness is MEASURED
+
+**Decision.** Two things change.
+
+**The repo map.** `code/intel/repo_map.py` builds the shape of the project -
+the folders, and a symbol outline of the top files - and it is handed to the
+model in the FIRST turn, together with the CIUE context engine's answer for
+THIS request (the "seeded slice"), resolved once per run with no model call.
+The map is DETERMINISTIC (the same tree produces the same map and the same
+digest, byte for byte), BOUNDED (a file count, a symbols-per-file count, a
+byte budget, a render budget) and HONEST about its engine. The map's content
+hash is the prompt-cache key's witness: a project whose shape changed
+invalidates the cache, and one that did not change does not.
+
+**Measured freshness.** `CodeIntelRuntime.is_fresh()` used to `return True`
+with the comment "the background watcher keeps the shared index current" - an
+UNMEASURED claim about a cache, which is exactly what this harness refuses to
+publish. It now looks for the EVIDENCE - the background watcher that owns the
+index's freshness - and a workspace that was never indexed, or that has no
+watcher, is not fresh. `CodeIntelRuntime.status()`
+publishes whether tree-sitter is actually available and which grammars it has:
+the symbol outline falls back to the stdlib extractor (Python's own `ast`, and
+a brace/regex scanner for everything else), and a reader must be able to tell.
+
+**Why.** The harness had NO repo map at all. A model that wanted to know what
+was in the project had to GUESS a path, spend a tool call on it, and - on a
+miss - get a bare "that file isn't there". The CIUE index and the context
+engine are genuinely good - `CodeContextEngine.select` ranks files by symbol
+matches, path matches and related tests, and finds the related test file too -
+but they were reachable only if the model THOUGHT to call
+`code_get_relevant_context`. Excellent machinery, invisible.
+
+The plan assumed the map would join the cache key for free because
+`prompt_segments.py` keys the cache on segment content hashes. It would not:
+`runtime_context` is a RUN-FROZEN segment and its content is NOT hashed, so
+the map - appended there - would have been cache-key-invisible. The map
+therefore gets its OWN segment whose version is its content hash, and the
+cache key carries that version - the same pattern the profile snapshot and the
+skill manifest already use.
+
+**Consequences.** `python/harness/code/intel/repo_map.py` (the map),
+`python/harness/code/intel/runtime.py` (the measured freshness and the
+published engine), `python/harness/prompt_segments.py` (the `repo_map`
+segment and the cache-key component), `python/harness/graph_context.py`
+(`_repo_map_context` - the map and the seeded slice, never raising),
+`python/harness/graph.py` (the per-run call site and the plan's map
+arguments). Tests `python/tests/test_repo_map.py` (14 cases) plus the updated
+`test_graph.py` (the run's event sequence now includes
+`code.repo_map_built`). Docs: `docs/harness/architecture.md`,
+`docs/NAVIGATION.md`, `docs/harness/roadmap/round-3-parity-plan.md`.

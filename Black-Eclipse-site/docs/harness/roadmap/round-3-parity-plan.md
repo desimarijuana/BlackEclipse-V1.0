@@ -378,7 +378,7 @@ the default of the *one* edit tool, not a property of one of fifteen.
 
 ### W4 — A repo map, and context that arrives instead of being fetched
 
-> **Closes:** C3, C14, C15 · **Moves:** Ctx +0.36, Loop +0.06 · **ADR:** H283
+> **Closes:** C3, C14, C15 · **Moves:** Ctx +0.36, Loop +0.06 · **ADR:** H287 · ✅ **Done 2026-10-21** — the repo map arrives in the first turn, the seeded slice with it, the map's hash joins the cache key, and `is_fresh()` stopped lying
 > **Priority: 1 — the cheapest large Ctx gain in the plan.**
 
 **Why.** There is **no repo map anywhere in the harness.** The model must guess

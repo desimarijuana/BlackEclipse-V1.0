@@ -8,6 +8,43 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-21
 
+- **feat(harness): the model is TOLD the shape of the project.** The harness
+  had NO repo map at all. A model that wanted to know what was in the project
+  had to GUESS a path, spend a tool call on it, and - on a miss - get a bare
+  "that file isn't there". The CIUE index and the context engine are genuinely
+  good - the context engine ranks files by symbol matches, path matches and
+  related tests, and finds the related test file too - but they were
+  reachable only if the model THOUGHT to call `code_get_relevant_context`.
+  Excellent machinery, invisible. A repo map - the folders, and a symbol
+  outline of the top files - is now built EAGERLY and DETERMINISTICALLY and
+  handed to the model in the FIRST turn, together with the CIUE context
+  engine's answer for THIS request (the "seeded slice"), resolved once per
+  run with no model call. The map is BOUNDED (a file count, a
+  symbols-per-file count, a byte budget and a render budget - it is a summary,
+  never a copy), DETERMINISTIC (the same tree produces the same map and the
+  same digest, byte for byte), and HONEST about its engine: the outline comes
+  from the stdlib extractor (Python's own `ast`, a brace/regex scanner for
+  everything else), and tree-sitter's availability is published in the
+  code-intel status - an optional layer that silently no-ops is a false
+  capability. The map's content hash is the prompt-cache key's witness: a
+  project whose shape changed invalidates the cache, and one that did not
+  change does not. It gets its OWN segment for exactly that reason -
+  `runtime_context` is run-frozen and its content is NOT hashed, so a map
+  appended there would have been cache-key-invisible. The same change fixes an
+  UNMEASURED claim: `CodeIntelRuntime.is_fresh()` used to `return True` for
+  EVERY workspace - including one that was never indexed and one with no
+  background indexer. It now looks for the EVIDENCE (the background watcher
+  that owns the index's freshness), and a workspace with neither is honestly
+  not fresh - which is what lets a read path ask for a refresh instead of
+  trusting a claim. Files:
+  python/harness/code/intel/repo_map.py (new),
+  python/harness/code/intel/runtime.py, python/harness/prompt_segments.py,
+  python/harness/graph_context.py, python/harness/graph.py,
+  python/harness/code/eval/capabilities.py,
+  python/tests/test_repo_map.py (new, 14 cases). ADR-H287. docs updated:
+  docs/harness/decisions.md, docs/harness/architecture.md, docs/NAVIGATION.md,
+  docs/harness/capability-statement.md.
+
 - **feat(harness): the dropped turns are COMPACTED, not just dropped.** The
   harness TRUNCATED its history: `_bounded_history` kept the most recent turns
   and dropped the oldest, and the dropped-context extractor mined them for

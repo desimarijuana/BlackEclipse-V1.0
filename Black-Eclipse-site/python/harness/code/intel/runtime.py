@@ -156,7 +156,35 @@ class CodeIntelRuntime:
         )
 
     def is_fresh(self, workspace: ResolvedWorkspace, *, max_age_s: float = 30.0) -> bool:
-        return True  # the background watcher keeps the shared index current
+        """Is the shared index CURRENT for this workspace?
+
+        Round 3 / W4 (ADR-H287): this used to `return True` unconditionally,
+        for EVERY workspace - including one that was never indexed and one
+        with no background indexer. That is an UNMEASURED freshness claim
+        about a cache, and this harness refuses to publish one.
+
+        The EVIDENCE is the background watcher: it applies watch events to
+        the shared index as the files change, so its presence IS the
+        freshness guarantee. A workspace with no watcher, or no index at
+        all, is not fresh - and saying so is what lets a read path ask for a
+        refresh instead of trusting a claim.
+
+        (`max_age_s` is kept for the call signature; the watcher is
+        continuous, so there is no age to compare.)
+        """
+        key = getattr(workspace, "id", "") or str(getattr(workspace, "root", ""))
+        state = self._states.get(key)
+        if state is None:
+            # Never indexed for this workspace: there is no freshness to claim.
+            return False
+        if getattr(state, "watcher", None) is None:
+            # No background indexer is running, so nothing keeps the shared
+            # index current. Claiming freshness here would be the unmeasured
+            # claim this replaced.
+            return False
+        # The background watcher OWNS freshness: it applies watch events to the
+        # shared index as the files change. Its presence is the evidence.
+        return True
 
     def ensure_indexed(self, workspace: ResolvedWorkspace, *, force: bool = False) -> dict[str, Any]:
         state = self._state_for(workspace)
@@ -170,8 +198,17 @@ class CodeIntelRuntime:
                       "indexing": s.is_indexing(), **s.index.status()}
                 for key, s in self._states.items()
             }
+        from .treesitter import available_grammars, tree_sitter_available  # noqa: PLC0415
+
         return {
             "enabled": self._enabled,
+            # Round 3 / W4 (ADR-H287): publish the engine that answers. The
+            # symbol outline falls back to the stdlib extractor when
+            # tree-sitter is absent, and a reader must be able to tell.
+            "treeSitter": {
+                "available": tree_sitter_available(),
+                "grammars": available_grammars(),
+            },
             "config": self.config.to_dict(),
             "lsp": self.lsp.health_check(),
             "supportedLanguages": self.lsp.supported_languages(),

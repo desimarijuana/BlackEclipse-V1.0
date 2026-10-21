@@ -596,6 +596,27 @@ naming one of them. The response-contract loss was a visible defect:
 response-schema digest and the response-mode plan, so a coding turn produced a
 degraded structured response with no error.
 
+**The model is TOLD the shape of the project (ADR-H287).** A *repo map*
+- the folders, and a symbol outline of the top files - is built EAGERLY and
+DETERMINISTICALLY and handed to the model in the FIRST turn, together with the
+CIUE context engine's answer for THIS request (the "seeded slice"), resolved
+once per run with no model call. The model no longer has to guess a path to
+find out what exists.
+
+The map is BOUNDED (a file count, a symbols-per-file count, a byte budget and
+a render budget - it is a summary, never a copy), DETERMINISTIC (the same tree
+produces the same map and the same digest, byte for byte), and HONEST about
+its engine: the outline comes from the stdlib extractor (Python's own `ast`,
+a brace/regex scanner for everything else), and tree-sitter's availability is
+published in the code-intel status because an optional layer that silently
+no-ops is a false capability.
+
+The map's content hash is the prompt-cache key's witness: a project whose
+shape changed invalidates the cache, and one that did not change does not. It
+gets its OWN segment for exactly that reason - `runtime_context` is
+run-frozen and its content is not hashed, so a map appended there would have
+been cache-key-invisible.
+
 **The dropped turns are COMPACTED, not just dropped (ADR-H286).** The
 history bound no longer throws the conversation away. What it removes is
 carried forward as a fenced, labelled summary: the requests that were made

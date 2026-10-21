@@ -44,6 +44,11 @@ RUN_FROZEN_SEGMENTS = (
     "lesson_manifest",
     "runtime_context",
     "user_message",
+    # Round 3 / W4 (ADR-H287): the repo map. It is RUN-FROZEN (it depends on
+    # the tree, not on the run) but it contributes its CONTENT HASH to the
+    # cache key as `repoMapVersion` - so a map that changed invalidates the
+    # cache and a map that did not change does not.
+    "repo_map",
 )
 
 # Bounds.
@@ -129,6 +134,9 @@ class PromptPlan:
     profile_snapshot_id: Optional[str] = None
     skill_manifest_version: Optional[str] = None
     provider_context_version: Optional[str] = None
+    # Round 3 / W4 (ADR-H287): the repo map's content hash. It is the cache
+    # key's witness that the project shape has not changed.
+    repo_map_version: Optional[str] = None
 
     def by_id(self, segment_id: str) -> Optional[PromptSegment]:
         for segment in self.segments:
@@ -147,6 +155,8 @@ class PromptPlan:
             "toolSchemaVersion": self.tool_schema_version,
             "profileSnapshotId": self.profile_snapshot_id,
             "skillManifestVersion": self.skill_manifest_version,
+            # Round 3 / W4 (ADR-H287): the repo map's content hash.
+            "repoMapVersion": self.repo_map_version,
             "providerContextVersion": self.provider_context_version,
             "reusableTokens": self.reusable_total_tokens(),
             "segments": [s.to_dict() for s in self.segments],
@@ -250,6 +260,8 @@ def build_prompt_plan(
     lesson_manifest: str = "",
     runtime_context: str = "",
     user_message: str = "",
+    repo_map: str = "",
+    repo_map_version: Optional[str] = None,
 ) -> PromptPlan:
     """Assemble the segment set and compute the stable cache key.
 
@@ -274,12 +286,19 @@ def build_prompt_plan(
         PromptSegment(id="runtime_context", content=runtime_context, source="prompt_segments.py",
                       version=_hash(runtime_context) if runtime_context else "empty"),
         PromptSegment(id="user_message", content=user_message, source="request", version="1"),
+        # Round 3 / W4 (ADR-H287): the repo map. Its VERSION is the map's
+        # content hash, and the cache key carries that version - so a project
+        # whose shape changed invalidates the cache, and one that did not
+        # change does not.
+        PromptSegment(id="repo_map", content=repo_map, source="code/intel/repo_map.py",
+                      version=repo_map_version or (_hash(repo_map) if repo_map else "empty")),
     ]
     plan = PromptPlan(
         segments=segments,
         tool_schema_version=f"{TOOL_SCHEMA_VERSION}:{tool_schema}",
         profile_snapshot_id=profile_snapshot_id,
         skill_manifest_version=skill_manifest_version,
+        repo_map_version=repo_map_version or (_hash(repo_map) if repo_map else ""),
     )
     plan.cache_key = prompt_cache_key(plan)
     for segment in segments:
@@ -306,6 +325,9 @@ def prompt_cache_key(plan: PromptPlan) -> str:
         "profileSnapshotId": plan.profile_snapshot_id or "",
         "skillManifestVersion": plan.skill_manifest_version or "",
         "providerContextVersion": plan.provider_context_version or "",
+        # Round 3 / W4 (ADR-H287): the repo map's content hash. Without it a
+        # changed project would reuse a cache built for the old one.
+        "repoMapVersion": plan.repo_map_version or "",
         "staticContentHashes": {
             s.id: s.content_hash for s in plan.segments if s.id in STATIC_SEGMENTS
         },

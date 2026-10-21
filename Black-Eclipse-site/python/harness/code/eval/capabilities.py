@@ -177,6 +177,12 @@ CLASSES: tuple[CapabilityClass, ...] = (
     CapabilityClass("code_edit_contract", "capability.class.codeEditContract", "test_gate",
                     "harness.code.edit_tools",
                     ("pytest:python/tests/test_code_edit_primitive.py",)),
+    # Round 3 / W4 (ADR-H287): the repo map - deterministic, bounded, and
+    # joined to the prompt-cache key. The gates assert the determinism, the
+    # bounds, the cache-key contract and the measured index freshness.
+    CapabilityClass("code_repo_map", "capability.class.codeRepoMap", "test_gate",
+                    "harness.code.intel.repo_map",
+                    ("pytest:python/tests/test_repo_map.py",)),
     CapabilityClass("code_search", "capability.class.codeSearch", "test_gate",
                     "harness.code.fs.search",
                     ("pytest:python/tests/test_code_search_surface.py",)),
