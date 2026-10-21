@@ -630,10 +630,11 @@ untouched.
 
 Every block is wrapped in `BlockBoundary` (a React error boundary), so a chart
 failure cannot destroy the surrounding answer. The chart component
-(`response-chart.tsx`) draws **no** chart itself: the picture is drawn by the
-runtime's Python chart engine (`docs/chart-engine.md`, ADR-050) and comes back
-as an artifact, which the component fetches and shows. No charting library
-ships in the chat bundle. `MermaidBlock` is imported **statically**: it lazy-loads
+(`response-chart.tsx`) can draw a chart with EITHER engine: the interactive
+ECharts chart (the default) or the picture the runtime's Python chart engine
+draws (`docs/chart-engine.md`, ADR-050), which comes back as an artifact. The
+user picks with the toggle on the chart; the choice is remembered. `MermaidBlock`
+is imported **statically**: it lazy-loads
 the heavy `mermaid` package inside its own effect, so wrapping the tiny wrapper in
 its own `next/dynamic` only added a redundant chunk-load failure path that could
 surface a scary render error instead of the block's inline card. Mermaid renders
@@ -694,10 +695,10 @@ light-mode fill.
 
 ### Chart & diagram presentation
 
-Every visual surface uses the frosted-glass system: the chart picture (a
-transparent PNG drawn by the chart engine, so the frost behind it still
-shows), the Mermaid/diagram/node-graph SVGs and the loading skeletons all sit
-in `.glass-card-subtle` containers rather than flat `border + bg-accent` fills.
+Every visual surface uses the frosted-glass system: the ECharts canvas, the
+drawn chart picture (a transparent PNG, so the frost behind it still shows),
+the Mermaid/diagram/node-graph SVGs and the loading skeletons all sit in
+`.glass-card-subtle` containers rather than flat `border + bg-accent` fills.
 
 A `chart` block covers **sixteen series styles** — the classic
 line/area/bar/stacked_bar/grouped_bar/pie/scatter/histogram/heatmap plus
@@ -882,7 +883,7 @@ mapping + `coerceResponsePlan`).
 | REND-002 | Per-block error isolation | `response-view.tsx` `BlockBoundary` | code review | Verified |
 | REND-003 | Markdown/content blocks | `components/response/blocks.tsx` | tsc | Verified |
 | REND-004 | Rich text reuses existing Markdown | `markdown.tsx` | existing suite | Verified |
-| CHART-001 | General charts via the Python chart engine | `chart-spec.ts`, `response-chart.tsx` | chart-spec.test.ts | Verified |
+| CHART-001 | Chart blocks: ECharts (default) or the Python chart engine | `chart-option.ts`, `chart-spec.ts`, `response-chart.tsx` | chart-option.test.ts, chart-spec.test.ts, chart-engine.test.ts | Verified |
 | CHART-002 | Lazy chart loading | `response-view.tsx` dynamic | tsc/build | Verified |
 | DIAG-001 | Interactive diagrams (SVG) | `diagram-layout.ts`, `diagram-block.tsx` | diagram-layout.test.ts | Verified |
 | DATA-001 | Interactive data table | `data-table-block.tsx` | tsc | Verified |

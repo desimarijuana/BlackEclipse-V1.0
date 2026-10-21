@@ -173,20 +173,6 @@ additive later. **Investor Eye must not require accounts.**
 
 ---
 
-> **UPDATE (2026-10-20) — the map is SVG now.** The ECharts map described
-> below (`map-echarts.ts`, the `geo`/`globe` coordinate systems, the
-> `echarts-gl` 3D globe, the visualMap ramps and the roam/zoom treemap) is
-> **retired**: the browser chart engine is gone (ADR-050). The map is now drawn
-> as **SVG** from the same Natural Earth GeoJSON (`src/lib/investor-eye/map-svg.ts`
-> + `src/components/investor-eye/world-map.tsx`), and the relationship graph is
-> an SVG graph over a deterministic force layout
-> (`src/lib/graph-layout.ts` + `src/components/charts/svg-graph.tsx`).
-> The **layer contract** below is unchanged and still the contract: the layer
-> descriptors are provider-agnostic, and the SVG adapter consumes the same
-> `MapLayer[]`. What is gone: the 3D globe, the canvas tooltips, and the map's
-> zoom/roam. The current contract, the surface inventory and the honest cost
-> list are in [`docs/chart-engine.md`](chart-engine.md) §4.
-
 ## 3. Design
 
 ### 3.1 Layer model (conceptual, matched to this repo)

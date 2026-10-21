@@ -8,6 +8,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **docs(charts): narrow the Python chart engine to the chat's chart blocks.**
+  The docs now say what the code does: the CHAT's chart block can be drawn by
+  EITHER engine — the interactive ECharts chart (the default) or the picture the
+  runtime's Python engine draws — and every other surface (journal, portfolio,
+  dashboard, backtest, economics, fundamentals, workspace, the price chart, the
+  Investor Eye map and the relationship graphs) stays on ECharts, because those
+  draw from live data at interactive rates and a server-drawn picture cannot
+  serve that. ADR-050 is rewritten to match, in both `skills/ARCHITECT.md` and
+  `docs/DECISIONS.md`. docs updated: `docs/ARCHITECTURE.md`,
+  `docs/interactive-response-engine.md`, `docs/investor-eye-architecture.md`,
+  `docs/chart-engine.md`, `skills/ARCHITECT.md`, `docs/DECISIONS.md`.
+
 - **feat(quant): run a Pine Script on Eclipse's own bars.** Pine is the lingua
   franca of TradingView: a trader who already has a Pine strategy usually
   cannot run it anywhere else, because the script is bound to TradingView's

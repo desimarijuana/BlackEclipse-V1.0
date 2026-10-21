@@ -1940,17 +1940,18 @@ Three doors onto the one engine: the `python_chart` **agent tool** (a
 malformed spec is a refusal that names the missing part), the **operator
 route** the front door calls, and the **browser client**. A figure is always
 `computed` and never evidence; a missing `matplotlib` is a named refusal, not
-an empty picture. **ECharts is gone.** `echarts`, `echarts-gl` and `recharts` are no longer
-dependencies and no module imports them: every chart surface is drawn by the
-engine, and the two surfaces that were never charts — the Investor Eye map and
-the relationship graphs — are plain **SVG** (the same GeoJSON projected, and a
-deterministic force layout), so they keep their hover and click behaviour.
+an empty picture. **The chat's charts have two engines.** A `chart` block in an answer can be
+drawn by the interactive ECharts chart (the default) or by the Python chart
+engine's picture, and the user picks with the toggle on the chart. **The rest of
+the app is not part of it**: the journal, portfolio, dashboard, backtest,
+economics, fundamentals and workspace widgets, the price chart, the Investor Eye
+map and the relationship graphs all stay on ECharts, because they draw from
+live data at interactive rates and a server-drawn picture cannot serve that.
 
 What a drawn picture cannot do is stated plainly in the chart engine's doc: no
-hover tooltip, no crosshair, no wheel zoom or pan on the price chart, no
-hand-drawn annotations, and no 3D globe.
+hover tooltip and no crosshair on the drawn path.
 
-Full contract, the surface inventory and the honest cost list:
+Full contract and the two engines' trade-offs:
 [`docs/chart-engine.md`](chart-engine.md). Decision: **ADR-050**.
 
 ## Module boundaries (terminal · shared · backend · harness)
