@@ -140,3 +140,27 @@ def test_environment_lifecycle_isolated():
     assert env.read("a.txt") == "1"
     env.teardown()
     assert env.root is None
+
+def test_the_model_seam_never_clobbers_an_active_override(monkeypatch):
+    """A test double on the builder must survive the seam AND its teardown.
+
+    Installing the seam over an active override used to make the override
+    disappear at teardown, so every later test lost its double.
+    """
+    from harness import graph as graph_module
+    from harness.evaluation import runner as runner_module
+
+    def fake(settings):  # pragma: no cover - never called
+        return None
+
+    monkeypatch.setattr(graph_module, "build_chat_model", fake)
+    runner_module.install_model_seam()
+    assert graph_module.build_chat_model is fake
+
+
+def test_the_model_seam_installs_when_no_override_is_active():
+    from harness import graph as graph_module
+    from harness.evaluation import runner as runner_module
+
+    runner_module.install_model_seam()
+    assert getattr(graph_module.build_chat_model, "_evaluation_seam", False)

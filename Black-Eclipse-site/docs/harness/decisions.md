@@ -9283,6 +9283,77 @@ UNCHANGED (it is pinned by `test_memory_tools.py`); only its stale comment was
 corrected. Docs: `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
 `docs/harness/roadmap/round-3-parity-plan.md`.
 
+## ADR-H281 - The verify-and-repair loop runs in the graph, and its outcome is a first-class state
+
+**Decision.** The agent graph gains a `verify_repair` node between the tool turn
+and the next agent turn. After a turn that CHANGED something, the node runs the
+project's pinned check CLASSES through the ONE command path
+(`code.command_tools.command_run` - the same function the model's own
+`command_run` tool call goes through), and when one fails it hands the failure
+back to the MODEL, because the model is the only thing that can fix code. The
+budget - attempts, wall clock, cost, and the number of check runs - is the run's
+and is enforced before each attempt; exhaustion is a REPORTED state, never a
+silent stop. The loop's outcome is a first-class state: the answer seam receives
+the REAL outcome (never a hard-coded `None`) and, when the check was still
+failing, DISCLOSES that in the answer.
+
+The status is DERIVED from the facts, never set by hand:
+`REPAIR_NOT_RUN` / `REPAIR_PASSED` / `REPAIR_FAILED` / `REPAIR_EXHAUSTED` /
+`REPAIR_NOT_APPLICABLE` / `REPAIR_REFUSED`. A run that never repaired and a run
+whose repair passed are different facts, and `None` must never be ambiguous
+between them.
+
+The operator pins the checks in `.black-eclipse/verify.json` as
+`{"checks": ["unit_test", "typecheck"]}` - class NAMES, not a shell string. A
+check that cannot be named cannot back a "tests pass" claim, so it is not
+evidence and it is not run here; the existing `{"command": "..."}` pin form
+keeps its single-shot behaviour in `code/tools.py::_auto_verify`.
+
+**Why.** `code/repair.py` is a correct, bounded, cost-capped repair loop whose
+docstring said *"`execute_run` CALLS `run_verify_repair`; it does not gain a
+node"*. It did neither. The only two callers in the repository were
+`code/eval/tasks.py` and `code/eval/safety.py` - the EVAL harness. In
+production `graph.py` passed `repair_outcome=None` to the answer seam on every
+run, so three things were true and none of them were intended:
+
+1. a check the project pins never ran unless the MODEL chose to run it;
+2. a failed check never drove a repair - the model was told a check had failed
+   only if it had run the check itself, and then had to notice, decide, edit and
+   re-run with no budget and no cost cap;
+3. the answer seam could not tell "no repair happened" from "the repair
+   passed", because the only value it ever received was `None`.
+
+The module's callback shape is also the wrong shape for production. Its
+`make_edit` seam is a function the eval harness scripts; in production the
+editor is the model, and the model lives in the agent loop, not in a callback.
+So the production shape is a GRAPH loop, and the module's own docstring was
+right about the mechanism and wrong about the wiring.
+
+A fourth, smaller thing this fixed: the answer seam already refused to support
+a "tests pass" claim when the only record on the ledger was a FAILURE - but
+that only worked when a check had run. With the check running automatically,
+the ledger gets the real record, and the disclosure covers the case the ledger
+cannot see - the loop ran out of budget, so the last state of the code is
+simply unknown.
+
+**Consequences.** `python/harness/code/repair_graph.py` (the graph seam: the
+pinned-check file, the write-turn trigger, the check runner, the failure
+message, the loop state), `python/harness/code/repair.py` (the answer-seam
+vocabulary and the check-run bound), `python/harness/code/verify.py` (the
+disclosure), `python/harness/graph.py` (the node, the routing, the state
+field), `python/harness/code/eval/tasks.py` (the `repair-in-graph` exercise
+through the real graph), `python/harness/code/eval/dataset_tasks_v1.json` (the
+new shape; the dataset checksum is re-pinned - a new case is a new review),
+`python/harness/code/eval/capabilities.py` (the `code_verify_repair_loop`
+class), `python/harness/code/eval/statement.py` and
+`src/lib/i18n/dictionaries/en.ts` (the new shape's plain name). Tests
+`python/tests/test_graph_repair_node.py` (20 cases) and the regenerated
+`docs/harness/capability-statement.md`. A repair NEVER widens authority: the
+pinned class still goes through `code.policy.decide_command` and the profile's
+grants, and `plan_only` - the read-only profile - never repairs at all. Docs:
+`docs/harness/architecture.md`, `docs/NAVIGATION.md`,
+`docs/harness/roadmap/round-3-parity-plan.md`.
+
 ## ADR-H282 - Candidate verification is parallel within one bounded experiment, never across the one conductor
 
 **Decision.** One RSL experiment may verify its `k` independent candidates
@@ -9324,3 +9395,99 @@ measurement, canary, preview and rollback flow unchanged.
 use the effective prompt), `self_improvement/live_surface.py` (live application).
 Tests: `test_rsl_snapshot.py` + `test_live_surface.py`. No new tool, permission
 or runtime field. Docs: `docs/self-improvement/rsl-v3-plan.md`.
+
+## ADR-H284 - One search primitive per question, on a fast engine, and the engine is always named
+
+**Decision.** The search surface is TWO tools, not four: `search_text` for
+file CONTENTS and `search_files` for file NAMES. The two older names -
+`workspace_search` and `find_files` - stay callable for one release as
+DEPRECATED ALIASES, and the registry warns once per run naming the
+replacement.
+
+- `workspace_search` now DELEGATES to the fs subsystem's `search_text`, which
+  was already ripgrep-first. It used to run its own naive Python walk. The
+  answer always names the engine that produced it (`ripgrep` or
+  `python-scan`), so a slow result is explainable rather than mysterious.
+- `search_files` now carries every filter `find_files` had - `exclude`,
+  `extensions`, `directoriesOnly`, `filesOnly`, `includeHidden`,
+  `includeIgnored` - so nothing is lost in the consolidation. (`search_files`
+  was always `find_files(include=[pattern])`: one implementation, two
+  front-doors.)
+- The agent surfaces carry the CANONICAL names only. The deprecated names
+  remain REGISTERED, so an older surface or a saved transcript still works.
+- The workspace walker moved out of the ratcheted `code/tools.py` into
+  `code/scan.py`, because it is a scan and not policy.
+- A search now goes through the code capability, so it needs a code profile.
+  That is the Phase-0 rule (no profile, no code capability) and it closes a
+  hole: the old `workspace_search` bypassed the code policy entirely.
+
+**Why.** The harness had FOUR tools for TWO questions, and the two the model
+reached for FIRST were the slow ones. `workspace_search` ran its own naive
+Python walk while `search_text` - one name away, in a surface that listed both
+- was already ripgrep-first. `search_files` and `find_files` were always one
+implementation with two front-doors, and only `find_files` carried the
+exclude/extension/directory filters. A model asking "where is this?" paid the
+slow path by default, and the answer never said which engine ran.
+
+The cost of the fix is honest and bounded: `code/fs_tools.py` crossed the
+1200-line hard ceiling and now carries a justified ratchet entry, with the fs
+tool surface named as a Round 3 / W7a split candidate (it duplicates
+`code/tools.py`'s). The two walkers - the moved `code/scan.py` one and the fs
+subsystem's own - were NOT merged: they have different contracts (a file OR a
+directory, bounded by bytes, versus directory-only and hidden-file aware), and
+merging them would change the fs search's behaviour while looking like a
+cleanup.
+
+**Consequences.** `python/harness/code/scan.py` (the moved walker),
+`python/harness/code/tools.py` (the delegating `workspace_search`, the
+definition factory's deprecation wiring),
+`python/harness/code/fs_tools.py` (`search_files` gains the filters,
+`find_files` deprecated),
+`python/harness/agents.py` (the three surfaces carry the canonical names),
+`python/harness/code/eval/capabilities.py` (the `code_search` class). Tests
+`python/tests/test_code_search_surface.py` (11 cases) plus the updated
+`test_code_tools.py` (a search without a code profile is now REFUSED - the
+behaviour is pinned), `test_chat_code_profile.py` and
+`test_code_reachability.py` (the pinned surfaces). The legacy payload field
+`filesScanned` is gone - nothing read it - and is replaced by `engine` and
+`filesWithMatches`, both of which are exact. Docs:
+`docs/harness/architecture.md`, `docs/NAVIGATION.md`,
+`docs/harness/roadmap/round-3-parity-plan.md`.
+
+## ADR-H245 — The guard's rules are per command, the confinement covers the methods, and a refusal names the correction
+
+**Decision.** Four corrections to the sandbox, all found by running the
+adversarial probe against the live app rather than the tests.
+
+1. **The rules are per COMMAND, not per process.** The persistent kernel runs
+   many commands in one process, and each command may have a different import
+   allowlist (a figure recipe adds `matplotlib`; a plain program does not).
+   Installing the allowlist once judged a later command by the FIRST command's
+   rules — a shipped capability (`drawdown_figure`) was refused mid-conversation.
+   The allowlist and the path roots are now re-configured on every command; the
+   shims and the audit hook stay installed once.
+2. **The confinement covers the METHODS.** Wrapping the module function is not
+   enough: a program writes with `pandas.DataFrame.to_csv`, which is a class
+   method (and pandas 3 exposes `DataFrame` as a factory, so the class is
+   resolved through the instance). `DataFrame`/`Series` writers are wrapped now,
+   and the audit hook reads `os.open`'s integer flags as the write they are.
+3. **A refusal names the correction IN THE PROMPT.** The model reads the
+   refusal's prompt, not its stderr: the recipe's prompt now names the missing
+   input and its kind (`prices` (series: a list of prices over time)) and lists
+   the recipe's declared inputs.
+4. **A truncated result says so, and the transcript MERGES its computed blobs.**
+   The computed text carries up to 30 values and states what it hides; the
+   client merges a second computation into the first one's blob instead of
+   replacing it, so a reference to the first computation still resolves.
+
+**Why.** Every one of these was invisible to the unit tests because the tests
+call the runner directly, while the app goes through the persistent kernel and
+the real `pandas`. The boundary held in both; the CAPABILITY did not. A guard
+that judges a later command by an earlier command's rules is not a boundary, it
+is a coin flip.
+
+**Consequences.** `code/sandbox_guard.py` (per-command rules, the method
+wrappers, the int-flag write detection); `code/recipes.py` (the prompt names
+the input); `analysis_tools.py` (30 values + the notice);
+`src/lib/agent/use-agent-run.ts` (the merge). Tests:
+`python/tests/test_analysis_guard.py` (27). Docs: `docs/CHANGELOG.md`.

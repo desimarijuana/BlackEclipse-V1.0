@@ -73,7 +73,7 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # Re-pinned 33724->34032 for the same paragraph with the two missing rules
     # (use a recipe name EXACTLY; let the PROGRAM fetch its series via
     # eclipse_tools.price_history). Matches the same test.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 34032
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 34277
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

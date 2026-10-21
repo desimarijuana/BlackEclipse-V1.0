@@ -141,11 +141,16 @@ def _guard_writable(path):
 
 
 def _guard_install(allowed_modules, read_roots, write_roots):
-    """Install the import guard, the audit hook and the path confinement."""
+    """Install (or RE-CONFIGURE) the import guard, the audit hook and the paths.
+
+    The persistent kernel runs MANY commands in ONE process, and each command
+    may have a different import allowlist (a figure recipe adds `matplotlib`; a
+    plain program does not). So the allowlist and the path roots are
+    RE-CONFIGURED on every command: installing them once judged a later command
+    against the FIRST command's rules (a figure recipe refused because an
+    earlier plain program had set the list).
+    """
     global _GUARD_ROOTS, _GUARD_WRITE_ROOTS, _GUARD_MODULES, _GUARD_INSTALLED
-    if _GUARD_INSTALLED:
-        return
-    _GUARD_INSTALLED = True
     # Fold the support modules into the allowlist itself. They were already
     # permitted by the second check; keeping one set makes the guard immune to a
     # support tuple that is missing from an assembled runner prelude.
@@ -155,6 +160,11 @@ def _guard_install(allowed_modules, read_roots, write_roots):
     }))
     _GUARD_ROOTS = [_guard_norm(p) for p in (read_roots or ()) if p]
     _GUARD_WRITE_ROOTS = [_guard_norm(p) for p in (write_roots or ()) if p]
+    if _GUARD_INSTALLED:
+        # The shims and the audit hook are already in place; only the RULES
+        # above changed for this command.
+        return
+    _GUARD_INSTALLED = True
 
     import builtins as _builtins
     import types as _types
@@ -478,9 +488,19 @@ def _guard_install(allowed_modules, read_roots, write_roots):
                 if isinstance(path, int) or path is None:
                     return
                 target = _guard_norm(path)
-                writing = isinstance(mode, str) and any(
-                    flag in mode for flag in ("w", "a", "+", "x")
-                )
+                if isinstance(mode, int):
+                    # `os.open` reports FLAGS, not a mode string: a write flag
+                    # means a write, and a read flag means a read.
+                    _write_flags = (
+                        getattr(_os, "O_WRONLY", 0) | getattr(_os, "O_RDWR", 0)
+                        | getattr(_os, "O_CREAT", 0) | getattr(_os, "O_APPEND", 0)
+                        | getattr(_os, "O_TRUNC", 0)
+                    )
+                    writing = bool(mode & _write_flags)
+                else:
+                    writing = isinstance(mode, str) and any(
+                        flag in mode for flag in ("w", "a", "+", "x")
+                    )
                 if writing:
                     if not _guard_writable(target):
                         raise PermissionError(
@@ -548,6 +568,19 @@ _GUARD_CONFINED = {
     "inspect": ("currentframe",),
 }
 
+#: The METHODS that write a file. `pandas.DataFrame.to_csv` is how a program
+#: writes; the module-level `pandas.to_csv` is only a convenience alias.
+_GUARD_CONFINED_METHODS = {
+    "pandas": {
+        "DataFrame": ("to_csv", "to_excel", "to_parquet", "to_json", "to_pickle",
+                      "to_sql", "to_stata", "to_html", "to_latex", "to_hdf",
+                      "to_orc", "to_feather", "to_excel", "to_markdown"),
+        "Series": ("to_csv", "to_excel", "to_parquet", "to_json", "to_pickle",
+                   "to_sql", "to_stata", "to_html", "to_latex", "to_hdf",
+                   "to_orc", "to_feather", "to_excel", "to_markdown"),
+    },
+}
+
 
 def _guard_wrap_path(fn, writable):
     def _wrapped(*args, **kwargs):
@@ -571,27 +604,51 @@ def _guard_wrap_path(fn, writable):
 def _guard_confine_module(module):
     name = getattr(module, "__name__", "")
     attrs = _GUARD_CONFINED.get(name)
-    if not attrs:
-        return
-    for attr in attrs:
-        target = getattr(module, attr, None)
-        if target is None or getattr(target, "_eclipse_guarded", False):
+    if attrs:
+        for attr in attrs:
+            target = getattr(module, attr, None)
+            if target is None or getattr(target, "_eclipse_guarded", False):
+                continue
+            writable = attr.startswith("to_") or attr in ("savetxt", "save", "savez",
+                                                          "savez_compressed", "memmap")
+            try:
+                if name == "inspect" and attr == "currentframe":
+                    # The frame chain reaches the runner's own namespace.
+                    wrapped = lambda *a, **k: None
+                else:
+                    wrapped = _guard_wrap_path(target, writable)
+            except Exception:
+                continue
+            try:
+                wrapped._eclipse_guarded = True
+                setattr(module, attr, wrapped)
+            except Exception:
+                continue
+    # The METHODS matter as much as the module functions: `pandas.DataFrame
+    # .to_csv` is how a program writes a file, and it is NOT the module-level
+    # `pandas.to_csv` — wrapping only the module left the method unwrapped (and
+    # the write reached the host).
+    for class_name, methods in _GUARD_CONFINED_METHODS.items():
+        klass = getattr(module, class_name, None)
+        if klass is None:
             continue
-        writable = attr.startswith("to_") or attr in ("savetxt", "save", "savez",
-                                                      "savez_compressed", "memmap")
-        try:
-            if name == "inspect" and attr == "currentframe":
-                # The frame chain reaches the runner's own namespace.
-                wrapped = lambda *a, **k: None
-            else:
-                wrapped = _guard_wrap_path(target, writable)
-        except Exception:
-            continue
-        try:
-            wrapped._eclipse_guarded = True
-            setattr(module, attr, wrapped)
-        except Exception:
-            continue
+        if not isinstance(klass, type):
+            # pandas 3 exposes `DataFrame` as a FACTORY function; the class it
+            # returns is the one whose methods write the file.
+            try:
+                klass = type(klass())
+            except Exception:
+                continue
+        for method in methods:
+            target = getattr(klass, method, None)
+            if target is None or getattr(target, "_eclipse_guarded", False):
+                continue
+            try:
+                wrapped = _guard_wrap_path(target, True)
+                wrapped._eclipse_guarded = True
+                setattr(klass, method, wrapped)
+            except Exception:
+                continue
 '''
 
 

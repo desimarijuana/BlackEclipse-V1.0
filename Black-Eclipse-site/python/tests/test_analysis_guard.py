@@ -204,9 +204,41 @@ def test_a_cancelled_analysis_says_so_and_leaves_no_child() -> None:
 # ── The recipe catalogue and the computed-result provenance ───────────────────
 
 
+def test_the_kernel_re_configures_the_allowlist_for_every_command() -> None:
+    """A later command must be judged by ITS OWN rules.
+
+    The persistent kernel runs many commands in one process: a figure recipe
+    needs `matplotlib`, a plain program does not. Installing the allowlist once
+    judged the later recipe by the FIRST command's list and refused it.
+    """
+    from harness.code import kernel as kernel_mod
+    from harness.code.execution import AnalysisInput, AnalysisRequest, run_analysis
+    from harness.code.recipes import run_recipe
+
+    class _Ctx:
+        run_id = "run_guard_kernel"
+        session_id = "session_guard_kernel"
+        agent_id = "eclipse-agent"
+        delegation_depth = 0
+
+    leased = kernel_mod.kernel_for_context(_Ctx())
+    if leased is None:
+        import pytest
+
+        pytest.skip("no kernel available on this host")
+    try:
+        plain = run_analysis(AnalysisRequest(
+            source="result = {'n': 1}", inputs=[], purpose="plain",
+        ), kernel=leased)
+        assert plain.status == "ok", plain.stderr
+        figure = run_recipe("drawdown_figure", {"prices": [100, 92, 95, 80, 120]}, kernel=leased)
+        assert figure.status == "ok", (figure.stderr or "")[:300]
+        assert "matplotlib" not in (figure.stderr or "")
+    finally:
+        kernel_mod.release_kernel(leased)
+
+
 def test_a_wrong_recipe_name_is_refused_with_the_catalogue() -> None:
-    """A model that GUESSED a recipe name must be able to correct itself in
-    one more call — the refusal lists the real names."""
     from harness.code.recipes import list_recipes, run_recipe
 
     result = run_recipe("max_drawdown", {"prices": [1, 2]})
@@ -232,9 +264,9 @@ def test_a_truncated_result_says_how_many_values_it_hides() -> None:
     from harness.analysis_tools import _computed_text
     from harness.code.execution import AnalysisResult
 
-    result = AnalysisResult(status="ok", outputs={f"k{i}": i for i in range(30)})
+    result = AnalysisResult(status="ok", outputs={f"k{i}": i for i in range(40)})
     text = _computed_text(result, "a lot of values")
-    assert "showing 12 of 30" in text
+    assert "showing 30 of 40" in text
 
 
 def test_the_stats_engines_computed_metrics_carry_their_provenance() -> None:

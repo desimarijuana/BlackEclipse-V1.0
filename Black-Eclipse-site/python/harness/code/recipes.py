@@ -489,6 +489,14 @@ def run_recipe(
         declared = "; ".join(
             f"`{i.name}` ({i.kind})" for i in recipe.inputs
         )
+        # The PROMPT is what the model reads (the refusal text is built from
+        # it), so the input NAME and its kind must be IN the prompt — a model
+        # that reads "which series should I use?" never learns that the input
+        # is called `prices`, and guesses again.
+        prompt = (
+            f"{prompt} The input name is {spec}. "
+            f"This recipe takes: {declared}."
+        )
         return AnalysisResult(
             status="refused", code=INPUT_INVALID,
             stderr=(

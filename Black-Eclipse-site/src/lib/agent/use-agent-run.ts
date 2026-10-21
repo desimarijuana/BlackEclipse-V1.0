@@ -258,7 +258,27 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
         case 'analysis': {
           // The runtime worked something out: keep the computed result blob so the
           // transcript can show it with its provenance (never as retrieved data).
-          t.analysis = event.result;
+          //
+          // MERGED, not replaced: one turn can compute twice (the sandbox AND
+          // the statistical engine), and replacing the blob would orphan the
+          // FIRST computation's references — the user would see "this number
+          // has no record of where it came from" for a number that is right
+          // there in the transcript.
+          const incoming = event.result as Record<string, unknown> | null;
+          const previous = t.analysis as Record<string, unknown> | null;
+          if (incoming && previous && typeof incoming === 'object' && typeof previous === 'object') {
+            const merged = {
+              ...previous,
+              ...incoming,
+              outputs: {
+                ...((previous.outputs as Record<string, unknown>) ?? {}),
+                ...((incoming.outputs as Record<string, unknown>) ?? {}),
+              },
+            };
+            t.analysis = merged;
+          } else {
+            t.analysis = event.result;
+          }
           publish(true);
           break;
         }

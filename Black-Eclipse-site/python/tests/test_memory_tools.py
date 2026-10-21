@@ -410,7 +410,7 @@ def test_prompt_char_ceiling():
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 34032, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 34277, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

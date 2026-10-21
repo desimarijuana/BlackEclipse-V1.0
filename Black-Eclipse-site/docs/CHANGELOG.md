@@ -7,7 +7,6 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-20
-## 2026-10-20
 
 - **perf(harness): one search primitive per question, on a fast engine, and the
   engine is always named.** The harness had FOUR tools for TWO questions, and
@@ -837,6 +836,34 @@ umpy/pandas are **already installed** in the runtime and the analysis
   resolvable in the transcript instead of rendering as "this number has no
   record of where it came from". Tests: `python/tests/test_analysis_guard.py`
   (26). Docs updated: `docs/harness/decisions.md` (ADR-H243).
+
+- **fix(harness): the limit probe's real findings — a per-command guard, the method
+  write hole, and refusals the model can act on.** A two-prompt probe (a hostile
+  side-quest inside a real computation, and the full product chain) found four
+  defects, all now fixed:
+  - **The guard's rules were installed once per KERNEL process**, so a later
+    command was judged by the FIRST command's allowlist: a `drawdown_figure`
+    recipe (which legitimately adds `matplotlib`) was refused because an earlier
+    plain program had set the list. The allowlist and the path roots are now
+    re-configured **per command**.
+  - **A program could write a host file through `pandas.DataFrame.to_csv`** —
+    the confinement wrapped the MODULE function, but the method is what a program
+    calls. The methods are wrapped now (`DataFrame`/`Series` writers, resolved
+    through the factory pandas 3 exposes), and the audit hook reads `os.open`'s
+    int flags as the write they are.
+  - **The recipe's input NAME never reached the model** — the refusal explained
+    itself in `stderr`, but the model reads the prompt. The prompt now names the
+    input and its kind (`prices` (series: a list of prices over time)) and lists
+    the recipe's declared inputs, so one call corrects the guess instead of
+    three.
+  - **A 19-value result showed 12 values and never said so.** The computed text
+    now carries up to 30 values and states what it hides ("showing 12 of 40").
+  - Plus: the transcript's computed blob is **merged**, not replaced (a second
+    computation no longer orphans the first one's references — the "this number
+    has no record of where it came from" chip), and the prompt names
+    `sdk_dashboard_add_widget` for "put it on my Command Center".
+  Tests: `python/tests/test_analysis_guard.py` (27). Docs updated:
+  `docs/harness/decisions.md` (ADR-H245).
 
 - **chore(repo): normalize two mixed line-ending files.**
   `python/harness/capabilities/external.py` and

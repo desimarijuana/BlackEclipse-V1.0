@@ -314,7 +314,9 @@ def _computed_text(result: AnalysisResult, purpose: str) -> str:
     lines = ["Worked out by Eclipse.", f"What: {purpose}."]
     raw = result.outputs if isinstance(result.outputs, dict) else {}
     values = [kv for kv in raw.items() if not str(kv[0]).startswith("_")]
-    shown = values[:12]
+    # Show as many values as the text budget allows: a 19-value result the model
+    # can only see 12 of is a result the model cannot report.
+    shown = values[:30]
     for key, value in shown:
         lines.append(f"  {key}: {value}")
     if len(values) > len(shown):
