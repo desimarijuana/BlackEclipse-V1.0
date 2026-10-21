@@ -157,6 +157,22 @@ def _resample_blocks_preserving_mix(rng: random.Random, blocks: list[list[int]],
     return drawn
 
 
+class _Recorded:
+    """A recorded run: the trades and the curve, without a strategy to re-run.
+
+    The perturbation families that only need the realised trade sequence (the
+    reshuffle and the regime-block methods) work on this. The families that
+    re-run the strategy (parameter and execution perturbation) do not, and say
+    so.
+    """
+
+    def __init__(self, trades: list[dict[str, Any]], metrics: dict[str, Any],
+                 equity_curve: list[dict[str, Any]]) -> None:
+        self.trades = trades
+        self.metrics = metrics
+        self.equity_curve = equity_curve
+
+
 class MonteCarloEngine:
     def __init__(self, strategy: StrategySpec, dataset: MarketDataset,
                  config: Optional[MonteCarloConfig] = None,
@@ -165,10 +181,46 @@ class MonteCarloEngine:
         self.dataset = dataset
         self.config = config or MonteCarloConfig()
         self._progress = progress
+        self._recorded: Optional[_Recorded] = None
         if self.config.method not in _METHODS:
             raise MonteCarloError(f"unknown monte-carlo method {self.config.method!r}")
         if self.config.simulations < 1:
             raise MonteCarloError("simulations must be >= 1")
+
+    @classmethod
+    def from_recorded(
+        cls,
+        *,
+        trades: list[dict[str, Any]],
+        equity_curve: list[dict[str, Any]],
+        metrics: Optional[dict[str, Any]] = None,
+        config: Optional[MonteCarloConfig] = None,
+    ) -> "MonteCarloEngine":
+        """Analyse a run that was RECORDED rather than re-run.
+
+        A Pine strategy cannot be re-run with perturbed parameters, but its
+        realised trade sequence can still be resampled - so the same
+        uncertainty machinery serves it. Only the families that need the
+        strategy itself are unavailable, and they refuse with a named reason.
+        """
+        engine = cls.__new__(cls)
+        engine.strategy = None  # type: ignore[assignment]
+        engine.dataset = None  # type: ignore[assignment]
+        engine.config = config or MonteCarloConfig()
+        engine._progress = None
+        engine._recorded = _Recorded(list(trades or []), dict(metrics or {}),
+                                    list(equity_curve or []))
+        if engine.config.method not in _METHODS:
+            raise MonteCarloError(
+                f"unknown monte-carlo method {engine.config.method!r}")
+        if engine.config.simulations < 1:
+            raise MonteCarloError("simulations must be >= 1")
+        if engine.config.method in ("parameter_perturbation", "execution_perturbation"):
+            raise MonteCarloError(
+                f"the {engine.config.method!r} method re-runs the strategy, which a "
+                f"recorded run does not have; use 'trade_reshuffle' or "
+                f"'regime_block_bootstrap'")
+        return engine
 
     def _report(self, done: int, total: int) -> None:
         if self._progress is None:
@@ -179,6 +231,8 @@ class MonteCarloEngine:
             pass
 
     def _base(self) -> Any:
+        if self._recorded is not None:
+            return self._recorded
         return run_backtest(
             self.strategy, self.dataset,
             BacktestConfig(initial_capital=self.config.initial_capital,
@@ -396,9 +450,13 @@ class MonteCarloEngine:
             "worst_drawdown": payload["worstDrawdown"],
         }
         metadata = {
-            "engineVersion": ENGINE_VERSION, "strategyId": self.strategy.id,
-            "strategyVersion": self.strategy.version,
-            "symbols": self.strategy.universe.symbols, "interval": self.dataset.primary_interval(),
+            "engineVersion": ENGINE_VERSION,
+            "strategyId": getattr(self.strategy, "id", None) or "recorded",
+            "strategyVersion": getattr(self.strategy, "version", None),
+            "symbols": list(getattr(getattr(self.strategy, "universe", None),
+                                   "symbols", []) or []),
+            "interval": (self.dataset.primary_interval()
+                         if self.dataset is not None else None),
         }
         configuration = {
             "method": c.method, "simulations": c.simulations, "seed": c.seed,

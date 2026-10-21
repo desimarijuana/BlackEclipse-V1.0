@@ -22,7 +22,7 @@ from ..tools import ToolContext
 from .errors import QuantError
 
 #: The tool names.
-PINE_TOOLS: tuple[str, ...] = ("run_pine_script",)
+PINE_TOOLS: tuple[str, ...] = ("run_pine_script", "grade_pine_script")
 
 
 def _pine_bars_from_dataset(store: Any, dataset_id: str, version: Optional[str],
@@ -172,6 +172,126 @@ async def run_pine_script(args: dict[str, Any], ctx: ToolContext) -> tuple[str, 
         return _err(exc)
 
 
+async def grade_pine_script(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Grade a Pine Script with Eclipse's own machinery."""
+    try:
+        from ..charts.render import ChartRenderError
+        from ..charts.service import register_chart_artifact, render_spec
+        from ..charts.spec import ChartSpec
+        from .edge_report import build_edge_report
+        from .montecarlo import MonteCarloConfig, MonteCarloEngine
+        from .pine import PineRunConfig, PineRunner
+        from .pine_report import build_pine_artifact, regime_attribution
+
+        source = str(args.get("source") or "")
+        if not source.strip():
+            return ("ERROR - provide `source` (the Pine script).",
+                    {"status": "ERROR", "error": {"code": "PINE_SOURCE_REQUIRED"}})
+
+        bars = args.get("bars")
+        if not bars:
+            dataset_id = args.get("datasetId")
+            if not dataset_id:
+                return ("ERROR - provide `bars` (the OHLCV to run on) or `datasetId` "
+                        "(a stored research dataset).",
+                        {"status": "ERROR",
+                         "error": {"code": "PINE_BARS_REQUIRED"}})
+            store = getattr(ctx, "quant_store", None)
+            if store is None:
+                return ("ERROR - the quant store is unavailable in this runtime, so a "
+                        "stored dataset cannot be read.",
+                        {"status": "ERROR",
+                         "error": {"code": "PINE_STORE_UNAVAILABLE"}})
+            bars = _pine_bars_from_dataset(store, str(dataset_id), args.get("version"),
+                                           args.get("symbol"))
+
+        symbol = str(args.get("symbol") or "UNKNOWN")
+        timeframe = str(args.get("timeframe") or "1d")
+        config = PineRunConfig(
+            timeout_s=float(args.get("timeoutS") or 60.0),
+            max_bars=int(args.get("maxBars") or 20_000),
+            symbol=symbol, timeframe=timeframe,
+        )
+        result = PineRunner().run(source, list(bars), config=config)
+
+        # The Pine run becomes the artifact shape the rest of the engine reads,
+        # and then EVERYTHING downstream is the existing machinery.
+        built = build_pine_artifact(result, list(bars), symbol=symbol,
+                                    timeframe=timeframe)
+        artifact = built.artifact
+
+        regimes = regime_attribution(list(bars), list(result.trades or []))
+        monte_carlo = None
+        if args.get("monteCarlo", True):
+            mc_config = MonteCarloConfig(
+                method=str(args.get("monteCarloMethod") or "regime_block_bootstrap"),
+                simulations=int(args.get("simulations") or 300),
+                seed=int(args.get("seed") or 42),
+                initial_capital=float(artifact["configuration"]["initialCapital"]),
+            )
+            mc_engine = MonteCarloEngine.from_recorded(
+                trades=artifact["trades"],
+                equity_curve=artifact["equityCurve"],
+                metrics=artifact["metrics"],
+                config=mc_config,
+            )
+            monte_carlo = mc_engine.run().to_dict()
+            if regimes:
+                monte_carlo["regimeAttribution"] = regimes
+
+        report = build_edge_report(artifact, monte_carlo)
+
+        payload: dict[str, Any] = {
+            "status": "OK",
+            "verdict": report.verdict,
+            "markdown": report.markdown,
+            "warnings": report.warnings,
+            "metrics": artifact["metrics"],
+            "tradeCount": len(artifact["trades"]),
+            "regimes": regimes,
+            "monteCarlo": ({k: monte_carlo.get(k) for k in
+                            ("method", "simulations", "passProbability",
+                             "probabilityOfLoss", "probabilityOfRuin",
+                             "returnPercentiles")}
+                           if monte_carlo else None),
+        }
+
+        # The report's figures, drawn through the ONE chart engine.
+        figures: list[dict[str, Any]] = []
+        if result.plots:
+            for name, plot in list(result.plots.items())[:6]:
+                values = [p.get("value") for p in (plot.get("points") or [])]
+                if not any(v is not None for v in values):
+                    continue
+                spec = ChartSpec(
+                    kind="line", title=f"Pine · {name}",
+                    subtitle=f"{symbol} · {timeframe} · computed",
+                    y_label="value",
+                    series=[{"name": name, "data": values}],
+                    source="Eclipse Pine engine — computed",
+                )
+                try:
+                    rendered = render_spec(spec)
+                    registered = register_chart_artifact(ctx, rendered,
+                                                         source_tool="pine_report")
+                    figures.append({"name": name, "figure": rendered.to_dict(),
+                                    "artifactId": getattr(registered, "id", None)})
+                except ChartRenderError as exc:
+                    figures.append({"name": name,
+                                    "error": {"code": exc.code, "reason": exc.reason}})
+        payload["figures"] = figures
+
+        diagnostics = result.diagnostics or {}
+        verdict = report.verdict
+        return (f"Pine script graded: {verdict['grade']} ({verdict['score']:.0f}/100) - "
+                f"{verdict['summary']} "
+                f"({diagnostics.get('tradeCount')} trade(s) on "
+                f"{diagnostics.get('barCount')} bar(s)).",
+                payload)
+    except Exception as exc:  # noqa: BLE001
+        return _err(exc)
+
+
 def register_pine_tools(registry: Any) -> list[str]:
     """Register the Pine tools on the one tool registry."""
     from ..tools import ToolDefinition
@@ -204,7 +324,35 @@ def register_pine_tools(registry: Any) -> list[str]:
             "required": ["source"]},
         handler=run_pine_script, permission="read", risk="low", timeout_ms=180_000,
         long_running=True))
+    registry.register(ToolDefinition(
+        name="grade_pine_script",
+        description="Grade a Pine Script with ECLIPSE's own machinery: the run is "
+                    "translated into the engine's trade shape, the metrics engine "
+                    "computes the numbers, the bars are classified into market "
+                    "regimes, the trade sequence is resampled, and the Edge Verdict "
+                    "returns an A-F grade with the overfit tells - the same report an "
+                    "Eclipse strategy gets. Returns the report and the figures.",
+        input_schema={"type": "object", "properties": {
+            "source": {"type": "string", "description": "the Pine Script source"},
+            "bars": {"type": "array", "items": {"type": "object"},
+                     "description": "OHLCV bars: {time,o,h,l,c,v}"},
+            "datasetId": {"type": "string",
+                          "description": "a stored research dataset to run on"},
+            "version": {"type": "string"},
+            "symbol": {"type": "string"},
+            "timeframe": {"type": "string"},
+            "timeoutS": {"type": "number"},
+            "maxBars": {"type": "integer"},
+            "simulations": {"type": "integer"},
+            "seed": {"type": "integer"},
+            "monteCarlo": {"type": "boolean"},
+            "monteCarloMethod": {"type": "string",
+                                  "enum": ["regime_block_bootstrap", "trade_reshuffle"]}},
+            "required": ["source"]},
+        handler=grade_pine_script, permission="read", risk="low", timeout_ms=180_000,
+        long_running=True))
     return list(PINE_TOOLS)
 
 
-__all__ = ["PINE_TOOLS", "register_pine_tools", "run_pine_script"]
+__all__ = ["PINE_TOOLS", "grade_pine_script", "register_pine_tools",
+           "run_pine_script"]

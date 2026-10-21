@@ -9,11 +9,13 @@ from __future__ import annotations
 
 
 def _paths() -> set[str]:
+    from harness.routers.pine import router as pine_router
     from harness.routers.quant import router
     from harness.routers.quant_reports import router as reports_router
 
     return ({getattr(r, "path", "") for r in router.routes}
-            | {getattr(r, "path", "") for r in reports_router.routes})
+            | {getattr(r, "path", "") for r in reports_router.routes}
+            | {getattr(r, "path", "") for r in pine_router.routes})
 
 
 def test_costs_route_executes():
@@ -60,6 +62,8 @@ def test_advanced_quant_routes_registered():
         "/quant/prop-firm",
         "/quant/prop-firm/firms",
         "/quant/edge-report",
+        "/quant/pine",
+        "/quant/pine/report",
     ):
         assert path in paths, path
 
