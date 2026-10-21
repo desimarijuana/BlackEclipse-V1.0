@@ -148,12 +148,24 @@ the right column.
 The map is a convenience, never a claim: the values it carries are the same
 values the picture was drawn from, and a gap stays a gap (no value at all).
 
-### 3.2 The picture's size
+### 3.2 The picture's size and its legibility
 
-The chat draws at **720×400** and shows it at its natural aspect, left
-aligned, capped at 640 px wide (`object-contain`, no fixed height). The old
-`w-full` + a fixed `maxHeight` stretched the picture; now it is never
-distorted, and the focus view simply shows the same picture larger.
+The chat draws at **1000×560** and shows it at its natural aspect, left
+aligned, capped at 860 px wide (`object-contain`, no fixed height), inside a
+card that **shrinks to the picture** (`w-fit`) rather than spanning the
+column. The old `w-full` + a fixed `maxHeight` stretched the picture; now it
+is never distorted, and the focus view simply shows the same picture larger.
+
+Two rules keep the picture readable:
+
+* **The text is a fraction of the picture, not of the screen.** The engine
+  draws in fewer inches at a higher resolution (`DRAW_DPI = 150`), so the
+  labels and strokes scale with the picture — a chart shown at 860 px has
+  legible labels whether it was drawn at 720 px or at 1400 px.
+* **Crowded axes are thinned, never faked.** When a category axis carries
+  more than ~12 labels, the engine keeps every Nth label (and turns long
+  ones, because a row of `2026-07-01` strings cannot share a line). The DATA is
+  never thinned — only the labels are.
 
 ## 4. What the user gets
 

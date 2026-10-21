@@ -211,8 +211,8 @@ function sceneSpec(block: ChartBlock, options: ChartPlanOptions): ChartSpec {
   }));
   return {
     kind: 'scene',
-    title: block.title ?? undefined,
-    subtitle: block.description ?? undefined,
+    title: options.includeTitle ? (block.title ?? undefined) : undefined,
+    subtitle: options.includeTitle ? (block.description ?? undefined) : undefined,
     source: block.source ?? undefined,
     panels,
     theme: options.theme ?? 'eclipse-dark',
@@ -234,6 +234,12 @@ export interface ChartPlanOptions {
   theme?: ChartTheme;
   width?: number;
   height?: number;
+  /**
+   * Draw the block's title INSIDE the picture. Off by default: the chat
+   * already shows the title above the chart and the description below it, and
+   * a picture that repeats them looks like a mistake.
+   */
+  includeTitle?: boolean;
 }
 
 function categoryNames(block: ChartBlock, count: number): string[] {
@@ -271,8 +277,8 @@ export function chartBlockToSpec(
 
   const spec: ChartSpec = {
     kind,
-    title: block.title ?? undefined,
-    subtitle: block.description ?? undefined,
+    title: options.includeTitle ? (block.title ?? undefined) : undefined,
+    subtitle: options.includeTitle ? (block.description ?? undefined) : undefined,
     source: block.source ?? undefined,
     xLabel: block.xLabel ?? undefined,
     yLabel: block.yLabel ?? undefined,

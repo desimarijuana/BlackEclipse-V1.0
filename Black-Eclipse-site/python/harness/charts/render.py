@@ -89,6 +89,12 @@ def _axis_categories(spec: ChartSpec, length: int) -> Any:
     return list(range(length)), [str(i) for i in range(length)]
 
 
+#: The drawing resolution. The figure is drawn in FEWER INCHES at this DPI, so
+#: the text and the strokes are a fixed fraction of the PICTURE - a chart shown
+#: at 860 px has legible labels, whether it was drawn at 720 px or 1400 px.
+DRAW_DPI = 150
+
+
 def _format_value(value: float, spec: ChartSpec, value_format: Optional[str] = None) -> str:
     """Write an axis value the way the chart says it should be read.
 
@@ -195,15 +201,39 @@ def _draw_reference_lines(ax: Any, spec: ChartSpec, theme: ChartTheme) -> None:
             pass
 
 
+def _set_category_labels(ax: Any, positions: list[int], labels: list[str]) -> None:
+    """Write the category labels, THINNING them when the axis is crowded.
+
+    Ninety daily dates printed at once are unreadable (and they overlap into a
+    smear). The engine keeps every Nth label, so the axis stays legible at any
+    density - the DATA is never thinned, only the labels. Long labels (dates)
+    are turned, because a row of `2026-07-01` strings cannot share a line.
+    """
+    count = len(positions)
+    if count == 0:
+        return
+    longest = max((len(label) for label in labels), default=0)
+    rotated = longest > 6 or count > 8
+    if count <= 14:
+        ax.set_xticks(positions)
+        ax.set_xticklabels(labels, rotation=45 if rotated else 0, ha="right" if rotated else "center")
+        return
+    step = max(1, count // 12)
+    shown = positions[::step]
+    ax.set_xticks(shown)
+    ax.set_xticklabels([labels[i] for i in range(0, count, step)], rotation=45, ha="right")
+
+
 def _apply_titles(ax: Any, spec: ChartSpec) -> None:
     if spec.title:
-        ax.set_title(spec.title, loc="left", pad=14 if spec.subtitle else 8)
+        ax.set_title(spec.title, loc="left", pad=26 if spec.subtitle else 10)
     if spec.subtitle:
+        # The subtitle sits UNDER the title, never on it.
         ax.annotate(
             spec.subtitle,
             xy=(0, 1.0),
             xycoords="axes fraction",
-            xytext=(0, 8),
+            xytext=(0, 6),
             textcoords="offset points",
             ha="left",
             va="bottom",
@@ -288,8 +318,7 @@ def _draw_line_family(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> 
     if not plotted:
         raise ChartRenderError(CHART_SPEC_INVALID, "the chart has no values to draw")
     if len(labels) <= 24:
-        ax.set_xticks(positions)
-        ax.set_xticklabels(labels, rotation=0)
+        _set_category_labels(ax, positions, labels)
     if len(series) > 1 or spec.kind == "area":
         ax.legend(loc="upper left", bbox_to_anchor=(0, -0.12), ncol=min(4, len(series)))
 
@@ -331,8 +360,7 @@ def _draw_bar_family(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> N
                 label=entry.name, alpha=0.92,
             )
     if len(labels) <= 24:
-        ax.set_xticks(positions)
-        ax.set_xticklabels(labels)
+        _set_category_labels(ax, positions, labels)
     else:
         ax.set_xticks(positions[:: max(1, len(positions) // 12)])
     if len(series) > 1:
@@ -446,9 +474,12 @@ def _draw_candlestick(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> 
             facecolor=color, edgecolor="none", alpha=0.9,
         ))
     if spec.categories and len(spec.categories) >= len(candles):
-        step = max(1, len(candles) // 12)
-        ax.set_xticks(range(0, len(candles), step))
-        ax.set_xticklabels([str(spec.categories[i]) for i in range(0, len(candles), step)])
+        # The shared thinning: ninety daily dates printed at once overlap into a
+        # smear, so every Nth label is kept (the DATA is never thinned).
+        shown = list(range(0, len(candles), max(1, len(candles) // 12)))
+        _set_category_labels(
+            ax, shown, [str(spec.categories[i]) for i in shown],
+        )
 
 
 def _draw_waterfall(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> None:
@@ -617,7 +648,7 @@ def _render_scene(spec: ChartSpec, theme: ChartTheme, plt: Any) -> bytes:
     total = sum(heights) or 1.0
     ratios = [h / total for h in heights]
 
-    figure = plt.figure(figsize=(spec.width / 100.0, spec.height / 100.0), dpi=100)
+    figure = plt.figure(figsize=(spec.width / DRAW_DPI, spec.height / DRAW_DPI), dpi=DRAW_DPI)
     grid = figure.add_gridspec(count, 1, height_ratios=ratios, hspace=0.34)
     axes = [figure.add_subplot(grid[i]) for i in range(count)]
 
@@ -701,12 +732,12 @@ def _render_figure(spec: ChartSpec, theme: ChartTheme, plt: Any) -> tuple[bytes,
         has_volume = any(v is not None for v in spec.volume_data)
         if has_volume:
             # A price chart's volume pane: the chart on top, the volume below.
-            figure = plt.figure(figsize=(spec.width / 100.0, spec.height / 100.0), dpi=100)
+            figure = plt.figure(figsize=(spec.width / DRAW_DPI, spec.height / DRAW_DPI), dpi=DRAW_DPI)
             grid = figure.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.08)
             ax = figure.add_subplot(grid[0])
             volume_ax = figure.add_subplot(grid[1], sharex=ax)
         else:
-            figure = plt.figure(figsize=(spec.width / 100.0, spec.height / 100.0), dpi=100)
+            figure = plt.figure(figsize=(spec.width / DRAW_DPI, spec.height / DRAW_DPI), dpi=DRAW_DPI)
             ax = figure.add_subplot(111)
             volume_ax = None
         try:
@@ -794,12 +825,12 @@ def render_chart(spec: ChartSpec) -> bytes:
         has_volume = any(v is not None for v in spec.volume_data)
         if has_volume:
             # A price chart's volume pane: the chart on top, the volume below.
-            figure = plt.figure(figsize=(spec.width / 100.0, spec.height / 100.0), dpi=100)
+            figure = plt.figure(figsize=(spec.width / DRAW_DPI, spec.height / DRAW_DPI), dpi=DRAW_DPI)
             grid = figure.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.08)
             ax = figure.add_subplot(grid[0])
             volume_ax = figure.add_subplot(grid[1], sharex=ax)
         else:
-            figure = plt.figure(figsize=(spec.width / 100.0, spec.height / 100.0), dpi=100)
+            figure = plt.figure(figsize=(spec.width / DRAW_DPI, spec.height / DRAW_DPI), dpi=DRAW_DPI)
             ax = figure.add_subplot(111)
             volume_ax = None
         try:

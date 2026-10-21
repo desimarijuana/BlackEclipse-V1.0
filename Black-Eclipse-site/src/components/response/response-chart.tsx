@@ -47,8 +47,9 @@ export function ResponseChart({ block, height = 260, className, focusable = true
   const [focused, setFocused] = useState(false);
 
   const plan = useMemo(
-    // Drawn close to how it is displayed, so the labels stay crisp.
-    () => chartBlockToSpec(block, { theme: 'eclipse-dark', width: 720, height: 400 }),
+    // Drawn close to how it is displayed, so the labels stay crisp. The title
+    // is NOT drawn in the picture - the chat shows it above the chart.
+    () => chartBlockToSpec(block, { theme: 'eclipse-dark', width: 1000, height: 560 }),
     [block],
   );
   const specKey = useMemo(() => (plan ? JSON.stringify(plan.spec) : ''), [plan]);
@@ -119,7 +120,7 @@ export function ResponseChart({ block, height = 260, className, focusable = true
   const card = (
     <div
       className={cn(
-        'glass-card-subtle rounded-xl p-3',
+        'glass-card-subtle w-fit max-w-full rounded-xl p-3',
         focused && 'w-full max-w-[1400px] shadow-2xl',
       )}
     >
@@ -153,7 +154,7 @@ export function ResponseChart({ block, height = 260, className, focusable = true
             src={state.src}
             alt={block.title ?? 'Chart'}
             className="block h-auto max-w-full object-contain"
-            style={focused ? { maxHeight: '78vh' } : { maxWidth: 640 }}
+            style={focused ? { maxHeight: '78vh' } : { maxWidth: 860 }}
             data-testid="response-chart-image"
           />
           {/* The hover layer: the picture is Python-drawn, so the pointer

@@ -7,6 +7,34 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-21
+- **feat(harness): a project proposes what to do next, from its own evidence.**
+  The curated view says where a project stands; this says what to do about it,
+  and it may only say it from evidence the project ACTUALLY holds. A strategy
+  with no result is proposed for a backtest (with the exact tool call and the
+  instruments). A result resting on fewer than 30 trades is proposed for a
+  wider sample - below 30 trades the difference between an edge and luck is not
+  measurable. A strategy whose trades only ever happened in a few market
+  regimes is proposed for a wider window, because the regimes it has never been
+  observed in are unknown. A Monte-Carlo whose probability of loss is high, or
+  whose 5th-percentile return is not positive, is proposed for a cost test -
+  the tail is the problem, not the average. And any result with trades is
+  tested against a prop firm's evaluation rules, using the strategy's OWN trade
+  sequence. Every proposal cites its evidence (an experiment id, a regime, a
+  metric, a pass probability) and names the concrete action, so it can be run
+  without being re-invented. A proposal that cannot cite its evidence is NOT
+  made: a project that holds what it needs gets the honest answer - there is
+  nothing to propose. And a rule that could not be evaluated is REPORTED in
+  `skipped`, never silently skipped - a broken check must not look like a
+  project with nothing to propose. (That last rule earned itself: two broken
+  imports were hiding in the first cut, silently disabling a whole check.)
+  Surfaces: the tool `project_next`, the route GET /projects/{id}/proposals,
+  and the Project Scope widget, which shows the active project's next step.
+  Files: python/harness/projects/propose.py (new),
+  python/harness/projects/tools.py, python/harness/routers/projects.py,
+  src/lib/projects/project-client.ts, src/lib/dashboard/project-widget.tsx.
+  Tests: python/tests/test_project_proposals.py (10),
+  python/tests/test_projects.py. docs updated: docs/projects.md.
+
 - **feat(harness): the curated project view - what a project is, and what it
   is missing.** A member list is a filing cabinet; a curated project is a
   summary. The new curator ranks a project's members by a FIXED priority per
@@ -124,6 +152,30 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: docs/self-improvement/rsl-v3-plan.md.
 
 ## 2026-10-20
+
+- **fix(charts): the chat's charts are legible — bigger text, no duplicated
+  title, no overlapping dates, and a card that is not full width.** Four
+  problems, all fixed in the engine and the chat's chart surface. **(1) The
+  text was too small:** the engine now draws in fewer inches at a higher
+  resolution (`DRAW_DPI = 150`), so the labels and strokes are a fixed
+  fraction of the PICTURE — a chart shown at 860 px has legible labels whether
+  it was drawn at 720 px or 1400 px. **(2) The title was drawn twice** — once
+  by the chat above the chart and once inside the picture. The picture no
+  longer repeats the title or the description (the chat shows both); a caller
+  that wants the title in the picture asks for it. **(3) Ninety daily dates
+  overlapped into a smear:** the engine now THINS the category labels (every
+  Nth label is kept — the DATA is never thinned) and turns long labels, so
+  the axis stays readable at any density. **(4) The picture was a small image
+  in a full-width card:** the chat draws at 1000×560, shows it at up to 860 px
+  at its natural aspect, and the card now shrinks to the picture
+  (`w-fit`) instead of spanning the column. The **candle chart is hoverable
+  now**: the interaction map covers candlesticks, so the crosshair snaps to a
+  candle and the tooltip shows its open / high / low / close. Files:
+  `python/harness/charts/render.py` (`DRAW_DPI`, `_set_category_labels`),
+  `python/harness/charts/interaction.py` (candles),
+  `src/lib/response/chart-spec.ts` (`includeTitle`),
+  `src/components/response/response-chart.tsx` (size, card width).
+  docs updated: `docs/chart-engine.md`, `docs/CHANGELOG.md`.
 
 - **feat(quant): a Pine run is now graded by Eclipse's own machinery.** The two
   halves of this work did not meet: the verdict, the regimes and the Edge
@@ -1313,7 +1365,8 @@ umpy/pandas are **already installed** in the runtime and the analysis
   tasks (expected behavior = the recorded tool sequence, never an invented
   answer); it is operator-invoked and writes an unreviewed dataset. Honest limits
   are printed in every report: the default is the deterministic scripted tier,
-  the corpus is still 53 tasks, and no replay dataset is committed yet. Files:
+  the corpus was 53 tasks when this landed (62 after the adversarial/finance
+  datasets below), and no replay dataset is committed yet. Files:
   `python/harness/evaluation/{ablation,candidate_invoker,replay_builder}.py`,
   `python/harness/self_improvement/models.py`, `scripts/rsl-bench.js`,
   `package.json`. Tests: `python/tests/test_ablation.py` (6),

@@ -23,7 +23,7 @@ from .spec import ChartSpec
 from .theme import ChartTheme
 
 #: The kinds whose x axis is a category axis (so a hover can pick a column).
-CATEGORY_KINDS = frozenset({"line", "area", "bar", "stackedBar"})
+CATEGORY_KINDS = frozenset({"line", "area", "bar", "stackedBar", "candlestick"})
 
 
 def _series_color(theme: ChartTheme, index: int, explicit: Optional[str]) -> str:
@@ -42,7 +42,13 @@ def build_interaction(
     """
     if spec.kind not in CATEGORY_KINDS or not spec.categories:
         return None
-    if not axes or not spec.series:
+    if not axes:
+        return None
+    # A candle chart carries its data in `candles`; the others carry `series`.
+    if spec.kind == "candlestick":
+        if not spec.candles:
+            return None
+    elif not spec.series:
         return None
 
     figure = axes.get_figure()
@@ -66,17 +72,28 @@ def build_interaction(
         except Exception:  # noqa: BLE001
             return None
         values: list[dict[str, Any]] = []
-        for series_index, series in enumerate(spec.series):
-            if index >= len(series.data):
-                continue
-            value = series.data[index]
-            if value is None:
-                continue
-            values.append({
-                "name": series.name,
-                "value": float(value),
-                "color": _series_color(theme, series_index, series.color),
-            })
+        if spec.kind == "candlestick":
+            # A candle carries four numbers; the hover shows them all.
+            if index < len(spec.candles):
+                candle = spec.candles[index]
+                values.extend([
+                    {"name": "Open", "value": float(candle.open), "color": theme.muted},
+                    {"name": "High", "value": float(candle.high), "color": theme.up},
+                    {"name": "Low", "value": float(candle.low), "color": theme.down},
+                    {"name": "Close", "value": float(candle.close), "color": theme.ink},
+                ])
+        else:
+            for series_index, series in enumerate(spec.series):
+                if index >= len(series.data):
+                    continue
+                value = series.data[index]
+                if value is None:
+                    continue
+                values.append({
+                    "name": series.name,
+                    "value": float(value),
+                    "color": _series_color(theme, series_index, series.color),
+                })
         columns.append({"label": str(label), "x": round(x_pixel, 2), "values": values})
 
     if not columns:
