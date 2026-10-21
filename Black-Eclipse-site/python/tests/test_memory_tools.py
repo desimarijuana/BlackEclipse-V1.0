@@ -407,10 +407,14 @@ def test_prompt_char_ceiling():
     Re-pinned 33632->33724 for the same guidance with the CORRECT import list
     (the allowed numerical stack; a figure is drawn by the ready-made recipes,
     not by the program).
+    Re-pinned 33724->34804 for the per-command sandbox rules and the
+    "a refusal names the correction" guidance: a model that is refused must be
+    told what to do differently, not left to guess. Re-pinned to the measured
+    size; it may only shrink from here.
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 34277, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 34804, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

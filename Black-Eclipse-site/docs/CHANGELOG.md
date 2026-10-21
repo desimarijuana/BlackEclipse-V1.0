@@ -7,6 +7,58 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-20
+## 2026-10-20
+
+- **fix(harness): re-pin the prompt ceiling after the sandbox-rules guidance.**
+  The system prompt grew to 34,804 characters - the per-command sandbox rules and
+  the "a refusal names the correction" guidance - while the ceiling stayed at
+  34,277, so the prompt-size ratchet failed. Re-pinned to the measured size,
+  with the reason recorded in the same style the ceiling has always used; it may
+  only shrink from here. The two file-system tools that are registered but not
+  yet in any agent allowlist are now listed as deliberately invisible, so the
+  registry-visibility gate is honest about them instead of failing on them.
+  Files: python/tests/test_phase_s_stabilization.py,
+  python/tests/test_memory_tools.py, python/tests/test_registry_visibility.py.
+  no doc change - a size ratchet and a test-hygiene repair.
+
+
+- **feat(charts): the chat's charts are drawn by the PYTHON engine, and any chart
+  can be drawn at all.** The chat's `chart` block no longer has an ECharts
+  path: the block is turned into a validated chart **SPEC** (data only — a
+  kind, some series, a title — never a callback, a URL or a path) and the
+  runtime draws it with `matplotlib` into a transparent PNG in the app's own
+  palette, recorded in the Artifact Center and fetched back as an artifact.
+  The chat's ECharts option builder (`chart-option.ts`) is **deleted**.
+  **The ceiling is gone:** a chart block may also arrive as a **SCENE** —
+  `panels` of `marks` — which is compositional rather than a fixed list of
+  kinds, so a violin, a box plot, a Gantt, a funnel, a ridgeline, an error-bar
+  chart or a dual-axis chart is a composition of the primitives (`line`, `area`,
+  `bar`, `scatter`, `band`, `rule`, `label`, `box`, `violin`, `histogram`,
+  `errorbar`, `heatmap`, `pie`, `donut`, `candlestick`, `waterfall`, `ridge`,
+  `stem`) instead of needing a new kind invented for it. The marks are drawn
+  exactly as the model writes them, and the schema read-back now describes the
+  mark vocabulary so the model can see it. The `python_chart` agent tool takes
+  the same scene form. A figure is always `computed` and never evidence; a
+  malformed chart is a refusal that names the missing part, never a broken
+  picture. **Scope:** the chat only — the journal, portfolio, dashboard,
+  backtest, economics, fundamentals and workspace widgets, the price chart, the
+  Investor Eye map and the relationship graphs stay on ECharts, because they
+  draw from live data at interactive rates and a server-drawn picture cannot
+  serve that. Files: `python/harness/charts/{scene,scene_render}.py`,
+  `python/harness/charts/spec.py` (the `scene` kind + the panel/mark
+  vocabulary), `python/harness/charts/render.py` (the scene renderer),
+  `python/harness/charts/tools.py` (the tool's scene schema),
+  `src/lib/response/contract.ts` (the block's `panels`),
+  `src/lib/response/chart-spec.ts` (block → spec, including the scene),
+  `src/components/response/response-chart.tsx` (the picture),
+  `src/lib/response/chart-registry.ts`, `src/lib/response/export.ts`,
+  `src/lib/harness/charts.ts`, `src/lib/harness/response-bridge.ts` (the
+  deeper read-back), `python/harness/prompts.py` (the model's guidance).
+  Tests: `python/tests/test_chart_scene.py` (23), `python/tests/test_charts.py`
+  (29), `src/lib/response/chart-spec.test.ts` (22), `src/lib/response/repair.test.ts`.
+  docs updated: `docs/chart-engine.md`, `docs/interactive-response-engine.md`,
+  `docs/DECISIONS.md` (ADR-050), `skills/ARCHITECT.md` (ADR-050),
+  `docs/CHANGELOG.md`.
 
 - **perf(harness): one search primitive per question, on a fast engine, and the
   engine is always named.** The harness had FOUR tools for TWO questions, and

@@ -73,7 +73,12 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # Re-pinned 33724->34032 for the same paragraph with the two missing rules
     # (use a recipe name EXACTLY; let the PROGRAM fetch its series via
     # eclipse_tools.price_history). Matches the same test.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 34277
+    # Re-pinned 34032->34804 for the per-command sandbox rules and the
+    # "a refusal names the correction" guidance (a model that is refused must be
+    # told what to do differently, not left to guess). It is guidance the
+    # runtime needs; it is re-pinned to the measured size and may only shrink
+    # from here. Matches the same test in `test_memory_tools.py`.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 34804
 
 
 def test_main_still_reexports_the_identity_boundary_surface():
