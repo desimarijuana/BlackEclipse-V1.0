@@ -9558,3 +9558,43 @@ cases and the `code_edit_contract` class). Tests
 and `test_surface_resolution.py` (the pinned surfaces). Docs:
 `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
 `docs/harness/roadmap/round-3-parity-plan.md`.
+
+## ADR-H286 - The dropped turns are COMPACTED, not just dropped
+
+**Decision.** The history bound now COMPACTS what it removes. The dropped
+turns are carried forward as a fenced, labelled summary block: the requests
+that were made and the answers that were given (the deterministic skeleton),
+plus a bounded model NARRATIVE on top of it - the decisions taken, the open
+questions, the state of the work. The existing inert dropped-context block is
+NOT replaced: both reach the model, the compaction first.
+
+The skeleton always runs. The narrative is additive and fails CLOSED - if the
+model is unavailable, times out, says nothing, or raises, the skeleton alone
+is used and the run records why. The block is DATA, never instruction (a
+compaction can contain anything the user typed), and it never enters a
+research claim: a summary of a conversation is not evidence.
+
+**Why.** Until now the harness TRUNCATED its history. `history.py::
+_bounded_history` kept the most recent turns and dropped the oldest, and
+`eclipse_memory/dropped_context.py` mined the dropped turns for INERT
+candidates ("you mentioned a file called X"). Everything else the conversation
+carried - the decision that was made, the question that was still open, the
+state of the work - was GONE. `context_budget.py` said it plainly: *"no
+tokenizer dependency, no network call, no summarization."* Every top-tier
+harness compacts; a long run in Eclipse could keep twenty turns and no more,
+and the twenty-first turn started from nothing.
+
+**Consequences.** `python/harness/compaction.py` (the skeleton, the narrative,
+the renderer), `python/harness/history.py` (the compaction is built and
+combined with the inert block; the extraction's fail-closed path now still
+carries the compaction, because the compaction is independent and never
+fails). The event `memory.history_compacted` records the facts - turns
+compacted, whether the model contributed, the reason when it did not, the
+block's cost. The policy key `history_compaction_model` turns the narrative ON; it is
+off by default, exactly like the model-assisted dropped-context extraction,
+because it costs a model call and up to twenty seconds on the run's critical
+path - and the deterministic skeleton is what actually carries the
+conversation forward. The skeleton ALWAYS runs. Tests
+`python/tests/test_history_compaction.py` (12 cases). Docs:
+`docs/harness/architecture.md`, `docs/NAVIGATION.md`,
+`docs/harness/roadmap/round-3-parity-plan.md`.

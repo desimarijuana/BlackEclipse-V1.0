@@ -8,6 +8,33 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-21
 
+- **feat(harness): the dropped turns are COMPACTED, not just dropped.** The
+  harness TRUNCATED its history: `_bounded_history` kept the most recent turns
+  and dropped the oldest, and the dropped-context extractor mined them for
+  INERT candidates ("you mentioned a file called X"). Everything else the
+  conversation carried - the decision that was made, the question that was
+  still open, the state of the work - was GONE. `context_budget.py` said it
+  plainly: *"no tokenizer dependency, no network call, no summarization."*
+  Every top-tier harness compacts; a long run in Eclipse could keep twenty
+  turns and no more, and the twenty-first turn started from nothing. What the
+  history bound removes is now carried forward as a fenced, labelled summary:
+  the requests that were made and the answers that were given (the
+  DETERMINISTIC skeleton, which always runs), plus a bounded model NARRATIVE
+  on top of it - the decisions taken, the open questions, the state of the
+  work. The existing inert dropped-context block is NOT replaced: both reach
+  the model, the compaction first. The narrative is ADDITIVE and fails
+  CLOSED - an unavailable, silent or failing model leaves the skeleton
+  untouched and the run records why - and the block is DATA, never instruction
+  (a compaction can contain anything the user typed). It never enters a
+  research claim: a summary of a conversation is not evidence. The model
+  narrative is OPT-IN (the policy key `history_compaction_model` turns it
+  ON), because it costs a model call and up to twenty seconds on the run's
+  critical path - the deterministic skeleton is what actually carries the
+  conversation forward, and it ALWAYS runs. Files: python/harness/compaction.py (new), python/harness/history.py,
+  python/tests/test_history_compaction.py (new, 12 cases),
+  python/tests/test_size_budget.py (the re-pin). ADR-H286. docs updated:
+  docs/harness/decisions.md, docs/harness/architecture.md, docs/NAVIGATION.md.
+
 - **fix(harness): ONE edit tool, and it insists the run read the file.** The
   harness had THREE ways to change a file's contents and ELEVEN more
   file-lifecycle tools, spread over two subsystems - and NONE of them required

@@ -481,7 +481,7 @@ and the slower one has the friendlier name.
 
 ### W6 — Compaction, and a tool surface that does not eat the context window
 
-> **Closes:** X1, X2, X3, X4 · **Moves:** Ctx +0.15, Loop +0.06 · **ADR:** H285
+> **Closes:** X1, X2, X3, X4 · **Moves:** Ctx +0.15, Loop +0.06 · **ADR:** H286 · ✅ **Done 2026-10-21** — the dropped turns are compacted into a fenced summary; the deterministic skeleton always runs and the model narrative fails closed to it
 > **Priority: 1 — the single largest Ctx prize (+0.72 needs this).**
 
 **Why.** Every top-10 harness compacts; Eclipse does not. `context_budget.py:12`

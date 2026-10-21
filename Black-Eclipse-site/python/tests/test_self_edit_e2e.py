@@ -27,7 +27,7 @@ from harness.tools import ToolRegistry
 
 _EDIT_VERIFY_BIND = [
     "skill_create", "skill_update", "skill_delete",
-    "workspace_patch_apply", "command_run", "write_file", "create_file", "edit_file",
+    "code_edit", "command_run", "write_file", "create_file",
 ]
 
 

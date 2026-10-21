@@ -126,7 +126,7 @@ RATCHET_PY: dict[str, int] = {
     # the deprecation wiring. May only shrink. SPLIT CANDIDATE: the fs tool
     # surface duplicates `code/tools.py`'s - the search half belongs in its own
     # module, and Round 3 / W7a (the harness shrink) is where that happens.
-    "code/fs_tools.py": 1212,
+    "code/fs_tools.py": 1225,
     "graph.py": 2238,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only

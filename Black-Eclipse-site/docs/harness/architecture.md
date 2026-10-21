@@ -596,6 +596,19 @@ naming one of them. The response-contract loss was a visible defect:
 response-schema digest and the response-mode plan, so a coding turn produced a
 degraded structured response with no error.
 
+**The dropped turns are COMPACTED, not just dropped (ADR-H286).** The
+history bound no longer throws the conversation away. What it removes is
+carried forward as a fenced, labelled summary: the requests that were made
+and the answers that were given (the DETERMINISTIC skeleton, which always
+runs), plus a bounded model NARRATIVE on top of it - the decisions taken, the
+open questions, the state of the work. The existing inert dropped-context
+block is not replaced: both reach the model, the compaction first. The
+narrative is ADDITIVE and fails CLOSED - an unavailable, silent or failing
+model leaves the skeleton untouched, and the run records why. The block is
+DATA, never instruction (a compaction can contain anything the user typed),
+and it never enters a research claim: a summary of a conversation is not
+evidence.
+
 **One edit tool, and it insists the run read the file (ADR-H285).** A *text
 edit* is ONE tool: `code_edit` (`path`, `oldText`, `newText`,
 `expectedOccurrences`). It replaces text; the operations that are genuinely

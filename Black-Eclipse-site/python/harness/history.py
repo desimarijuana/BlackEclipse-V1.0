@@ -1,8 +1,17 @@
-"""History bounding + the inert dropped-context block, split out of `graph.py`.
+"""History bounding + compaction + the inert dropped-context block.
 
 `graph.py` is at its file-size ratchet, so the pure history-bounding helpers and
 the dropped-context extraction live here. `graph.py` re-exports the names its
 callers and tests use, so nothing else changes. This module owns no state.
+
+Round 3 / W6 (ADR-H286): the dropped turns are now COMPACTED, not just
+mined. Before this, `_bounded_history` kept the most recent turns and DROPPED
+the oldest, and `eclipse_memory/dropped_context.py` mined the dropped turns
+for inert candidates - so the decisions, the open questions and the state of
+the work were simply lost. The compaction (`harness/compaction.py`) carries
+them forward: a deterministic skeleton of what was asked and what was
+answered, plus a bounded model NARRATIVE on top of it. The skeleton always
+runs; the narrative fails CLOSED to the skeleton alone.
 """
 
 from __future__ import annotations
@@ -94,6 +103,11 @@ async def _dropped_context_block(
     ]
     if not dropped:
         return messages, "", dropped
+    # Round 3 / W6 (ADR-H286): the COMPACTION comes first, and the inert
+    # dropped-context block follows it. The compaction is never a replacement
+    # for the block - it is what carries the conversation forward, and the
+    # block stays the deterministic record of what was dropped.
+    compaction_block = await _compaction_block(request, dropped, memory_service, emitter)
     try:
         from .eclipse_memory.dropped_context import (  # noqa: PLC0415
             MAX_ITEMS,
@@ -150,15 +164,57 @@ async def _dropped_context_block(
                 )
         except Exception:  # noqa: BLE001
             pass
-        return messages, block, dropped
+        return messages, _combine(compaction_block, block), dropped
     except Exception as exc:  # noqa: BLE001 - extraction must never break a run
         try:
             if emit:
                 await emitter.emit("memory.dropped_context_failed", {"error": str(exc), "droppedTurns": len(dropped)})
         except Exception:  # noqa: BLE001
             pass
-        # Fail closed: emit no block at all, carry on.
-        return messages, "", dropped
+        # Fail closed on the EXTRACTION - but the compaction is independent and
+        # never fails, so the conversation is still carried forward.
+        return messages, _combine(compaction_block, ""), dropped
+
+
+def _combine(compaction_block: str, dropped_block: str) -> str:
+    """The compaction first, then the inert block. Both, never one."""
+    parts = [p for p in (compaction_block, dropped_block) if p]
+    return "\n\n".join(parts)
+
+
+async def _compaction_block(
+    request: RunRequest,
+    dropped: list[Any],
+    memory_service: Optional[Any],
+    emitter: RunEmitter,
+) -> str:
+    """The compaction of the dropped turns, or "" when it cannot be built.
+
+    Never raises: a compaction is a convenience, and the run continues without
+    one. The event records what happened, including the model's absence.
+    """
+    from .compaction import compact_dropped, render_compaction_block  # noqa: PLC0415
+
+    settings: dict[str, Any] = {}
+    if memory_service is not None:
+        try:
+            settings = memory_service.policy.get_all()
+        except Exception:  # noqa: BLE001 - a policy read failure is not fatal
+            settings = {}
+    try:
+        result = await compact_dropped(dropped, request=request, settings=settings)
+        block = render_compaction_block(result)
+    except Exception as exc:  # noqa: BLE001 - a compaction must never break a run
+        try:
+            await emitter.emit("memory.history_compaction_failed", {"error": str(exc)})
+        except Exception:  # noqa: BLE001
+            pass
+        return ""
+    try:
+        await emitter.emit("memory.history_compacted", result.to_dict())
+    except Exception:  # noqa: BLE001
+        pass
+    return block
 
 
 async def _model_extract_dropped(
@@ -201,6 +257,7 @@ __all__ = [
     "MAX_HISTORY_CHARS",
     "MAX_HISTORY_TURNS",
     "_bounded_history",
+    "_compaction_block",
     "_dropped_context_block",
     "_history_messages",
     "_model_extract_dropped",
