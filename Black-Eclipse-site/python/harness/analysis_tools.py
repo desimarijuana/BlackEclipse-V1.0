@@ -33,7 +33,7 @@ from .code.execution import (
     run_analysis,
 )
 from .code.recipes import get_recipe, list_recipes, run_recipe
-from .code.sandbox_tools import ToolResolver, tool_names
+from .code.sandbox_tools import ToolResolver, tool_names, tool_signatures
 from .tools import ToolContext
 
 
@@ -80,7 +80,8 @@ def analysis_schema() -> dict[str, Any]:
                 "description": (
                     "Only when no recipe fits: a short Python program. It reads its data from "
                     "`inputs` and puts its answer in `result`. It may `import eclipse_tools` "
-                    f"and call the read-only bindings {', '.join(tool_names())}; arguments are "
+                    f"and call the read-only bindings {tool_signatures()} (the required "
+                    "argument has no '?'); arguments are "
                     "JSON values and fetched data stays out of the conversation. No network, "
                     "no writes, no files outside its own folder."
                 ),
@@ -332,7 +333,10 @@ def _computed_text(result: AnalysisResult, purpose: str) -> str:
         )
     if result.artifacts:
         names = ", ".join(a.name for a in result.artifacts)
-        lines.append(f"Saved: {names}")
+        # Say WHERE the file is: it is registered in the Artifact Center (the
+        # ids ride the result), NOT written into the project tree — otherwise
+        # the model hunts the filesystem for a file that was never there.
+        lines.append(f"Saved: {names} (registered in the Artifact Center; the ids ride this result)")
     return "\n".join(lines)
 
 
@@ -502,6 +506,13 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         reason = {IMPORT_NOT_ALLOWED: "that used something I'm not allowed to use",
                   SANDBOX_UNAVAILABLE: "I can't work things out safely on this computer right now",
                   OUTPUT_TOO_LARGE: "the result was too big to keep"}.get(result.code or "", "I couldn't work that out")
+        # The refusal must CARRY the runtime's own explanation: the recipe
+        # catalogue (an unknown name), the input spec (a missing input), the
+        # refused element (a source rule). Without it the model is told only
+        # "I couldn't work that out" and has to guess the next name.
+        detail = (result.stderr or "").strip()
+        if detail:
+            reason = f"{reason}. {detail[:600]}"
         return _refusal(result.code or "ANALYSIS_REFUSED", reason)
 
     text = _computed_text(result, model.purpose)

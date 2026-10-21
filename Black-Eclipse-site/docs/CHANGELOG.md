@@ -1085,6 +1085,31 @@ umpy/pandas are **already installed** in the runtime and the analysis
   Tests: `python/tests/test_analysis_guard.py` (27). Docs updated:
   `docs/harness/decisions.md` (ADR-H245).
 
+- **fix(harness): the probe's remaining findings — the refusal keeps the runtime's
+  explanation, the bindings publish their signatures, and a file says where it
+  is.** A three-prompt probe (the sandbox under fire, the whole product chain,
+  and the honesty surface) confirmed the boundary — the credential read, the
+  socket, the process and the host write were each refused by a different,
+  correct mechanism, the memory ceiling bit at ~1.62 GiB repeatably, and the
+  seeded Monte-Carlo was bit-identical for the same seed — and found three
+  things the model could not get past:
+  - **An unknown recipe name still refused with a bare "I couldn't work that
+    out"**, because the tool's refusal path dropped the runtime's own
+    explanation. The refusal now carries it: the ready-made catalogue (so the
+    model stops guessing `max_drawdown_recipe`, `drawdown_stats`, …).
+  - **A program could not learn `price_history`'s arguments** without trial
+    runs, and a model that burns runs on it concludes the sandbox is closed.
+    The tool schema now publishes every binding's signature
+    (`price_history(symbol, market?, interval?, range?, start?, end?)`).
+  - **A produced file could not be found**, because the model looked for it in
+    the project tree: the result now says the file is registered in the
+    Artifact Center and its ids ride the result.
+  The probe also found a real DATA-layer defect (a narrow date request was
+  answered from the cached 251-bar window, ignoring the bounds) and confirmed
+  the first bar of a `2025-10-20 → 2026-10-20` request is the **21st** (the
+  start date is exclusive). Tests: `python/tests/test_analysis_guard.py` (30).
+  Docs updated: `docs/harness/decisions.md` (ADR-H246).
+
 - **chore(repo): normalize two mixed line-ending files.**
   `python/harness/capabilities/external.py` and
   `src/components/screens/capability-studio/generated-section.tsx` mixed CRLF and

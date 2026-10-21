@@ -9491,3 +9491,57 @@ wrappers, the int-flag write detection); `code/recipes.py` (the prompt names
 the input); `analysis_tools.py` (30 values + the notice);
 `src/lib/agent/use-agent-run.ts` (the merge). Tests:
 `python/tests/test_analysis_guard.py` (27). Docs: `docs/CHANGELOG.md`.
+## ADR-H284 - A process-wide model override is a lease: it is handed back
+
+**Decision.** Two rules for the process-wide model seam.
+
+1. **Every override is restored.** A gate, benchmark or fixture that replaces
+   `graph.build_chat_model` MUST save the previous value and restore it in a
+   `finally`. The workflow and resume gates now do; before this, a gate's model
+   stayed installed and every later run in the same process answered with it.
+2. **The evaluation seam never clobbers an active override.** The seam wraps
+   the real builder (or another delegating seam) and refuses to replace a plain
+   function that is currently installed - that is a test double, and replacing
+   it would make it disappear at its teardown.
+
+**Why.** The seam is process-wide, so a leaked override is a silent, global
+behaviour change: in the full suite it broke 36 unrelated tests (graph, memory,
+vision, portfolio, RSL) that all pass in isolation. The failure looked like a
+regression in the code under test and was not one.
+
+**Consequences.** `evaluation/runner.py` (seam installation rules),
+`eval_gates/workflow.py` + `eval_gates/resume.py` (restore the builder).
+Tests: `test_evaluation_runner.py` (the seam leaves an active override alone and
+installs when none is active). Docs: `docs/CHANGELOG.md`.
+## ADR-H246 — The runtime's own explanation reaches the model, and the surface it advertises is the surface it has
+
+**Decision.** Three rules about what the runtime SAYS, each found by a probe
+against the live app:
+
+1. **A refusal carries the runtime's explanation.** The tool's refusal path
+   reduced every refusal to a code and a generic phrase ("I couldn't work that
+   out"), so the catalogue the runtime had already computed — the ready-made
+   recipes for an unknown name, the input spec for a missing input, the refused
+   element for a source rule — never reached the model. The refusal now carries
+   the runtime's own text.
+2. **The surface the tool advertises is the surface it has.** The analysis
+   tool offered a data channel but published only the binding NAMES, so a
+   program had to discover `price_history`'s arguments by trial; a model that
+   burns runs on it concludes the sandbox is closed. The schema now publishes
+   every binding's signature, and the recipe catalogue publishes every recipe's
+   inputs.
+3. **A produced file says where it is.** An artifact is registered in the
+   Artifact Center, not written into the project tree; the result now says so,
+   with the ids, so the model does not go hunting for a file that was never
+   there.
+
+**Why.** The boundary held under the probe — every escape was refused by the
+right mechanism — and the CAPABILITY still did not come through, because the
+runtime knew the answer and did not say it. A model that is told "I couldn't
+work that out" for a name that exists in the catalogue will conclude the
+capability is missing; the runtime has to hand over what it already knows.
+
+**Consequences.** `analysis_tools.py` (the refusal keeps the explanation, the
+artifact's location), `code/sandbox_tools.py` (`tool_signatures`),
+`code/recipes.py` (the catalogue in the refusal). Tests:
+`python/tests/test_analysis_guard.py` (30). Docs: `docs/CHANGELOG.md`.

@@ -238,6 +238,52 @@ def test_the_kernel_re_configures_the_allowlist_for_every_command() -> None:
         kernel_mod.release_kernel(leased)
 
 
+def test_a_refusal_carries_the_runtime_s_own_explanation() -> None:
+    """The tool text must not reduce a catalogue to "I couldn't work that out"."""
+    import asyncio as _asyncio
+
+    from harness.analysis_tools import analysis_run
+    from harness.schemas import ModelSettings
+    from harness.tools import ToolContext, ToolRegistry
+
+    ctx = ToolContext(
+        run_id="run_refusal", log=lambda *_: None, user_id="local",
+        model_settings=ModelSettings(provider="ollama", model="llama3.1"),
+        tool_registry=ToolRegistry(), analysis_enabled=True,
+    )
+    text, data = _asyncio.run(analysis_run(
+        {"recipe": "max_drawdown", "inputs": {}, "purpose": "probe"}, ctx,
+    ))
+    assert data["status"] == "refused"
+    assert data["code"] == "RECIPE_NOT_FOUND"
+    # The catalogue and the alternative must be in the TEXT the model reads.
+    assert "drawdown_profile" in text
+    assert "max_drawdown" in text
+
+
+def test_the_data_binding_signatures_are_in_the_schema() -> None:
+    """A program must not have to discover `price_history`'s arguments by trial."""
+    from harness.analysis_tools import analysis_schema
+
+    description = analysis_schema()["properties"]["source"]["description"]
+    assert "price_history(symbol" in description
+    assert "live_quote(symbol" in description
+
+
+def test_an_artifact_says_where_it_lives() -> None:
+    """The file is in the Artifact Center, not the project tree."""
+    from harness.analysis_tools import _computed_text
+    from harness.code.execution import AnalysisResult, ArtifactRef
+
+    result = AnalysisResult(
+        status="ok", outputs={"n": 1},
+        artifacts=[ArtifactRef(name="drawdown.png", path="x", sha256="d", bytes=10, media_type="image/png")],
+    )
+    text = _computed_text(result, "draw the figure")
+    assert "Artifact Center" in text
+    assert "drawdown.png" in text
+
+
 def test_a_wrong_recipe_name_is_refused_with_the_catalogue() -> None:
     from harness.code.recipes import list_recipes, run_recipe
 
