@@ -33,7 +33,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   python/harness/projects/tools.py, python/harness/routers/projects.py,
   src/lib/projects/project-client.ts, src/lib/dashboard/project-widget.tsx.
   Tests: python/tests/test_project_proposals.py (10),
-  python/tests/test_projects.py. docs updated: docs/projects.md.
+  python/tests/test_projects.py (the `project_next` tool's refusals),
+  python/tests/test_quant_routes.py (the new route is registered).
+  docs updated: docs/projects.md.
 
 - **feat(harness): the curated project view - what a project is, and what it
   is missing.** A member list is a filing cabinet; a curated project is a

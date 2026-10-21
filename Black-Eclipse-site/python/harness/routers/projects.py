@@ -86,6 +86,23 @@ async def project_digest_route(project_id: str,
     return {"digest": digest.to_dict(), "markdown": digest.to_markdown()}
 
 
+@router.get("/projects/{project_id}/proposals")
+async def project_proposals_route(project_id: str, firm: str = "topstep",
+                                  size: str = "50k",
+                                  _: bool = Depends(require_operator)) -> dict:
+    """What this project should do next, from its own evidence."""
+    store = _store()
+    from ..projects.propose import propose_next
+
+    quant_store = getattr(service, "quant_store", None)
+    report = propose_next(store, project_id, quant_store=quant_store,
+                          firm=firm, firm_size=size)
+    if not report.get("available"):
+        raise HTTPException(status_code=404,
+                            detail=str(report.get("reason") or "no project"))
+    return report
+
+
 @router.post("/projects/{project_id}/members")
 async def attach_member(project_id: str, body: AttachMemberBody,
                         _: bool = Depends(require_operator)) -> dict:

@@ -14,6 +14,7 @@ import {
   projectClient,
   setActiveProjectId,
   type ProjectDigest,
+  type ProjectProposals,
   type ProjectSummary,
 } from '@/lib/projects/project-client';
 import { cn } from '@/lib/utils';
@@ -23,6 +24,7 @@ export function ProjectScopeWidget() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [digest, setDigest] = useState<ProjectDigest | null>(null);
+  const [proposals, setProposals] = useState<ProjectProposals | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +52,7 @@ export function ProjectScopeWidget() {
   useEffect(() => {
     if (!activeId) {
       setDigest(null);
+      setProposals(null);
       return;
     }
     let cancelled = false;
@@ -60,6 +63,14 @@ export function ProjectScopeWidget() {
       })
       .catch(() => {
         if (!cancelled) setDigest(null);
+      });
+    void projectClient
+      .proposals(activeId)
+      .then((p) => {
+        if (!cancelled) setProposals(p);
+      })
+      .catch(() => {
+        if (!cancelled) setProposals(null);
       });
     return () => {
       cancelled = true;
@@ -177,6 +188,17 @@ export function ProjectScopeWidget() {
             <p className="mt-0.5 text-[9px] text-muted-foreground">
               {active.description || 'No description yet.'}
             </p>
+          )}
+          {proposals && proposals.proposals.length > 0 && (
+            <div className="mt-1 border-t border-white/10 pt-1">
+              <p className="font-mono text-[9px] text-primary">Next step</p>
+              <p className="text-[9px] leading-relaxed text-foreground">
+                {proposals.proposals[0].title}
+              </p>
+              <p className="mt-0.5 text-[9px] leading-relaxed text-muted-foreground/80">
+                {proposals.proposals[0].rationale}
+              </p>
+            </div>
           )}
         </div>
       )}

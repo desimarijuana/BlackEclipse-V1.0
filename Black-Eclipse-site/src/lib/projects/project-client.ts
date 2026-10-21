@@ -82,6 +82,23 @@ export interface ProjectDigest {
   counts: Record<string, number>;
 }
 
+export interface ProjectProposal {
+  id: string;
+  title: string;
+  rationale: string;
+  evidence: string[];
+  action: { tool?: string; args?: Record<string, unknown> };
+  priority: number;
+}
+
+export interface ProjectProposals {
+  available: boolean;
+  projectId: string;
+  summary: string;
+  proposals: ProjectProposal[];
+  proposalCount: number;
+}
+
 export const projectClient = {
   list: (status?: string) => {
     const query = status ? `?status=${encodeURIComponent(status)}` : "";
@@ -104,6 +121,9 @@ export const projectClient = {
   digest: (id: string) =>
     jsonFetch<{ digest: ProjectDigest }>(`/${encodeURIComponent(id)}/digest`)
       .then((r) => r.digest),
+
+  proposals: (id: string) =>
+    jsonFetch<ProjectProposals>(`/${encodeURIComponent(id)}/proposals`),
 };
 
 /**

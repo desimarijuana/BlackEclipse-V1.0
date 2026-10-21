@@ -234,13 +234,34 @@ async def test_the_digest_tool_refuses_an_unknown_project(store):
     assert data["error"]["code"] == "PROJECT_NOT_FOUND"
 
 
+async def test_the_next_tool_proposes_from_the_projects_evidence(store):
+    from harness.projects.tools import project_next
+
+    ctx = _Ctx(store)
+    _, created = await project_create({"name": "NQ momentum"}, ctx)
+    project_id = created["project"]["id"]
+    text, data = await project_next({"projectId": project_id}, ctx)
+    assert data["status"] == "OK"
+    assert data["proposalCount"] >= 0
+    assert "proposals" in data
+
+
+async def test_the_next_tool_refuses_an_unknown_project(store):
+    from harness.projects.tools import project_next
+
+    _, data = await project_next({"projectId": "proj_nope"}, _Ctx(store))
+    assert data["status"] == "ERROR"
+    assert data["error"]["code"] == "PROJECT_NOT_FOUND"
+
+
 def test_the_project_tools_are_in_the_chat_allowlist():
     from harness.agents import ECLIPSE_AGENT
 
     allowed = ECLIPSE_AGENT.tools
     assert allowed is not None
     for name in ("project_create", "project_list", "project_show",
-                 "project_attach", "project_detach", "project_digest"):
+                 "project_attach", "project_detach", "project_digest",
+                 "project_next"):
         assert name in allowed, name
 
 

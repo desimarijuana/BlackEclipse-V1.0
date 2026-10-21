@@ -16,6 +16,8 @@ refusal, not an empty list.
 
 from __future__ import annotations
 
+import json
+
 from typing import Any, Optional
 
 from ..tools import ToolContext, ToolDefinition
@@ -140,6 +142,40 @@ async def project_digest(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
         return _err("PROJECT_DIGEST_FAILED", str(exc))
 
 
+async def project_next(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Propose what this project should do next, from its own evidence."""
+    project_id = str(args.get("projectId") or "")
+    if not project_id:
+        return _err("PROJECT_ID_REQUIRED", "provide `projectId`")
+    try:
+        store = _store(ctx)
+        from .propose import propose_next
+
+        quant_store = getattr(ctx, "quant_store", None)
+        report = propose_next(
+            store, project_id,
+            quant_store=quant_store,
+            firm=str(args.get("firm") or "topstep"),
+            firm_size=str(args.get("size") or "50k"),
+        )
+        if not report.get("available"):
+            return _err("PROJECT_NOT_FOUND", str(report.get("reason")))
+        lines = [report["summary"], ""]
+        for proposal in report["proposals"]:
+            lines.append(f"**{proposal['title']}**")
+            lines.append(f"- why: {proposal['rationale']}")
+            if proposal["evidence"]:
+                lines.append(f"- evidence: {', '.join(proposal['evidence'])}")
+            action = proposal.get("action") or {}
+            if action:
+                lines.append(f"- do: `{action.get('tool')}` "
+                             f"{json.dumps(action.get('args') or {}, sort_keys=True)}")
+            lines.append("")
+        return ("\n".join(lines).strip(), {"status": "OK", **report})
+    except Exception as exc:  # noqa: BLE001
+        return _err("PROJECT_NEXT_FAILED", str(exc))
+
+
 PROJECT_TOOLS: tuple[str, ...] = (
     "project_create",
     "project_list",
@@ -147,6 +183,7 @@ PROJECT_TOOLS: tuple[str, ...] = (
     "project_attach",
     "project_detach",
     "project_digest",
+    "project_next",
 )
 
 
@@ -203,6 +240,20 @@ def register_project_tools(registry: Any) -> list[str]:
             "memberId": {"type": "string"}},
             "required": ["projectId", "memberId"]},
         handler=project_detach, permission="read", risk="low", timeout_ms=20_000))
+    registry.register(ToolDefinition(
+        name="project_next",
+        description="Propose what this project should do next, FROM ITS OWN EVIDENCE: "
+                    "a strategy with no result, a result with too few trades, a "
+                    "strategy whose trades only ever happened in a few market regimes, "
+                    "a result whose tail is unsafe, and whether the strategy survives "
+                    "a prop firm's evaluation rules. Each proposal cites its evidence "
+                    "and names the exact tool call to run.",
+        input_schema={"type": "object", "properties": {
+            "projectId": {"type": "string"},
+            "firm": {"type": "string", "description": "the prop firm to test fit against"},
+            "size": {"type": "string", "description": "that firm's account size"}},
+            "required": ["projectId"]},
+        handler=project_next, permission="read", risk="low", timeout_ms=60_000))
     registry.register(ToolDefinition(
         name="project_digest",
         description="The CURATED view of a project: what it is about, which members "

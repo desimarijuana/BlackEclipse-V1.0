@@ -139,6 +139,34 @@ Surfaces: the tool `project_digest`; the route `GET /projects/{id}/digest`; and
 the **Project Scope widget**, which shows the active project's headline, its
 top members with their reasons, and what it still lacks.
 
+## What should this project do next?
+
+The curated view says where a project stands. `python/harness/projects/propose.py`
+says what to do about it, and it may only say it from **evidence the project
+actually holds**.
+
+| The evidence | The proposal |
+|---|---|
+| a strategy with no result | test it - the exact `run_backtest` call, with the strategy id and the instruments |
+| a result resting on fewer than 30 trades | widen the sample - below 30 trades the difference between an edge and luck is not measurable |
+| a strategy whose trades only ever happened in a few market regimes | widen the window - the regimes it has never been observed in are unknown |
+| a Monte-Carlo whose probability of loss is high, or whose 5th-percentile return is not positive | the tail is the problem, not the average - test the cost assumption |
+| any result with trades | does it survive a firm's evaluation rules? - the prop-firm engine, run on this strategy's own trade sequence |
+
+Every proposal carries the **evidence** it came from (an experiment id, a
+regime, a metric, a pass probability) and the **action** it proposes, as a
+concrete tool call with arguments. A proposal that cannot cite its evidence is
+not made: if the project holds what it needs, the honest answer is that there
+is nothing to propose, and that is what comes back.
+
+A rule that could not be evaluated is **reported**, never silently skipped - a
+broken check must not look like a project with nothing to propose. The
+`skipped` list names it.
+
+Surfaces: the tool `project_next`; the route `GET /projects/{id}/proposals`;
+and the **Project Scope widget**, which shows the active project's next step
+under its curated view.
+
 ## How a project fills itself up
 
 `python/harness/projects/attach.py` is the policy, and it is deliberately
@@ -161,10 +189,11 @@ bookkeeping step.
 
 ## The remaining slice
 
-The entity, the tools, the binding, the app surface, the auto-populate policy
-and the curated view are in place. What is **not** built is a project that can
-*answer* something - the curated view says where the project stands, but
-nothing yet reads its members and proposes the next experiment. That is a
-design question (what would the project want to know?), not a plumbing one.
+The entity, the tools, the binding, the app surface, the auto-populate policy,
+the curated view and the proposer are in place. What is **not** built is a
+project that *acts* on its own proposals: the proposer names the next
+experiment, but nothing yet runs it, records the result back into the project
+and re-proposes. That closing of the loop is a policy question (when should a
+project act without being asked?), not a plumbing one.
 
 Tests: `python/tests/test_projects.py`, `src/lib/projects/project-client.test.ts`.
