@@ -29,6 +29,7 @@ RepairStatus = Literal[
 RepairRunStatus = Literal[
     "REPAIR_NOT_RUN",
     "REPAIR_PASSED",
+    "REPAIR_FAILED",
     "REPAIR_EXHAUSTED",
     "REPAIR_NOT_APPLICABLE",
     "REPAIR_REFUSED",

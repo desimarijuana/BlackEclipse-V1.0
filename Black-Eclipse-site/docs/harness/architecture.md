@@ -618,6 +618,30 @@ A search goes through the code capability, so it needs a code profile - the
 Phase-0 rule (no profile, no code capability), and it closes a hole: the old
 workspace-level search bypassed the code policy entirely.
 
+**The verify-and-repair loop runs in the graph (ADR-H281).** A *change* is not
+finished because the model said so. After a tool turn that changed something,
+the graph's `verify_repair` node runs the project's pinned check CLASSES
+through the ONE command path - `code.command_tools.command_run`, the same
+function the model's own `command_run` tool call goes through - so the policy
+gate, the authorization, the ledger row and the events are identical to a
+model-issued check. When a check fails, the failure is handed back to the
+MODEL, because the model is the only thing that can fix code.
+
+The budget is the run's: attempts, wall clock, cost, and the number of check
+runs. Exhaustion is a REPORTED state, never a silent stop. The loop's outcome
+is a first-class state whose word is DERIVED from the facts - `REPAIR_NOT_RUN`,
+`REPAIR_PASSED`, `REPAIR_FAILED`, `REPAIR_EXHAUSTED`, `REPAIR_NOT_APPLICABLE`,
+`REPAIR_REFUSED` - and the answer seam receives the real outcome, never a
+hard-coded `None`. A run that never repaired and a run whose repair passed are
+different facts. When the check was still failing, the answer says so.
+
+The operator pins the checks in `.black-eclipse/verify.json` as class NAMES -
+`{"checks": ["unit_test", "typecheck"]}` - not a shell string: a check that
+cannot be named cannot back a "tests pass" claim, so it is not evidence and it
+is not run here. A repair never widens authority: the pinned class still goes
+through `code.policy.decide_command` and the profile's grants, and `plan_only`
+- the read-only profile - never repairs at all.
+
 **The outcome envelope (round 4, W1.3).** A run that did not get done must be
 diagnosable from ONE record, not from a replay of scattered facts. The
 envelope (`python/harness/run_outcome.py`) names the four facts the meta loop

@@ -32,6 +32,12 @@ SHAPE_KEY: dict[str, str] = {
     "cross-file": "capability.shape.cross-file",
     "test-first": "capability.shape.test-first",
     "repair": "capability.shape.repair",
+    # Round 3 / W1 (ADR-H281): the repair loop as it runs in the real graph.
+    # Round 3 / W1 (ADR-H281): the repair loop as it runs in the real graph.
+    # The PLAIN name is the same capability the user already sees - the
+    # distinction between the repair module and the repair loop is an
+    # implementation detail, and the plain-language surface does not carry it.
+    "repair-in-graph": "capability.shape.repair",
     "kit": "capability.shape.kit",
     "job": "capability.shape.job",
     "refusal": "capability.shape.refusal",

@@ -44,7 +44,7 @@ DATASET_TASKS_PATH = os.path.join(os.path.dirname(__file__), "dataset_tasks_v1.j
 # The reviewed checksum of `dataset_tasks_v1.json`. Recorded with every report so
 # a silent edit to the fixture set is caught (the same rule research/eval uses).
 # Regenerate with: python -m harness.code.eval --checksum
-REVIEWED_TASKS_CHECKSUM = "9e3896284be04e482fadecdccb6dc527"
+REVIEWED_TASKS_CHECKSUM = "ee41b29fc8d642e10d29784bde5b4893"
 
 THRESHOLDS = {
     "falseVerifiedRate": {"max": 0.0},
@@ -298,6 +298,141 @@ def _exercise_repair(case: dict[str, Any], scratch: str) -> CaseResult:
                       detail=f"status={outcome.status} executions={executions}")
 
 
+def _exercise_repair_in_graph(case: dict[str, Any], scratch: str) -> CaseResult:
+    """The repair loop, driven through the REAL graph (Round 3 / W1, ADR-H281).
+
+    The `repair` shape above exercises the repair MODULE with a scripted
+    `run_check`. This shape exercises the repair LOOP as it runs in production:
+    the real `graph.build_graph`, the real `verify_repair` node, the real
+    routing, and the real answer seam. The MODEL and the CHECK are scripted -
+    the GRAPH is not.
+
+    What it proves: a change that fails a pinned check hands the failure back
+    to the model, the run records that it happened, and the answer seam can
+    say so. A graph with no repair node produces no repair record, and this
+    case FAILS.
+    """
+    import asyncio  # noqa: PLC0415
+    import os  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    from langchain_core.messages import AIMessage  # noqa: PLC0415
+
+    from ... import graph as graph_module  # noqa: PLC0415
+    from ...persistence import AgentMemoryStore  # noqa: PLC0415
+    from ...schemas import AgentConfig, ModelSettings, RunInput, RunRequest  # noqa: PLC0415
+    from ...tools import DataBridge, ToolDefinition, ToolRegistry  # noqa: PLC0415
+    from ..repair import CheckResult  # noqa: PLC0415
+
+    root = Path(scratch)
+    (root / ".black-eclipse").mkdir(parents=True, exist_ok=True)
+    (root / ".black-eclipse" / "verify.json").write_text(
+        json.dumps({"checks": ["unit_test"]}), encoding="utf-8",
+    )
+
+    class _Model:
+        """Two turns: make the change, then answer."""
+
+        def __init__(self) -> None:
+            self._turns = [
+                AIMessage(content="", tool_calls=[{"id": "w1", "name": "eval_write",
+                                                    "args": {"path": "a.py"}}]),
+                AIMessage(content="The change is done."),
+            ]
+
+        def bind_tools(self, tools):
+            return self
+
+        async def ainvoke(self, messages):
+            return self._turns.pop(0) if self._turns else AIMessage(content="(done)")
+
+        async def astream(self, messages):
+            yield await self.ainvoke(messages)
+
+    class _Bridge(DataBridge):
+        async def fetch(self, capability, params):
+            return {"status": "UNAVAILABLE"}
+
+    async def _failing_checks(classes, ctx):
+        return [CheckResult(command_execution_id="c1", command_class=c,
+                            exit_code=1, duration_ms=1, output="1 failed")
+                for c in classes]
+
+    registry = ToolRegistry()
+    registry.register(ToolDefinition(
+        name="eval_write", description="Change a file.",
+        input_schema={"type": "object", "properties": {"path": {"type": "string"}},
+                      "required": ["path"], "additionalProperties": False},
+        handler=None, permission="write", risk="medium", timeout_ms=1_000,
+    ))
+
+    original_model = graph_module.build_chat_model
+    original_workspace = graph_module.resolve_workspace
+    original_checks = None
+    try:
+        from .. import repair_graph  # noqa: PLC0415
+
+        original_checks = repair_graph.run_checks
+        repair_graph.run_checks = _failing_checks
+        graph_module.build_chat_model = lambda settings: _Model()
+
+        class _Workspace:
+            root = root
+            id = "eval-repair"
+            base_revision = "unknown"
+            strategy = "snapshot"
+            binding = None
+
+        graph_module.resolve_workspace = lambda request_workspace=None: _Workspace()
+
+        request = RunRequest(
+            runId="eval_repair_graph",
+            input=RunInput(query="change the file"),
+            modelSettings=ModelSettings(provider="ollama", model="llama3.1",
+                                        base_url="http://localhost:11434/v1"),
+            callbackBaseUrl="http://localhost:3000",
+            agent=AgentConfig(id="eval-repair", name="Eval Repair", systemPrompt="sys",
+                               tools=["eval_write"], maxSteps=6),
+            autonomy="edit_verify",
+        )
+        with tempfile.TemporaryDirectory(prefix="be-eval-repair-") as store_dir:
+            store = AgentMemoryStore(os.path.join(store_dir, "agent-memory.db"))
+            try:
+                result = asyncio.run(graph_module.execute_run(
+                    request, registry, _Bridge(), store,
+                ))
+            finally:
+                store.close()
+    except Exception as exc:  # noqa: BLE001 - a broken fixture is a FAILURE
+        return CaseResult(case["caseId"], case["shape"], int(case.get("difficulty") or 0),
+                          case.get("expectedOutcome", ""), "error", False,
+                          detail=f"the graph could not be driven: {exc}")
+    finally:
+        graph_module.build_chat_model = original_model
+        graph_module.resolve_workspace = original_workspace
+        if original_checks is not None:
+            from .. import repair_graph  # noqa: PLC0415
+
+            repair_graph.run_checks = original_checks
+
+    blob = (result.codeVerification or {}) if getattr(result, "codeVerification", None) else {}
+    repair = blob.get("repair") or {}
+    status = str(repair.get("status") or "")
+    attempts = int(repair.get("repairAttempts") or 0)
+    failed_class = str(repair.get("failedClass") or "")
+    ok = (
+        status == "REPAIR_FAILED"
+        and attempts >= 1
+        and failed_class == "unit_test"
+    )
+    return CaseResult(
+        case["caseId"], case["shape"], int(case.get("difficulty") or 0),
+        case.get("expectedOutcome", ""), status or "none", ok,
+        detail=f"status={status} attempts={attempts} failedClass={failed_class or 'none'}",
+    )
+
+
 def _exercise_refusal(case: dict[str, Any], scratch: str) -> CaseResult:
     """Grade a refusal case in the OPPOSITE direction (§6.3).
 
@@ -413,6 +548,8 @@ def _run_case(case: dict[str, Any], scratch: str) -> CaseResult:
         return _exercise_test_first(case, scratch)
     if shape == "repair":
         return _exercise_repair(case, scratch)
+    if shape == "repair-in-graph":
+        return _exercise_repair_in_graph(case, scratch)
     if shape == "kit":
         return _exercise_kit(case, scratch)
     if shape == "job":

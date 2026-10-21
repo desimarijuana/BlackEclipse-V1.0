@@ -53,6 +53,24 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   test_chat_code_profile.py, test_code_reachability.py.
   docs updated: docs/NAVIGATION.md, docs/harness/architecture.md.
 
+- **feat(harness): the verify-and-repair loop runs in the graph, and its status
+  is DERIVED** (Round 3 / W1, ADR-H281). A change is not finished because the
+  model said so: the graph's `verify_repair` node runs the project's pinned
+  check CLASSES through the ONE command path, and a failure is handed back to
+  the model. `RepairLoop.status` is now a property computed from the facts
+  (`last_passed`, `refused`, `stopped_reason`) rather than a field someone set
+  by hand - a status that said "passed" while the last check failed is exactly
+  the kind of unbacked claim this harness exists to refuse. The new
+  `REPAIR_FAILED` state (the check was still failing when the run ended) is
+  disclosed in the answer, not only in the blob. A new eval case
+  (`repair-in-graph`) drives the REAL graph with a scripted model and a
+  scripted check: a graph with no repair node records nothing, and the case
+  fails. Files: python/harness/code/repair.py, repair_graph.py, verify.py;
+  python/harness/code/eval/capabilities.py, dataset_tasks_v1.json,
+  statement.py, tasks.py; python/tests/test_graph_repair_node.py.
+  docs updated: docs/harness/architecture.md, docs/harness/capability-statement.md,
+  docs/harness/roadmap/round-3-parity-plan.md.
+
 ## 2026-10-20
 
 - **fix(harness): re-pin the prompt ceiling after the sandbox-rules guidance.**

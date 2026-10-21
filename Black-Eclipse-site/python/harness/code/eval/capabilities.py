@@ -158,6 +158,21 @@ CLASSES: tuple[CapabilityClass, ...] = (
                     "harness.code.repair", ("test-first",)),
     CapabilityClass("repair", "capability.class.repair", "code_eval",
                     "harness.code.repair", ("failing-check-repair",)),
+    # Round 3 / W1 (ADR-H281): the repair loop as it runs in PRODUCTION - the
+    # real graph, the real verify-and-repair node, the real answer seam. The
+    # `repair` class above exercises the repair MODULE; this one exercises the
+    # LOOP. A graph with no repair node fails it.
+    CapabilityClass("code_verify_repair_loop", "capability.class.codeVerifyRepairLoop",
+                    "code_eval", "harness.code.repair_graph",
+                    ("failing-check-repair-in-graph",)),
+    # Round 3 / W5 (ADR-H284): the ONE search primitive per question, and the
+    # engine that answered it. The gates assert that a surface carries one
+    # content search and one name search, that the deprecated names still work
+    # and now run on the same engine, and that the canonical name search kept
+    # every filter the old one had.
+    CapabilityClass("code_search", "capability.class.codeSearch", "test_gate",
+                    "harness.code.fs.search",
+                    ("pytest:python/tests/test_code_search_surface.py",)),
     CapabilityClass("job", "capability.class.job", "code_eval",
                     "harness.jobs.model", ("job-definition",)),
     CapabilityClass("kit", "capability.class.kit", "code_eval",

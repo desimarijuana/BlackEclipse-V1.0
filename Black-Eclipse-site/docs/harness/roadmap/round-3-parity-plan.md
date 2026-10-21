@@ -201,7 +201,7 @@ workstream with a green gate and no measurable score movement is not done.
 
 ### W1 — Wire the verify→repair loop into the live graph
 
-> **Closes:** C1 · **Moves:** Loop +0.20, Eval +0.10 · **ADR:** H281
+> **Closes:** C1 · **Moves:** Loop +0.20, Eval +0.10 · **ADR:** H281 · ✅ **Done 2026-10-20** — the loop now runs in the graph; the outcome is a derived, first-class state, and the answer seam receives the real one
 > **Priority: 1 — this is a correctness hole, not a feature.**
 
 **Why.** The harness has a correct, bounded, budgeted repair loop
@@ -437,7 +437,7 @@ ranges / 40 lines each. **It is reachable only if the model thinks to call
 
 ### W5 — One search primitive, ripgrep-first, with honest zero-hit guidance
 
-> **Closes:** C6, C7 · **Moves:** Ctx +0.12, ACI +0.10 · **ADR:** H284
+> **Closes:** C6, C7 · **Moves:** Ctx +0.12, ACI +0.10 · **ADR:** H284 · ✅ **Done 2026-10-20** — one content search and one name search, both canonical, the engine always named
 > **Priority: 2 — mostly a consolidation, not new code.**
 
 **Why.** The chat code surface exposes **both** `workspace_search` (always a

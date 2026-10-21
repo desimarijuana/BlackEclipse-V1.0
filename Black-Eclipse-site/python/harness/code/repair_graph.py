@@ -128,6 +128,10 @@ class RepairLoop:
     checkpoint payload) as DATA. The counters are the budget: a run cannot
     repair itself more times than the budget allows, no matter how many turns
     it takes.
+
+    The status is DERIVED from the facts, never set by hand: a field that said
+    "passed" while the last check failed is exactly the kind of unbacked claim
+    this harness exists to refuse.
     """
 
     budget: RepairBudget = field(default_factory=RepairBudget)
@@ -135,16 +139,33 @@ class RepairLoop:
     attempts: int = 0
     #: How many times the checks have RUN.
     check_runs: int = 0
-    #: The answer seam's word for where the repair ended.
-    status: str = "REPAIR_NOT_RUN"
+    #: Did the LAST check run pass? None = no check has run yet.
+    last_passed: Optional[bool] = None
+    #: The check could not run (sandbox or profile refused it).
+    refused: bool = False
+    #: Why the loop stopped early, when it did.
+    stopped_reason: str = ""
     #: The class that failed, and the proof it failed.
     failed_class: str = ""
     failed_exit_code: Optional[int] = None
     failed_digest: str = ""
-    #: Why the loop stopped, when it stopped early.
-    stopped_reason: str = ""
     #: The classes that ran.
     checks: tuple[str, ...] = ()
+
+    @property
+    def status(self) -> str:
+        """The answer seam's word for where the repair ended."""
+        if self.refused:
+            return "REPAIR_REFUSED"
+        if self.check_runs == 0:
+            return "REPAIR_NOT_RUN"
+        if self.stopped_reason:
+            return "REPAIR_EXHAUSTED"
+        if self.last_passed:
+            return "REPAIR_PASSED"
+        # A failure was shown to the model and the run ended before the budget
+        # was spent: the check was still failing when the answer was written.
+        return "REPAIR_FAILED"
 
     def to_dict(self) -> dict[str, Any]:
         """The published blob. Additive; absent for a run that never repaired."""
@@ -154,6 +175,7 @@ class RepairLoop:
             "checkRuns": self.check_runs,
             "maxAttempts": self.budget.max_attempts,
             "maxCheckRuns": self.budget.check_run_limit,
+            "lastCheckPassed": self.last_passed,
             "checks": list(self.checks),
             "failedClass": self.failed_class or None,
             "failedExitCode": self.failed_exit_code,
@@ -172,12 +194,14 @@ class RepairLoop:
         except (TypeError, ValueError):
             loop.attempts = 0
             loop.check_runs = 0
-        loop.status = str(blob.get("status") or "REPAIR_NOT_RUN")
+        last = blob.get("lastCheckPassed")
+        loop.last_passed = last if isinstance(last, bool) else None
+        loop.refused = str(blob.get("status") or "") == "REPAIR_REFUSED"
+        loop.stopped_reason = str(blob.get("stoppedReason") or "")
         loop.failed_class = str(blob.get("failedClass") or "")
         exit_code = blob.get("failedExitCode")
         loop.failed_exit_code = int(exit_code) if isinstance(exit_code, int) else None
         loop.failed_digest = str(blob.get("failedOutputDigest") or "")
-        loop.stopped_reason = str(blob.get("stoppedReason") or "")
         checks = blob.get("checks")
         loop.checks = tuple(str(c) for c in checks) if isinstance(checks, list) else ()
         return loop
@@ -323,7 +347,6 @@ async def repair_turn(
             pass
 
     if loop.check_runs >= loop.budget.check_run_limit:
-        loop.status = "REPAIR_EXHAUSTED"
         loop.stopped_reason = "check_runs"
         await _emit("code.repair.exhausted", loop.to_dict())
         return loop.to_dict(), None
@@ -334,7 +357,7 @@ async def repair_turn(
 
     refused = next((r for r in results if not r.available), None)
     if refused is not None:
-        loop.status = "REPAIR_REFUSED"
+        loop.refused = True
         loop.failed_class = refused.command_class
         await _emit("code.repair.refused", {
             "failedClass": refused.command_class, "checkRuns": loop.check_runs,
@@ -343,7 +366,7 @@ async def repair_turn(
 
     failing = next((r for r in results if r.exit_code != 0), None)
     if failing is None:
-        loop.status = "REPAIR_PASSED"
+        loop.last_passed = True
         await _emit("code.repair.passed", {
             "repairAttempts": loop.attempts, "checkRuns": loop.check_runs,
             "checks": list(pinned.classes),
@@ -352,6 +375,7 @@ async def repair_turn(
 
     from .verify import output_digest  # noqa: PLC0415
 
+    loop.last_passed = False
     loop.failed_class = failing.command_class
     loop.failed_exit_code = failing.exit_code
     loop.failed_digest = output_digest(failing.output or "")
@@ -361,7 +385,6 @@ async def repair_turn(
         cost_usd=float(getattr(ledger, "cost_usd", 0.0) or 0.0),
     )
     if reason is not None:
-        loop.status = "REPAIR_EXHAUSTED"
         loop.stopped_reason = reason
         await _emit("code.repair.exhausted", loop.to_dict())
         return loop.to_dict(), None
