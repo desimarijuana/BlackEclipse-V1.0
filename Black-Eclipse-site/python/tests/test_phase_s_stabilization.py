@@ -86,7 +86,12 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # chat typesets it; money never goes inside a dollar sign). It is guidance
     # the runtime needs; it is re-pinned to the measured size and may only
     # shrink from here. Matches the same test in `test_memory_tools.py`.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 36652
+    # Re-pinned 36652->36991 for the regression guidance (a linear regression is a
+    # `regression` mark: the engine fits the line and shows the R-squared, so the
+    # model never fits it itself). It is guidance the runtime needs; it is
+    # re-pinned to the measured size and may only shrink from here. Matches the
+    # same test in `test_memory_tools.py`.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 36991
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

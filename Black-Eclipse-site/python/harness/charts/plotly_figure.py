@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
+from .regression import linear_fit
 from .scene import ChartMark, ChartPanel
 from .spec import ChartSpec
 from .theme import ChartTheme
@@ -153,6 +154,51 @@ def _mark_traces(
                 "opacity": 0.85,
                 "line": {"width": 0},
             },
+        })
+        return traces
+
+    if mark.type == "regression":
+        # The points as they were given, ONE least-squares line, and the
+        # R-squared in the legend. A fit that cannot be computed is not drawn:
+        # the points are, and the trace says why.
+        ys = mark.the_values or []
+        xs = _x_values(mark, len(ys))
+        points = [
+            (x, y)
+            for x, y in zip(xs, ys)
+            if isinstance(x, (int, float)) and not isinstance(x, bool)
+            and isinstance(y, (int, float)) and not isinstance(y, bool)
+        ]
+        if len(points) < 2:
+            traces.append({
+                "type": "scatter", "x": [p[0] for p in points], "y": [p[1] for p in points],
+                "name": f"{name} (not enough points to fit)", "mode": "markers",
+                "marker": {"color": color, "size": 7, "opacity": 0.85},
+            })
+            return traces
+        fit = linear_fit([p[0] for p in points], [p[1] for p in points])
+        if fit is None:
+            traces.append({
+                "type": "scatter", "x": [p[0] for p in points], "y": [p[1] for p in points],
+                "name": f"{name} (no line to fit)", "mode": "markers",
+                "marker": {"color": color, "size": 7, "opacity": 0.85},
+            })
+            return traces
+        traces.append({
+            "type": "scatter", "x": [p[0] for p in points], "y": [p[1] for p in points],
+            "name": name, "mode": "markers",
+            "marker": {
+                "color": color, "size": 7, "opacity": 0.85, "line": {"width": 0},
+            },
+        })
+        traces.append({
+            "type": "scatter",
+            "x": [fit.x_min, fit.x_max],
+            "y": [fit.at(fit.x_min), fit.at(fit.x_max)],
+            "name": f"{name} fit (R2 = {fit.r_squared:.3f})",
+            "mode": "lines",
+            "line": {"color": color, "width": 2, "dash": "dash"},
+            "hovertemplate": f"y = {fit.slope:.4g}x {fit.intercept:+.4g}<br>R2 = {fit.r_squared:.3f}<extra></extra>",
         })
         return traces
 

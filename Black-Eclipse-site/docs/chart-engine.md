@@ -61,12 +61,24 @@ invented for it.
 `line` · `area` · `bar` · `scatter` · `band` · `rule` · `label` · `box` ·
 `violin` · `histogram` · `errorbar` · `heatmap` · `pie` · `donut` ·
 `candlestick` · `waterfall` · `ridge` · `stem` · `treemap` · `sunburst` ·
-`funnel` · `sankey` · `scatter3d` · `surface`
+`funnel` · `sankey` · `scatter3d` · `surface` · `regression`
 
 A mark may set: `name` (the legend), `y` / `x` / `z` / `values` / `lower` /
 `upper` / `sizes` / `matrix` / `labels` / `rowLabels` / `colLabels`, `color`,
 `alpha`, `width`, `style` (`solid` / `dashed` / `dotted`), `fill`, `label`,
 `yAxis` (`left` / `right` — a dual-axis chart), `stack` and `bins`.
+
+**A regression is a mark, and the engine fits it.** `regression` takes the
+points (`x` and `y`) and draws them, plus ONE ordinary least-squares line
+through them, with the R-squared in the legend. The fit is computed by the
+engine from the same numbers it draws - it is never smoothed, weighted or
+robustly re-fitted behind the reader's back, so the picture and the R-squared
+can never disagree. A fit that cannot be computed (fewer than two points, no
+variation in x, no variation in y) is NOT drawn: the points are, and the trace
+says why. A missing reading drops its own point and never shifts the x axis
+under the points that remain. The same arithmetic is in
+`python/harness/charts/regression.py`, and it is plain on purpose: a reader
+must be able to check `R2 = 0.87` from the picture.
 
 **3D is a mark, not a separate chart.** `scatter3d` (a point cloud) and
 `surface` (a grid) carry a third dimension (`z`) and live in the figure's

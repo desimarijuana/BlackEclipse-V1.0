@@ -126,6 +126,22 @@ const CHART_TYPE_ALIASES: Record<string, string> = {
   ohlc_bars: 'candlestick',
   price_bar: 'candlestick',
   price_bars: 'candlestick',
+  // A regression is a real kind: the points, the least-squares line and its
+  // R-squared. A producer that says "linear regression" must not be refused.
+  regression: 'regression',
+  linear_regression: 'regression',
+  linear_regressions: 'regression',
+  'linear regression': 'regression',
+  'linear-regression': 'regression',
+  regress: 'regression',
+  regression_line: 'regression',
+  trend: 'regression',
+  trendline: 'regression',
+  trend_line: 'regression',
+  ols: 'regression',
+  fit: 'regression',
+  best_fit: 'regression',
+  scatter_fit: 'regression',
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

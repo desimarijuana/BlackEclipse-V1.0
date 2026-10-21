@@ -411,6 +411,33 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/lib/harness/data-bridge-{identity,phase2}.test.ts`. docs updated:
   `docs/CHANGELOG.md`.
 
+- **fix(chart): a linear regression is a chart kind, and an unknown kind no
+  longer loses the chart.**
+  A "linear regression chart" had nowhere to go: the vocabulary had no
+  regression, and an unknown `chartType` INVALIDATED the whole chart block,
+  so the reader got nothing at all. Now:
+  - `regression` is a real kind - a chart block with `chartType: "regression"`
+    (or a `regression` mark in a scene) draws the points, ONE ordinary
+    least-squares line through them, and the R-squared in the legend. The
+    engine fits the line from the same numbers it draws, so the picture and
+    the R-squared can never disagree; a fit that cannot be computed (fewer
+    than two points, no variation in x, no variation in y) is not drawn, and
+    the trace says why. The arithmetic is plain on purpose - a reader must be
+    able to check `R2 = 0.87` from the picture
+    (`python/harness/charts/regression.py`).
+  - An UNKNOWN `chartType` now falls back to `auto` instead of invalidating
+    the block: one odd kind must never cost the reader every other panel.
+    The mark types already worked that way; the block kind now does too.
+  - The synonyms a producer actually uses are read (`linear_regression`,
+    `linear regression`, `trendline`, `ols`, `fit`, `trend`), and the agent is
+    told that a regression is a `regression` mark - never to fit the line
+    itself.
+  Files: `python/harness/charts/{regression.py,scene.py,plotly_figure.py,scene_render.py,tools.py}`,
+  `src/lib/response/{contract.ts,normalize.ts,chart-spec.ts}`,
+  `src/lib/harness/charts.ts`, `python/harness/prompts.py`. Tests:
+  `python/tests/test_chart_regression.py`, `src/lib/response/chart-regression.test.ts`.
+  docs updated: `docs/chart-engine.md`, `docs/interactive-response-engine.md`.
+
 ## 2026-10-20
 
 - **fix(charts): the full-view chart no longer collides with the app's header.**
@@ -2026,9 +2053,6 @@ umpy/pandas are **already installed** in the runtime and the analysis
   `python/tests/test_evaluation_nightly.py` (the committed baseline is the
   gate; a broken baseline file is refused). Docs updated:
   `docs/harness/agent-evaluation.md`, `docs/self-improvement/rsl-v3-plan.md`.
-
-## 2026-10-19
-
 - **fix(shell): the sidebar mode is now per browser tab/window.** Switching to
   Bots in one tab no longer drags another open tab out of its mode. The mode
   lives in `sessionStorage` per shell; remote `/api/sdk/app` updates still sync

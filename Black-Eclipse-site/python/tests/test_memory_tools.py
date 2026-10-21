@@ -423,7 +423,12 @@ def test_prompt_char_ceiling():
     # chat typesets it; money never goes inside a dollar sign). It is guidance
     # the runtime needs; it is re-pinned to the measured size and may only
     # shrink from here. Matches the same test in `test_memory_tools.py`.
-    assert len(prompt) <= 36652, f"prompt grew to {len(prompt)} chars"
+    # Re-pinned 36652->36991 for the regression guidance (a linear regression is a
+    # `regression` mark: the engine fits the line and shows the R-squared, so the
+    # model never fits it itself). It is guidance the runtime needs; it is
+    # re-pinned to the measured size and may only shrink from here. Matches the
+    # same test in `test_memory_tools.py`.
+    assert len(prompt) <= 36991, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

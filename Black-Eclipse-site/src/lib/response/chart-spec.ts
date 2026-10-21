@@ -168,7 +168,62 @@ const KIND_BY_BLOCK_TYPE: Record<
   waterfall: { kind: 'waterfall' },
   candlestick: { kind: 'candlestick' },
   ohlc: { kind: 'candlestick' },
+  // A regression is drawn as a SCENE (the points, the fitted line, the R²),
+  // so it is handled before this record is consulted.
+  regression: { kind: 'scatter' },
 };
+
+/**
+ * The points of a regression, taken from the block's OWN data.
+ *
+ * A pair is a point as it was given (`[x, y]`). A series of plain values is a
+ * series over its categories: the categories become the x axis when they are
+ * numbers, and the series order becomes the x axis when they are labels -
+ * which is then said out loud in the notes, because a fit against the order
+ * is not the same claim as a fit against the variable.
+ */
+function regressionPoints(block: ChartBlock): {
+  x: number[];
+  y: number[];
+  note?: string;
+} {
+  const pairs: Array<[number, number]> = [];
+  for (const series of block.series ?? []) {
+    for (const point of series.data) {
+      if (isPair(point)) pairs.push([point[0], point[1]]);
+    }
+  }
+  if (pairs.length) {
+    return { x: pairs.map((p) => p[0]), y: pairs.map((p) => p[1]) };
+  }
+
+  const categories = block.categories ?? [];
+  const first = (block.series ?? [])[0];
+  if (!first) return { x: [], y: [] };
+
+  const x: number[] = [];
+  const y: number[] = [];
+  let note: string | undefined;
+  const numericCategories =
+    categories.length > 0 && categories.every((c) => typeof c === 'number');
+  first.data.forEach((point, index) => {
+    const value = pointValue(point);
+    if (value == null) return;
+    if (numericCategories) {
+      const category = categories[index];
+      if (typeof category !== 'number') return;
+      x.push(category);
+    } else {
+      x.push(index);
+    }
+    y.push(value);
+  });
+  if (!numericCategories && x.length) {
+    note =
+      'Fitted against the series order: the categories are labels, not numbers.';
+  }
+  return { x, y, note };
+}
 
 /**
  * The scene spec: the block's panels and marks, as the engine takes them.
@@ -277,6 +332,45 @@ export function chartBlockToSpec(
   if (!chartHasData(block)) return null;
 
   const blockType = resolveChartType(block);
+
+  // ── regression ─────────────────────────────────────────────────────────
+  // The points, the least-squares line through them and its R-squared. The
+  // fit is computed by the engine from the same numbers the reader sees.
+  if (blockType === 'regression') {
+    const { x, y, note } = regressionPoints(block);
+    if (x.length < 2 || y.length < 2) return null;
+    const spec: ChartSpec = {
+      kind: 'scene',
+      title: options.includeTitle ? (block.title ?? undefined) : undefined,
+      subtitle: options.includeTitle ? (block.description ?? undefined) : undefined,
+      source: block.source ?? undefined,
+      xLabel: block.xLabel ?? undefined,
+      yLabel: block.yLabel ?? undefined,
+      theme: options.theme ?? 'eclipse-dark',
+      width: options.width ?? 960,
+      height: options.height ?? 420,
+      panels: [
+        {
+          xLabel: block.xLabel ?? undefined,
+          yLabel: block.yLabel ?? undefined,
+          marks: [
+            {
+              type: 'regression',
+              name: (block.series ?? [])[0]?.name || 'Observations',
+              x,
+              y,
+            },
+          ],
+        },
+      ],
+    };
+    return {
+      spec,
+      kind: 'scene',
+      notes: note ? [note] : [],
+    };
+  }
+
   const mapping = KIND_BY_BLOCK_TYPE[blockType] ?? { kind: 'line' as const };
   const notes = mapping.note ? [mapping.note] : [];
   const kind = mapping.kind;

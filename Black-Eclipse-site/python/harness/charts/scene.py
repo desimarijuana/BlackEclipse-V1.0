@@ -28,6 +28,8 @@ MARK_TYPES = frozenset({
     "histogram", "errorbar", "heatmap", "pie", "donut", "candlestick",
     "waterfall", "ridge", "stem", "treemap", "sunburst", "funnel", "sankey",
     "scatter3d", "surface",
+    # The points, the least-squares line through them, and its R-squared.
+    "regression",
 })
 
 MarkType = Literal[
@@ -56,6 +58,7 @@ MarkType = Literal[
     # The 3D family: a point cloud, a surface.
     "scatter3d",
     "surface",
+    "regression",
 ]
 
 
@@ -89,6 +92,9 @@ class ChartMark(BaseModel):
             "bars": "bar", "columns": "bar", "line_chart": "line",
             "donut": "donut", "doughnut": "donut", "points": "scatter",
             "boxplot": "box", "violinplot": "violin", "area_chart": "area",
+            "linear": "regression", "linear_regression": "regression",
+            "trend": "regression", "trendline": "regression", "ols": "regression",
+            "fit": "regression",
         }
         resolved = aliases.get(raw, raw)
         return resolved if resolved in MARK_TYPES else "line"

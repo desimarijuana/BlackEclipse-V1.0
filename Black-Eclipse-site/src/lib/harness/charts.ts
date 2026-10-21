@@ -79,7 +79,9 @@ export interface ChartMark {
     | "donut" | "candlestick" | "waterfall" | "ridge" | "stem"
     | "treemap" | "sunburst" | "funnel" | "sankey"
     // The 3D family.
-    | "scatter3d" | "surface";
+    | "scatter3d" | "surface"
+    // The points, the least-squares line through them, and its R-squared.
+    | "regression";
   name?: string;
   y?: Array<number | string | null>;
   x?: Array<number | string | null>;

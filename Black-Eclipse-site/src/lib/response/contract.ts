@@ -263,6 +263,8 @@ export const CHART_TYPES = [
   'waterfall',
   'candlestick',
   'ohlc',
+  // The points, the least-squares line through them, and its R-squared.
+  'regression',
 ] as const;
 
 const chartBandSchema = z.object({
@@ -300,6 +302,8 @@ const CHART_MARK_TYPES = [
   'ridge', 'stem', 'treemap', 'sunburst', 'funnel', 'sankey',
   // The 3D family: a point cloud, a surface.
   'scatter3d', 'surface',
+  // The points, the least-squares line through them, and its R-squared.
+  'regression',
 ] as const;
 
 const chartMarkSchema = z.object({
@@ -347,7 +351,13 @@ const chartPanelSchema = z.object({
 const chartBlock = z.object({
   type: z.literal('chart'),
   id: idString.optional(),
-  chartType: z.enum(CHART_TYPES),
+  /**
+   * The chart's kind. An UNKNOWN type falls back to `auto`: one odd kind must
+   * never cost the reader the whole chart - the same rule the mark types
+   * follow. (`regression` is a real kind: the points, the least-squares line
+   * and its R-squared.)
+   */
+  chartType: z.enum(CHART_TYPES).catch('auto'),
   title: shortString.optional(),
   description: shortString.optional(),
   source: shortString.optional(),
