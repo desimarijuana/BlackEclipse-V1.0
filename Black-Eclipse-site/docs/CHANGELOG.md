@@ -123,6 +123,14 @@ umpy/pandas are **already installed** in the runtime and the analysis
   (26), src/lib/harness/charts.test.ts, src/app/api/harness/charts/route.test.ts.
   docs updated: docs/chart-engine.md, docs/DECISIONS.md (ADR-050),
   skills/ARCHITECT.md (ADR-050), docs/ARCHITECTURE.md, docs/NAVIGATION.md.
+- **docs(rsl): close v2 with decisions and acceptance evidence.**
+  Model identity remains trial-only (ADR-H275); skill drafts promote through the
+  existing skills lifecycle (ADR-H276); v2 acceptance is slice-level (ADR-H277).
+  Added `docs/self-improvement/rsl-v2-acceptance.md` and updated the v2 plan
+  status. docs updated: `docs/self-improvement/rsl-v2-plan.md`,
+  `docs/self-improvement/rsl-v2-acceptance.md`,
+  `docs/harness/decisions.md`.
+
 - **feat(harness,ui): scheduled climb with pause/resume.**
   `HARNESS_RSL_CLIMB_SECONDS`/`HARNESS_RSL_CLIMB_SCOPE` run an injected climb
   runner on a cadence; without a runner the schedule is inert. Added pause and

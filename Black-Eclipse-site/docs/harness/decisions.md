@@ -8832,6 +8832,49 @@ the conductor owns cadence, budget and pause. A missing runner is honest
 pause API, the typed status/UI, and `test_rsl_loop.py` (one due run, pause stops
 it). No activation path.
 
+## ADR-H275 — Model identity stays trial-only in v2
+
+**Decision.** A model-identity experiment is measured and can be reviewed, but
+live activation still refuses it. Applying provider/model/temperature live would
+move credential and model resolution out of the front door, which is a separate
+authority decision. The experiment stays a `surface` candidate with the identity
+diff recorded.
+
+**Why.** Measuring a model comparison is useful and safe; silently letting a
+candidate change which provider/credentials a run uses is not a self-improvement
+detail. Keeping resolution in the front door preserves one credential path.
+
+**Consequences.** No change to `live_surface.py` or the surface preview refusal.
+`evolution_models.py` remains the measured comparison path.
+
+## ADR-H276 — Skill drafts promote through the existing skill lifecycle, not a second RSL path
+
+**Decision.** v1b measures inert skill drafts inside RSL trials. Promotion stays
+in the existing skills lifecycle (`skills/versioning.py` + the Skills UI); RSL
+does not add a second promotion route. A draft that wins a trial is evidence for
+the operator, not an auto-promoted skill.
+
+**Why.** RSL already composes existing owners. A parallel skill-promotion path
+would duplicate versioning, approval and rollback. The draft remains inert until
+the operator uses the path that already owns it.
+
+**Consequences.** No new RSL activation route. The surface preview continues to
+refuse `skillDraftIds` for live surface activation.
+
+## ADR-H277 — RSL v2 is accepted by slice-level evidence, not one live run
+
+**Decision.** v2 acceptance is the checked-in evidence for the Pareto frontier,
+trial-only model experiments, cross-scope transfer, the canary split and the
+scheduled climb, plus the v1 live runbook. The identity decisions above close the
+remaining open items without adding an activation path.
+
+**Why.** The v2 slices are independent capabilities; a single live experiment
+would not exercise all of them. Each has a deterministic gate, and the one thing
+that must remain manual (operator landing/live acceptance) is named.
+
+**Consequences.** `docs/self-improvement/rsl-v2-acceptance.md` maps every slice to
+tests and commands. No new runtime, store or authority.
+
 ## ADR-H240 — Completion is verified per task type against the evidence the runtime recorded
 
 **Decision.** W8.4's task-type verifier becomes the ONE authority for "done", and
