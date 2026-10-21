@@ -7,6 +7,83 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-20
+## 2026-10-20
+
+- **perf(harness): one search primitive per question, on a fast engine, and the
+  engine is always named.** The harness had FOUR tools for TWO questions, and
+  the two the model reached for FIRST were the slow ones. `workspace_search`
+  ran its OWN naive Python walk while the fs subsystem's `search_text` - one
+  name away, in a surface that listed both - was already ripgrep-first; the
+  slow one had the friendlier name and sat first in every surface.
+  `search_files` and `find_files` were always ONE implementation with two
+  front-doors (`search_files` is literally `find_files(include=[pattern])`),
+  and only `find_files` carried the exclude/extension/directory filters. A
+  model asking "where is this?" paid the slow path by default, and the answer
+  never said which engine ran. The search surface is now TWO tools:
+  `search_text` for file CONTENTS and `search_files` for file NAMES.
+  `workspace_search` now DELEGATES to the one content search, so the old name
+  runs on the fast engine - and **the answer always names the engine that
+  produced it** (`ripgrep` or `python-scan`), so a slow result is explainable
+  rather than mysterious. `search_files` now carries every filter `find_files`
+  had, so nothing was lost in the consolidation. The two older names stay
+  callable for one release as DEPRECATED ALIASES - the registry warns once per
+  run naming the replacement (deprecation is advisory, not a block) - and the
+  agent surfaces carry the canonical names only. A search now goes through the
+  code capability, so it needs a code profile: that is the Phase-0 rule (no
+  profile, no code capability) and it closes a hole, because the old
+  workspace-level search bypassed the code policy entirely. The workspace
+  walker moved out of the ratcheted `code/tools.py` into `code/scan.py`,
+  because it is a scan and not policy. The cost is honest and bounded:
+  `code/fs_tools.py` crossed the 1200-line hard ceiling and now carries a
+  justified ratchet entry, with the fs tool surface named as a W7a split
+  candidate. The two walkers - the moved one and the fs subsystem's own - were
+  NOT merged: they have different contracts (a file OR a directory, bounded by
+  bytes, versus directory-only and hidden-file aware), and merging them would
+  change the fs search's behaviour while looking like a cleanup. The legacy
+  payload field `filesScanned` is gone (nothing read it) and is replaced by
+  `engine` and `filesWithMatches`, both of which are exact. Files:
+  python/harness/code/scan.py (new), python/harness/code/tools.py,
+  python/harness/code/fs_tools.py, python/harness/agents.py,
+  python/harness/code/eval/capabilities.py,
+  python/tests/test_code_search_surface.py (new, 11 cases). ADR-H284. docs
+  updated: docs/harness/decisions.md, docs/harness/architecture.md,
+  docs/NAVIGATION.md, docs/harness/capability-statement.md.
+
+- **feat(quant): the Pine fix loop - the script fails, the model rewrites it,
+  the engine runs it again.** The loop QuantPad demonstrates, with the policy
+  **reused rather than reinvented**: the budget (`RepairBudget`), the outcome
+  vocabulary and the output digest all come from the code verify-and-repair
+  subsystem (`code/repair.py`, `code/verify.py`), so a Pine fix loop and a code
+  fix loop are bounded the same way and report the same way. Two rules the
+  loop keeps. **The failure text is DATA, not an instruction**: a Pine error
+  can contain anything the script put in it, so it is fenced
+  (`<pine-error>`), labelled and bounded to 4,000 characters before it reaches
+  the model. **A failed patch is not a pass**: a reply WITHOUT a fenced script
+  is not a patch - the loop stops rather than guessing where the script starts
+  in a wall of prose (that was a real defect in the first cut, caught by the
+  tests) - and a script that still fails is reported as still failing. The
+  model is asked for one fenced ```pine block and the patched script is RUN
+  before anything is claimed, so the engine is always the judge. The run's own
+  model settings are used, so a controlled sub-run inherits the same provider
+  and credentials. Surfaces: `run_pine_script` with `autoFix` and
+  `maxFixAttempts`. Files: python/harness/quant/pine_repair.py (new),
+  python/harness/quant/advanced_tools.py. Tests:
+  python/tests/test_quant_pine_repair.py (13).
+
+- **feat(harness): a project fills itself up with what a run actually made.** A
+  project is only useful if it fills itself up, and the policy is deliberately
+  conservative: a run that names a project **records itself** in that project
+  (a `note` member carrying the run id, its status and a bounded excerpt of
+  its answer), and every **artifact the run produced** joins the project as an
+  `artifact` member. It attaches what the run **made**, never what the run
+  **mentioned**; the user's own `project_attach` calls are untouched, and
+  attaching the same run twice does not duplicate a member. Nothing here can
+  fail a run - a project that does not exist, an artifact service that is not
+  configured, a member that cannot be written are all reported and swallowed,
+  because a finished answer must not be lost to a bookkeeping step. Files:
+  python/harness/projects/attach.py (new), python/harness/graph.py. Tests:
+  python/tests/test_quant_pine_repair.py (13).
+
 
 - **docs(charts): narrow the Python chart engine to the chat's chart blocks.**
   The docs now say what the code does: the CHAT's chart block can be drawn by

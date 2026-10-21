@@ -27,7 +27,11 @@ from harness.tools import ToolRegistry
 # primitive), never through an agent allowlist. R3-02/R3-07/ADR-H182 record the
 # rule; ADR-H184 records this scan.
 DELIBERATE_INVISIBLE: frozenset[str] = frozenset({
-    # Recovery console: durable incidents are inspected via `/recovery/*`.
+    # The file-system surface is still being built: `find_files` and
+  # `workspace_search` are registered but are NOT in any agent allowlist yet,
+  # so an agent must not be told they exist.
+  "find_files", "workspace_search",
+  # Recovery console: durable incidents are inspected via `/recovery/*`.
     "recovery_diagnose", "recovery_discover", "recovery_incident",
     "recovery_incidents", "recovery_summary",
     # Artifact Center catalog management: the operator/UI surface (`/artifacts/*`).

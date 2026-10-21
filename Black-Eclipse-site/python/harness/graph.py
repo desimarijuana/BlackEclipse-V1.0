@@ -1710,6 +1710,12 @@ async def execute_run(
     # index so later sessions can ask "what did we decide?". Best-effort; never
     # affects this result.
     await _index_session(request, store, memory_service, emitter)
+    # A run that names a project records itself and its artifacts in that
+    # project, so the project fills itself up with what was actually made.
+    from .projects.attach import attach_run_to_project_for_run  # noqa: PLC0415
+
+    await attach_run_to_project_for_run(request, project_store, artifact_service,
+                                        output, final_state)
     result = _result(request.runId, "completed", store, None, output)
     result.memory = memory_blob or None
     result.context = context_blob

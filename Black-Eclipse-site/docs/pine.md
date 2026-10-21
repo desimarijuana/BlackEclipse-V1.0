@@ -105,14 +105,41 @@ engine evaluates against them.
   fill-model equivalence claim, no data from TradingView.
 - **Not a live-trading path.** A Pine run is a bounded, historical evaluation.
 
-## The next slice
+## The fix loop
 
-Today the agent can run a Pine script and see the plots and the trades, and
-the first plot becomes a chart. What is **not** built is the *loop* QuantPad
-demonstrates: hand the script's diagnostics back to the model, let it patch the
-script, and re-run until the lints clear. The pieces are in place (the engine
-reports the error with the bar it happened on; the agent can write a file), but
-the loop is not automated yet.
+`python/harness/quant/pine_repair.py` is the loop QuantPad demonstrates: the
+script fails, the model reads the failure and rewrites the script, and the
+engine runs it again.
+
+The policy is **reused, not reinvented**: the budget (`RepairBudget`), the
+outcome vocabulary and the output digest all come from the code verify-and-
+repair subsystem (`code/repair.py`, `code/verify.py`), so a Pine fix loop and
+a code fix loop are bounded the same way and report the same way.
+
+```
+source ??? engine ??ok??? done
+   ?            ?
+   ?         failed
+   ?            ?
+   ????? the model rewrites the script (bounded, fenced)
+```
+
+Two rules the loop keeps:
+
+- **The failure text is DATA, not instruction.** A Pine error can contain
+  anything the script put in it, so it is fenced (`<pine-error>`), labelled
+  and bounded to 4,000 characters before it reaches the model.
+- **A failed patch is not a pass.** A reply without a fenced script is not a
+  patch - the loop stops rather than guessing where the script starts in a
+  wall of prose - and a script that still fails is reported as still failing.
+
+The model's reply must be a single fenced ```pine block; the loop runs the
+patched script before anything is claimed, so the engine is always the judge.
+
+Surfaces: `run_pine_script` with `autoFix` and `maxFixAttempts`; the loop is
+also callable directly (`repair_pine_script`).
+
+## What it is not
 
 Tests: `python/tests/test_quant_pine.py` (the engine tests skip when Node or
 the engine is absent — the Python side must never pretend it is there).

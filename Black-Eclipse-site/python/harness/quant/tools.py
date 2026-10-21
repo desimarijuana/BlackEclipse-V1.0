@@ -30,6 +30,7 @@ from .copilot_tools import COPILOT_TOOLS, register_copilot_tools
 from .datasets import dataset_from_strategy, resolve_dataset
 from .nodes import REGISTRY
 from .ops_tools import OPS_TOOLS, register_strategy_ops_tools
+from .pine_tools import PINE_TOOLS, register_pine_tools
 from .engine import BacktestConfig, BacktestResult, run_backtest, run_portfolio_backtest
 from .errors import QuantError, StoreUnavailable
 from .montecarlo import MonteCarloConfig, MonteCarloEngine
@@ -53,9 +54,7 @@ _CAPABILITY = {
     "indicators": "available", "metrics": "available",
     "walkForward": "available", "monteCarlo": "available",
     "optimization": "available", "robustness": "available", "sensitivity": "available",
-    "graphCompiler": "available",
-    "vectorizedBacktest": "available",
-    "costDiagnostics": "available",
+    "graphCompiler": "available", "vectorizedBacktest": "available", "costDiagnostics": "available",
     "outOfSample": "available",
     "bootstrap": "available",
     "multipleTesting": "available",
@@ -1153,8 +1152,10 @@ def register_quant_tools(registry: Any) -> list[str]:
     # Advanced tools (engine/costs/OOS/bootstrap/multiple-testing/options/futures);
     # imported lazily to avoid a cycle with `advanced_tools`.
     from .advanced_tools import register_advanced_tools
+    from .pine_tools import PINE_TOOLS, register_pine_tools
 
     register_advanced_tools(registry)
+    register_pine_tools(registry)
 
     _def("run_robustness_analysis",
          "Combine sensitivity, cost sensitivity, trade concentration, sample size and regime "
@@ -1193,7 +1194,7 @@ QUANT_TOOLS: tuple[str, ...] = (
     "run_multiple_testing_diagnostics", "price_option", "implied_volatility",
     "analyze_option_strategy", "build_continuous_contract",
     "run_regime_monte_carlo", "grade_strategy_edge", "run_prop_firm_simulation",
-    "list_prop_firm_rules", "generate_edge_report", "run_pine_script",
+    "list_prop_firm_rules", "generate_edge_report", *PINE_TOOLS,
     )
 
 

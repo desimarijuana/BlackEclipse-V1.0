@@ -112,13 +112,31 @@ returns `null`.
   vault it belongs to (JDdS, the quant store, the Artifact Center).
 - **Not a permission.** Membership grants nothing. A member is a pointer.
 
+## How a project fills itself up
+
+`python/harness/projects/attach.py` is the policy, and it is deliberately
+conservative:
+
+- a run that names a project **records itself** in that project (a `note`
+  member carrying the run id, its status and a bounded excerpt of its answer);
+- every **artifact the run produced** joins the project as an `artifact`
+  member;
+- a run that produced nothing adds nothing but its own note.
+
+It attaches what the run **made**, never what the run **mentioned**. The
+user's own `project_attach` calls are untouched, and attaching the same run
+twice does not duplicate a member.
+
+Nothing here can fail a run: a project that does not exist, an artifact
+service that is not configured, a member that cannot be written - all of it is
+reported and swallowed, because a finished answer must not be lost to a
+bookkeeping step.
+
 ## The remaining slice
 
-The entity, the tools, the binding and the app surface are in place. What is
-**not** built is a way to *populate* a project automatically: today the agent
-attaches members one call at a time, and nothing yet sweeps a finished
-research run or an Edge Report into the project it belongs to. That is the
-obvious next step, and it is a policy question (what belongs in a project by
-default) rather than a plumbing one.
+The entity, the tools, the binding, the app surface and the auto-populate
+policy are in place. What is **not** built is a *curated* view of a project -
+which members matter, in what order, and what the project is trying to answer.
+That is a design question, not a plumbing one.
 
 Tests: `python/tests/test_projects.py`, `src/lib/projects/project-client.test.ts`.
