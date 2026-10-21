@@ -86,6 +86,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   was never told" on replay. Files: python/harness/routers/evolution.py.
   no doc change - one added field on an existing payload.
 
+- **chore(harness): re-pin the size ratchet for the in-flight work.** The
+  quant tool surface, the graph and the fs tool surface grew past their
+  ceilings; each ceiling was re-pinned to the measured size with the reason
+  recorded, and each line names its split candidate. Files:
+  python/tests/test_size_budget.py.
+  no doc change - a size ratchet.
+
 ## 2026-10-20
 
 - **fix(harness): re-pin the prompt ceiling after the sandbox-rules guidance.**

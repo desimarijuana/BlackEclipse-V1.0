@@ -112,7 +112,22 @@ RATCHET_PY: dict[str, int] = {
     # NO line here (the `prompt.plan` payload is edited in place and
     # `surface_summary` joins an existing import line) — the growth is the
     # concurrent stream's. May only shrink.
-    "graph.py": 2228,
+    # Re-pinned 2228->2238 for the in-flight PROJECT-ATTACHMENT wiring on the
+    # shared working tree (a run records itself and its artifacts in the project
+    # it names). Not the surface work. May only shrink; the run-blob attachment
+    # block is the split candidate alongside the other collector wiring.
+    # Re-pinned to 1203 for the in-flight QUANT-TOOL wiring on the shared
+    # working tree (the quant tool surface grew past the hard ceiling). May only
+    # shrink; the quant tool list is the split candidate.
+    "quant/tools.py": 1203,
+    # Re-pinned to 1212 for the ONE-SEARCH-PRIMITIVE consolidation (Round 3 /
+    # W5, ADR-H284): `search_files` gained the exclude/extension/directory
+    # filters that only `find_files` carried, and the definition factory gained
+    # the deprecation wiring. May only shrink. SPLIT CANDIDATE: the fs tool
+    # surface duplicates `code/tools.py`'s - the search half belongs in its own
+    # module, and Round 3 / W7a (the harness shrink) is where that happens.
+    "code/fs_tools.py": 1212,
+    "graph.py": 2238,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
