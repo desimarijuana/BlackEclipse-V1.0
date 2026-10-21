@@ -72,6 +72,9 @@ def run_gate() -> None:
     # 1. A VALID workflow executes.
     directory = tempfile.mkdtemp(prefix="be-gate-")
     store = AgentMemoryStore(os.path.join(directory, "agent-memory.db"))
+    # The gate's model is a PROCESS-WIDE override: it must be handed back, or
+    # every later run in this process would answer with the gate's model.
+    original_model = graph_module.build_chat_model
     graph_module.build_chat_model = lambda settings: _Model()
     try:
         valid = Workflow(id="valid", agent_id="wf", steps=[
@@ -121,6 +124,7 @@ def run_gate() -> None:
         assert replay.status == "failed", "an approval replay must fail"
         assert replay.error["code"] == "TOOL_FORBIDDEN", "an approval replay is a TOOL_FORBIDDEN"
     finally:
+        graph_module.build_chat_model = original_model
         store.close()
 
 

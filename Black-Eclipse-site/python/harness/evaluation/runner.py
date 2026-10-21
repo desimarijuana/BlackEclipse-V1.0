@@ -52,10 +52,28 @@ _MODEL_OVERRIDE: contextvars.ContextVar[Any] = contextvars.ContextVar(
     "evaluation_model_override", default=None
 )
 
+# The real model builder, captured when this module is imported. The seam
+# wraps THIS function only. A test double installed later (a monkeypatch on
+# `graph_module.build_chat_model`) is an ACTIVE override: the seam must not
+# replace it, because the override's teardown would then restore the real
+# builder and silently drop the double for every later test.
+_SEAM_ORIGINAL = graph_module.build_chat_model
+
+# A seam that DELEGATES (it carries one of these markers) is safe to wrap: the
+# chain still reaches the real builder. A plain function is an ACTIVE override
+# (a test double) and must not be replaced.
+_CHAINING_SEAM_MARKERS = ("_evaluation_seam", "_evaluation_team_seam")
+
 
 def install_model_seam() -> None:
     current = graph_module.build_chat_model
     if getattr(current, "_evaluation_seam", False):
+        return
+    if current is not _SEAM_ORIGINAL and not any(
+        getattr(current, marker, False) for marker in _CHAINING_SEAM_MARKERS
+    ):
+        # An active, non-chaining override owns the builder right now. Leave it
+        # alone: replacing it would make the override disappear at teardown.
         return
     original = current
 

@@ -81,6 +81,9 @@ def run_gate() -> None:
             callbackBaseUrl="http://localhost:3000", liveSurface=False, **kw,
         )
 
+    # The gate's models are PROCESS-WIDE overrides: they must be handed back,
+    # or every later run in this process would answer with the gate's model.
+    original_model = graph_module.build_chat_model
     try:
         graph_module.build_chat_model = lambda settings: _KillModel()
         try:
@@ -104,6 +107,7 @@ def run_gate() -> None:
         row_count = len([e for e in store.list_tool_executions("gate_resume") if e["name"] == "counter"])
         assert row_count == 1, "exactly one persisted tool row"
     finally:
+        graph_module.build_chat_model = original_model
         store.close()
 
 

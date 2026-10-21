@@ -71,6 +71,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: docs/harness/architecture.md, docs/harness/capability-statement.md,
   docs/harness/roadmap/round-3-parity-plan.md.
 
+- **fix(harness): the eval gates hand back the model builder they override.**
+  `eval_gates/resume.py` and `eval_gates/workflow.py` patched
+  `graph.build_chat_model` and never restored it, so every later run in the
+  same process answered with the gate's model. The evaluation seam now
+  refuses to replace an ACTIVE override (a test double) - only a chaining seam
+  may be wrapped - so an override's teardown cannot silently drop the double
+  for every later test. Files: python/harness/eval_gates/resume.py,
+  workflow.py, python/harness/evaluation/runner.py.
+  no doc change - a test-hygiene repair inside the harness.
+
 ## 2026-10-20
 
 - **fix(harness): re-pin the prompt ceiling after the sandbox-rules guidance.**
