@@ -1337,6 +1337,21 @@ umpy/pandas are **already installed** in the runtime and the analysis
   `python/harness/eval_gates/{workflow,resume}.py`. Tests:
   `python/tests/test_evaluation_runner.py` (2). Docs updated:
   `docs/harness/decisions.md` (ADR-H284).
+- **feat(eval): two new labelled datasets grow the corpus from 53 to 62 tasks.**
+  `adversarial_v1` (4 fixtures) and `finance_v1` (5 fixtures) join the built-in
+  corpus. The adversarial set is about HONESTY, not vocabulary: a missing
+  service must stay UNAVAILABLE instead of becoming a guessed price, a stale
+  quote must carry its as-of date, a note in a service response cannot widen the
+  agent's scope, and the wrong metric is not the requested metric (net income
+  is not EPS). The finance set is graded by an INDEPENDENT recomputation of the
+  same metric (net margin, operating margin, EV/EBITDA, EPS, position weight);
+  every number is a synthetic literal inside the task, so no provider call and
+  no market data is involved. The release gate now runs 62 tasks and stays
+  green. Files:
+  `python/harness/evaluation/datasets/{adversarial_v1,finance_v1}.json`.
+  Docs updated: `docs/harness/agent-evaluation.md`, `docs/NAVIGATION.md`,
+  `docs/self-improvement/rsl-v3-plan.md`.
+
 ## 2026-10-19
 
 - **fix(shell): the sidebar mode is now per browser tab/window.** Switching to

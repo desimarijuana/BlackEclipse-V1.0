@@ -131,12 +131,36 @@ chart block ──▶ chart-spec.ts ──▶ spec ──▶ python_chart tool /
                                       browser ◀── /api/artifacts/<id>/download
 ```
 
+### 3.1 The picture is hoverable
+
+A PNG cannot be hovered. The engine therefore returns, with the picture, an
+**interaction map**: the picture's own pixel geometry (the axes' box) and, per
+category, its x position and each series' value there
+(`python/harness/charts/interaction.py`).
+
+The browser draws the pointer experience over the picture from that map: a
+crosshair at the nearest category and a tooltip with the values
+(`src/components/charts/chart-hover.tsx`). Because the map is in the picture's
+pixels and the browser converts it to percentages, the interaction survives any
+display size — the picture is never stretched, and the crosshair still lands on
+the right column.
+
+The map is a convenience, never a claim: the values it carries are the same
+values the picture was drawn from, and a gap stays a gap (no value at all).
+
+### 3.2 The picture's size
+
+The chat draws at **720×400** and shows it at its natural aspect, left
+aligned, capped at 640 px wide (`object-contain`, no fixed height). The old
+`w-full` + a fixed `maxHeight` stretched the picture; now it is never
+distorted, and the focus view simply shows the same picture larger.
+
 ## 4. What the user gets
 
 | | The chat's chart |
 |---|---|
 | Engine | the Python chart engine (matplotlib) in the runtime |
-| Interaction | a picture: no hover tooltip, no crosshair — the values live in the block's own table/text |
+| Interaction | hover + crosshair over the picture, from the engine's interaction map |
 | Any chart | yes: the SCENE form draws any composition of the marks |
 | Export | the artifact's bytes (PNG and PDF both embed the picture the user saw) |
 | Provenance | always `computed`, never evidence |
@@ -161,7 +185,8 @@ crosshair and zoom.
 | The response chart surface | `src/components/response/response-chart.tsx` |
 | The chart registry | `src/lib/response/chart-registry.ts` |
 | The scene (panels of marks) | `python/harness/charts/scene.py` + `scene_render.py` |
-| Tests | `python/tests/test_charts.py`, `python/tests/test_chart_scene.py`, `src/lib/harness/charts.test.ts`, `src/app/api/harness/charts/route.test.ts`, `src/lib/response/chart-spec.test.ts` |
+| The interaction map | `python/harness/charts/interaction.py` + `src/components/charts/chart-hover.tsx` |
+| Tests | `python/tests/test_charts.py`, `python/tests/test_chart_scene.py`, `python/tests/test_chart_interaction.py`, `src/lib/harness/charts.test.ts`, `src/app/api/harness/charts/route.test.ts`, `src/lib/response/chart-spec.test.ts` |
 
 The decision itself is **ADR-050** (`skills/ARCHITECT.md`, mirrored in
 `docs/DECISIONS.md`).

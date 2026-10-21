@@ -689,20 +689,12 @@ _DISPATCH = {
 }
 
 
-def render_chart(spec: ChartSpec) -> bytes:
-    """Render the spec into PNG bytes.
-
-    The bytes are a transparent-background PNG, ready to sit on a frosted
-    glass card without hiding the frost.
-    """
-    plt = _pyplot()
-    theme = get_theme(spec.theme)
+def _render_figure(spec: ChartSpec, theme: ChartTheme, plt: Any) -> tuple[bytes, Any]:
+    """Draw the figure and return the PNG bytes and the axes that were drawn."""
     kind = spec.kind
-
     with plt.rc_context(theme.rc):
         if spec.panels:
-            # A scene owns its figure: it has one panel per row.
-            return _render_scene(spec, theme, plt)
+            return _render_scene(spec, theme, plt), None
         drawer = _DISPATCH.get(kind)
         if drawer is None:  # pragma: no cover - the spec's Literal already refuses it
             raise ChartRenderError(CHART_SPEC_INVALID, f"unknown chart kind {kind!r}")
@@ -748,7 +740,100 @@ def render_chart(spec: ChartSpec) -> bytes:
                 figure.tight_layout(rect=(0, 0.05 if (spec.footnote or spec.source) else 0, 1, 1))
             buffer = io.BytesIO()
             figure.savefig(buffer, format="png", transparent=True)
-            return buffer.getvalue()
+            return buffer.getvalue(), ax
+        except ChartRenderError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise ChartRenderError(
+                CHART_RENDER_FAILED, f"the chart could not be drawn: {exc}",
+            ) from exc
+        finally:
+            plt.close(figure)
+
+
+def render_chart_with_interaction(spec: ChartSpec) -> tuple[bytes, Optional[dict[str, Any]]]:
+    """Render the spec into PNG bytes, plus the map that makes it hoverable.
+
+    The bytes are a transparent-background PNG, ready to sit on a frosted
+    glass card without hiding the frost. The map describes where each category
+    sits on the picture and what each series' value is there, so the browser can
+    draw a crosshair and a tooltip over the picture (the picture itself cannot
+    be hovered).
+    """
+    plt = _pyplot()
+    theme = get_theme(spec.theme)
+    kind = spec.kind
+    png, axes = _render_figure(spec, theme, plt)
+    interaction = None
+    if axes is not None:
+        from .interaction import build_interaction  # noqa: PLC0415
+
+        interaction = build_interaction(spec, theme, axes)
+    return png, interaction
+
+
+def render_chart(spec: ChartSpec) -> bytes:
+    """Render the spec into PNG bytes.
+
+    The bytes are a transparent-background PNG, ready to sit on a frosted
+    glass card without hiding the frost.
+    """
+    return render_chart_with_interaction(spec)[0]
+    plt = _pyplot()
+    theme = get_theme(spec.theme)
+    kind = spec.kind
+    axes_used: Any = None
+
+    with plt.rc_context(theme.rc):
+        if spec.panels:
+            # A scene owns its figure: it has one panel per row.
+            return _render_scene(spec, theme, plt), None
+        drawer = _DISPATCH.get(kind)
+        if drawer is None:  # pragma: no cover - the spec's Literal already refuses it
+            raise ChartRenderError(CHART_SPEC_INVALID, f"unknown chart kind {kind!r}")
+        has_volume = any(v is not None for v in spec.volume_data)
+        if has_volume:
+            # A price chart's volume pane: the chart on top, the volume below.
+            figure = plt.figure(figsize=(spec.width / 100.0, spec.height / 100.0), dpi=100)
+            grid = figure.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.08)
+            ax = figure.add_subplot(grid[0])
+            volume_ax = figure.add_subplot(grid[1], sharex=ax)
+        else:
+            figure = plt.figure(figsize=(spec.width / 100.0, spec.height / 100.0), dpi=100)
+            ax = figure.add_subplot(111)
+            volume_ax = None
+        try:
+            if kind == "radar":
+                ax = figure.add_subplot(111, polar=True)
+            setattr(ax, "_eclipse_theme", theme)
+            drawer(ax, spec, theme, plt)
+            _apply_titles(ax, spec)
+            _apply_value_format(ax, spec)
+            _apply_log_scale(ax, spec)
+            _draw_highlights(ax, spec, theme)
+            _draw_reference_lines(ax, spec, theme)
+            if volume_ax is not None:
+                _draw_volume(volume_ax, spec, theme)
+                volume_ax.tick_params(labelleft=False)
+                volume_ax.grid(True, alpha=0.12)
+            if spec.footnote:
+                figure.text(
+                    0.01, 0.015, spec.footnote, ha="left", va="bottom",
+                    color=theme.muted, fontsize=8.5,
+                )
+            if spec.source:
+                figure.text(
+                    0.99, 0.015, spec.source, ha="right", va="bottom",
+                    color=theme.muted, fontsize=8.5,
+                )
+            # A gauge/radar/treemap has axes that `tight_layout` cannot fit; the
+            # warning is expected there and the layout is already exact.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                figure.tight_layout(rect=(0, 0.05 if (spec.footnote or spec.source) else 0, 1, 1))
+            buffer = io.BytesIO()
+            figure.savefig(buffer, format="png", transparent=True)
+            return buffer.getvalue(), ax
         except ChartRenderError:
             raise
         except Exception as exc:  # noqa: BLE001

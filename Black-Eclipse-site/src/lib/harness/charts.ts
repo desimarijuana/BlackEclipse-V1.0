@@ -160,6 +160,18 @@ export interface ChartSpec {
   height?: number;
 }
 
+/** Where each category sits on the picture, so the browser can hover it. */
+export interface ChartInteraction {
+  width: number;
+  height: number;
+  plot: { left: number; right: number; top: number; bottom: number };
+  columns: Array<{
+    label: string;
+    x: number;
+    values: Array<{ name: string; value: number; color: string }>;
+  }>;
+}
+
 export interface ChartFigure {
   kind: ChartKind;
   label: string;
@@ -175,6 +187,8 @@ export interface ChartFigure {
   title: string | null;
   series: Array<{ name: string; points: number }>;
   summary: string;
+  /** Present when the picture can be hovered (a category axis). */
+  interaction?: ChartInteraction;
 }
 
 export interface RenderedChart {

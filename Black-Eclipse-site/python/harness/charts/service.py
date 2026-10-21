@@ -23,18 +23,22 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from .render import ChartRenderError, render_chart
+from .render import ChartRenderError, render_chart_with_interaction
 from .spec import ChartSpec
 
 
 @dataclass(frozen=True)
 class RenderedChart:
-    """A drawn chart and its identity."""
+    """A drawn chart, its identity, and the map that makes it hoverable."""
 
     spec: ChartSpec
     png: bytes
     sha256: str
     name: str
+    #: Where each category sits on the picture and what each series' value is
+    #: there - so the browser can draw a crosshair and a tooltip over the
+    #: picture (a PNG cannot be hovered on its own).
+    interaction: Optional[dict[str, Any]] = None
 
     @property
     def bytes(self) -> int:
@@ -61,6 +65,7 @@ class RenderedChart:
                 {"name": s.name, "points": len(s.data)} for s in self.spec.series
             ],
             "summary": self.spec.summary(),
+            **({"interaction": self.interaction} if self.interaction else {}),
         }
 
 
@@ -72,10 +77,12 @@ def spec_digest(spec: ChartSpec) -> str:
 
 def render_spec(spec: ChartSpec) -> RenderedChart:
     """Draw the spec. Raises `ChartRenderError` when it cannot be drawn."""
-    png = render_chart(spec)
+    png, interaction = render_chart_with_interaction(spec)
     digest = hashlib.sha256(png).hexdigest()
     name = f"chart-{spec.kind}-{digest[:12]}.png"
-    return RenderedChart(spec=spec, png=png, sha256=digest, name=name)
+    return RenderedChart(
+        spec=spec, png=png, sha256=digest, name=name, interaction=interaction,
+    )
 
 
 def register_chart_artifact(

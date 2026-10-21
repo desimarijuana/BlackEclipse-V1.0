@@ -21,9 +21,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { downloadUrl } from '@/lib/harness/artifacts-browser';
-import { renderChart } from '@/lib/harness/charts';
+import { renderChart, type ChartInteraction } from '@/lib/harness/charts';
 import { chartBlockToSpec } from '@/lib/response/chart-spec';
 import { registerChartArtifact, unregisterChart } from '@/lib/response/chart-registry';
+import { ChartHover } from '@/components/charts/chart-hover';
 import { Maximize2, Minimize2, X } from '@/lib/icons';
 import type { ChartBlock } from '@/lib/response/contract';
 import { cn } from '@/lib/utils';
@@ -38,7 +39,7 @@ export interface ResponseChartProps {
 
 type State =
   | { status: 'loading' }
-  | { status: 'ready'; src: string }
+  | { status: 'ready'; src: string; interaction?: ChartInteraction }
   | { status: 'error'; message: string };
 
 export function ResponseChart({ block, height = 260, className, focusable = true }: ResponseChartProps) {
@@ -46,7 +47,8 @@ export function ResponseChart({ block, height = 260, className, focusable = true
   const [focused, setFocused] = useState(false);
 
   const plan = useMemo(
-    () => chartBlockToSpec(block, { theme: 'eclipse-dark' }),
+    // Drawn close to how it is displayed, so the labels stay crisp.
+    () => chartBlockToSpec(block, { theme: 'eclipse-dark', width: 720, height: 400 }),
     [block],
   );
   const specKey = useMemo(() => (plan ? JSON.stringify(plan.spec) : ''), [plan]);
@@ -66,7 +68,11 @@ export function ResponseChart({ block, height = 260, className, focusable = true
         }
         // The export helpers fetch the picture by artifact id.
         if (chartId) registerChartArtifact(chartId, artifactId);
-        setState({ status: 'ready', src: downloadUrl(artifactId) });
+        setState({
+          status: 'ready',
+          src: downloadUrl(artifactId),
+          interaction: rendered.figure.interaction,
+        });
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -141,19 +147,22 @@ export function ResponseChart({ block, height = 260, className, focusable = true
         </div>
       )}
       {state.status === 'ready' ? (
-        <>
+        <div className={cn('relative', focused ? 'w-full' : 'w-fit max-w-full')}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={state.src}
             alt={block.title ?? 'Chart'}
-            className="w-full"
-            style={focused ? { maxHeight: '78vh' } : { maxHeight: height }}
+            className="block h-auto max-w-full object-contain"
+            style={focused ? { maxHeight: '78vh' } : { maxWidth: 640 }}
             data-testid="response-chart-image"
           />
+          {/* The hover layer: the picture is Python-drawn, so the pointer
+              experience is drawn over it from the engine's interaction map. */}
+          <ChartHover interaction={state.interaction} />
           {plan.notes.length > 0 && (
             <p className="mt-1 text-[10px] text-muted-foreground/70">{plan.notes.join(' ')}</p>
           )}
-        </>
+        </div>
       ) : (
         <div className="w-full animate-pulse" style={{ height }} aria-busy="true" />
       )}
