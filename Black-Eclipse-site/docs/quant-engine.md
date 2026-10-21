@@ -69,13 +69,14 @@ market data → indicator context → signal (rules) → risk → order
 | The Edge Verdict (A–F grade over edge/robustness/risk/sample + overfit tells) | `quant/verdict.py` |
 | Prop-firm evaluation rules as data (targets, drawdown, daily loss, consistency) | `quant/propfirm.py` |
 | Prop-firm Monte-Carlo (pass probability, days-to-pass, payout EV) | `quant/propfirm_mc.py` |
+| The Edge Report — the grade, the evidence and the figures as one artifact | `quant/edge_report.py` |
 | Sensitivity + robustness + overfitting safeguards | `quant/robustness.py` |
 | Shared research-result envelope | `quant/research.py` |
 | Strategy + experiment persistence, artifacts | `quant/store.py` |
 | Golden synthetic datasets | `quant/fixtures.py` |
 | Background run runner (status/progress/cancel) | `quant/runner.py` |
 | Agent tools | `quant/tools.py` |
-| HTTP routes | `routers/quant.py` |
+| HTTP routes | `routers/quant.py` (engines), `routers/quant_reports.py` (the surfaces that judge a result) |
 | Boot wiring | `quant/bootstrap.py` |
 | UI tab | `src/components/screens/backtest/` + `src/lib/backtest/` |
 
@@ -618,6 +619,55 @@ Surfaces: agent tools `run_prop_firm_simulation` and `list_prop_firm_rules`;
 routes `POST /quant/prop-firm` and `GET /quant/prop-firm/firms`. A real
 trading log comes from the `journal_trades` tool, whose output the simulation
 tool consumes.
+
+## The Edge Report (`quant/edge_report.py`)
+
+The verdict, the regimes and the Monte-Carlo used to be three answers in three
+places. The Edge Report binds them into **one durable document**: a grade, the
+four axes behind it, the flags, the measured numbers, the figures, and — always
+— what was *not* measured.
+
+The report computes nothing of its own. Every number in it was measured by the
+quant engine, and every picture is a chart spec drawn by the **ONE** chart
+engine (ADR-050) and recorded in the Artifact Center. The panels are:
+
+| Panel | Source | Kind |
+|---|---|---|
+| Equity curve | the artifact's `equityCurve` | `line` |
+| Drawdown | the artifact's `drawdownCurve` | `area` |
+| Monte-Carlo return percentiles | the Monte-Carlo artifact | `bar` |
+| Simulated return distribution | the Monte-Carlo artifact | `bar` |
+| Realised P&L by market regime | the regime attribution | `bar` |
+
+A panel with no data is **absent**, not empty: a report without a Monte-Carlo
+has no Monte-Carlo panel, and says so (`EDGE_REPORT_WITHOUT_MONTE_CARLO`).
+
+Two honesty rules ride along:
+
+- **A figure is computed, never evidence.** Every chart carries the `computed`
+  label the chart contract requires, and the report says it in words too.
+- **A long series is sampled, and the figure says so.** The chart engine bounds
+  a series at 5,000 points and a category axis at 2,000; the report samples to
+  the tighter bound, keeps the first and last points, and writes the number of
+  dropped points into the figure's footnote.
+
+The document itself is registered in the Artifact Center as a Markdown
+**REPORT** (`edge-report-<experiment>.md`), and each figure is registered as a
+CHART artifact, so the report is downloadable and versioned like any other
+produced file.
+
+Surfaces: agent tool `generate_edge_report`; route `POST /quant/edge-report`
+(both reachable through the existing `/api/backtest/*` proxy); and the
+**Edge Report panel** on the Backtest screen
+(`src/components/screens/backtest/edge-report-panel.tsx`), which picks a stored
+experiment and an optional Monte-Carlo, shows the grade, the four axis scores,
+the flags and the figures, and links the document.
+
+The routes that *judge* a result — `regime-monte-carlo`, `edge-verdict`,
+`prop-firm`, `prop-firm/firms`, `edge-report` — live in their own router
+(`routers/quant_reports.py`) rather than in `routers/quant.py`, which is at its
+size budget. A route on a router is not a route until the app includes it, and
+a test now asserts the OpenAPI schema carries them.
 
 ## Relationship to the Portfolio Accounting Engine
 

@@ -9151,3 +9151,176 @@ messages are the runtime's job.
 refusals), `code/execution.py` + `code/sandbox_guard.py` (the actionable
 refusals), `analysis_tools.py` ("showing N of M values"). Tests:
 `python/tests/test_analysis_guard.py` (26). Docs: `docs/CHANGELOG.md`.
+## ADR-H278 - A landing is not complete until the restarted runtime proves it, and the conductor's bounds are hot-reloadable
+
+**Decision.** Two operational rules for RSL v3.
+
+1. **Pre-landing measurement is not landing proof.** A promoted `rsl-*` change
+   that requires a restart must pass a post-landing probe: restart, `GET /health`,
+   then keep. On failure the previous files are restored, the runtime is
+   restarted again and the restored process is probed. The restart seam remains
+   owned by the front door/supervisor because the runtime cannot cleanly restart
+   itself; when the seam is absent the result is `unverified`, never a success.
+2. **The conductor's bounds are operator-editable without a restart.** Only the
+   bounded `RSLConfig` fields are accepted, through the same clamps as the env,
+   and the last override is persisted on `agent-memory.db`. Enabling a mode starts
+   the conductor; `off` stops it. The default stays `off`.
+
+**Why.** v2 could prove a candidate was better offline while a broken import
+still took the running app down, and every mode/budget change needed a process
+restart. Both are trust defects: the first lets a measured win become an
+outage; the second makes daily operation expensive enough that the loop is left
+dark.
+
+**Consequences.** `self_improvement/post_landing.py` (injected restart/probe/
+rollback, `HarnessPostLanding`), `self_improvement/runtime_settings.py`
+(`HarnessRuntimeSetting`), `RSLConfig.from_dict`/`apply_payload`,
+`RSLLoop.set_config`, `POST /evolution/rsl/config`,
+`POST /code/promotions/{rollbackId}/post-landing`, the `postLanding` hint on the
+existing promotion route, and tests `test_post_landing.py` + the config/loop
+additions. No new runtime, queue or database; the two tables live on the ONE
+`agent-memory.db`. Docs: `docs/self-improvement/rsl-v3-plan.md`,
+`docs/harness/architecture.md`, `docs/NAVIGATION.md`.
+## ADR-H279 - A live ablation uses the isolated evaluation bridge, and a replay task is a regression label, not truth
+
+**Decision.** Two evidence rules for RSL v3.
+
+1. **The live tier is a real model behind the isolated evaluation bridge.** An
+   ablation arm may run a validated `HarnessSnapshot` with a real provider/model
+   (`--live`), but it still uses the trial's private store + registry and the
+   `_UnavailableBridge`. External data is reported `UNAVAILABLE`; the report
+   labels the tier and never presents the result as a production-data replay.
+   Live mode refuses to start without explicit provider/model settings.
+2. **A replay task records behavior, not correctness.** The replay builder takes
+   a completed run's redacted prompt and recorded tool sequence and writes a
+   `live_only` regression task. Its expected behavior is the recorded trajectory;
+   no expected answer is invented. The generated dataset is unreviewed and is
+   never optimization material until an operator reviews it. Failed runs stay in
+   the existing mining pipeline, which also refuses to invent an expectation.
+
+**Why.** The alternative - letting a live arm reach the production data bridge or
+treating a recorded answer as ground truth - would contaminate the comparison
+with sources the arm did not actually use and turn one model's output into a
+judge. Both are the failure modes the frozen judge exists to prevent.
+
+**Consequences.** `evaluation/candidate_invoker.py` (`live` + explicit
+`ModelSettings`), `evaluation/ablation.py` (tier in the report),
+`evaluation/replay_builder.py` (`live_only` + redaction + dedupe), tests
+`test_ablation.py` + `test_replay_builder.py`. No new runtime, database or
+network default; the operator still runs the live tier deliberately and pays for
+it. Docs: `docs/self-improvement/rsl-v3-plan.md`,
+`docs/harness/agent-evaluation.md`.
+
+## ADR-H280 - A surface EXTENDS the agent's declared tools; it never silently REPLACES them
+
+**Decision.** The tool-surface resolution moves out of `graph.py` into
+`python/harness/surface.py` and becomes a UNION, not a replacement:
+
+    allowed = policy_narrowed(base) UNION policy_narrowed(surface)
+
+Both halves go through the ONE policy authority (`code.policy.allowed_tools`),
+so an autonomy profile still removes every write/execute/external tool it bans
+- from the base half AND from the surface half. A surface never removes a base
+tool: a tool may leave a run's surface only through the autonomy profile or
+through an operator-disabled store, and BOTH are named in the resolution. The
+resolution is published on the run row and returned on the run result
+(additive, optional field `surface`): the surface id, the tools it ADDED, the
+tools the profile removed, the tools a disabled store removed, the bound tool
+count, and the measured schema characters the surface added. The marginal
+schema cost is ratcheted (`MAX_SURFACE_ADDED_SCHEMA_CHARS`); the resolver
+lives in its own module so `graph.py` shrinks.
+
+**Why.** A chat coding turn used to REPLACE the finance agent's whole
+allowlist with the code profile. Measured against a real `AgenticService` on
+2026-10-20 (956 registered tools), the finance agent declares 668 tools and
+the code profile declares 454, and the two are largely disjoint - 441 base
+tools and 227 surface tools are unique to their half. The replacement
+therefore cost the model **441 tools** on every coding turn, without naming
+one of them: the whole task/plan family (`create_plan`, `create_task`,
+`read_plan`, `run_plan`, ...), the whole web/research family (`web_search`,
+`web_extract`, `research_query`, `claim_verify`, ...), the unified
+retrieval/search family (`semantic_search`, `hybrid_search`,
+`search_evidence`, ...), the truthful-capability diagnostics
+(`get_capability_matrix`, `get_research_health`) and the response-contract
+tools (`response_block_schema`, `response_validate`).
+
+Two of those losses were defects, not inconveniences. `response_block_schema`
+is what `graph.execute_run` checks before injecting the live response-schema
+digest and the response-mode plan into the system prompt, so a coding turn
+produced a DEGRADED structured response with no error and no warning. And
+`get_capability_matrix` is the tool whose absence was already recorded as a
+real incident in the `ECLIPSE_AGENT` allowlist comment ("verified in the
+SYS/RELIANCE/Tata runs, where `get_capability_matrix` returned
+TOOL_FORBIDDEN"). The stated intent had always been the opposite of the
+behaviour: `agents.py` said "ADDITIVE: `ECLIPSE_AGENT`'s declared tools are
+NOT touched", and ADR-H117 described the profile as applied "after the
+autonomy narrowing". The code replaced instead.
+
+The same change also fixed a latent crash on a fresh install. The answer seam
+writes `codeVerification` UNCONDITIONALLY, and that column was in neither the
+`CREATE TABLE` nor the migration list - so on a fresh `agent-memory.db` (which
+every new clone gets, because the file is gitignored) the write raised
+`no such column: codeVerification` and every run crashed AFTER the model had
+already produced its answer. The live repository masked it because its
+database predates the column. `codeVerification`, `autonomy`, `workspaceId`
+and the new `surface` column are now in the migration list.
+
+**Consequences.** `python/harness/surface.py` (the resolver),
+`python/harness/graph.py` (delegates; the run publishes the resolution),
+`python/harness/persistence.py` (the columns and the read-back),
+`python/harness/schemas.py` (`RunResult.surface`),
+`python/harness/agents.py` (the profile comment states the union; the
+`code-navigator` comment no longer claims "five read tools"). Tests
+`python/tests/test_surface_resolution.py` (the rules), plus the existing
+`test_code_reachability.py`, `test_chat_code_profile.py`,
+`test_surface_honesty.py`, `test_code_agent.py`, `test_registry_visibility.py`
+and `test_advertised_tool_admission_all.py` (unchanged and still green). The
+code turn's bound tool set grows from 443 to 862 schemas and its measured
+marginal schema cost is 64_494 characters; the ratchet ceiling is 120_000 and
+Round 3 / W6 moves the schema set behind lazy tool loading so the cost stops
+growing with the declared surface. The `code-navigator` preset's allowlist is
+UNCHANGED (it is pinned by `test_memory_tools.py`); only its stale comment was
+corrected. Docs: `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
+`docs/harness/roadmap/round-3-parity-plan.md`.
+
+## ADR-H282 - Candidate verification is parallel within one bounded experiment, never across the one conductor
+
+**Decision.** One RSL experiment may verify its `k` independent candidates
+concurrently under `HARNESS_RSL_MAX_PARALLEL` (1–8, default 2), and the hill
+climb may evaluate independent validation neighbors concurrently under the same
+cap. Proposal order is preserved for selection, one verification failure is that
+candidate's non-answer, and the daily budget trims `k` before any call. Replay
+gates still run in order. The conductor remains one experiment at a time; per-
+scope concurrency is deferred.
+
+**Why.** The search was serial for no reason: each candidate owns its own trial
+store and registry, so the verifier already isolates them. Parallelizing the
+independent work buys search width without weakening the frozen judge, the
+budget, or the operator-only landing path.
+
+**Consequences.** `self_improvement/config.py` (`max_parallel`),
+`self_improvement/recursion.py` (semaphore + ordered gather),
+`self_improvement/hillclimb.py` (parallel validation, ordered processing),
+`RSLLoop` passes the configured cap. Tests: `test_rsl_recursion.py`
+(parallel cap + order), `test_rsl_hillclimb.py` (parallel validation). No new
+worker, queue, runtime or database; the daily budget is still the outer bound.
+Docs: `docs/self-improvement/rsl-v3-plan.md`.
+## ADR-H283 - Tool guidance is prompt evidence, not authority
+
+**Decision.** `HarnessSnapshot.toolGuidance` is a bounded (4,000 character)
+block of per-tool instructions appended to the effective prompt for candidate
+trials and the live surface. It cannot add a tool, raise a ceiling, change a
+permission, or grant an effect: the registered tool allowlist and the security
+gateway remain the execution boundary. The snapshot digest includes guidance
+only when non-empty, so old snapshots keep their exact identity.
+
+**Why.** Operators need to improve HOW the agent uses an allowed tool without
+turning the self-improvement loop into a permission path. Prompt text is the
+lowest-authority lever; binding it to the same `HarnessSnapshot` keeps the
+measurement, canary, preview and rollback flow unchanged.
+
+**Consequences.** `self_improvement/models.py` (`toolGuidance`,
+`effective_prompt`, additive digest), `evaluation/candidate_invoker.py` (trials
+use the effective prompt), `self_improvement/live_surface.py` (live application).
+Tests: `test_rsl_snapshot.py` + `test_live_surface.py`. No new tool, permission
+or runtime field. Docs: `docs/self-improvement/rsl-v3-plan.md`.

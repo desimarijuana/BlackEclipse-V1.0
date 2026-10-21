@@ -142,7 +142,11 @@ async def test_ask_command_pauses_then_resumes_on_approval(store, tmp_path, monk
     assert pending, "a pending single-use approval must exist"
     approvals.decide(pending[-1]["id"], approve=True)
 
-    result = await asyncio.wait_for(run, timeout=10)
+    # The resumed run does real work (surface resolution, the tool loop, the
+    # answer seam), so the wait must be a GENEROUS bound rather than a race: a
+    # 10s ceiling cancelled runs that finish at ~11s, and the cancellation then
+    # surfaced as a `cancelled` status instead of the real outcome.
+    result = await asyncio.wait_for(run, timeout=60)
     assert result.status == "completed"
     assert any(t == "approval.resolved" and d.get("approved") is True for t, d in events)
 

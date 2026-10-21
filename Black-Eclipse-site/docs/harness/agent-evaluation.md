@@ -1,7 +1,7 @@
 ---
 title: Agent Evaluation System
 status: Current
-last-verified: 2026-10-18
+last-verified: 2026-10-20
 ---
 
 # Agent Evaluation System
@@ -38,6 +38,8 @@ python/harness/evaluation/
   replay.py         inspect / compare / re-run a recorded trajectory
   mining.py         production-failure → regression-candidate pipeline
   improvement.py    the self-improvement verification loop
+  ablation.py       baseline vs surface vs surface+lessons, Wilson CI + veto
+  replay_builder.py recorded runs → deduped, redacted, live-only replay tasks
   experiments.py    A/B, model matrix, routing, skill and memory comparison
   dependencies.py   the affected-component map
   gate.py           the offline gate (used by scripts/test-evals.js)

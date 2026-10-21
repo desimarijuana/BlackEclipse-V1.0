@@ -298,3 +298,36 @@ async def test_accepted_state_persists_and_promotes_through_the_store(tmp_path):
         assert states.get_state(root["id"])["status"] == "superseded"
     finally:
         memory.close()
+
+async def test_validation_neighbors_run_in_parallel_with_a_cap():
+    import asyncio
+
+    active = 0
+    max_active = 0
+
+    async def propose(state, k, generation, rejected):
+        if generation:
+            return []
+        return [_candidate(f"n{i}", success=0.8) for i in range(3)]
+
+    async def evaluate(item, split):
+        nonlocal active, max_active
+        if split == "validation":
+            active += 1
+            max_active = max(max_active, active)
+            await asyncio.sleep(0.02)
+            active -= 1
+            return item["validation"]
+        return item["replay"]
+
+    result = await run_hillclimb(
+        _current(),
+        propose=propose,
+        evaluate=evaluate,
+        replay_baseline={"a": 1.0, "b": 1.0},
+        config=HillClimbConfig(
+            generations=1, k=3, max_parallel=2, max_plateau=1,
+        ),
+    )
+    assert max_active == 2
+    assert len(result["generations"][0]["records"]) == 3

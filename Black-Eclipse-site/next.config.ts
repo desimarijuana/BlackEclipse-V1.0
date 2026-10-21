@@ -3,17 +3,24 @@ import type { NextConfig } from "next";
 const isDev = process.env.NODE_ENV === "development";
 
 const nextConfig: NextConfig = {
-  // Turbopack emits content-hashed chunk URLs in dev (e.g. `chat_131e4e29._.js`).
-  // Next still marks every dev chunk/CSS response `no-store`, so a SECOND browser
-  // tab re-downloads and re-parses the entire ~20 MB client graph instead of
-  // reusing the first tab's copy. Production already serves these immutable, so
-  // mirror that in dev only: the hashed URL changes whenever the chunk does.
-  // HTML/RSC payloads stay uncached, so HMR and fresh data are unaffected.
+  // Turbopack names a dev chunk after the MODULE it serves (e.g.
+  // `src_components_screens_a6343f43._.js`), not after the bytes it holds. When
+  // a module is edited, renamed or deleted, the bytes behind that same URL
+  // change while the URL stays put. Marking those responses `immutable` pins
+  // the browser to the OLD bytes, and the next load asks the runtime for a
+  // module factory the server no longer has - the "the module factory is not
+  // available. It might have been deleted in an HMR update" overlay, with a
+  // blank screen behind it.
+  //
+  // So dev chunks REVALIDATE: the server already sends `ETag`/`Last-Modified`,
+  // so a second tab gets a cheap 304 instead of re-downloading the whole
+  // ~20 MB client graph, and a changed chunk is always fetched fresh.
+  // Production is unaffected: real builds are content-hashed and immutable.
   headers: isDev
     ? async () => [
         {
           source: "/_next/static/chunks/:path*",
-          headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+          headers: [{ key: "Cache-Control", value: "public, max-age=0, must-revalidate" }],
         },
       ]
     : undefined,
@@ -43,6 +50,14 @@ const nextConfig: NextConfig = {
   // dev requests same-origin. Dev only; unused by production builds.
   allowedDevOrigins: ["blackeclipse", "blackeclipse.local", "*.blackeclipse.local"],
   serverExternalPackages: ["better-sqlite3", "@prisma/adapter-better-sqlite3", "pdfjs-dist"],
+  // The code-workspace feature keeps COPIES of the repo under
+  // `.black-eclipse/code-workspaces/`. They are runtime state, not source, and
+  // a copy that is deleted while the build walks it used to fail the whole
+  // build with "EPERM: operation not permitted, scandir ...". They are never
+  // traced into the output.
+  outputFileTracing: {
+    excludes: { "*": [".black-eclipse/**/*"] },
+  },
   // Dev only. On a memory-constrained host a cold `next dev` compile of the
   // ~19k-module graph can take longer than webpack's default 120s client
   // chunk-load timeout. When that happens the browser gives up on a route chunk

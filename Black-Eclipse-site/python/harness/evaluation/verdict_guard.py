@@ -1,15 +1,13 @@
 """Verdict-leak tripwire for evidence served to models or stored as lessons.
 
-Borrowed from Harness² ``harness2/core/context.py`` (pinned revision
-``1cfe254e`` — ``assert_no_grader_verdicts`` / ``assert_no_leak_paths``): their
-improver is deliberately starved of ground truth. A tree that contains the
+The proposer is deliberately starved of ground truth. A tree that contains the
 grader's own output can never afterwards be served as evidence, so the tripwire
-fires on the read boundary and the rule is to find the leaking read path, not
-to widen the marker list.
+fires on the read boundary and the rule is to find the leaking read path, not to
+widen the marker list.
 
-Eclipse use: run this on any evidence bundle, candidate text or lesson that is
-about to (a) be served to a proposal/learning model or (b) be persisted as a
-reusable lesson. It keeps evaluation outcomes and expected answers out of the
+Use this on any evidence bundle, candidate text or lesson that is about to
+(a) be served to a proposal/learning model or (b) be persisted as a reusable
+lesson. It keeps evaluation outcomes and expected answers out of the
 self-improvement loop, so a lesson can never be a transcription of the answer
 key.
 """

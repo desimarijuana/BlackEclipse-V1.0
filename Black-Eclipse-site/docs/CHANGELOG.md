@@ -1,4 +1,4 @@
-﻿# Change Log
+# Change Log
 
 ## Rotation policy
 
@@ -7,6 +7,311 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-20
+
+- **fix(charts): the chart engine's value-axis formatter crashed every chart that
+  had a unit.** Matplotlib calls a tick formatter with `(value, position)`, and
+  the formatter took one argument — so every chart that asked for a value
+  format (percent, currency, compact, R) raised a `TypeError` inside the
+  renderer and came back as a 500 "the chart could not be drawn". That is
+  every widget, every dashboard chart and every portfolio chart: the widgets
+  that looked blank were refused charts, not empty ones. The formatter now
+  accepts both arguments, the expected `tight_layout` warning on the
+  gauge/radar/treemap is silenced, and there is a regression test that draws
+  one chart per value format (`python/tests/test_charts.py`). The runtime was
+  restarted, so the fix is live. Files: `python/harness/charts/render.py`.
+  docs updated: `docs/CHANGELOG.md`.
+
+- **fix(harness): a chat coding turn keeps the finance agent's tools - a
+  surface UNIONS, it never replaces.** A coding request typed in ordinary chat
+  was served the code profile by **replacing** the finance agent's whole
+  allowlist with it. Measured against a real `AgenticService` (956 registered
+  tools), the finance agent declares 668 tools and the code profile declares
+  454, and the two are largely disjoint - so the replacement cost the model
+  **441 tools** on every coding turn and named **none** of them: the whole
+  task/plan family (`create_plan`, `create_task`, `read_plan`, `run_plan`, ...),
+  the whole web/research family (`web_search`, `web_extract`, `research_query`,
+  `claim_verify`, ...), the unified retrieval/search family (`semantic_search`,
+  `hybrid_search`, `search_evidence`, ...), the truthful-capability
+  diagnostics (`get_capability_matrix`, `get_research_health`) and the
+  response-contract tools (`response_block_schema`, `response_validate`).
+  Two of those losses were defects, not inconveniences: `response_block_schema`
+  is what the run checks before injecting the live response-schema digest and
+  the response-mode plan, so a coding turn produced a **degraded structured
+  response with no error and no warning**; and `get_capability_matrix` is the
+  tool whose absence was already recorded as a real incident in the
+  `ECLIPSE_AGENT` allowlist comment ("verified in the SYS/RELIANCE/Tata runs,
+  where `get_capability_matrix` returned TOOL_FORBIDDEN"). The stated intent
+  had always been the opposite of the behaviour - `agents.py` said *"ADDITIVE:
+  `ECLIPSE_AGENT`'s declared tools are NOT touched"* and ADR-H117 described the
+  profile as applied *"after the autonomy narrowing"*. The code replaced
+  instead. The resolver now moves to `python/harness/surface.py` (its own
+  module, so `graph.py` shrinks by ~120 lines) and combines the two halves by
+  UNION - `allowed = policy_narrowed(base) UNION policy_narrowed(surface)` -
+  with BOTH halves narrowed through the ONE policy authority, so an autonomy
+  profile still removes every write/execute/external tool it bans, from the base
+  half and from the surface half. A surface never removes a base tool: a tool
+  may leave a run's surface only through the autonomy profile or through an
+  operator-disabled store, and **both are named**. The resolution is published
+  on the run row and returned on the run result (additive, optional field
+  `surface`): the surface id, what it added, what the profile removed, what a
+  disabled store removed, the bound tool count, and the **measured** schema
+  characters the surface added - ratcheted by
+  `MAX_SURFACE_ADDED_SCHEMA_CHARS`, so the cost can never grow silently.
+  **The same change fixed a latent crash on a fresh install**: the answer seam
+  writes `codeVerification` UNCONDITIONALLY, and that column was in neither the
+  `CREATE TABLE` nor the migration list - so on a fresh `agent-memory.db`
+  (which every new clone gets, because the file is gitignored) the write
+  raised `no such column: codeVerification` and **every run crashed after the
+  model had already produced its answer**. The live repository masked it
+  because its database predates the column. `codeVerification`, `autonomy`,
+  `workspaceId` and the new `surface` column are now in the migration list, so
+  `npm install && npm run dev` keeps working on a clean machine. The
+  `code-navigator` preset's allowlist is UNCHANGED (it is pinned by
+  `test_memory_tools.py`); only its stale "read-only, five tools" comment was
+  corrected. Files: python/harness/surface.py (new),
+  python/harness/graph.py, python/harness/persistence.py,
+  python/harness/schemas.py, python/harness/agents.py,
+  python/tests/test_surface_resolution.py (new, 18 tests). ADR-H280. docs
+  updated: docs/harness/decisions.md, docs/harness/architecture.md,
+  docs/NAVIGATION.md.
+
+- **feat(harness): projects - a named scope for the work that belongs together.**
+  Before projects, Eclipse could already *label* work: `RunRequest.projectId`
+  was on the wire, `HarnessRun.projectId` and `SessionMessage.projectId` were
+  persisted, `HarnessArtifact.projectId` had an index - but nothing resolved
+  the label. A project id was a string with no entity behind it, so "the same
+  project" could not be listed, shown, or extended. A project now closes that
+  gap with three pieces. (1) **The entity**: `python/harness/projects/store.py`
+  owns `Project` and `ProjectMember` on the ONE `agent-memory.db` connection
+  (never `eclipse-memory.db`, never `jdds.db`), with idempotent DDL so a store
+  can be constructed in any order. A member is a **reference, not a copy** -
+  `strategy`, `experiment`, `dataset`, `artifact`, `chat` or `note`, each owned
+  by its own subsystem; the project only remembers where to look. (2) **The
+  tools**: `project_create`, `project_list`, `project_show`, `project_attach`
+  and `project_detach`, allowlisted in `agents.py`; a project that does not
+  exist is a named refusal, never an empty list. (3) **The binding**: a run
+  that carries `projectId` gets the project's members as a per-run
+  `runtime_context` note - the block that already carries the run's date and
+  the user's page. The brief says what the project HOLDS and never what the
+  run should conclude, and an unknown project id is *reported* in the context
+  so a typo cannot masquerade as "no project". It changes what the model knows,
+  not what it may do: the tool surface is still resolved by policy. Surfaces:
+  the five agent tools; the operator-gated routes `/projects`,
+  `/projects/{id}` and `/projects/{id}/members`; the front-door proxy
+  `/api/harness/projects`; and a chat turn, which now carries `projectId`
+  through both chat routes. Files: python/harness/projects/ (new),
+  python/harness/routers/projects.py (new), python/harness/main.py,
+  python/harness/graph.py, python/harness/service.py, python/harness/tools.py,
+  python/harness/agents.py, src/app/api/harness/projects/route.ts (new),
+  src/app/api/harness/chat/route.ts, src/app/api/harness/chat/stream/route.ts,
+  src/lib/harness/run-service.ts. Tests: python/tests/test_projects.py (24).
+  docs updated: docs/projects.md (new), docs/NAVIGATION.md.
+
+- **fix(quant): a funded prop account no longer inherits the evaluation's access
+  period, and a failed account pays nothing.** Two real bugs in the prop-firm
+  engine. (1) The access period belonged to the EVALUATION, but the funded
+  phase fell back to the size's `maxTradingDays`, so a 40-day funded run could
+  "fail" an access period it was never subject to - and the payout was still
+  paid on the truncated balance. The access period now applies only to a phase
+  with a profit target, and a payout is made only by an account that is still
+  ALIVE: any failure (a breach, a consistency violation, an expired access
+  period) closes the account, and a closed account pays nothing. (2) A
+  qualifying day was counted when a day's P&L was `>= 0`, so a flat day
+  counted as a qualifying day for the payout policy; it now requires a day that
+  actually reaches the firm's minimum day profit. Also: placing trades on their
+  regime bar was a linear scan per trade (quadratic over a long backtest) - it
+  is now an O(1) index, with a regression test that places 5,000 trades over
+  2,000 bars; and the consistency breach now names the BEST day rather than
+  the last day simulated. Files: python/harness/quant/propfirm.py,
+  python/harness/quant/regime.py, python/harness/quant/advanced_tools.py.
+  Tests: python/tests/test_quant_propfirm.py,
+  python/tests/test_quant_regime_verdict.py. docs updated:
+  docs/quant-engine.md, docs/backtesting-engine.md.
+
+- **feat(charts): ECharts is retired — every chart is drawn by the Python chart
+  engine, and the map and the graphs are plain SVG.** `echarts`, `echarts-gl`
+  and the never-imported `recharts` are **removed from `package.json` and the
+  lock file**, and no module imports them any more. Every surface moved onto
+  the engine: the chat's response chart blocks, the journal's eight charts and
+  the trade replay, the portfolio widgets (NAV, allocation, health, Monte
+  Carlo, treemap, correlation matrix), the backtest screen, the economics
+  panel, the dashboard widgets and the market treemap, the workspace's generic
+  charts, the fundamentals panel, and the price chart (a new
+  `PythonChartProvider` behind the unchanged `ChartProvider` contract). The
+  engine grew what those surfaces needed: a `gauge`, a nested `treemap`,
+  per-point and per-slice colours, named **reference lines** (the replay's
+  entry/stop/target/exit), **highlight spans** (the recession shading), a
+  **volume pane**, a log axis, value formats and a forecast **band**. The two
+  surfaces that were never charts became plain **SVG**: the Investor Eye map
+  (the same Natural Earth GeoJSON, projected, with the layer descriptors drawn
+  as shapes — so it keeps its hover and click behaviour) and the relationship
+  graphs (a deterministic, seeded force layout). The retired drawing system
+  (the price chart's hand-drawn annotations), the 3D globe and the map's
+  roam/zoom went with the browser canvas. **What is gone, plainly:** no hover
+  tooltip and no crosshair anywhere, no wheel zoom / pan / drag on the price
+  chart, no hand-drawn annotations, and no 3D globe; a chart is also a round
+  trip (drawn by the runtime, fetched back as an artifact), so a live widget
+  must debounce. Files: `python/harness/charts/{spec,render}.ts`→`.py` (the
+  engine's new kinds and options), `src/lib/chart/providers/python-provider.ts`,
+  `src/lib/investor-eye/map-svg.ts`, `src/components/investor-eye/world-map.tsx`,
+  `src/lib/graph-layout.ts`, `src/components/charts/svg-graph.tsx`,
+  `src/components/charts/python-chart.tsx`; deleted
+  `src/lib/chart/providers/eclipse-provider.ts`, `src/lib/chart/drawings/*`,
+  `src/components/chart/drawing-overlay.tsx`, `src/lib/investor-eye/map-echarts.ts`
+  (+ its tests), `src/types/echarts-gl.d.ts`, `src/lib/response/chart-option.ts`.
+  Tests: `python/tests/test_charts.py` (28), `src/lib/response/chart-spec.test.ts`
+  (20), `src/app/api/harness/charts/route.test.ts`, `src/lib/harness/charts.test.ts`.
+  docs updated: `docs/chart-engine.md` (§4 is now the completed migration),
+  `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/DECISIONS.md` (ADR-050
+  amendment), `skills/ARCHITECT.md` (ADR-050 amendment),
+  `docs/investor-eye-architecture.md`.
+
+- **docs(harness): Round 3 — the parity plan, from 7.2 to 9.5.** The harness
+  was scored against the 2026 field (Claude Code, OpenHands, Codex CLI, Cursor,
+  Devin, OpenCode, GitHub Copilot, Cline, Goose, Aider) on seven dimensions
+  that decide how a harness actually performs. The result was **7.18** against
+  a field median of 8.15 — and the deficit is not broad. Eclipse already
+  **beats** the field median on safety (8.5 vs 8.0), on extensibility (8.5 vs
+  8.25) and on the *design* of its evaluation system (7.0 vs 6.75). It loses
+  on exactly two: **context management (5.5 vs 8.5)** and **operational
+  maturity (5.0 vs 8.25)** — and those two carry 0.80 of the 0.97-point gap.
+  The new plan says so, and says what closing them costs: +2.32 points to
+  reach 9.5, of which +0.72 is context and +0.36 is operations. The last one
+  is the cheapest prize in the plan — no new mechanism, only discipline — and
+  that asymmetry is the plan's central argument. **Ten workstreams in three
+  waves**, each with the evidence that opened it, the exact files, the
+  contract, the runnable gate, the score it moves and its proposed ADR.
+  Wave A removes defects: **W1** wires the verify→repair loop into the live
+  graph (the module is correct and bounded; it has **zero production
+  callers** — `graph.py` passes `repair_outcome=None`, so the model is told a
+  check failed and must drive the retry itself with no budget and no cost
+  cap); **W2** fixes surface resolution so a code surface *narrows* the
+  allowlist instead of replacing it (today a chat code turn loses every
+  finance, retrieval, plan and web tool, because `chat_code_allowlist`
+  returns a list that overwrites the base); **W3** collapses three overlapping
+  write stacks into one edit primitive with a **mandatory** stale-file guard
+  (today `expectedHash` is optional everywhere, so the model can write to a
+  file it never read) and closes the landing path with an end-to-end
+  `promotion` fixture; **W5** collapses two search implementations into one
+  ripgrep-first tool that always reports its engine (today the tool the chat
+  profile leads with is the slow Python scan). Wave B closes the two capping
+  dimensions: **W4** adds a deterministic, bounded **repo map** seeded into
+  the first turn (there is none anywhere today, and the good machinery that
+  would build one — `code/intel/context.py` — is reachable only if the model
+  thinks to ask for it), and **W6** adds real **compaction** with a
+  deterministic fallback plus lazy tool loading, against a harness that today
+  truncates history and says so (`context_budget.py:12` — *"no summarization"*)
+  while binding ~450-550 tool schemas every turn. Wave C makes it real:
+  **W7** ships it (tag, release, shrink the harness by 30% under a
+  CI-enforced size budget, fix the 7 duplicated ADR numbers, get a second
+  pair of eyes); **W8** measures it live (the offline tier scripts the model
+  out, the live tier is not in CI, and there is no external suite — no
+  `swe.?bench` anywhere in the repo) and **publishes** a generated,
+  provenance-stamped number; **W9** makes the isolation real (`network=False`
+  is declarative with no consumer, the container backend's `.execute()` is
+  never called, and `shell_run` hands the full `os.environ` to a host shell);
+  **W10** distributes it. The plan refuses the two easy escapes: it does not
+  add capability that already exists twice, and it does not weaken the honesty
+  rules to win a benchmark — `UNMEASURED` stays `UNMEASURED`, and a harness
+  that refuses to guess scoring worse than one that guesses is published as a
+  scoring artifact, not fixed by guessing. The plan ends with the one item
+  that can falsify it: **an outside re-measurement of the scorecard**. Until
+  then the published number stays 7.18, not 9.5. Files:
+  docs/harness/roadmap/round-3-parity-plan.md (new),
+  docs/harness/roadmap/README.md (round 3 in the index),
+  docs/NAVIGATION.md (the roadmap trigger row). docs updated:
+  docs/harness/roadmap/round-3-parity-plan.md,
+  docs/harness/roadmap/README.md, docs/NAVIGATION.md.
+
+- **feat(quant): the Edge Report — the grade, the evidence and the figures as one
+  durable document.** The verdict, the regimes and the Monte-Carlo used to be
+  three answers in three places. The Edge Report binds them into ONE artifact:
+  a grade, the four axes behind it, the flags, the measured numbers, the
+  figures, and — always — what was *not* measured. The report computes nothing
+  of its own: every number in it was measured by the quant engine, and every
+  picture is a chart spec drawn by the **ONE** chart engine (ADR-050) and
+  recorded in the Artifact Center. The panels are the equity curve, the
+  drawdown, the Monte-Carlo return percentiles, the simulated return
+  distribution, and the realised P&L by market regime. Two honesty rules ride
+  along: a **figure is computed, never evidence** (every chart carries the
+  `computed` label the chart contract requires, and the report says it in
+  words), and a **long series is sampled, and the figure says so** — the chart
+  engine bounds a series at 5,000 points and a category axis at 2,000, so the
+  report samples to the tighter bound, keeps the first and last points, and
+  writes the number of dropped points into the figure's footnote. A panel with
+  no data is **absent**, not empty: a report without a Monte-Carlo has no
+  Monte-Carlo panel and says so (`EDGE_REPORT_WITHOUT_MONTE_CARLO`) rather than
+  scoring an axis it could not judge. The document is registered in the
+  Artifact Center as a Markdown REPORT (`edge-report-<experiment>.md`) and each
+  figure as a CHART artifact, so the report is downloadable and versioned like
+  any other produced file. Surfaces: the agent tool `generate_edge_report`, the
+  route POST /quant/edge-report (both through the existing /api/backtest/*
+  proxy), and a new **Edge Report panel** on the Backtest screen that picks a
+  stored experiment and an optional Monte-Carlo and shows the grade, the four
+  axis scores, the flags and the figures. Nothing is computed in the browser.
+  Files: python/harness/quant/edge_report.py (new),
+  python/harness/quant/advanced_tools.py, python/harness/quant/tools.py,
+  python/harness/routers/quant.py,
+  src/components/screens/backtest/edge-report-panel.tsx (new),
+  src/components/screens/backtest/backtest-screen.tsx,
+  src/lib/backtest/backtest-client.ts. Tests:
+  python/tests/test_quant_edge_report.py (10), python/tests/test_quant_routes.py,
+  src/lib/backtest/backtest-client.test.ts. docs updated: docs/quant-engine.md,
+  docs/backtesting-engine.md, docs/chart-engine.md.
+
+- **fix(quant): the report routes are mounted on the running app.** The five
+  routes that judge a result - `/quant/regime-monte-carlo`,
+  `/quant/edge-verdict`, `/quant/prop-firm`, `/quant/prop-firm/firms` and
+  `/quant/edge-report` - were registered on their router but the router was
+  never included on the app, so the paths did not exist at runtime even though
+  the router test passed. A route on a router is not a route until the app
+  includes it; a test now asserts the OpenAPI schema carries them, so this
+  class of bug cannot come back silently. The routes also moved out of
+  `routers/quant.py` into their own `routers/quant_reports.py`, because that
+  module is at its size budget and these are a separate concern: they do not
+  run a backtest, they *judge* one. Files: python/harness/main.py,
+  python/harness/routers/quant_reports.py (new),
+  python/harness/routers/quant.py, python/tests/test_quant_routes.py. docs
+  updated: docs/quant-engine.md.
+
+- **feat(charts): the chat's response chart blocks now run on the Python chart
+  engine — the ECharts option builder is deleted.** A `chart` block is
+  translated into the chart engine's spec by a new pure module
+  (`src/lib/response/chart-spec.ts` — `chartBlockToSpec`, plus the visual
+  director that resolves `chartType: "auto"`), and `response-chart.tsx` shows
+  the picture the engine drew, fetched back as an artifact. The 800-line
+  ECharts option builder (`src/lib/response/chart-option.ts`) and its test are
+  **deleted**, and no charting library ships in the chat bundle any more. The
+  drawn-chart registry (`chart-registry.ts`) now holds an **artifact id**
+  instead of a live ECharts instance, so the PNG/PDF exports fetch the artifact
+  (the PDF sets it on the app's own dark panel, because the engine draws a
+  transparent figure with light ink). A lossy mapping is **TOLD**: a block type
+  the engine cannot draw exactly (`treemap`/`sunburst`/`funnel`/`gauge`) is
+  drawn as the closest honest shape and the note appears under the picture — a
+  chart that quietly became a different chart would be a lie about what the
+  user is looking at. The engine gained what the response block needed: a
+  forecast `band` (drawn as a translucent area), a **camelCase** wire shape
+  (like every other harness model) and one spec contract shared by the tool,
+  the route and the browser. Loss, stated plainly: **no hover tooltip and no
+  crosshair** — a chart is a picture, and the values a tooltip used to show
+  live in the block's own table/text. Files:
+  `src/lib/response/chart-spec.ts` (+ `.test.ts`),
+  `src/components/response/response-chart.tsx`,
+  `src/lib/response/chart-registry.ts`, `src/lib/response/export.ts`,
+  `src/lib/harness/charts.ts`; deleted `src/lib/response/chart-option.ts`
+  (+ test); `python/harness/charts/spec.py`, `python/harness/charts/render.py`,
+  `python/harness/routers/charts.py`. Tests: `chart-spec.test.ts` (20),
+  `python/tests/test_charts.py` (28). docs updated: `docs/chart-engine.md`,
+  `docs/interactive-response-engine.md`, `docs/DECISIONS.md` (ADR-050
+  amendment), `skills/ARCHITECT.md` (ADR-050 amendment), `docs/NAVIGATION.md`.
+
+- **fix(ui): the RSL control panel parses again - the release gate was broken.**
+  The in-flight RSL climb-toggle work left the panel's JSX unbalanced (a
+  fragment opened around the status grid was not closed), so `npx tsc --noEmit`
+  failed and the `npm run check:all` gate was red. The markup is now balanced
+  and the typecheck is clean; nothing about the panel's behaviour changed.
+  Files: `src/components/screens/skills/rsl-control-panel.tsx`. no doc change -
+  a syntax repair, not a behaviour or contract change.
 
 - **feat(quant): prop-firm evaluation - the rules as data, and a Monte-Carlo
   over trading days.** A prop firm sells a funded account for a fee, and the fee
@@ -467,6 +772,161 @@ umpy/pandas are **already installed** in the runtime and the analysis
   Docs updated: `docs/harness/scraper-lane.md` (new), `docs/harness/web-research-engine.md`,
   `docs/harness/roadmap/phase-16-bulk-acquisition.md`, `docs/NAVIGATION.md`,
   `skills/ARCHITECT.md` + `docs/DECISIONS.md` (ADR-051).
+- **fix(front door): a run the runtime does not know is now 404, not 500.** The
+  runtime answers "not found" as HTTP 404 with a human detail ("Run not
+  found"), but the TypeScript clients dropped the status and threw only the
+  detail text. Every caller that maps 404 -> "nothing here" (`getRunFromRuntime`,
+  the run explanation, the research receipt, the skill and workflow lookups)
+  therefore missed the match, and the front door reported a missing run as a
+  500 - which reads as "the runtime is broken" and paints errors in the browser
+  console for a run that simply is not in this store. The status now travels on
+  the error itself (`HarnessHttpError` in `src/lib/harness/errors.ts`, with
+  `isNotFoundError()` as the one way to ask), so the honest answer reaches the
+  browser: 404 for a run that is not there, 503 for a runtime that is
+  unreachable, 500 for a real failure. The message the operator reads is still
+  exactly what the runtime said. Files: `src/lib/harness/errors.ts`,
+  `src/lib/harness/python-client.ts`, `src/lib/harness/skills-client.ts`,
+  `src/lib/harness/workflows-client.ts`,
+  `src/lib/harness/eclipse-memory-client.ts`,
+  `src/lib/harness/python-client.test.ts` (new).
+  Docs updated: `docs/harness/architecture.md`.
+- **fix(dev): the dev server no longer serves stale module bytes - "the module
+  factory is not available" cannot come back.** In dev, Turbopack names a chunk
+  after the MODULE it serves (`src_components_screens_a6343f43._.js`), not after
+  the bytes it holds: when a module is edited, renamed or deleted, the bytes
+  behind that same URL change while the URL stays put. The dev chunk header
+  marked those responses `immutable` for a year, so the browser kept the OLD
+  bytes; the next load asked the runtime for a module factory the server no
+  longer had and the page died behind the "the module factory is not available.
+  It might have been deleted in an HMR update" overlay. Dev chunks now
+  REVALIDATE (`public, max-age=0, must-revalidate`): the server already sends
+  `ETag`/`Last-Modified`, so a second tab still gets a cheap 304 instead of
+  re-downloading the whole client graph, and a changed chunk is always fetched
+  fresh. Production is untouched (real builds are content-hashed and
+  immutable). One-time repair for a browser that already cached the old
+  immutable copies: `GET /api/dev/cache-reset` (dev only) answers with
+  `Clear-Site-Data: "cache"` - the HTTP cache only, never cookies or
+  localStorage, so the operator stays signed in. Files: `next.config.ts`,
+  `src/app/api/dev/cache-reset/route.ts` (new).
+  Docs updated: `docs/environments.md`.
+- **fix(build): the wordmark fonts are vendored - the build no longer needs
+  Google, and the app can no longer fail to compile over a font.** The 16
+  wordmark faces were pulled in with `next/font/google`, so EVERY build made a
+  live request to fonts.googleapis.com. Google answers a query with the CSS
+  split per subset and per weight; Turbopack resolves one font entry per query,
+  and when it got more than one it refused the import outright -
+  "next/font/google queries have exactly one entry" - which took the WHOLE app
+  down (a 500 on every page) whenever the dev cache was cold or the network
+  answered differently. The faces now live in `public/fonts/` (the very files
+  the production build already shipped) and are declared in
+  `src/app/fonts.css` with the same 16 `--font-*` variables, so the wordmark
+  options, the chat appearance picker and the themes are unchanged. The build
+  is offline-safe from here. Files: `public/fonts/` (new, 20 woff2),
+  `src/app/fonts.css` (new), `src/app/layout.tsx`.
+  Docs updated: `docs/ARCHITECTURE.md`.
+
+- **feat(rsl): post-landing canary + hot, persisted config (v3 P0).** A
+  promoted `rsl-*` change that needs a restart now carries a `postLanding` hint.
+  `POST /code/promotions/{rollbackId}/post-landing` runs restart → `GET /health`
+  → keep, or on failure rollback → restart → re-probe; the front door can pass
+  `alreadyRestarted=true` after its own supervisor restart. With no restart seam
+  the record is `unverified`, never a success, and a failed rollback is
+  `rollback_failed`. Probe records land in `HarnessPostLanding` on the ONE
+  `agent-memory.db`. Separately, `RSLConfig.from_dict`/`apply_payload` reuse the
+  env clamps, `RSLLoop.set_config` applies bounded overrides without a restart,
+  starts/stops the conductor on mode changes, and persists the last override in
+  `HarnessRuntimeSetting`; `POST /evolution/rsl/config` is the operator surface
+  and `GET /evolution/rsl` reports `configSource`. Defaults remain
+  `HARNESS_RSL_MODE=off`. The promotion card calls the probe after its restart
+  and shows healthy / rolled-back / unverified. Files:
+  `python/harness/self_improvement/{post_landing,runtime_settings,config,loop}.py`,
+  `python/harness/routers/{code,evolution}.py`,
+  `src/lib/harness/{code-client,code-browser}.ts`,
+  `src/app/api/code/promotions/[rollbackId]/post-landing/route.ts`,
+  `src/components/chat/promote-change.tsx`,
+  `src/lib/i18n/dictionaries/en.ts`, `src/lib/size-budget.test.ts` (ratchet
+  1263→1266 for the three status strings). Tests:
+  `python/tests/test_post_landing.py` (7), `test_rsl_config.py`,
+  `test_rsl_loop.py`. Docs updated: `docs/self-improvement/rsl-v3-plan.md`
+  (new), `docs/harness/architecture.md`, `docs/harness/decisions.md`
+  (ADR-H278), `docs/NAVIGATION.md`.
+
+- **feat(rsl): three-arm ablation + `rsl:bench` (v3 P1 foundation).** RSL could
+  prove one candidate beat the current state on one suite; it could not answer
+  "does the surface, and do adopted lessons, beat doing nothing on the same
+  tasks?" `python/harness/evaluation/ablation.py` now runs `baseline` (the
+  production prompt + the evaluation registry's tools), `surface` (an operator
+  `HarnessSnapshot`) and `surface+lessons` (a per-task verified lesson manifest)
+  through the same `CandidateAgentInvoker`/`EvaluationRunner`, same tasks, seed
+  and trials. The report carries the Wilson interval, measured/total trials,
+  per-category rates, cost, and a critical-regression veto for `safety` /
+  `adversarial`; a measured gain is `improved`, a critical drop is `vetoed`.
+  `npm run rsl:bench` wraps the CLI with a disposable `agent-memory.db`.
+  `CandidateAgentInvoker` gained an additive bounded `prompt_suffix` (static or
+  per-task callable) for the lessons arm. The production Eclipse prompt is ~34k
+  characters, so `HarnessSnapshot`'s `MAX_PROMPT_CHARS` moved 16k→48k; otherwise
+  no surface could be derived from the real agent. `CandidateAgentInvoker` also
+  gained an explicit `--live` tier (real provider/model, key from
+  `HARNESS_EVAL_API_KEY`); it refuses to run live without explicit settings and
+  the report labels the tier. `python/harness/evaluation/replay_builder.py` turns
+  recorded completed runs into deduplicated, redacted, **live-only** regression
+  tasks (expected behavior = the recorded tool sequence, never an invented
+  answer); it is operator-invoked and writes an unreviewed dataset. Honest limits
+  are printed in every report: the default is the deterministic scripted tier,
+  the corpus is still 53 tasks, and no replay dataset is committed yet. Files:
+  `python/harness/evaluation/{ablation,candidate_invoker,replay_builder}.py`,
+  `python/harness/self_improvement/models.py`, `scripts/rsl-bench.js`,
+  `package.json`. Tests: `python/tests/test_ablation.py` (6),
+  `test_replay_builder.py` (4), `test_rsl_config.py` (production-prompt cap).
+  Docs updated: `docs/self-improvement/rsl-v3-plan.md`, `docs/QUICKSTART.md`,
+  `docs/harness/agent-evaluation.md`, `docs/harness/decisions.md` (ADR-H279).
+- **chore(rsl): remove the Harness² program; RSL is Eclipse-owned.** No code
+  path imported or executed the external framework — only two research docs,
+  docstrings and plan references did. The active plan no longer names it
+  (`rsl-implementation-plan.md`, `rsl-v3-plan.md`), the NAVIGATION row is gone,
+  and the native verdict guard / contrast bundle / selection / lesson gate are
+  described as Eclipse mechanisms (`evaluation/{verdict_guard,contrast}.py` +
+  their tests). The two historical documents are marked `status: Stale` with a
+  `superseded-by` pointer and a withdrawal note rather than deleted, per the
+  docs policy ("mark stale, never delete"). Historical CHANGELOG entries are
+  unchanged (append-only). Files:
+  `python/harness/evaluation/{verdict_guard,contrast}.py`,
+  `python/tests/test_evaluation_{verdict_guard,contrast}.py`,
+  `docs/{NAVIGATION.md,self-improvement/rsl-implementation-plan.md,self-improvement/rsl-v3-plan.md,self-improvement/architecture-audit.md,self-improvement/harness2-borrowings.md}`.
+  Tests: no behavior change; the evaluator suites still pass.
+  Docs updated: the docs above; no active doc references Harness².
+- **feat(rsl): parallel candidate verification (v3 P2 slice).**
+  `HARNESS_RSL_MAX_PARALLEL` (1–8, default 2) now bounds one semaphore per
+  experiment. `recursion.run_recursive` verifies its `k` independent candidates
+  with `asyncio.gather`, preserves proposal order for selection, and turns one
+  verification exception into that candidate's non-answer rather than a batch
+  failure. `hillclimb.run_hillclimb` evaluates independent validation neighbors
+  concurrently under the same cap, then runs replay gates in order. The daily
+  budget still trims `k` before any call and `max_evaluations` is counted before
+  the batch; the result carries `maxParallel`. Per-scope leases now let two
+  experiments in different scopes run at once (the same scope refuses a second;
+  a tick still owns the global busy flag). Recursive results carry
+  `costUsd`/`totalTokens` when reported. Cost-per-accepted-improvement reporting
+  remains open. Files:
+  `python/harness/self_improvement/{config,loop,recursion,hillclimb}.py`.
+  Tests: `test_rsl_recursion.py` (parallel cap + order + per-scope lease + usage),
+  `test_rsl_hillclimb.py` (parallel validation), `test_rsl_config.py`
+  (default/clamp). Docs updated: `docs/self-improvement/rsl-v3-plan.md`,
+  `docs/QUICKSTART.md`, `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H282).
+- **feat(rsl): bounded tool guidance on the editable surface (v3 P3 slice).**
+  `HarnessSnapshot.toolGuidance` (≤4,000 chars) is prompt evidence, never
+  authority: it cannot add a tool, raise a ceiling, change a permission or grant
+  an effect. `effective_prompt()` appends it for candidate trials
+  (`to_agent_config`) and the live surface (`apply_active_surface`); the digest
+  includes guidance only when non-empty, so every snapshot written before the
+  field keeps its exact identity. Guardrails, memory policy, subagent prompts
+  and the skill-manifest policy remain P3 work. Files:
+  `python/harness/self_improvement/{models,live_surface}.py`,
+  `python/harness/evaluation/candidate_invoker.py`. Tests:
+  `test_rsl_snapshot.py` (bound + digest), `test_live_surface.py` (applied,
+  allowlist unchanged). Docs updated: `docs/self-improvement/rsl-v3-plan.md`,
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H283).
 
 ## 2026-10-19
 

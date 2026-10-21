@@ -1249,6 +1249,21 @@ def rsl_status(_: bool = Depends(require_operator)) -> dict[str, Any]:
     return {"success": True, **loop.health()}
 
 
+@router.post("/evolution/rsl/config")
+async def rsl_config(
+    payload: dict[str, Any], _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Apply bounded RSL overrides without a restart (persisted)."""
+    loop = getattr(service, "_rsl_loop", None)
+    if loop is None:
+        raise HTTPException(status_code=503, detail="RSL loop unavailable")
+    try:
+        status = await loop.set_config(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"success": True, **status}
+
+
 @router.post("/evolution/rsl/tick")
 async def rsl_tick(_: bool = Depends(require_operator)) -> dict[str, Any]:
     """Run one bounded conductor tick now (operator-triggered)."""

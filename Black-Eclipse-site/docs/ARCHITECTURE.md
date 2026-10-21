@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-10-19
+last-verified: 2026-10-20
 ---
 
 # Architecture
@@ -365,11 +365,16 @@ Two mechanisms:
       `textEnabled` pref defaults false, so the wallpaper shows alone) and
       **always on for Solid** (the wordmark is the point of that mode); the
       authored `text`/font/color/size are retained while off. The 17 wordmark
-      typefaces are **self-hosted** via `next/font/google` in
-      `src/app/layout.tsx` (16 `--font-*` variables on `<html>`, no runtime
-      request) and referenced by `WORDMARK_FONT_OPTIONS` — elegant serif, sci-fi
-      display, pixel and ASCII/mono faces. Keep that list in sync with the
-      `layout.tsx` imports. The ChatBot page's own look — the conversation
+       typefaces are **self-hosted**: the files live in `public/fonts/` and are
+       declared in `src/app/fonts.css` (16 `--font-*` variables on `:root`, no
+       runtime request) — elegant serif, sci-fi display, pixel and ASCII/mono
+       faces. Keep that list in sync with the variables in
+       `src/app/fonts.css`. They are vendored rather than fetched from Google
+       at build time: a live `next/font/google` fetch made the BUILD depend on
+       the network, and when Google answered a query with more than one font
+       entry (it splits the CSS per subset and per weight) Turbopack could not
+       resolve the import and the whole app failed to compile.
+       The ChatBot page's own look — the conversation
       typeface plus the backdrop/wordmark above — lives together on the
       **Customization › ChatBot Page** tab (the backdrop controls moved there
       out of General). The conversation font is a separate, immediately-applied
@@ -1935,9 +1940,18 @@ Three doors onto the one engine: the `python_chart` **agent tool** (a
 malformed spec is a refusal that names the missing part), the **operator
 route** the front door calls, and the **browser client**. A figure is always
 `computed` and never evidence; a missing `matplotlib` is a named refusal, not
-an empty picture. Full contract, the surface inventory and the **ECharts
-retirement plan**: [`docs/chart-engine.md`](chart-engine.md). Decision:
-**ADR-050**.
+an empty picture. **ECharts is gone.** `echarts`, `echarts-gl` and `recharts` are no longer
+dependencies and no module imports them: every chart surface is drawn by the
+engine, and the two surfaces that were never charts — the Investor Eye map and
+the relationship graphs — are plain **SVG** (the same GeoJSON projected, and a
+deterministic force layout), so they keep their hover and click behaviour.
+
+What a drawn picture cannot do is stated plainly in the chart engine's doc: no
+hover tooltip, no crosshair, no wheel zoom or pan on the price chart, no
+hand-drawn annotations, and no 3D globe.
+
+Full contract, the surface inventory and the honest cost list:
+[`docs/chart-engine.md`](chart-engine.md). Decision: **ADR-050**.
 
 ## Module boundaries (terminal · shared · backend · harness)
 

@@ -54,8 +54,9 @@ what exists.
 | Regime-aware uncertainty: `run_regime_monte_carlo` (beyond the 16) | **added** | `regime.py` + `montecarlo.py` (`regime_block_bootstrap`) |
 | Evidence grading: `grade_strategy_edge` (beyond the 16) | **added** | `verdict.py` (A–F verdict + overfit tells) |
 | Prop-firm evaluation: `run_prop_firm_simulation`, `list_prop_firm_rules` (beyond the 16) | **added** | `propfirm.py` + `propfirm_mc.py` (real rules as data, day-level resampling) |
+| The Edge Report: `generate_edge_report` (beyond the 16) | **added** | `edge_report.py` (grade + evidence + chart specs; figures drawn by the one chart engine) |
 
-All 16 are registered in `quant/tools.py` (`QUANT_TOOLS`, now **72** tools) and
+All 16 are registered in `quant/tools.py` (`QUANT_TOOLS`, now **73** tools) and
 allowlisted automatically through `harness/agents.py`. `run_event_driven_backtest`
 and `run_vectorized_backtest` carry `metadata.engine` provenance.
 
@@ -105,8 +106,15 @@ and `run_vectorized_backtest` carry `metadata.engine` provenance.
   Topstep consistency target raises the profit target instead of failing the
   account, the FTMO consistency rule is judged over the period rather than on
   day one, an access period that expires fails the evaluation while a shorter
-  log is inconclusive, and the Monte-Carlo is reproducible, reports the
+  log is inconclusive, and the   Monte-Carlo is reproducible, reports the
   outcome distribution and uses the fees it was given.
+- `python/tests/test_quant_edge_report.py` — the Edge Report: the grade and its
+  axes, one chart per panel that has data, every chart spec valid for the
+  chart engine, a long series sampled to the engine's bound with the drop
+  count in the footnote, the markdown carrying the grade / numbers / caveats,
+  a report without a Monte-Carlo saying so instead of scoring it, the flags of
+  a bad strategy reaching the report, and the tool end to end against a stored
+  experiment — including that the figures are drawn and labelled `computed`.
 - Full Python suite: **5555 passed, 16 skipped (opt-in live), 0 failed** (full
   run); the `-k "quant or stats"` subset shows one **pre-existing, unrelated**
   `test_artifacts_api::test_stats_and_tags` ordering failure that does not appear

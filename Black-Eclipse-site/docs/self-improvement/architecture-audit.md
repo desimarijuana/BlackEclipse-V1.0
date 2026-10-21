@@ -1,8 +1,14 @@
 ---
 title: Harness² Self-Improvement — Phase 0 Architecture Audit
-status: Current
-last-verified: 2026-10-18
+status: Stale
+last-verified: 2026-10-20
+superseded-by: docs/self-improvement/rsl-v3-plan.md
 ---
+
+> **Withdrawn (2026-10-20).** Eclipse builds its own RSL; the Harness² adapter
+> is not part of the product and no code path depends on it. This audit is kept
+> for history only. Do not implement its Phase 3 adapter or add the external
+> framework.
 
 # Harness² Self-Improvement — Phase 0 Architecture Audit
 

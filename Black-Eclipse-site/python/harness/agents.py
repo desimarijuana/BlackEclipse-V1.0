@@ -33,6 +33,7 @@ from .sdk.tools import SDK_TOOLS
 # `quant/bootstrap.py`; imported as the ONE canonical list so the allowlist cannot
 # drift from what is registered.
 from .quant.tools import QUANT_TOOLS
+from .projects.tools import PROJECT_TOOLS
 from .stats.tools import STATS_TOOLS
 # The shared quantitative-research data tools (verification, resampling,
 # alignment, versioned datasets). Registered by `market/bootstrap.py`; imported as
@@ -348,6 +349,7 @@ ECLIPSE_AGENT = AgentConfig(
         # walk-forward, Monte-Carlo, sensitivity and robustness â€” over the same
         # verified datasets.
         *QUANT_TOOLS,
+    *PROJECT_TOOLS,
         # Statistical Analysis & Feature Engineering Engine: fourteen
         # deterministic statistical tools (returns, volatility, correlation,
         # beta, drawdown, stationarity, cointegration, autocorrelation,
@@ -563,10 +565,14 @@ ECLIPSE_AGENT = AgentConfig(
     allowPluginTools=True,
 )
 
-# The read-only repository navigator (Phase 1). A SEPARATE preset, not the
-# finance agent widened: its allowlist is ONLY the five read tools. It does NOT
-# set `allowMcpTools`, so it keeps its exact, closed allowlist and can never
-# reach a finance tool, an MCP tool or any other surface.
+# The repository navigator (Phase 1). A SEPARATE preset, not the finance agent
+# widened: it does NOT set `allowMcpTools`, so it keeps its exact, closed
+# allowlist and can never reach a finance tool, an MCP tool or any other
+# surface. Its allowlist GREW after Phase 1 — the read/navigate half plus the
+# write/execute/verify half the autonomy profile removes at `plan_only` — so the
+# old "read-only, five tools" description no longer described it. What the
+# preset still guarantees is the CLOSEDNESS: no finance tool, no MCP tool, and
+# no tool outside this list.
 CODE_NAVIGATOR = AgentConfig(
     id="code-navigator",
     name="Repository Navigator",
@@ -767,8 +773,14 @@ CODE_AGENT = AgentConfig(
 
 # The CHAT code profile (Phase 14 Â§6.2). ADDITIVE: `ECLIPSE_AGENT`'s declared
 # tools are NOT touched. When the front door recognizes a coding request it sends
-# an `autonomy`; the resolver then NARROWS the finance agent's run to this set for
-# that turn only, exactly as the code-agent narrows through `code.policy`.
+# an `autonomy`; the resolver then UNIONS this set with the finance agent's own
+# declared tools for that turn only, exactly as the code-agent narrows through
+# `code.policy`. Round 3 / W2 (ADR-H280) made the union real: the resolver used
+# to REPLACE the allowlist with this set, so a coding turn silently lost 441
+# tools - the whole task/plan family, the whole web/research family, the
+# unified search family, and the response-contract tools. Both halves are
+# narrowed through the ONE policy authority, so `plan_only` still removes the
+# write/execute tools and `edit_verify` still keeps them.
 #
 # It is still narrow: the read/navigate tools plus the write/execute/verify tools,
 # and deliberately NO external action â€” `code_commit`/`code_push`/`code_open_pr`/

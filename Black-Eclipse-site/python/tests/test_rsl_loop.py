@@ -550,3 +550,27 @@ async def test_run_hillclimb_saves_a_candidate_and_never_promotes(store):
     assert accepted["status"] == "candidate"
     assert loop.state_store.current("global")["id"] == root["id"]
     assert evolution.experiments_started_since("1970-01-01T00:00:00.000Z") >= 1
+
+@pytest.mark.asyncio
+async def test_hot_config_persists_and_reloads(store):
+    evolution = _evolution(store)
+    loop = _loop(store, evolution, mode="off")
+
+    status = await loop.set_config({"mode": "observe", "k": 4, "tickSeconds": 30})
+    assert status["mode"] == "observe"
+    assert status["k"] == 4
+    assert status["configSource"] == "env+persisted"
+
+    # A fresh conductor (the next process boot) overlays the persisted row.
+    booted = RSLLoop(
+        service=None, config=None, run_store=store, evolution=evolution,
+    )
+    assert booted.config.mode == "observe"
+    assert booted.config.k == 4
+    assert booted.config.tick_seconds == 30
+
+    with pytest.raises(ValueError):
+        await loop.set_config({"notAField": True})
+
+    await loop.stop()
+    await booted.stop()

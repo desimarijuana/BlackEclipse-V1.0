@@ -74,12 +74,57 @@ function canonicalRedirect(request: NextRequest): NextResponse | null {
   return NextResponse.redirect(target, 307);
 }
 
+/**
+ * Purge the browser's HTTP cache ONCE per dev server start.
+ *
+ * Why: in dev, Turbopack names a chunk after the MODULE it serves, not after
+ * the bytes it holds. Edit, rename or delete a module and the bytes behind the
+ * same URL change while the URL stays put. A browser that already cached the
+ * old bytes then asks the runtime for a module factory the server no longer
+ * has, and the page dies behind "the module factory is not available. It
+ * might have been deleted in an HMR update".
+ *
+ * Dev chunks now revalidate (`must-revalidate`, see `next.config.ts`), but a
+ * copy cached under the OLD `immutable` policy is still fresh for a year and
+ * would never be revalidated. So the first page load after a dev server start
+ * clears the HTTP cache - once, not on every navigation, so the second tab
+ * still gets its cheap 304 instead of re-downloading the client graph.
+ *
+ * "cache" only: never cookies or localStorage, so the operator stays signed
+ * in. Production is untouched - the flag and the header are dev-only.
+ */
+const DEV_PURGE_WINDOW_MS = 600_000;
+const DEV_PURGE_MIN_GAP_MS = 15_000;
+const DEV_PURGE_STARTED_AT = Date.now();
+
+function purgeDevCacheOnce(request: NextRequest, response: NextResponse): void {
+  if (process.env.NODE_ENV === "production") return;
+  const path = request.nextUrl.pathname;
+  if (path.startsWith("/api/") || path.startsWith("/_next/")) return;
+  const now = Date.now();
+  // For the first couple of minutes after a dev server start (or a recompile,
+  // which re-evaluates this module) every page load still clears the HTTP
+  // cache. Whoever loads first - a health check, a script, the operator - must
+  // not be able to spend the purge on their own request and leave the
+  // operator's browser holding the stale bytes. After the window the steady
+  // state applies: chunks revalidate (304) and nothing is cleared.
+  if (now - DEV_PURGE_STARTED_AT > DEV_PURGE_WINDOW_MS) return;
+  const store = globalThis as typeof globalThis & { __beDevCachePurgedAt?: number };
+  if (now - (store.__beDevCachePurgedAt ?? 0) < DEV_PURGE_MIN_GAP_MS) return;
+  store.__beDevCachePurgedAt = now;
+  response.headers.set("Clear-Site-Data", '"cache"');
+}
+
 export async function middleware(request: NextRequest) {
   const canonical = canonicalRedirect(request);
   if (canonical) return canonical;
 
   const cfg = authConfig();
-  if (!cfg.required) return NextResponse.next();
+  if (!cfg.required) {
+    const response = NextResponse.next();
+    purgeDevCacheOnce(request, response);
+    return response;
+  }
 
   const { pathname } = request.nextUrl;
   if (isPublic(pathname)) return NextResponse.next();
@@ -99,7 +144,11 @@ export async function middleware(request: NextRequest) {
 
   const token = readCookie(request.headers.get("cookie"), AUTH_COOKIE);
   const sessionId = token ? await verifySessionToken(token) : null;
-  if (sessionId) return NextResponse.next();
+  if (sessionId) {
+    const response = NextResponse.next();
+    purgeDevCacheOnce(request, response);
+    return response;
+  }
 
   if (isApi) {
     return NextResponse.json({ error: "Sign in required", code: "AUTH_REQUIRED" }, { status: 401 });

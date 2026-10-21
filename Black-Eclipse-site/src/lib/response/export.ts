@@ -6,7 +6,7 @@
 import type { ParsedResponse, TableCell, ValidatedBlock } from './contract';
 import { finalizeParsed } from './finalize';
 import { toMarkdownProjection } from './projection';
-import { getChart } from './chart-registry';
+import { fetchChartPng, getChart } from './chart-registry';
 import { inlineText, parseMarkdown } from '@/lib/chat/markdown';
 
 export function downloadBlob(filename: string, blob: Blob): void {
@@ -27,6 +27,37 @@ export function toBase64Utf8(text: string): string {
     binary += String.fromCharCode(b);
   });
   return btoa(binary);
+}
+
+/** A blob as a data URL — the shape jsPDF embeds. */
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  const buffer = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  buffer.forEach((b) => {
+    binary += String.fromCharCode(b);
+  });
+  return `data:${blob.type || 'image/png'};base64,${btoa(binary)}`;
+}
+
+/**
+ * A PNG's width/height ratio, read from its IHDR header.
+ *
+ * The chart engine draws a transparent figure sized to the block, so the PDF
+ * embeds it at the picture's OWN ratio rather than a guessed one. Returns null
+ * for a blob that is not a PNG — the caller then falls back to a default.
+ */
+async function pngAspectRatio(blob: Blob): Promise<number | null> {
+  try {
+    const head = new Uint8Array(await blob.slice(0, 24).arrayBuffer());
+    if (head.length < 24) return null;
+    const view = new DataView(head.buffer);
+    const width = view.getUint32(16);
+    const height = view.getUint32(20);
+    if (!width || !height) return null;
+    return width / height;
+  } catch {
+    return null;
+  }
 }
 
 function safeName(name: string, ext: string): string {
@@ -77,7 +108,20 @@ export function downloadTableCsv(
   downloadBlob(safeName(name, 'csv'), new Blob([tableToCsv(columns, rows)], { type: 'text/csv' }));
 }
 
-export function downloadChartPng(chartId: string, name: string): boolean {
+/**
+ * Download a chat chart as a PNG.
+ *
+ * Either engine is supported: the Python engine's picture is an ARTIFACT
+ * (fetched back from the Artifact Center), and the ECharts path is a live
+ * canvas (captured with `getDataURL`). Whichever engine drew the chart, the
+ * export is the picture the user is looking at.
+ */
+export async function downloadChartPng(chartId: string, name: string): Promise<boolean> {
+  const artifact = await fetchChartPng(chartId);
+  if (artifact) {
+    downloadBlob(safeName(name, 'png'), artifact.blob);
+    return true;
+  }
   const chart = getChart(chartId);
   if (!chart) return false;
   const dataUrl = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#0f0f0f' });
@@ -287,8 +331,30 @@ export async function responseToPdf(response: ParsedResponse): Promise<Blob> {
       }
       case 'chart': {
         if (block.title) heading(block.title, 12);
-        const chart = block.id ? getChart(block.id) : null;
-        if (chart) {
+        // The picture is an artifact: its bytes are fetched back from the
+        // Artifact Center, so the PDF embeds exactly what the user saw.
+        // Either engine: the drawn picture is an artifact, the interactive
+        // chart is a live canvas.
+        const artifact = block.id ? await fetchChartPng(block.id) : null;
+        const chart = artifact ? null : block.id ? getChart(block.id) : null;
+        if (artifact) {
+          try {
+            const dataUrl = await blobToDataUrl(artifact.blob);
+            const imgWidth = contentWidth;
+            const ratio = (await pngAspectRatio(artifact.blob)) ?? 0.5;
+            const imgHeight = Math.min(imgWidth * ratio, 460);
+            ensureSpace(imgHeight + 12);
+            // The engine draws a TRANSPARENT figure with light ink (it lives on
+            // the app's dark glass), so the PDF puts it on the app's own dark
+            // panel — otherwise the picture would be light ink on a white page.
+            doc.setFillColor(18, 18, 20);
+            doc.rect(margin, y, imgWidth, imgHeight, 'F');
+            doc.addImage(dataUrl, 'PNG', margin, y, imgWidth, imgHeight);
+            y += imgHeight + 14;
+          } catch {
+            missing.push(`chart (${block.title ?? 'untitled'}) could not be captured`);
+          }
+        } else if (chart) {
           try {
             const dataUrl = chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#ffffff' });
             const imgWidth = contentWidth;
@@ -299,7 +365,7 @@ export async function responseToPdf(response: ParsedResponse): Promise<Blob> {
             missing.push(`chart (${block.title ?? 'untitled'}) could not be captured`);
           }
         } else {
-          missing.push(`chart (${block.title ?? 'untitled'}) not mounted; not embedded`);
+          missing.push(`chart (${block.title ?? 'untitled'}) not drawn; not embedded`);
         }
         break;
       }

@@ -63,9 +63,10 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1254→1255: Graph Studio became a dedicated sidebar MODE, which
   // needs its own switcher label (`sidebar.graphStudio`). Re-pinned 1255→1262
   // for the in-flight evolution/operator surface keys, then 1262→1263 for the
-  // drift-candidate badge. The standing split candidate is still per-domain
-  // dictionary modules. May only shrink.
-  "src/lib/i18n/dictionaries/en.ts": 1263,
+  // drift-candidate badge. Re-pinned 1263→1266: the post-landing restart
+  // verification keys (`code.promote.postLanding*`). The standing split
+  // candidate is still per-domain dictionary modules. May only shrink.
+  "src/lib/i18n/dictionaries/en.ts": 1266,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file

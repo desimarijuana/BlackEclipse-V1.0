@@ -52,7 +52,21 @@ from .models import build_chat_model
 from .model_runtime import ErrorClass, ModelError, classify_exception, get_runtime
 from .persistence import AgentMemoryStore, now_iso
 from .schemas import AgentConfig, HarnessError, RunRequest, RunResult
+from .surface import (
+    chat_code_allowlist,
+    effective_allowlist,
+    resolve_surface,
+    resolve_surface_run,
+    surface_disabled_tools,
+)
 from .tools import DataBridge, ToolContext, ToolRegistry
+
+# The tool surface resolution lives in `surface.py` (Round 3 / W2, ADR-H280) so
+# this execution graph stays under its size ratchet. The names are re-exported
+# here because they are the public surface of this module: `effective_allowlist`
+# and `chat_code_allowlist` are the two halves of a resolution, and
+# `resolve_surface` is its narrow view. A surface EXTENDS or NARROWS the
+# agent's declared tools; it never silently REPLACES them.
 
 # Checkpoint (de)serialization lives in `checkpoint_io.py` so this execution
 # graph stays under its size ratchet; imported above under the old local names.
@@ -87,6 +101,10 @@ class GraphState(TypedDict, total=False):
     stalled: bool
     last_turn_keys: list[str]
     step_failure_details: list[dict[str, Any]]
+    # Round 3 / W1 (ADR-H281): the run's verify-and-repair state - the budget
+    # counters, the failure the model was shown, and the answer seam's word for
+    # how the repair ended. Plain data, so it survives a checkpoint.
+    repair: dict[str, Any]
 
 
 def _stable_key(name: str, args: dict[str, Any]) -> str:
@@ -242,6 +260,26 @@ def _app_control_block(context: Any) -> str:
     )
 
 
+def _project_brief_block(project_id: Optional[str], project_store: Optional[Any]) -> str:
+    """The project this run belongs to, as a per-run context block.
+
+    The brief says what the project HOLDS — its members, its instruments. It
+    never says what the run should conclude: a project is a scope, not an
+    opinion. An unknown project id is reported, never silently ignored, so a
+    typo cannot masquerade as "no project".
+    """
+    if not project_id or project_store is None:
+        return ""
+    try:
+        brief = project_store.brief(str(project_id))
+    except Exception:  # noqa: BLE001 - a project read must never break the run
+        return ""
+    if not brief:
+        return (f"## Project\nThis run names project `{project_id}`, but no such "
+                f"project exists.")
+    return brief
+
+
 def _resolve_direct(request: Any) -> bool:
     """Whether a run edits the real folder or a disposable copy.
 
@@ -269,148 +307,15 @@ def _effect_authorizer(
     return build_effect_authorizer(approvals, run_id, emitter, workspace_id)
 
 
-def effective_allowlist(
-    agent: AgentConfig, registry: ToolRegistry, autonomy: Optional[str] = None,
-) -> Optional[set[str]]:
-    """The run's tool allowlist, with an explicit, narrow MCP opt-in.
-
-    When the agent sets `allowMcpTools`, the allowlist is expanded to include the
-    MCP tools CURRENTLY REGISTERED in the registry (names under the `mcp_`
-    namespace). Registration already requires an enabled server, explicit
-    per-tool selection and a read-only effect, so this cannot surface a merely
-    discovered tool. Every other agent keeps its exact allowlist - the opt-in is
-    per-agent and defaults off, so a restricted custom agent or skill can never
-    reach an MCP tool it did not name. When the agent has NO allowlist (None =
-    all tools), the expansion is a no-op.
-
-    Phase 5: when an `autonomy` profile is given, the declared allowlist is
-    NARROWED through the ONE policy authority (`code.policy.allowed_tools`), so a
-    write/execute/external tool the profile does not permit is removed BEFORE the
-    model sees its schema - the autonomy boundary is structural, not a prompt.
-    """
-    if agent.tools is None:
-        return None
-    allowed = set(agent.tools)
-    if agent.allowMcpTools:
-        allowed.update(name for name in registry.names() if name.startswith("mcp_"))
-    if getattr(agent, "allowPluginTools", False):
-        allowed.update(name for name in registry.names() if name.startswith("plug_"))
-        allowed.update(name for name in registry.names() if name.startswith("plugin_"))
-    if autonomy is not None:
-        from .code.policy import allowed_tools  # noqa: PLC0415
-
-        allowed = set(allowed_tools(autonomy, tuple(sorted(allowed))))
-    return allowed
-
-
-# Tools whose surface is gated by a policy key. A tool is dropped from the
-# advertised schema AND the run's allowlist when its store is off, so the model
-# is never told about a tool it cannot use.
-def chat_code_allowlist(
-    agent: AgentConfig, registry: ToolRegistry, autonomy: Optional[str],
-) -> Optional[set[str]]:
-    """The allowlist for a CHAT turn that carries a code profile (Phase 14).
-
-    Only the finance agent (`eclipse-agent`) has a chat code profile, and only
-    when the front door sent an autonomy (i.e. the deterministic classifier saw a
-    coding request). The profile is `agents.CHAT_CODE_TOOLS`, narrowed through the
-    ONE policy authority (`code.policy.allowed_tools`) so `plan_only` removes the
-    write/execute tools and `edit_verify` keeps them — and the external actions
-    are absent from the declared set entirely (they cannot be added back by a
-    profile). Returns None when the agent is not the finance agent, or no autonomy
-    was sent, so the caller keeps the ordinary surface.
-    """
-    from .agents import CHAT_CODE_TOOLS  # noqa: PLC0415
-
-    if agent.id != "eclipse-agent" or not autonomy:
-        return None
-    from .code.policy import allowed_tools  # noqa: PLC0415
-
-    return set(allowed_tools(autonomy, tuple(CHAT_CODE_TOOLS)))
-
-
-# Tools whose surface is gated by a policy key. A tool is dropped from the
-# advertised schema AND the run's allowlist when its store is off, so the model
-# is never told about a tool it cannot use.
-def surface_disabled_tools(settings: Optional[dict[str, Any]]) -> set[str]:
-    """Tool names whose surface is disabled by the resolved policy."""
-    settings = settings or {}
-    disabled: set[str] = set()
-    memory_on = bool(settings.get("memory_enabled", True))
-    if not memory_on:
-        # The whole memory/skill surface is off (except skill_list/view, which are
-        # read-only discovery the prompt still offers; the store is the memory DB
-        # but skills are a separate concern — only the memory WRITE tool and the
-        # memory-dependent search tools are dropped).
-        disabled.update({"memory", "memory_search_native", "memory_search_external"})
-    if not bool(settings.get("session_history_enabled", True)):
-        disabled.update({"session_search", "session_open"})
-    if not bool(settings.get("external_memory_search_enabled", False)):
-        disabled.add("memory_search_external")
-    if not bool(settings.get("agent_scheduling_enabled", False)):
-        # Phase 17 (repo-mapped): the agent may only put work on a cadence when
-        # the operator's master switch is on. Off by default — the whole
-        # scheduling surface (reads included) is dropped so the model cannot
-        # even attempt it.
-        from .automation.scheduling_tools import TOOL_NAMES as _SCHEDULING  # noqa: PLC0415
-
-        disabled.update(_SCHEDULING)
-    if not bool(settings.get("acquisition_enabled", False)):
-        # Phase 16 slice: bulk collection is off until the operator turns it on.
-        from .acquire.tools import TOOL_NAMES as _ACQUIRE  # noqa: PLC0415
-
-        disabled.update(_ACQUIRE)
-    return disabled
-
-
-def resolve_surface(
-    agent: AgentConfig,
-    registry: ToolRegistry,
-    settings: Optional[dict[str, Any]],
-    autonomy: Optional[str] = None,
-) -> tuple[Optional[set[str]], str]:
-    """Resolve `(allowlist, system_prompt)` for ONE run from policy.
-
-    Computed where the run's settings are read (never at import time), so a
-    policy change takes effect on the next run and the system-prompt head stays
-    byte-stable within a run. A disabled store's tool is dropped from BOTH the
-    allowlist and the prompt guidance.
-
-    `allowlist` is `None` only when the agent has no allowlist AND nothing is
-    disabled (the unrestricted case is passed through unchanged).
-    """
-    from .prompts import filter_system_prompt  # noqa: PLC0415
-
-    settings = settings or {}
-    disabled = surface_disabled_tools(settings)
-    # A code-agent run with no explicit autonomy resolves to edit_verify, so
-    # write/execute tools are available by default; an ordinary finance run keeps
-    # `autonomy=None` and is never narrowed.
-    effective_autonomy = autonomy
-    if effective_autonomy is None and agent.id == "code-agent":
-        effective_autonomy = "edit_verify"
-    # Phase 14: a CHAT coding turn carries an autonomy on the finance agent. Apply
-    # the chat code profile HERE, after the existing autonomy narrowing, so there
-    # is exactly ONE place a run's profile is computed and `plan_only` still
-    # removes the write/execute tools.
-    chat_profile = chat_code_allowlist(agent, registry, autonomy)
-    allowed = chat_profile if chat_profile is not None else effective_allowlist(
-        agent, registry, effective_autonomy,
-    )
-    if allowed is None:
-        if disabled:
-            allowed = {name for name in registry.names() if name not in disabled}
-        else:
-            allowed = None
-    else:
-        allowed = {name for name in allowed if name not in disabled}
-    prompt = filter_system_prompt(
-        agent.systemPrompt,
-        memory_enabled=bool(settings.get("memory_enabled", True)),
-        session_history_enabled=bool(settings.get("session_history_enabled", True)),
-    )
-    return allowed, prompt
-
+# The tool-surface resolution moved to `surface.py` (Round 3 / W2, ADR-H280) so this
+# execution graph stays under its size ratchet. `effective_allowlist`,
+# `chat_code_allowlist`, `surface_disabled_tools` and `resolve_surface` are
+# imported above and stay importable from this module.
+#
+# A surface EXTENDS or NARROWS the declared tools; it never silently REPLACES
+# them. Both halves go through the ONE policy authority
+# (`code.policy.allowed_tools`), so an autonomy profile still removes every
+# write/execute/external tool it bans - from the base half AND the surface half.
 
 def build_graph(
     request: RunRequest,
@@ -462,6 +367,9 @@ def build_graph(
     # The Quant Engine bundle (store), so the `quant_*` tools can persist
     # strategies and experiments on the ONE agent-memory connection.
     quant: Optional[Any] = None,
+    # The Project store (projects + members) on the ONE agent-memory connection,
+    # so the `project_*` tools can resolve and extend a project.
+    project_store: Optional[Any] = None,
     # The unified Retrieval / Search Intelligence service, so the `*_search`
     # tools reach the ONE search layer (vector + FTS + rerank).
     search: Optional[Any] = None,
@@ -634,6 +542,7 @@ def build_graph(
         # Quant Engine store (strategies + experiments) on the ONE agent-memory
         # connection, so `quant_*` tools persist and replay research.
         quant_store=getattr(quant, "store", None),
+    project_store=project_store,
         # Immutable versioned research datasets (manifests + gzipped artifacts),
         # so `build_research_dataset`/`query_dataset` persist reproducible data.
         dataset_store=getattr(quant, "dataset_store", None),
@@ -679,6 +588,11 @@ def build_graph(
             lineage.save_checkpoint(request.runId, kind, _checkpoint_payload(state))
         except Exception:  # noqa: BLE001 - a checkpoint must never break a run
             pass
+
+    # Round 3 / W1 (ADR-H281): the repair budget's wall clock starts when the
+    # run starts, not when the first failure happens - a run that spent an hour
+    # before its first check has not earned an hour of repair.
+    _repair_started = time.monotonic()
 
     async def agent_node(state: GraphState) -> GraphState:
         step = state.get("step", 0) + 1
@@ -1047,7 +961,42 @@ def build_graph(
             stalled=bool(state.get("stalled")),
         ):
             return "replan"
+        # Round 3 / W1 (ADR-H281): every tool turn passes the verify-and-repair
+        # node, so a check that the project pins runs after a change and a
+        # failure is handed back to the model. The node is a no-op when the
+        # turn changed nothing, when no check is pinned, or when the profile
+        # does not permit a repair.
+        return "verify_repair"
+
+    def route_after_repair(state: GraphState) -> str:
+        if state.get("error"):
+            return END
+        if state.get("step", 0) >= max_steps:
+            return "exhausted"
         return "agent"
+
+    async def verify_repair_node(state: GraphState) -> GraphState:
+        """Run the project's pinned checks after a change, and drive a repair.
+
+        The logic lives in `code/repair_graph.py` (the file-size ratchet: this
+        graph grows by import, not by body). The node is a no-op when the turn
+        changed nothing, when no check is pinned, or when the profile does not
+        permit a repair - and it never widens authority: the pinned class
+        still goes through `code.policy.decide_command` and the profile's
+        grants, exactly as it would if the model had asked for it.
+        """
+        from .code.repair_graph import repair_turn  # noqa: PLC0415
+
+        repair_state, message = await repair_turn(
+            state=state, ctx=ctx, registry=registry, autonomy=request.autonomy,
+            emitter=emitter, ledger=code_ledger, started_at=_repair_started,
+        )
+        if repair_state is None:
+            return state
+        updated: GraphState = {**state, "repair": repair_state}
+        if message is not None:
+            updated["messages"] = [*state["messages"], HumanMessage(content=message)]
+        return updated
 
     async def replan_node(state: GraphState) -> GraphState:
         """One bounded revision step on the SAME loop (Phase 11).
@@ -1094,18 +1043,29 @@ def build_graph(
     graph = StateGraph(GraphState)
     graph.add_node("agent", agent_node)
     graph.add_node("tools", tools_node)
+    graph.add_node("verify_repair", verify_repair_node)
     graph.add_node("exhausted", exhausted_node)
     graph.add_edge(START, "agent")
     graph.add_conditional_edges("agent", route_after_agent, {"tools": "tools", END: END})
+    # Round 3 / W1 (ADR-H281): the verify-and-repair node sits between the tool
+    # turn and the next agent turn, so a pinned check runs after a change and a
+    # failure is handed back to the model.
+    graph.add_conditional_edges(
+        "verify_repair", route_after_repair, {"agent": "agent", "exhausted": "exhausted"},
+    )
     if replan_budget is not None:
         graph.add_node("replan", replan_node)
         graph.add_conditional_edges(
             "tools", route_after_tools,
-            {"replan": "replan", "agent": "agent", "exhausted": "exhausted"},
+            {"replan": "replan", "verify_repair": "verify_repair",
+             "agent": "agent", "exhausted": "exhausted"},
         )
         graph.add_edge("replan", "agent")
     else:
-        graph.add_conditional_edges("tools", route_after_tools, {"agent": "agent", "exhausted": "exhausted"})
+        graph.add_conditional_edges(
+            "tools", route_after_tools,
+            {"verify_repair": "verify_repair", "agent": "agent", "exhausted": "exhausted"},
+        )
     graph.add_edge("exhausted", END)
     return graph.compile()
 
@@ -1131,6 +1091,7 @@ async def execute_run(
     portfolio: Optional[Any] = None,
     advisory: Optional[Any] = None,
     quant: Optional[Any] = None,
+    project_store: Optional[Any] = None,
     search: Optional[Any] = None,
     artifact_service: Optional[Any] = None,
     ui_service: Optional[Any] = None,
@@ -1276,8 +1237,27 @@ async def execute_run(
         surface_settings = memory_service.policy.get_all() if memory_service is not None else {}
     except Exception:  # noqa: BLE001 - a policy read failure falls back to the full surface
         surface_settings = {}
-    allowed, system_prompt = resolve_surface(
+    # Round 3 / W2 (ADR-H280): the resolution is taken WITH its reasoning, so the
+    # run can publish what the surface added, what the autonomy profile removed
+    # and what a disabled store removed. A surface EXTENDS the agent's declared
+    # tools; it never silently replaces them.
+    surface_resolution, system_prompt = resolve_surface_run(
         agent, registry, surface_settings, request.autonomy,
+    )
+    allowed = (
+        set(surface_resolution.allowed)
+        if surface_resolution.allowed is not None
+        else None
+    )
+    # Round 3 / W2 (ADR-H280): publish the surface resolution on the run, so a
+    # missing tool is always explainable - the run names what the surface added,
+    # what the autonomy profile removed and what a disabled store removed. The
+    # write is additive and cannot widen anything.
+    store.update_run(
+        request.runId,
+        surface=surface_resolution.to_dict(),
+        autonomy=surface_resolution.autonomy,
+        workspaceId=request.workspaceId,
     )
 
     # Response-contract schema digest: generated LIVE from the TS contract over
@@ -1341,6 +1321,12 @@ async def execute_run(
     app_control = _app_control_block(request.input.context)
     if app_control:
         runtime_context = f"{runtime_context}\n\n{app_control}"
+    # The project this run is scoped to (its members and instruments). Per-run
+    # and cache-key-excluded, exactly like the date and the UI focus.
+    project_brief = _project_brief_block(getattr(request, "projectId", None),
+                                          project_store)
+    if project_brief:
+        runtime_context = f"{runtime_context}\n\n{project_brief}"
 
     prompt_plan = build_prompt_plan(
         system_prompt=system_prompt,
@@ -1494,6 +1480,7 @@ async def execute_run(
             portfolio=portfolio,
             advisory_service=advisory,
             quant=quant,
+            project_store=project_store,
             search=search,
             artifact_service=artifact_service,
             ui_service=ui_service,
@@ -1574,8 +1561,15 @@ async def execute_run(
     # asserted — the same discipline the finance renderer applies to claims.
     from .code.verify import enforce_run_answer  # noqa: PLC0415
 
+    # Round 3 / W1 (ADR-H281): the REAL repair outcome, not a hard-coded None.
+    # `REPAIR_NOT_RUN` and `REPAIR_PASSED` are different facts, and the answer
+    # seam must be able to tell them apart: a run whose repair loop exhausted
+    # its budget must not read as a run whose checks passed.
+    from .code.repair_graph import RepairLoop as _RepairLoop  # noqa: PLC0415
+
+    _repair_outcome = _RepairLoop.from_dict(final_state.get("repair")).to_dict()
     output, code_verification_blob = await enforce_run_answer(
-        output, code_ledger, repair_outcome=None, emitter=emitter,
+        output, code_ledger, repair_outcome=_repair_outcome, emitter=emitter,
     )
     # Phase 14: record the run's code profile ALONGSIDE the verification ledger, so
     # a reader (the chat capability panel) can name what Eclipse set out to do. The
@@ -2214,6 +2208,7 @@ def _result(run_id: str, status: str, store: AgentMemoryStore, error: Optional[d
         autonomy=run.get("autonomy"),
         workspaceId=run.get("workspaceId"),
         capability=_capability_of(run),
+        surface=run.get("surface"),
     )
 
 

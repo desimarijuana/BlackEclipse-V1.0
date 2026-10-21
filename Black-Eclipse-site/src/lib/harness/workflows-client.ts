@@ -6,7 +6,7 @@
 import { HARNESS_PY_URL, ensurePythonRuntime } from "./python-runtime";
 import { runtimeCallbackToken } from "./runtime-auth";
 import { HarnessRuntimeUnavailable } from "./python-client";
-import { redactSecrets } from "./errors";
+import { redactSecrets, HarnessHttpError, isNotFoundError } from "./errors";
 import type { Workflow, WorkflowRunResult, WorkflowSummary } from "./workflow-types";
 
 async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
@@ -30,7 +30,7 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = (body as { detail?: string }).detail || `runtime HTTP ${res.status}`;
-    throw new Error(redactSecrets(detail));
+    throw new HarnessHttpError(res.status, redactSecrets(detail), detail);
   }
   return body as T;
 }
@@ -46,7 +46,7 @@ export async function getWorkflow(id: string, version?: string): Promise<Workflo
     const body = await request<{ workflow: Workflow }>(`/workflows/${encodeURIComponent(id)}${q}`, { method: "GET" });
     return body.workflow;
   } catch (err) {
-    if (err instanceof Error && /404/.test(err.message)) return null;
+    if (isNotFoundError(err)) return null;
     throw err;
   }
 }

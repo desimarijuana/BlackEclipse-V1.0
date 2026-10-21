@@ -720,7 +720,20 @@ async def enforce_run_answer(
         "repair": repair_outcome,
         "truncated": len(ledger.records) >= MAX_LEDGER_RECORDS,
     }
-    return enforcement.answer, blob
+    # Round 3 / W1 (ADR-H281): a repair that EXHAUSTED its budget is disclosed
+    # in the answer, not only in the blob. The ledger already refuses to
+    # support a "tests pass" claim when the only record is a failure; this
+    # covers the case the ledger cannot see - the loop ran out of budget, so
+    # the last state of the code is simply unknown. A result must show what it
+    # hides.
+    answer = enforcement.answer
+    if isinstance(repair_outcome, dict) and repair_outcome.get("status") == "REPAIR_EXHAUSTED":
+        failed = repair_outcome.get("failedClass") or "the pinned check"
+        answer = (
+            f"{answer}\n\n[Note: the {failed} check was still failing when Eclipse ran out of "
+            f"repair attempts, so the result above is not verified by a passing check.]"
+        ).strip()
+    return answer, blob
 
 
 __all__ = [

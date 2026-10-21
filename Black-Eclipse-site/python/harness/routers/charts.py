@@ -13,10 +13,9 @@ unauthenticated caller.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Body, Depends, HTTPException
 
 from ..charts.render import (
     CHART_RENDER_FAILED,
@@ -31,50 +30,21 @@ from ..deps import require_operator, service
 router = APIRouter(tags=["charts"])
 
 
-class RenderChartBody(BaseModel):
-    """The chart spec as the front door sends it."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    kind: str = Field(..., min_length=1, max_length=32)
-    title: Optional[str] = Field(default=None, max_length=200)
-    subtitle: Optional[str] = Field(default=None, max_length=300)
-    footnote: Optional[str] = Field(default=None, max_length=300)
-    source: Optional[str] = Field(default=None, max_length=200)
-    x_label: Optional[str] = Field(default=None, max_length=120)
-    y_label: Optional[str] = Field(default=None, max_length=120)
-    categories: list[str] = Field(default_factory=list)
-    series: list[dict[str, Any]] = Field(default_factory=list)
-    labels: list[str] = Field(default_factory=list)
-    values: list[float] = Field(default_factory=list)
-    points: list[dict[str, Any]] = Field(default_factory=list)
-    matrix: list[list[float]] = Field(default_factory=list)
-    row_labels: list[str] = Field(default_factory=list)
-    col_labels: list[str] = Field(default_factory=list)
-    candles: list[dict[str, Any]] = Field(default_factory=list)
-    stacked: bool = False
-    normalized: bool = False
-    smooth: bool = False
-    show_points: bool = False
-    theme: str = Field(default="eclipse-dark", max_length=32)
-    width: int = Field(default=960, ge=320, le=2_400)
-    height: int = Field(default=440, ge=240, le=2_400)
-
-
 @router.post("/charts/render")
 async def render_chart_route(
-    body: RenderChartBody,
+    body: dict[str, Any] = Body(...),
     _: None = Depends(require_operator),
 ) -> dict[str, Any]:
     """Draw a chart and record it in the Artifact Center.
 
-    A spec that does not satisfy its kind is a 400 with the missing part
-    named; a missing matplotlib is a 503 (the picture cannot be drawn here);
-    anything else that goes wrong is a 500 that says what failed.
+    The body IS the chart spec — the same contract the `python_chart` tool
+    takes, so there is exactly one shape to learn and one validator. A spec
+    that does not satisfy its kind is a 400 with the missing part named; a
+    missing matplotlib is a 503 (the picture cannot be drawn here); anything
+    else that goes wrong is a 500 that says what failed.
     """
-    payload = body.model_dump(exclude_none=True)
     try:
-        spec = ChartSpec(**payload)
+        spec = ChartSpec(**body)
     except Exception as exc:  # noqa: BLE001 - a malformed spec is a bad request
         raise HTTPException(
             status_code=400,
@@ -119,4 +89,4 @@ async def list_chart_kinds(_: None = Depends(require_operator)) -> dict[str, Any
     return {"status": "OK", "kinds": list(CHART_KINDS)}
 
 
-__all__ = ["RenderChartBody", "router"]
+__all__ = ["router"]

@@ -1,12 +1,10 @@
 """Contrastive behavioral evidence — the Eclipse-native "Propose" substrate.
 
-Borrowed from Harness² (``harness2/core/context.py`` + ``core/recursion.py``,
-pinned revision ``1cfe254e``): proposals are never asked to reason about
-scores. The improver receives the task, the FULL trajectories of a shared
-baseline and each candidate, each candidate's behavioral diff against the
-baseline, and the proposer's own decision notes -- then must cite the specific
-trajectory moment behind every change: "one you cannot trace to a moment is
-speculation."
+Proposals are never asked to reason about scores. The improver receives the
+task, the FULL trajectories of a shared baseline and each candidate, each
+candidate's behavioral diff against the baseline, and the proposer's own
+decision notes -- then must cite the specific trajectory moment behind every
+change: "one you cannot trace to a moment is speculation."
 
 This module builds that bundle from Eclipse's own :class:`Trajectory` records.
 It is deterministic and stdlib-only; it makes no model calls and reads no

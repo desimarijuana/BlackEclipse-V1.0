@@ -1,4 +1,4 @@
-"""Behavioral contrast + the contrastive evidence bundle (Harness² borrowings)."""
+"""Behavioral contrast + the contrastive evidence bundle."""
 
 from __future__ import annotations
 

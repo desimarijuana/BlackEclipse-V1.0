@@ -43,6 +43,25 @@ file, not here.
 | 19 — Verifying what it produced | [phase-19](./phase-19-self-verification.md) ✅ Done 2026-10-13 (ADR-H191) | 14, 18 | 20 | new |
 | 20 — Measuring all of it | [phase-20](./phase-20-measuring-all-of-it.md) 🟡 In progress 2026-10-13 (registry + runner + statement + gate step shipped — ADR-H193; remaining fixtures named) | 13–19 | — | §15.3 **7F** extended |
 
+**Round 3 (2026-10-20) — competitive as a coding harness, shippable as a
+product.** Rounds 1 and 2 built the machinery and made it reachable. Round 3
+is the round that makes it **work end-to-end** and **ship**: a real
+verify→repair loop inside the graph, one edit primitive instead of three, a
+repo map, context compaction, live measurement, and a released, shrink-wrapped
+harness with published numbers.
+
+| Round 3 plan | File | Depends on | Unlocks |
+|---|---|---|---|
+| Harness parity plan (10 workstreams, 3 waves) | [round-3-parity-plan.md](./round-3-parity-plan.md) 🟡 Draft 2026-10-20 | rounds 1–2 | a competitive coding harness |
+
+Round 3 is a **plan, not a phase set** — it is one file with ten workstreams
+(W1–W10), because the work is coupled: the same files (`graph.py`,
+`agents.py`, `code/tools.py`) carry several of them, and splitting them into
+separate phase files would hide that. §1.2's code-capability rows are
+**superseded** by its §2 gap ledger; the finance rows stand. Round 3 does not
+replace the phase files — phases 15, 18 and 20 are still in progress and
+Round 3's W8 finishes phase 20's remaining fixtures.
+
 **Round 2 (phases 13–20) — what it is for.** Round 1 (0–12) built the *machinery* of
 a harness: a code capability, isolation, a trust spine, jobs, delegation, kits,
 self-improvement and a gate. Round 2 is the round that makes that machinery

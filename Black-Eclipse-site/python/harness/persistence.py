@@ -296,6 +296,28 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("sessionId", "TEXT"),
         ("profileId", "TEXT"),
         ("projectId", "TEXT"),
+        # The run's code-verification ledger + repair outcome (Phase 4). This
+        # column was WRITTEN by the answer seam (`graph.py`: `update_run(...,
+        # codeVerification=...)`) but was never in the CREATE TABLE and never in
+        # this migration list, so on a FRESH `agent-memory.db` - which every new
+        # clone gets, because the file is gitignored - the write raised
+        # `no such column: codeVerification` and every run crashed at the answer
+        # seam, AFTER the model had already produced its answer. The live
+        # repository masked it because its database predates the column rename.
+        # Additive and NULL for older rows, so existing clients stay compatible.
+        ("codeVerification", "TEXT"),
+        # The run's resolved autonomy profile and the workspace it was bound to
+        # (Phase 5). These were in `RunResult` from the start and read back from
+        # the run row, but the write was silently dropped by `update_run`'s
+        # allowlist, so the field was ALWAYS None. Additive and NULL for older
+        # rows.
+        ("autonomy", "TEXT"),
+        ("workspaceId", "TEXT"),
+        # Round 3 / W2 (ADR-H280): the run's tool surface resolution - what the
+        # surface added, what the autonomy profile removed, what a disabled store
+        # removed, and the measured bound size. Additive and NULL for runs that
+        # resolved no surface, so existing clients stay compatible.
+        ("surface", "TEXT"),
     ],
     # Learning-review scheduling metadata (M1/M3). Priority ordering, the
     # coalescing session key, the profile scope and the review mode are additive
@@ -396,6 +418,11 @@ class AgentMemoryStore:
             "provider", "model", "startedAt", "finishedAt", "research", "memory",
             "context", "codeVerification", "vision", "documents", "images", "video",
             "sessionId", "profileId", "projectId",
+            # Round 3 / W2: the run's autonomy profile, its bound workspace and
+            # its tool-surface resolution. `autonomy` and `workspaceId` were in
+            # `RunResult` from the start but the write was silently dropped here,
+            # so the field was always None; `surface` is new in ADR-H280.
+            "autonomy", "workspaceId", "surface",
         }
         sets, params = [], []
         for key in patch:
@@ -403,7 +430,7 @@ class AgentMemoryStore:
                 continue
             value = patch[key]
             sets.append(f"{key} = ?")
-            if key in ("error", "research", "memory", "context", "codeVerification", "vision", "documents", "images", "video") and value is not None:
+            if key in ("error", "research", "memory", "context", "codeVerification", "vision", "documents", "images", "video", "surface") and value is not None:
                 params.append(json.dumps(value))
             else:
                 params.append(value)
@@ -1383,6 +1410,11 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "sessionId": row["sessionId"] if _has_column(row, "sessionId") else None,
         "profileId": row["profileId"] if _has_column(row, "profileId") else None,
         "projectId": row["projectId"] if _has_column(row, "projectId") else None,
+        # Round 3 / W2 (ADR-H280): the run's tool-surface resolution. Additive
+        # and NULL for rows written before the surface was published.
+        "surface": json.loads(row["surface"]) if _has_column(row, "surface") and row["surface"] else None,
+        "autonomy": row["autonomy"] if _has_column(row, "autonomy") else None,
+        "workspaceId": row["workspaceId"] if _has_column(row, "workspaceId") else None,
         "parentRunId": row["parentRunId"] if _has_column(row, "parentRunId") else None,
         "workflowId": row["workflowId"] if _has_column(row, "workflowId") else None,
         "createdAt": row["createdAt"], "updatedAt": row["updatedAt"],

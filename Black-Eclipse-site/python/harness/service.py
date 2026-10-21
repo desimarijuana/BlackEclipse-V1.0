@@ -180,6 +180,12 @@ class AgenticService:
         from .video.bootstrap import install_video_layer  # noqa: PLC0415
 
         install_video_layer(self)
+        # Projects: a named scope that holds the strategies, backtests, datasets
+        # and artifacts that belong to one piece of work. Wiring in
+        # `projects/bootstrap.py`; registered on the SAME registry.
+        from .projects.bootstrap import install_project_layer  # noqa: PLC0415
+
+        install_project_layer(self)
         # Eclipse-Memory is the dedicated control database for memory AND
         # skills. One service owns it; the skill tables live here (migrated out
         # of agent-memory.db) so there is exactly one skill registry.
@@ -1202,6 +1208,7 @@ class AgenticService:
             "portfolio": self._portfolio_bundle(),
             "advisory": getattr(self, "advisory", None),
             "quant": self._quant_bundle(),
+            "project_store": getattr(self, "project_store", None),
             "code_intel_runtime": getattr(self, "code_intel", None),
             "evidence_store": getattr(self, "evidence_store", None),
             "learning_store": getattr(self, "learning_store", None),

@@ -18,7 +18,42 @@ DEFAULT_MAX_REPAIR_ATTEMPTS = 2
 DEFAULT_MAX_WALL_CLOCK_S = 900          # 15 min for the whole sub-flow
 DEFAULT_MAX_COST_USD = 1.50             # per-run ceiling; None = no cost bound
 
-RepairStatus = Literal["passed", "unrepairable", "budget_exhausted", "refused", "no_checks"]
+#: The module's own outcome vocabulary.
+RepairStatus = Literal[
+    "passed", "unrepairable", "budget_exhausted", "refused", "no_checks", "not_run",
+]
+
+#: The vocabulary the ANSWER SEAM speaks (Round 3 / W1, ADR-H281). The seam must
+#: be able to say, in one word, whether a repair happened and how it ended - and
+#: `None` must never be ambiguous between "did not run" and "ran and passed".
+RepairRunStatus = Literal[
+    "REPAIR_NOT_RUN",
+    "REPAIR_PASSED",
+    "REPAIR_EXHAUSTED",
+    "REPAIR_NOT_APPLICABLE",
+    "REPAIR_REFUSED",
+]
+
+#: The mapping from the module's outcome to the answer seam's word.
+_REPAIR_RUN_STATUS: dict[str, str] = {
+    "passed": "REPAIR_PASSED",
+    "unrepairable": "REPAIR_EXHAUSTED",
+    "budget_exhausted": "REPAIR_EXHAUSTED",
+    "refused": "REPAIR_REFUSED",
+    "no_checks": "REPAIR_NOT_APPLICABLE",
+    "not_run": "REPAIR_NOT_RUN",
+}
+
+
+def repair_run_status(status: Optional[str]) -> str:
+    """The answer seam's word for a repair outcome.
+
+    An unknown or missing status is `REPAIR_NOT_RUN` - never "passed". A repair
+    that did not happen is not a repair that succeeded.
+    """
+    if not status:
+        return "REPAIR_NOT_RUN"
+    return _REPAIR_RUN_STATUS.get(str(status), "REPAIR_NOT_RUN")
 
 
 @dataclass(frozen=True)
@@ -26,6 +61,18 @@ class RepairBudget:
     max_attempts: int = DEFAULT_MAX_REPAIR_ATTEMPTS
     max_wall_clock_s: int = DEFAULT_MAX_WALL_CLOCK_S
     max_cost_usd: Optional[float] = DEFAULT_MAX_COST_USD
+    #: How many times the checks may RUN in one run. `None` derives it from
+    #: `max_attempts` (one run to find the failure, one per repair). Without
+    #: this a run that writes on every turn would execute the test suite once
+    #: per turn - bounded, but not obviously so.
+    max_check_runs: Optional[int] = None
+
+    @property
+    def check_run_limit(self) -> int:
+        """The hard cap on check executions for one run."""
+        if self.max_check_runs is not None:
+            return max(0, int(self.max_check_runs))
+        return max(0, int(self.max_attempts)) + 1
 
     def exceeded(self, *, attempts: int, elapsed_s: float, cost_usd: float) -> Optional[str]:
         """The reason the budget is spent ("attempts"|"wall_clock"|"cost"), or None.
@@ -227,6 +274,8 @@ __all__ = [
     "RepairAttempt",
     "RepairBudget",
     "RepairOutcome",
+    "RepairRunStatus",
     "RepairStatus",
+    "repair_run_status",
     "run_verify_repair",
 ]

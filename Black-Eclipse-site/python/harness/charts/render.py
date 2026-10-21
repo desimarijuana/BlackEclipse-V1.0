@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import io
 import math
+import warnings
 from typing import Any, Optional
 
 from .spec import Candle, ChartPoint, ChartSeries, ChartSpec
@@ -88,6 +89,112 @@ def _axis_categories(spec: ChartSpec, length: int) -> Any:
     return list(range(length)), [str(i) for i in range(length)]
 
 
+def _format_value(value: float, spec: ChartSpec) -> str:
+    """Write an axis value the way the chart says it should be read.
+
+    The engine draws numbers; a chart whose values are percents or dollars
+    says so in the spec, so the reader is never left guessing what `0.25`
+    means.
+    """
+    fmt = spec.value_format
+    if fmt == "percent":
+        scaled = value * 100 if abs(value) <= 1 else value
+        return f"{scaled:.0f}%"
+    if fmt == "currency":
+        return f"{spec.currency_symbol}{value:,.0f}"
+    if fmt == "compact":
+        absolute = abs(value)
+        if absolute >= 1e9:
+            return f"{value / 1e9:.1f}B"
+        if absolute >= 1e6:
+            return f"{value / 1e6:.1f}M"
+        if absolute >= 1e3:
+            return f"{value / 1e3:.1f}K"
+        return f"{value:,.0f}"
+    if fmt == "r":
+        return f"{value:.1f}R"
+    if abs(value) >= 1000:
+        return f"{value:,.0f}"
+    if value == int(value):
+        return str(int(value))
+    return f"{value:.2f}"
+
+
+def _apply_value_format(ax: Any, spec: ChartSpec) -> None:
+    """Write the value axis in the chart's own units."""
+    if not spec.value_format:
+        return
+    # Matplotlib calls a tick formatter with (value, position) — the formatter
+    # must accept both, or every chart with a value format fails to draw.
+    def formatter(value: float, _position: Any = None) -> str:
+        return _format_value(float(value), spec)
+
+    try:
+        ax.yaxis.set_major_formatter(formatter)
+    except Exception:  # noqa: BLE001 - a chart without a value axis is fine
+        pass
+
+
+def _draw_volume(ax: Any, spec: ChartSpec, theme: ChartTheme) -> None:
+    """The volume pane under a price chart."""
+    values = [float(v) if v is not None else float("nan") for v in spec.volume_data]
+    colors = list(spec.volume_colors)
+    bar_colors = [
+        c if c and isinstance(c, str) and c.startswith("#") else theme.series_color(1)
+        for c in (colors + [None] * len(values))[: len(values)]
+    ]
+    ax.bar(range(len(values)), values, color=bar_colors, width=0.7, alpha=0.65)
+    ax.set_ylabel("Volume", fontsize=8, color=theme.muted)
+
+
+def _draw_highlights(ax: Any, spec: ChartSpec, theme: ChartTheme) -> None:
+    """Shade the spans of the category axis the caller marked (a recession)."""
+    for span in spec.highlights:
+        start = max(0, int(span.start))
+        end = max(start, int(span.end))
+        try:
+            ax.axvspan(
+                start - 0.5, end + 0.5, color=span.color or "#ff3e3e",
+                alpha=0.12, linewidth=0,
+            )
+        except Exception:  # noqa: BLE001 - the chart is the important part
+            continue
+
+
+def _apply_log_scale(ax: Any, spec: ChartSpec) -> None:
+    """A log value axis, when the data says so (a macro series that spans decades)."""
+    if not spec.log_scale:
+        return
+    try:
+        ax.set_yscale("log")
+    except Exception:  # noqa: BLE001 - a linear axis is a fine fallback
+        pass
+
+
+def _draw_reference_lines(ax: Any, spec: ChartSpec, theme: ChartTheme) -> None:
+    """Draw the named horizontal lines (an entry, a stop, a target)."""
+    for line in spec.reference_lines:
+        color = line.color or theme.muted
+        ax.axhline(
+            line.value, color=color, linewidth=1.0,
+            linestyle="--" if line.dashed else "-", alpha=0.85,
+        )
+        try:
+            ax.annotate(
+                line.label,
+                xy=(1.0, line.value),
+                xycoords=("axes fraction", "data"),
+                xytext=(-4, 3),
+                textcoords="offset points",
+                ha="right",
+                va="bottom",
+                fontsize=8,
+                color=color,
+            )
+        except Exception:  # noqa: BLE001 - the line is the important part
+            pass
+
+
 def _apply_titles(ax: Any, spec: ChartSpec) -> None:
     if spec.title:
         ax.set_title(spec.title, loc="left", pad=14 if spec.subtitle else 8)
@@ -146,7 +253,10 @@ def _draw_line_family(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> 
             elif style == "step":
                 ax.step(xs, ys, where="post", color=color, linewidth=1.6, label=entry.name)
             else:
-                ax.plot(xs, ys, color=color, linewidth=1.6, label=entry.name)
+                ax.plot(
+                    xs, ys, color=color, linewidth=1.6, label=entry.name,
+                    linestyle="--" if entry.dashed else "-",
+                )
             if spec.show_points:
                 ax.scatter(xs, ys, color=color, s=14)
         band = entry.band
@@ -194,8 +304,12 @@ def _draw_bar_family(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> N
             values = list(entry.data) + [None] * (longest - len(entry.data))
             ys = [float(v) if v is not None else 0.0 for v in values]
             color = entry.color or theme.series_color(index)
+            point_colors = [
+                c if c and isinstance(c, str) and c.startswith("#") else color
+                for c in (list(entry.colors) + [None] * longest)[:longest]
+            ]
             ax.bar(
-                positions, ys, bottom=bottom, color=color, width=0.68,
+                positions, ys, bottom=bottom, color=point_colors, width=0.68,
                 label=entry.name, alpha=0.92,
             )
             bottom = [b + y for b, y in zip(bottom, ys)]
@@ -205,9 +319,15 @@ def _draw_bar_family(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> N
             values = list(entry.data) + [None] * (longest - len(entry.data))
             ys = [float(v) if v is not None else float("nan") for v in values]
             color = entry.color or theme.series_color(index)
+            # Per-point colours let one series show a sign (green up, red
+            # down) without splitting it into two series.
+            point_colors = [
+                c if c and isinstance(c, str) and c.startswith("#") else color
+                for c in (list(entry.colors) + [None] * longest)[:longest]
+            ]
             offset = (index - (len(series) - 1) / 2) * width
             ax.bar(
-                [p + offset for p in positions], ys, width=width, color=color,
+                [p + offset for p in positions], ys, width=width, color=point_colors,
                 label=entry.name, alpha=0.92,
             )
     if len(labels) <= 24:
@@ -225,7 +345,10 @@ def _draw_pie(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> None:
     total = sum(abs(v) for v in values)
     if total <= 0:
         raise ChartRenderError(CHART_SPEC_INVALID, "a pie chart needs at least one non-zero value")
-    colors = [theme.series_color(i) for i in range(len(values))]
+    colors = [
+        c if c and isinstance(c, str) and c.startswith("#") else theme.series_color(i)
+        for i, c in enumerate(list(spec.colors) + [None] * len(values))
+    ][: len(values)]
     wedges, _texts, autotexts = ax.pie(
         values,
         labels=labels if len(labels) <= 12 else None,
@@ -308,9 +431,12 @@ def _draw_candlestick(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> 
     from matplotlib.patches import Rectangle  # noqa: PLC0415
 
     candles = spec.candles
+    colors = list(spec.colors)
     for index, candle in enumerate(candles):
         rising = candle.close >= candle.open
         color = theme.up if rising else theme.down
+        if index < len(colors) and colors[index]:
+            color = colors[index]
         ax.plot([index, index], [candle.low, candle.high], color=color, linewidth=0.9)
         body_low = min(candle.open, candle.close)
         body_high = max(candle.open, candle.close)
@@ -360,6 +486,122 @@ def _draw_radar(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> None:
     ax.grid(True, alpha=0.25)
 
 
+def _draw_gauge(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> None:
+    """A half-circle gauge: the reading as an arc, the number in the middle."""
+    from matplotlib.patches import Wedge  # noqa: PLC0415
+
+    value = float(spec.value or 0.0)
+    maximum = float(spec.gauge_max or 100.0)
+    fraction = 0.0 if maximum <= 0 else max(0.0, min(1.0, value / maximum))
+    radius = 1.0
+    # The track, then the reading.
+    ax.add_patch(Wedge((0, 0), radius, 0, 180, width=0.16, facecolor="#ffffff14", edgecolor="none"))
+    ax.add_patch(Wedge(
+        (0, 0), radius, 0, 180 * fraction, width=0.16,
+        facecolor=theme.series_color(0), edgecolor="none",
+    ))
+    ax.text(0, -0.12, f"{value:,.0f}", ha="center", va="center", color=theme.ink, fontsize=22, fontweight="bold")
+    ax.set_xlim(-1.15, 1.15)
+    ax.set_ylim(-0.55, 1.15)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+
+def _squarify(values: list[float], x: float, y: float, width: float, height: float) -> list[tuple[float, float, float, float]]:
+    """A simple squarified treemap layout.
+
+    Each tile is a rectangle whose AREA is proportional to its value — the
+    whole point of a treemap. The layout is deterministic: the same tiles in
+    the same order always draw the same picture.
+    """
+    total = sum(values)
+    if total <= 0 or width <= 0 or height <= 0:
+        return []
+    scale = (width * height) / total
+    rects: list[tuple[float, float, float, float]] = []
+    remaining = list(values)
+    cx, cy, cw, ch = x, y, width, height
+    while remaining:
+        value = remaining.pop(0)
+        area = value * scale
+        if cw >= ch:
+            tile_w = area / ch if ch > 0 else 0.0
+            rects.append((cx, cy, tile_w, ch))
+            cx += tile_w
+            cw -= tile_w
+        else:
+            tile_h = area / cw if cw > 0 else 0.0
+            rects.append((cx, cy, cw, tile_h))
+            cy += tile_h
+            ch -= tile_h
+    return rects
+
+
+def _treemap_values(tiles: list[Any]) -> list[float]:
+    """A group's area is the sum of its children's."""
+    out: list[float] = []
+    for tile in tiles:
+        if tile.children:
+            out.append(sum(_treemap_values(tile.children)))
+        else:
+            out.append(tile.value)
+    return out
+
+
+def _draw_treemap_tiles(
+    ax: Any, tiles: list[Any], x: float, y: float, width: float, height: float,
+    theme: ChartTheme, depth: int = 0,
+) -> None:
+    """Lay out a treemap's tiles (and their groups) inside a rectangle."""
+    from matplotlib.patches import Rectangle  # noqa: PLC0415
+
+    values = _treemap_values(tiles)
+    rects = _squarify(values, x, y, width, height)
+    band = 0.035 if depth == 0 else 0.0
+    for tile, (tx, ty, tw, th) in zip(tiles, rects):
+        if tw <= 0 or th <= 0:
+            continue
+        if tile.children:
+            # A group: a thin band across the top, then its children inside.
+            label_h = min(th * 0.18, max(th * 0.05, 0.012))
+            if label_h > 0:
+                ax.add_patch(Rectangle(
+                    (tx, ty + th - label_h), tw, label_h,
+                    facecolor="#ffffff10", edgecolor="none",
+                ))
+                ax.text(
+                    tx + 0.006, ty + th - label_h / 2, tile.label or tile.name,
+                    ha="left", va="center", color=theme.ink, fontsize=8.5,
+                    fontweight="bold", clip_on=True,
+                )
+            _draw_treemap_tiles(
+                ax, tile.children, tx, ty, tw, max(th - label_h, 0.0), theme, depth + 1,
+            )
+            continue
+        color = tile.color or theme.series_color(0)
+        ax.add_patch(Rectangle(
+            (tx + 0.003, ty + 0.003), max(tw - 0.006, 0.0), max(th - 0.006, 0.0),
+            facecolor=color, edgecolor="none",
+        ))
+        if tw > 0.1 and th > 0.06:
+            ax.text(
+                tx + 0.008, ty + th - 0.02, tile.label or tile.name,
+                ha="left", va="top", color="#0b0b0d", fontsize=8, fontweight="bold",
+                clip_on=True,
+            )
+
+
+def _draw_treemap(ax: Any, spec: ChartSpec, theme: ChartTheme, plt: Any) -> None:
+    """A treemap: each tile's AREA is its value, its colour its state."""
+    tiles = [t for t in spec.tiles if t.value > 0 or t.children]
+    if not tiles:
+        raise ChartRenderError(CHART_SPEC_INVALID, "the treemap has no tiles with a size")
+    _draw_treemap_tiles(ax, tiles, 0.0, 0.0, 1.0, 1.0, theme)
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis("off")
+
+
 _DISPATCH = {
     "line": _draw_line_family,
     "area": _draw_line_family,
@@ -373,6 +615,8 @@ _DISPATCH = {
     "candlestick": _draw_candlestick,
     "waterfall": _draw_waterfall,
     "radar": _draw_radar,
+    "gauge": _draw_gauge,
+    "treemap": _draw_treemap,
 }
 
 
@@ -390,15 +634,31 @@ def render_chart(spec: ChartSpec) -> bytes:
         raise ChartRenderError(CHART_SPEC_INVALID, f"unknown chart kind {kind!r}")
 
     with plt.rc_context(theme.rc):
-        figure = plt.figure(figsize=(spec.width / 100.0, spec.height / 100.0), dpi=100)
+        has_volume = any(v is not None for v in spec.volume_data)
+        if has_volume:
+            # A price chart's volume pane: the chart on top, the volume below.
+            figure = plt.figure(figsize=(spec.width / 100.0, spec.height / 100.0), dpi=100)
+            grid = figure.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.08)
+            ax = figure.add_subplot(grid[0])
+            volume_ax = figure.add_subplot(grid[1], sharex=ax)
+        else:
+            figure = plt.figure(figsize=(spec.width / 100.0, spec.height / 100.0), dpi=100)
+            ax = figure.add_subplot(111)
+            volume_ax = None
         try:
             if kind == "radar":
                 ax = figure.add_subplot(111, polar=True)
-            else:
-                ax = figure.add_subplot(111)
             setattr(ax, "_eclipse_theme", theme)
             drawer(ax, spec, theme, plt)
             _apply_titles(ax, spec)
+            _apply_value_format(ax, spec)
+            _apply_log_scale(ax, spec)
+            _draw_highlights(ax, spec, theme)
+            _draw_reference_lines(ax, spec, theme)
+            if volume_ax is not None:
+                _draw_volume(volume_ax, spec, theme)
+                volume_ax.tick_params(labelleft=False)
+                volume_ax.grid(True, alpha=0.12)
             if spec.footnote:
                 figure.text(
                     0.01, 0.015, spec.footnote, ha="left", va="bottom",
@@ -409,7 +669,11 @@ def render_chart(spec: ChartSpec) -> bytes:
                     0.99, 0.015, spec.source, ha="right", va="bottom",
                     color=theme.muted, fontsize=8.5,
                 )
-            figure.tight_layout(rect=(0, 0.05 if (spec.footnote or spec.source) else 0, 1, 1))
+            # A gauge/radar/treemap has axes that `tight_layout` cannot fit; the
+            # warning is expected there and the layout is already exact.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                figure.tight_layout(rect=(0, 0.05 if (spec.footnote or spec.source) else 0, 1, 1))
             buffer = io.BytesIO()
             figure.savefig(buffer, format="png", transparent=True)
             return buffer.getvalue()

@@ -14,15 +14,37 @@
 
 export type ChartKind =
   | "line" | "area" | "bar" | "stackedBar" | "pie" | "donut" | "scatter"
-  | "histogram" | "heatmap" | "candlestick" | "waterfall" | "radar";
+  | "histogram" | "heatmap" | "candlestick" | "waterfall" | "radar"
+  | "gauge" | "treemap";
 
 export type ChartTheme = "eclipse-dark" | "eclipse-light";
+
+export interface ChartBand {
+  /** The lower edge of the range. `null` is a missing reading. */
+  lower: Array<number | null>;
+  /** The upper edge of the range. */
+  upper: Array<number | null>;
+}
 
 export interface ChartSeries {
   name: string;
   data: Array<number | null>;
   color?: string;
   style?: "line" | "area" | "bar" | "step" | "scatter";
+  /** An optional range drawn around the series (a forecast band). */
+  band?: ChartBand;
+  /** Per-point colours, in the same order as `data` (a sign, a slice). */
+  colors?: Array<string | null>;
+  /** Draw the series as a dashed line (a benchmark, a reference series). */
+  dashed?: boolean;
+}
+
+/** One tile of a treemap: a name, a size (the area) and a colour. */
+export interface ChartTile {
+  name: string;
+  value: number;
+  color?: string;
+  label?: string;
 }
 
 export interface ChartPoint {
@@ -40,10 +62,23 @@ export interface ChartCandle {
   close: number;
 }
 
+export interface ChartReferenceLine {
+  label: string;
+  value: number;
+  color?: string;
+  dashed?: boolean;
+}
+
 export interface ChartSpec {
   kind: ChartKind;
   title?: string;
   subtitle?: string;
+  /** A gauge's reading. */
+  value?: number;
+  /** A gauge's scale (100 by default). */
+  gaugeMax?: number;
+  /** A treemap's tiles. */
+  tiles?: ChartTile[];
   footnote?: string;
   source?: string;
   xLabel?: string;
@@ -52,6 +87,8 @@ export interface ChartSpec {
   series?: ChartSeries[];
   labels?: string[];
   values?: number[];
+  /** Per-slice colours for a pie/donut, in the same order as `values`. */
+  colors?: Array<string | null>;
   points?: ChartPoint[];
   matrix?: number[][];
   rowLabels?: string[];
@@ -62,6 +99,20 @@ export interface ChartSpec {
   smooth?: boolean;
   showPoints?: boolean;
   theme?: ChartTheme;
+  /** How the value axis is written (the engine draws numbers). */
+  valueFormat?: "percent" | "currency" | "compact" | "r" | "number";
+  /** The currency symbol used by the `currency` value format. */
+  currencySymbol?: string;
+  /** Named horizontal lines drawn across the chart (an entry, a stop). */
+  referenceLines?: ChartReferenceLine[];
+  /** Shaded spans of the category axis (a recession, a regime). */
+  highlights?: Array<{ start: number; end: number; color?: string; label?: string }>;
+  /** An optional volume pane under the chart (a price chart's volume bars). */
+  volumeData?: Array<number | null>;
+  /** The volume bars' colours (one per bar). */
+  volumeColors?: Array<string | null>;
+  /** Draw the value axis on a log scale. */
+  logScale?: boolean;
   width?: number;
   height?: number;
 }

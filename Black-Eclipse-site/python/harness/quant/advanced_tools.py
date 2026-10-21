@@ -632,7 +632,20 @@ async def run_prop_firm_simulation(args: dict[str, Any], ctx: Any) -> tuple[str,
                      "error": {"code": "PROP_FIRM_REQUIRED",
                                "available": [f["id"] for f in list_firms()]}})
         spec = get_spec(firm)
-        size = spec.size(str(args.get("size") or ""))
+        size_id = str(args.get("size") or "").strip()
+        if not size_id:
+            return (f"ERROR - provide `size`. {spec.name} has: "
+                    f"{', '.join(s.id for s in spec.sizes)}.",
+                    {"status": "ERROR",
+                     "error": {"code": "PROP_FIRM_SIZE_REQUIRED",
+                               "available": [s.id for s in spec.sizes]}})
+        try:
+            size = spec.size(size_id)
+        except Exception as exc:  # noqa: BLE001 - an unknown size is a named refusal
+            return (f"ERROR - {exc}",
+                    {"status": "ERROR",
+                     "error": {"code": "PROP_FIRM_SIZE_UNKNOWN",
+                               "available": [s.id for s in spec.sizes]}})
 
         trades = args.get("trades")
         if trades is None:
@@ -692,6 +705,99 @@ async def list_prop_firm_rules(args: dict[str, Any], ctx: Any) -> tuple[str, Any
         return ("\n".join(lines), {"status": "OK", "firms": firms})
     except Exception as exc:  # noqa: BLE001
         return t._err(exc)
+
+
+# ── The Edge Report ──────────────────────────────────────────────────────────
+
+async def generate_edge_report(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Build the Edge Report: the grade, the evidence and the figures."""
+    t = _t()
+    try:
+        from ..charts.render import ChartRenderError
+        from ..charts.service import register_chart_artifact, render_spec
+        from ..charts.spec import ChartSpec
+        from .edge_report import build_edge_report
+
+        experiment_id = str(args.get("experimentId") or "")
+        if not experiment_id:
+            return ("ERROR - provide `experimentId` (the stored backtest to grade).",
+                    {"status": "ERROR",
+                     "error": {"code": "EDGE_REPORT_INPUT_REQUIRED"}})
+
+        store = t._store(ctx)
+        artifact = store.read_artifact(experiment_id)
+        monte_carlo = None
+        mc_id = args.get("monteCarloExperimentId")
+        if mc_id:
+            monte_carlo = store.read_artifact(str(mc_id))
+
+        report = build_edge_report(artifact, monte_carlo)
+        payload: dict[str, Any] = {
+            "status": "OK",
+            "verdict": report.verdict,
+            "markdown": report.markdown,
+            "warnings": report.warnings,
+            "charts": [],
+        }
+
+        if args.get("renderCharts", True):
+            for chart in report.charts:
+                entry = {"name": chart["name"], "title": chart["title"],
+                         "spec": chart["spec"]}
+                try:
+                    rendered = render_spec(ChartSpec.model_validate(chart["spec"]))
+                except ChartRenderError as exc:
+                    entry["error"] = {"code": exc.code, "reason": exc.reason}
+                    payload["charts"].append(entry)
+                    continue
+                artifact_entry = register_chart_artifact(ctx, rendered,
+                                                        source_tool="edge_report")
+                entry["figure"] = rendered.to_dict()
+                entry["artifactId"] = getattr(artifact_entry, "id", None)
+                payload["charts"].append(entry)
+
+        report_artifact = _register_report_artifact(ctx, report.markdown, experiment_id,
+                                                     payload.get("verdict"))
+        payload["reportArtifactId"] = getattr(report_artifact, "id", None)
+
+        verdict = payload["verdict"]
+        payload["summary"] = verdict.get("summary")
+        return (str(verdict.get("summary")),
+                {**payload, "experimentId": experiment_id,
+                 "monteCarloExperimentId": mc_id})
+    except Exception as exc:  # noqa: BLE001
+        return t._err(exc)
+
+
+def _register_report_artifact(ctx: Any, markdown: str, experiment_id: str,
+                               verdict: Optional[dict[str, Any]]) -> Optional[Any]:
+    """Record the Edge Report document in the Artifact Center. Best-effort."""
+    try:
+        from ..artifacts.bootstrap import get_artifact_service
+        from ..artifacts.model import ArtifactCategory
+
+        service = getattr(ctx, "artifact_service", None) if ctx is not None else None
+        service = service or get_artifact_service()
+        if service is None:
+            return None
+        run_id = getattr(ctx, "run_id", None) if ctx is not None else None
+        grade = (verdict or {}).get("grade")
+        return service.register_bytes(
+            markdown.encode("utf-8"),
+            name=f"edge-report-{experiment_id}.md",
+            owner_id="local",
+            description=f"Edge Report for {experiment_id} — grade {grade}",
+            category=ArtifactCategory.REPORT,
+            mime_type="text/markdown",
+            source_tool="edge_report",
+            run_id=run_id,
+            tags=["edge-report", "quant", "computed"],
+            idempotency_key=f"edge-report:{experiment_id}:{run_id or 'none'}",
+            metadata={"experimentId": experiment_id, "grade": grade,
+                      "score": (verdict or {}).get("score")},
+        )
+    except Exception:  # noqa: BLE001 - registration must never fail the report
+        return None
 
 
 # ── Registration ─────────────────────────────────────────────────────────────
@@ -909,6 +1015,19 @@ def register_advanced_tools(registry: Any) -> list[str]:
          "before running a prop-firm simulation.",
          list_prop_firm_rules, {"type": "object", "properties": {}, "required": []})
 
+    _def("generate_edge_report",
+         "Build the Edge Report for a stored backtest: the A-F grade, the four "
+         "axes behind it, the overfit tells, the measured numbers, and the chart "
+         "specs for the equity curve, the drawdown, the Monte-Carlo percentiles, "
+         "the return distribution and the P&L by market regime. The report is a "
+         "document, recorded in the Artifact Center; the figures are computed, "
+         "never evidence.",
+         generate_edge_report, {"type": "object", "properties": {
+             "experimentId": {"type": "string"},
+             "monteCarloExperimentId": {"type": "string"},
+             "renderCharts": {"type": "boolean"}},
+             "required": ["experimentId"]}, 180_000, long_running=True)
+
     return list(ADVANCED_TOOLS)
 
 
@@ -927,6 +1046,7 @@ ADVANCED_TOOLS: tuple[str, ...] = (
     "grade_strategy_edge",
     "run_prop_firm_simulation",
     "list_prop_firm_rules",
+    "generate_edge_report",
     "price_option",
     "implied_volatility",
     "analyze_option_strategy",

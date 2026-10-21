@@ -1,4 +1,4 @@
-﻿// â”€â”€â”€ Skill system front door (Phase 3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€â”€ Skill system front door (Phase 3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Thin typed wrapper over the Python runtime's /skills, /learning and /evaluation
 // endpoints. It adds no skill logic â€” it resolves the model settings the runtime
 // cannot (from the vault) and forwards. There is exactly one skill registry, in
@@ -9,7 +9,7 @@ import { checkMutationAllowed } from "@/lib/api-guard";
 import { HARNESS_PY_URL, ensurePythonRuntime } from "./python-runtime";
 import { runtimeBaseUrl, runtimeCallbackToken } from "./runtime-auth";
 import { HarnessRuntimeUnavailable } from "./python-client";
-import { redactSecrets } from "./errors";
+import { redactSecrets, HarnessHttpError, isNotFoundError } from "./errors";
 import type {
   LearnDraftResult,
   LearnRequest,
@@ -63,7 +63,7 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = (body as { detail?: string }).detail || `runtime HTTP ${res.status}`;
-    throw new Error(redactSecrets(detail));
+    throw new HarnessHttpError(res.status, redactSecrets(detail), detail);
   }
   return body as T;
 }
@@ -244,7 +244,7 @@ export async function getSkill(skillId: string): Promise<SkillDetail | null> {
     const body = await request<{ skill: SkillDetail }>(`/skills/${encodeURIComponent(skillId)}`, { method: "GET" });
     return body.skill;
   } catch (err) {
-    if (err instanceof Error && /404/.test(err.message)) return null;
+    if (isNotFoundError(err)) return null;
     throw err;
   }
 }
@@ -323,7 +323,7 @@ export async function getSkillExecution(runId: string): Promise<SkillExecutionRe
     );
     return body.execution;
   } catch (err) {
-    if (err instanceof Error && /404/.test(err.message)) return null;
+    if (isNotFoundError(err)) return null;
     throw err;
   }
 }
@@ -364,7 +364,7 @@ export async function getEvaluation(evaluationId: string): Promise<SkillEvaluati
     );
     return body.evaluation;
   } catch (err) {
-    if (err instanceof Error && /404/.test(err.message)) return null;
+    if (isNotFoundError(err)) return null;
     throw err;
   }
 }
@@ -383,7 +383,7 @@ export async function getCandidate(candidateId: string): Promise<LearningCandida
     );
     return body.candidate;
   } catch (err) {
-    if (err instanceof Error && /404/.test(err.message)) return null;
+    if (isNotFoundError(err)) return null;
     throw err;
   }
 }

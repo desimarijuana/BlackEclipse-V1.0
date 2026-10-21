@@ -121,6 +121,53 @@ def test_a_missing_reading_is_a_gap_not_a_zero():
     assert render_chart(spec)[:8] == b"\x89PNG\r\n\x1a\n"
 
 
+def test_a_forecast_band_is_drawn():
+    """A band is presentation weight around a series, never a probability."""
+    spec = ChartSpec(
+        kind="line",
+        categories=["a", "b", "c"],
+        series=[{
+            "name": "s",
+            "data": [1, 2, 3],
+            "band": {"lower": [0, 1, 2], "upper": [2, 3, 4]},
+        }],
+    )
+    assert render_chart(spec)[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_the_wire_shape_is_camel_case():
+    """The browser speaks camelCase; the engine must accept it AND speak it."""
+    spec = ChartSpec(
+        kind="line",
+        x_label="Month",
+        y_label="NAV",
+        show_points=True,
+        series=[{"name": "s", "data": [1, 2]}],
+    )
+    payload = spec.to_dict()
+    assert payload["xLabel"] == "Month"
+    assert payload["yLabel"] == "NAV"
+    assert payload["showPoints"] is True
+    # The snake_case field names stay valid too.
+    assert ChartSpec(**{"kind": "line", "x_label": "Month", "series": [{"name": "s", "data": [1]}]}).x_label == "Month"
+
+
+def test_every_value_format_draws():
+    """REGRESSION: the axis formatter is called with (value, position).
+
+    A one-argument formatter raised `TypeError` inside the renderer, so every
+    chart with a value format (percent, currency, compact, r) failed to draw.
+    """
+    for value_format in ("percent", "currency", "compact", "r", "number"):
+        spec = ChartSpec(
+            kind="line",
+            categories=["a", "b"],
+            series=[{"name": "s", "data": [1, 2]}],
+            value_format=value_format,
+        )
+        assert render_chart(spec)[:8] == b"\x89PNG\r\n\x1a\n", value_format
+
+
 def test_a_chart_with_no_values_is_refused():
     spec = ChartSpec(kind="line", series=[{"name": "s", "data": []}])
     with pytest.raises(ChartRenderError) as excinfo:

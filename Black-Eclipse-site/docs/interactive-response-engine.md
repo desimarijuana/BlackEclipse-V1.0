@@ -232,8 +232,7 @@ run to 500 chars because producers attach a short source/citation),
 
 **Candles and formulas (ADR-H242).** `chart` carries `candlestick`/`ohlc` as
 first-class types, and an OHLC point is `[open, high, low, close]` (the order
-people read a candle in; the renderer maps it to ECharts' `[open, close, lowest,
-highest]`). A series of quadruples is a price chart even when the type is left
+people read a candle in; the engine's spec takes the same four values). A series of quadruples is a price chart even when the type is left
 to the `auto` director, and a point that is not a quadruple is a gap — never a
 fabricated candle. The synonyms (`candle`, `candles`, `ohlc_bar`, `price_bar`)
 are RECOVERED in the repair pass for `chart` as well as `financial_chart`: a
@@ -631,9 +630,10 @@ untouched.
 
 Every block is wrapped in `BlockBoundary` (a React error boundary), so a chart
 failure cannot destroy the surrounding answer. The chart component
-(`response-chart.tsx`) is the **only** place ECharts is imported, and it is loaded
-via `next/dynamic({ ssr: false })` so the ~1 MB library is fetched only when a
-chart actually renders. `MermaidBlock` is imported **statically**: it lazy-loads
+(`response-chart.tsx`) draws **no** chart itself: the picture is drawn by the
+runtime's Python chart engine (`docs/chart-engine.md`, ADR-050) and comes back
+as an artifact, which the component fetches and shows. No charting library
+ships in the chat bundle. `MermaidBlock` is imported **statically**: it lazy-loads
 the heavy `mermaid` package inside its own effect, so wrapping the tiny wrapper in
 its own `next/dynamic` only added a redundant chunk-load failure path that could
 surface a scary render error instead of the block's inline card. Mermaid renders
@@ -686,27 +686,29 @@ Blocks are theme-aware. The app switches scheme by toggling the `dark` class on
 use (`lib/chart/providers/eclipse-provider.ts`), via the shared
 `hooks/use-dark-scheme.ts` hook. `mermaid-block.tsx` observes that class and
 re-initialises Mermaid with `theme: 'dark'` or `'default'` so a diagram is never
-rendered on a mismatched background; `response-chart.tsx` rebuilds its ECharts
-option when the scheme flips so axis/legend ink stays legible;
+rendered on a mismatched background; `response-chart.tsx` redraws its picture in the
+matching theme when the scheme flips so axis/legend ink stays legible;
 `diagram-block.tsx` and `node-graph-block.tsx` draw node labels with
 `currentColor` so they inherit the active foreground instead of a hardcoded
 light-mode fill.
 
 ### Chart & diagram presentation
 
-Every visual surface uses the frosted-glass system: the ECharts canvas, the
-Mermaid/diagram/node-graph SVGs and the loading skeletons all sit in
-`.glass-card-subtle` containers rather than flat `border + bg-accent` fills.
-Charts are **smooth and consistent**: `chart-option.ts` sets `animation` with a
-`cubicOut` easing, smooth lines, `borderRadius` rounded bars, a translucent
-gradient under area series, soft dashed gridlines and theme-aware axis/legend
-ink (zrender cannot parse `oklch`, so ink is concrete `rgba`).
+Every visual surface uses the frosted-glass system: the chart picture (a
+transparent PNG drawn by the chart engine, so the frost behind it still
+shows), the Mermaid/diagram/node-graph SVGs and the loading skeletons all sit
+in `.glass-card-subtle` containers rather than flat `border + bg-accent` fills.
 
 A `chart` block covers **sixteen series styles** — the classic
 line/area/bar/stacked_bar/grouped_bar/pie/scatter/histogram/heatmap plus
 `bubble` (`[x, y, size]` triples), `treemap`, `sunburst`, `funnel`, `gauge`,
-`radar` and `waterfall`. A producer picks the style that fits the data; the
-renderer maps each to an ECharts option and never invents a point. Series
+`radar` and `waterfall`. A producer picks the style that fits the data. The
+translation to the engine's spec is pure and lives in
+`src/lib/response/chart-spec.ts` (`chartBlockToSpec`): it never invents a
+point, and a **lossy** mapping is TOLD — the engine draws a fixed set of
+kinds, so a `treemap`/`sunburst`/`funnel`/`gauge` is drawn as the closest
+honest shape (a bar or a pie) and the note appears under the picture, so the
+user is never looking at a chart that quietly became a different chart. Series
 colours come from the app's single source of truth
 (`DEFAULT_CHART_PALETTE`, `src/lib/chart-palette.ts`), which is **green/red by
 default** (finance up/down) and **decoupled from the theme** — applying or
@@ -715,6 +717,10 @@ deliberately (Settings › Charts, or a preset that carries its own
 `chartPalette`); a producer that genuinely needs colour sets it per series via
 `color`.
 
+**The frosted tooltip recipe is gone with the browser canvas.** A chart is now
+a picture, so there is no hover tooltip to frost: the values a tooltip used to
+show live in the block's own table/text, and the picture is the picture.
+
 The frosted **tooltip** recipe (translucent tint, `appendTo: 'body'`, 18px blur,
 rounded shadow) lives once in `baseChartOption()`; `mergeChartOption()` combines
 it with the block's own `trigger`/`valueFormatter`. A plain spread would let the
@@ -722,22 +728,21 @@ bare block tooltip clobber the glass chrome �?" that regression is why the mer
 a named, tested helper.
 
 **Visual director, weights, bands and focus (2026-10-19).** `chartType: "auto"`
-(the new default; explicit types always win) resolves in `chart-option.ts`: a
+(the new default; explicit types always win) resolves in `chart-spec.ts`: a
 temporal category axis or multiple series renders a line; a single series of at
 most 12 labels renders bars; `[x, y, size]` triples render `bubble`; a fully
 monotonic pair renders a line; any other pair renders `scatter`. A series may
 carry `weight` (0..1): it scales stroke width
 (`Math.round((1.2 + 2.4*w)*100)/100`) and opacity (`0.45 + 0.55*w`) so the
 important series reads first without inventing values. A series may also carry
-`band: {lower, upper, weight?}`: on a category axis the renderer adds two hidden
-stacked series per band (transparent lower + translucent delta area, alpha
-`0.08 + 0.22*(weight ?? 0.5)`, `silent`, excluded from the tooltip) and the
-legend lists only the real series. `data_table` alignment is derived in
+`band: {lower, upper, weight?}`: the band travels into the engine's spec and is
+drawn as a translucent area around the series — presentation weight, never a
+probability. `data_table` alignment is derived in
 `table-presentation.ts` (an explicit `align` wins; a column whose values are
 ≥80% numeric right-aligns; raw numbers get locale formatting with at most 4
 fraction digits, numeric strings are left untouched). `response-chart.tsx` adds
 a **focus overlay** (Maximize control, Escape/backdrop/Close to dismiss,
-`role="dialog"`, same `useEChart` instance); the chart remounts on focus toggle.
+`role="dialog"`); the picture is the same artifact, shown larger.
 
 ### Integration point
 
@@ -839,7 +844,7 @@ mapping + `coerceResponsePlan`).
   aliases, link scheme restrictions, the icon allowlist and icon-key
   canonicalization (aliases, emoji, non-string drop, nested blocks).
 - `src/lib/response/parse.test.ts` — segmentation, streaming vs. settled decode.
-- `src/lib/response/chart-option.test.ts` — option building per chart type.
+- `src/lib/response/chart-spec.test.ts` — the block-to-spec translation per chart type.
 - `src/lib/response/diagram-layout.test.ts` — layering, unknown-edge handling,
   cycles.
 - `src/components/response/render.test.tsx` — server-renders the **real**
@@ -847,7 +852,7 @@ mapping + `coerceResponsePlan`).
   ordering, unknown-block isolation, `report` nesting, the streaming/malformed
   fences, action-group proposal semantics, safe citation links, and the
   `mermaid` fence rendering as a diagram (not a `<pre>` code block). Client-only
-  canvas/interaction paths (ECharts, Mermaid's async render, click handlers) are
+  canvas/interaction paths (the chart engine's async render, Mermaid's async render,
   exercised by the option/layout tests and the production build, not here.
 - `src/lib/anatomy/scene.test.ts` — the `anatomy` scene compiler is pure, total
   and deterministic: parts compile to real geometry with a finite projection, a
@@ -877,7 +882,7 @@ mapping + `coerceResponsePlan`).
 | REND-002 | Per-block error isolation | `response-view.tsx` `BlockBoundary` | code review | Verified |
 | REND-003 | Markdown/content blocks | `components/response/blocks.tsx` | tsc | Verified |
 | REND-004 | Rich text reuses existing Markdown | `markdown.tsx` | existing suite | Verified |
-| CHART-001 | General charts via ECharts | `chart-option.ts`, `response-chart.tsx` | chart-option.test.ts | Verified |
+| CHART-001 | General charts via the Python chart engine | `chart-spec.ts`, `response-chart.tsx` | chart-spec.test.ts | Verified |
 | CHART-002 | Lazy chart loading | `response-view.tsx` dynamic | tsc/build | Verified |
 | DIAG-001 | Interactive diagrams (SVG) | `diagram-layout.ts`, `diagram-block.tsx` | diagram-layout.test.ts | Verified |
 | DATA-001 | Interactive data table | `data-table-block.tsx` | tsc | Verified |
@@ -941,10 +946,11 @@ These remain true of the shipped system:
    operations, so there is no graph editor). React Flow is deliberately not a
    dependency; the deterministic `diagram-layout` engine drives both `diagram`
    and `node_graph`. Editing is out of scope until explicitly authorized.
-2. **PDF chart embedding** — the PDF embeds charts that are currently mounted
-   (captured via the ECharts instance registry). A chart that is scrolled away /
-   unmounted, or a `financial_chart`, is listed in an "Export notes" appendix
-   rather than embedded.
+2. **PDF chart embedding** — the PDF embeds the chart's ARTIFACT (the very picture
+   the user saw), fetched back from the Artifact Center and set on the app's own
+   dark panel, because the engine draws a transparent figure with light ink. A
+   chart that was never drawn (no artifact), or a `financial_chart`, is listed in
+   an "Export notes" appendix rather than embedded.
 3. **PDF/tabbed flattening** — `tabs` content is flattened; `controls` are
    omitted from PDF (they are interactive-only). Both are reported in the PDF's
    export notes, never silently dropped.

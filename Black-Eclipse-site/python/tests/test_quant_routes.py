@@ -10,8 +10,10 @@ from __future__ import annotations
 
 def _paths() -> set[str]:
     from harness.routers.quant import router
+    from harness.routers.quant_reports import router as reports_router
 
-    return {getattr(r, "path", "") for r in router.routes}
+    return ({getattr(r, "path", "") for r in router.routes}
+            | {getattr(r, "path", "") for r in reports_router.routes})
 
 
 def test_costs_route_executes():
@@ -57,5 +59,15 @@ def test_advanced_quant_routes_registered():
         "/quant/edge-verdict",
         "/quant/prop-firm",
         "/quant/prop-firm/firms",
+        "/quant/edge-report",
     ):
         assert path in paths, path
+
+
+def test_the_report_routes_are_mounted_on_the_running_app():
+    """A route on a router is not a route until the app includes it."""
+    from harness.main import app
+
+    mounted = set(app.openapi().get("paths", {}))
+    for path in ("/quant/edge-report", "/quant/prop-firm", "/quant/regime-monte-carlo"):
+        assert path in mounted, path

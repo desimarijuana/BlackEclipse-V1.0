@@ -140,7 +140,15 @@ in [`../README.md`](../README.md) is authoritative; in short:
   it. `auto` proposes and verifies; it still never lands a change. Follow the
   rollout and operator runbook in
   [`self-improvement/rsl-implementation-plan.md`](self-improvement/rsl-implementation-plan.md) §5.1.
-  Test it without touching your data with `npm run rsl:smoke`.
+  Test it without touching your data with `npm run rsl:smoke`. Compare a
+  baseline, a surface snapshot and surface+lessons with
+  `npm run rsl:bench -- --surface-snapshot <file>`; the report is written under
+  `.black-eclipse/evaluation/reports/`. Add `--live --provider <p> --model <m>`
+  (and `HARNESS_EVAL_API_KEY`) for a real-model tier; replay datasets are built
+  explicitly with `python -m harness.evaluation.replay_builder --out <file>`.
+- `HARNESS_RSL_MAX_PARALLEL` — how many independent candidates one RSL
+  experiment verifies at once (1–8, default `2`). It never bypasses the daily
+  budget or the one-experiment-at-a-time conductor.
 - `HARNESS_DRIFT_WATCH_SECONDS` — how often the read-only drift watch checks
   every configured scope (default `300`; `0` disables). It publishes a drift
   transition event but never creates a candidate.

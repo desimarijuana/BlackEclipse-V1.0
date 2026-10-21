@@ -56,6 +56,35 @@ export class HarnessError extends Error {
   }
 }
 
+/**
+ * A non-2xx answer from the Python runtime, carrying the HTTP status.
+ *
+ * Why: the runtime reports "not found" as `404` with a human `detail` string
+ * (e.g. "Run not found"). Callers used to detect that by matching the status
+ * number inside the message, which only worked when the runtime sent no
+ * detail — so a missing run surfaced as a 500 instead of a 404. The status
+ * travels on the error itself; the message stays exactly what the runtime
+ * said, so nothing user-facing changes.
+ */
+export class HarnessHttpError extends Error {
+  readonly status: number;
+  readonly detail?: string;
+
+  constructor(status: number, message: string, detail?: string) {
+    super(message);
+    this.name = "HarnessHttpError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+/** Whether a thrown value means "the runtime does not have it" (HTTP 404). */
+export function isNotFoundError(err: unknown): boolean {
+  if (err instanceof HarnessHttpError) return err.status === 404;
+  if (err instanceof Error) return /\b404\b/.test(err.message);
+  return false;
+}
+
 /** Coerce any thrown value into a HarnessError-shaped record for persistence. */
 export function toHarnessErrorJson(err: unknown, fallbackCode: HarnessErrorCode = "INTERNAL_ERROR"): HarnessErrorJson {
   if (err instanceof HarnessError) return err.toJSON();

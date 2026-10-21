@@ -1,8 +1,15 @@
 ---
 title: Borrowings from Harness² — Techniques for Eclipse's Self-Improvement System
-status: Current
-last-verified: 2026-10-18
+status: Stale
+last-verified: 2026-10-20
+superseded-by: docs/self-improvement/rsl-v3-plan.md
 ---
+
+> **Withdrawn (2026-10-20).** Eclipse is building its own RSL. The native
+> mechanisms that were implemented from this list (verdict guard, contrastive
+> evidence, selection, lesson gate) now live in `evaluation/` and
+> `self_improvement/` as Eclipse-owned code. This document is retained for
+> history; do not add the upstream framework or its executor.
 
 # Borrowings from Harness² — Techniques for Eclipse's Self-Improvement System
 

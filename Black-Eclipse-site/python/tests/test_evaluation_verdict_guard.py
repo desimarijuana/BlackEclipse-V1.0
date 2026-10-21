@@ -1,4 +1,4 @@
-"""The verdict-leak tripwire (Harness² borrowings, first slice)."""
+"""The verdict-leak tripwire."""
 
 from __future__ import annotations
 

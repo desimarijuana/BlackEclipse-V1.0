@@ -125,6 +125,15 @@ export async function POST(request: Request) {
     return { page: out };
   })();
 
+  // The project this turn is scoped to. The runtime resolves the id and puts
+  // the project's members in front of the model as a per-run context note; an
+  // unknown id is reported by the runtime, never silently ignored.
+  const rawProjectId = body.projectId;
+  const projectId =
+    typeof rawProjectId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(rawProjectId.trim())
+      ? rawProjectId.trim()
+      : undefined;
+
   let documents: Array<{ name: string; text: string }> = [];
   if (chatId) {
     try {
@@ -137,7 +146,7 @@ export async function POST(request: Request) {
   let id: string;
   try {
     const identityHeaders = await runtimeIdentityHeaders(request);
-    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope);
+    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

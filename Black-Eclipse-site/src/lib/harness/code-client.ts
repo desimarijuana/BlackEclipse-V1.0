@@ -220,6 +220,47 @@ export async function applyPromotion(
   return { ...body.promotion, landing: body.landing };
 }
 
+/** The bounded post-landing probe record (restart → health → keep/rollback). */
+export interface PostLandingRecord {
+  id: string;
+  runId: string;
+  activationId: string | null;
+  rollbackId: string;
+  status:
+    | "running"
+    | "healthy"
+    | "rolled_back"
+    | "rollback_failed"
+    | "restart_failed"
+    | "unverified";
+  reason: string;
+  evidence: Record<string, unknown>;
+  startedAt: string;
+  finishedAt: string | null;
+  createdAt: string;
+}
+
+/**
+ * Probe an RSL landing after the front door restarted the runtime.
+ * `alreadyRestarted` is the supervisor protocol: probe now, roll back on failure.
+ */
+export async function postLandingProbe(
+  rollbackId: string,
+  runId: string,
+  alreadyRestarted = true,
+  activationId?: string,
+): Promise<PostLandingRecord> {
+  const body = await request<{ postLanding: PostLandingRecord }>(
+    `/code/promotions/${encodeURIComponent(rollbackId)}/post-landing`,
+    {
+      method: "POST",
+      body: JSON.stringify({ runId, activationId, alreadyRestarted }),
+      timeoutMs: 180_000,
+    },
+  );
+  return body.postLanding;
+}
+
 /** Put a previously-promoted change back — the exact original contents. */
 export async function rollbackPromotion(
   rollbackId: string,

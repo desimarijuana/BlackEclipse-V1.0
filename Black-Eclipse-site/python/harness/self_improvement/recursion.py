@@ -13,6 +13,7 @@ experiments.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import inspect
 import json
@@ -64,6 +65,12 @@ async def _resolve(value: Any) -> Any:
     return value
 
 
+def _number(value: Any, *, integer: bool = False) -> Any:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value) if integer else float(value)
+
+
 def _normalised_result(result: Any) -> dict[str, Any]:
     result = dict(result) if isinstance(result, Mapping) else {}
     answered = result.get("answered") is not False and result.get("passed") is not None
@@ -74,6 +81,12 @@ def _normalised_result(result: Any) -> dict[str, Any]:
         "benchmark": str(result.get("benchmark") or "UNMEASURED").upper(),
         "runId": result.get("runId"),
         "cause": str(result.get("cause") or ("no_answer" if not answered else "")) or None,
+        # Optional real usage from the verifier; absent stays None (UNKNOWN),
+        # never a fabricated zero.
+        "costUsd": _number(result.get("costUsd", result.get("cost"))),
+        "totalTokens": _number(
+            result.get("totalTokens", result.get("tokens")), integer=True,
+        ),
     }
 
 
@@ -116,6 +129,7 @@ async def run_recursive(
     k: int = 1,
     variants: Optional[Sequence[Mapping[str, Any]]] = None,
     seed: int = 0,
+    max_parallel: int = 1,
     actor: Any = None,
     measure: Optional[composition.Measurement] = None,
     trajectories: Optional[Mapping[str, Any]] = None,
@@ -162,15 +176,24 @@ async def run_recursive(
     labels = selection.anonymous_labels(
         [proposal.id for proposal in proposals], seed=seed,
     )
+    limit = max(1, min(8, int(max_parallel or 1)))
+    semaphore = asyncio.Semaphore(limit)
+
+    async def _verify_one(proposal: Any) -> Any:
+        async with semaphore:
+            try:
+                return await _resolve(verify_fn(proposal))
+            except Exception as exc:  # noqa: BLE001 - a failed verification is a non-answer
+                return {
+                    "answered": False,
+                    "cause": f"verification_error:{type(exc).__name__}",
+                }
+
+    raw_results = await asyncio.gather(
+        *(_verify_one(proposal) for proposal in proposals),
+    )
     candidates: list[dict[str, Any]] = []
-    for proposal in proposals:
-        try:
-            raw = await _resolve(verify_fn(proposal))
-        except Exception as exc:  # noqa: BLE001 - a failed verification is a non-answer
-            raw = {
-                "answered": False,
-                "cause": f"verification_error:{type(exc).__name__}",
-            }
+    for proposal, raw in zip(proposals, raw_results):
         normalised = _normalised_result(raw)
         candidates.append({
             "id": proposal.id,
@@ -180,6 +203,17 @@ async def run_recursive(
             "ops": list(proposal.ops),
             **normalised,
         })
+
+    costs = [
+        item["costUsd"] for item in candidates
+        if item.get("costUsd") is not None
+    ]
+    tokens = [
+        item["totalTokens"] for item in candidates
+        if item.get("totalTokens") is not None
+    ]
+    total_cost = round(sum(costs), 6) if costs else None
+    total_tokens = sum(tokens) if tokens else None
 
     selected = selection.build_selection(candidates, seed=seed)
     composed = await composition.compose_verified(candidates, measure=measure)
@@ -242,7 +276,10 @@ async def run_recursive(
         "runId": run_id,
         "k": len(proposals),
         "requestedK": int(budget["requested"]),
+        "maxParallel": limit,
         "budget": budget,
+        "costUsd": total_cost,
+        "totalTokens": total_tokens,
         "selection": selected,
         "composition": composed,
         "attemptIds": attempt_ids,
@@ -267,9 +304,12 @@ async def run_recursive(
             "proposalId": candidate.get("id"),
             "k": len(proposals),
             "requestedK": int(budget["requested"]),
+            "maxParallel": limit,
             "seed": int(seed),
             "graderVersion": GRADER_API_VERSION,
             "benchmark": payload["benchmark"],
+            "costUsd": total_cost,
+            "totalTokens": total_tokens,
         }
         metadata = {
             "kind": "rsl-recursion",
@@ -281,6 +321,8 @@ async def run_recursive(
             "variants": payload["variants"],
             "evidenceBundle": bundle_path,
             "benchmark": payload["benchmark"],
+            "costUsd": total_cost,
+            "totalTokens": total_tokens,
         }
         eval_store.create_run(
             id=run_id,

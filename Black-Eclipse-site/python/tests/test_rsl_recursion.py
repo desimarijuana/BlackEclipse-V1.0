@@ -411,3 +411,76 @@ async def test_contrast_bundle_is_guarded_before_recording(tmp_path):
             trajectories={"base": leaky, "A": leaky},
             evidence_dir=tmp_path / "bundle",
         )
+
+@pytest.mark.asyncio
+async def test_candidates_verify_in_parallel_with_a_cap_and_keep_order():
+    import asyncio
+
+    active = 0
+    max_active = 0
+    order: list[str] = []
+
+    async def verify(proposal):
+        nonlocal active, max_active
+        active += 1
+        max_active = max(max_active, active)
+        order.append(proposal.id)
+        await asyncio.sleep(0.02)
+        active -= 1
+        return {"passed": True, "benchmark": "UNMEASURED"}
+
+    result = await run_recursive(
+        _candidate(),
+        verify_fn=verify,
+        k=3,
+        max_parallel=2,
+        variants=_variants(),
+        record=False,
+    )
+    assert max_active == 2
+    assert result["maxParallel"] == 2
+    assert len(order) == 3
+    assert [item["id"] for item in result["variants"]] == order
+
+@pytest.mark.asyncio
+async def test_one_scope_busy_does_not_refuse_another(store):
+    loop = RSLLoop(
+        service=None,
+        config=RSLConfig(mode="verify", k=1),
+        run_store=store,
+        evolution=EvolutionStore(store),
+        eval_store=EvaluationStore(store),
+    )
+    loop._busy_scopes.add("scope-a")
+    try:
+        allowed = await loop.run_recursive(
+            {**_candidate(), "scope": "scope-b"},
+            verify_fn=lambda proposal: {"passed": True},
+            variants=_variants(),
+        )
+        refused = await loop.run_recursive(
+            {**_candidate(), "scope": "scope-a"},
+            verify_fn=lambda proposal: {"passed": True},
+            variants=_variants(),
+        )
+    finally:
+        loop._busy_scopes.discard("scope-a")
+    assert allowed["refused"] is False
+    assert refused["refused"] is True
+    assert refused["reason"] == "busy"
+
+
+@pytest.mark.asyncio
+async def test_recursive_result_carries_real_usage_when_the_verifier_reports_it():
+    async def verify(proposal):
+        return {"passed": True, "costUsd": 0.02, "totalTokens": 10}
+
+    result = await run_recursive(
+        _candidate(),
+        verify_fn=verify,
+        k=3,
+        variants=_variants(),
+        record=False,
+    )
+    assert result["costUsd"] == pytest.approx(0.06)
+    assert result["totalTokens"] == 30

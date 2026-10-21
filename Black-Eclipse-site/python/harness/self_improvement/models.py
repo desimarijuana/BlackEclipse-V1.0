@@ -16,7 +16,11 @@ import json
 from dataclasses import dataclass
 from typing import Any, Optional
 
-MAX_PROMPT_CHARS = 16_000
+# The production Eclipse prompt is ~34k characters (finance-harness contract +
+# runtime awareness). The cap must admit the real baseline or no RSL surface
+# can ever be derived from it; 48k keeps a hard ceiling with room to grow.
+MAX_PROMPT_CHARS = 48_000
+MAX_TOOL_GUIDANCE_CHARS = 4_000
 MAX_STEPS = 32
 MAX_TOOL_CALLS = 200
 MAX_TEMPERATURE = 2.0
@@ -40,6 +44,9 @@ class HarnessSnapshot:
 
     systemPrompt: str
     toolNames: tuple[str, ...] = ()
+    # Bounded, per-tool instructions. It is prompt EVIDENCE, never a permission
+    # or a tool allowlist; the registered tool set remains the execution bound.
+    toolGuidance: str = ""
     maxSteps: int = 8
     maxToolCalls: int = MAX_TOOL_CALLS
     modelProvider: Optional[str] = None
@@ -54,6 +61,12 @@ class HarnessSnapshot:
             raise ValueError("systemPrompt is required")
         if len(prompt) > MAX_PROMPT_CHARS:
             raise ValueError(f"systemPrompt exceeds {MAX_PROMPT_CHARS} characters")
+        guidance = str(self.toolGuidance or "").strip()
+        if len(guidance) > MAX_TOOL_GUIDANCE_CHARS:
+            raise ValueError(
+                f"toolGuidance exceeds {MAX_TOOL_GUIDANCE_CHARS} characters"
+            )
+        object.__setattr__(self, "toolGuidance", guidance)
         if not 1 <= int(self.maxSteps) <= MAX_STEPS:
             raise ValueError(f"maxSteps must be between 1 and {MAX_STEPS}")
         if not 0 <= int(self.maxToolCalls) <= MAX_TOOL_CALLS:
@@ -81,17 +94,30 @@ class HarnessSnapshot:
             raise ValueError("sourceDigest does not match the snapshot contents")
         object.__setattr__(self, "sourceDigest", digest)
 
+    def effective_prompt(self) -> str:
+        """The prompt a trial/live run actually receives, including guidance."""
+        if not self.toolGuidance:
+            return self.systemPrompt
+        return f"{self.systemPrompt}\n\n## Tool guidance\n{self.toolGuidance}"
+
     def _identity(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "systemPrompt": self.systemPrompt,
             "toolNames": list(self.toolNames),
+        }
+        # Additive contract: a snapshot written before guidance existed keeps
+        # its exact digest. An empty guidance is not part of the identity.
+        if self.toolGuidance:
+            payload["toolGuidance"] = self.toolGuidance
+        payload.update({
             "maxSteps": int(self.maxSteps),
             "maxToolCalls": int(self.maxToolCalls),
             "modelProvider": self.modelProvider,
             "modelName": self.modelName,
             "temperature": self.temperature,
             "skillDraftIds": list(self.skillDraftIds),
-        }
+        })
+        return payload
 
     def compute_digest(self) -> str:
         """The sha256 of the canonical JSON identity (excluding the digest)."""
@@ -110,7 +136,7 @@ class HarnessSnapshot:
         return AgentConfig(
             id="rsl-candidate",
             name="RSL Candidate",
-            systemPrompt=self.systemPrompt,
+            systemPrompt=self.effective_prompt(),
             tools=list(self.toolNames),
             maxSteps=int(self.maxSteps),
             maxToolCalls=int(self.maxToolCalls),
@@ -156,6 +182,7 @@ class Observation:
 __all__ = [
     "HarnessSnapshot",
     "MAX_PROMPT_CHARS",
+    "MAX_TOOL_GUIDANCE_CHARS",
     "MAX_STEPS",
     "MAX_TOOL_CALLS",
     "OBSERVATION_KINDS",

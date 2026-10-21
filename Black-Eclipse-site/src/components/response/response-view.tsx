@@ -56,7 +56,10 @@ import {
 } from './visual-blocks';
 import { ResponseActions } from './response-actions';
 
-// ECharts is ~1MB; only fetched when a chart block actually renders.
+// A chart block can be drawn by EITHER engine: the interactive ECharts chart
+// (default; ~1MB, fetched only when a chart block actually renders) or the
+// Python chart engine's drawn picture (ADR-050). The user picks; the toggle
+// lives on the chart.
 const ResponseChart = dynamic(() => import('./response-chart'), {
   ssr: false,
   loading: () => <BlockSkeleton height={260} />,

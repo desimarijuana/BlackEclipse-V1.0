@@ -81,8 +81,6 @@ memory system.
 | Program | Owns | RSL's role |
 |---|---|---|
 | `docs/harness/self-evolution-roadmap.md` | The meta loop (W0–W15) and its invariants; recovery incidents; routing repair | RSL is the **experiment conductor** that closes the loop between observation and verified promotion |
-| `docs/self-improvement/architecture-audit.md` | The Harness² integration audit (Phases 0–8) | RSL v1 is the **native** path; the Harness² adapter stays optional and blocked on Phase 1 |
-| `docs/self-improvement/harness2-borrowings.md` | The mechanism steal-list (verdict tripwire, contrast bundle, selection, lesson gate) | RSL wires those mechanisms in later phases |
 | `docs/harness/roadmap/phase-10-self-improvement.md` | Code/skill evolution v2 (candidate → worktree → owning tests → operator) | RSL extends it with a trigger, benchmark verification, experiment records and landing preview |
 
 **Definition.** RSL is the bounded, deterministic loop:
@@ -122,7 +120,6 @@ operator-confirmed (invariant §5.3 of the self-evolution roadmap).
   tests or benchmark datasets.
 - A new database, queue, scheduler or event bus.
 - Unbounded candidate generation (`k>1` is R7, behind a flag).
-- The Harness² framework itself (external, Linux-only, research-grade).
 
 ### RSL v1 definition of done
 
@@ -952,7 +949,6 @@ CI dependency.
 | Operator fatigue | M | Evidence bundle with a single decision, top-N candidates only, dismiss/undo |
 | Model proposer produces bad ops | M | Strict JSON, schema validation, denylist, tests before benchmark |
 | Mined failure becomes a fabricated test | H | Never invent `expected_behavior`; require explicit validation |
-| Harness² environment blocker | L | Native-first; adapter is optional R9 |
 | Doc drift | M | Owning doc + `CHANGELOG.md` per phase |
 
 ---
@@ -967,7 +963,7 @@ CI dependency.
 | 4 | Landing path | `promotion` + `selfhost`; `evolution_service.activate` is ledger-only |
 | 5 | v1 subjects | Code patches + skill drafts; surface snapshots are verified but not landable |
 | 6 | Mined candidates | Evidence only until an explicit validated expectation exists |
-| 7 | Recursion | Native `k>1` first; Harness² adapter only if measured value justifies it |
+| 7 | Recursion | Native `k>1`; no external adapter |
 | 8 | Default after rollout | `off` for zero-config; `observe` is an explicit opt-in until the week's data is reviewed; `verify` is an operator opt-in |
 
 ---
@@ -1277,10 +1273,6 @@ Next v2 slices: canary landing for code.
 ## Related
 
 - `docs/harness/self-evolution-roadmap.md` — the meta loop and invariants §5.
-- `docs/self-improvement/architecture-audit.md` — Harness² Phase 0 audit and the
-  no-duplicate-systems decision.
-- `docs/self-improvement/harness2-borrowings.md` — verdict tripwire, contrast
-  bundles, selection, lesson gate.
 - `docs/harness/agent-evaluation.md` — the evaluator RSL verifies with.
 - `docs/harness/roadmap/phase-10-self-improvement.md` — code/skill evolution v2.
 - `docs/harness/memory-skills-evolution-plan.md` — lesson/skill contracts.

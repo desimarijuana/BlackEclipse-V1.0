@@ -277,6 +277,12 @@ class RunResult(BaseModel):
     # the profile, an i18n headline KEY, and the verification blob it composes.
     # Absent/None for ordinary chat and older rows.
     capability: Optional[dict[str, Any]] = None
+    # Round 3 / W2 (additive, optional): the run's tool-surface resolution - the
+    # surface id, the tools it ADDED, the tools the autonomy profile removed, the
+    # tools a disabled store removed, and the measured bound size. It exists so a
+    # missing tool is always explainable: a surface never removes a tool quietly.
+    # Absent/None for runs written before the surface was published.
+    surface: Optional[dict[str, Any]] = None
     # Vision/Multimodal (additive, optional): the run's collected vision results
     # (asset ids, regions, OCR, confidence, provenance) for the right sidebar.
     # Absent/None when a run used no vision tool, so existing clients remain

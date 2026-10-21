@@ -13,6 +13,7 @@ the climb instead of accepting a worse state.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import inspect
 import json
@@ -31,6 +32,7 @@ AcceptFn = Callable[[dict[str, Any]], Any]
 class HillClimbConfig:
     generations: int = 1
     k: int = 2
+    max_parallel: int = 1
     max_plateau: int = 2
     max_forgetting: float = 0.02
     require_replay: bool = True
@@ -64,6 +66,15 @@ def _state_metrics(state: Mapping[str, Any]) -> Any:
     if "aggregates" in state:
         return state.get("aggregates") or {}
     return {}
+
+def _metric(validation: Any, key: str) -> Any:
+    """Read one optional metric from a validation result; absent is None."""
+    if not isinstance(validation, Mapping):
+        return None
+    aggregates = validation.get("aggregates")
+    if isinstance(aggregates, Mapping) and key in aggregates:
+        return aggregates.get(key)
+    return validation.get(key)
 
 
 def _pareto_accepts(
@@ -112,6 +123,8 @@ def _state_record(
         "candidateId": _candidate_id(candidate),
         "acceptedRunId": candidate.get("acceptedRunId") or candidate.get("runId"),
         "utility": score.get("utility"),
+        "costUsd": candidate.get("costUsd"),
+        "totalTokens": candidate.get("totalTokens"),
         "metrics": metrics,
         "status": "candidate",
     }
@@ -159,6 +172,7 @@ async def run_hillclimb(
         improving: list[dict[str, Any]] = []
         budget_reached = False
 
+        pending: list[tuple[dict[str, Any], str]] = []
         for candidate in neighbors:
             if (
                 settings.max_evaluations is not None
@@ -175,8 +189,34 @@ async def run_hillclimb(
                 })
                 continue
             evaluated += 1
+            pending.append((candidate, digest))
+
+        # Validation is independent per neighbor: evaluate concurrently, keep
+        # proposal order, and let one failure become that neighbor's rejection.
+        limit = max(1, min(8, int(getattr(settings, "max_parallel", 1) or 1)))
+        semaphore = asyncio.Semaphore(limit)
+
+        async def _validate(item: tuple[dict[str, Any], str]) -> Any:
+            async with semaphore:
+                try:
+                    return await _await(evaluate(item[0], "validation"))
+                except Exception as exc:  # noqa: BLE001 - a rejection, not a crash
+                    return exc
+
+        validations = await asyncio.gather(
+            *(_validate(item) for item in pending),
+        )
+
+        for (candidate, digest), validation in zip(pending, validations):
+            if isinstance(validation, Exception):
+                records.append({
+                    **candidate, "decision": "rejected",
+                    "reasons": [f"evaluation_error:{type(validation).__name__}"],
+                })
+                rejected_digests.add(digest)
+                continue
+
             try:
-                validation = await _await(evaluate(candidate, "validation"))
                 decision = acceptance(
                     _state_metrics(state), validation, weights=settings.weights,
                 )
@@ -195,10 +235,10 @@ async def run_hillclimb(
                             "pareto trade-off (not dominated by the current state)"
                         ],
                     }
-            except Exception as exc:  # noqa: BLE001 - a failed evaluation is a rejection
+            except Exception as exc:  # noqa: BLE001 - a failed acceptance is a rejection
                 records.append({
                     **candidate, "decision": "rejected",
-                    "reasons": [f"evaluation_error:{type(exc).__name__}"],
+                    "reasons": [f"acceptance_error:{type(exc).__name__}"],
                 })
                 rejected_digests.add(digest)
                 continue
@@ -211,6 +251,8 @@ async def run_hillclimb(
                 "utility": decision["candidate"]["utility"],
                 "improvement": decision["improvement"],
                 "validation": validation,
+                "costUsd": _metric(validation, "cost"),
+                "totalTokens": _metric(validation, "totalTokens"),
                 "replay": None,
             }
             if not decision["accepted"]:

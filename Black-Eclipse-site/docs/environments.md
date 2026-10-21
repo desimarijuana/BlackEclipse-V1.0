@@ -66,6 +66,27 @@ source hash). `npm run dev` never builds.
 | `black stop` | Stops production; `black stop --all` also stops development |
 | `npm run dev:next` / `npm run dev:local` | Raw `next dev` escape hatches: no profile env, no isolation |
 
+## Dev chunk caching, and the "module factory is not available" overlay
+
+A Turbopack **dev** chunk is named after the MODULE it serves
+(`src_components_screens_a6343f43._.js`), not after the bytes it holds. Edit,
+rename or delete a module and the bytes behind that same URL change while the
+URL stays put. So dev chunks must never be served `immutable`: the browser
+would keep the OLD bytes, ask the runtime for a module factory the server no
+longer has, and the page would die behind "the module factory is not available.
+It might have been deleted in an HMR update".
+
+Dev chunks therefore **revalidate** (`public, max-age=0, must-revalidate`, see
+`next.config.ts`). The dev server already sends `ETag`/`Last-Modified`, so a
+second tab still gets a cheap `304` instead of re-downloading the whole client
+graph, and a changed chunk is always fetched fresh. Production is unaffected:
+a real build is content-hashed and immutable.
+
+A browser that already cached the old immutable copies needs one repair:
+`GET /api/dev/cache-reset` (dev only) answers with `Clear-Site-Data: "cache"`
+— the HTTP cache only, never cookies or localStorage, so the operator stays
+signed in. Then reload the app.
+
 ## Docker
 
 The container is a single production deployment: it runs `next start` on

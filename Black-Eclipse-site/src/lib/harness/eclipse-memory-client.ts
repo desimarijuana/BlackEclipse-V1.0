@@ -6,7 +6,7 @@
 import { HARNESS_PY_URL, ensurePythonRuntime } from "./python-runtime";
 import { runtimeCallbackToken } from "./runtime-auth";
 import { HarnessRuntimeUnavailable } from "./python-client";
-import { redactSecrets } from "./errors";
+import { redactSecrets, HarnessHttpError, isNotFoundError } from "./errors";
 import type {
   CorrectionRecord,
   EclipseMemoryHealth,
@@ -60,7 +60,7 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
     const detail = (body as { detail?: string; error?: string }).detail
       || (body as { error?: string }).error
       || `runtime HTTP ${res.status}`;
-    throw new Error(redactSecrets(detail));
+    throw new HarnessHttpError(res.status, redactSecrets(detail), detail);
   }
   return body as T;
 }
@@ -109,7 +109,7 @@ export async function getMemory(memoryId: string): Promise<MemoryDetail | null> 
     );
     return { memory: body.memory, evidence: body.evidence ?? [], links: body.links ?? [], explanation: body.explanation ?? null };
   } catch (err) {
-    if (err instanceof Error && /404/.test(err.message)) return null;
+    if (isNotFoundError(err)) return null;
     throw err;
   }
 }
@@ -147,7 +147,7 @@ export async function memoryConflictReview(memoryId: string): Promise<MemoryConf
     );
     return body.review;
   } catch (err) {
-    if (err instanceof Error && /404/.test(err.message)) return null;
+    if (isNotFoundError(err)) return null;
     throw err;
   }
 }

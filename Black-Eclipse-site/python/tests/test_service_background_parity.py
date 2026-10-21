@@ -127,6 +127,8 @@ def test_the_one_kwargs_builder_carries_every_subsystem_bundle() -> None:
             "advisory",
             # The durable task manager, for activation-time checkpoint resume.
             "task_manager",
+            # The project store (the workspace's own projects).
+            "project_store",
         }
     assert set(kwargs) == expected
     assert kwargs["portfolio"] == "portfolio-sentinel"

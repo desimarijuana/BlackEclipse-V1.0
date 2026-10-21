@@ -152,7 +152,13 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1420→1441 to the measured working tree: pre-existing shared-tree
     # growth. The Eclipse SDK adds no persistence.py code (it uses the existing
     # `AgentMemoryStore` connection for its own tables). May only shrink.
-    "persistence.py": 1441,
+    # Re-pinned 1441→1475 for the run-row columns that were WRITTEN but never
+    # created: `codeVerification`, `autonomy`, `workspaceId` and `surface`. On a
+    # FRESH `agent-memory.db` - which every new clone gets, because the file is
+    # gitignored - the write raised `no such column` and every run crashed at
+    # the answer seam, AFTER the model had already answered. The columns are
+    # additive and NULL for older rows. May only shrink from here.
+    "persistence.py": 1475,
     "mcp/manager.py": 1106,
     # Grew past the hard ceiling with the Vision + Document Intelligence subsystem
     # boot wiring (`vision_assets`, `document_store`, tool registration), then the
@@ -221,7 +227,11 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1535→1545 for the chart-engine install seam plus the scraper
     # lane's registration; both delegate to their own packages. May only shrink
     # from here.
-    "service.py": 1545,
+    # Re-pinned 1545→1552 for the Project boot seam (`install_project_layer` +
+    # its comment in `__init__` + the `project_store` run kwarg); the project
+    # store and tools live in `python/harness/projects/`. May only shrink from
+    # here.
+    "service.py": 1552,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

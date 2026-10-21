@@ -632,8 +632,11 @@ def simulate_phase(
         target = float(size.profit_target)
     else:
         target = None
-    access_period = (phase.max_trading_days if phase.max_trading_days is not None
-                     else size.max_trading_days)
+    access_period = phase.max_trading_days
+    if access_period is None and phase.has_profit_target:
+        # The access period belongs to the EVALUATION. A funded account has no
+        # purchase window to expire, so it never inherits the size's.
+        access_period = size.max_trading_days
     max_loss = phase.max_loss if phase.max_loss > 0 else size.max_loss
     daily_loss = (phase.daily_loss_limit if phase.daily_loss_limit is not None
                   else size.daily_loss_limit)
@@ -657,6 +660,7 @@ def simulate_phase(
                                    phase.max_loss_ceiling)
     trading_days = 0
     best_day = 0.0
+    best_day_label = ""
     worst_day = 0.0
     effective_target = float(target) if target is not None else None
     consistency_violations: list[str] = []
@@ -695,8 +699,12 @@ def simulate_phase(
         worst_day = min(worst_day, day_pnl)
         if day_pnl > 0:
             profitable_days += 1
-            if day_pnl >= phase.min_profitable_day_amount:
-                qualifying_days += 1
+        if phase.min_profitable_day_amount > 0 \
+                and day_pnl >= phase.min_profitable_day_amount:
+            qualifying_days += 1
+        if day_pnl > best_day:
+            best_day = day_pnl
+            best_day_label = day.day
 
         # Consistency is judged on the end-of-day result. A rule measured against
         # the TOTAL profit is NOT applied here: on the first profitable day the
@@ -745,7 +753,7 @@ def simulate_phase(
                 outcome.reason = (
                     f"the consistency rule was violated: the best day carries more "
                     f"than {phase.consistency_share:.0%} of the total profit")
-                outcome.breach_day = best_day and days[max(0, trading_days - 1)].day
+                outcome.breach_day = best_day_label or None
                 break
             outcome.status = "passed"
             outcome.reason = (f"profit target {effective_target:.0f} reached on "
@@ -803,8 +811,10 @@ def simulate_phase(
                 outcome.reason = ("the simulated history ended with the account "
                                   "still active")
 
-    if payouts and outcome.status not in ("failed_max_loss", "failed_daily_loss",
-                                          "failed_consistency"):
+    # A payout is only made by an account that is still ALIVE. Any failure —
+    # a breach, a consistency violation, an expired access period — closes the
+    # account, and a closed account pays nothing.
+    if payouts and not outcome.status.startswith("failed"):
         amount = _payout_amount(balance - start_balance, phase, qualifying_days,
                                  profitable_days)
         if amount and not payouts_made:

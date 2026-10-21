@@ -6,11 +6,11 @@
 // component — importing the server client pulls `child_process` into the browser
 // bundle and the page fails to compile.
 
-import type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding } from './code-client';
+import type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord } from './code-client';
 
 // Re-export the wire types so a component imports everything from ONE client-safe
 // module (a type-only re-export is erased at compile time — no server code ships).
-export type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding };
+export type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord };
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
@@ -121,6 +121,23 @@ export async function rollbackPromotion(
 export async function restartHarnessRuntime(): Promise<boolean> {
   const body = await api<{ healthy: boolean }>('/api/harness/runtime/restart', { method: 'POST' });
   return Boolean(body.healthy);
+}
+
+/** Probe an RSL landing after the restart; the runtime rolls back on failure. */
+export async function postLandingProbe(
+  rollbackId: string,
+  runId: string,
+  alreadyRestarted = true,
+  activationId?: string,
+): Promise<PostLandingRecord> {
+  const body = await api<{ postLanding: PostLandingRecord }>(
+    `/api/code/promotions/${encodeURIComponent(rollbackId)}/post-landing`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ runId, activationId, alreadyRestarted }),
+    },
+  );
+  return body.postLanding;
 }
 
 // ── Workspace folders + editor (client-safe) ─────────────────────────────────

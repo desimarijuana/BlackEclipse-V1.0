@@ -156,3 +156,32 @@ def test_global_activation_applies_to_a_matching_agent(store):
     updated, applied = apply_active_surface(store, _agent())
     assert updated.systemPrompt == "measured prompt"
     assert applied is not None
+
+def test_tool_guidance_is_applied_but_does_not_change_the_allowlist(store):
+    states = HarnessStateStore(store)
+    root = states.save_state({
+        "scope": "eclipse-agent", "snapshotDigest": "base",
+        "metrics": {"aggregates": {"task_success": 0.7}},
+        "utility": 0.7, "status": "current",
+    })
+    guided = HarnessSnapshot(
+        systemPrompt="measured prompt",
+        toolNames=("tool_a",),
+        toolGuidance="Use tool_a; never invent its result.",
+        maxSteps=6,
+        maxToolCalls=8,
+    )
+    state = states.save_state({
+        "scope": "eclipse-agent", "snapshotDigest": guided.sourceDigest,
+        "metrics": {"aggregates": {"task_success": 0.8}},
+        "utility": 0.8, "status": "candidate", "parentStateId": root["id"],
+    })
+    states.activate_surface(
+        state["id"], snapshot=guided.to_dict(), base=_base().to_dict(),
+    )
+
+    updated, applied = apply_active_surface(store, _agent())
+
+    assert applied is not None
+    assert "Use tool_a; never invent its result." in updated.systemPrompt
+    assert updated.tools == ["tool_a"]

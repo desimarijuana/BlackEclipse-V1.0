@@ -102,3 +102,20 @@ def test_a_normal_workspace_target_is_returned_normalized():
     assert assert_landable_target("./python\\harness\\finance_tools.py") == (
         "python/harness/finance_tools.py"
     )
+
+def test_tool_guidance_is_bounded_and_part_of_the_digest():
+    plain = HarnessSnapshot(systemPrompt="You are Eclipse.")
+    guided = HarnessSnapshot(
+        systemPrompt="You are Eclipse.",
+        toolGuidance="Prefer the narrow tool; cite the result.",
+    )
+    assert plain.effective_prompt() == "You are Eclipse."
+    assert "Prefer the narrow tool" in guided.effective_prompt()
+    assert guided.sourceDigest != plain.sourceDigest
+    assert guided.to_agent_config().systemPrompt == guided.effective_prompt()
+
+    with pytest.raises(ValueError):
+        HarnessSnapshot(
+            systemPrompt="You are Eclipse.",
+            toolGuidance="x" * 4_001,
+        )

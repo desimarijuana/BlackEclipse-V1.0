@@ -98,15 +98,18 @@ class RegimeSeries:
     confidence: list[float] = field(default_factory=list)
     warmup_bars: int = 0
     counts: dict[str, int] = field(default_factory=dict)
+    #: timestamp → bar index. Built once, so placing thousands of trades on
+    #: their entry bar stays linear in the number of trades, not quadratic.
+    _index: dict[str, int] = field(default_factory=dict, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        self._index = {ts: i for i, ts in enumerate(self.timestamps)}
 
     def index_of(self, timestamp: Optional[str]) -> Optional[int]:
         """Exact timestamp lookup; `None` when the bar is not in this series."""
         if not timestamp:
             return None
-        try:
-            return self.timestamps.index(timestamp)
-        except ValueError:
-            return None
+        return self._index.get(timestamp)
 
     def to_dict(self, *, include_series: bool = False) -> dict[str, Any]:
         data: dict[str, Any] = {

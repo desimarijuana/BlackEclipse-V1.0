@@ -14,7 +14,7 @@ import { Check, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import type { TranslationKey } from '@/lib/i18n/types';
-import { previewPromotion, applyPromotion, rollbackPromotion, restartHarnessRuntime } from '@/lib/harness/code-browser';
+import { previewPromotion, applyPromotion, rollbackPromotion, restartHarnessRuntime, postLandingProbe } from '@/lib/harness/code-browser';
 import type { PromotionPreview, PromotionLanding } from '@/lib/harness/code-browser';
 
 type Phase = 'idle' | 'loading' | 'preview' | 'applying' | 'done' | 'rolling_back' | 'rolled_back' | 'error';
@@ -50,6 +50,7 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
   const [rollbackId, setRollbackId] = useState<string | null>(null);
   const [landing, setLanding] = useState<PromotionLanding | null>(null);
   const [restart, setRestart] = useState<'idle' | 'working' | 'done' | 'error'>('idle');
+  const [postLanding, setPostLanding] = useState<'idle' | 'checking' | 'healthy' | 'rolled_back' | 'unverified' | 'error'>('idle');
   const [messageKey, setMessageKey] = useState<TranslationKey>('code.promote.error.generic');
 
   async function review() {
@@ -99,9 +100,26 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
 
   async function doRestart() {
     setRestart('working');
+    setPostLanding('idle');
     try {
       const ok = await restartHarnessRuntime();
-      setRestart(ok ? 'done' : 'error');
+      if (!ok) {
+        setRestart('error');
+        return;
+      }
+      setRestart('done');
+      if (!rollbackId) return;
+      // The front door restarted the process; the runtime now probes its own
+      // health and puts the previous files back when it did not come up.
+      setPostLanding('checking');
+      try {
+        const record = await postLandingProbe(rollbackId, runId, true);
+        if (record.status === 'healthy') setPostLanding('healthy');
+        else if (record.status === 'rolled_back') setPostLanding('rolled_back');
+        else setPostLanding('unverified');
+      } catch {
+        setPostLanding('error');
+      }
     } catch {
       setRestart('error');
     }
@@ -113,6 +131,8 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
     setApprovalId(null);
     setRollbackId(null);
     setLanding(null);
+    setRestart('idle');
+    setPostLanding('idle');
   }
 
   const size = compact ? 'text-[10.5px]' : 'text-[11.5px]';
@@ -163,7 +183,7 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
         {landing?.restartRequired && (
           <div className="mt-1 text-muted-foreground/80">
             {t('code.promote.restartNote')}
-            {restart === 'idle' && (
+            {(restart === 'idle' || postLanding === 'rolled_back') && (
               <button
                 type="button"
                 onClick={() => void doRestart()}
@@ -173,8 +193,27 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
               </button>
             )}
             {restart === 'working' && <span className="ml-2">{t('code.promote.restarting')}</span>}
-            {restart === 'done' && <span className="ml-2 text-primary">{t('code.promote.restarted')}</span>}
-            {restart === 'error' && <span className="ml-2 text-destructive">{t('code.promote.restartFailed')}</span>}
+            {restart === 'done' && postLanding === 'checking' && (
+              <span className="ml-2">{t('code.promote.postLandingChecking')}</span>
+            )}
+            {restart === 'done' && postLanding === 'healthy' && (
+              <span className="ml-2 text-primary">{t('code.promote.restarted')}</span>
+            )}
+            {restart === 'done' && postLanding === 'unverified' && (
+              <span className="ml-2 text-muted-foreground">{t('code.promote.postLandingUnverified')}</span>
+            )}
+            {restart === 'done' && postLanding === 'rolled_back' && (
+              <span className="ml-2 text-destructive">{t('code.promote.postLandingRolledBack')}</span>
+            )}
+            {restart === 'done' && postLanding === 'idle' && (
+              <span className="ml-2 text-primary">{t('code.promote.restarted')}</span>
+            )}
+            {restart === 'error' && (
+              <span className="ml-2 text-destructive">{t('code.promote.restartFailed')}</span>
+            )}
+            {postLanding === 'error' && (
+              <span className="ml-2 text-destructive">{t('code.promote.error.generic')}</span>
+            )}
           </div>
         )}
         {landing?.buildRequired && (

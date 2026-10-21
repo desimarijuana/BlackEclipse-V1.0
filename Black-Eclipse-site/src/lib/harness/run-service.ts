@@ -76,6 +76,7 @@ export async function chatWithAgent(
   identityHeaders?: Record<string, string>,
   uiContext?: Record<string, unknown>,
   memoryScope?: "conversation",
+  projectId?: string,
 ): Promise<{
   output: string;
   runId: string;
@@ -131,6 +132,7 @@ export async function chatWithAgent(
     reasoningEffort,
     sessionId,
     ...(memoryScope === "conversation" && sessionId ? { conversationId: sessionId } : {}),
+    ...(projectId ? { projectId } : {}),
     ...(forcedAutonomy ? { autonomy: forcedAutonomy } : {}),
     analysisEnabled: true,
     ...(parsedCommand ? { command: parsedCommand.command.name } : agentCommand ? { command: agentCommand.command } : {}),
@@ -248,6 +250,7 @@ export async function startChatRun(
   identityHeaders?: Record<string, string>,
   uiContext?: Record<string, unknown>,
   memoryScope?: "conversation",
+  projectId?: string,
 ): Promise<string> {
   // A leading `/command` (e.g. `/eclipsesdk`) is a DETERMINISTIC profile switch:
   // parse it, strip it, and force the command's profile — do NOT ask the
@@ -330,6 +333,9 @@ export async function startChatRun(
     // Bot chats and group-member turns opt into PRIVATE per-conversation memory:
     // the conversation id IS the session id (`bot-<id>` / `group-...`).
     ...(memoryScope === "conversation" && sessionId ? { conversationId: sessionId } : {}),
+    // The project this turn is scoped to. The runtime resolves it and puts the
+    // project's members in front of the model as a per-run context note.
+    ...(projectId ? { projectId } : {}),
     ...(autonomy ? { autonomy } : {}),
     ...(analysisEnabled ? { analysisEnabled: true } : {}),
     // The command marker, when a command forced this turn. The runtime never

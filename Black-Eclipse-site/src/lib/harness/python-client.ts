@@ -4,7 +4,7 @@
 
 import { HARNESS_PY_URL, ensurePythonRuntime } from "./python-runtime";
 import type { HarnessErrorJson, HarnessEvent, RunRecord, RunResult, UsageSummary } from "./types";
-import { redactSecrets } from "./errors";
+import { redactSecrets, HarnessHttpError, isNotFoundError } from "./errors";
 
 export class HarnessRuntimeUnavailable extends Error {
   readonly code = "RUNTIME_UNAVAILABLE" as const;
@@ -89,7 +89,7 @@ async function request<T>(
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const detail = (body as { detail?: string }).detail || `runtime HTTP ${res.status}`;
-    throw new Error(redactSecrets(detail));
+    throw new HarnessHttpError(res.status, redactSecrets(detail), detail);
   }
   return body as T;
 }
@@ -143,7 +143,7 @@ export async function getRunFromRuntime(runId: string): Promise<RunRecord | null
     const body = await request<{ run: RunRecord }>(`/runs/${encodeURIComponent(runId)}`, { method: "GET" });
     return body.run;
   } catch (err) {
-    if (err instanceof Error && /404/.test(err.message)) return null;
+    if (isNotFoundError(err)) return null;
     throw err;
   }
 }
@@ -183,7 +183,7 @@ export async function getRunReceiptFromRuntime(
     );
     return body.receipt ?? null;
   } catch (err) {
-    if (err instanceof Error && /404/.test(err.message)) return null;
+    if (isNotFoundError(err)) return null;
     throw err;
   }
 }
@@ -198,7 +198,7 @@ export async function getRunExplanationFromRuntime(
       { method: "GET" }
     );
   } catch (err) {
-    if (err instanceof Error && /404/.test(err.message)) return null;
+    if (isNotFoundError(err)) return null;
     throw err;
   }
 }

@@ -27,6 +27,7 @@ from ..persistence import now_iso
 from ..skills.permissions import Actor
 from . import hillclimb, proposer, proposer_model, recorder, verifier
 from .config import RSLConfig
+from .runtime_settings import RuntimeSettingsStore
 from .state import HarnessStateStore
 
 
@@ -71,8 +72,20 @@ class RSLLoop:
         climb_runner: Any = None,
     ) -> None:
         self.service = service
-        self.config = config or RSLConfig.from_env()
         self.run_store = run_store or getattr(service, "store", None)
+        # An explicit config (tests, smoke) is authoritative. Otherwise start
+        # from env and overlay the last operator-applied runtime override.
+        self.config = config or RSLConfig.from_env()
+        self._config_source = "explicit" if config is not None else "env"
+        if config is None and self.run_store is not None:
+            try:
+                self.config = RuntimeSettingsStore(
+                    self.run_store
+                ).load_rsl_config(self.config)
+                self._config_source = "env+persisted"
+            except Exception:  # noqa: BLE001 - a settings failure never blocks boot
+                pass
+        self._config_lock = asyncio.Lock()
         self.evolution = evolution or (
             service.evolution_store() if service is not None
             else EvolutionStore(self.run_store)
@@ -95,6 +108,9 @@ class RSLLoop:
         self._task: Optional[asyncio.Task[Any]] = None
         self._wake = asyncio.Event()
         self._busy = False
+        # Per-scope experiment leases. One experiment per scope may run at a
+        # time; a tick still owns the global `_busy` flag.
+        self._busy_scopes: set[str] = set()
         self._stopping = False
 
     # -- lifecycle ---------------------------------------------------------
@@ -191,10 +207,12 @@ class RSLLoop:
             "mode": self.config.mode,
             "strategy": self.config.strategy,
             "running": bool(self._task is not None and not self._task.done()),
-            "busy": self._busy,
+            "busy": self._busy or bool(self._busy_scopes),
+            "busyScopes": sorted(self._busy_scopes),
             "maxCandidates": self.config.max_candidates,
             "maxExperimentsPerDay": self.config.max_experiments_per_day,
             "k": self.config.k,
+            "maxParallel": self.config.max_parallel,
             "generations": self.config.generations,
             "objective": self.config.objective,
             "modelProposer": self.config.model_proposer,
@@ -224,10 +242,37 @@ class RSLLoop:
             "leaseSeconds": self.config.lease_seconds,
             "trials": self.config.trials,
             "maxCostUsd": self.config.max_cost_usd,
+            "configSource": self._config_source,
             "driftWatch": watch.health() if watch is not None else {
                 "enabled": False, "intervalSeconds": 0, "running": False, "last": {},
             },
         }
+
+    async def set_config(
+        self, payload: dict[str, Any], *, persist: bool = True,
+    ) -> dict[str, Any]:
+        """Apply bounded operator overrides without a restart.
+
+        Only `RSLConfig` fields are accepted; every value goes through the same
+        clamps as `from_env`. Enabling a mode that was off starts the conductor;
+        switching to off stops it. A persisted override survives a restart.
+        """
+        async with self._config_lock:
+            previous = self.config
+            updated = previous.apply_payload(payload)
+            if persist and self.run_store is not None:
+                RuntimeSettingsStore(self.run_store).save_rsl_config(updated)
+            self.config = updated
+            self._config_source = "env+persisted" if persist else "explicit"
+
+            if updated.is_off:
+                if self._task is not None and not self._task.done():
+                    await self.stop()
+            elif previous.is_off:
+                await self.start()
+            else:
+                self.wake()
+        return self.status()
 
     async def run_recursive(
         self,
@@ -256,22 +301,25 @@ class RSLLoop:
                 "selection": None,
                 "composition": None,
             }
-        if self._busy:
+        scope = str(candidate.get("scope") or "global")
+        if self._busy or scope in self._busy_scopes:
             return {
                 "refused": True,
                 "reason": "busy",
+                "scope": scope,
                 "k": 0,
                 "selection": None,
                 "composition": None,
             }
         from .recursion import run_recursive  # noqa: PLC0415 - one-way dependency
 
-        self._busy = True
+        self._busy_scopes.add(scope)
         try:
             return await run_recursive(
                 candidate,
                 verify_fn=verify_fn,
                 k=self.config.k,
+                max_parallel=self.config.max_parallel,
                 variants=variants,
                 seed=seed,
                 actor=self._actor(),
@@ -285,7 +333,7 @@ class RSLLoop:
                 record_attempts=record_attempts,
             )
         finally:
-            self._busy = False
+            self._busy_scopes.discard(scope)
 
     async def run_hillclimb(
         self,
@@ -315,9 +363,11 @@ class RSLLoop:
                 "refused": True, "reason": "strategy",
                 "strategy": self.config.strategy, "accepted": [], "current": None,
             }
-        if self._busy:
+        scope = str(scope or "global")
+        if self._busy or scope in self._busy_scopes:
             return {
-                "refused": True, "reason": "busy", "accepted": [], "current": None,
+                "refused": True, "reason": "busy", "scope": scope,
+                "accepted": [], "current": None,
             }
         if self.state_store is None:
             return {
@@ -344,10 +394,11 @@ class RSLLoop:
             generations=self.config.generations,
             objective=self.config.objective,
             k=self.config.k,
+            max_parallel=self.config.max_parallel,
             require_replay=True,
             max_evaluations=remaining,
         )
-        self._busy = True
+        self._busy_scopes.add(scope)
         try:
             result = await hillclimb.run_hillclimb(
                 state,
@@ -366,7 +417,7 @@ class RSLLoop:
             result["persisted"] = bool(persist)
             return result
         finally:
-            self._busy = False
+            self._busy_scopes.discard(scope)
 
     def _record_hillclimb_attempts(
         self,

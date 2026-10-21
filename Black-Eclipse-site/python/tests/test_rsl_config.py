@@ -18,6 +18,7 @@ def test_defaults_are_dark_and_bounded():
     assert config.max_experiments_per_day == 3
     assert config.trials == 3
     assert config.k == 1
+    assert config.max_parallel == 2
     assert config.generations == 1
     assert config.tick_seconds == 300
     assert config.lease_seconds == 1800
@@ -65,6 +66,7 @@ def test_every_numeric_setting_is_clamped():
         "HARNESS_RSL_MAX_EXPERIMENTS_PER_DAY": "-4",
         "HARNESS_RSL_TRIALS": "0",
         "HARNESS_RSL_K": "99",
+        "HARNESS_RSL_MAX_PARALLEL": "99",
         "HARNESS_RSL_GENERATIONS": "99",
         "HARNESS_RSL_TICK_SECONDS": "1",
         "HARNESS_RSL_LEASE_SECONDS": "1",
@@ -75,6 +77,7 @@ def test_every_numeric_setting_is_clamped():
     assert config.max_experiments_per_day == 0
     assert config.trials == 1
     assert config.k == 8
+    assert config.max_parallel == 8
     assert config.generations == 3
     assert config.tick_seconds == 10
     assert config.lease_seconds == 60
@@ -91,6 +94,38 @@ def test_malformed_numbers_fall_back_to_defaults():
     assert config.max_candidates == 5
     assert config.trials == 3
     assert config.max_cost_usd == 5.0
+
+
+def test_operator_payload_is_clamped_and_unknown_keys_are_refused():
+    base = RSLConfig.from_env(environ={})
+    updated = base.apply_payload({"mode": "verify", "k": 99, "trials": 0})
+    assert updated.mode == "verify"
+    assert updated.k == 8
+    assert updated.trials == 1
+    # Fields the payload did not name keep their previous values.
+    assert updated.max_experiments_per_day == base.max_experiments_per_day
+
+    with pytest.raises(ValueError):
+        base.apply_payload({"mode": "verify", "notAField": True})
+
+
+def test_config_round_trips_through_to_dict_and_from_dict():
+    config = RSLConfig.from_env(environ={
+        "HARNESS_RSL_MODE": "verify",
+        "HARNESS_RSL_K": "4",
+    })
+    restored = RSLConfig.from_dict(config.to_dict())
+    assert restored == config
+
+
+def test_snapshot_admits_the_production_agent_prompt():
+    from harness.agents import get_agent
+    from harness.evaluation.candidate_invoker import base_snapshot_from_agent
+
+    agent = get_agent("eclipse-agent")
+    assert len(agent.systemPrompt) > 16_000
+    snapshot = base_snapshot_from_agent(agent, tool_names=())
+    assert snapshot.systemPrompt == agent.systemPrompt
 
 
 def test_snapshot_digest_is_reproducible_and_validated():

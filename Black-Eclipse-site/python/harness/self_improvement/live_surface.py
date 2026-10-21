@@ -53,7 +53,7 @@ def apply_active_surface(
             return agent, {"skipped": "base_changed", "activationId": activation.get("id")}
         validate_snapshot(saved_base, snapshot)
         updated = agent.model_copy(update={
-            "systemPrompt": snapshot.systemPrompt,
+            "systemPrompt": snapshot.effective_prompt(),
             "tools": list(snapshot.toolNames),
             "maxSteps": min(
                 int(getattr(agent, "maxSteps", snapshot.maxSteps) or snapshot.maxSteps),

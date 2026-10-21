@@ -285,6 +285,29 @@ def test_a_log_with_no_usable_trades_is_unavailable_not_zero():
     assert "no usable closed trades" in report["reason"]
 
 
+def test_a_funded_account_never_inherits_the_evaluation_access_period():
+    # Apex's evaluation has a 30-day access period; the funded account has no
+    # purchase window to expire, so a 40-day funded run must NOT fail on one.
+    spec = get_spec("apex_eod")
+    size = spec.size("50k")
+    days = group_by_day(normalise_trades(_trades(
+        [(_day(1 + i), 100.0) for i in range(40)]))[0])
+    outcome = simulate_phase(days, spec.funded, size, payouts=True)
+    assert outcome.status != "failed_access_period"
+    assert outcome.days_simulated == 40
+
+
+def test_a_failed_account_pays_nothing():
+    spec = get_spec("topstep")
+    size = spec.size("50k")
+    days = group_by_day(normalise_trades(_trades(
+        [(_day(1 + i), -3_000.0) for i in range(10)]))[0])
+    outcome = simulate_phase(days, spec.funded, size, payouts=True)
+    assert outcome.status.startswith("failed")
+    assert outcome.total_payout == 0.0
+    assert outcome.payouts == []
+
+
 def test_the_funded_phase_pays_out_only_when_the_payout_policy_is_met():
     spec = get_spec("topstep")
     size = spec.size("50k")

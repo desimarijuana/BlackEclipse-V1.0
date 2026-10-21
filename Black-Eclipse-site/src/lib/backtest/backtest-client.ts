@@ -191,6 +191,61 @@ export interface ResearchResult {
 
 const BASE = "/api/backtest";
 
+/** One graded axis of the Edge Report. */
+export interface EdgeVerdictComponent {
+  score: number | null;
+  basis: string;
+  detail: string;
+}
+
+/** One flag the grader raised (a missing measurement, a warning, a failure). */
+export interface EdgeVerdictFlag {
+  code: string;
+  severity: "critical" | "warning" | "info";
+  message: string;
+}
+
+/** The Edge Verdict: the grade, the four axes behind it and the flags. */
+export interface EdgeVerdict {
+  available: boolean;
+  grade: string;
+  score: number;
+  components: Record<string, EdgeVerdictComponent>;
+  flags: EdgeVerdictFlag[];
+  flagCounts: { critical: number; warning: number; info: number };
+  summary: string;
+  assumptions?: Record<string, unknown>;
+}
+
+/** One figure of the Edge Report, drawn by the runtime's chart engine. */
+export interface EdgeReportChart {
+  name: string;
+  title: string;
+  spec?: Record<string, unknown>;
+  artifactId?: string | null;
+  figure?: Record<string, unknown>;
+  error?: { code: string; reason: string };
+}
+
+/**
+ * The Edge Report: the verdict, the document and the figures as one record.
+ *
+ * The runtime builds it; the browser only shows what came back. The figures
+ * live in the Artifact Center, so the report is a durable document rather than
+ * a picture that evaporates with the tab.
+ */
+export interface EdgeReport {
+  status: string;
+  experimentId: string;
+  monteCarloExperimentId?: string | null;
+  verdict: EdgeVerdict;
+  markdown: string;
+  summary?: string;
+  warnings: Array<{ code?: string; message: string }>;
+  charts: EdgeReportChart[];
+  reportArtifactId?: string | null;
+}
+
 export interface ResearchRequest {
   strategyId: string;
   version?: string;
@@ -283,6 +338,13 @@ export const backtestClient = {
 
   getArtifact: (id: string) =>
     jsonFetch<BacktestResult>(`/experiments/${encodeURIComponent(id)}/artifact`),
+
+  /** Build the Edge Report for one experiment (and optionally a Monte-Carlo). */
+  edgeReport: (input: { experimentId: string; monteCarloExperimentId?: string }) =>
+    jsonFetch<EdgeReport>("/edge-report", {
+      method: "POST",
+      body: JSON.stringify({ renderCharts: true, ...input }),
+    }),
 
   deleteExperiment: (id: string) =>
     jsonFetch<{ deleted: boolean }>(`/experiments/${encodeURIComponent(id)}`, { method: "DELETE" }),

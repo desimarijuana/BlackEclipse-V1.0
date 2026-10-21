@@ -121,6 +121,27 @@ def test_regime_blocks_split_on_label_changes():
     assert blocks == [[0, 1], [2], [3, 4], [5]]
 
 
+def test_placing_many_trades_stays_linear():
+    """A long backtest must not turn trade placement into a quadratic scan."""
+    import time
+
+    rows = _trending_rows(n=2_000)
+    series = _series_from(rows)
+    classified = classify_series("TESTUSDT", series.high, series.low, series.close,
+                                 list(series.timestamps),
+                                 RegimeConfig(fast=10, slow=30, vol_period=10,
+                                              vol_baseline=40))
+    trades = [{"id": str(i), "symbol": "TESTUSDT",
+               "entryTs": series.timestamps[i % len(series.timestamps)],
+               "netPnl": 10.0} for i in range(5_000)]
+    started = time.monotonic()
+    labels, report = label_trades(trades, {"TESTUSDT": classified})
+    elapsed = time.monotonic() - started
+    assert report["assigned"] == 5_000
+    assert labels[0] == classified.labels[0]
+    assert elapsed < 2.0, f"placing 5,000 trades took {elapsed:.2f}s"
+
+
 # ── regime-block Monte-Carlo ─────────────────────────────────────────────────
 
 def _spec():

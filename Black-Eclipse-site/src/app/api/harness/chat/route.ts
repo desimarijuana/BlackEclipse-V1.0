@@ -118,8 +118,16 @@ export async function POST(request: Request) {
       return { page: out };
     })();
 
+    // The project this turn is scoped to. The runtime resolves the id and puts
+    // the project's members in front of the model as a per-run context note; an
+    // unknown id is reported by the runtime, never silently ignored.
+    const rawProjectId = (body as Record<string, unknown>).projectId;
+    const projectId = typeof rawProjectId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(rawProjectId.trim())
+      ? rawProjectId.trim()
+      : undefined;
+
     const identityHeaders = await runtimeIdentityHeaders(request);
-    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope);
+    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId);
     if (result.status === "failed") {
       return NextResponse.json(
         { success: false, error: result.error, runId: result.runId },

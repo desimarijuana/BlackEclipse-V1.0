@@ -73,6 +73,15 @@ class PromoteRequest(BaseModel):
     previewDigest: str = Field(min_length=8, max_length=128)  # noqa: N815
 
 
+class PostLandingRequest(BaseModel):
+    """Identify the promoted RSL run whose restart/health probe to run."""
+
+    runId: str = Field(min_length=1, max_length=200)  # noqa: N815
+    activationId: Optional[str] = Field(None, max_length=200)  # noqa: N815
+    # The front door/supervisor has already restarted the runtime; probe only.
+    alreadyRestarted: bool = False  # noqa: N815
+
+
 def _resolve_autonomy(raw: Optional[str]) -> str:
     value = (raw or DEFAULT_AUTONOMY).strip()
     if value not in _AUTONOMY_PROFILES:
@@ -483,8 +492,28 @@ def promote_apply(
     # Tell the front door whether this change needs a runtime restart / build gate
     # (self-hosting). The route cannot restart the process, so it reports the
     # requirement; `code/selfhost.py` owns the health-gated apply when a restart
-    # seam is available.
-    return {"success": True, "promotion": result, "landing": verdict.to_dict()}
+    # seam is available. An RSL landing also carries the post-landing probe URL,
+    # so the front door/supervisor can prove the restarted runtime is healthy and
+    # roll the change back when it is not.
+    post_landing = None
+    if task_id.startswith("rsl-") and verdict.restartRequired:
+        rollback_id = str(result.get("rollbackId") or "")
+        post_landing = {
+            "required": True,
+            "runId": task_id,
+            "rollbackId": rollback_id or None,
+            "endpoint": (
+                f"/api/code/promotions/{rollback_id}/post-landing"
+                if rollback_id else None
+            ),
+            "status": "pending" if rollback_id else "unavailable",
+        }
+    return {
+        "success": True,
+        "promotion": result,
+        "landing": verdict.to_dict(),
+        "postLanding": post_landing,
+    }
 
 
 @router.post("/code/promotions/{rollback_id}/rollback")
@@ -501,6 +530,52 @@ def rollback_promotion_route(rollback_id: str, _: bool = Depends(require_operato
     except promotion.PromotionError as exc:
         raise HTTPException(status_code=409, detail=exc.code) from exc
     return {"success": True, "rollback": result}
+
+
+@router.post("/code/promotions/{rollback_id}/post-landing")
+async def post_landing_probe(
+    rollback_id: str,
+    body: PostLandingRequest,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Restart, probe, and roll back an unhealthy RSL landing.
+
+    The restart itself is a front-door/supervisor seam (`service._restart_runtime`).
+    Without it the probe is recorded as `unverified`, never as a success.
+    """
+    from ..self_improvement.post_landing import (  # noqa: PLC0415
+        PostLandingPolicy,
+        run_post_landing,
+    )
+
+    restart = getattr(service, "_restart_runtime", None)
+    record = await run_post_landing(
+        store=service.store,
+        run_id=body.runId,
+        rollback_id=rollback_id,
+        activation_id=body.activationId or "",
+        restart=restart,
+        policy=PostLandingPolicy(),
+        restart_already_done=body.alreadyRestarted,
+    )
+    return {"success": True, "postLanding": record}
+
+
+@router.get("/code/promotions/post-landing")
+def list_post_landing(
+    runId: Optional[str] = None,  # noqa: N803
+    limit: int = 50,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Read the bounded post-landing records (newest first)."""
+    from ..self_improvement.post_landing import PostLandingStore  # noqa: PLC0415
+
+    return {
+        "success": True,
+        "records": PostLandingStore(service.store).list(
+            run_id=runId, limit=limit,
+        ),
+    }
 
 
 __all__ = ["router"]

@@ -144,21 +144,44 @@ class CandidateAgentInvoker:
         base: HarnessSnapshot,
         skill_store: Optional[Any] = None,
         allow_live_bridge: bool = False,
+        prompt_suffix: Any = "",
+        live: bool = False,
+        model_settings: Optional[ModelSettings] = None,
     ) -> None:
         if allow_live_bridge:
             raise SnapshotError(
                 "CANDIDATE_LIVE_BRIDGE_UNAVAILABLE",
                 "the live data bridge is not wired for candidate runs in R3",
             )
+        if live and model_settings is None:
+            raise SnapshotError(
+                "CANDIDATE_LIVE_SETTINGS_REQUIRED",
+                "a live candidate run needs explicit provider/model settings",
+            )
         self.store = store
         self.base = base
         self.skill_store = skill_store
+        self.live = bool(live)
+        self.model_settings = model_settings
         drafts = self._authorized_drafts(snapshot)
         self.snapshot = validate_snapshot(
             base, snapshot, known_skill_ids=set(drafts),
         )
         self._draft_prompt = self._draft_instructions(drafts)
+        # Optional bounded text appended to the candidate prompt. It carries
+        # ablation-only evidence (e.g. a verified lesson manifest); it is never
+        # authority and never changes the tool allowlist.
+        self._prompt_suffix = prompt_suffix
         install_model_seam()
+
+    def _suffix_for(self, task: Any) -> str:
+        value = self._prompt_suffix
+        if callable(value):
+            try:
+                value = value(task)
+            except Exception:  # noqa: BLE001 - a suffix failure injects nothing
+                return ""
+        return str(value or "")[:8000]
 
     def _authorized_drafts(self, snapshot: HarnessSnapshot) -> dict[str, Any]:
         """Only an existing, inert draft with satisfiable tools may be added."""
@@ -232,7 +255,11 @@ class CandidateAgentInvoker:
             getattr(limits, "max_turns", self.snapshot.maxSteps) or self.snapshot.maxSteps
         )
         return self.snapshot.to_agent_config().model_copy(update={
-            "systemPrompt": self.snapshot.systemPrompt + self._draft_prompt,
+            "systemPrompt": (
+                self.snapshot.effective_prompt()
+                + self._draft_prompt
+                + self._suffix_for(task)
+            ),
             "tools": allowed,
             "maxSteps": min(self.snapshot.maxSteps, task_max_steps),
             "maxToolCalls": min(self.snapshot.maxToolCalls, task_max_tool_calls),
@@ -241,7 +268,7 @@ class CandidateAgentInvoker:
     async def invoke(self, task: Any, trial_id: str, environment: Environment) -> InvocationResult:
         script = getattr(task, "agent_script", [])
         run_id = _safe_run_id(task, trial_id)
-        if not script:
+        if not self.live and not script:
             return InvocationResult(
                 run_id=run_id, status="unmeasured",
                 unmeasured_reason="task ships no deterministic script (live tier only)",
@@ -257,12 +284,19 @@ class CandidateAgentInvoker:
                 agent={"id": "rsl-candidate"}, model={"candidate": True},
             )
 
-        settings = ModelSettings(
-            provider=self.snapshot.modelProvider or "ollama",
-            model=self.snapshot.modelName or f"evaluation-{trial_id}",
-            base_url="http://localhost:11434/v1",
-            temperature=self.snapshot.temperature,
-        )
+        if self.live:
+            settings = self.model_settings
+            if self.snapshot.temperature is not None:
+                settings = settings.model_copy(update={
+                    "temperature": self.snapshot.temperature,
+                })
+        else:
+            settings = ModelSettings(
+                provider=self.snapshot.modelProvider or "ollama",
+                model=self.snapshot.modelName or f"evaluation-{trial_id}",
+                base_url="http://localhost:11434/v1",
+                temperature=self.snapshot.temperature,
+            )
         request = RunRequest(
             runId=run_id,
             input=RunInput(query=str(getattr(task, "input", {}).get("prompt") or task.name)),
@@ -291,7 +325,9 @@ class CandidateAgentInvoker:
             )
             bound = True
         env_token = bind_environment(environment)
-        model_token = _MODEL_OVERRIDE.set(ScriptedModel(_script_messages(script)))
+        model_token = None
+        if not self.live:
+            model_token = _MODEL_OVERRIDE.set(ScriptedModel(_script_messages(script)))
         try:
             result = await graph_module.execute_run(
                 request, registry, _UnavailableBridge(), trial_store,
@@ -302,11 +338,15 @@ class CandidateAgentInvoker:
                 run_id=run_id, status="failed", events=collected,
                 error={"code": type(exc).__name__, "message": str(exc)},
                 agent={"id": agent.id},
-                model={"provider": settings.provider, "model": settings.model, "candidate": True},
+                model={
+                    "provider": settings.provider, "model": settings.model,
+                    "candidate": True, "live": self.live,
+                },
                 model_usage=_usage_for_run(run_id),
             )
         finally:
-            _MODEL_OVERRIDE.reset(model_token)
+            if model_token is not None:
+                _MODEL_OVERRIDE.reset(model_token)
             reset_environment(env_token)
             set_ui_service(previous_ui)
             unsubscribe()
@@ -324,7 +364,10 @@ class CandidateAgentInvoker:
             output=result.output or "",
             events=collected,
             agent={"id": agent.id},
-            model={"provider": settings.provider, "model": settings.model, "candidate": True},
+            model={
+                "provider": settings.provider, "model": settings.model,
+                "candidate": True, "live": self.live,
+            },
             error=result.error.model_dump() if getattr(result, "error", None) else None,
             model_usage=_usage_for_run(run_id),
         )
