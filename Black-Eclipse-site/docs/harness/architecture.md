@@ -596,6 +596,25 @@ naming one of them. The response-contract loss was a visible defect:
 response-schema digest and the response-mode plan, so a coding turn produced a
 degraded structured response with no error.
 
+**The decision record, the size ceiling and the release (ADR-H295).**
+A decision series that cannot be referenced is not a record. The harness
+series had seven DUPLICATE numbers and five gaps, so "ADR-H242" named two
+different things; the later duplicate of each was renumbered and the old
+number retired with a redirect, and the withdrawn numbers are reserved.
+`scripts/check-adr-numbers.js` fails the release gate on a duplicate, an
+unreserved gap, or an entry that does not carry Decision / Why / Consequences
+- and it never renumbers anything, because renumbering is a judgement call
+that belongs to a human. The shape is enforced from H288 onward; the
+older entries are reported and countable rather than rewritten, because
+inventing a rationale for someone else's decision is not honesty.
+
+The harness also has a TOTAL ceiling now, not just per-module ones:
+`scripts/size-budget.js` checks a committed budget for the whole tree and for
+its twelve largest subsystems, so the harness can no longer double by adding
+files. And the release is real - the version, a release note derived from the
+CHANGELOG, a rotation script for the changelog's rolling window, and a
+CODEOWNERS file for the paths where a mistake is hardest to see.
+
 **The model is TOLD the shape of the project (ADR-H287).** A *repo map*
 - the folders, and a symbol outline of the top files - is built EAGERLY and
 DETERMINISTICALLY and handed to the model in the FIRST turn, together with the

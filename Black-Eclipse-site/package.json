@@ -1,6 +1,6 @@
 {
   "name": "black-eclipse",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "bin": {
     "black": "bin/black.js",
@@ -28,6 +28,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run && node scripts/test-python.js && node scripts/test-evals.js",
     "test:py": "node scripts/test-python.js",
+    "rotate:changelog": "node scripts/rotate-changelog.js",
+    "check:adr": "node scripts/check-adr-numbers.js",
+    "check:size": "node scripts/size-budget.js",
     "test:evals": "node scripts/test-evals.js",
     "test:drift-ui": "node scripts/drift-ui-smoke.mjs",
     "test:drift-app": "node scripts/drift-app-smoke.mjs",

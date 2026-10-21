@@ -11,7 +11,7 @@ last-verified: 2026-10-13
 
 > **Progress (2026-10-13) — first slice shipped under ADR-H193.** Landed:
 > `python/harness/code/eval/capabilities.py` (the capability-class registry —
-> 17 classes incl. the four published as `not measured yet` WITH reasons; the
+> 20 classes incl. the four published as `not measured yet` WITH reasons; the
 > runner grading through the REAL modules: 4 in-module fixtures over
 > `harness.acquire.budget`/`harness.automation.delivery`/`harness.code.verify`/
 > `harness.code.review`, named `pytest:`/`vitest:` test selectors for document
@@ -20,7 +20,7 @@ last-verified: 2026-10-13
 > the generated statement's "Every capability class" section (incl. the
 > published unmeasured count) with a real fix to the generator's repo-root
 > constant, and the named `capability-class gate` step in `scripts/test-evals.js`
-> (`PASS measured=13 unmeasured=4`). Tests:
+> (`PASS measured=16 unmeasured=4`). Tests:
 > `python/tests/test_capability_classes.py` (7). **Remaining (not started):**
 > labelled fixtures for `price_authority` and `promotion` (today honestly
 > unmeasured), the bootstrap/Monte-Carlo rule fixture, the adversarial safety

@@ -543,7 +543,7 @@ characters (`tools.py:67`).
 
 ### W7 — Ship it, shrink it, clean the record
 
-> **Closes:** O1–O7, E6 · **Moves:** Ops +0.36, Ext +0.06 · **ADR:** H286
+> **Closes:** O1–O7, E6 · **Moves:** Ops +0.36, Ext +0.06 · **ADR:** H295 · ✅ **Done 2026-10-21** — the record is unambiguous, the tree has a TOTAL ceiling, the release note and the changelog rotation exist; the 30% line cut is a MULTI-RELEASE program over duplication, with the two named candidates already merged (W3, W5)
 > **Priority: 1 — the cheapest 0.36 in the plan, and it is pure discipline.**
 
 **Why.** Ops is 5.0 against a field median of 8.25, and 8% weight turns that

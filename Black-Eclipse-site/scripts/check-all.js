@@ -10,8 +10,10 @@
 //   2. typecheck            (tsc --noEmit)
 //   3. lint                 (eslint)
 //   4. security preflight   (deploy checklist; advisory on a loopback bind)
-//   5. tests                (vitest + python suite)
-//   6. eval gates           (retrieval / contradiction / compaction floors)
+//   5. decision record       (every ADR number names exactly one decision)
+//   6. harness size budget   (the committed total + per-subsystem ceilings)
+//   7. tests                (vitest + python suite)
+//   8. eval gates           (retrieval / contradiction / compaction floors)
 //
 // Usage: node scripts/check-all.js   (or `npm run check:all`)
 const { spawnSync } = require("child_process");
@@ -37,6 +39,11 @@ run("lint", npx, ["eslint", "."]);
 // advisory (WARN, exit 0); an exposed misconfiguration — a public bind or a
 // production build without the required secrets — fails the release gate.
 run("security preflight", "node", ["scripts/security-preflight.js"]);
+// Round 3 / W7 (ADR-H288): the decision record must be unambiguous, and the
+// harness must stay inside its committed size budget. Both are cheap, both
+// are silent when they pass, and both fail the release gate when they do not.
+run("decision record", "node", ["scripts/check-adr-numbers.js"]);
+run("harness size budget", "node", ["scripts/size-budget.js"]);
 run("tests (vitest + python)", "npm", ["run", "test"]);
 run("eval gates", "node", ["scripts/test-evals.js"]);
 

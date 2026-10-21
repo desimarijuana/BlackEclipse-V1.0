@@ -3472,6 +3472,8 @@ routes (`/model-runtime/*`) are operator-gated. Tests:
 
 
 
+> **ADR-H124 and ADR-H125 are reserved** - numbers withdrawn during the Round 3 rework and never written. They are retired, not missing.
+
 ## ADR-H126 — The terminal is infrastructure with one runtime shared by the agent and the UI
 
 **Status:** Accepted (2026-10-05)
@@ -5398,7 +5400,9 @@ explicit `/runs`/`/chat` route still forwards only the front-door-verified
 opt-in (`BLACK_ECLIPSE_SANDBOX_REQUIRED` unset = current behavior). NAVIGATION and
 CHANGELOG are updated in the same change.
 
-## ADR-H160 - The Artifact Center is one catalog over the existing stores; it owns its own tables and a confined content-addressed file store, and every producer registers through one service
+> **ADR-H160 was renumbered to ADR-H288.** The series had two entries with this number; the first one keeps it and this one is the second. The old number is retired - the decision is unchanged.
+
+## ADR-H288 - The Artifact Center is one catalog over the existing stores; it owns its own tables and a confined content-addressed file store, and every producer registers through one service
 
 **Decision.** Produced files are recorded in a single, durable catalog
 (`ArtifactService` + `ArtifactStore`) whose rows live on the ONE
@@ -5432,7 +5436,9 @@ surface is `/artifacts/*` proxied by `/api/artifacts/**`. Tests:
 `python/tests/test_artifacts_{store,security,tools,api}.py` and
 `src/lib/harness/artifacts-browser.test.ts`.
 
-## ADR-H162 - Claim verification reaches the delivery seam: an ordinary run's citations are checked against the evidence it actually retrieved, and every web-research run is registered as an evidence-referencing artifact
+> **ADR-H162 was renumbered to ADR-H289.** The series had two entries with this number; the first one keeps it and this one is the second. The old number is retired - the decision is unchanged.
+
+## ADR-H289 - Claim verification reaches the delivery seam: an ordinary run's citations are checked against the evidence it actually retrieved, and every web-research run is registered as an evidence-referencing artifact
 
 **Decision.** Two additions close the remaining gap between "the evidence and
 verification engine exists" and "it runs before the answer is released":
@@ -8949,7 +8955,9 @@ drops back under the hard ceiling (1199 → 1166 lines);
 under its size ratchet). Tests: `python/tests/test_run_outcome.py` (12). Docs:
 `docs/harness/architecture.md` (the execution graph),
 `docs/harness/self-evolution-roadmap.md` (W1.3).
-## ADR-H242 — The sandbox is the computation surface, and the rendered answer carries its own evidence
+> **ADR-H242 was renumbered to ADR-H290.** The series had two entries with this number; the first one keeps it and this one is the second. The old number is retired - the decision is unchanged.
+
+## ADR-H290 — The sandbox is the computation surface, and the rendered answer carries its own evidence
 
 **Decision.** Six fixes, one rule: *a computed answer must be computed by the
 sandbox and must carry the evidence that proves it.*
@@ -9021,7 +9029,9 @@ candle renderer + the director), `normalize.ts`/`repair.ts` (the synonyms),
 `src/lib/response/finalize.test.ts`. Docs:
 `docs/interactive-response-engine.md`, `docs/harness/python-runtime.md`,
 `docs/quant-engine.md`.
-## ADR-H242 — The sandbox enforces its boundary at runtime, the operator decides, and the telemetry is kept
+> **ADR-H242 was renumbered to ADR-H291.** The series had two entries with this number; the first one keeps it and this one is the second. The old number is retired - the decision is unchanged.
+
+## ADR-H291 — The sandbox enforces its boundary at runtime, the operator decides, and the telemetry is kept
 
 **Decision.** The Python sandbox's boundary is enforced where a program cannot
 talk around it, the operator's setting decides whether the surface exists at
@@ -9083,7 +9093,9 @@ switch, the telemetry and the cancellation. Docs:
 `docs/harness/python-runtime.md`, `docs/harness/decisions.md` (ADR-H110/H178
 corrected in place), `docs/harness/roadmap/phase-08-analysis-sandbox.md` (the
 non-goals corrected).
-## ADR-H243 — A computed number is renderable only when it carries its provenance, and a refused name must name the alternatives
+> **ADR-H243 was renumbered to ADR-H292.** The series had two entries with this number; the first one keeps it and this one is the second. The old number is retired - the decision is unchanged.
+
+## ADR-H292 — A computed number is renderable only when it carries its provenance, and a refused name must name the alternatives
 
 **Decision.** Two rules the adversarial probe of the sandbox made concrete.
 
@@ -9116,7 +9128,9 @@ user sees nothing — the failure looks like the model, not like the runtime.
 `python/tests/test_analysis_guard.py` (the catalogue and the published
 provenance); `python/tests/test_memory_tools.py` (the sandbox's own bindings are
 a real surface the prompt may name). Docs: `docs/CHANGELOG.md`.
-## ADR-H244 — A refusal must teach the correction; a result must show what it hides
+> **ADR-H244 was renumbered to ADR-H293.** The series had two entries with this number; the first one keeps it and this one is the second. The old number is retired - the decision is unchanged.
+
+## ADR-H293 — A refusal must teach the correction; a result must show what it hides
 
 **Decision.** Four rules the five-prompt limit probe forced, all about the
 messages the runtime sends the model:
@@ -9454,7 +9468,9 @@ behaviour is pinned), `test_chat_code_profile.py` and
 `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
 `docs/harness/roadmap/round-3-parity-plan.md`.
 
-## ADR-H245 — The guard's rules are per command, the confinement covers the methods, and a refusal names the correction
+> **ADR-H245 was renumbered to ADR-H294.** The series had two entries with this number; the first one keeps it and this one is the second. The old number is retired - the decision is unchanged.
+
+## ADR-H294 — The guard's rules are per command, the confinement covers the methods, and a refusal names the correction
 
 **Decision.** Four corrections to the sandbox, all found by running the
 adversarial probe against the live app rather than the tests.
@@ -9649,3 +9665,75 @@ arguments). Tests `python/tests/test_repo_map.py` (14 cases) plus the updated
 `test_graph.py` (the run's event sequence now includes
 `code.repo_map_built`). Docs: `docs/harness/architecture.md`,
 `docs/NAVIGATION.md`, `docs/harness/roadmap/round-3-parity-plan.md`.
+
+## ADR-H295 - The decision record is unambiguous, the harness has a TOTAL ceiling, and the release is real
+
+**Decision.** Three things.
+
+**The decision record is unambiguous.** The harness decision series had SEVEN
+duplicate numbers (H160, H162, H242 x2, H243, H244, H245) and five gaps
+(H108, H117, H124, H125, H146): two different decisions could share a number,
+so a reference to "ADR-H242" named two different things. The later duplicate
+of each number was renumbered, and the old number is RETIRED with a redirect
+line - the decision is unchanged, but the old number now resolves. The
+withdrawn numbers are reserved explicitly.
+
+`scripts/check-adr-numbers.js` fails the release gate on a duplicate number,
+on an unreserved gap, and on an entry that does not carry the canonical shape.
+It never renumbers anything - renumbering is a judgement call and belongs to a
+human. The shape is enforced from this entry onward; the entries below it
+were written over months by several hands and some of them do not carry every
+section. Rewriting them would mean inventing a rationale for decisions this
+change did not make, so they are REPORTED and countable instead.
+
+**The harness has a TOTAL ceiling.** `python/tests/test_size_budget.py`
+already ratcheted the PER-MODULE size, which bounds a file's growth but not
+the TREE's - a harness can keep every file under its pin and still double by
+adding files. `scripts/size-budget.js` adds the missing half: a committed
+budget (`scripts/size-budget.json`) for the whole harness and for the twelve
+largest subsystems. It fails when the total grows. A budget is only
+meaningful if it can be raised DELIBERATELY, so the budget file is committed
+and raising it is a visible, reviewable edit.
+
+**The release is real.** The version is 0.2.0 and there is a release note
+(`docs/releases/v0.2.0.md`) derived from the CHANGELOG. The CHANGELOG
+rotation - the rolling 7-section window with the older sections MOVED into
+`docs/changelog/YYYY-MM.md` - is now a script (`scripts/rotate-changelog.js`),
+not a promise somebody has to keep by hand. `CODEOWNERS` names the harness
+paths, so the part of the tree where a mistake is hardest to see has an owner.
+
+**Why.** The operational score was the harness's weakest dimension, and the
+reason was not capability - it was DISCIPLINE. The harness was 368,218 lines
+with no total ceiling, the decision series could not be referenced reliably,
+there were no releases, and the working tree was the only place the work
+existed. The per-module ratchet already proved the pattern works; the
+missing half was the tree.
+
+**Consequences.** `scripts/check-adr-numbers.js`,
+`scripts/size-budget.js`, `scripts/size-budget.json`,
+`scripts/rotate-changelog.js`, `docs/releases/v0.2.0.md`, `CODEOWNERS`, the
+renumbered entries in `docs/harness/decisions.md`, the version in
+`package.json`, and the two new steps in `.github/workflows/ci.yml` and
+`scripts/check-all.js`. The harness is 368,218 lines against a committed
+ceiling of 371,900.
+
+**The 30% cut is NOT in this release.** It is a multi-release program, and
+the candidates are DUPLICATION, not capability:
+
+| Candidate | Size | What the merge would be |
+|---|---|---|
+| `terminal/` vs the `code/terminal*` tool surface | 5,334 vs part of 17,986 | one terminal, one policy |
+| `execution/` vs `code/execution.py` | 17,872 vs part of 17,986 | one execution plane |
+| `browser/` vs `computer/` | 8,997 vs 12,679 | one UI-automation plane |
+
+The FS write stack and the search stack - the two the plan named first - are
+already merged (ADR-H285 and ADR-H284). The rest are security-sensitive
+refactors of ten-thousand-line subsystems, and doing them in one pass would
+be a rewrite dressed as a cleanup. The enforcement now in place makes the
+trajectory visible: every release either shrinks the tree or raises the
+ceiling ON PURPOSE.
+
+**The tag.** `v0.2.0` is NOT tagged by this change. The branch is not merged,
+and the shared working tree still carries another stream's uncommitted work;
+a tag must name a merged state. The release note and the version are the
+preparation, and the tag is the last step of the merge.

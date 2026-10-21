@@ -8,6 +8,41 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-21
 
+- **chore(harness): the decision record is unambiguous, the harness has a TOTAL
+  ceiling, and the release is real.** The operational score was the harness's
+  weakest dimension, and the reason was not capability - it was DISCIPLINE. The
+  decision series had SEVEN duplicate numbers (H160, H162, H242 x2, H243, H244,
+  H245) and five gaps: "ADR-H242" named two different things. The later
+  duplicate of each was renumbered and the old number RETIRED with a redirect,
+  so an old reference still resolves and the decision is unchanged. The
+  withdrawn numbers are reserved explicitly. `scripts/check-adr-numbers.js`
+  now fails the release gate on a duplicate, an unreserved gap, or an entry
+  without Decision / Why / Consequences - and it NEVER renumbers anything,
+  because renumbering is a judgement call that belongs to a human. The shape is
+  enforced from H288 onward; the older entries are reported and
+  countable rather than rewritten, because inventing a rationale for someone
+  else's decision is not honesty. The harness also gains the missing half of
+  its size ratchet: `python/tests/test_size_budget.py` bounded each FILE's
+  growth but not the TREE's, so a harness could keep every file under its pin
+  and still double by adding files. `scripts/size-budget.js` adds a committed
+  TOTAL ceiling (`scripts/size-budget.json`) plus the twelve largest
+  subsystem ceilings; the harness is 368,218 lines against a 371,900 ceiling
+  that must now be raised ON PURPOSE. And the release is real: the version is
+  0.2.0, `docs/releases/v0.2.0.md` is derived from the CHANGELOG, the
+  changelog's rolling 7-section window is rotated by a script instead of by
+  hand, and `CODEOWNERS` names the harness paths - the part of the tree where
+  a mistake is hardest to see. The 30% surface cut is NOT in this release: it
+  is a multi-release program over DUPLICATION, not capability, and the two
+  candidates the plan named first (the FS write stack and the search stack) are
+  already merged. Files: scripts/check-adr-numbers.js (new),
+  scripts/size-budget.js (new), scripts/size-budget.json (new),
+  scripts/rotate-changelog.js (new), scripts/check-all.js, package.json,
+  .github/workflows/ci.yml, CODEOWNERS (new), docs/releases/v0.2.0.md (new),
+  docs/harness/decisions.md, docs/harness/roadmap/phase-20-measuring-all-of-it.md.
+  ADR-H295. docs updated: docs/harness/decisions.md,
+  docs/harness/architecture.md, docs/NAVIGATION.md,
+  docs/harness/roadmap/phase-20-measuring-all-of-it.md, docs/releases/v0.2.0.md.
+
 - **feat(harness): the model is TOLD the shape of the project.** The harness
   had NO repo map at all. A model that wanted to know what was in the project
   had to GUESS a path, spend a tool call on it, and - on a miss - get a bare
