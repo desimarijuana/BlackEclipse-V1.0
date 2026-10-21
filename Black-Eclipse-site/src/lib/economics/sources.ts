@@ -3,6 +3,8 @@
 // and the API layer (fetch). Fetches return the raw provider payload; the
 // API route normalizes via normalizeEconomicSeries(raw, sourceId).
 
+import { isHtmlPayload } from "./fetch";
+
 export interface SourceControl {
   type: "select" | "text" | "date" | "range";
   name: string;
@@ -124,6 +126,16 @@ export const ECON_SOURCES: EconSource[] = [
       const res = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${p.seriesId || "GDP"}`, { signal: AbortSignal.timeout(20_000) });
       if (!res.ok) throw new Error(`HTTP ${res.status} from FRED CSV`);
       const csv = await res.text();
+      // A provider under maintenance answers HTTP 200 with a maintenance PAGE.
+      // Parsing that as CSV produced observations out of an error document
+      // (`value: 400`, stamped valid) - so it is refused here, as a transport
+      // failure, never as data.
+      if (isHtmlPayload(csv)) {
+        throw new Error(
+          `FRED is serving a web page instead of CSV (${p.seriesId || "GDP"}) - ` +
+          "the series is unavailable right now, not a value",
+        );
+      }
       const lines = csv.trim().split("\n");
       // FRED's header is `observation_date,<SERIES_ID>` — the value column is
       // named after the series (GDP, CPIAUCSL, …). Emit the canonical

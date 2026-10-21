@@ -282,6 +282,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **fix(macro): a provider's HTML error page can no longer become an
+  observation (silent corruption).** FRED's graph endpoint answered a site-wide
+  maintenance page with HTTP **200**. The FRED source split that page into
+  lines and emitted them as `{ date, value }` rows, so the normaliser produced
+  observations out of an error document — `value: 400`, `dataTimestamp: "<link
+  href=\"https://fonts.googleapis.com...\"`, `publishedAt: "</html>"` — and
+  stamped them `Retrieval status: OK`, `Quality: valid`, `validationStatus:
+  'valid'`. Anything downstream that trusted `quality: valid` would have
+  regressed a 10y real yield of 400%. Two layers now refuse it: **the source**
+  detects an HTML body and throws (a transport failure with a plain message:
+  *"FRED is serving a web page instead of CSV — the series is unavailable right
+  now, not a value"*), and **the normaliser** only accepts a row whose date
+  looks like a date (`YYYY`, `YYYY-MM`, `YYYY-MM-DD`, `YYYY-Qn`) — a fragment of
+  an error page is not a date, so it is not an observation. Files:
+  `src/lib/economics/fetch.ts` (`isHtmlPayload`, `looksLikeDate`, the date
+  picker), `src/lib/economics/sources.ts` (the FRED source), and the economics
+  panel's own fetcher in `src/lib/economics/snapshot.ts`. Tests:
+  `src/lib/economics/fetch.test.ts` (6). docs updated: `docs/CHANGELOG.md`.
+
 - **fix(market): the history route conflated a WINDOW with a BAR SIZE — a
   multi-year history came back EMPTY and read as "no data".** `period` was read
   as the interval, so `period: "1y"` asked the provider for a "1y bar" — not a
@@ -1787,6 +1806,44 @@ umpy/pandas are **already installed** in the runtime and the analysis
   a guardrail fails with the named code), `test_live_surface.py`,
   `test_rsl_snapshot.py`. Docs updated: `docs/self-improvement/rsl-v3-plan.md`,
   `docs/harness/decisions.md` (ADR-H286), `docs/harness/architecture.md`.
+- **feat(rsl): the loop reports on itself, and a drift episode may open its own
+  candidate (v3 P4 slice).** `GET /evolution/rsl/report?days=7` returns ONE
+  honest summary: experiments, accepted / rejected / unmeasured, the real cost
+  and the cost per accepted improvement, the candidates in flight, the lessons
+  adopted and where production is drifting. A measure that was never taken
+  reads `UNKNOWN` - never a fabricated zero - and the same digest renders as
+  Markdown, so a person or CI can read it. The operator panel gained a weekly
+  card (what was tried, what improved, what it cost, the drift state). With
+  `HARNESS_RSL_DRIFT_AUTOCANDIDATE=on` (OFF by default) the drift watch opens,
+  on a NEW transition into drift, the SAME inert candidate the operator route
+  opens: no target, no operations, it enters the existing propose -> verify ->
+  land flow and lands nothing by itself. Files:
+  `python/harness/self_improvement/{report,drift_watch}.py`,
+  `python/harness/routers/evolution_report.py`,
+  `src/components/screens/skills/rsl-weekly-card.tsx` (new),
+  `src/app/api/evolution/rsl/report/route.ts` (new),
+  `src/lib/harness/evolution-{client,browser}.ts`,
+  `src/lib/i18n/dictionaries/evolution.ts`. Tests: `test_rsl_digest.py` (3),
+  `test_drift_watch.py` (the opt-in candidate), `rsl-weekly-card.test.tsx`.
+  Docs updated: `docs/self-improvement/rsl-v3-plan.md`,
+  `docs/harness/decisions.md` (ADR-H287), `docs/QUICKSTART.md`.
+- **feat(eval): the unattended session is a GATE (v3 P4 slice 2).**
+  `npm run rsl:nightly` runs the corpus once (the deterministic tier), compares
+  the result with the recorded baseline through the EXISTING per-dimension
+  regression gates, writes a dated JSON + Markdown report, and exits non-zero
+  when a CRITICAL measure regressed (task success, safety, hallucination rate,
+  financial accuracy, routing). Cost, latency and token movements are warnings
+  and do not fail the session. The baseline only moves forward on a clean run
+  and only with `--promote`: a worse run never silently becomes the new normal.
+  The gate is PROVEN by planting a regression - a test adds a task that does not
+  pass and asserts the session says FAIL, names the regressed measure and
+  writes it to the report; a gate that cannot fail is decoration. No second
+  gate, no second baseline store: the baseline, the regression gates and the
+  report writers are the existing ones. Files:
+  `python/harness/evaluation/nightly.py` (new), `scripts/rsl-nightly.js`,
+  `package.json`. Tests: `python/tests/test_evaluation_nightly.py` (2). Docs
+  updated: `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/agent-evaluation.md`,
+  `docs/harness/decisions.md` (ADR-H288), `docs/QUICKSTART.md`.
 
 ## 2026-10-19
 

@@ -46,7 +46,9 @@ function pickDate(row: Record<string, unknown>): string | null {
     const v = row[key];
     if (v !== undefined && v !== null && typeof v !== "object") {
       const s = String(v);
-      if (s.trim()) return padYear(s);
+      // Only a DATE-shaped value is a date. A fragment of an error page (an
+      // HTML tag, a URL) is not a date, and must never become an observation.
+      if (s.trim() && looksLikeDate(s)) return padYear(s);
     }
   }
   return null;
@@ -244,4 +246,28 @@ export function computeStats(points: EconPoint[]): SeriesStats {
   const avg = values.reduce((s, v) => s + v, 0) / values.length;
   // POINTS counts every observation row, including gap rows.
   return { latest, change, min, max, avg, points: points.length, asOf: sorted[sorted.length - 1].date, isTimeSeries };
+}
+
+/**
+ * True when a provider's body is an HTML page rather than data.
+ *
+ * A provider under maintenance (or behind a bot wall) answers HTTP 200 with a
+ * maintenance page. Parsing that as data is the worst failure this layer can
+ * have: it produces plausible-looking observations out of an error document.
+ */
+export function isHtmlPayload(body: string): boolean {
+  const head = body.trimStart().slice(0, 200).toLowerCase();
+  return head.startsWith("<!doctype") || head.startsWith("<html") || head.startsWith("<?xml")
+    || head.startsWith("<head") || head.startsWith("<body") || head.includes("<link rel=");
+}
+
+/**
+ * A date-ish value: `YYYY`, `YYYY-MM`, `YYYY-MM-DD` (and the quarterly
+ * spelling `YYYY-Qn`).
+ *
+ * A date that does not look like a date is not a date - it is a fragment of
+ * an error page, and it must not become an observation.
+ */
+export function looksLikeDate(value: string): boolean {
+  return /^\d{4}(-[0-9A-Za-z]{1,2})?(-[0-9A-Za-z]{1,2})?$/.test(value.trim());
 }
