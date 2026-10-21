@@ -21,6 +21,7 @@ vi.mock("@/lib/chat/session-store", () => ({
 import { POST } from "@/app/api/harness/chat/route";
 import { HarnessRuntimeUnavailable } from "@/lib/harness/python-client";
 import { HarnessError } from "@/lib/harness/errors";
+import { MAX_QUERY_LENGTH } from "@/lib/harness/validation";
 
 function post(body: unknown): Request {
   return new Request("http://localhost:3000/api/harness/chat", {
@@ -62,6 +63,21 @@ describe("POST /api/harness/chat — honest failure", () => {
   it("returns 400 for invalid input", async () => {
     const res = await POST(post({ query: "" }));
     expect(res.status).toBe(400);
+    expect(chatWithAgent).not.toHaveBeenCalled();
+  });
+
+  it("accepts a long message — a turn is whatever the person pasted", async () => {
+    chatWithAgent.mockResolvedValueOnce({ status: "completed", output: "ok", runId: "run_x" });
+    const res = await POST(post({ query: "x".repeat(50_000) }));
+    expect(res.status).toBe(200);
+    expect(chatWithAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses an over-cap message with a stable code", async () => {
+    const res = await POST(post({ query: "x".repeat(MAX_QUERY_LENGTH + 1) }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("INVALID_INPUT");
     expect(chatWithAgent).not.toHaveBeenCalled();
   });
 

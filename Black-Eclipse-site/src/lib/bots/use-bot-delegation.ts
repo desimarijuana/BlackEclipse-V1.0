@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Message } from '@/types/chat';
 import type { HarnessUiEvent } from '@/lib/agent/events';
+import { ChatRequestError } from '@/lib/agent/registry';
 import type { AutomationView } from '@/lib/harness/automation-client';
 import type { BotGroup } from '@/lib/bots/groups-store';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
@@ -192,9 +193,20 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
         }
       } catch (err) {
         const durationMs = Math.max(0, Date.now() - startedAt);
+        // Keep the front door's code so the card badges the real reason.
+        const code = err instanceof ChatRequestError ? err.code : undefined;
         h.replaceAssistantReply(chatId, placeholderId, controller.signal.aborted
           ? { ...base, content: streamed, status: 'cancelled', durationMs }
-          : { ...base, content: '', status: 'error', error: { message: err instanceof Error ? err.message : 'network error' }, durationMs });
+          : {
+              ...base,
+              content: '',
+              status: 'error',
+              error: {
+                message: err instanceof Error ? err.message : 'network error',
+                ...(code ? { code } : {}),
+              },
+              durationMs,
+            });
       }
     };
 

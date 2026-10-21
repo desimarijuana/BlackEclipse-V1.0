@@ -5,6 +5,7 @@ import {
   HarnessError,
   HarnessRuntimeUnavailable,
   toHarnessErrorJson,
+  MAX_QUERY_LENGTH,
 } from "@/lib/harness";
 import { HARNESS_PY_URL } from "@/lib/harness/python-runtime";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
@@ -45,8 +46,19 @@ export async function POST(request: Request) {
   }
 
   const query = typeof body.query === "string" ? body.query.trim() : "";
-  if (!query) return Response.json({ error: "query is required" }, { status: 400 });
-  if (query.length > 4000) return Response.json({ error: "query too long (max 4000 chars)" }, { status: 400 });
+  if (!query) return Response.json({ error: "query is required", code: "INVALID_INPUT" }, { status: 400 });
+  // A turn is whatever the person pasted. The cap only bounds one request
+  // body — the runtime decides whether a prompt actually fits the model's
+  // context window, and says so honestly when it does not.
+  if (query.length > MAX_QUERY_LENGTH) {
+    return Response.json(
+      {
+        error: `message is too long for one turn (max ${MAX_QUERY_LENGTH} characters) — send it in smaller parts or attach it as a document`,
+        code: "INVALID_INPUT",
+      },
+      { status: 400 },
+    );
+  }
 
   // A routed slash command (`/skills`, `/skill`, `/status`, …) is executed by the
   // shared command router and streamed back as a synthetic terminal frame — no

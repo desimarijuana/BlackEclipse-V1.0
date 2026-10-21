@@ -369,6 +369,29 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/components/screens/skills/rsl-weekly-card.test.tsx`. docs updated:
   `docs/harness/agent-evaluation.md`, `docs/self-improvement/rsl-v3-plan.md`.
 
+- **feat(chat): a refused turn reads as a refusal, and a long paste is an
+  attachment.**
+  A chat request the front door refused used to show a bare "Something went
+  wrong" plus the server's sentence, with no code - a rejected request was
+  indistinguishable from a runtime failure, and the retry logic repeated the
+  SAME request that could not succeed. The refusal now carries its code and
+  status, the UI badges it, and a refused turn fails ONCE.
+  A paste above 4,000 characters is intercepted and ATTACHED: it lands in the
+  conversation's session folder as a context document and shows as a chip, the
+  way an uploaded file does, because a multi-thousand-character blob in the
+  composer makes the composer unusable. A pasted document sent with nothing
+  typed IS the message (the text is taken back out of the attachment list, so
+  it is not injected twice). An attachment can be OPENED and read before it is
+  sent.
+  Files: `src/lib/chat/{paste.ts,session-types.ts,use-session.ts}`,
+  `src/lib/agent/{registry.ts,use-agent-run.ts}`, `src/lib/harness/index.ts`,
+  `src/app/api/harness/chat/{route.ts,stream/route.ts}`,
+  `src/components/chat/{chat-input.tsx,chat-dock.tsx,empty-state.tsx,attachment-preview.tsx}`,
+  `src/components/screens/stock-chat.tsx`, `src/lib/bots/use-bot-delegation.ts`.
+  Tests: `src/lib/chat/{paste.test.ts,extract.test.ts}`,
+  `src/lib/agent/registry.test.ts`, `src/app/api/harness/chat/route.test.ts`.
+  docs updated: `docs/chat-ui-audit.md`.
+
 ## 2026-10-20
 
 - **fix(charts): the full-view chart no longer collides with the app's header.**

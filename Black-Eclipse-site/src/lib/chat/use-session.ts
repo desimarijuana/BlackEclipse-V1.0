@@ -8,9 +8,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   deleteSessionFile,
   fetchSession,
+  sessionFileUrl,
   uploadSessionFile,
 } from './session-client';
 import { SESSION_LIMITS, type SessionFile, type SessionInfo } from './session-types';
+import { pastedTextName } from './paste';
 
 export interface PendingFile {
   name: string;
@@ -45,6 +47,26 @@ export interface SessionController {
   refresh: () => void;
   uploadFiles: (files: FileList | File[]) => Promise<void>;
   /**
+   * Attach PASTED TEXT as a context document, exactly like an uploaded file
+   * (same session folder, same chip, same extraction into the run). Used when a
+   * paste is too big to belong in the composer.
+   */
+  attachText: (text: string) => Promise<void>;
+  /**
+   * Open an attachment for READING. A pasted text opens the in-memory preview
+   * (it is not read back from disk); any other document opens the session file.
+   */
+  openAttachment: (name: string) => void;
+  /** The pasted text being previewed, or null. */
+  preview: { name: string; text: string } | null;
+  closePreview: () => void;
+  /**
+   * Take the most recent pasted text back out of the attachment list, so it can
+   * be sent AS the message when the composer is empty (the way a paste is sent
+   * in other chat apps). Returns null when nothing was pasted.
+   */
+  takePastedText: () => Promise<{ name: string; text: string } | null>;
+  /**
    * Upload anything attached before the conversation existed into `chatId`, and
    * WAIT for it. Call this before starting a run so the run's context documents
    * include a file attached on the empty state — otherwise the turn starts
@@ -61,6 +83,10 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
   const [error, setError] = useState<string | null>(null);
   const [localKey, setLocalKey] = useState(0);
   const [pending, setPending] = useState<PendingFile[]>([]);
+  // Pasted text, kept in memory under its attachment name so it can be read
+  // back (a preview) and sent as the message without a disk round-trip.
+  const pastedTextsRef = useRef(new Map<string, string>());
+  const [preview, setPreview] = useState<{ name: string; text: string } | null>(null);
   const chatIdRef = useRef(chatId);
   chatIdRef.current = chatId;
   // Files attached before a conversation exists, flushed on the first reload.
@@ -104,6 +130,50 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
     } finally {
       setBusy(false);
     }
+  }, []);
+
+  /**
+   * Attach pasted text as a context document. It goes through the SAME upload
+   * path as a file, so it gets a chip, lands in the session folder, and is
+   * extracted into every run exactly like an attached document.
+   */
+  const attachText = useCallback(async (text: string) => {
+    const taken = [
+      ...pendingRef.current.map((f) => f.name),
+      ...(session?.files ?? []).map((f) => f.name),
+    ];
+    const name = pastedTextName(taken);
+    pastedTextsRef.current.set(name, text);
+    await uploadFiles([new File([text], name, { type: 'text/plain' })]);
+  }, [uploadFiles, session]);
+
+  const openAttachment = useCallback((name: string) => {
+    const text = pastedTextsRef.current.get(name);
+    if (text !== undefined) {
+      setPreview({ name, text });
+      return;
+    }
+    const id = chatIdRef.current;
+    if (id) window.open(sessionFileUrl(id, 'context', name), '_blank', 'noopener');
+  }, []);
+
+  const closePreview = useCallback(() => setPreview(null), []);
+
+  const takePastedText = useCallback(async () => {
+    const names = [...pastedTextsRef.current.keys()];
+    const name = names[names.length - 1];
+    if (!name) return null;
+    const text = pastedTextsRef.current.get(name) ?? '';
+    pastedTextsRef.current.delete(name);
+    const id = chatIdRef.current;
+    if (pendingRef.current.some((f) => f.name === name)) {
+      pendingRef.current = pendingRef.current.filter((f) => f.name !== name);
+      setPending((prev) => prev.filter((p) => p.name !== name));
+    } else if (id) {
+      await deleteSessionFile(id, 'context', name).catch(() => undefined);
+      setLocalKey((k) => k + 1);
+    }
+    return { name, text };
   }, []);
 
   const flushPending = useCallback(async (id: string) => {
@@ -169,5 +239,5 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
     setPending((prev) => prev.filter((p) => p.name !== name));
   }, []);
 
-  return { session, busy, error, pending, refresh, uploadFiles, flushPending, removeFile, removePending };
+  return { session, busy, error, pending, refresh, uploadFiles, attachText, openAttachment, preview, closePreview, takePastedText, flushPending, removeFile, removePending };
 }

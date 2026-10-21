@@ -31,6 +31,7 @@ import {
   type CommandSpec,
 } from '@/lib/harness/command-registry';
 import { searchMentions, mentionedTargets, type MentionTarget } from '@/lib/bots/mentions';
+import { isLongPaste } from '@/lib/chat/paste';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
@@ -97,6 +98,8 @@ interface ChatInputProps {
    */
   attachments?: AttachmentChip[];
   onRemoveAttachment?: (name: string) => void;
+  /** Open an attachment so its content can be READ before sending. */
+  onOpenAttachment?: (name: string) => void;
   /**
    * A short "context used" label (e.g. `4.2k / 60k`). Rendered quietly under
    * the composer; omitted when there is nothing to report.
@@ -110,6 +113,12 @@ interface ChatInputProps {
    * bot(s)/room(s) on send. Omitted on composers that have no bots to reach.
    */
   mentionTargets?: MentionTarget[];
+  /**
+   * Handle a PASTE too big to belong in the composer: the caller attaches it as
+   * a document (and it shows as a chip, the way an uploaded file does). When
+   * absent, a long paste is inserted normally.
+   */
+  onPasteText?: (text: string) => void;
 }
 
 export function ChatInput({ 
@@ -128,9 +137,11 @@ export function ChatInput({
   attaching = false,
   attachments,
   onRemoveAttachment,
+  onOpenAttachment,
   contextLabel,
   contextFraction,
   mentionTargets,
+  onPasteText,
   }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // The REAL configured provider, never a fabricated model list.
@@ -259,6 +270,18 @@ export function ChatInput({
     [query, mentionTargets],
   );
 
+  // A big paste is a DOCUMENT, not a message: hand it to the caller to attach
+  // (it shows as a chip) instead of dumping thousands of lines into the
+  // composer. Small pastes, and every paste where no handler is wired, behave
+  // normally.
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!onPasteText) return;
+    const text = e.clipboardData.getData('text');
+    if (!isLongPaste(text)) return;
+    e.preventDefault();
+    onPasteText(text);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // The `@` palette takes priority: arrows navigate it and Enter/Tab completes
     // the highlighted mention (instead of sending).
@@ -386,7 +409,18 @@ export function ChatInput({
               ) : (
                 <FileText size={12} className="shrink-0 text-primary" />
               )}
-              <span className="min-w-0 truncate">{file.name}</span>
+              {onOpenAttachment ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenAttachment(file.name)}
+                  title={`Open ${file.name}`}
+                  className="min-w-0 truncate text-left hover:underline"
+                >
+                  {file.name}
+                </button>
+              ) : (
+                <span className="min-w-0 truncate">{file.name}</span>
+              )}
               {onRemoveAttachment && (
                 <button
                   type="button"
@@ -551,6 +585,7 @@ export function ChatInput({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={placeholder}
           autoFocus={autoFocus}
           aria-label="Message Eclipse"
@@ -638,7 +673,7 @@ export function ChatInput({
               <Button 
                 type="submit" 
                 size="icon" 
-                disabled={!query.trim()}
+                disabled={!query.trim() && !(attachments && attachments.length > 0)}
                 className="p-1.5 bg-primary text-primary-foreground hover:bg-primary/90 rounded-full shrink-0 h-8 w-8 cursor-pointer disabled:opacity-40 disabled:hover:bg-primary transition-opacity flex items-center justify-center focus-visible:ring-0 focus-visible:outline-none"
               >
                 <ArrowUp size={17} />

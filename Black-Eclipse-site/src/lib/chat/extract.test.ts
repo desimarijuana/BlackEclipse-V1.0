@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { extractText, extensionOf, isTextExtractable } from './extract';
+import { SESSION_LIMITS } from './session-types';
 
 const bytes = (s: string) => new Uint8Array(Buffer.from(s, 'utf8'));
 
@@ -69,9 +70,9 @@ describe('extractText', () => {
   });
 
   it('truncates very long text and says so', () => {
-    const result = extractText('big.txt', bytes('x'.repeat(30_000)));
+    const result = extractText('big.txt', bytes('x'.repeat(SESSION_LIMITS.maxDocChars + 10_000)));
     expect(result.ok).toBe(true);
-    expect(result.text?.length).toBe(20_000);
+    expect(result.text?.length).toBe(SESSION_LIMITS.maxDocChars);
     expect(result.note).toContain('Truncated');
   });
 

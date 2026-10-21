@@ -143,8 +143,9 @@ const GraphStudioScreen = dynamic(
 );
 import { Newspaper, ArrowLeft } from '@/lib/icons';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { AttachmentPreview } from '@/components/chat/attachment-preview';
 import { MarketRegimeControl } from '@/components/layout/market-regime-control';
-import { useAgentRun } from '@/lib/agent/use-agent-run';
+import { useAgentRun, ChatRequestError } from '@/lib/agent/use-agent-run';
 import { useChatModel } from '@/lib/agent/use-chat-model';
 import { useReasoningEffort } from '@/lib/agent/use-reasoning-effort';
 import { clientIsOperator } from '@/lib/harness/skills-browser';
@@ -658,9 +659,13 @@ function StockChatContent() {
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!query.trim() || agentBusy) return;
-
-    const userText = query;
+    if (agentBusy) return;
+    // A pasted document sent with nothing typed IS the message (the way a big
+    // paste is sent elsewhere): take it back out of the attachment list so the
+    // same text is not also injected as a document.
+    const pasted = query.trim() ? null : await sessionController.takePastedText();
+    const userText = query.trim() || pasted?.text || (attachmentChips.length ? 'Read the attached document.' : '');
+    if (!userText) return;
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: userText };
     setQuery('');
     
@@ -747,7 +752,7 @@ function StockChatContent() {
         role: 'assistant',
         content: '',
         status: 'error',
-        error: { message: err instanceof Error ? err.message : String(err) },
+        error: { message: err instanceof Error ? err.message : String(err), code: err instanceof ChatRequestError ? err.code : undefined },
         durationMs: Math.max(0, Date.now() - startedAt),
       });
       sound.error();
@@ -1150,17 +1155,15 @@ function StockChatContent() {
                       onViewMarketOverview={() => setActiveTab('discovery')}
                       onAttach={() => fileInputRef.current?.click()}
                       onAttachImage={() => imageInputRef.current?.click()}
-                      attachments={attachmentChips}
-                      onRemoveAttachment={handleRemoveAttachment}
+                      attachments={attachmentChips} onRemoveAttachment={handleRemoveAttachment} onOpenAttachment={sessionController.openAttachment}
+                      onPasteText={(text) => void sessionController.attachText(text)}
                       busy={agentBusy}
                       onCancel={handleCancel}
                       modelState={chatModel}
                       effortState={reasoningEffort}
                       mentionTargets={mentionTargets}
                     />
-                    <div className="w-full px-4 md:px-6">
-                      <SessionBar session={sessionController} />
-                    </div>
+                    <div className="w-full px-4 md:px-6"><SessionBar session={sessionController} /></div>
                   </div>
                 ) : (
                   <div
@@ -1194,15 +1197,11 @@ function StockChatContent() {
                         onAttach={() => fileInputRef.current?.click()}
                         onAttachImage={() => imageInputRef.current?.click()}
                         attaching={sessionController.busy}
-                        attachments={attachmentChips}
-                        onRemoveAttachment={handleRemoveAttachment}
+                        attachments={attachmentChips} onRemoveAttachment={handleRemoveAttachment} onOpenAttachment={sessionController.openAttachment}
+                        onPasteText={(text) => void sessionController.attachText(text)}
                         mentionTargets={mentionTargets}
-                        contextLabel={sessionController.session && sessionController.session.contextChars > 0
-                          ? `${(sessionController.session.contextChars / 1000).toFixed(1)}k / ${(sessionController.session.contextLimitChars / 1000).toFixed(0)}k chars`
-                          : undefined}
-                        contextFraction={sessionController.session
-                          ? sessionController.session.contextChars / sessionController.session.contextLimitChars
-                          : 0}
+                        contextLabel={sessionController.session && sessionController.session.contextChars > 0 ? `${(sessionController.session.contextChars / 1000).toFixed(1)}k / ${(sessionController.session.contextLimitChars / 1000).toFixed(0)}k chars` : undefined}
+                        contextFraction={sessionController.session ? sessionController.session.contextChars / sessionController.session.contextLimitChars : 0}
                       />
                       {pendingApproval && (
                         <ApprovalCard
@@ -1217,6 +1216,7 @@ function StockChatContent() {
                           }}
                         />
                       )}
+                      <AttachmentPreview preview={sessionController.preview} onClose={sessionController.closePreview} />
                       <div className="mt-1.5 flex items-center gap-2">
                         <div className="min-w-0 flex-1">
                           <SessionBar session={sessionController} />
