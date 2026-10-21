@@ -282,6 +282,24 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **fix(market): the history route conflated a WINDOW with a BAR SIZE — a
+  multi-year history came back EMPTY and read as "no data".** `period` was read
+  as the interval, so `period: "1y"` asked the provider for a "1y bar" — not a
+  bar size at all. The request came back empty, and the market tool (showing the
+  OLDEST bars) made a five-year history read as *2021* data, so an analysis
+  reasoned about the wrong years and held no current print. The bar size
+  (`interval`) and the window (`period` / `range`) are now read from their own
+  fields, and a value that is both ("1d", "1mo", "3mo") is a WINDOW.
+  **Market-data symbols are no longer refused by the equity universe:** an index
+  (`^VIX`), a future (`GC=F`) or a currency index (`DX-Y.NYB`) has no
+  instrument row — a coverage gap, not an identity failure — so it is fetched
+  from Yahoo and labelled `marketData: true`. Verified end to end: `^VIX`,
+  `GC=F`, `DX-Y.NYB` and `^TNX` now return 1,255–1,258 DAILY bars
+  (2021-10-21 → 2026-10-21), and GLD returns 1,255 bars over the same window.
+  Files: `src/lib/harness/data-bridge-history.ts`, `src/lib/harness/data-bridge.ts`.
+  Tests: `src/lib/harness/data-bridge-history.test.ts` (10). docs updated:
+  `docs/CHANGELOG.md`.
+
 ""- **feat(agent): a missing data series is now a ROUTE, not a dead end — the
   agent writes a scraper for the page that has it.** The vault does not hold
   everything, so a failed data call used to end the analysis. Two changes make
