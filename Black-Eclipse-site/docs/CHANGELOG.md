@@ -8,6 +8,119 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **fix(harness): a change is verified by the project's own checks, and a
+  failure drives a repair.** The harness had a correct, bounded, cost-capped
+  repair loop (`code/repair.py`: plan -> check -> edit -> re-check, two
+  attempts, a fifteen-minute wall clock, a $1.50 ceiling) whose own docstring
+  said *"`execute_run` CALLS `run_verify_repair`"*. It did neither. The only two
+  callers in the repository were the EVAL harness, and production passed
+  `repair_outcome=None` to the answer seam on every single run. So three
+  things were true and none of them were intended: a check the project pins
+  never ran unless the MODEL chose to run it; a failed check never drove a
+  repair (the model was told a check had failed only if it had run the check
+  itself, and then had to notice, decide, edit and re-run with no budget and
+  no cost cap); and the answer seam could not tell "no repair happened" from
+  "the repair passed", because the only value it ever received was `None`.
+  The agent graph now gains a **`verify_repair` node** between the tool turn
+  and the next agent turn: after a turn that CHANGED something, the node runs
+  the project's pinned check CLASSES through the ONE command path
+  (`code.command_tools.command_run` - the same function the model's own
+  `command_run` tool call goes through, so the policy gate, the authorization,
+  the ledger row, the store row and the events are identical to a
+  model-issued check), and when one fails the failure is handed back to the
+  MODEL, because the model is the only thing that can fix code. The output is
+  labelled and fenced as DATA, never as an instruction. The budget is the
+  run's - attempts, wall clock, cost and the number of check runs - and
+  exhaustion is a REPORTED state, never a silent stop. The loop's outcome is a
+  first-class state whose word is DERIVED from the facts
+  (`REPAIR_NOT_RUN` / `REPAIR_PASSED` / `REPAIR_FAILED` / `REPAIR_EXHAUSTED` /
+  `REPAIR_NOT_APPLICABLE` / `REPAIR_REFUSED`), the answer seam receives the
+  REAL outcome instead of a hard-coded `None`, and when the check was still
+  failing the answer now says so - a result must show what it hides. The
+  operator pins the checks in `.black-eclipse/verify.json` as class NAMES
+  (`{"checks": ["unit_test", "typecheck"]}`), not a shell string: a check that
+  cannot be named cannot back a "tests pass" claim, so it is not evidence and
+  it is not run here, and the existing `{"command": "..."}` pin form keeps its
+  single-shot behaviour. A repair NEVER widens authority - the pinned class
+  still goes through `code.policy.decide_command` and the profile's grants,
+  and `plan_only` - the read-only profile - never repairs at all. The new
+  `repair-in-graph` eval shape drives the REAL graph (the model and the check
+  are scripted; the graph is not), the `code_verify_repair_loop` capability
+  class makes it measured (the capability statement is regenerated, and the
+  dataset checksum is re-pinned because a new case is a new review), and the
+  new shape's plain name is a dictionary key. Files:
+  python/harness/code/repair_graph.py (new),
+  python/harness/code/repair.py, python/harness/code/verify.py,
+  python/harness/graph.py, python/harness/code/eval/tasks.py,
+  python/harness/code/eval/capabilities.py,
+  python/harness/code/eval/dataset_tasks_v1.json,
+  python/harness/code/eval/statement.py,
+  src/lib/i18n/dictionaries/en.ts,
+  python/tests/test_graph_repair_node.py (new, 20 cases). ADR-H281. docs
+  updated: docs/harness/decisions.md, docs/harness/architecture.md,
+  docs/NAVIGATION.md, docs/harness/capability-statement.md.
+
+- **feat(ui): the Project Scope widget - a project is now reachable by a
+  human.** The project entity, the agent tools and the run binding landed with
+  the harness, but nothing in the app pointed at one. A new **Project Scope**
+  widget on the Command Center lists the projects the runtime holds, creates
+  one, and pins the chat to it; `src/lib/agent/registry.ts` adds the active
+  project id to the chat payload, so both the streaming and the one-shot path
+  inherit the same scope without a second code path. The active id is a LOCAL
+  preference (`be_active_project`), not a grant: the runtime still resolves it,
+  and an unknown id is reported in the run's context rather than ignored. A
+  blocked `localStorage` must never break the chat, so the read is guarded and
+  returns null. Files: src/lib/projects/project-client.ts (new),
+  src/lib/dashboard/project-widget.tsx (new), src/lib/dashboard/registry.tsx,
+  src/lib/agent/registry.ts, src/app/api/harness/projects/route.ts. Tests:
+  src/lib/projects/project-client.test.ts (7). docs updated: docs/projects.md.
+
+- **fix(tests): the approval-card e2e was racing its own timeout.** The test
+  that drives a run from "paused for approval" to "resumed and completed" gave
+  the resumed run ten seconds, and the run legitimately takes about eleven -
+  so `wait_for` cancelled it and the cancellation surfaced as a `cancelled`
+  status instead of the real outcome. The wait is now a generous bound, and
+  the test passes repeatedly. A flaky test that fails for the wrong reason is
+  worse than a slow one. Files: python/tests/test_approval_card_e2e.py. no doc
+  change - a test-timing repair.
+
+- **feat(charts): the chat's chart blocks can now be drawn by EITHER engine —
+  the interactive ECharts chart (the default) or a picture the Python chart
+  engine draws in the runtime.** A `chart` block in an answer is translated into
+  a validated chart **SPEC** (data only: a kind, some series, a title — never a
+  callback, a URL or a path) by a new pure module
+  (`src/lib/response/chart-spec.ts` — `chartBlockToSpec`, plus the visual
+  director that resolves `chartType: "auto"`), and the runtime draws it with
+  `matplotlib` into a **transparent** PNG in the app's own palette. The picture
+  is recorded in the Artifact Center, so a chart is downloadable, versioned and
+  shareable like any produced file. The **user chooses** the engine with a
+  toggle on the chart, and the choice is remembered across answers
+  (`src/lib/response/chart-engine.ts`); the ECharts path is unchanged, so the
+  crosshair, the hover tooltip and the legend all still work. The export
+  helpers serve both: the drawn picture is an artifact, the interactive chart is
+  a live canvas. A lossy mapping is **TOLD**: a block type the engine cannot
+  draw exactly (`treemap`/`sunburst`/`funnel`/`gauge`) is drawn as the closest
+  honest shape and the note appears under the picture. A figure is always
+  `computed` and never evidence (`isEvidence: false` is part of the contract).
+  **Scope:** this is the CHAT's chart block only — the journal, portfolio,
+  dashboard, backtest, economics, fundamentals and workspace widgets, the price
+  chart, the Investor Eye map and the relationship graphs stay on ECharts,
+  because they draw from live data at interactive rates. The engine also serves
+  the agent's own figures through the `python_chart` tool. Files:
+  `python/harness/charts/` (spec, theme, render, service, tools),
+  `python/harness/routers/charts.py`, `src/lib/harness/charts.ts`,
+  `src/app/api/harness/charts/route.ts`, `src/components/charts/python-chart.tsx`,
+  `src/lib/response/chart-spec.ts` (+ `.test.ts`),
+  `src/lib/response/chart-engine.ts` (+ `.test.ts`),
+  `src/components/response/response-chart.tsx`,
+  `src/lib/response/chart-registry.ts`, `src/lib/response/export.ts`.
+  Tests: `python/tests/test_charts.py` (29), `src/lib/response/chart-spec.test.ts`
+  (20), `src/lib/response/chart-engine.test.ts` (7),
+  `src/app/api/harness/charts/route.test.ts`, `src/lib/harness/charts.test.ts`.
+  docs updated: `docs/chart-engine.md`, `docs/interactive-response-engine.md`,
+  `docs/DECISIONS.md` (ADR-050), `skills/ARCHITECT.md` (ADR-050),
+  `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+
 - **fix(charts): the chart engine's value-axis formatter crashed every chart that
   had a unit.** Matplotlib calls a tick formatter with `(value, position)`, and
   the formatter took one argument — so every chart that asked for a value
@@ -128,44 +241,6 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   python/tests/test_quant_regime_verdict.py. docs updated:
   docs/quant-engine.md, docs/backtesting-engine.md.
 
-- **feat(charts): ECharts is retired — every chart is drawn by the Python chart
-  engine, and the map and the graphs are plain SVG.** `echarts`, `echarts-gl`
-  and the never-imported `recharts` are **removed from `package.json` and the
-  lock file**, and no module imports them any more. Every surface moved onto
-  the engine: the chat's response chart blocks, the journal's eight charts and
-  the trade replay, the portfolio widgets (NAV, allocation, health, Monte
-  Carlo, treemap, correlation matrix), the backtest screen, the economics
-  panel, the dashboard widgets and the market treemap, the workspace's generic
-  charts, the fundamentals panel, and the price chart (a new
-  `PythonChartProvider` behind the unchanged `ChartProvider` contract). The
-  engine grew what those surfaces needed: a `gauge`, a nested `treemap`,
-  per-point and per-slice colours, named **reference lines** (the replay's
-  entry/stop/target/exit), **highlight spans** (the recession shading), a
-  **volume pane**, a log axis, value formats and a forecast **band**. The two
-  surfaces that were never charts became plain **SVG**: the Investor Eye map
-  (the same Natural Earth GeoJSON, projected, with the layer descriptors drawn
-  as shapes — so it keeps its hover and click behaviour) and the relationship
-  graphs (a deterministic, seeded force layout). The retired drawing system
-  (the price chart's hand-drawn annotations), the 3D globe and the map's
-  roam/zoom went with the browser canvas. **What is gone, plainly:** no hover
-  tooltip and no crosshair anywhere, no wheel zoom / pan / drag on the price
-  chart, no hand-drawn annotations, and no 3D globe; a chart is also a round
-  trip (drawn by the runtime, fetched back as an artifact), so a live widget
-  must debounce. Files: `python/harness/charts/{spec,render}.ts`→`.py` (the
-  engine's new kinds and options), `src/lib/chart/providers/python-provider.ts`,
-  `src/lib/investor-eye/map-svg.ts`, `src/components/investor-eye/world-map.tsx`,
-  `src/lib/graph-layout.ts`, `src/components/charts/svg-graph.tsx`,
-  `src/components/charts/python-chart.tsx`; deleted
-  `src/lib/chart/providers/eclipse-provider.ts`, `src/lib/chart/drawings/*`,
-  `src/components/chart/drawing-overlay.tsx`, `src/lib/investor-eye/map-echarts.ts`
-  (+ its tests), `src/types/echarts-gl.d.ts`, `src/lib/response/chart-option.ts`.
-  Tests: `python/tests/test_charts.py` (28), `src/lib/response/chart-spec.test.ts`
-  (20), `src/app/api/harness/charts/route.test.ts`, `src/lib/harness/charts.test.ts`.
-  docs updated: `docs/chart-engine.md` (§4 is now the completed migration),
-  `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/DECISIONS.md` (ADR-050
-  amendment), `skills/ARCHITECT.md` (ADR-050 amendment),
-  `docs/investor-eye-architecture.md`.
-
 - **docs(harness): Round 3 — the parity plan, from 7.2 to 9.5.** The harness
   was scored against the 2026 field (Claude Code, OpenHands, Codex CLI, Cursor,
   Devin, OpenCode, GitHub Copilot, Cline, Goose, Aider) on seven dimensions
@@ -273,37 +348,6 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   python/harness/routers/quant_reports.py (new),
   python/harness/routers/quant.py, python/tests/test_quant_routes.py. docs
   updated: docs/quant-engine.md.
-
-- **feat(charts): the chat's response chart blocks now run on the Python chart
-  engine — the ECharts option builder is deleted.** A `chart` block is
-  translated into the chart engine's spec by a new pure module
-  (`src/lib/response/chart-spec.ts` — `chartBlockToSpec`, plus the visual
-  director that resolves `chartType: "auto"`), and `response-chart.tsx` shows
-  the picture the engine drew, fetched back as an artifact. The 800-line
-  ECharts option builder (`src/lib/response/chart-option.ts`) and its test are
-  **deleted**, and no charting library ships in the chat bundle any more. The
-  drawn-chart registry (`chart-registry.ts`) now holds an **artifact id**
-  instead of a live ECharts instance, so the PNG/PDF exports fetch the artifact
-  (the PDF sets it on the app's own dark panel, because the engine draws a
-  transparent figure with light ink). A lossy mapping is **TOLD**: a block type
-  the engine cannot draw exactly (`treemap`/`sunburst`/`funnel`/`gauge`) is
-  drawn as the closest honest shape and the note appears under the picture — a
-  chart that quietly became a different chart would be a lie about what the
-  user is looking at. The engine gained what the response block needed: a
-  forecast `band` (drawn as a translucent area), a **camelCase** wire shape
-  (like every other harness model) and one spec contract shared by the tool,
-  the route and the browser. Loss, stated plainly: **no hover tooltip and no
-  crosshair** — a chart is a picture, and the values a tooltip used to show
-  live in the block's own table/text. Files:
-  `src/lib/response/chart-spec.ts` (+ `.test.ts`),
-  `src/components/response/response-chart.tsx`,
-  `src/lib/response/chart-registry.ts`, `src/lib/response/export.ts`,
-  `src/lib/harness/charts.ts`; deleted `src/lib/response/chart-option.ts`
-  (+ test); `python/harness/charts/spec.py`, `python/harness/charts/render.py`,
-  `python/harness/routers/charts.py`. Tests: `chart-spec.test.ts` (20),
-  `python/tests/test_charts.py` (28). docs updated: `docs/chart-engine.md`,
-  `docs/interactive-response-engine.md`, `docs/DECISIONS.md` (ADR-050
-  amendment), `skills/ARCHITECT.md` (ADR-050 amendment), `docs/NAVIGATION.md`.
 
 - **fix(ui): the RSL control panel parses again - the release gate was broken.**
   The in-flight RSL climb-toggle work left the panel's JSX unbalanced (a

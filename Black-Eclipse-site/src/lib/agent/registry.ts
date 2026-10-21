@@ -1,6 +1,7 @@
 import type { AgentProvider, AgentStatusEvent, AgentTool, ChatMessage, ChatOptions } from './types';
 import { normalizeHarnessEvent, unwrapEventPayload } from './events';
 import { ingestHarnessFrame } from '@/lib/agent-workspace/ingest';
+import { getActiveProjectId } from '@/lib/projects/project-client';
 
 export { unwrapEventPayload } from './events';
 
@@ -61,7 +62,10 @@ function buildPayload(messages: ChatMessage[], options?: ChatOptions) {
       ? `run_${crypto.randomUUID()}`
       : `run_${Date.now().toString(36)}`;
   options?.onRunId?.(runId);
-  return { query, history, chatId: options?.chatId, runId, model: options?.model, reasoningEffort: options?.reasoningEffort, uiContext: options?.uiContext, memoryScope: options?.memoryScope };
+  // The project this turn is scoped to (a local preference, not a grant). The
+  // runtime resolves it and puts the project's members in front of the model.
+  const projectId = getActiveProjectId() ?? undefined;
+  return { query, history, chatId: options?.chatId, runId, model: options?.model, reasoningEffort: options?.reasoningEffort, uiContext: options?.uiContext, memoryScope: options?.memoryScope, projectId };
 }
 
 /** One-shot fallback used when SSE is unavailable. */

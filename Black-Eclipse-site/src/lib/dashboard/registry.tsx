@@ -49,6 +49,7 @@ import {
 } from './intelligence-widgets';
 import { AgentActivityWidget, RecentResearchWidget, AIInsightsWidget } from './ai-widgets';
 import { DriftStatusWidget } from './drift-status-widget';
+import { ProjectScopeWidget } from './project-widget';
 import {
   InvestorEyeWidget, INVESTOR_EYE_RANGE_FIELD, INVESTOR_EYE_LENS_FIELD,
 } from './investor-eye-widget';
@@ -154,6 +155,7 @@ const CORE_WIDGETS: WidgetDefinition[] = [
   def('economic-calendar', 'research', 'Economic Calendar', 'Upcoming macro events.', 'calendar', ['medium', 'large'], () => <EconomicCalendarWidget />, ['econ:calendar']),
   def('earnings-calendar', 'research', 'Earnings Calendar', 'Upcoming company earnings — date, BMO/AMC and EPS estimate.', 'calendar', ['medium', 'large'], () => <EarningsCalendarWidget />, ['earnings:calendar']),
   def('news-category', 'research', 'News by Category', 'Category-filtered headlines.', 'newspaper', ['medium', 'large'], () => <NewsCategoryWidget />, ['news:feed']),
+  def('project-scope', 'research', 'Project Scope', 'The project the chat is scoped to: its strategies, backtests and artifacts.', 'folder-plus', ['small', 'medium'], () => <ProjectScopeWidget />),
 
   // ── Portfolio ──
   def('watchlist', 'portfolio', 'Watchlist', 'Your symbols with live prices and favourites.', 'bar-chart', ['medium', 'large'], () => <WatchlistWidget />, ['market:quote:AAPL,MSFT,NVDA,TSLA,AMZN']),

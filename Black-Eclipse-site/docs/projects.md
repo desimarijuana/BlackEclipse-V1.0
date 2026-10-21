@@ -87,7 +87,21 @@ may do. The tool surface is still resolved by policy.
 | The agent | the five `project_*` tools, allowlisted in `agents.py` |
 | The runtime | `python/harness/routers/projects.py` — `GET/POST /projects`, `GET /projects/{id}`, `POST/DELETE /projects/{id}/members` (operator-gated) |
 | The front door | `src/app/api/harness/projects/route.ts` — a thin proxy onto the runtime |
+| The app | the **Project Scope widget** (`src/lib/dashboard/project-widget.tsx`, on the Command Center) — lists the projects, creates one, and pins the chat to it |
 | A chat turn | `projectId` in the `/api/harness/chat` and `/api/harness/chat/stream` bodies, forwarded to the runtime |
+
+## The active project
+
+The widget does one thing beyond listing: it decides **which project the next
+chat turn is scoped to**. That choice is a local preference
+(`localStorage: be_active_project`, `src/lib/projects/project-client.ts`), not a
+grant — the runtime still resolves the id, and an unknown one is reported in
+the run's context rather than ignored.
+
+`src/lib/agent/registry.ts` adds the active id to the chat payload, so both
+the streaming and the one-shot path inherit it without a second code path. A
+blocked `localStorage` must never break the chat, so the read is guarded and
+returns `null`.
 
 ## What it is not
 
@@ -100,10 +114,11 @@ may do. The tool surface is still resolved by policy.
 
 ## The remaining slice
 
-The binding is in place at the API and agent layers. The user-facing surface
-— a project picker in the chat, a `/project` command that binds the current
-conversation, a projects panel — is the next slice, and it is a front-door
-concern: the chat body already accepts `projectId`, so a picker only has to
-send it.
+The entity, the tools, the binding and the app surface are in place. What is
+**not** built is a way to *populate* a project automatically: today the agent
+attaches members one call at a time, and nothing yet sweeps a finished
+research run or an Edge Report into the project it belongs to. That is the
+obvious next step, and it is a policy question (what belongs in a project by
+default) rather than a plumbing one.
 
-Tests: `python/tests/test_projects.py`.
+Tests: `python/tests/test_projects.py`, `src/lib/projects/project-client.test.ts`.
