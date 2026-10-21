@@ -214,13 +214,33 @@ def test_the_project_tools_are_registered_and_allowed():
     assert "project_show" in PROJECT_TOOLS
 
 
+async def test_the_digest_tool_curates_a_project(store):
+    from harness.projects.tools import project_digest
+
+    ctx = _Ctx(store)
+    _, created = await project_create({"name": "NQ momentum", "symbols": ["NQ"]}, ctx)
+    project_id = created["project"]["id"]
+    text, data = await project_digest({"projectId": project_id}, ctx)
+    assert data["status"] == "OK"
+    assert "NQ momentum" in text
+    assert "Still missing:" in text
+
+
+async def test_the_digest_tool_refuses_an_unknown_project(store):
+    from harness.projects.tools import project_digest
+
+    _, data = await project_digest({"projectId": "proj_nope"}, _Ctx(store))
+    assert data["status"] == "ERROR"
+    assert data["error"]["code"] == "PROJECT_NOT_FOUND"
+
+
 def test_the_project_tools_are_in_the_chat_allowlist():
     from harness.agents import ECLIPSE_AGENT
 
     allowed = ECLIPSE_AGENT.tools
     assert allowed is not None
     for name in ("project_create", "project_list", "project_show",
-                 "project_attach", "project_detach"):
+                 "project_attach", "project_detach", "project_digest"):
         assert name in allowed, name
 
 

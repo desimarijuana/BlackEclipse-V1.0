@@ -263,13 +263,22 @@ def _app_control_block(context: Any) -> str:
 def _project_brief_block(project_id: Optional[str], project_store: Optional[Any]) -> str:
     """The project this run belongs to, as a per-run context block.
 
-    The brief says what the project HOLDS — its members, its instruments. It
+    The brief is the **curated** view when the curator is available: what the
+    project is about, which members matter most and what it still lacks. It
     never says what the run should conclude: a project is a scope, not an
     opinion. An unknown project id is reported, never silently ignored, so a
     typo cannot masquerade as "no project".
     """
     if not project_id or project_store is None:
         return ""
+    try:
+        from .projects.curate import curate_project  # noqa: PLC0415
+
+        digest = curate_project(project_store, str(project_id))
+        if digest is not None:
+            return digest.to_markdown()
+    except Exception:  # noqa: BLE001 - a project read must never break the run
+        pass
     try:
         brief = project_store.brief(str(project_id))
     except Exception:  # noqa: BLE001 - a project read must never break the run

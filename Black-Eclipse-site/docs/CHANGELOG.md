@@ -7,6 +7,29 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-21
+- **feat(harness): the curated project view - what a project is, and what it
+  is missing.** A member list is a filing cabinet; a curated project is a
+  summary. The new curator ranks a project's members by a FIXED priority per
+  kind - a tested result outranks a strategy, which outranks a dataset, which
+  outranks an output artifact, which outranks a run record - breaks ties by
+  recency, and carries **the reason each member was promoted**, so the ranking
+  can be argued with rather than merely trusted. It derives a headline from
+  what the project actually holds ("NQ momentum on NQ, ES - 1 strategy, 2
+  results") and it names the GAPS plainly: a project with a strategy and no
+  result says so - "no result has been attached yet - a strategy with no tested
+  outcome is an intention, not a finding". The curated view is what the AGENT
+  sees: the run's per-run project context is the digest, not a flat member
+  list, so a turn inside a project starts from "where does this stand?"
+  rather than from a wall of references. Surfaces: the tool `project_digest`,
+  the route GET /projects/{id}/digest, and the Project Scope widget, which shows
+  the active project's headline, its top members with their reasons, and what it
+  still lacks. Files: python/harness/projects/curate.py (new),
+  python/harness/projects/tools.py, python/harness/routers/projects.py,
+  python/harness/graph.py, src/lib/projects/project-client.ts,
+  src/lib/dashboard/project-widget.tsx. Tests:
+  python/tests/test_project_curation.py (10), python/tests/test_projects.py.
+  docs updated: docs/projects.md.
+
 
 - **feat(charts): the chat's charts are drawn by the PYTHON engine, and ANY chart
   can be drawn.** The chat's `chart` block no longer has an ECharts path: the

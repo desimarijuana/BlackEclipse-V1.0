@@ -60,6 +60,28 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+export interface CuratedMember {
+  id: string;
+  kind: string;
+  ref: string;
+  label: string;
+  score: number;
+  reason: string;
+  createdAt: string;
+  meta: Record<string, unknown>;
+}
+
+export interface ProjectDigest {
+  projectId: string;
+  name: string;
+  headline: string;
+  summary: string;
+  members: CuratedMember[];
+  memberCount: number;
+  gaps: string[];
+  counts: Record<string, number>;
+}
+
 export const projectClient = {
   list: (status?: string) => {
     const query = status ? `?status=${encodeURIComponent(status)}` : "";
@@ -78,6 +100,10 @@ export const projectClient = {
 
   get: (id: string) =>
     jsonFetch<ProjectDetail>(`/${encodeURIComponent(id)}`),
+
+  digest: (id: string) =>
+    jsonFetch<{ digest: ProjectDigest }>(`/${encodeURIComponent(id)}/digest`)
+      .then((r) => r.digest),
 };
 
 /**

@@ -73,6 +73,19 @@ async def get_project(project_id: str,
     return detail
 
 
+@router.get("/projects/{project_id}/digest")
+async def project_digest_route(project_id: str,
+                                _: bool = Depends(require_operator)) -> dict:
+    """The curated view of a project: what it is, what matters, what it lacks."""
+    store = _store()
+    from ..projects.curate import curate_project
+
+    digest = curate_project(store, project_id)
+    if digest is None:
+        raise HTTPException(status_code=404, detail=f"no project {project_id!r}")
+    return {"digest": digest.to_dict(), "markdown": digest.to_markdown()}
+
+
 @router.post("/projects/{project_id}/members")
 async def attach_member(project_id: str, body: AttachMemberBody,
                         _: bool = Depends(require_operator)) -> dict:

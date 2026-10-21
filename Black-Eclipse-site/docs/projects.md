@@ -112,6 +112,33 @@ returns `null`.
   vault it belongs to (JDdS, the quant store, the Artifact Center).
 - **Not a permission.** Membership grants nothing. A member is a pointer.
 
+## The curated view
+
+A member list is a filing cabinet. The **curated** view is a summary: what this
+project is about, which members matter most, and what it does not have yet.
+
+`python/harness/projects/curate.py` does it deterministically and explainably:
+
+- **Ranking** is by a fixed priority per kind - an `experiment` (a tested
+  result) outranks a `strategy` (an intent to trade), which outranks a `dataset`
+  (an input), which outranks an `artifact` (an output), which outranks a run
+  record. The newest member breaks a tie. Every promoted member carries **the
+  reason it was promoted**, so the ranking can be argued with rather than
+  merely trusted.
+- **The headline** is derived from what the project actually holds: "NQ momentum
+  on NQ, ES - 1 strategy, 2 results."
+- **The gaps** are named plainly. A project with a strategy and no result is not
+  finished, and it says so: *no result has been attached yet - a strategy with
+  no tested outcome is an intention, not a finding.*
+
+The curated view is what the **agent** sees: the run's per-run project context
+is the digest, not a flat member list, so a turn inside a project starts from
+"where does this stand?" rather than from a wall of references.
+
+Surfaces: the tool `project_digest`; the route `GET /projects/{id}/digest`; and
+the **Project Scope widget**, which shows the active project's headline, its
+top members with their reasons, and what it still lacks.
+
 ## How a project fills itself up
 
 `python/harness/projects/attach.py` is the policy, and it is deliberately
@@ -134,9 +161,10 @@ bookkeeping step.
 
 ## The remaining slice
 
-The entity, the tools, the binding, the app surface and the auto-populate
-policy are in place. What is **not** built is a *curated* view of a project -
-which members matter, in what order, and what the project is trying to answer.
-That is a design question, not a plumbing one.
+The entity, the tools, the binding, the app surface, the auto-populate policy
+and the curated view are in place. What is **not** built is a project that can
+*answer* something - the curated view says where the project stands, but
+nothing yet reads its members and proposes the next experiment. That is a
+design question (what would the project want to know?), not a plumbing one.
 
 Tests: `python/tests/test_projects.py`, `src/lib/projects/project-client.test.ts`.

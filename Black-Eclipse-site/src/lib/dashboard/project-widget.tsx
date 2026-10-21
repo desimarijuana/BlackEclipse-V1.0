@@ -13,6 +13,7 @@ import {
   getActiveProjectId,
   projectClient,
   setActiveProjectId,
+  type ProjectDigest,
   type ProjectSummary,
 } from '@/lib/projects/project-client';
 import { cn } from '@/lib/utils';
@@ -21,6 +22,7 @@ import { FolderPlus, Loader2, Plus } from '@/lib/icons';
 export function ProjectScopeWidget() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [digest, setDigest] = useState<ProjectDigest | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +45,26 @@ export function ProjectScopeWidget() {
     setActiveId(getActiveProjectId());
     void load();
   }, [load]);
+
+  // The active project's curated view: what it is, and what it still lacks.
+  useEffect(() => {
+    if (!activeId) {
+      setDigest(null);
+      return;
+    }
+    let cancelled = false;
+    void projectClient
+      .digest(activeId)
+      .then((d) => {
+        if (!cancelled) setDigest(d);
+      })
+      .catch(() => {
+        if (!cancelled) setDigest(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId]);
 
   const choose = useCallback((id: string | null) => {
     setActiveProjectId(id);
@@ -125,6 +147,38 @@ export function ProjectScopeWidget() {
             </li>
           ))}
         </ul>
+      )}
+
+      {active && (
+        <div className="rounded-lg border border-white/10 bg-black/20 px-2 py-1.5">
+          <p className="text-[10px] text-foreground">{active.name}</p>
+          {digest ? (
+            <>
+              <p className="mt-0.5 text-[9px] leading-relaxed text-muted-foreground">
+                {digest.headline}
+              </p>
+              {digest.members.length > 0 && (
+                <ul className="mt-1 space-y-0.5">
+                  {digest.members.slice(0, 3).map((m) => (
+                    <li key={m.id} className="font-mono text-[9px] text-muted-foreground">
+                      <span className="text-foreground">{m.kind}</span> {m.ref}
+                      <span className="text-muted-foreground/70"> — {m.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {digest.gaps.length > 0 && (
+                <p className="mt-1 text-[9px] leading-relaxed text-amber-300">
+                  Still missing: {digest.gaps.join('; ')}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="mt-0.5 text-[9px] text-muted-foreground">
+              {active.description || 'No description yet.'}
+            </p>
+          )}
+        </div>
       )}
 
       <div className="mt-auto flex flex-col gap-1 border-t border-border/10 pt-2">

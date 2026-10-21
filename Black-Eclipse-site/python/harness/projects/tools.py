@@ -123,12 +123,30 @@ async def project_detach(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
         return _err("PROJECT_DETACH_FAILED", str(exc))
 
 
+async def project_digest(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """The curated view of a project: what it is, what matters, what it lacks."""
+    project_id = str(args.get("projectId") or "")
+    if not project_id:
+        return _err("PROJECT_ID_REQUIRED", "provide `projectId`")
+    try:
+        store = _store(ctx)
+        from .curate import curate_project
+
+        digest = curate_project(store, project_id)
+        if digest is None:
+            return _err("PROJECT_NOT_FOUND", f"no project {project_id!r}")
+        return (digest.to_markdown(), {"status": "OK", "digest": digest.to_dict()})
+    except Exception as exc:  # noqa: BLE001
+        return _err("PROJECT_DIGEST_FAILED", str(exc))
+
+
 PROJECT_TOOLS: tuple[str, ...] = (
     "project_create",
     "project_list",
     "project_show",
     "project_attach",
     "project_detach",
+    "project_digest",
 )
 
 
@@ -185,6 +203,15 @@ def register_project_tools(registry: Any) -> list[str]:
             "memberId": {"type": "string"}},
             "required": ["projectId", "memberId"]},
         handler=project_detach, permission="read", risk="low", timeout_ms=20_000))
+    registry.register(ToolDefinition(
+        name="project_digest",
+        description="The CURATED view of a project: what it is about, which members "
+                    "matter most (and why), and what it does not have yet. Use it "
+                    "instead of project_show when the question is 'where does this "
+                    "project stand?' rather than 'list every member'.",
+        input_schema={"type": "object", "properties": {
+            "projectId": {"type": "string"}}, "required": ["projectId"]},
+        handler=project_digest, permission="read", risk="low", timeout_ms=20_000))
     return list(PROJECT_TOOLS)
 
 
