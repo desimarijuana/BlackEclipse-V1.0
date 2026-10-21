@@ -15,9 +15,22 @@ that retires ECharts.
 ## 1. What the engine is for
 
 The **chat's** charts are drawn by this engine, and **only** by this engine.
-A `chart` block in an answer is turned into a picture by the runtime
-(matplotlib) and shown as an artifact. The chat has no ECharts path: a chart
-in a chat answer is never a live canvas.
+A `chart` block in an answer becomes a **real chart**: the runtime authors it
+in Python (a Plotly *figure*), and the browser renders it as **vector SVG** with
+zoom, pan, a hover readout, a legend and a PNG/zoom toolbar. It is a chart, not
+a picture of one.
+
+The chat has no ECharts path: a chart in a chat answer is never a live canvas
+of the old kind — it is a live canvas of the new kind.
+
+Two outputs come from one spec:
+
+| Output | What it is | Used for |
+|---|---|---|
+| the **figure** | a Plotly figure (JSON): vector, interactive | the chat |
+| the **picture** | a PNG (matplotlib), recorded as an artifact | the PNG/PDF export, and the fallback when the chart library cannot load |
+
+Both are produced from the SAME data, so they can never disagree.
 
 **The rest of the application is NOT part of this.** The journal, the
 portfolio, the dashboard, the backtest screen, the economics and fundamentals
@@ -47,7 +60,8 @@ invented for it.
 
 `line` · `area` · `bar` · `scatter` · `band` · `rule` · `label` · `box` ·
 `violin` · `histogram` · `errorbar` · `heatmap` · `pie` · `donut` ·
-`candlestick` · `waterfall` · `ridge` · `stem`
+`candlestick` · `waterfall` · `ridge` · `stem` · `treemap` · `sunburst` ·
+`funnel` · `sankey`
 
 A mark may set: `name` (the legend), `y` / `x` / `values` / `lower` /
 `upper` / `sizes` / `matrix` / `labels` / `rowLabels` / `colLabels`, `color`,
@@ -113,7 +127,8 @@ not an inversion, because the app has a light mode.
 |---|---|
 | The agent | the `python_chart` tool (`python/harness/charts/tools.py`) — registered on the one tool registry and on the chat agent's allowlist |
 | The front door | `POST /api/harness/charts` → `python/harness/routers/charts.py` → `POST /charts/render` (operator-gated) |
-| The browser | `src/lib/harness/charts.ts` (`renderChart`) + `src/components/charts/python-chart.tsx` |
+| The browser | `src/lib/harness/charts.ts` (`renderChart`) + `src/components/charts/plotly-chart.tsx` (the live chart) |
+| The chart library | `src/app/api/harness/charts/plotly/route.ts` (serves plotly.js from the Python package, cached) |
 | The **chat's chart blocks** | `src/lib/response/chart-spec.ts` (block -> spec) + `src/components/response/response-chart.tsx` (the picture) |
 | The drawn-chart registry | `src/lib/response/chart-registry.ts` (block id -> artifact id, for PNG/PDF export) |
 
@@ -131,7 +146,22 @@ chart block ──▶ chart-spec.ts ──▶ spec ──▶ python_chart tool /
                                       browser ◀── /api/artifacts/<id>/download
 ```
 
-### 3.1 The picture is hoverable
+### 3.1 The live chart
+
+The engine's figure is rendered by the browser with **plotly.js**, which the
+app serves from its OWN route (`/api/harness/charts/plotly`): the library ships
+inside the Python package, so it is never vendored into git and never fetched
+from a CDN — the app keeps working offline. The browser loads it once and
+reuses it for every chart.
+
+The figure has **no background** (`paper_bgcolor` and `plot_bgcolor` are
+transparent), so the chart sits on the app's frosted surface without hiding
+the frost. The chart's ink, grid and hover label are the app's own tokens.
+
+If the library cannot load, the chat says so and falls back to the drawn
+picture — an honest degradation, never a broken chart.
+
+### 3.2 The picture is hoverable
 
 A PNG cannot be hovered. The engine therefore returns, with the picture, an
 **interaction map**: the picture's own pixel geometry (the axes' box) and, per
@@ -171,10 +201,11 @@ Two rules keep the picture readable:
 
 | | The chat's chart |
 |---|---|
-| Engine | the Python chart engine (matplotlib) in the runtime |
-| Interaction | hover + crosshair over the picture, from the engine's interaction map |
-| Any chart | yes: the SCENE form draws any composition of the marks |
-| Export | the artifact's bytes (PNG and PDF both embed the picture the user saw) |
+| Engine | the Python chart engine: a Plotly figure authored in the runtime, rendered as SVG |
+| Interaction | zoom, pan, a hover readout, a legend, a PNG/zoom toolbar — it is a chart, not a picture |
+| Any chart | yes: the SCENE form draws any composition of the marks (and the family charts — treemap, sunburst, funnel, sankey — are marks now) |
+| Export | the artifact's bytes (PNG and PDF both embed the picture); the chart's own toolbar also exports a PNG at 2× |
+| Background | none — the chart is transparent, so the frosted surface shows through |
 | Provenance | always `computed`, never evidence |
 
 What the rest of the app does is unchanged: ECharts, with its live hover,
@@ -197,8 +228,10 @@ crosshair and zoom.
 | The response chart surface | `src/components/response/response-chart.tsx` |
 | The chart registry | `src/lib/response/chart-registry.ts` |
 | The scene (panels of marks) | `python/harness/charts/scene.py` + `scene_render.py` |
-| The interaction map | `python/harness/charts/interaction.py` + `src/components/charts/chart-hover.tsx` |
-| Tests | `python/tests/test_charts.py`, `python/tests/test_chart_scene.py`, `python/tests/test_chart_interaction.py`, `src/lib/harness/charts.test.ts`, `src/app/api/harness/charts/route.test.ts`, `src/lib/response/chart-spec.test.ts` |
+| The live figure | `python/harness/charts/plotly_figure.py` |
+| The chart library route | `src/app/api/harness/charts/plotly/route.ts` |
+| The live chart component | `src/components/charts/plotly-chart.tsx` |
+| Tests | `python/tests/test_charts.py`, `python/tests/test_chart_scene.py`, `python/tests/test_chart_figure.py`, `src/lib/harness/charts.test.ts`, `src/app/api/harness/charts/route.test.ts`, `src/lib/response/chart-spec.test.ts` |
 
 The decision itself is **ADR-050** (`skills/ARCHITECT.md`, mirrored in
 `docs/DECISIONS.md`).

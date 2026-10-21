@@ -41,6 +41,10 @@ MarkType = Literal[
     "waterfall",
     "ridge",
     "stem",
+    "treemap",
+    "sunburst",
+    "funnel",
+    "sankey",
 ]
 
 
@@ -86,6 +90,14 @@ class ChartMark(BaseModel):
     #: The row/column labels (a heatmap).
     row_labels: list[str] = Field(default_factory=list)
     col_labels: list[str] = Field(default_factory=list)
+    #: The parent of each node (a treemap/sunburst: "" is the root).
+    parents: list[str] = Field(default_factory=list)
+    #: Per-item colours (a treemap's tiles, a sunburst's branches).
+    colors: list[Optional[str]] = Field(default_factory=list)
+    #: A sankey's links: the source node index, the target node index, the weight.
+    sources: list[int] = Field(default_factory=list)
+    targets: list[int] = Field(default_factory=list)
+    weights: list[float] = Field(default_factory=list)
 
 
 class ChartPanel(BaseModel):

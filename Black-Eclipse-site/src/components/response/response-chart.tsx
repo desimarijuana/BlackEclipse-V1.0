@@ -21,10 +21,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { downloadUrl } from '@/lib/harness/artifacts-browser';
-import { renderChart, type ChartInteraction } from '@/lib/harness/charts';
+import { renderChart, type ChartFigureData } from '@/lib/harness/charts';
+import { PlotlyChart } from '@/components/charts/plotly-chart';
 import { chartBlockToSpec } from '@/lib/response/chart-spec';
 import { registerChartArtifact, unregisterChart } from '@/lib/response/chart-registry';
-import { ChartHover } from '@/components/charts/chart-hover';
 import { Maximize2, Minimize2, X } from '@/lib/icons';
 import type { ChartBlock } from '@/lib/response/contract';
 import { cn } from '@/lib/utils';
@@ -39,7 +39,7 @@ export interface ResponseChartProps {
 
 type State =
   | { status: 'loading' }
-  | { status: 'ready'; src: string; interaction?: ChartInteraction }
+  | { status: 'ready'; src: string; chart?: ChartFigureData }
   | { status: 'error'; message: string };
 
 export function ResponseChart({ block, height = 260, className, focusable = true }: ResponseChartProps) {
@@ -72,7 +72,7 @@ export function ResponseChart({ block, height = 260, className, focusable = true
         setState({
           status: 'ready',
           src: downloadUrl(artifactId),
-          interaction: rendered.figure.interaction,
+          chart: rendered.chart,
         });
       })
       .catch((err: unknown) => {
@@ -149,17 +149,15 @@ export function ResponseChart({ block, height = 260, className, focusable = true
       )}
       {state.status === 'ready' ? (
         <div className={cn('relative', focused ? 'w-full' : 'w-fit max-w-full')}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={state.src}
+          {/* The LIVE chart: vector, zoomable, pannable, with a hover readout.
+              The drawn picture is the fallback (and the export). */}
+          <PlotlyChart
+            figure={state.chart}
+            fallbackSrc={state.src}
+            height={focused ? 560 : Math.max(260, height)}
             alt={block.title ?? 'Chart'}
-            className="block h-auto max-w-full object-contain"
-            style={focused ? { maxHeight: '78vh' } : { maxWidth: 860 }}
-            data-testid="response-chart-image"
+            className={focused ? 'w-full' : 'w-[860px] max-w-full'}
           />
-          {/* The hover layer: the picture is Python-drawn, so the pointer
-              experience is drawn over it from the engine's interaction map. */}
-          <ChartHover interaction={state.interaction} />
           {plan.notes.length > 0 && (
             <p className="mt-1 text-[10px] text-muted-foreground/70">{plan.notes.join(' ')}</p>
           )}

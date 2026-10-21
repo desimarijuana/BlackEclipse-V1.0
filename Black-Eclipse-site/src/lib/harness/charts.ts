@@ -191,8 +191,16 @@ export interface ChartFigure {
   interaction?: ChartInteraction;
 }
 
+/** A live chart: the Plotly figure the engine authored. */
+export interface ChartFigureData {
+  data: Array<Record<string, unknown>>;
+  layout: Record<string, unknown>;
+}
+
 export interface RenderedChart {
   figure: ChartFigure;
+  /** The LIVE chart (vector, zoomable, pannable). Absent when plotly is off. */
+  chart?: ChartFigureData;
   artifact: {
     id: string | null;
     name: string;
@@ -213,6 +221,7 @@ export async function renderChart(spec: ChartSpec): Promise<RenderedChart> {
     body: JSON.stringify(spec),
   });
   const body = (await res.json().catch(() => ({}))) as Partial<RenderedChart> & {
+    chart?: ChartFigureData;
     status?: string;
     error?: string;
     detail?: { code?: string; message?: string } | string;
@@ -230,6 +239,7 @@ export async function renderChart(spec: ChartSpec): Promise<RenderedChart> {
   if (!body.figure) throw new Error("the chart engine returned no figure");
   return {
     figure: body.figure,
+    ...(body.chart ? { chart: body.chart } : {}),
     artifact: body.artifact ?? {
       id: null,
       name: body.figure.artifact,

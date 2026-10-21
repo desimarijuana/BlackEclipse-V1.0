@@ -297,7 +297,7 @@ if (py) {
     if (!sandboxPy) {
       console.log("[setup] analysis stack: not reported (no vendored interpreter)");
     } else {
-      const versions = ["numpy", "pandas", "matplotlib"]
+      const versions = ["numpy", "pandas", "matplotlib", "plotly"]
         .map((mod) => {
           try {
             const out = execSync(`"${sandboxPy}" -c "import ${mod} as m; print(m.__version__)"`, {

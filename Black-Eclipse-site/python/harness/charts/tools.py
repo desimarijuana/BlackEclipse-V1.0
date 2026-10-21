@@ -237,6 +237,8 @@ async def python_chart(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
     data = {
         "status": "ok",
         "figure": figure,
+        # The live figure (vector, interactive) next to the picture.
+        **({"chart": rendered.chart} if rendered.chart else {}),
         "spec": spec.to_dict(),
         "artifact": {
             "id": getattr(entry, "id", None) if entry is not None else None,

@@ -155,6 +155,34 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **feat(charts): the chat's charts are REAL charts now — vector, zoomable,
+  pannable, with a legend.** A picture cannot be zoomed, so the engine now
+  authors each chart as a **Plotly figure** in Python (`plotly_figure.py`) and
+  the browser renders it as **vector SVG**: scroll-zoom, pan, a hover readout, a
+  legend, and a PNG/zoom toolbar. The chart is still authored in Python from
+  the same validated spec, so the data and the look are unchanged — only the
+  rendering moved from "a PNG of a chart" to "a chart". The library is served by
+  the app from **its own route** (`/api/harness/charts/plotly`), out of the
+  Python package that ships it: never vendored into git, never fetched from a
+  CDN, so the app keeps working offline. **No background**: the figure's paper
+  and plot are transparent, so the chart sits on the app's frosted surface
+  without hiding the frost. The drawn picture (matplotlib) is still produced
+  from the same spec and stays the export and the honest fallback when the
+  library cannot load. The mark vocabulary grew the family charts — `treemap`,
+  `sunburst`, `funnel` and `sankey` are marks now, so a treemap of holdings is
+  a real treemap rather than a bar that stands in for one. Files:
+  `python/harness/charts/plotly_figure.py` (new), `python/harness/charts/scene.py`
+  (the new marks), `python/harness/charts/service.py` + `routers/charts.py` +
+  `charts/tools.py` (the figure travels with the picture),
+  `src/app/api/harness/charts/plotly/route.ts` (new: serves the library),
+  `src/components/charts/plotly-chart.tsx` (new: the live chart),
+  `src/components/response/response-chart.tsx` (renders the live chart, the
+  picture as the fallback), `src/lib/harness/charts.ts`, `python/requirements.txt`
+  (+ `plotly`), `scripts/doctor.js` (reports it). Tests:
+  `python/tests/test_chart_figure.py` (20) and a browser check (SVG rendered,
+  zoom changes the axis, transparent background, the toolbar present).
+  docs updated: `docs/chart-engine.md`, `docs/CHANGELOG.md`.
+
 - **fix(charts): the chat's charts are legible — bigger text, no duplicated
   title, no overlapping dates, and a card that is not full width.** Four
   problems, all fixed in the engine and the chat's chart surface. **(1) The
@@ -1454,6 +1482,13 @@ umpy/pandas are **already installed** in the runtime and the analysis
   `python/harness/evaluation/datasets/{adversarial_v1,finance_v1}.json`.
   Docs updated: `docs/harness/agent-evaluation.md`, `docs/NAVIGATION.md`,
   `docs/self-improvement/rsl-v3-plan.md`.
+- **chore(harness): the Python size ratchet is re-pinned for the in-flight
+  shared-tree work.** `graph.py` 2238→2241 (the chat step budget moved from
+  12 to 24 steps, with the longer rationale it carries) and `quant/tools.py`
+  1203→1229 (a CPU-bound backtest now runs in a worker thread with an honest
+  wall-clock timeout instead of blocking the event loop). Both were red on the
+  shared working tree before this re-pin; the standing split candidates are
+  unchanged. Files: `python/tests/test_size_budget.py`.
 
 ## 2026-10-19
 
