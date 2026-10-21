@@ -26,6 +26,7 @@ import type {
   EvolutionProposeResult,
   EvolutionRecursiveResult,
   EvolutionRecursiveVariant,
+  EvolutionRslReport,
   EvolutionRslStatus,
   EvolutionRslTickResult,
   EvolutionSurfaceActivation,
@@ -214,6 +215,18 @@ export async function createEvolutionSurfaceExperimentBrowser(
 
 export async function getEvolutionRslStatusBrowser(): Promise<EvolutionRslStatus> {
   return api<EvolutionRslStatus>("/api/evolution/rsl");
+}
+
+/** The weekly summary: what was tried, what improved, and what it cost. */
+export async function getEvolutionRslReportBrowser(
+  input: { days?: number; scope?: string; limit?: number } = {},
+): Promise<EvolutionRslReport> {
+  const params = new URLSearchParams();
+  if (input.days != null) params.set("days", String(input.days));
+  if (input.scope) params.set("scope", input.scope);
+  if (input.limit != null) params.set("limit", String(input.limit));
+  const query = params.toString();
+  return api<EvolutionRslReport>(`/api/evolution/rsl/report${query ? `?${query}` : ""}`);
 }
 
 export async function getEvolutionDriftBrowser(

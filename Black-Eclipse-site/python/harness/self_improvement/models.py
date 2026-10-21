@@ -16,6 +16,9 @@ import json
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from ..schemas import MEMORY_POLICIES, SKILL_MANIFEST_POLICIES
+from .guardrails import GUARDRAILS
+
 # The production Eclipse prompt is ~34k characters (finance-harness contract +
 # runtime awareness). The cap must admit the real baseline or no RSL surface
 # can ever be derived from it; 48k keeps a hard ceiling with room to grow.
@@ -47,6 +50,17 @@ class HarnessSnapshot:
     # Bounded, per-tool instructions. It is prompt EVIDENCE, never a permission
     # or a tool allowlist; the registered tool set remains the execution bound.
     toolGuidance: str = ""
+    # Surface-controlled CONTEXT policy: how many skills are listed, and how
+    # much memory is injected. Closed sets; None = the runtime default.
+    skillManifest: Optional[str] = None
+    memoryPolicy: Optional[str] = None
+    # Surface-controlled ANSWER RULES. A guardrail is checked by the runtime at
+    # the end of the run: a violation fails the run with a named code.
+    guardrails: tuple[str, ...] = ()
+    maxAnswerChars: Optional[int] = None
+    # The bounded prompt a delegated child inherits (prompt evidence, not
+    # authority).
+    subagentPrompt: Optional[str] = None
     maxSteps: int = 8
     maxToolCalls: int = MAX_TOOL_CALLS
     modelProvider: Optional[str] = None
@@ -67,6 +81,29 @@ class HarnessSnapshot:
                 f"toolGuidance exceeds {MAX_TOOL_GUIDANCE_CHARS} characters"
             )
         object.__setattr__(self, "toolGuidance", guidance)
+        if self.skillManifest is not None and self.skillManifest not in SKILL_MANIFEST_POLICIES:
+            raise ValueError(
+                f"skillManifest must be one of {SKILL_MANIFEST_POLICIES}"
+            )
+        if self.memoryPolicy is not None and self.memoryPolicy not in MEMORY_POLICIES:
+            raise ValueError(
+                f"memoryPolicy must be one of {MEMORY_POLICIES}"
+            )
+        names = tuple(str(name) for name in (self.guardrails or ()))
+        unknown = sorted(set(names) - set(GUARDRAILS))
+        if unknown:
+            raise ValueError(
+                f"unknown guardrail(s): {', '.join(unknown)} "
+                f"(known: {', '.join(GUARDRAILS)})"
+            )
+        object.__setattr__(self, "guardrails", names)
+        if self.maxAnswerChars is not None and not 1 <= int(self.maxAnswerChars) <= 200_000:
+            raise ValueError("maxAnswerChars must be between 1 and 200000")
+        if self.subagentPrompt is not None:
+            guidance = str(self.subagentPrompt).strip()
+            if len(guidance) > 4_000:
+                raise ValueError("subagentPrompt must be at most 4000 characters")
+            object.__setattr__(self, "subagentPrompt", guidance or None)
         if not 1 <= int(self.maxSteps) <= MAX_STEPS:
             raise ValueError(f"maxSteps must be between 1 and {MAX_STEPS}")
         if not 0 <= int(self.maxToolCalls) <= MAX_TOOL_CALLS:
@@ -109,6 +146,16 @@ class HarnessSnapshot:
         # its exact digest. An empty guidance is not part of the identity.
         if self.toolGuidance:
             payload["toolGuidance"] = self.toolGuidance
+        if self.skillManifest is not None:
+            payload["skillManifest"] = self.skillManifest
+        if self.memoryPolicy is not None:
+            payload["memoryPolicy"] = self.memoryPolicy
+        if self.guardrails:
+            payload["guardrails"] = list(self.guardrails)
+        if self.maxAnswerChars is not None:
+            payload["maxAnswerChars"] = int(self.maxAnswerChars)
+        if self.subagentPrompt is not None:
+            payload["subagentPrompt"] = self.subagentPrompt
         payload.update({
             "maxSteps": int(self.maxSteps),
             "maxToolCalls": int(self.maxToolCalls),
@@ -131,7 +178,7 @@ class HarnessSnapshot:
 
     def to_agent_config(self) -> Any:
         """Build the validated runtime agent config for a candidate trial."""
-        from ..schemas import AgentConfig  # noqa: PLC0415 - keep the model module light
+        from ..schemas import AgentConfig  # noqa: PLC0415 - keep the import local
 
         return AgentConfig(
             id="rsl-candidate",
@@ -140,6 +187,11 @@ class HarnessSnapshot:
             tools=list(self.toolNames),
             maxSteps=int(self.maxSteps),
             maxToolCalls=int(self.maxToolCalls),
+            skillManifest=self.skillManifest,
+            memoryPolicy=self.memoryPolicy,
+            guardrails=tuple(self.guardrails),
+            maxAnswerChars=self.maxAnswerChars,
+            subagentPrompt=self.subagentPrompt,
         )
 
 

@@ -55,6 +55,11 @@ def apply_active_surface(
         updated = agent.model_copy(update={
             "systemPrompt": snapshot.effective_prompt(),
             "tools": list(snapshot.toolNames),
+            "skillManifest": snapshot.skillManifest,
+            "memoryPolicy": snapshot.memoryPolicy,
+            "guardrails": tuple(snapshot.guardrails),
+            "maxAnswerChars": snapshot.maxAnswerChars,
+            "subagentPrompt": snapshot.subagentPrompt,
             "maxSteps": min(
                 int(getattr(agent, "maxSteps", snapshot.maxSteps) or snapshot.maxSteps),
                 int(snapshot.maxSteps),

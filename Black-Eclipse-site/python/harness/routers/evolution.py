@@ -27,9 +27,11 @@ from ..deps import require_operator, service
 router = APIRouter(tags=["evolution"])
 from .evolution_drift import router as drift_router  # noqa: E402
 from .evolution_models import router as model_router  # noqa: E402
+from .evolution_report import router as report_router  # noqa: E402
 
 router.include_router(drift_router)
 router.include_router(model_router)
+router.include_router(report_router)
 
 
 def _store() -> EvolutionStore:
@@ -194,6 +196,11 @@ def _surface_snapshot(value: SurfaceSnapshotInput, base: Any = None) -> Any:
         systemPrompt=value.systemPrompt,
         toolNames=tuple(pick("toolNames", ()) or ()),
         toolGuidance=str(pick("toolGuidance", "") or ""),
+        skillManifest=pick("skillManifest", None),
+        memoryPolicy=pick("memoryPolicy", None),
+        guardrails=tuple(pick("guardrails", ()) or ()),
+        maxAnswerChars=pick("maxAnswerChars", None),
+        subagentPrompt=pick("subagentPrompt", None),
         maxSteps=int(pick("maxSteps", 8)),
         maxToolCalls=int(pick("maxToolCalls", 8)),
         modelProvider=pick("modelProvider", None),

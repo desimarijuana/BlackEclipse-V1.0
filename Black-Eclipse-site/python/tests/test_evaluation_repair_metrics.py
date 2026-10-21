@@ -106,7 +106,7 @@ def test_the_block_reports_every_dimension_with_missing_sources_unmeasured():
         "time_to_repair_ms", "self_repair_precision", "requirement_completeness",
         "cost_per_success", "unauthorized_action_rate",
         "rsl_experiments", "rsl_accepted", "rsl_rejected", "rsl_unmeasured",
-        "regression_rate",
+        "regression_rate", "rsl_cost_usd", "rsl_cost_per_accepted",
     }
     assert all(value is None for value in metrics.values())
 
@@ -157,8 +157,38 @@ def test_rsl_metrics_split_measured_unmeasured_and_count_regressions():
         "rsl_rejected": 0,
         "rsl_unmeasured": 0,
         "regression_rate": None,
+        "rsl_cost_usd": None,
+        "rsl_cost_per_accepted": None,
     }
     assert all(value is None for value in metrics_from_rsl_runs(None).values())
+
+
+def test_rsl_cost_is_summed_and_never_fabricated():
+    from harness.evaluation.repair_metrics import metrics_from_rsl_runs
+
+    runs = [
+        {
+            "status": "completed", "suite": "rsl-recursion",
+            "config": {"kind": "rsl-recursion", "costUsd": 0.25},
+            "metadata": {"decision": "composed", "benchmark": "MEASURED"},
+        },
+        {
+            "status": "completed", "suite": "rsl-recursion",
+            "config": {"kind": "rsl-recursion", "costUsd": 0.75},
+            "metadata": {"decision": "composed", "benchmark": "MEASURED"},
+        },
+        {
+            "status": "completed", "suite": "rsl-code",
+            "config": {"kind": "rsl"},
+            "metadata": {"decision": "tests_passed", "benchmark": "UNMEASURED"},
+        },
+    ]
+    metrics = metrics_from_rsl_runs(runs)
+    assert metrics["rsl_cost_usd"] == 1.0
+    assert metrics["rsl_cost_per_accepted"] == 0.5
+    # A run that reported no cost does not become a zero-cost run.
+    assert metrics_from_rsl_runs([runs[2]])["rsl_cost_usd"] is None
+    assert metrics_from_rsl_runs([runs[2]])["rsl_cost_per_accepted"] is None
 
 
 def test_rsl_run_metrics_read_real_evaluation_rows(tmp_path):

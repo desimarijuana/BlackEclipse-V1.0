@@ -346,6 +346,29 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/lib/harness/validation.test.ts`. docs updated:
   `docs/harness/architecture.md`.
 
+- **feat(self-improvement): the RSL operator surface - guardrails, a digest, and
+  a weekly card.**
+  The self-improvement loop can now be READ, not only run. A guardrail is a
+  rule the RUNTIME checks (never a rule the model is told): a violation fails
+  the run with a named code and the answer is not shipped as a completed
+  result, and the citation rule reuses the evaluator's own citation parser so
+  a guardrail and the citation grader agree on what a citation IS. The digest
+  (`GET /evolution/rsl/report`, operator-gated) is one read-only summary of
+  what the loop actually did - the experiments that ran, what they cost, what
+  was accepted, the candidates in flight, the lessons adopted and where
+  production drifts - and everything in it is measured or `UNKNOWN`: a missing
+  source never becomes a fabricated zero. The Skills page grew the matching
+  surface: the RSL control panel and a weekly card.
+  Files: `python/harness/self_improvement/{guardrails.py,report.py,drift_watch.py,live_surface.py,models.py,recursion.py}`,
+  `python/harness/evaluation/{repair_metrics.py,export.py,nightly.py}`,
+  `python/harness/routers/{evolution.py,evolution_report.py}`,
+  `src/lib/harness/{evolution-client.ts,evolution-browser.ts}`,
+  `src/components/screens/skills/{rsl-control-panel.tsx,rsl-weekly-card.tsx}`,
+  `src/app/api/evolution/rsl/report/`. Tests:
+  `python/tests/test_{drift_watch,live_surface,evaluation_repair_metrics,evaluation_export,evaluation_nightly,rsl_digest,rsl_guardrails,rsl_provenance,rsl_snapshot}.py`,
+  `src/components/screens/skills/rsl-weekly-card.test.tsx`. docs updated:
+  `docs/harness/agent-evaluation.md`, `docs/self-improvement/rsl-v3-plan.md`.
+
 ## 2026-10-20
 
 - **fix(charts): the full-view chart no longer collides with the app's header.**

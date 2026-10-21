@@ -71,6 +71,27 @@ def _number(value: Any, *, integer: bool = False) -> Any:
     return int(value) if integer else float(value)
 
 
+def _usage(result: Mapping[str, Any], key: str) -> Any:
+    """Read an optional usage number from a verifier result.
+
+    A verifier may report the cost directly (`costUsd` / `cost`) or inside the
+    measured aggregates of a suite (`metrics.aggregates.cost`). Absent stays
+    None (UNKNOWN) - never a fabricated zero.
+    """
+    for name in ("costUsd", "cost") if key == "cost" else ("totalTokens", "tokens"):
+        value = result.get(name)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return value
+    metrics = result.get("metrics")
+    if isinstance(metrics, Mapping):
+        aggregates = metrics.get("aggregates")
+        if isinstance(aggregates, Mapping):
+            value = aggregates.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return value
+    return None
+
+
 def _normalised_result(result: Any) -> dict[str, Any]:
     result = dict(result) if isinstance(result, Mapping) else {}
     answered = result.get("answered") is not False and result.get("passed") is not None
@@ -83,10 +104,8 @@ def _normalised_result(result: Any) -> dict[str, Any]:
         "cause": str(result.get("cause") or ("no_answer" if not answered else "")) or None,
         # Optional real usage from the verifier; absent stays None (UNKNOWN),
         # never a fabricated zero.
-        "costUsd": _number(result.get("costUsd", result.get("cost"))),
-        "totalTokens": _number(
-            result.get("totalTokens", result.get("tokens")), integer=True,
-        ),
+        "costUsd": _number(_usage(result, "cost")),
+        "totalTokens": _number(_usage(result, "totalTokens"), integer=True),
     }
 
 

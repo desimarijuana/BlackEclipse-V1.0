@@ -1,0 +1,143 @@
+{
+  "agentVersion": "0.1.0",
+  "dataset": "eclipse-benchmark",
+  "datasetChecksum": "68a41e71a0964f3d3feefffefcdae915",
+  "gitCommit": "511e05f705fc5ce6a98249325a31a556d719c337",
+  "metrics": {
+    "aggregates": {
+      "artifact_delivery": 1.0,
+      "citation_accuracy": 1.0,
+      "code_correctness": 1.0,
+      "escalation_correct": null,
+      "financial_accuracy": 1.0,
+      "hallucination_rate": 0.0,
+      "honesty": 1.0,
+      "memory_accuracy": 1.0,
+      "misroute_rate": null,
+      "planning_quality": 0.861904761904762,
+      "provenance": 1.0,
+      "recovery_success": 1.0,
+      "reliability": 1.0,
+      "research_accuracy": null,
+      "safety_score": 1.0,
+      "task_success": 1.0,
+      "tool_accuracy": 0.9666666666666667,
+      "visual_delivery": 1.0
+    },
+    "categories": {
+      "adversarial": {
+        "measured": 6,
+        "passRate": 1.0,
+        "passed": 6,
+        "trials": 6,
+        "unmeasured": 0
+      },
+      "browser": {
+        "measured": 0,
+        "passRate": null,
+        "passed": 0,
+        "trials": 1,
+        "unmeasured": 1
+      },
+      "citations": {
+        "measured": 1,
+        "passRate": 1.0,
+        "passed": 1,
+        "trials": 1,
+        "unmeasured": 0
+      },
+      "coding": {
+        "measured": 4,
+        "passRate": 1.0,
+        "passed": 4,
+        "trials": 4,
+        "unmeasured": 0
+      },
+      "core": {
+        "measured": 4,
+        "passRate": 1.0,
+        "passed": 4,
+        "trials": 4,
+        "unmeasured": 0
+      },
+      "finance": {
+        "measured": 12,
+        "passRate": 1.0,
+        "passed": 12,
+        "trials": 12,
+        "unmeasured": 0
+      },
+      "long_horizon": {
+        "measured": 2,
+        "passRate": 1.0,
+        "passed": 2,
+        "trials": 2,
+        "unmeasured": 0
+      },
+      "memory": {
+        "measured": 2,
+        "passRate": 1.0,
+        "passed": 2,
+        "trials": 2,
+        "unmeasured": 0
+      },
+      "parallel": {
+        "measured": 1,
+        "passRate": 1.0,
+        "passed": 1,
+        "trials": 1,
+        "unmeasured": 0
+      },
+      "planning": {
+        "measured": 2,
+        "passRate": 1.0,
+        "passed": 2,
+        "trials": 2,
+        "unmeasured": 0
+      },
+      "recovery": {
+        "measured": 5,
+        "passRate": 1.0,
+        "passed": 5,
+        "trials": 5,
+        "unmeasured": 0
+      },
+      "regression": {
+        "measured": 1,
+        "passRate": 1.0,
+        "passed": 1,
+        "trials": 1,
+        "unmeasured": 0
+      },
+      "research": {
+        "measured": 0,
+        "passRate": null,
+        "passed": 0,
+        "trials": 1,
+        "unmeasured": 1
+      },
+      "safety": {
+        "measured": 4,
+        "passRate": 1.0,
+        "passed": 4,
+        "trials": 4,
+        "unmeasured": 0
+      },
+      "tools": {
+        "measured": 10,
+        "passRate": 1.0,
+        "passed": 10,
+        "trials": 10,
+        "unmeasured": 0
+      }
+    },
+    "datasetChecksum": "68a41e71a0964f3d3feefffefcdae915",
+    "passRate": 1.0,
+    "tier": 0
+  },
+  "name": "nightly-corpus",
+  "recordedAt": "2026-10-21T22:20:56.876196+00:00",
+  "runId": "nightly-20261021-222032-4d619a",
+  "split": "validation",
+  "taskCount": 56
+}

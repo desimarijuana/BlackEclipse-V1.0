@@ -1,0 +1,107 @@
+{
+  "datasetName": "eclipse-finance",
+  "datasetVersion": "1.0.0",
+  "schemaVersion": 1,
+  "reviewed": true,
+  "reviewer": "eclipse-eval",
+  "reviewedAt": "2026-10-20",
+  "notes": "Deterministic offline finance fixtures. Every input is a synthetic number written into the task; no market data, no jdds.db content, no provider call. Each answer is graded by an INDEPENDENT recomputation of the same metric.",
+  "metadata": {"tiers": {"0": "deterministic", "1": "integration", "2": "live"}},
+  "tasks": [
+    {
+      "id": "finance.net_margin.001",
+      "version": 1,
+      "name": "Net margin",
+      "description": "Compute the net margin from revenue and net income; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "Revenue is 1000 and net income is 120. What is the net margin?"},
+      "expected_output": {"numeric": {"value": 12.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "net_margin", "inputs": {"revenue": 1000, "net_income": 120}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "agent_script": [{"type": "final", "content": "The net margin is 12.0% (120 / 1000)."}]
+      }
+    },
+    {
+      "id": "finance.operating_margin.001",
+      "version": 1,
+      "name": "Operating margin",
+      "description": "Compute the operating margin from revenue and operating income.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "Revenue is 800 and operating income is 160. What is the operating margin?"},
+      "expected_output": {"numeric": {"value": 20.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "operating_margin", "inputs": {"revenue": 800, "operating_income": 160}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "agent_script": [{"type": "final", "content": "The operating margin is 20.0% (160 / 800)."}]
+      }
+    },
+    {
+      "id": "finance.ev_ebitda.001",
+      "version": 1,
+      "name": "EV/EBITDA",
+      "description": "Compute enterprise value over EBITDA from the two given numbers.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "Enterprise value is 1000 and EBITDA is 250. What is EV/EBITDA?"},
+      "expected_output": {"numeric": {"value": 4.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "ev_ebitda", "inputs": {"ev": 1000, "ebitda": 250}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "agent_script": [{"type": "final", "content": "EV/EBITDA is 4.0 (1000 / 250)."}]
+      }
+    },
+    {
+      "id": "finance.eps.001",
+      "version": 1,
+      "name": "Earnings per share",
+      "description": "Compute EPS from net income and the share count.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "Net income is 500 and there are 100 shares outstanding. What is EPS?"},
+      "expected_output": {"numeric": {"value": 5.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "eps", "inputs": {"net_income": 500, "shares": 100}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "agent_script": [{"type": "final", "content": "EPS is 5.0 (500 / 100)."}]
+      }
+    },
+    {
+      "id": "finance.weight.001",
+      "version": 1,
+      "name": "Portfolio weight",
+      "description": "Compute one position's share of a portfolio from its value and the total.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "One position is worth 250 and the whole portfolio is worth 1000. What is the position weight?"},
+      "expected_output": {"numeric": {"value": 0.25, "tolerance": 0.001}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "weight", "inputs": {"value": 250, "total": 1000}, "tolerance": 0.001}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "agent_script": [{"type": "final", "content": "The position weight is 0.25 (250 / 1000, i.e. a quarter of the portfolio)."}]
+      }
+    }
+  ]
+}

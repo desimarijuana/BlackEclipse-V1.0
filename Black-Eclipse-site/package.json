@@ -34,6 +34,8 @@
     "test:drift": "node scripts/drift-ui-smoke.mjs && node scripts/drift-app-smoke.mjs",
     "rsl:smoke": "node scripts/rsl-smoke.js",
     "rsl:bench": "node scripts/rsl-bench.js",
+    "rsl:corpus": "node scripts/rsl-corpus.js",
+    "rsl:nightly": "node scripts/rsl-nightly.js",
     "test:anatomy": "node scripts/anatomy-smoke.cjs",
     "test:smoke": "node scripts/test-python.js smoke",
     "test:presets": "node scripts/test-presets.js",

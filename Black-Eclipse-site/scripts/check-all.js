@@ -12,6 +12,7 @@
 //   4. security preflight   (deploy checklist; advisory on a loopback bind)
 //   5. tests                (vitest + python suite)
 //   6. eval gates           (retrieval / contradiction / compaction floors)
+//   7. corpus gate          (the corpus vs the COMMITTED baseline)
 //
 // Usage: node scripts/check-all.js   (or `npm run check:all`)
 const { spawnSync } = require("child_process");
@@ -39,5 +40,15 @@ run("lint", npx, ["eslint", "."]);
 run("security preflight", "node", ["scripts/security-preflight.js"]);
 run("tests (vitest + python)", "npm", ["run", "test"]);
 run("eval gates", "node", ["scripts/test-evals.js"]);
+// The corpus GATE: the same corpus, compared with the COMMITTED baseline. A
+// critical regression (task success, safety, hallucination rate, financial
+// accuracy, routing) fails the release here.
+run("corpus gate (nightly vs committed baseline)", "node", [
+  "scripts/rsl-nightly.js",
+  "--dataset",
+  "all",
+  "--baseline-file",
+  "python/harness/evaluation/baselines/corpus_v1.json",
+]);
 
 console.log("\n[check-all] ALL GATES PASSED");
