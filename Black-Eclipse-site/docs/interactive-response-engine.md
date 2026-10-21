@@ -160,7 +160,7 @@ renderer to keep in sync.
 
 | Family | `type` | Notes |
 |---|---|---|
-| Content | `markdown` | Full existing Markdown subset |
+| Content | `markdown` | Full existing Markdown subset, **including typeset formulas** (`$...$` / `$$...$$` in LaTeX - see "Formulas in the chat" in `docs/chat-ui-audit.md`) |
 | | `heading` | level 1–4 |
 | | `callout` | info/note/success/warning/danger |
 | | `key_value` | label/value pairs |

@@ -136,6 +136,9 @@ export function markdownToPlainText(markdown: string): string {
         return inlineText(block.children).toUpperCase();
       case 'code':
         return block.value;
+      case 'math':
+        // A formula has no plain-text form; its source is the honest one.
+        return block.value;
       case 'blockquote':
         return block.children.map(blockText).join('\n');
       case 'list':

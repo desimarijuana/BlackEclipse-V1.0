@@ -411,10 +411,19 @@ def test_prompt_char_ceiling():
     "a refusal names the correction" guidance: a model that is refused must be
     told what to do differently, not left to guess. Re-pinned to the measured
     size; it may only shrink from here.
+    Re-pinned 34804->35251 for the in-flight shared-tree guidance (the chat
+    step budget rationale and the report/edge-report deliverables the agent
+    must actually produce). Re-pinned 35251->36353 for the shared-tree
+    guidance that followed. Re-pinned to the measured size; it may only shrink
+    from here.
     """
     from harness.prompts import ECLIPSE_AGENT_SYSTEM_PROMPT as prompt
 
-    assert len(prompt) <= 34804, f"prompt grew to {len(prompt)} chars"
+    # Re-pinned 36353->36652 for the formula guidance (maths is LaTeX and the
+    # chat typesets it; money never goes inside a dollar sign). It is guidance
+    # the runtime needs; it is re-pinned to the measured size and may only
+    # shrink from here. Matches the same test in `test_memory_tools.py`.
+    assert len(prompt) <= 36652, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

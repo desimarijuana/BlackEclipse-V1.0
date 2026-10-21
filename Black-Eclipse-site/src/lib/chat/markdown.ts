@@ -19,12 +19,15 @@ export type InlineNode =
   | { type: 'em'; children: InlineNode[] }
   | { type: 'del'; children: InlineNode[] }
   | { type: 'code'; value: string }
-  | { type: 'link'; href: string; children: InlineNode[] };
+  | { type: 'link'; href: string; children: InlineNode[] }
+  /** A formula: `$x^2$` inline, `$$...$$` as a block. */
+  | { type: 'math'; value: string; display: boolean };
 
 export type TableAlign = 'left' | 'center' | 'right' | null;
 
 export type BlockNode =
   | { type: 'paragraph'; children: InlineNode[] }
+  | { type: 'math'; value: string }
   | { type: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6; children: InlineNode[] }
   | { type: 'code'; language: string | null; value: string }
   | { type: 'blockquote'; children: BlockNode[] }
@@ -34,6 +37,7 @@ export type BlockNode =
 
 type InlineMatch =
   | { kind: 'escape'; end: number; char: string }
+  | { kind: 'math'; end: number; value: string }
   | { kind: 'code'; end: number; value: string }
   | { kind: 'del'; end: number; children: InlineNode[] }
   | { kind: 'emphasis'; end: number; strong: boolean; children: InlineNode[] }
@@ -139,6 +143,28 @@ function matchInlineAt(src: string, open: number): InlineMatch | null {
     return null;
   }
 
+  // A formula: `$x^2$`. Money must stay money, so a `$...$` span only counts
+  // as a formula when it LOOKS like one: it carries a LaTeX operator (`\`, `^`,
+  // `_`, `{`, `}`, `=`, `+`, `<`, `>`) or is a single non-digit symbol (`$x$`,
+  // `$\mu$`). The opening `$` may not follow a word character or a digit
+  // (`US$100`, `1$`), the span may not break over a line, it may not begin or
+  // end with whitespace (`$5 and $10` is prose), and the closing `$` may not be
+  // followed by a digit (`$100`).
+  if (ch === '$' && src[open + 1] !== '$') {
+    const before = open > 0 ? src[open - 1] : '';
+    if (before && /[A-Za-z0-9]/.test(before)) return null;
+    const close = src.indexOf('$', open + 1);
+    if (close === -1) return null;
+    const value = src.slice(open + 1, close);
+    if (!value) return null;
+    if (/\n/.test(value)) return null;
+    if (/^\s|\s$/.test(value)) return null;
+    const after = src[close + 1] ?? '';
+    if (/\d/.test(after)) return null;
+    if (!/[\\^_{}=+<>]/.test(value) && !/^[^\d\s]$/.test(value)) return null;
+    return { kind: 'math', end: close + 1, value };
+  }
+
   if (ch === '`') {
     const run = src.slice(open).match(/^`+/)![0];
     const close = src.indexOf(run, open + run.length);
@@ -216,6 +242,9 @@ export function parseInline(src: string): InlineNode[] {
       case 'code':
         nodes.push({ type: 'code', value: match.value });
         break;
+      case 'math':
+        nodes.push({ type: 'math', value: match.value, display: false });
+        break;
       case 'del':
         nodes.push({ type: 'del', children: match.children });
         break;
@@ -263,6 +292,29 @@ export function parseMarkdown(src: string): BlockNode[] {
       // so streaming output still renders as a code block, not literal text.
       if (i < lines.length) i += 1;
       blocks.push({ type: 'code', language, value: body.join('\n') });
+      continue;
+    }
+
+    // A display formula: `$$ ... $$`, on one line or across several.
+    if (/^\s*\$\$/.test(line)) {
+      const body: string[] = [];
+      const inline = line.match(/^\s*\$\$(.*)\$\$\s*$/);
+      if (inline && inline[1] !== undefined) {
+        body.push(inline[1]);
+        i += 1;
+      } else {
+        body.push(line.replace(/^\s*\$\$/, ''));
+        i += 1;
+        while (i < lines.length && !/\$\$\s*$/.test(lines[i])) {
+          body.push(lines[i]);
+          i += 1;
+        }
+        if (i < lines.length) {
+          body.push(lines[i].replace(/\$\$\s*$/, ''));
+          i += 1;
+        }
+      }
+      blocks.push({ type: 'math', value: body.join('\n').trim() });
       continue;
     }
 
@@ -359,6 +411,9 @@ export function inlineText(nodes: InlineNode[]): string {
         case 'text':
         case 'code':
           return n.value;
+        case 'math':
+          // A formula reads as its source in plain text (PDF, CSV, copy).
+          return n.value;
         default:
           return inlineText(n.children);
       }
@@ -426,7 +481,7 @@ export function collectLinks(nodes: InlineNode[]): { href: string; label: string
   const walk = (list: InlineNode[]) => {
     for (const n of list) {
       if (n.type === 'link') out.push({ href: n.href, label: inlineText(n.children) });
-      else if (n.type !== 'text' && n.type !== 'code') walk(n.children);
+      else if ('children' in n) walk(n.children);
     }
   };
   walk(nodes);

@@ -289,6 +289,34 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   src/components/response/blocks.tsx. no doc change — styling only, contracts
   unchanged.
 
+- **fix(chat): formulas are TYPESET, not printed as source.**
+  A formula in the chat came out as raw text: the Markdown subset had no
+  mathematics at all, so `$S = \frac{r_p - r_f}{\sigma}$` reached the reader
+  as its own characters. The subset now recognises LaTeX - `$...$` inline and
+  `$$...$$` as a block - and draws it with KaTeX.
+  **Money stays money.** A `$...$` span only counts as a formula when it looks
+  like one: it carries a LaTeX operator (`\`, `^`, `_`, `{`, `}`, `=`, `+`, `<`,
+  `>`) or is a single non-digit symbol (`$x$`, `$\mu$`). The opening `$` may
+  not follow a word character or a digit (`US$100`), the span may not break
+  over a line, it may not begin or end with whitespace (`$5 and $10` is
+  prose), and the closing `$` may not be followed by a digit (`$100`). So
+  `it trades at $100` is still money, and a Sharpe ratio is a formula. The
+  agent is told the same rule (`python/harness/prompts.py`, "Formulas"): write
+  `USD 100`, never `$100`.
+  KaTeX (already on disk as mermaid's dependency) is now a DIRECT dependency
+  and is loaded ON DEMAND, so the chat's initial bundle does not carry it;
+  until it arrives the formula shows its own source, and a formula KaTeX
+  cannot parse shows the same way rather than breaking the message. Its
+  stylesheet is global (`src/app/katex.css`) - one stylesheet for the whole
+  typesetting, with its own maths faces.
+  The `eclipse-response` fence renders through the same component, so a
+  `markdown` block inside a structured answer typesets formulas too.
+  Files: `src/lib/chat/markdown.ts` (the parser), `src/lib/chat/math.tsx` (the
+  renderer), `src/components/chat/markdown.tsx` (the wiring),
+  `src/lib/response/export.ts` (the plain-text export), `src/app/katex.css`,
+  `python/harness/prompts.py`. docs updated: `docs/chat-ui-audit.md`,
+  `docs/interactive-response-engine.md`.
+
 ## 2026-10-20
 
 - **fix(charts): the full-view chart no longer collides with the app's header.**

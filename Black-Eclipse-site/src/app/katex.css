@@ -1,0 +1,30 @@
+/* KaTeX - the chat's typesetter.
+ *
+ * A formula in the chat is LaTeX: `$...$` inline, `$$...$$` as a block. The
+ * stylesheet is global (imported by the root layout) because KaTeX ships one
+ * stylesheet for its whole typesetting, and it brings its own fonts - the
+ * app's wordmark faces are not maths faces.
+ */
+@import "katex/dist/katex.min.css";
+
+/* A formula inside a line of prose sits on the text's baseline. */
+.math-inline {
+  white-space: nowrap;
+}
+
+/* A display formula gets its own line, and scrolls sideways rather than
+ * pushing the message wider than the chat. */
+.math-block {
+  display: block;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0;
+}
+
+/* KaTeX inherits the message's colour, so a formula reads as part of the
+ * sentence rather than as pasted-in markup. */
+.katex {
+  color: inherit;
+  font-size: 1.05em;
+}

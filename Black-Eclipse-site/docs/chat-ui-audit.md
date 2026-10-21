@@ -134,6 +134,35 @@ execution. Any subagent UI would be fabricated today — see Risk R4.
 `ChatHistory` renders the status as a "thinking header" above the *last*
 assistant turn, and renders assistant content through the custom `Markdown`.
 
+### Formulas in the chat
+
+The Markdown subset **typesets mathematics**. A formula is LaTeX: `$...$`
+inline, `$$...$$` as its own block. The parser (`src/lib/chat/markdown.ts`)
+recognises them and the renderer (`src/components/chat/math.tsx`) draws them
+with KaTeX, so a Sharpe ratio, a VaR, a duration or a Black-Scholes line
+arrives as a formula instead of as source text.
+
+**Money is not a formula.** A `$...$` span only counts as mathematics when it
+looks like mathematics: it carries a LaTeX operator (`\`, `^`, `_`, `{`, `}`,
+`=`, `+`, `<`, `>`) or is a single non-digit symbol (`$x$`, `$\mu$`). On top of
+that, the opening `$` may not follow a word character or a digit (`US$100`),
+the span may not break over a line, it may not begin or end with whitespace
+(`$5 and $10` is prose), and the closing `$` may not be followed by a digit
+(`$100`). So `it trades at $100` stays money and `$S = \frac{r_p - r_f}{\sigma}$`
+is a formula. The agent is told the same rule: **never write money inside a
+dollar sign** - write `USD 100` (`python/harness/prompts.py`, "Formulas").
+
+**KaTeX is loaded on demand.** The library is imported dynamically, so the
+chat's initial bundle does not carry it; until it arrives the formula shows
+its own source, and a formula KaTeX cannot parse shows the same way rather
+than crashing the message. Its stylesheet is global (`src/app/katex.css`),
+because KaTeX ships one stylesheet for its whole typesetting and its own
+maths faces.
+
+The same renderer serves the `eclipse-response` fence, so a `markdown` block
+inside a structured answer typesets formulas too (see
+`docs/interactive-response-engine.md`).
+
 ---
 
 ## 4. Current UI problems (concrete)

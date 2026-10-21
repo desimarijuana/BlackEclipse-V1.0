@@ -1,6 +1,7 @@
 import type {Metadata} from 'next';
 import './globals.css';
 import './fonts.css';
+import './katex.css';
 import { cn } from "@/lib/utils";
 import { AgentationMount } from "@/components/layout/agentation-mount";
 import { GlobalLoader } from "@/components/ui/global-loader";
