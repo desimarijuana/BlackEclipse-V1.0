@@ -8,6 +8,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-21
 
+- **fix(plugins): the bundled SEC reference plugin is source, not a scratch
+  dir.** `.gitignore` carried a bare `sec/` pattern - a gitignore pattern with
+  no leading slash matches a directory of that name at ANY depth - so it was
+  silently excluding `python/harness/plugins/bundled/sec/` from version
+  control. Every clean clone therefore shipped without a reference plugin, and
+  the plugin marketplace gate (`test_plugins_reference.py`) failed on any
+  checkout that was not the author's own working tree - which is exactly why it
+  passed locally and failed everywhere else. The pattern is re-included
+  explicitly and the plugin is tracked. Files: Black-Eclipse-site/.gitignore,
+  Black-Eclipse-site/python/harness/plugins/bundled/sec/{plugin.py,plugin.yaml}.
+  docs updated: docs/CHANGELOG.md.
+
 - **feat(charts): the chat's charts are drawn by the PYTHON engine, and ANY chart
   can be drawn.** The chat's `chart` block no longer has an ECharts path: the
   block is turned into a validated chart **SPEC** (data only - a kind, some
