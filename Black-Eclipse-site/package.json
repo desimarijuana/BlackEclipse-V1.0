@@ -9,6 +9,7 @@
   "scripts": {
     "postinstall": "prisma generate && node scripts/setup-python.js && node scripts/link-global.js && node scripts/install-git-hooks.js",
     "setup:python": "node scripts/setup-python.js",
+    "setup:pine": "npm --prefix pine-engine install --omit=dev --no-audit --no-fund",
     "setup:git": "node scripts/install-git-hooks.js",
     "setup:hostname": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-hostname.ps1",
     "setup:tls": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-tls.ps1",

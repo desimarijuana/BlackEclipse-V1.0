@@ -13,6 +13,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+import json
+import os
+
 import numpy as np
 
 from .costs import simulate_costs
@@ -800,6 +803,116 @@ def _register_report_artifact(ctx: Any, markdown: str, experiment_id: str,
         return None
 
 
+# ── Pine Script ──────────────────────────────────────────────────────────────
+
+def _pine_bars_from_dataset(store: Any, dataset_id: str, version: Optional[str],
+                            symbol: Optional[str]) -> list[dict[str, Any]]:
+    """Read the bars of one dataset version back out of the dataset store."""
+    import gzip
+
+    manifest = store.get_version(str(dataset_id), version)
+    if not manifest:
+        raise QuantError(
+            f"no dataset version {dataset_id!r}"
+            + (f" v{version}" if version else ""),
+            detail={"code": "PINE_DATASET_NOT_FOUND"})
+    path = manifest.get("artifactPath")
+    if not path or not os.path.exists(path):
+        raise QuantError(
+            "the dataset's bars are missing from the store",
+            detail={"code": "PINE_DATASET_ARTIFACT_MISSING",
+                    "datasetId": dataset_id})
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        payload = json.load(fh)
+    series = payload.get("series") or {}
+    if symbol and symbol in series:
+        return list(series[symbol])
+    if symbol:
+        raise QuantError(
+            f"the dataset has no series for {symbol!r}",
+            detail={"code": "PINE_DATASET_SYMBOL_MISSING",
+                    "available": sorted(series.keys())})
+    if len(series) == 1:
+        return list(next(iter(series.values())))
+    raise QuantError(
+        "the dataset holds several series; name the one to run on",
+        detail={"code": "PINE_DATASET_SYMBOL_REQUIRED",
+                "available": sorted(series.keys())})
+
+
+async def run_pine_script(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Run a Pine Script on Eclipse's own bars."""
+    t = _t()
+    try:
+        from ..charts.render import ChartRenderError
+        from ..charts.service import register_chart_artifact, render_spec
+        from ..charts.spec import ChartSpec
+        from .pine import PineRunConfig, PineRunner
+
+        source = str(args.get("source") or "")
+        if not source.strip():
+            return ("ERROR - provide `source` (the Pine script).",
+                    {"status": "ERROR", "error": {"code": "PINE_SOURCE_REQUIRED"}})
+
+        bars = args.get("bars")
+        if not bars:
+            dataset_id = args.get("datasetId")
+            if not dataset_id:
+                return ("ERROR - provide `bars` (the OHLCV to run on) or `datasetId` "
+                        "(a stored research dataset).",
+                        {"status": "ERROR",
+                         "error": {"code": "PINE_BARS_REQUIRED"}})
+            bars = _pine_bars_from_dataset(
+                t._store(ctx), str(dataset_id), args.get("version"),
+                args.get("symbol"))
+
+        config = PineRunConfig(
+            timeout_s=float(args.get("timeoutS") or 60.0),
+            max_bars=int(args.get("maxBars") or 20_000),
+            symbol=str(args.get("symbol") or "UNKNOWN"),
+            timeframe=str(args.get("timeframe") or "1d"),
+        )
+        result = PineRunner().run(source, list(bars), config=config)
+
+        payload: dict[str, Any] = {
+            "status": "OK",
+            "plots": result.plots,
+            "trades": result.trades,
+            "warnings": result.warnings,
+            "diagnostics": result.diagnostics,
+        }
+
+        if args.get("renderChart", True) and result.plots:
+            name = next(iter(result.plots))
+            points = (result.plots.get(name) or {}).get("points") or []
+            values = [p.get("value") for p in points]
+            spec = ChartSpec(
+                kind="line",
+                title=f"Pine · {name}",
+                subtitle=f"{config.symbol} · {config.timeframe} · "
+                         f"{len(result.trades)} trade(s)",
+                y_label="value",
+                series=[{"name": name, "data": values}],
+                source="Eclipse Pine engine — computed",
+            )
+            try:
+                rendered = render_spec(spec)
+                registered = register_chart_artifact(ctx, rendered,
+                                                     source_tool="pine_script")
+                payload["chart"] = rendered.to_dict()
+                payload["chartArtifactId"] = getattr(registered, "id", None)
+            except ChartRenderError as exc:
+                payload["chartError"] = {"code": exc.code, "reason": exc.reason}
+
+        diagnostics = result.diagnostics or {}
+        return (f"Pine script ran on {diagnostics.get('barCount')} bar(s): "
+                f"{diagnostics.get('plotCount')} plot(s), "
+                f"{diagnostics.get('tradeCount')} trade(s).",
+                payload)
+    except Exception as exc:  # noqa: BLE001
+        return t._err(exc)
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 def register_advanced_tools(registry: Any) -> list[str]:
@@ -1015,6 +1128,26 @@ def register_advanced_tools(registry: Any) -> list[str]:
          "before running a prop-firm simulation.",
          list_prop_firm_rules, {"type": "object", "properties": {}, "required": []})
 
+    _def("run_pine_script",
+         "Run a Pine Script (v5/v6) on Eclipse's own bars, in an isolated "
+         "runtime that never touches the network. Returns the script's plots and "
+         "the trades its strategy made, and draws the first plot through the "
+         "chart engine. A Pine runtime error is reported with the script's own "
+         "message; a missing engine is a named refusal, never an empty result.",
+         run_pine_script, {"type": "object", "properties": {
+             "source": {"type": "string", "description": "the Pine Script source"},
+             "bars": {"type": "array", "items": {"type": "object"},
+                      "description": "OHLCV bars: {time,o,h,l,c,v}"},
+             "datasetId": {"type": "string",
+                           "description": "a stored research dataset to run on"},
+             "version": {"type": "string"},
+             "symbol": {"type": "string"},
+             "timeframe": {"type": "string"},
+             "timeoutS": {"type": "number"},
+             "maxBars": {"type": "integer"},
+             "renderChart": {"type": "boolean"}},
+             "required": ["source"]}, 180_000, long_running=True)
+
     _def("generate_edge_report",
          "Build the Edge Report for a stored backtest: the A-F grade, the four "
          "axes behind it, the overfit tells, the measured numbers, and the chart "
@@ -1047,6 +1180,7 @@ ADVANCED_TOOLS: tuple[str, ...] = (
     "run_prop_firm_simulation",
     "list_prop_firm_rules",
     "generate_edge_report",
+    "run_pine_script",
     "price_option",
     "implied_volatility",
     "analyze_option_strategy",

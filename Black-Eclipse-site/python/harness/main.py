@@ -80,6 +80,7 @@ from .routers.portfolio import router as portfolio_router
 from .routers.quant import router as quant_router
 from .routers.quant_reports import router as quant_reports_router
 from .routers.projects import router as projects_router
+from .routers.pine import router as pine_router
 from .routers.research import router as research_router
 from .routers.research_data import router as research_data_router
 from .routers.search import router as search_router
@@ -143,6 +144,7 @@ app.include_router(portfolio_router)
 app.include_router(quant_router)
 app.include_router(quant_reports_router)
 app.include_router(projects_router)
+app.include_router(pine_router)
 app.include_router(research_router)
 app.include_router(research_data_router)
 app.include_router(search_router)

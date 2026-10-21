@@ -1,0 +1,15 @@
+﻿{
+  "name": "eclipse-pine-engine",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The isolated Pine Script runtime Eclipse spawns. A separate program: it reads a JSON request, writes a JSON response, and shares nothing with the app but files.",
+  "type": "module",
+  "main": "runner.mjs",
+  "scripts": {
+    "setup": "npm install --omit=dev --no-audit --no-fund"
+  },
+  "dependencies": {
+    "pinets": "0.12.0"
+  },
+  "license": "SEE LICENSE IN NOTICE.md"
+}

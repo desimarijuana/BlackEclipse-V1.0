@@ -70,6 +70,7 @@ market data → indicator context → signal (rules) → risk → order
 | Prop-firm evaluation rules as data (targets, drawdown, daily loss, consistency) | `quant/propfirm.py` |
 | Prop-firm Monte-Carlo (pass probability, days-to-pass, payout EV) | `quant/propfirm_mc.py` |
 | The Edge Report — the grade, the evidence and the figures as one artifact | `quant/edge_report.py` |
+| Pine Script runtime (a TradingView script on Eclipse's own bars) | `quant/pine.py` + `pine-engine/` |
 | Sensitivity + robustness + overfitting safeguards | `quant/robustness.py` |
 | Shared research-result envelope | `quant/research.py` |
 | Strategy + experiment persistence, artifacts | `quant/store.py` |

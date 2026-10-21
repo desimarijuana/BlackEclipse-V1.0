@@ -8,6 +8,40 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **feat(quant): run a Pine Script on Eclipse's own bars.** Pine is the lingua
+  franca of TradingView: a trader who already has a Pine strategy usually
+  cannot run it anywhere else, because the script is bound to TradingView's
+  data and their fills. A Pine script can now be evaluated **here**, against
+  the bars the caller already holds. The engine is **`pinets`** (PineTS, by
+  LuxAlgo), which is AGPL-3.0-only, so it is NOT a dependency of the app and
+  NOT imported by it: it lives in its own program
+  (`Black-Eclipse-site/pine-engine/`, with its own `package.json`) that Eclipse
+  spawns as a child process and talks to over files - a JSON request in, a
+  JSON response out, nothing but data crossing the boundary. That is the
+  "separate programs communicating at arm's length" pattern from the GPL FAQ,
+  and it keeps the app proprietary: this folder is the corresponding source of
+  the AGPL-covered work here, nothing from `pinets` is copied into the
+  repository, and `pine-engine/NOTICE.md` states the boundary. Four rules the
+  runtime keeps: the engine **never reaches the network** (the bars come in
+  the request); a **missing engine is a named refusal**
+  (`PINE_ENGINE_UNAVAILABLE`, naming `npm run setup:pine`) rather than an
+  empty result that looks like a script that plotted nothing; a **Pine runtime
+  error is the script's own error**, reported with its message, never
+  swallowed and never replaced with a zero; and the child is **bounded** - a
+  timeout, a bar cap, a source cap and a **scrubbed environment**, so the
+  engine never inherits the runtime's API keys, tokens or database paths. The
+  tool and the route accept either explicit OHLCV bars or a stored research
+  dataset; the first plot is drawn through the ONE chart engine and recorded
+  in the Artifact Center. Surfaces: the tool `run_pine_script`, the routes
+  POST /quant/pine and GET /quant/pine. Files: pine-engine/ (new: runner.mjs,
+  package.json, NOTICE.md), python/harness/quant/pine.py (new),
+  python/harness/quant/advanced_tools.py, python/harness/quant/tools.py,
+  python/harness/routers/pine.py (new), python/harness/main.py, package.json
+  (`npm run setup:pine`). Tests: python/tests/test_quant_pine.py (10; the
+  engine tests skip when Node or the engine is absent - the Python side must
+  never pretend it is there). docs updated: docs/pine.md (new),
+  docs/NAVIGATION.md, docs/quant-engine.md.
+
 - **fix(harness): a change is verified by the project's own checks, and a
   failure drives a repair.** The harness had a correct, bounded, cost-capped
   repair loop (`code/repair.py`: plan -> check -> edit -> re-check, two
@@ -48,14 +82,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   are scripted; the graph is not), the `code_verify_repair_loop` capability
   class makes it measured (the capability statement is regenerated, and the
   dataset checksum is re-pinned because a new case is a new review), and the
-  new shape's plain name is a dictionary key. Files:
+  new shape reuses the plain name the user already sees - the distinction
+  between the repair module and the repair loop is an implementation detail,
+  and the plain-language surface does not carry it. Files:
   python/harness/code/repair_graph.py (new),
   python/harness/code/repair.py, python/harness/code/verify.py,
   python/harness/graph.py, python/harness/code/eval/tasks.py,
   python/harness/code/eval/capabilities.py,
   python/harness/code/eval/dataset_tasks_v1.json,
   python/harness/code/eval/statement.py,
-  src/lib/i18n/dictionaries/en.ts,
   python/tests/test_graph_repair_node.py (new, 20 cases). ADR-H281. docs
   updated: docs/harness/decisions.md, docs/harness/architecture.md,
   docs/NAVIGATION.md, docs/harness/capability-statement.md.
