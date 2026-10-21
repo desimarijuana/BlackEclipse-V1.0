@@ -212,11 +212,19 @@ def _render_payload(record: MarketRecord, capability: str) -> str:
 def _finish(ctx: Any, result: Any, capability: str) -> tuple[str, Any]:
     """Uniform result handling for a capability call."""
     if isinstance(result, MarketError):
+        # A refusal must TEACH its correction: the next route is named here,
+        # so the agent collects the data instead of stopping at UNAVAILABLE.
+        next_route = (
+            " A scraper can collect this from the page that has it: call "
+            "`scraper_run` with the source URL (the operator approves the site "
+            "once) and label the rows SCRAPER-sourced."
+        )
         return (
             f"UNAVAILABLE — {result.code}: {result.message}"
             + (f" (provider={result.provider})" if result.provider else "")
-            + (" This may be retryable." if result.retryable else ""),
-            {"status": "UNAVAILABLE", "error": result.to_dict()},
+            + (" This may be retryable." if result.retryable else "")
+            + next_route,
+            {"status": "UNAVAILABLE", "error": result.to_dict(), "nextRoute": "scraper_run"},
         )
     _collect(ctx, result, capability)
     _persist(ctx, result, capability)

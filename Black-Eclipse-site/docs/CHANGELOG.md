@@ -265,6 +265,24 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+""- **feat(agent): a missing data series is now a ROUTE, not a dead end — the
+  agent writes a scraper for the page that has it.** The vault does not hold
+  everything, so a failed data call used to end the analysis. Two changes make
+  the agent fight the limitation instead of stopping: **(1) the agent's
+  guidance** now says that a data route answering UNAVAILABLE is a routing
+  problem, and names the lane to use — write a scraper for the site with
+  `scraper_run` (a short program that fetches through `eclipse_tools.web_page`
+  and leaves the records in `result = {"rows": [...]}`; the host does the
+  fetching, so the program never opens a socket, and the operator approves the
+  site once per domain). The rows land as a dataset labelled **SCRAPER** —
+  collected page data, never a verified source — and the agent must say so
+  wherever it uses them. **(2) every data refusal now names its next route**,
+  so the correction is read where the failure happens: the market tool's
+  UNAVAILABLE answer and the app's data-bridge failure message both carry
+  "a scraper can collect this from the page that has it", and the bridge
+  result carries `nextRoute: "scraper_run"`. Files:
+  `python/harness/prompts.py`, `python/harness/market/tools.py`,
+  `src/lib/harness/failure.ts`. docs updated: `docs/CHANGELOG.md`.
 - **fix(market): the macro series an asset analysis needs, and the RECENT
   window.** A full gold analysis came back honest but incomplete, and named its
   two blockers — both real product bugs. **(1) No real-yield series existed:**
