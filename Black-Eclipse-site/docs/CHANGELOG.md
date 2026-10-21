@@ -185,7 +185,102 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   report. Files: docs/self-improvement/rsl-v3-plan.md.
   docs updated: docs/self-improvement/rsl-v3-plan.md.
 
+- **chore(harness): the mandated check cannot finish, and that is why the agent
+  spins.** **The cause:** AGENTS.md requires `npm run test` after EVERY change.
+  That script is `vitest run && node scripts/test-python.js && node
+  scripts/test-evals.js`, and the middle stage runs the Python suite, which
+  stalls for over a minute inside
+  `python/tests/test_application_e2e.py::test_e2e_start_health_observe_stop_restart`
+  - `harness/execution/application/health.py:check_with_retries` retries a TCP
+  check against port 8000 sixteen times with a backoff that grows to eight
+  seconds per attempt. Measured end to end, `npm run test` takes 153s even when
+  the first stall is cut short, and it never completes on its own. The shell
+  tool's own ceiling is 120s, so the check is killed mid-flight every time and
+  returns an opaque `Unknown: ChildProcess.kill` instead of a pass or a fail.
+  The agent cannot tell whether the check passed, so it runs it again: 344
+  check re-runs with no code change between them across the last forty
+  sessions, `npx tsc --noEmit` 450 times all-time (87 in one session), and more
+  than half of all check invocations piped through `Select-Object -First/-Last`
+  to re-read an output it had already been truncated out of. The loop is also
+  invisible to the host: OpenCode's own doom-loop guard only fires on
+  byte-identical tool inputs, and every retry here differs by a few
+  characters, so it never trips. A check that cannot report a result is not a
+  check - it is a treadmill. Files: (diagnosis only - no source changed).
+  no doc change - a diagnosis; the fix is not in this entry.
+
+- **fix(chat): a long message no longer fails with "Something went wrong".**
+  Pasting more than 4 000 characters into Eclipse was rejected by the front
+  door with `query too long (max 4000 chars)` and rendered as a generic
+  "Something went wrong" card - a message the composer had accepted was
+  refused on the way to the agent, and the user was given no way to tell a
+  rejected request from a broken agent. A turn is whatever the person pasted,
+  so the bound now only guards ONE REQUEST BODY: it is 100 000 characters
+  (~25k tokens) on both sides of the bridge, and the RUNTIME owns the real
+  limit - it measures the assembled request against the resolved model's
+  context window and reports an honest CONTEXT_OVERFLOW when a prompt
+  genuinely does not fit. The two bounds are MIRRORED on purpose: the front
+  door's `MAX_QUERY_LENGTH` (`src/lib/harness/validation.ts`) must stay >=
+  the runtime's `RunInput.query` bound (`python/harness/schemas.py`), or the
+  runtime would reject a request the app accepted with a bare pydantic 422.
+  A prior turn now carries the same per-turn bound, so a long message is not
+  silently sliced when it returns as history on the next turn; the whole
+  history is bounded by dropping the OLDEST whole turns (never a turn cut in
+  half), so the runtime receives every turn it is given intact and applies its
+  own budget on top. The refusal itself
+  improved too: it now carries the stable `INVALID_INPUT` code (the chat card
+  badges it instead of showing a bare sentence), it says what to do
+  ("send it in smaller parts or attach it as a document"), and it is NOT
+  retried - a refused request used to be sent three times (stream 400 ->
+  one-shot 400 -> one-shot retry 400), all failing identically. A missing
+  streaming ENDPOINT (404/405, an older front door) still falls back to the
+  one-shot path; a REFUSED request does not. Files:
+  src/lib/harness/validation.ts, src/app/api/harness/chat/route.ts,
+  src/app/api/harness/chat/stream/route.ts, src/lib/agent/registry.ts,
+  src/lib/agent/use-agent-run.ts, src/components/screens/stock-chat.tsx,
+  src/lib/bots/use-bot-delegation.ts, python/harness/schemas.py. Tests:
+  src/lib/harness/validation.test.ts, src/app/api/harness/chat/route.test.ts,
+  src/lib/agent/registry.test.ts. docs updated: docs/chat-ui-audit.md,
+  docs/harness/architecture.md.
+
+- **feat(chat): a long paste becomes an attachment, the way ChatGPT does it.**
+  A paste over 4 000 characters is no longer dumped into the composer: it is
+  intercepted, written into the conversation's session folder as a
+  `pasted-text.txt` context document, and shown as a chip above the composer
+  (`pasted-text-2.txt`, `pasted-text-3.txt`, … on repeat). It then flows
+  through the SAME path as an attached file — extracted, injected into the run,
+  removable from the chip — so there is one attachment pipeline, not two. Small
+  pastes still insert normally, and the floating dock gets the same rule. The
+  document caps were raised to match the turn bound (100 000 chars per document,
+  200 000 combined) so a paste that becomes a document arrives as readable as
+  the same text would have as a message; the runtime still measures the
+  assembled turn (documents included) against the model window and reports a
+  CONTEXT_OVERFLOW rather than silently dropping text. Files:
+  src/lib/chat/paste.ts (new), src/lib/chat/use-session.ts,
+  src/lib/chat/session-types.ts, src/lib/chat/extract.ts (caps),
+  src/components/chat/chat-input.tsx, src/components/chat/empty-state.tsx,
+  src/components/chat/chat-dock.tsx, src/components/screens/stock-chat.tsx,
+  src/lib/harness/validation.ts, python/harness/schemas.py. Tests:
+  src/lib/chat/paste.test.ts (new), src/lib/chat/extract.test.ts,
+  src/lib/harness/validation.test.ts. docs updated: docs/chat-ui-audit.md.
+
 ## 2026-10-20
+
+- **fix(market): the macro series an asset analysis needs, and the RECENT
+  window.** A full gold analysis came back honest but incomplete, and named its
+  two blockers — both real product bugs. **(1) No real-yield series existed:**
+  `DFII10` was not a registered macro series, so the driver regression could
+  not be run at all. The macro registry (Python and its TS mirror) now carries
+  the 10y and 5y TIPS **real yields**, the 2y and 10y **nominal yields**, the
+  10y **breakeven**, the **broad dollar index** (`DTWEXBGS` — the daily dollar
+  series the analysis could not get) and the **volatility index** (`VIXCLS`),
+  with the generic names (`real_yield`, `breakeven`, `dollar_index`, `dxy`,
+  `vix`) resolving to them. Verified: all three resolve from FRED. **(2) The
+  market tool rendered the OLDEST bars** of a series (and only the last three),
+  so a five-year history read as *2021* data and the model held no current
+  print — it was reasoning about the wrong years. It now shows the first bar
+  for context and the **last ten** — the present. Files:
+  `python/harness/macro_identity.py`, `src/lib/harness/macro-identity.ts`,
+  `python/harness/market/tools.py`. docs updated: `docs/CHANGELOG.md`.
 
 - **fix(charts): a chart that "was not loading" now loads — and the chat's
   charts are plain, centred and big.** **The cause:** the engine refused the
@@ -1573,8 +1668,51 @@ umpy/pandas are **already installed** in the runtime and the analysis
   transport instead of filtering the rows afterwards, so the two call
   expectations had to name the new argument (and the TS size ratchet is
   re-pinned 1400->1408 for the same change). Full vitest: 3696 passed;
-  `npx tsc --noEmit` clean. Files: `src/lib/harness/data-bridge-identity.test.ts`,
+  `npx tsc --noEmit` clean. Files:   `src/lib/harness/data-bridge-identity.test.ts`,
   `src/lib/harness/data-bridge-phase2.test.ts`, `src/lib/size-budget.test.ts`.
+- **feat(eval): the corpus is now a portable, tamper-evident bundle.** Our
+  benchmark is ours: it must travel without any external framework.
+  `evaluation/export.py` writes one entry per built-in dataset (name, version,
+  split, content checksum, every task in the shared task schema), reads such a
+  bundle back through the SAME schema, and VERIFIES it by recomputing each
+  checksum from the tasks themselves - an edited task is detected, not trusted.
+  `npm run rsl:corpus -- --out <file>` exports (add `--split validation` for
+  one split); `--verify <file>` re-checks a bundle and exits non-zero on a
+  mismatch. The bundle is derived data: labelled tasks only, no production data
+  and no market data. Files: `python/harness/evaluation/export.py`,
+  `scripts/rsl-corpus.js`, `package.json`. Tests:
+  `python/tests/test_evaluation_export.py` (4). Docs updated:
+  `docs/harness/agent-evaluation.md`, `docs/NAVIGATION.md`,
+  `docs/self-improvement/rsl-v3-plan.md`.
+- **feat(rsl): the cost of a self-improvement experiment is now measured.** A
+  recursive experiment records the real `costUsd`/`totalTokens` the verifier
+  reported (absent stays `UNKNOWN`, never a fabricated zero), and the
+  self-evolution metric block gains `rsl_cost_usd` and `rsl_cost_per_accepted`
+  — the recorded experiment cost divided by the accepted experiments. A run
+  that reported no cost does not become a zero-cost run. Files:
+  `python/harness/self_improvement/recursion.py`,
+  `python/harness/evaluation/repair_metrics.py`. Tests:
+  `test_evaluation_repair_metrics.py` (the block + the cost rule),
+  `test_rsl_recursion.py`. Docs updated:
+  `docs/self-improvement/rsl-v3-plan.md`.
+- **feat(rsl): a surface may narrow the CONTEXT it injects (v3 P3 slice 2).**
+  Two closed-set policies now ride the surface: `skillManifest`
+  (`none` | `top3` | `top8`) bounds how many skills are listed as a hint, and
+  `memoryPolicy` (`off` | `profile_only` | `profile_plus_search`) decides
+  whether recalled memory, the persistent profile, or both reach the prompt.
+  Both live on `AgentConfig` and on `HarnessSnapshot` (digest-additive, so an
+  older snapshot keeps its exact identity); an unknown value is REFUSED rather
+  than treated as the default. Neither grants a tool, a permission or an
+  effect, and neither touches the tool allowlist — the manifest is a hint and
+  narrowing it removes hints, never a capability. Enforced where the blocks are
+  built (`graph_context.py`), and the surface experiment request carries them.
+  Files: `python/harness/schemas.py`,
+  `python/harness/self_improvement/{models,live_surface}.py`,
+  `python/harness/graph_context.py`, `python/harness/routers/evolution.py`.
+  Tests: `python/tests/test_surface_context_policy.py` (6),
+  `test_rsl_snapshot.py`, `test_live_surface.py`. Docs updated:
+  `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/decisions.md`
+  (ADR-H285), `docs/harness/architecture.md`.
 
 ## 2026-10-19
 

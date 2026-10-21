@@ -161,8 +161,11 @@ def _render(record: MarketRecord, capability: str) -> str:
 def _render_payload(record: MarketRecord, capability: str) -> str:
     if capability in ("historical", "ohlcv"):
         bars = getattr(record, "bars", []) or []
-        head = bars[:5]
-        tail = bars[-3:] if len(bars) > 8 else []
+        # The RECENT window is what an analysis needs: the first bar is shown
+        # for context, and the last ten carry the present. Showing the OLDEST
+        # bars (as this did) made a 5-year series read as 2021 data.
+        head = bars[:1]
+        tail = bars[-10:] if len(bars) > 1 else []
         parts = [f"  {len(bars)} bar(s), interval={getattr(record, 'interval', None) or '?'}"]
         if getattr(record, "aggregation", None):
             parts.append(f"  aggregation: {record.aggregation}")
