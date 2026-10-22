@@ -235,6 +235,67 @@ function normalizeTableRows(value: unknown, columns: unknown): unknown {
  * Coerce the recognised shapes and drop an unrecognised object to `null` so one
  * odd point never costs the whole chart (ECharts renders a gap; it is honest).
  */
+/** The field names a producer uses for the x of a point. */
+const X_FIELD_NAMES = ['x', 'i', 'index', 'n', 't', 'time', 'date', 'day', 'period', 'timestamp'];
+/** The field names a producer uses for the y of a point. */
+const Y_FIELD_NAMES = ['y', 'close', 'value', 'v', 'price', 'amount', 'level', 'result', 'score'];
+
+/** A number a point can carry - a numeric string counts (a model may quote it). */
+function asNumber(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+/**
+ * One point written as an OBJECT: `{i: 1, close: 188.7}`.
+ *
+ * A named field that reads like an x is the x; a named field that reads like
+ * a y is the y; when the names say nothing, the first two numeric fields are
+ * the point in the order they were written. A point with no numbers at all
+ * is dropped - one odd point never costs the whole chart.
+ */
+function pointFromObject(point: Record<string, unknown>): number | [number, number] | null {
+  const keys = Object.keys(point);
+  let x: number | null = null;
+  let y: number | null = null;
+
+  for (const key of keys) {
+    if (x !== null) break;
+    if (!X_FIELD_NAMES.includes(key.toLowerCase())) continue;
+    x = asNumber(point[key]);
+  }
+  for (const key of keys) {
+    if (y !== null) break;
+    if (!Y_FIELD_NAMES.includes(key.toLowerCase())) continue;
+    const value = asNumber(point[key]);
+    if (value === null) continue;
+    // A field that is BOTH (x) and a y-name is the y only when it is not
+    // already the x.
+    if (x !== null && key.toLowerCase() === 'x') continue;
+    y = value;
+  }
+  if (x === null || y === null) {
+    // No named fields said what is what: take the first two numbers, in order.
+    const numbers: number[] = [];
+    for (const key of keys) {
+      const value = asNumber(point[key]);
+      if (value !== null) numbers.push(value);
+      if (numbers.length === 2) break;
+    }
+    if (numbers.length < 2) {
+      // One number on its own is a labelled scalar.
+      return numbers.length === 1 ? numbers[0] : null;
+    }
+    x = numbers[0];
+    y = numbers[1];
+  }
+  return [x as number, y as number];
+}
+
 function normalizeChartPoints(value: unknown): unknown {
   if (!Array.isArray(value)) return value;
   return value.map((p) => {
@@ -247,7 +308,8 @@ function normalizeChartPoints(value: unknown): unknown {
     }
     const scalar = p.value ?? p.y ?? p.count;
     if (typeof scalar === 'number') return scalar;
-    return null;
+    // A point written with OTHER names (`{i, close}`) is still a point.
+    return pointFromObject(p);
   });
 }
 
@@ -389,6 +451,23 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
         ];
         delete out.data;
       }
+    }
+    // The MARKS carry their own data, and a mark writes its points the way a
+    // person does: `[1, 258.45]` or `{i: 1, close: 258.45}`. Both are
+    // normalised here, so a mark is never refused over its data format.
+    if (Array.isArray(out.panels)) {
+      out.panels = (out.panels as unknown[]).map((panel) => {
+        if (!isRecord(panel) || !Array.isArray(panel.marks)) return panel;
+        const next: Record<string, unknown> = { ...panel };
+        next.marks = (panel.marks as unknown[]).map((mark) => {
+          if (!isRecord(mark)) return mark;
+          const m: Record<string, unknown> = { ...mark };
+          if (m.y !== undefined) m.y = normalizeChartPoints(m.y);
+          if (m.data !== undefined) m.data = normalizeChartPoints(m.data);
+          return m;
+        });
+        return next;
+      });
     }
     // The axis labels have two spellings in the wild.
     if (out.xLabel === undefined && typeof out.xAxisLabel === 'string') out.xLabel = out.xAxisLabel;

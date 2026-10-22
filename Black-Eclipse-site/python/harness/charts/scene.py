@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .spec import _CAMEL, ChartHighlight, ChartReferenceLine
 
@@ -62,6 +62,34 @@ MarkType = Literal[
 ]
 
 
+class ChartDataSource(BaseModel):
+    """WHERE the numbers come from, instead of the numbers themselves.
+
+    A chart of a market series does not need the series typed out: the engine
+    fetches it through the same market gateway every other price comes from,
+    and the chart is drawn from what the gateway returned. That is what keeps
+    a 250-point chart out of the model's mouth - a chart block that spells
+    out every price is a long message, and a long message gets truncated.
+    """
+
+    model_config = _CAMEL
+
+    #: The instrument to fetch (`AAPL`, `^VIX`, `GC=F`).
+    symbol: str = Field(..., min_length=1, max_length=40)
+    #: The market the symbol belongs to (`US`). Optional: the gateway resolves
+    #: the instrument from its own master.
+    market: Optional[str] = Field(default=None, max_length=8)
+    #: The bar size (`1d`).
+    interval: str = Field(default="1d", max_length=8)
+    #: An explicit window. Without one the gateway's default window is used.
+    start: Optional[str] = Field(default=None, max_length=20)
+    end: Optional[str] = Field(default=None, max_length=20)
+    #: Which value the chart draws. The close, by default.
+    field: Literal["close", "open", "high", "low", "volume"] = "close"
+    #: The series name in the legend.
+    name: Optional[str] = Field(default=None, max_length=120)
+
+
 class ChartMark(BaseModel):
     """One drawn thing, with its own data and styling."""
 
@@ -70,11 +98,43 @@ class ChartMark(BaseModel):
     type: str = Field(default="line", max_length=40)
     name: Optional[str] = Field(default=None, max_length=120)
 
-    #: The values along the category (or y) axis. A NUMBER, or a label (a 3D
-    #: bar's categories).
-    y: list[Optional[float] | str] = Field(default_factory=list)
+    #: The values along the category (or y) axis. A NUMBER, a label (a 3D
+    #: bar's categories), or an [x, y] PAIR - the way a person writes a point.
+    #: A pair carries its own x (see `_split_pairs`).
+    y: list[Optional[float] | str | list[Any]] = Field(default_factory=list)
+    #: WHERE these values come from. When it is set, the engine fetches the
+    #: series and fills the values itself - the mark does not carry them.
+    data_source: Optional[ChartDataSource] = Field(default=None)
     #: The same values under the name a SERIES uses (`data`). An alias for `y`.
-    data: list[Optional[float] | str] = Field(default_factory=list)
+    data: list[Optional[float] | str | list[Any]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _split_pairs(self) -> "ChartMark":
+        """A [x, y] pair carries its own x.
+
+        A model writes points the way a person does - `[1, 258.45]` - so a
+        mark accepts pairs as well as scalars. The pair's x becomes the mark's
+        x (unless the mark already has one) and its y the value; the mark is
+        then drawn exactly as a mark with separate x and y would be.
+        """
+        for field in ("y", "data"):
+            values = getattr(self, field, None) or []
+            if not values or not any(isinstance(v, (list, tuple)) for v in values):
+                continue
+            xs: list[Optional[float] | str] = []
+            ys: list[Optional[float] | str] = []
+            for value in values:
+                if isinstance(value, (list, tuple)):
+                    pair = list(value)
+                    xs.append(pair[0] if pair else None)
+                    ys.append(pair[1] if len(pair) > 1 else None)
+                else:
+                    xs.append(None)
+                    ys.append(value)
+            if not self.x:
+                object.__setattr__(self, "x", xs)
+            setattr(self, field, ys)
+        return self
 
     @field_validator("type", mode="before")
     @classmethod
@@ -102,7 +162,9 @@ class ChartMark(BaseModel):
     @property
     def the_values(self) -> list[Optional[float] | str]:
         """The mark's values, whether they arrived as `y` or as `data`."""
-        return self.y or self.data
+        values = self.y or self.data
+        # A pair that survived the split (a malformed one) is not a value.
+        return [v for v in values if not isinstance(v, list)]
     #: Explicit x values (a scatter, a line over a numeric axis). A NUMBER, or
     #: a label (a 3D bar's categories).
     x: list[Optional[float] | str] = Field(default_factory=list)

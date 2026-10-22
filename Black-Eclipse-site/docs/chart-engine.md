@@ -63,6 +63,23 @@ invented for it.
 `candlestick` · `waterfall` · `ridge` · `stem` · `treemap` · `sunburst` ·
 `funnel` · `sankey` · `scatter3d` · `surface` · `regression`
 
+**A mark may name its series instead of carrying it.** A mark (or a whole
+chart block) may set a `dataSource` — `{symbol, market?, interval?, start?,
+end?, field?, name?}` — and the ENGINE fetches that series through the same
+market gateway every price comes from, then draws it. This is what keeps a
+250-point chart out of the model's mouth: a chart that spells out every price
+is a long message, and a long message gets truncated — a truncated chart block
+is a lost chart, with no diagnostic and no picture. With a named source the
+model writes ~200 characters and the reader gets the real 251-bar series,
+fitted. A source that cannot be fetched is a refusal, never a guess.
+
+**A mark's values may be written the way a person writes them.** `y` / `data`
+accept a scalar, an `[x, y]` pair (the pair carries its own x), or an object
+with named fields — `{i: 1, close: 188.7}` (a field named like an x is the x,
+one named like a y is the y, and when the names say nothing the first two
+numeric fields are the point, in order). A model writes points; a chart that
+refuses a point over its FORMAT is a chart the reader never sees.
+
 A mark may set: `name` (the legend), `y` / `x` / `z` / `values` / `lower` /
 `upper` / `sizes` / `matrix` / `labels` / `rowLabels` / `colLabels`, `color`,
 `alpha`, `width`, `style` (`solid` / `dashed` / `dotted`), `fill`, `label`,

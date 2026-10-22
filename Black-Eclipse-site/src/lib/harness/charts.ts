@@ -71,6 +71,24 @@ export interface ChartReferenceLine {
   dashed?: boolean;
 }
 
+/**
+ * WHERE a mark's numbers come from, instead of the numbers themselves.
+ *
+ * The engine fetches the series through the same market gateway every price
+ * comes from. A chart that names its source therefore draws real numbers
+ * without the model ever typing 250 of them into a message - a long message
+ * gets truncated, and a truncated chart block is a lost chart.
+ */
+export interface ChartDataSource {
+  symbol: string;
+  market?: string;
+  interval?: string;
+  start?: string;
+  end?: string;
+  field?: "close" | "open" | "high" | "low" | "volume";
+  name?: string;
+}
+
 /** One drawn primitive of a scene. */
 export interface ChartMark {
   type:
@@ -83,7 +101,11 @@ export interface ChartMark {
     // The points, the least-squares line through them, and its R-squared.
     | "regression";
   name?: string;
-  y?: Array<number | string | null>;
+  /** The series to fetch instead of carrying the values. */
+  dataSource?: ChartDataSource;
+  y?: Array<number | string | null | [number, number] | [number, number, number] | [number, number, number, number]>;
+  /** The same values under the name a series uses. An alias for `y`. */
+  data?: Array<number | string | null | [number, number] | [number, number, number] | [number, number, number, number]>;
   x?: Array<number | string | null>;
   values?: Array<number | null>;
   lower?: Array<number | null>;

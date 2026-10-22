@@ -603,34 +603,45 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/tests/test_chart_regression.py`, `src/lib/response/chart-regression.test.ts`.
   docs updated: `docs/chart-engine.md`, `docs/interactive-response-engine.md`.
 
-- **fix(chat): a chart is ONE step, and a market refusal names the routes that
-  already failed.**
-  A real run of "regress AAPL's daily close over 12 months" burned all 24
-  steps and 2.7M tokens and answered with prose and no chart. The engine was
-  never the problem: the agent had the 251 closes by step 7 and then spent
-  sixteen steps re-verifying them (6 scraper runs, 5 browser evaluations, 3
-  sandbox computations) because it thought a chart needed a drawing TOOL call
-  to read the numbers back. Two rules fix that:
-  - **A chart block IS the drawing.** The data goes IN the block and the engine
-    draws it: a `regression` mark fits the line and shows the R-squared in its
-    legend. No drawing tool call, no round trip, ONE step. The agent is told
-    never to fit the line itself and never to quote an R-squared it has not
-    read back.
-  - **One attempt per route.** A route that refuses is a routing problem, not
-    a reason to keep asking: try the next route once, and if the second route
-    for the same series also refuses, use the data already in hand (or the
-    numbers the user gave) and say plainly what it is and where it came from.
-    Never re-verify a series you already hold, and never spend a browser on a
-    provenance audit the reader did not ask for.
-  The market refusal now carries the WHOLE provider trail
-  (`Providers tried: yahoo: DATA_NOT_AVAILABLE (...); stooq: ...; polygon:
-  AUTHENTICATION_FAILED (no POLYGON_API_KEY)`) and says that a provider
-  answering AUTHENTICATION_FAILED needs a credential it does not have - do
-  not try it again. The last provider's error alone hid the more useful one
-  (a keyless route with no data), so the agent could not tell which routes had
-  already been tried and went to scrape a page instead.
-  Files: `python/harness/prompts.py`, `python/harness/market/{gateway.py,tools.py}`.
-  Tests: `python/tests/test_market_refusal_trail.py`. docs updated:
+- **fix(chart): a chart may NAME its series, and a mark's points are read the
+  way a model writes them.**
+  A real run of "regress AAPL's daily close over 12 months" produced no chart
+  at all, and the run's own record says why - in the model's words: "The chart
+  did not render. The scatter-plus-regression block I built failed the
+  renderer's schema check on the mark data format, and I've run out of steps
+  to resubmit it." Three separate causes, all fixed:
+  - **A mark's points are read the way a person writes them.** A mark's `y` /
+    `data` now accept a scalar, an `[x, y]` pair (the pair carries its own x)
+    or an object with named fields - `{i: 1, close: 188.7}` (a field named
+    like an x is the x, one named like a y is the y; when the names say
+    nothing, the first two numeric fields are the point, in order). The engine
+    splits a pair into its x and its y. A chart that refuses a point over its
+    FORMAT is a chart the reader never sees.
+  - **A chart may NAME its series instead of carrying it.** A mark (or a whole
+    chart block) may set a `dataSource` - `{symbol, market?, interval?,
+    start?, end?, field?, name?}` - and the engine fetches that series through
+    the SAME market gateway every price comes from, then draws and fits it. A
+    chart that spells out 250 prices is a long message, and a long message
+    gets truncated: the block stops being valid and the chart is lost with no
+    diagnostic. With a named source the model writes ~200 characters and the
+    reader gets the real 251-bar series, fitted (R2 = 0.687 on AAPL over
+    2025-10-22..2026-10-21). A source that cannot be fetched is a named
+    refusal, never a guess. The chart route binds the server bridge to the
+    gateway (the bridge is bound per RUN, so a route outside a run had none).
+  - **The agent is told not to fetch a market series into its own context.**
+    The market tool's text result is truncated by design (a 251-bar series
+    arrives as its first 30 and last 10 bars), so a model that tries to fit
+    the series itself is fitting a fraction of it. The chart fetches the
+    series; the model does not.
+  Verified in the real app: the same request now answers with a live chart -
+  the points, the fitted line and the legend "Series fit (R2 = 0.687)" - in
+  14 steps and a 1 KB block (was 24 steps and a 3.8 KB block that was lost).
+  Files: `python/harness/charts/{scene.py,source.py,tools.py,spec.py}`,
+  `python/harness/routers/charts.py`, `python/harness/service.py`,
+  `src/lib/response/{contract.ts,normalize.ts,chart-spec.ts}`,
+  `src/lib/harness/charts.ts`, `python/harness/prompts.py`. Tests:
+  `python/tests/test_chart_{pairs,source}.py`,
+  `src/lib/response/chart-{pairs,point-shapes,source}.test.ts`. docs updated:
   `docs/chart-engine.md`, `docs/harness/market-data.md`.
 
 ## 2026-10-20
@@ -2248,41 +2259,6 @@ umpy/pandas are **already installed** in the runtime and the analysis
   `python/tests/test_evaluation_nightly.py` (the committed baseline is the
   gate; a broken baseline file is refused). Docs updated:
   `docs/harness/agent-evaluation.md`, `docs/self-improvement/rsl-v3-plan.md`.
-- **feat(eval): the corpus grows to 76 tasks - a second adversarial + finance
-  tranche.** `adversarial_v1` (8) and `finance_v1` (9) join the corpus, and
-  the committed baseline is refreshed against it. The new adversarial fixtures
-  are about HONESTY under pressure: two sources that disagree (report both, do
-  not pick one), a quote in the wrong currency (name the currency you
-  actually have), a price with no currency at all (the unit is missing), and a
-  document carrying an injected instruction (a document is data; publishing is
-  not allowed). The new finance fixtures are independently recomputed:
-  percentage change, three-year CAGR, free cash flow after capital spending,
-  and a position size from reward and risk. The corpus is now 76 tasks (64
-  validation / 10 optimization / 2 held_out) and the release gate still passes
-  against the committed baseline. Files:
-  `python/harness/evaluation/datasets/{adversarial_v1,finance_v1}.json`,
-  `python/harness/evaluation/baselines/corpus_v1.json`. Docs updated:
-  `docs/harness/agent-evaluation.md`, `docs/self-improvement/rsl-v3-plan.md`.
-- **feat(rsl): the lab tries to improve the harness itself, and it may only
-  report a CANDIDATE (v3 P5 slice).** Everything the loop can change is code
-  (a worktree, a promotion) or a surface (prompt, tool guidance, context
-  policy, guardrails). The surface is the cheap one - no worktree, no landing -
-  and it is where most of the headroom is. `npm run rsl:lab` (the surface lab)
-  does that honestly: the variants are DETERMINISTIC and derived from the
-  lessons the loop already ADOPTED (one lesson, the top three, their cues as a
-  checklist - with no adopted lesson there is no variant, because the lab never
-  invents an instruction nobody verified); each variant is measured on the SAME
-  tasks through the existing measured surface path against the base's own run;
-  an UNMEASURED variant is never a winner, a critical regression (safety,
-  adversarial) is VETOED even when the average is better, and "flat" is a
-  result, not a win; the winner is a CANDIDATE for the operator - the lab never
-  lands, never activates and never writes to the harness. On the scripted tier
-  the lab correctly finds NO improvement, because a scripted answer does not
-  depend on the prompt. Files: `python/harness/self_improvement/surface_lab.py`
-  (new), `scripts/rsl-lab.js`, `package.json`. Tests:
-  `python/tests/test_surface_lab.py` (7). Docs updated:
-  `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/decisions.md`
-  (ADR-H290), `docs/QUICKSTART.md`.
 - **feat(rsl): ONE surface-candidate path, and the lab stages EVIDENCE
   (v3 P5 slice 2).** The identity of a surface experiment and the row it
   creates now live in `self_improvement/surface_candidate.py`; the operator
@@ -2318,6 +2294,54 @@ umpy/pandas are **already installed** in the runtime and the analysis
   explicit settings; the test run stays deterministic). Docs updated:
   `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/decisions.md`
   (ADR-H292), `docs/QUICKSTART.md`.
+- **feat(rsl): the whole remaining list, in one pass (v3 P2/P3/P4/P5 + the
+  evidence program).**
+  - **The conductor now improves its OWN harness.** `HARNESS_RSL_SURFACE_LAB=on`
+    makes the `auto` tick run ONE measured surface session
+    (`self_improvement/lab_runner.py`) and STAGE the winner as an inert
+    candidate. The surface budget is SEPARATE from the code budget
+    (`HARNESS_RSL_MAX_SURFACE_EXPERIMENTS_PER_DAY`), so exploring the harness
+    is never starved by (or starves) the code experiments.
+  - **The session can run unattended.** `HARNESS_RSL_SESSION_SECONDS` starts
+    the session watcher inside the runtime (the drift-watch pattern): one bounded
+    session per cadence, bounded by the surface budget, staging evidence only.
+  - **The lab searches the WHOLE surface**, not just the prompt: guidance
+    variants from the adopted lessons, a context-policy variant and a
+    guardrail variant.
+  - **Two more runtime guardrails**: `no_fabricated_url` (the answer may only
+    cite a URL a TOOL returned) and `require_source_for_numbers` (a number
+    needs a source, or the answer must say the data was unavailable).
+  - **The corpus gate has a live tier** (`npm run rsl:nightly -- --live
+    --provider <p> --model <m>`): the corpus answered by a real model, compared
+    against a committed live baseline. The scripted tier stays the default.
+  - **The corpus is 88 tasks** (was 76): `adversarial_v1` (12) and
+    `finance_v1` (13) grew, and `research_v1` (4) joined - the SOURCE-DISCIPLINE
+    set where the PROMPT decides the answer (cite the source you used, say when
+    the data is not there, present a conflict, carry the as-of date). Those four
+    are live-only on purpose: a scripted answer does not depend on the prompt,
+    so the scripted tier reports them UNMEASURED rather than pretending.
+  - **The operator sees the loop's own work**: the weekly card now shows what
+    Eclipse tried on itself, with a "check it again" button that queues a
+    staged candidate for the loop's verification; the digest remembers the last
+    one and reports the week-over-week change; `GET /evolution/replay/digest`
+    reports how much REAL-RUN evidence the store holds.
+  - **Verification hygiene**: `npm run test:rsl` runs the RSL slice in ~80
+    seconds; `npm run check:all` is the gate of record (this repo has no
+    working remote CI - the workflows live in a subfolder GitHub never reads).
+  - **Two decisions, recorded**: the loop stays `off` by default (zero-config
+    must not write), and the size ratchets keep their history (the real fix is
+    splitting the hot files, not moving the pins).
+  Files: `python/harness/self_improvement/{lab_runner,session_watch,guardrails,report,config,loop}.py`,
+  `python/harness/evaluation/{nightly,replay_builder}.py`,
+  `python/harness/evaluation/datasets/{adversarial_v1,finance_v1,research_v1}.json`,
+  `python/harness/routers/evolution_report.py`,
+  `src/components/screens/skills/rsl-lab-card.tsx` (new),
+  `src/app/api/evolution/surface-lab/**` (new), `scripts/test-python.js`,
+  `package.json`. Tests: `test_rsl_session.py`, `test_rsl_guardrails.py`,
+  `test_surface_lab.py`, `test_rsl_digest.py`. Docs updated:
+  `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/agent-evaluation.md`,
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H292),
+  `docs/QUICKSTART.md`.
 
 ## 2026-10-19
 

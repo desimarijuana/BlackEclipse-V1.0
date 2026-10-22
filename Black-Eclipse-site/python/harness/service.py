@@ -1158,6 +1158,22 @@ class AgenticService:
 
         return _HttpDataBridge(_default_callback_base_url(), os.environ.get("CRON_SECRET"))
 
+    def server_market_gateway(self) -> Any:
+        """The market gateway for a SERVER-initiated fetch, with a bridge.
+
+        The gateway's bridge is bound per RUN (the front door hands the runtime
+        its own callback URL). A route that fetches outside a run - a chart
+        that NAMES its series, for instance - had no bridge at all, so the
+        fetch could not even be attempted. This binds the server bridge once
+        and returns the gateway.
+        """
+        gateway = getattr(self, "market_gateway", None)
+        if gateway is None:
+            return None
+        if getattr(gateway, "_bridge", None) is None:
+            gateway._bridge = self.server_bridge()  # noqa: SLF001 - the same deliberate rebind
+        return gateway
+
     async def retrieve_for_research(self, bridge: DataBridge, request: Any) -> Any:
         """Run ONE retrieval for the research flow through the shared layer/cache.
 

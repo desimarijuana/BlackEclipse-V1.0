@@ -306,12 +306,33 @@ const CHART_MARK_TYPES = [
   'regression',
 ] as const;
 
+/**
+ * WHERE a chart's numbers come from, instead of the numbers themselves.
+ *
+ * The engine fetches the series through the same market gateway every price
+ * comes from, so a 250-point chart never has to travel inside a message.
+ */
+const chartDataSourceSchema = z.object({
+  symbol: shortString,
+  market: shortString.optional(),
+  interval: shortString.optional(),
+  start: shortString.optional(),
+  end: shortString.optional(),
+  field: z.enum(['close', 'open', 'high', 'low', 'volume']).optional(),
+  name: shortString.optional(),
+});
+
 const chartMarkSchema = z.object({
   /** The mark's primitive. An UNKNOWN type falls back to `line`: one odd mark must never cost the reader every other panel. */
   type: z.enum(CHART_MARK_TYPES).catch('line'),
   name: shortString.optional(),
-  y: z.array(z.union([z.number().finite(), z.string().max(80), z.null()])).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
-  data: z.array(z.union([z.number().finite(), z.string().max(80), z.null()])).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  /** The series to fetch instead of carrying the values. */
+  dataSource: chartDataSourceSchema.optional(),
+  // A mark's values may be SCALARS or [x, y] PAIRS - the way a person (and a
+  // model) writes a point. A pair carries its own x, so a mark does not have
+  // to be split across two fields.
+  y: z.array(pointSchema).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  data: z.array(pointSchema).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   x: z.array(z.union([z.number().finite(), z.string().max(80), z.null()])).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   values: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   lower: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
@@ -369,6 +390,12 @@ const chartBlock = z.object({
   categories: z.array(z.union([z.string().max(80), z.number()])).max(RESPONSE_LIMITS.maxCategories).optional(),
   series: z.array(chartSeriesSchema).max(RESPONSE_LIMITS.maxSeries).default([]),
   /**
+   * The series to draw, fetched by the engine. A chart that spells out every
+   * price is a long message, and a long message gets truncated - a truncated
+   * chart block is a lost chart.
+   */
+  dataSource: chartDataSourceSchema.optional(),
+  /**
    * The compositional form: panels of marks. When present, the chart is drawn
    * as a SCENE and `series` is not needed. This is how the model draws ANY
    * chart the user asks for.
@@ -379,10 +406,14 @@ const chartBlock = z.object({
   smooth: z.boolean().default(false),
   stacked: z.boolean().default(false),
 }).refine(
-  // A chart needs SOMETHING to draw: the simple form (series) or the
-  // compositional form (panels of marks).
-  (block) => block.series.length > 0 || (block.panels?.length ?? 0) > 0,
-  { message: 'a chart needs either series or panels' },
+  // A chart needs SOMETHING to draw: the simple form (series), the
+  // compositional form (panels of marks), or a NAMED series the engine
+  // fetches (a `dataSource`).
+  (block) =>
+    block.series.length > 0 ||
+    (block.panels?.length ?? 0) > 0 ||
+    block.dataSource !== undefined,
+  { message: 'a chart needs either series, panels or a dataSource' },
 );
 
 const diagramNodeSchema = z.object({

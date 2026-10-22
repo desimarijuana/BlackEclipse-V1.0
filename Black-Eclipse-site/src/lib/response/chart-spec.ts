@@ -128,6 +128,8 @@ export function resolveChartType(block: ChartBlock): Exclude<ChartBlock['chartTy
 /** True when the block has enough data to be worth drawing. */
 export function chartHasData(block: ChartBlock): boolean {
   if (block.panels && block.panels.length > 0) return true;
+  // A NAMED series is data too: the engine fetches it.
+  if (block.dataSource) return true;
   return (block.series ?? []).some((s) => Array.isArray(s.data) && s.data.some((p) => p != null));
 }
 
@@ -243,7 +245,11 @@ function sceneSpec(block: ChartBlock, options: ChartPlanOptions): ChartSpec {
     marks: panel.marks.map((mark) => ({
       type: mark.type,
       name: mark.name,
+      dataSource: mark.dataSource,
       y: mark.y,
+      // `data` is the alias a SERIES uses for its values; a mark may use it
+      // too, and a [x, y] pair carries its own x.
+      data: mark.data,
       x: mark.x,
       values: mark.values,
       lower: mark.lower,
@@ -337,6 +343,35 @@ export function chartBlockToSpec(
   // The points, the least-squares line through them and its R-squared. The
   // fit is computed by the engine from the same numbers the reader sees.
   if (blockType === 'regression') {
+    // A NAMED series: the engine fetches it and fits it. The model never
+    // types the prices, so the chart cannot be lost to a long message.
+    if (block.dataSource) {
+      const spec: ChartSpec = {
+        kind: 'scene',
+        title: options.includeTitle ? (block.title ?? undefined) : undefined,
+        subtitle: options.includeTitle ? (block.description ?? undefined) : undefined,
+        source: block.source ?? undefined,
+        xLabel: block.xLabel ?? undefined,
+        yLabel: block.yLabel ?? undefined,
+        theme: options.theme ?? 'eclipse-dark',
+        width: options.width ?? 960,
+        height: options.height ?? 420,
+        panels: [
+          {
+            xLabel: block.xLabel ?? undefined,
+            yLabel: block.yLabel ?? undefined,
+            marks: [
+              {
+                type: 'regression',
+                name: block.dataSource.name ?? (block.series ?? [])[0]?.name ?? 'Series',
+                dataSource: block.dataSource,
+              },
+            ],
+          },
+        ],
+      };
+      return { spec, kind: 'scene', notes: [] };
+    }
     const { x, y, note } = regressionPoints(block);
     if (x.length < 2 || y.length < 2) return null;
     const spec: ChartSpec = {
