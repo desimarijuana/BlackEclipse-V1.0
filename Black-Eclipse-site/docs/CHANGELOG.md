@@ -833,6 +833,27 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **chore(harness): the Round 3 work is merged onto main, and the decision
+  series is unambiguous again.** The two branches had both taken ADR numbers
+  284-289, so the merged series had seven DUPLICATES and a reference to
+  "ADR-H284" would have named two different decisions. The later occurrence of
+  each was renumbered and the old number retired with a redirect, so an old
+  reference still resolves and the decision is unchanged; the vacated numbers
+  are now explicitly RESERVED in the ADR check. The release gate keeps both
+  sides' steps: the decision record, the harness size budget and the corpus
+  gate all run before the tests. The size ratchets were re-pinned to the
+  merged tree, and the generated artifacts (the capability statement, the
+  published benchmarks, the portable tool manifest - now 953 tools) were
+  regenerated against it. One lint error that was already on `main` and
+  blocked `npm run check:all` for everyone is fixed (`Promise<any>` in the
+  chart route's test - a mock's return type, which the rule rejects and which
+  nothing reads). Files: docs/harness/decisions.md,
+  python/tests/test_size_budget.py, scripts/check-all.js,
+  scripts/size-budget.json, scripts/check-adr-numbers.js,
+  docs/harness/capability-statement.md, docs/harness/benchmarks.md,
+  docs/harness/tool-registry.json,
+  src/app/api/harness/charts/route.test.ts.
+
 - **fix(charts): the full-view chart no longer collides with the app's header.**
   The focus overlay lived inside the chat's stacking context, so the top bar and
   the price ribbon painted OVER the chart and its toolbar. The full view is now

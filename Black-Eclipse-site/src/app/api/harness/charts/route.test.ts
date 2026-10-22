@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // refusal into an honest error the UI can show, and never pretend a chart
 // exists when the engine could not draw one.
 
-const runtimeFetch = vi.fn(async (_url: string, _init?: RequestInit): Promise<any> => ({
+const runtimeFetch = vi.fn(async (_url: string, _init?: RequestInit): Promise<unknown> => ({
   ok: true,
   status: 200,
   json: async () => ({
