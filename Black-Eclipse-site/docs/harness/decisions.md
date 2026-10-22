@@ -937,7 +937,7 @@ structurally-wrong nested result could be reported as "validated"; `maxToolCalls
 was advertised in metadata and prompts but never enforced in the loop, so a skill
 could exceed its own budget.
 
-**Impact.** New `skills/schema_validation.py`; `AgentConfig.maxToolCalls`;
+**Consequences.** New `skills/schema_validation.py`; `AgentConfig.maxToolCalls`;
 `TOOL_BUDGET_EXCEEDED` added to the error-code vocabulary (Python + TS);
 `jsonschema` declared explicitly in `python/requirements.txt`.
 
@@ -963,7 +963,7 @@ proxied payload) could self-authorize memory writes, policy changes, suggestion
 acceptance, skill enablement and promotion. Separately, the `jsonschema`-absent
 fallback silently downgraded contract enforcement to a required-fields check.
 
-**Impact.** `main.py` (`require_operator`, applied to all mutation endpoints),
+**Consequences.** `main.py` (`require_operator`, applied to all mutation endpoints),
 `skills/schema_validation.py` (`check_schema_structural`, fail-closed
 `check_schema`/`validate_output`), front-door token forwarding
 (`eclipse-memory-client.ts`, `skills-client.ts`), `runtime-config.ts` +
@@ -984,7 +984,7 @@ it as a load error rather than silently serving changed behavior.
 **Why.** `content_hash()` covered only the machine-readable manifest; editing a
 `SKILL.md` in place changed behavior with no new identity and no signal.
 
-**Impact.** `manifest.version_identity`, `registry.load_all` drift detection,
+**Consequences.** `manifest.version_identity`, `registry.load_all` drift detection,
 execution records carry the instruction-aware identity. Legacy manifest-only
 hashes are still accepted (their stored `instructions` column preserves the
 behavior identity), so existing databases do not report false drift.
@@ -1008,7 +1008,7 @@ scope is refused).
 **Why.** Off-domain and near-match queries dragged in unrelated memories; and a
 user-scoped retrieve without a `scope_id` leaked other users' memories.
 
-**Impact.** `retrieval._score` returns a relevance signal; `find_suggestion_by_signature`
+**Consequences.** `retrieval._score` returns a relevance signal; `find_suggestion_by_signature`
 is scope-aware; `accept_suggestion`/`dismiss_suggestion` take `user_id`;
 new tests `test_memory_retrieval_eval.py` and isolation cases.
 
@@ -1039,7 +1039,7 @@ new tests `test_memory_retrieval_eval.py` and isolation cases.
 was manual-only and an explicit statement could not override a learned one
 without magic wording. Both are table stakes for a trustworthy personal memory.
 
-**Impact.** Migration 11; `service.{run_retention_maintenance,retention_status,
+**Consequences.** Migration 11; `service.{run_retention_maintenance,retention_status,
 renewal_expiry}`, `store.{record_maintenance,maintenance_status}`,
 `conflicts.detect_conflict` (authority-aware) + `same_dimension`;
 `main._lifespan` startup hook + `/eclipse-memory/retention`; an honest
@@ -1086,7 +1086,7 @@ architecture:
 honest about its limits — the properties a personal memory system needs and a
 hosted multi-tenant design would obscure.
 
-**Impact.** Migration 10; new modules `conflicts.py`, `normalize.py`,
+**Consequences.** Migration 10; new modules `conflicts.py`, `normalize.py`,
 `transfer.py`, `skill_quality.py`; policy keys `memory_enabled`,
 `memory_in_diagnostics`, `semantic_indexing_enabled`, `capture_policy`,
 `recall_policy`; lifecycle/export/import/backup/reset APIs + Control Room
@@ -1422,7 +1422,9 @@ authoritative and avoids drift between a graph copy and reality.
 Journey. Filters by kind/status/since; editing still goes through existing
 persistence/authorization paths.
 
-## ADR-H7 — Zero-config is preserved via automatic provisioning**Decision.** `postinstall` and `doctor.js` install the Python agent stack
+## ADR-H7 — Zero-config is preserved via automatic provisioning
+
+**Decision.** `postinstall` and `doctor.js` install the Python agent stack
 automatically; the runtime is spawned on demand. If Python is genuinely
 unavailable, runs fail with a clear 503.
 
@@ -1636,6 +1638,12 @@ or a write.
 resources/prompts; but a notification channel is a real new authority surface and
 must not be improvised.
 
+**Consequences.** No subscription support is shipped - a documented non-goal, not
+a gap. The resources/prompts tools exist only when the live session advertises
+the capability AND the operator enables `tools.resources`/`tools.prompts`. A
+resource read is bounded and scheme-authorized, prompt text is returned as inert
+data, and a notification can never trigger a run or a write.
+
 ## ADR-H71 - Sampling is off by default and capped; elicitation routes through the existing approval surface
 
 **Decision.** `sampling/createMessage` is off per server; when enabled it has a
@@ -1793,7 +1801,7 @@ python/requirements.txt` → `npm ci --ignore-scripts` → `npx prisma generate`
 such file and a daily `sqlite3 jdds.db` cron would always fail. A local DB backup
 belongs in `scripts/`, not CI.
 
-**Why this supersedes ADR-H75's choice (b).** ADR-H75 chose local-only because two
+**Why.** ADR-H75 chose local-only because two
 blockers made a root workflow unverifiable/unsafe: (1) `jdds.db` was being
 untracked, so `backup.yml` would cron a missing file; and (2) there was no local
 gate to mirror, so CI and local would have diverged. **Both blockers are gone:**
@@ -2331,7 +2339,7 @@ inherit each other's tools or access: a step can only NARROW its scope, never
 widen it. A cycle, an unbounded fan-out, an out-of-scope tool, and a step with no
 terminal path are each rejected at validation with a NAMED reason.
 
-**Consequences (non-goals).** No visual workflow designer, bot scheduler, or
+**Consequences.** No visual workflow designer, bot scheduler, or
 agent-builder UI (roadmap Phases 8-9). `execute_run` is wrapped, not replaced.
 
 ## ADR-H97 - The code capability is tools on the one registry, not a second runtime
@@ -4671,7 +4679,7 @@ task profile (already present) routes generation; image-generation model familie
 
 ## ADR-H147 - Document Intelligence is one adapter/orchestrator pipeline over the shared DocumentIR, reusing vision, the model runtime, the evidence store and the query engine
 
-**Context.** Eclipse could see an image and read a PDF page, but had no
+**Why.** Eclipse could see an image and read a PDF page, but had no
 first-class document-understanding capability: no format adapters, no unified
 intermediate representation, no OCR routing, no structured table/spreadsheet
 extraction, no hybrid document retrieval, no document comparison, and no
@@ -4744,7 +4752,7 @@ No new third-party dependency is added.
 
 ## ADR-H148 - Vision capability is detected per MODEL FAMILY, not per SDK kind; a text-only run model falls back to any available vision model
 
-**Context.** The Vision subsystem reported "needs a vision-capable model
+**Why.** The Vision subsystem reported "needs a vision-capable model
 configured" even when the operator had vision-capable models. Two defects caused
 it. (1) The `openai` capability-kind default declared `vision: SUPPORTED` for
 EVERY model of that kind — but the `openai` SDK kind is shared by OpenAI, Ollama,
@@ -4802,7 +4810,7 @@ bridge capability (market_data), normalizes to a canonical record, runs the
 mandatory data-quality engine, and preserves provenance into the Evidence &
 Research Engine. Agents never name a provider.
 
-**Context.** The retrieval layer (
+**Why.** The retrieval layer (
 etrieval/) is provider-agnostic but shallow —
 it serves quote/statements/news/profile, not order books, trades, funding, open
 interest, options, FX or bonds. The market-data engine (scraper chain, yfinance
@@ -4830,7 +4838,7 @@ src/lib/harness/market/bridge.test.ts. Docs docs/harness/market-data.md.
 
 ## ADR-H150 - The Quant Engine is a deterministic Python engine; strategies are data, and backtest simulation is separate from real-holdings accounting
 
-**Context.** The harness needed real backtesting/research. The risk was the LLM
+**Why.** The harness needed real backtesting/research. The risk was the LLM
 being asked to compute P&L/Sharpe/drawdown, or a demo engine returning
 hardcoded metrics.
 
@@ -4868,7 +4876,7 @@ src/lib/backtest/backtest-client.test.ts. Docs docs/quant-engine.md.
 
 ## ADR-H151 - Unified search is a provider-agnostic retrieval layer over a dedicated SQLite vector + FTS index (not pgvector)
 
-**Context.** Eclipse needed first-class semantic/vector search across documents,
+**Why.** Eclipse needed first-class semantic/vector search across documents,
 research evidence, agent memory, experiences and skills, with hybrid retrieval,
 reranking, provenance and citations. The reference design assumed PostgreSQL +
 pgvector. This repository is deliberately **SQLite-first and zero-config**

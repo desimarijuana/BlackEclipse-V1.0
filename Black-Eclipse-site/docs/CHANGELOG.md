@@ -67,6 +67,19 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   way and that is recorded in the plan rather than papered over.
   no doc change — internal refactor, no contract or architecture change.
 
+- **docs(adr): the 15 legacy entries now carry the full shape.** Round 4 / V3a.
+  The gate had been exempting 15 decisions below H295. Every one was closed by
+  re-labelling prose that was already written, never by inventing a rationale:
+  `Impact` became `Consequences` (H45-H50, six), `Context` became `Why`
+  (H147-H151, five - each Context paragraph already stated the motivation),
+  `Consequences (non-goals)` became `Consequences` (H96), `Why this supersedes
+  ADR-H75's choice (b)` became `Why` (H76), and H7's marker was welded to its
+  heading by a missing line break. One heading - H70's `Consequences` - had no
+  prose to relabel, so it restates what that entry's own Decision section already
+  says about subscriptions, conditional registration and inert prompt text.
+  The gate now reports **zero** legacy exemptions: 303 entries, H1..H308, all
+  shaped. docs updated: docs/harness/decisions.md.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how
