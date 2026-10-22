@@ -434,7 +434,13 @@ def test_prompt_char_ceiling():
     # analysis, not a provenance audit). It is guidance the runtime needs; it is
     # re-pinned to the measured size and may only shrink from here. Matches the
     # same test in `test_memory_tools.py`.
-    assert len(prompt) <= 37834, f"prompt grew to {len(prompt)} chars"
+    # Re-pinned 37834->38241 for the named-source guidance (a chart NAMES its
+    # market series instead of typing the prices - a 250-point block is a long
+    # message, and a long message gets truncated, and a truncated chart block is a
+    # lost chart). It is guidance the runtime needs; it is re-pinned to the
+    # measured size and may only shrink from here. Matches the same test in
+    # `test_memory_tools.py`.
+    assert len(prompt) <= 38241, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

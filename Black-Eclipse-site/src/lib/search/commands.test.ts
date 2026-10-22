@@ -33,7 +33,7 @@ function installWindow() {
 
 describe('commandShortcut', () => {
   it('returns the bound shortcut for a tab', () => {
-    expect(commandShortcut('journal', cfg)).toBe('F7');
+    expect(commandShortcut('journal', cfg)).toBe('F8');
   });
 
   it('ignores disabled sections and returns undefined when unbound', () => {
@@ -75,7 +75,7 @@ describe('paramCommandFor', () => {
     expect(cmd?.title).toBe('Set price alert for AAPL (±3%)');
     expect(cmd?.target).toBe('AAPL');
     expect(cmd?.destination?.tab).toBe('alerts');
-    expect(cmd?.shortcut).toBe('F11');
+    expect(cmd?.shortcut).toBe('F12');
   });
 
   it('builds a chart command with the symbol param', () => {

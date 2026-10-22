@@ -10,8 +10,9 @@
 // small bundle, and it degrades gracefully on partial/streaming input (an
 // unclosed fence or trailing `**` is just text). Supported: headings (ATX),
 // fenced + indented code, blockquotes, ordered/unordered lists, horizontal
-// rules, paragraphs, and inline bold / italic / strikethrough / inline code /
-// links, plus GFM pipe tables (with alignment).
+// rules, paragraphs, LaTeX mathematics (`$...$`, `$$...$$`, `\(...\)`,
+// `\[...\]`), and inline bold / italic / strikethrough / inline code / links,
+// plus GFM pipe tables (with alignment).
 
 export type InlineNode =
   | { type: 'text'; value: string }
@@ -37,7 +38,7 @@ export type BlockNode =
 
 type InlineMatch =
   | { kind: 'escape'; end: number; char: string }
-  | { kind: 'math'; end: number; value: string }
+  | { kind: 'math'; end: number; value: string; display: boolean }
   | { kind: 'code'; end: number; value: string }
   | { kind: 'del'; end: number; children: InlineNode[] }
   | { kind: 'emphasis'; end: number; strong: boolean; children: InlineNode[] }
@@ -51,6 +52,9 @@ const UL_RE = /^ {0,3}[-*+][ \t]+(.*)$/;
 const OL_RE = /^ {0,3}\d{1,9}[.)][ \t]+(.*)$/;
 const BLOCKQUOTE_RE = /^ {0,3}>[ \t]?(.*)$/;
 const TABLE_DELIM_CELL_RE = /^:?-{1,}:?$/;
+// Display mathematics opens a block even when the previous line was prose with
+// no blank line between them (`**Return definition**\n$$r_t = ...$$`).
+const DISPLAY_MATH_START_RE = /^ {0,3}(?:\$\$|\\\[)/;
 
 function isTableDelimiterRow(line: string): boolean {
   const cells = splitTableRow(line);
@@ -137,32 +141,60 @@ function matchInlineAt(src: string, open: number): InlineMatch | null {
 
   if (ch === '\\') {
     const next = src[open + 1];
-    if (next && '\\`*_~[]()'.includes(next)) {
+    // The alternate LaTeX delimiters `\(...\)` / `\[...\]` appear in model
+    // output often enough to recognise; `\[...\]` is display mathematics.
+    const closer = next === '(' ? '\\)' : next === '[' ? '\\]' : null;
+    if (closer) {
+      const close = src.indexOf(closer, open + 2);
+      if (close === -1) return null;
+      const value = src.slice(open + 2, close).trim();
+      if (!value) return null;
+      return { kind: 'math', end: close + 2, value, display: next === '[' };
+    }
+    if (next && '\\`*_~[]()$'.includes(next)) {
       return { kind: 'escape', end: open + 2, char: next };
     }
     return null;
   }
 
+  // Display mathematics inside a line: `$$ ... $$`. It is not money, but the
+  // span may not be left unclosed (streaming output keeps the source as text).
+  if (ch === '$' && src[open + 1] === '$') {
+    const close = src.indexOf('$$', open + 2);
+    if (close === -1) return null;
+    const value = src.slice(open + 2, close).trim();
+    if (!value) return null;
+    return { kind: 'math', end: close + 2, value, display: true };
+  }
+
   // A formula: `$x^2$`. Money must stay money, so a `$...$` span only counts
   // as a formula when it LOOKS like one: it carries a LaTeX operator (`\`, `^`,
-  // `_`, `{`, `}`, `=`, `+`, `<`, `>`) or is a single non-digit symbol (`$x$`,
-  // `$\mu$`). The opening `$` may not follow a word character or a digit
-  // (`US$100`, `1$`), the span may not break over a line, it may not begin or
-  // end with whitespace (`$5 and $10` is prose), and the closing `$` may not be
-  // followed by a digit (`$100`).
+  // `_`, `{`, `}`, `=`, `+`, `<`, `>`), is a single non-digit symbol (`$x$`,
+  // `$\mu$`), or is a compact term mixing digits and letters (`$2x$`). The
+  // opening `$` may not follow a word character or a digit (`US$100`, `1$`),
+  // the span may not break over a line, and the closing `$` may not be followed
+  // by a digit (`$100`). Surrounding whitespace is trimmed (`$ x $` is a
+  // formula), but a money-shaped span (`$ 100 $`, `$5 and $10`) is not.
   if (ch === '$' && src[open + 1] !== '$') {
     const before = open > 0 ? src[open - 1] : '';
     if (before && /[A-Za-z0-9]/.test(before)) return null;
     const close = src.indexOf('$', open + 1);
     if (close === -1) return null;
-    const value = src.slice(open + 1, close);
+    const raw = src.slice(open + 1, close);
+    if (!raw || /\n/.test(raw)) return null;
+    const value = raw.trim();
     if (!value) return null;
-    if (/\n/.test(value)) return null;
-    if (/^\s|\s$/.test(value)) return null;
     const after = src[close + 1] ?? '';
     if (/\d/.test(after)) return null;
-    if (!/[\\^_{}=+<>]/.test(value) && !/^[^\d\s]$/.test(value)) return null;
-    return { kind: 'math', end: close + 1, value };
+    const compactTerm =
+      !/\s/.test(value) &&
+      /\d/.test(value) &&
+      /[A-Za-z]/.test(value) &&
+      !/^\d[\d,.]*[KMBT]$/i.test(value);
+    if (!/[\\^_{}=+<>]/.test(value) && !/^[^\d\s]$/.test(value) && !compactTerm) {
+      return null;
+    }
+    return { kind: 'math', end: close + 1, value, display: false };
   }
 
   if (ch === '`') {
@@ -243,7 +275,7 @@ export function parseInline(src: string): InlineNode[] {
         nodes.push({ type: 'code', value: match.value });
         break;
       case 'math':
-        nodes.push({ type: 'math', value: match.value, display: false });
+        nodes.push({ type: 'math', value: match.value, display: match.display });
         break;
       case 'del':
         nodes.push({ type: 'del', children: match.children });
@@ -264,6 +296,37 @@ export function parseInline(src: string): InlineNode[] {
 
   flush();
   return nodes;
+}
+
+// Reads a display formula beginning at `start` (`$$` / `\[`), on one line or
+// across several. Returns null when the closing delimiter never appears, so an
+// in-progress stream leaves the source visible rather than swallowing the rest.
+function readDisplayMath(
+  lines: string[],
+  start: number,
+): { value: string; next: number } | null {
+  const line = lines[start];
+  const open = line.trimStart().startsWith('$$') ? '$$' : '\\[';
+  const close = open === '$$' ? '$$' : '\\]';
+  const at = line.indexOf(open);
+  const rest = line.slice(at + open.length);
+  const sameLine = rest.indexOf(close);
+  if (sameLine !== -1) {
+    const value = rest.slice(0, sameLine).trim();
+    return value ? { value, next: start + 1 } : null;
+  }
+
+  const body = [rest];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const end = lines[i].indexOf(close);
+    if (end !== -1) {
+      body.push(lines[i].slice(0, end));
+      const value = body.join('\n').trim();
+      return value ? { value, next: i + 1 } : null;
+    }
+    body.push(lines[i]);
+  }
+  return null;
 }
 
 export function parseMarkdown(src: string): BlockNode[] {
@@ -295,27 +358,16 @@ export function parseMarkdown(src: string): BlockNode[] {
       continue;
     }
 
-    // A display formula: `$$ ... $$`, on one line or across several.
-    if (/^\s*\$\$/.test(line)) {
-      const body: string[] = [];
-      const inline = line.match(/^\s*\$\$(.*)\$\$\s*$/);
-      if (inline && inline[1] !== undefined) {
-        body.push(inline[1]);
-        i += 1;
-      } else {
-        body.push(line.replace(/^\s*\$\$/, ''));
-        i += 1;
-        while (i < lines.length && !/\$\$\s*$/.test(lines[i])) {
-          body.push(lines[i]);
-          i += 1;
-        }
-        if (i < lines.length) {
-          body.push(lines[i].replace(/\$\$\s*$/, ''));
-          i += 1;
-        }
+    // A display formula: `$$ ... $$` or `\[ ... \]`, on one line or across
+    // several. Like a fence, it opens a block even when the preceding prose
+    // line had no blank line after it.
+    if (DISPLAY_MATH_START_RE.test(line)) {
+      const math = readDisplayMath(lines, i);
+      if (math) {
+        blocks.push({ type: 'math', value: math.value });
+        i = math.next;
+        continue;
       }
-      blocks.push({ type: 'math', value: body.join('\n').trim() });
-      continue;
     }
 
     if (HR_RE.test(line)) {
@@ -376,8 +428,10 @@ export function parseMarkdown(src: string): BlockNode[] {
     }
 
     // Paragraph: consume until a blank line or the start of another block.
+    // Display math only breaks the paragraph when it actually closes; an
+    // unclosed `$$` in a stream stays visible as text.
     const para: string[] = [];
-    while (i < lines.length && lines[i].trim() && !isBlockStart(lines[i])) {
+    while (i < lines.length && lines[i].trim() && !startsBlock(lines, i)) {
       para.push(lines[i]);
       i += 1;
     }
@@ -401,6 +455,12 @@ export function isBlockStart(line: string): boolean {
     UL_RE.test(line) ||
     OL_RE.test(line)
   );
+}
+
+function startsBlock(lines: string[], i: number): boolean {
+  const line = lines[i];
+  if (DISPLAY_MATH_START_RE.test(line)) return readDisplayMath(lines, i) !== null;
+  return isBlockStart(line);
 }
 
 /** Flatten inline nodes back to plain text (for copy actions). */

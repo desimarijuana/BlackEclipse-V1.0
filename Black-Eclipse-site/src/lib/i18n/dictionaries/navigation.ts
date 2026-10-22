@@ -9,6 +9,7 @@
 export const navigation = {
   // Navigation (sidebar primary menu)
   'nav.chat': 'ChatBot',
+  'nav.home': 'Dashboard',
   'nav.dashboard': 'Command Center',
   'nav.investorEye': 'Investor Eye',
   'nav.marketWorkspace': 'Chart Workspace',

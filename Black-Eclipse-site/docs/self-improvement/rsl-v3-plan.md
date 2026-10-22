@@ -219,26 +219,106 @@ a real CI job that runs it on every change.
 
 `python/harness/evaluation/baselines/corpus_v1.json` is the COMMITTED record
 of what the corpus measures today (the stable measures only — cost, latency
-and token usage move every run and are never pinned). `scripts/check-all.js`,
-the repo's real release gate (the GitHub workflows never ran from this
-subfolder), now ends with the corpus gate: a critical regression fails the
-release. Refreshing the baseline is a deliberate act
+and token usage move every run and are never pinned). BOTH the local
+`npm run check:all` and the repository workflow (`/.github/workflows/ci.yml`)
+end with the corpus gate: a critical regression fails the release. Refreshing
+the baseline is a deliberate act
 (`npm run rsl:nightly -- --dataset all --write-baseline <file>`).
 
 `replay_v1.json` joins the corpus as six AUTHORED replay fixtures in the shape
 the replay builder produces from real runs (expected behavior = the recorded
 tool sequence, never an invented answer). They are live-only, so the scripted
 tier reports them UNMEASURED rather than pretending a stale model response
-replays. The corpus is now 68 tasks.
+replays. The corpus is now 76 tasks (64 validation / 10 optimization / 2
+held_out).
+
+The corpus grew again with a second tranche: `adversarial_v1` (8) and
+`finance_v1` (9). The new adversarial fixtures are about HONESTY under
+pressure: two sources that disagree (report both), a quote in the wrong
+currency (name the currency you have), a price with no currency at all (the unit
+is missing), and a document carrying an injected instruction (it is data, and
+publishing is not allowed). The new finance fixtures are independently
+recomputed: percentage change, three-year CAGR, free cash flow after capital
+spending, and a position size from reward and risk.
+
+## P5 — the lab improves the harness itself (implemented slice)
+
+Everything the loop can change is code (a worktree, a promotion) or a surface
+(prompt, tool guidance, context policy, guardrails). The surface is the cheap one
+— no worktree, no landing — and it is where most of the headroom is.
+
+`npm run rsl:lab` (the **surface lab**) does exactly that, honestly:
+
+- the variants are **deterministic** and derived from the lessons the loop
+  already **adopted** (one lesson, the top three, their cues as a checklist);
+  with no adopted lesson there is no variant, because the lab never invents an
+  instruction nobody verified;
+- each variant is measured on the SAME tasks through the existing measured
+  surface path, against the base's own run;
+- an **unmeasured** variant is never a winner, a **critical regression** (safety,
+  adversarial) is **vetoed** even when the average is better, and "flat" is a
+  result, not a win;
+- the winner is a **candidate for the operator** — the lab never lands, never
+  activates and never writes to the harness.
+
+On the scripted tier the lab correctly finds NO improvement, because a scripted
+answer does not depend on the prompt. That is the point: the lab reports what it
+measured.
+
+### P5 slice 2 — one surface path; the lab stages evidence (implemented)
+
+- `self_improvement/surface_candidate.py` owns the identity of a surface
+  experiment and the row it creates. The operator route and the lab BOTH call
+  it, so a lab winner and an operator experiment are the same thing to the rest
+  of the system, and re-running the same experiment never creates a second row.
+- The lab stages its winner as an **inert** surface candidate whose problem
+  statement carries the measured delta and the lessons it came from.
+  `POST /evolution/surface-lab/{id}/queue` is the operator's one click to queue
+  it; the loop then verifies it through the **same** measured path, and only then
+  can it be activated (canary + rollback). The lab never lands, never activates
+  and never queues.
+
+The session can also be scheduled by the operator's own scheduler
+(`HARNESS_RSL_SESSION_SECONDS`); the corpus gate runs in the repository
+workflow as well as locally.
+
+### P5 slice 3 — the live tier (implemented)
+
+The lab has two tiers and they are not interchangeable:
+
+- the **scripted** tier (default) replays a deterministic answer — it proves the
+  harness path works, and it **cannot** see a prompt change, so it reports
+  "flat" and no winner (the honest result);
+- the **live** tier (`npm run rsl:lab -- --live --provider <p> --model <m>`,
+  key from `HARNESS_EVAL_API_KEY`) runs the **same** measured path with a real
+  model. The runtime never guesses a provider, a model or a key, and a live run
+  without explicit settings is refused before it starts.
+
+The live tier is the only tier in which a verdict about a PROMPT change means
+anything, so a report says which tier produced it.
+
+### Decided, not deferred
+
+- **A3 — the loop stays `off` by default.** Zero-config must not write: the
+  `observe` mode creates inert candidates from post-run review, so flipping the
+  default would make a fresh install write to the store before anyone asked.
+  The operator opts in (`HARNESS_RSL_MODE=observe|propose|verify|auto`), and
+  `POST /evolution/rsl/config` does the same without a restart.
+- **V1 — the size ratchets stay with their history.** Moving the pins into a
+  data file would make the churn cheaper but would trade the re-pin notes (the
+  audit trail of WHY a file grew) for convenience. The real fix is splitting the
+  hot files - the split candidates are named in the ratchet comments.
 
 ## Remaining phases
 
 | Phase | Goal | Gate |
 |---|---|---|
-| P1 (rest) | done: replay fixtures + the committed baseline; still open: more adversarial/finance tasks | a published report with Wilson intervals and a reproducible benchmark table |
+| P1 (rest) | done: replay fixtures, the committed baseline, an 88-task corpus; still open: more adversarial/finance tasks | a published report with Wilson intervals and a reproducible benchmark table |
 | P2 | done: parallel search, per-scope leases, cost per accepted improvement | — |
 | P3 | done: tool guidance, context policy, guardrails, delegated-child prompt | — |
-| P4 (rest) | schedule the session; the release-gate step is done | one week of unattended runs with a readable report |
+| P4 (rest) | done: the release-gate step; the session can be scheduled by the operator's own scheduler (`HARNESS_RSL_SESSION_SECONDS`) | one week of unattended runs with a readable report |
+| P5 (rest) | done: the live tier, the whole-surface lab, the staged-evidence path | a measured surface candidate the operator can activate in one click |
+| P6 | done: the root workflow runs the same gate as `check:all` | one gate, one place, documented |
 
 ## Tests
 
@@ -261,6 +341,11 @@ replays. The corpus is now 68 tasks.
   breaks a guardrail FAILS with the named code.
 - `test_delegation_tool.py` — the delegated child inherits the surface's prompt
   and the NARROWED tool set.
+- `test_surface_lab.py` — the variants are bounded and derived; a critical
+  regression vetoes; an unmeasured variant never wins; the scripted tier reports
+  "flat" and NO winner.
+- `test_surface_candidate.py` — ONE surface identity and row; the staged winner
+  is inert; nothing is staged without a winner.
 - `test_rsl_digest.py` — the digest (UNKNOWN, never a fake zero);
   `test_drift_watch.py` — the opt-in drift candidate; `rsl-weekly-card.test.tsx`
   — the card; `test_evaluation_nightly.py` — a PLANTED regression must fail the

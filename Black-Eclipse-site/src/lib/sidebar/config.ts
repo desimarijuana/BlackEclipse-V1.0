@@ -9,7 +9,7 @@
 'use client';
 
 import {
-  LayoutDashboard, ChartCandlestick, GlobeStand, ChartPie, Bot,
+  LayoutDashboard, ChartCandlestick, GlobeStand, ChartPie, Bot, Home,
   BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain, FolderOpen,
   GitBranch, Wrench,
   type LucideIcon,
@@ -44,6 +44,7 @@ export interface SidebarSectionDef {
  *  reaches them through its tools. */
 export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'chat', label: 'ChatBot', icon: Bot, group: 'both' },
+  { id: 'home', label: 'Dashboard', icon: Home, group: 'terminal' },
   { id: 'dashboard', label: 'Command Center', icon: LayoutDashboard, group: 'terminal' },
   { id: 'investor-eye', label: 'Investor Eye', icon: ScanEye, group: 'terminal' },
   { id: 'market-workspace', label: 'Chart Workspace', icon: ChartCandlestick, group: 'terminal' },
@@ -146,12 +147,18 @@ export function loadSidebarConfig(): SidebarConfig {
     const known = new Set<string>(DEFAULT_SIDEBAR_SECTIONS.map((d) => d.id));
 
     // Preserve the user's saved ORDER for known ids, carrying over their
-    // enabled/shortcut settings. Retired ids are dropped.
+    // enabled/shortcut settings. Retired ids are dropped. A newly shipped
+    // section (e.g. the Dashboard) is inserted right after ChatBot so it lands
+    // in the shipped position without resetting a custom order.
     const merged: SidebarSectionConfig[] = [];
+    const alreadyOrderedHome = incomingIds.includes('home');
     for (const s of incoming) {
       if (!known.has(s.id) || merged.some((item) => item.id === s.id)) continue;
       const shortcut = typeof s.shortcut === 'string' && /^(F([1-9]|1[0-2]))?$/.test(s.shortcut) ? s.shortcut : '';
       merged.push({ id: s.id, enabled: s.enabled !== false, shortcut });
+      if (s.id === 'chat' && !alreadyOrderedHome) {
+        merged.push({ id: 'home', enabled: true, shortcut: '' });
+      }
     }
 
     // Append any canonical section not present yet (upgrade path) at the end.

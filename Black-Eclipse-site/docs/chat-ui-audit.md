@@ -1,7 +1,7 @@
 ---
 title: Chat & Agent Experience — Audit and Overhaul Plan
 status: Current
-last-verified: 2026-10-21
+last-verified: 2026-10-22
 ---
 
 # Chat & Agent Experience — Audit and Overhaul Plan
@@ -138,19 +138,29 @@ assistant turn, and renders assistant content through the custom `Markdown`.
 
 The Markdown subset **typesets mathematics**. A formula is LaTeX: `$...$`
 inline, `$$...$$` as its own block. The parser (`src/lib/chat/markdown.ts`)
-recognises them and the renderer (`src/components/chat/math.tsx`) draws them
-with KaTeX, so a Sharpe ratio, a VaR, a duration or a Black-Scholes line
-arrives as a formula instead of as source text.
+recognises them and the renderer (`src/lib/chat/math.tsx`) draws them with
+KaTeX, so a Sharpe ratio, a VaR, a duration or a Black-Scholes line arrives as a
+formula instead of as source text.
+
+**Display math opens a block.** `$$...$$` starts a display block even when the
+previous line is prose with no blank line between them — the common model shape
+`**Return definition**\n$$r_t = ...$$`. The same applies to `\[...\]`, and a
+`$$...$$` written mid-line is still display mathematics rather than two stray
+dollar signs. The alternate LaTeX delimiters `\(...\)` (inline) and `\[...\]`
+(display) are accepted too, so a model that emits them still typesets.
 
 **Money is not a formula.** A `$...$` span only counts as mathematics when it
 looks like mathematics: it carries a LaTeX operator (`\`, `^`, `_`, `{`, `}`,
-`=`, `+`, `<`, `>`) or is a single non-digit symbol (`$x$`, `$\mu$`). On top of
-that, the opening `$` may not follow a word character or a digit (`US$100`),
-the span may not break over a line, it may not begin or end with whitespace
-(`$5 and $10` is prose), and the closing `$` may not be followed by a digit
-(`$100`). So `it trades at $100` stays money and `$S = \frac{r_p - r_f}{\sigma}$`
-is a formula. The agent is told the same rule: **never write money inside a
-dollar sign** - write `USD 100` (`python/harness/prompts.py`, "Formulas").
+`=`, `+`, `<`, `>`), is a single non-digit symbol (`$x$`, `$\mu$`), or is a
+compact term mixing digits and letters (`$2x$`). On top of that, the opening `$`
+may not follow a word character or a digit (`US$100`), the span may not break
+over a line, and the closing `$` may not be followed by a digit (`$100`).
+Whitespace just inside the delimiters is trimmed (`$ x $` is a formula), but a
+money-shaped span (`$ 100 $`, `$5 and $10`) is not. An escaped `\$100` is always
+money. So `it trades at $100` stays money and
+`$S = \frac{r_p - r_f}{\sigma}$` is a formula. The agent is told the same rule:
+**never write money inside a dollar sign** - write `USD 100`
+(`python/harness/prompts.py`, "Formulas").
 
 **KaTeX is loaded on demand.** The library is imported dynamically, so the
 chat's initial bundle does not carry it; until it arrives the formula shows

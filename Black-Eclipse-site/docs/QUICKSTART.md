@@ -152,7 +152,11 @@ in [`../README.md`](../README.md) is authoritative; in short:
   release gate `npm run check:all` uses the committed baseline in
   `python/harness/evaluation/baselines/corpus_v1.json`). Export
   the benchmark as a portable bundle with `npm run rsl:corpus -- --out <file>`,
-  and check a bundle was not edited in flight with `--verify <file>`.
+  and check a bundle was not edited in flight with `--verify <file>`. Let the
+  loop try to improve its own harness with `npm run rsl:lab -- --memory-db
+  <eclipse-memory.db>` — it reports a measured CANDIDATE, never a landing. Add
+  `--live --provider <p> --model <m>` (credential from `HARNESS_EVAL_API_KEY`)
+  for the only tier in which a prompt change can move the result.
 - `HARNESS_RSL_MAX_PARALLEL` — how many independent candidates one RSL
   experiment verifies at once (1–8, default `2`). It never bypasses the daily
   budget or the one-experiment-at-a-time conductor.

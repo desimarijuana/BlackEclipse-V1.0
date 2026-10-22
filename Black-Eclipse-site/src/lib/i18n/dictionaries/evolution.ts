@@ -2,6 +2,12 @@
 // apply a change. Keep mechanism words ("worktree", "commit") out of user copy.
 
 export const evolution = {
+  'evolution.lab.title': 'What Eclipse tried on itself',
+  'evolution.lab.subtitle': 'A measured change Eclipse could make to its own instructions. Queue one to have it checked again.',
+  'evolution.lab.empty': 'Nothing measured yet.',
+  'evolution.lab.queue': 'Check it again',
+  'evolution.lab.queueing': 'Checking…',
+  'evolution.lab.queued': 'Queued',
   'evolution.weekly.title': 'What improved recently',
   'evolution.weekly.subtitle': 'What Eclipse tried in the last {days} days, what it measured and what it cost.',
   'evolution.weekly.experiments': 'Tried',

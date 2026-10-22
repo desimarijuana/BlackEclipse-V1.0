@@ -90,6 +90,7 @@ function nameIcon(name?: string): LucideIcon {
  */
 const TOP_LEVEL_PAGE_IDS = [
   'page-chat',
+  'page-home',
   'page-dashboard',
   'page-investor-eye',
   'page-market-workspace',

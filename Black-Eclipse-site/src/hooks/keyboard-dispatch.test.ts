@@ -120,7 +120,7 @@ describe('handleSidebarShortcut', () => {
     const navigated: AppTab[] = [];
     const event = keyEvent({ key: 'F2' });
     expect(handleSidebarShortcut(event, defaultSidebarConfig(), (tab) => navigated.push(tab))).toBe(true);
-    expect(navigated).toEqual(['dashboard']);
+    expect(navigated).toEqual(['home']);
     expect(event.preventDefault).toHaveBeenCalledTimes(1);
   });
 

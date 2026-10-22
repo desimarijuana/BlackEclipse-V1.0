@@ -108,6 +108,12 @@ export function usePriceHistories(symbols: string[], marketsHint: Record<string,
     const runId = ++runIdRef.current;
     let cancelled = false;
 
+    // Mark the new symbol set as loading immediately. Without this, a key
+    // change from empty (initial mount) to a real portfolio left `loading`
+    // false until every fetch finished, so consumers briefly reported
+    // "unavailable" for history that was still in flight.
+    setState(prev => ({ ...prev, loading: true }));
+
     const cache = readCache();
     const uniq = [...new Set(key.split(','))];
     const fresh = new Set(uniq.filter(sym => cache[sym] && cache[sym].closes.length >= 2));

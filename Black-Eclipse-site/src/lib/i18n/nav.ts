@@ -6,13 +6,14 @@
 import type { TranslationKey } from './types';
 
 export type NavTabId =
-  | 'chat' | 'dashboard' | 'investor-eye' | 'market-workspace' | 'discovery'
+  | 'chat' | 'home' | 'dashboard' | 'investor-eye' | 'market-workspace' | 'discovery'
   | 'portfolio' | 'journal' | 'news' | 'heatmap' | 'economics' | 'alerts'
   | 'skills' | 'sdk' | 'memory' | 'artifacts' | 'tasks' | 'pages' | 'ui-builder' | 'backtest' | 'research-data' | 'graph-studio'
   | 'bots';
 
 const NAV_KEY_BY_TAB: Record<NavTabId, TranslationKey> = {
   chat: 'nav.chat',
+  home: 'nav.home',
   dashboard: 'nav.dashboard',
   'investor-eye': 'nav.investorEye',
   'market-workspace': 'nav.marketWorkspace',

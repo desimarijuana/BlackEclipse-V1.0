@@ -13,7 +13,7 @@
 import type { AppTab } from './search/types';
 
 /** The tab shown at boot when there is no explicit deep link. */
-export type StartScreen = 'history' | 'chat' | 'dashboard' | 'portfolio' | 'market-workspace';
+export type StartScreen = 'history' | 'chat' | 'home' | 'dashboard' | 'portfolio' | 'market-workspace';
 
 export interface GeneralPrefs {
   startScreen: StartScreen;
@@ -32,13 +32,14 @@ export const DEFAULT_GENERAL_PREFS: GeneralPrefs = {
 export const START_SCREEN_OPTIONS: { id: StartScreen; label: string; hint: string }[] = [
   { id: 'history', label: 'Last screen', hint: 'Resume where you left off' },
   { id: 'chat', label: 'ChatBot', hint: 'The agent' },
+  { id: 'home', label: 'Dashboard', hint: 'Daily market brief' },
   { id: 'dashboard', label: 'Command Center', hint: 'Dashboard widgets' },
   { id: 'portfolio', label: 'Portfolio', hint: 'Holdings & P&L' },
   { id: 'market-workspace', label: 'Chart Workspace', hint: 'Charting workspace' },
 ];
 
 /** Tabs allowed as a start screen — keeps persisted junk from booting nowhere. */
-const START_TABS: readonly AppTab[] = ['chat', 'dashboard', 'portfolio', 'market-workspace'];
+const START_TABS: readonly AppTab[] = ['chat', 'home', 'dashboard', 'portfolio', 'market-workspace'];
 
 function isStartScreen(value: unknown): value is StartScreen {
   return value === 'history' || (typeof value === 'string' && (START_TABS as readonly string[]).includes(value));

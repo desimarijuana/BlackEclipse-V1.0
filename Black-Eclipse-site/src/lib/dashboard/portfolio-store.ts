@@ -109,25 +109,32 @@ function toHistoryMap(
 }
 
 /** Aggregate portfolio across every fund, priced with live JDDS quotes. */
-export function useAggregatePortfolio(): { funds: Fund[]; stats: PortfolioStats; quotes: QuoteRow[] } {
+export function useAggregatePortfolio(): { funds: Fund[]; stats: PortfolioStats; quotes: QuoteRow[]; loading: boolean } {
   const funds = useGuestFunds();
   const symbols = useMemo(() => heldSymbols(funds), [funds]);
   const key = symbols.join(',');
   const [quotes, setQuotes] = useState<QuoteRow[]>(() => quoteCache.get(key)?.data ?? []);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!key) { setQuotes([]); return; }
+    if (!key) { setQuotes([]); setLoading(false); return; }
     let cancelled = false;
+    setLoading(true);
     loadQuotes(symbols)
-      .then(data => { if (!cancelled) setQuotes(data); })
-      .catch(() => { /* keep last known */ });
+      .then(data => {
+        if (!cancelled) {
+          setQuotes(data);
+          setLoading(false);
+        }
+      })
+      .catch(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const transactions = useMemo(() => funds.flatMap(f => f.transactions), [funds]);
   const live = useMemo(() => toLiveAssets(quotes), [quotes]);
   const stats = usePortfolioEngine(transactions, live);
-  return { funds, stats, quotes };
+  return { funds, stats, quotes, loading };
 }
 
 /**

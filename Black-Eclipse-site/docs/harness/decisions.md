@@ -10153,4 +10153,99 @@ agent is built explicitly when the surface set a prompt). Tests:
 `test_delegation_tool.py` (the child inherits the prompt and the narrowed
 tools), `test_rsl_snapshot.py` (bounded + digest). Docs:
 `docs/self-improvement/rsl-v3-plan.md`.
+## ADR-H306 - The lab tries to improve the harness itself, and it may only report a CANDIDATE
 
+> Renumbered from ADR-H290 during the Round 3 merge: H290 was already the sandbox
+> ADR. The decision is unchanged; only the number moved.
+
+**Decision.** `npm run rsl:lab` (the surface lab) tries to improve the
+harness's OWN surface and measures every attempt:
+
+1. The variants are DETERMINISTIC and derived from the lessons the loop already
+   ADOPTED (one lesson, the top three, and their cues as a checklist). With no
+   adopted lesson there is no variant: the lab never invents an instruction
+   nobody verified. The base prompt is never rewritten - only bounded
+   `toolGuidance` is added.
+2. Each variant is measured on the SAME tasks through the EXISTING measured
+   surface path (`verifier.verify_surface`), against the base's own run.
+3. The ranking is honest: an UNMEASURED variant is never a winner, a variant
+   that regresses a critical category (safety, adversarial) is VETOED even when
+   its average is better, and "flat" is a result, not a win.
+4. The winner is a CANDIDATE for the operator. The lab never lands, never
+   activates and never writes to the harness.
+
+**Why.** Everything the loop can change is either code (a worktree, a promotion)
+or a surface (prompt, guidance, context policy, guardrails). The surface is the
+cheap one - no worktree, no landing - and it is where most of the headroom is.
+But a self-improvement step that can only be measured by a live model is a
+promise, not a result; on the scripted tier the lab correctly finds NO
+improvement, because a scripted answer does not depend on the prompt.
+
+**Consequences.** `self_improvement/surface_lab.py` (the variants, the ranking,
+the report, the CLI), `scripts/rsl-lab.js` + `npm run rsl:lab`. Tests:
+`test_surface_lab.py` (the variants are bounded and derived; a critical
+regression vetoes; an unmeasured variant never wins; the scripted tier reports
+"flat" and NO winner). Docs: `docs/self-improvement/rsl-v3-plan.md`.
+## ADR-H307 - There is ONE surface-candidate path, and the lab stages EVIDENCE, not a decision
+
+> Renumbered from ADR-H291 during the Round 3 merge: H291 was already taken. The
+> decision is unchanged; only the number moved.
+
+**Decision.** Two rules for surface experiments.
+
+1. **One path.** The identity of a surface experiment and the row it creates
+   live in `self_improvement/surface_candidate.py`. The operator route
+   (`POST /evolution/surface-experiments`) and the surface lab both call it, so
+   a lab winner and an operator experiment are the same thing to the rest of
+   the system - and re-running the same experiment never creates a second row.
+2. **The lab stages evidence; the operator decides.** The lab's winner is
+   staged as an INERT surface candidate whose problem statement carries the
+   measured delta and the lessons it came from. `POST
+   /evolution/surface-lab/{id}/queue` is the operator's one click to queue it;
+   the loop then verifies it through the SAME measured path every other surface
+   experiment uses, and only then can it be activated (with the canary and the
+   rollback). The lab itself never lands, never activates and never queues.
+
+**Why.** A self-improvement loop that could land its own candidate would be an
+authority the rest of the system does not have. Staging the measurement as an
+inert candidate keeps the SAME gate for a machine-authored improvement and an
+operator-authored one: verify, then activate, with the canary and the rollback
+in between.
+
+**Consequences.** `self_improvement/surface_candidate.py` (the identity + the
+creation), `routers/evolution.py` (the operator route now calls the shared
+path; the new queue route), `self_improvement/surface_lab.py` (`stage_winner`).
+Tests: `test_surface_candidate.py` (one identity, one row, the staged winner is
+inert, nothing is staged without a winner), `test_surface_lab.py`. Docs:
+`docs/self-improvement/rsl-v3-plan.md`.
+## ADR-H308 - A prompt can only be measured with a real model; the live tier never guesses a provider
+
+> Renumbered from ADR-H292 during the Round 3 merge: H292 was already taken. The
+> decision is unchanged; only the number moved.
+
+**Decision.** The surface lab has two tiers and they are not interchangeable:
+
+- The **scripted** tier (the default) replays a deterministic answer. It proves
+  the harness path works and that the comparison is wired correctly - and it
+  CANNOT see a prompt change, because a scripted answer does not depend on the
+  prompt. It therefore reports "flat" and no winner, which is the honest
+  result, not a gap.
+- The **live** tier (`npm run rsl:lab -- --live --provider <p> --model <m>`)
+  runs the SAME measured path with a real model. The credential comes from
+  `HARNESS_EVAL_API_KEY`; the runtime never guesses a provider, a model or a
+  key, and a live run without explicit settings is refused before it starts.
+
+The live tier is the only tier in which the lab's verdict about a PROMPT change
+means anything, so a report must say which tier produced it.
+
+**Why.** A self-improvement loop that measures prompt changes against a
+scripted model would report improvements that do not exist. The two tiers are
+both useful - one proves the machinery, the other measures the thing - but only
+one of them can decide a prompt change, and the report has to say which.
+
+**Consequences.** `self_improvement/verifier.py` (`verify_surface` takes the
+tier and the settings), `self_improvement/surface_lab.py` (the lab's live tier
+and its CLI flags), `evaluation/candidate_invoker.py` (the live invoker already
+refuses to run without explicit settings). Tests: `test_surface_lab.py` (the
+live tier reaches the invoker with the explicit settings, and the run stays
+deterministic in the test). Docs: `docs/self-improvement/rsl-v3-plan.md`.

@@ -287,10 +287,10 @@ preview and never applies it.
 `validation`, `held_out` and `release`. A task's `metadata.split` wins, then the
 dataset's top-level `metadata.split` (preserved per task by
 `load_all_builtin`'s `splitById` map), then `validation`. The built-ins are:
-`benchmark_v1` + `construction_v1` + `adversarial_v1` + `finance_v1` =
-validation (56), `routing_e2e_v1` + `replay_v1` = optimization (10),
+`benchmark_v1` + `construction_v1` + `adversarial_v1` (8) + `finance_v1` (9) =
+validation (64), `routing_e2e_v1` + `replay_v1` = optimization (10),
 `team_v1` = held_out (2).
-`select_tasks` without `split` still returns every task (68) for the release
+`select_tasks` without `split` still returns every task (76) for the release
 gate; an unknown split is refused.
 
 **Provenance.** A persisted run records `agentVersion`, `gitCommit` (or
@@ -373,7 +373,7 @@ R3-08, `task_success >= 0.9` and `recovery_success >= 0.85` are gated too (both
 measured 1.0 offline) — never weakened to make a run pass.
 
 ```
-evaluation gate: PASS (tasks=68 run=…)
+evaluation gate: PASS (tasks=76 run=…)
   construction: 16/16 measured, 100%
   finance: 7/7 measured, 100%
   …
@@ -564,9 +564,9 @@ pass must make the session say `FAIL` and name the measure.
 
 `python/harness/evaluation/baselines/corpus_v1.json` is the COMMITTED record of
 what the corpus measures today (the stable measures only - cost, latency and
-token usage move on every run and are never pinned). `scripts/check-all.js`
-(the repo's release gate - the GitHub workflows never ran from this subfolder)
-now ends with the corpus gate:
+token usage move on every run and are never pinned). BOTH the local release
+gate (`npm run check:all`) and the repository workflow
+(`/.github/workflows/ci.yml`) end with the corpus gate:
 
 ```bash
 npm run rsl:nightly -- --dataset all \

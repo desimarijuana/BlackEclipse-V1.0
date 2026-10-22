@@ -320,6 +320,7 @@ class ToolContext:
     # agent-memory connection. Set by the graph from the service; None = the
     # `project_*` tools report the store as unavailable rather than pretending.
     project_store: Any = None
+    project_store: Any = None
     # The process-wide immutable research-dataset store (manifests + artifacts) on
     # the ONE agent-memory connection. Set by the graph from the service; None =
     # the dataset tools report UNAVAILABLE rather than pretending to persist.

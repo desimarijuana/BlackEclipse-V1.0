@@ -11,9 +11,33 @@ and the citation grader agree on what a citation IS.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
-GUARDRAILS: tuple[str, ...] = ("require_tool_before_answer", "require_citation")
+GUARDRAILS: tuple[str, ...] = (
+    "require_tool_before_answer",
+    "require_citation",
+    "no_fabricated_url",
+    "require_source_for_numbers",
+)
+
+#: A URL in the answer. The answer may only cite a URL a TOOL actually returned.
+_URL = re.compile(r"https?://[^\s<>\"'\)\]]+")
+#: A number that looks like a quantity (a price, a ratio, a count).
+_NUMBER = re.compile(r"\d[\d,]*\.?\d*")
+#: The wording that says "the data is not there". A number without a source and
+#: without this wording is a claim the runtime cannot back.
+_UNAVAILABLE = (
+    "unavailable", "not available", "no data", "cannot confirm", "could not",
+)
+
+
+def _urls(text: str) -> set[str]:
+    return {url.rstrip(".,;)]}") for url in _URL.findall(text or "")}
+
+
+def _numbers(text: str) -> bool:
+    return bool(_NUMBER.search(text or ""))
 
 
 def evaluate_guardrails(
@@ -22,6 +46,7 @@ def evaluate_guardrails(
     output: str = "",
     tool_calls: int = 0,
     max_answer_chars: Optional[int] = None,
+    tool_texts: Optional[list[str]] = None,
 ) -> list[dict[str, Any]]:
     """The violations of `guardrails` for one finished answer (empty = none)."""
     violations: list[dict[str, Any]] = []
@@ -42,6 +67,37 @@ def evaluate_guardrails(
                     "code": "GUARDRAIL_CITATION_MISSING",
                     "guardrail": name,
                     "detail": "the answer carries no citation",
+                })
+        elif name == "no_fabricated_url":
+            allowed = set()
+            for text in (tool_texts or []):
+                allowed |= _urls(text)
+            invented = sorted(_urls(output or "") - allowed)
+            if invented:
+                violations.append({
+                    "code": "GUARDRAIL_FABRICATED_URL",
+                    "guardrail": name,
+                    "detail": (
+                        "the answer cites a source no tool returned: "
+                        + ", ".join(invented[:3])
+                    ),
+                })
+        elif name == "require_source_for_numbers":
+            from ..evaluation.graders.citation import extract_citations  # noqa: PLC0415
+
+            lowered = (output or "").lower()
+            if (
+                _numbers(output or "")
+                and not extract_citations(output or "")
+                and not any(marker in lowered for marker in _UNAVAILABLE)
+            ):
+                violations.append({
+                    "code": "GUARDRAIL_NUMBER_WITHOUT_SOURCE",
+                    "guardrail": name,
+                    "detail": (
+                        "the answer states a number without a source and without "
+                        "saying the data was unavailable"
+                    ),
                 })
     if max_answer_chars is not None and int(max_answer_chars) > 0:
         length = len(output or "")

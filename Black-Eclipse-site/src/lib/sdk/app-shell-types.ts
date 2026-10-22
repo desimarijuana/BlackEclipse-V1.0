@@ -35,6 +35,7 @@ export interface AppNavManifestSection {
 
 export const APP_NAV_SECTIONS: readonly AppNavManifestSection[] = [
   { id: 'chat', label: 'ChatBot', group: 'both' },
+  { id: 'home', label: 'Dashboard', group: 'terminal' },
   { id: 'dashboard', label: 'Command Center', group: 'terminal' },
   { id: 'investor-eye', label: 'Investor Eye', group: 'terminal' },
   { id: 'market-workspace', label: 'Chart Workspace', group: 'terminal' },
@@ -117,6 +118,15 @@ export function normalizeAppNav(raw: unknown): AppNavConfig {
     }
   }
   const present = new Set(sections.map((section) => section.id));
+  // A newly shipped section is inserted in its canonical position (right after
+  // ChatBot) for an existing nav order, instead of silently landing at the end.
+  if (!present.has('home')) {
+    const chatIndex = sections.findIndex((section) => section.id === 'chat');
+    if (chatIndex >= 0) {
+      sections.splice(chatIndex + 1, 0, { id: 'home', enabled: true });
+      present.add('home');
+    }
+  }
   for (const section of APP_NAV_SECTIONS) {
     if (!present.has(section.id)) sections.push({ id: section.id, enabled: true });
   }

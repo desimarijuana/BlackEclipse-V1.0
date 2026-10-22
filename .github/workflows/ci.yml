@@ -2,9 +2,10 @@ name: CI
 
 # GitHub Actions reads only `/.github/workflows` at the repository ROOT. The old
 # workflows lived under `Black-Eclipse-site/.github/workflows/` and never ran
-# (ADR-H75). This restores a real gate at the correct path, mirroring
+# (ADR-H75). This is the real gate at the correct path, mirroring
 # `Black-Eclipse-site/scripts/check-all.js` step-for-step:
-#   prisma generate -> typecheck -> lint -> npm test -> eval gates.
+#   prisma generate -> typecheck -> lint -> security -> npm test -> evals ->
+#   the corpus gate (the corpus vs the committed baseline).
 #
 # The former `backup.yml` (a daily `sqlite3 jdds.db` cron) is intentionally NOT
 # restored: `jdds.db` is untracked runtime state now, so a checkout has no such
@@ -88,3 +89,13 @@ jobs:
 
       - name: Evaluation gates
         run: npm run test:evals
+
+      # The corpus GATE: the same corpus, compared with the COMMITTED baseline.
+      # A critical regression (task success, safety, hallucination rate,
+      # financial accuracy, routing) fails the release here, exactly as it does
+      # in the local `npm run check:all`.
+      - name: Corpus gate (nightly vs committed baseline)
+        run: >-
+          node scripts/rsl-nightly.js
+          --dataset all
+          --baseline-file python/harness/evaluation/baselines/corpus_v1.json

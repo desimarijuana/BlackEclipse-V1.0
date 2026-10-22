@@ -9,9 +9,11 @@ becomes a fabricated zero.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 from ..evaluation.repair_metrics import metrics_from_rsl_runs, rsl_runs_from_store
+from ..persistence import now_iso
 
 
 def _iso_days_ago(days: int) -> str:
@@ -95,6 +97,58 @@ def _drift(store: Any, scope: Optional[str] = None) -> dict[str, Any]:
     }
 
 
+class DigestStore:
+    """The LAST digest, so the next one can say what changed."""
+
+    _SCHEMA = """
+    CREATE TABLE IF NOT EXISTS HarnessDigest (
+      key       TEXT PRIMARY KEY,
+      payload   TEXT NOT NULL,
+      createdAt TEXT NOT NULL
+    );
+    """
+
+    def __init__(self, store: Any) -> None:
+        self._store = store
+        self._db.executescript(self._SCHEMA)
+
+    def last(self, key: str = "rsl.digest") -> Optional[dict[str, Any]]:
+        row = self._db.execute(
+            "SELECT payload FROM HarnessDigest WHERE key = ?", (key,),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            parsed = json.loads(row["payload"])
+        except (TypeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def record(self, payload: dict[str, Any], key: str = "rsl.digest") -> str:
+        now = now_iso()
+        self._db.execute(
+            "INSERT OR REPLACE INTO HarnessDigest (key, payload, createdAt) "
+            "VALUES (?, ?, ?)",
+            (key, json.dumps(payload, default=str), now),
+        )
+        return now
+
+
+def _delta(previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    """The per-measure change since the last digest."""
+    before = (previous.get("experiments") or {}) if previous else {}
+    after = current.get("experiments") or {}
+    deltas: dict[str, Any] = {}
+    for key in ("rsl_accepted", "rsl_rejected", "rsl_unmeasured", "rsl_experiments"):
+        was = before.get(key)
+        now = after.get(key)
+        deltas[key] = (
+            int(now) - int(was)
+            if isinstance(was, int) and isinstance(now, int) else None
+        )
+    return deltas
+
+
 def build_digest(
     store: Any, *, days: int = 7, scope: Optional[str] = None, limit: int = 10,
 ) -> dict[str, Any]:
@@ -102,7 +156,7 @@ def build_digest(
     since = _iso_days_ago(days)
     runs = rsl_runs_from_store(store, limit=1000, since=since)
     metrics = metrics_from_rsl_runs(runs)
-    return {
+    digest = {
         "days": max(1, int(days)),
         "since": since,
         "experiments": {
@@ -119,6 +173,13 @@ def build_digest(
         "lessons": _adopted_lessons(store, limit=limit),
         "drift": _drift(store, scope=scope),
     }
+    try:
+        previous = DigestStore(store).last()
+    except Exception:  # noqa: BLE001 - a missing digest table is a cold start
+        previous = None
+    digest["previous"] = previous
+    digest["delta"] = _delta(previous or {}, digest)
+    return digest
 
 
 def render_markdown(digest: dict[str, Any]) -> str:
