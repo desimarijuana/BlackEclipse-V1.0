@@ -28,6 +28,7 @@ import type {
   EvolutionRecursiveVariant,
   EvolutionRslReport,
   EvolutionRslStatus,
+  EvolutionSurfaceLabCandidate,
   EvolutionRslTickResult,
   EvolutionSurfaceActivation,
   EvolutionSurfaceActivationResult,
@@ -227,6 +228,28 @@ export async function getEvolutionRslReportBrowser(
   if (input.limit != null) params.set("limit", String(input.limit));
   const query = params.toString();
   return api<EvolutionRslReport>(`/api/evolution/rsl/report${query ? `?${query}` : ""}`);
+}
+
+/** The surface candidates the lab staged (inert evidence). */
+export async function listEvolutionSurfaceLabCandidatesBrowser(
+  input: { limit?: number } = {},
+): Promise<{ success: boolean; candidates: EvolutionSurfaceLabCandidate[] }> {
+  const params = new URLSearchParams();
+  if (input.limit != null) params.set("limit", String(input.limit));
+  const query = params.toString();
+  return api<{ success: boolean; candidates: EvolutionSurfaceLabCandidate[] }>(
+    `/api/evolution/surface-lab/candidates${query ? `?${query}` : ""}`,
+  );
+}
+
+/** Queue a staged lab candidate for the loop's verification. */
+export async function queueEvolutionSurfaceLabCandidateBrowser(
+  candidateId: string,
+): Promise<{ success: boolean; queued: boolean }> {
+  return api<{ success: boolean; queued: boolean }>(
+    `/api/evolution/surface-lab/${encodeURIComponent(candidateId)}/queue`,
+    { method: "POST" },
+  );
 }
 
 export async function getEvolutionDriftBrowser(

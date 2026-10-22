@@ -186,6 +186,43 @@ def test_an_unknown_project_has_no_proposals(tmp_path):
     assert report["proposals"] == []
 
 
+def test_a_note_that_names_an_untested_strategy_is_proposed(tmp_path):
+    """A finding the project wrote down is evidence the proposer must read."""
+    from harness.projects.propose import propose_next
+
+    store = _project_store(tmp_path)
+    quant = QuantStoreProxy(None)
+    quant.strategies["ema_cross"] = {"universe": {"symbols": ["NQ"]}}
+    project = store.create("NQ momentum")
+    store.attach(project.id, "strategy", "ema_cross")
+    store.attach(project.id, "note", "run:1",
+                 label="ema_cross has never been traded in up_high")
+
+    report = propose_next(store, project.id, quant_store=quant)
+    proposal = next(p for p in report["proposals"] if p["id"].startswith("note-regime:"))
+    assert "up_high" in proposal["title"]
+    assert proposal["action"]["tool"] == "run_backtest"
+    assert proposal["action"]["args"]["strategyId"] == "ema_cross"
+    assert any(e.startswith("note:") for e in proposal["evidence"])
+
+
+def test_a_note_about_a_regime_a_result_already_covered_proposes_nothing(tmp_path):
+    from harness.projects.propose import propose_next
+
+    store = _project_store(tmp_path)
+    quant = QuantStoreProxy(None)
+    quant.strategies["ema_cross"] = {"universe": {"symbols": ["NQ"]}}
+    project = store.create("p")
+    store.attach(project.id, "strategy", "ema_cross")
+    store.attach(project.id, "note", "run:1", label="up_high was a bad month")
+    store.attach(project.id, "experiment", "exp_1")
+    quant.artifacts["exp_1"] = _backtest_artifact(
+        trade_count=120, regimes={"up_high": {"trades": 10, "netPnl": 50.0}})
+
+    report = propose_next(store, project.id, quant_store=quant)
+    assert not [p for p in report["proposals"] if p["id"].startswith("note-regime:")]
+
+
 def test_a_broken_rule_is_reported_rather_than_silently_skipped(tmp_path, monkeypatch):
     """A rule that cannot be evaluated must be visible, not quietly absent."""
     from harness.projects import propose as propose_module

@@ -29,6 +29,8 @@ _FIELD_ENV: dict[str, str] = {
     "trials": "HARNESS_RSL_TRIALS",
     "k": "HARNESS_RSL_K",
     "maxParallel": "HARNESS_RSL_MAX_PARALLEL",
+    "surfaceLab": "HARNESS_RSL_SURFACE_LAB",
+    "maxSurfaceExperimentsPerDay": "HARNESS_RSL_MAX_SURFACE_EXPERIMENTS_PER_DAY",
     "generations": "HARNESS_RSL_GENERATIONS",
     "objective": "HARNESS_RSL_OBJECTIVE",
     "tickSeconds": "HARNESS_RSL_TICK_SECONDS",
@@ -112,6 +114,11 @@ class RSLConfig:
     trials: int = 3
     k: int = 1
     max_parallel: int = 2
+    # The SURFACE budget: how many measured surface sessions (the lab) may run
+    # per day. It is SEPARATE from the code budget, so exploring the harness
+    # itself is never starved by (or starves) the code experiments.
+    surface_lab: bool = False
+    max_surface_experiments_per_day: int = 1
     generations: int = 1
     objective: str = 'single'
     tick_seconds: int = 300
@@ -158,6 +165,10 @@ class RSLConfig:
             k=_env_int(env, "HARNESS_RSL_K", 1, 1, 8),
             max_parallel=_env_int(
                 env, "HARNESS_RSL_MAX_PARALLEL", 2, 1, 8,
+            ),
+            surface_lab=_env_bool(env, "HARNESS_RSL_SURFACE_LAB", False),
+            max_surface_experiments_per_day=_env_int(
+                env, "HARNESS_RSL_MAX_SURFACE_EXPERIMENTS_PER_DAY", 1, 0, 50,
             ),
             generations=_env_int(env, "HARNESS_RSL_GENERATIONS", 1, 1, 3),
             tick_seconds=_env_int(env, "HARNESS_RSL_TICK_SECONDS", 300, 10, 3600),
@@ -221,6 +232,8 @@ class RSLConfig:
             "trials": self.trials,
             "k": self.k,
             "maxParallel": self.max_parallel,
+            "surfaceLab": self.surface_lab,
+            "maxSurfaceExperimentsPerDay": self.max_surface_experiments_per_day,
             "objective": self.objective,
             "generations": self.generations,
             "tickSeconds": self.tick_seconds,

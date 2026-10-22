@@ -1,7 +1,7 @@
 ---
 title: Overview & Mental Model
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-10-21
 ---
 
 # Overview & Mental Model
@@ -56,11 +56,13 @@ Three ideas carry most of the weight:
 ## What a new user actually sees
 
 The sidebar is user-reorderable with configurable function-key navigation.
-Defaults follow its shipped order: F1 ChatBot, F2 Command Center, F3 Investor Eye,
-F4 Chart Workspace, F5 Market Screener, F6 Portfolio, F7 Journal, F8 Market News,
-F9 Market Bubbles, F10 Economics, and F12 Price Alerts. F11 remains browser
-fullscreen. Existing customized assignments are preserved; some keyboards need
-Fn, and browser/OS interception may require choosing a different key in Settings.
+Defaults follow its shipped order: F1 ChatBot, F2 Dashboard, F3 Command Center,
+F4 Investor Eye, F5 Chart Workspace, F6 Market Screener, F7 Portfolio, F8 Journal,
+F9 Market News, F10 Market Bubbles, F11 Economics, and F12 Price Alerts. Later
+sections (Skills, Eclipse SDK, Eclipse Memory, Artifacts, Graph Studio) ship
+without a default function key. Existing customized assignments are preserved;
+some keyboards need Fn, and browser/OS interception may require choosing a
+different key in Settings.
 
 Press **Ctrl+/ (Cmd+/ on Mac)** outside text fields and other dialogs for
 searchable shortcut help. Page groups appear as screens are visited. Common
@@ -78,6 +80,7 @@ selected mode still applies — use Alt+T / Alt+A to switch.
 
 | Terminal tab | What it is |
 |---|---|
+| Dashboard | The daily decision surface: market weather, leadership, portfolio trend health, review queue, watchlist radar, concentration and alerts. Global-first, with a market selector. |
 | Command Center | A customizable widget dashboard (see the workspace concept below) |
 | Chart Workspace | A customizable multi-panel chart/market grid (independent layout engine) |
 | Market Screener | The main stock screen across global markets |

@@ -71,6 +71,9 @@ def test_advanced_quant_routes_registered():
         "/projects/{project_id}",
         "/projects/{project_id}/digest",
         "/projects/{project_id}/proposals",
+        "/projects/{project_id}/proposals/{proposal_id}/run",
+        "/projects/{project_id}/auto",
+        "/projects/auto/run",
     ):
         assert path in paths, path
 

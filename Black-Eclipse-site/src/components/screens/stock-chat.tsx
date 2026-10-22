@@ -80,6 +80,10 @@ const DashboardScreen = dynamic(() => import('./dashboard/dashboard-screen').the
   ssr: false,
   loading: () => <ScreenSkeleton />,
 });
+const HomeDashboardScreen = dynamic(() => import('./dashboard/home-dashboard').then((m) => m.HomeDashboardScreen), {
+  ssr: false,
+  loading: () => <ScreenSkeleton />,
+});
 const MarketWorkspaceScreen = dynamic(
   () => import('@/components/market-workspace/market-workspace').then((m) => m.MarketWorkspace),
   { ssr: false, loading: () => <ScreenSkeleton /> }
@@ -1110,6 +1114,14 @@ function StockChatContent() {
               then stays mounted hidden — revisits are instant with no chunk
               reload, no refetch, no loader flash. Unvisited tabs render
               nothing, preserving the old single-screen boot behavior. */}
+          {visited.has('home') && (
+            <div data-keepalive-panel className={cn('w-full h-full', activeTab === 'home' ? '' : 'hidden')}>
+              <div className="flex-1 w-full px-2 md:px-4 py-3">
+                <HomeDashboardScreen active={activeTab === 'home'} />
+              </div>
+            </div>
+          )}
+
           {visited.has('dashboard') && (
             <div data-keepalive-panel className={cn('w-full h-full', activeTab === 'dashboard' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-2 md:px-4 py-3">

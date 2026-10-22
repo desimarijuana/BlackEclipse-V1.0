@@ -21,7 +21,7 @@ describe('defaultSidebarConfig', () => {
     // the explicit expected list — not a count derived from the source under
     // test — so adding/removing a section fails here on purpose.
     expect(config.sections.map((s) => s.shortcut)).toEqual([
-      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '',
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '',
     ]);
     expect(config.sections.map((s) => s.id)).toEqual(DEFAULT_SIDEBAR_SECTIONS.map((s) => s.id));
   });
@@ -60,7 +60,7 @@ describe('v1 migration', () => {
     // (only the first 12 get F1..F12). This is the explicit expected list, so a
     // change to the canonical section count fails here.
     expect(loadSidebarConfig().sections.map((s) => s.shortcut)).toEqual([
-      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '',
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '',
     ]);
   });
 
@@ -127,9 +127,26 @@ describe('v1 migration', () => {
     };
     memory.set(SIDEBAR_CONFIG_KEY, JSON.stringify(messy));
     const loaded = loadSidebarConfig();
-    expect(loaded.sections.slice(0, 2).map((s) => s.id)).toEqual(['chat', 'dashboard']);
-    expect(loaded.sections.slice(0, 2).map((s) => s.shortcut)).toEqual(['', 'F2']);
+    expect(loaded.sections.slice(0, 3).map((s) => s.id)).toEqual(['chat', 'home', 'dashboard']);
+    expect(loaded.sections.slice(0, 3).map((s) => s.shortcut)).toEqual(['', '', 'F2']);
     expect(loaded.sections).toHaveLength(DEFAULT_SIDEBAR_SECTIONS.length);
+  });
+
+  it('inserts the Dashboard after ChatBot for a stored pre-Dashboard order', () => {
+    const preDashboard = {
+      shortcutVersion: 2,
+      sections: DEFAULT_SIDEBAR_SECTIONS
+        .filter((section) => section.id !== 'home')
+        .map((section, index) => ({
+          id: section.id,
+          enabled: true,
+          shortcut: index < 12 ? `F${index + 1}` : '',
+        })),
+    };
+    memory.set(SIDEBAR_CONFIG_KEY, JSON.stringify(preDashboard));
+    const loaded = loadSidebarConfig();
+    expect(loaded.sections.slice(0, 3).map((s) => s.id)).toEqual(['chat', 'home', 'dashboard']);
+    expect(loaded.sections.map((s) => s.id)).toHaveLength(DEFAULT_SIDEBAR_SECTIONS.length);
   });
 
   it('falls back to defaults on corrupted JSON', () => {
@@ -144,7 +161,7 @@ describe('v1 migration', () => {
     memory.set(SIDEBAR_CONFIG_KEY, JSON.stringify(v2));
     const loaded = loadSidebarConfig();
     expect(loaded.sections[0]).toEqual({ id: 'chat', enabled: false, shortcut: 'F1' });
-    expect(loaded.sections[1].id).toBe('dashboard');
+    expect(loaded.sections[1].id).toBe('home');
   });
 });
 
@@ -212,3 +229,4 @@ describe('nav groups (Terminal / Agentic)', () => {
     expect(DEFAULT_SIDEBAR_SECTIONS.some((s) => s.id === 'bots')).toBe(false);
   });
 });
+

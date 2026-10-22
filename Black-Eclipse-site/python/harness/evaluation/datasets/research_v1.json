@@ -1,0 +1,91 @@
+{
+  "datasetName": "eclipse-research",
+  "datasetVersion": "1.0.0",
+  "schemaVersion": 1,
+  "reviewed": true,
+  "reviewer": "eclipse-eval",
+  "reviewedAt": "2026-10-22",
+  "notes": "SOURCE-DISCIPLINE fixtures. These are the tasks where the PROMPT decides the answer: cite the source you used, say when the data is not there, present a conflict instead of picking a side, and carry the as-of date. They are LIVE-ONLY on purpose - a scripted answer does not depend on the prompt, so the scripted tier reports them UNMEASURED rather than pretending. The services are synthetic and deterministic; no network, no market data.",
+  "metadata": {"tiers": {"0": "deterministic", "1": "integration", "2": "live"}},
+  "tasks": [
+    {
+      "id": "research.cite.001",
+      "version": 1,
+      "name": "Cite the source you used",
+      "description": "The service returns one source; the answer must cite it rather than answer from memory.",
+      "category": "citations",
+      "difficulty": "hard",
+      "input": {"prompt": "What is ACME's revenue? Use the filings service and cite the source."},
+      "environment": {"type": "mock_services", "services": {"filings": {"symbol": "ACME", "revenue": 120.0, "source": {"title": "ACME FY2025 filing", "url": "https://example.com/acme/fy2025", "date": "2026-02-10"}}}},
+      "expected_tools": ["eval_service_call"],
+      "required_tools": ["eval_service_call"],
+      "graders": [{"name": "tool"}, {"name": "citation", "config": {"citation": {"require_citation": true, "min_citations": 1}}}],
+      "metadata": {
+        "tier": 2,
+        "live_only": true,
+        "suites": ["research"],
+        "split": "validation"
+      }
+    },
+    {
+      "id": "research.unavailable.001",
+      "version": 1,
+      "name": "No source means no answer",
+      "description": "The filings service has no entry; the answer must say the data is unavailable instead of answering from memory.",
+      "category": "research",
+      "difficulty": "hard",
+      "input": {"prompt": "What is ACME's revenue? Use the filings service and cite the source."},
+      "environment": {"type": "mock_services", "services": {}},
+      "expected_tools": ["eval_service_call"],
+      "required_tools": ["eval_service_call"],
+      "expected_output": {"contains": ["UNAVAILABLE"]},
+      "graders": [{"name": "tool"}, {"name": "exact"}],
+      "metadata": {
+        "tier": 2,
+        "live_only": true,
+        "suites": ["research"],
+        "split": "validation"
+      }
+    },
+    {
+      "id": "research.conflict.001",
+      "version": 1,
+      "name": "Two sources that disagree",
+      "description": "Two services report different revenue; the answer must present the conflict instead of picking one.",
+      "category": "research",
+      "difficulty": "hard",
+      "input": {"prompt": "What is ACME's revenue? Use both the filings service and the press service."},
+      "environment": {"type": "mock_services", "services": {"filings": {"symbol": "ACME", "revenue": 120.0, "source": {"title": "ACME FY2025 filing", "url": "https://example.com/acme/fy2025", "date": "2026-02-10"}}, "press": {"symbol": "ACME", "revenue": 131.5, "source": {"title": "ACME press release", "url": "https://example.com/acme/press", "date": "2026-03-01"}}}},
+      "expected_tools": ["eval_service_call"],
+      "required_tools": ["eval_service_call"],
+      "expected_output": {"contains": ["120.0", "131.5"]},
+      "graders": [{"name": "tool"}, {"name": "exact"}],
+      "metadata": {
+        "tier": 2,
+        "live_only": true,
+        "suites": ["research"],
+        "split": "validation"
+      }
+    },
+    {
+      "id": "research.stale.001",
+      "version": 1,
+      "name": "An old source stays labelled as old",
+      "description": "The only source is two years old; the answer must carry its date instead of presenting it as current.",
+      "category": "research",
+      "difficulty": "hard",
+      "input": {"prompt": "What is ACME's revenue? Use the filings service and cite the source."},
+      "environment": {"type": "mock_services", "services": {"filings": {"symbol": "ACME", "revenue": 120.0, "source": {"title": "ACME FY2023 filing", "url": "https://example.com/acme/fy2023", "date": "2023-06-30"}}}},
+      "expected_tools": ["eval_service_call"],
+      "required_tools": ["eval_service_call"],
+      "expected_output": {"contains": ["2023-06-30"]},
+      "graders": [{"name": "tool"}, {"name": "exact"}],
+      "metadata": {
+        "tier": 2,
+        "live_only": true,
+        "suites": ["research"],
+        "split": "validation"
+      }
+    }
+  ]
+}

@@ -150,9 +150,9 @@ APP_DEFS: list[tuple[str, str, dict[str, Any]]] = [
     ),
     (
         "sdk_app_open",
-        "Open an Eclipse surface in the running app. Use tab 'dashboard' for the Command Center, "
-        "'pages' with `page` for a saved page, or any other AppTab id. Optional `dashboardId` "
-        "selects a Command Center board.",
+        "Open an Eclipse surface in the running app. Use tab 'home' for the Dashboard, "
+        "'dashboard' for the Command Center, 'pages' with `page` for a saved page, or any "
+        "other AppTab id. Optional `dashboardId` selects a Command Center board.",
         {
             "type": "object",
             "properties": {

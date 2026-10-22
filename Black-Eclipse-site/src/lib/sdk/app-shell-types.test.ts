@@ -41,6 +41,14 @@ describe('app shell nav contracts', () => {
     expect(nav.sections.map((section) => section.id)).toContain('dashboard');
   });
 
+  it('inserts a newly shipped section after ChatBot instead of appending it', () => {
+    const preDashboard = APP_NAV_SECTIONS
+      .filter((section) => section.id !== 'home')
+      .map((section) => ({ id: section.id, enabled: true }));
+    const nav = normalizeAppNav({ mode: 'terminal', sections: preDashboard });
+    expect(nav.sections.slice(0, 3).map((section) => section.id)).toEqual(['chat', 'home', 'dashboard']);
+  });
+
   it('falls back on an invalid mode and non-array sections', () => {
     const nav = normalizeAppNav({ mode: 'nope', sections: 'bad' });
     expect(nav.mode).toBe('terminal');

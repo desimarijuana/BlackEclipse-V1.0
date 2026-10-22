@@ -9,7 +9,7 @@
 
 import React, { useState } from 'react';
 import {
-  Bot, LayoutDashboard, GlobeStand, ChartPie, MoreHorizontal,
+  Bot, LayoutDashboard, GlobeStand, ChartPie, MoreHorizontal, Home,
   ChartCandlestick, ScanEye, BookOpen, Newspaper, Orbit, Globe, Bell,
   Blocks, Brain, FolderOpen, ListChecks, LayoutTemplate, LayoutGrid,
   ChartLine, Database, Sigma, FlaskConical, Ghost, X, GitBranch as GitBranchIcon,
@@ -30,6 +30,7 @@ interface TabMeta { icon: LucideIcon; label?: string }
 // a missing one used to render `undefined.icon` and blank the whole shell.
 export const TAB_META: Partial<Record<AppTab, TabMeta>> = {
   chat: { icon: Bot },
+  home: { icon: Home },
   dashboard: { icon: LayoutDashboard },
   discovery: { icon: GlobeStand },
   portfolio: { icon: ChartPie },
@@ -57,7 +58,7 @@ export const TAB_META: Partial<Record<AppTab, TabMeta>> = {
 /** Tab order per menu mode. `bots` lists no sidebar sections, so its entries are
  *  declared here (bots first, then the shared agent surface). */
 export const MODE_TABS: Record<NavGroup, AppTab[]> = {
-  terminal: ['chat', 'dashboard', 'discovery', 'portfolio', 'investor-eye', 'market-workspace', 'journal', 'news', 'heatmap', 'economics', 'alerts'],
+  terminal: ['chat', 'home', 'dashboard', 'discovery', 'portfolio', 'investor-eye', 'market-workspace', 'journal', 'news', 'heatmap', 'economics', 'alerts'],
   agentic: ['chat', 'skills', 'memory', 'artifacts', 'tasks', 'pages'],
   bots: ['bots', 'chat', 'tasks', 'artifacts', 'memory', 'skills'],
   graph: ['graph-studio', 'chat', 'tasks', 'artifacts'],

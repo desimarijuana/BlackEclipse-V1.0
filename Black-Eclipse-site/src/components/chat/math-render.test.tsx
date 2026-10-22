@@ -28,4 +28,13 @@ describe('a formula in the chat', () => {
     expect(html).toContain('$100');
     expect(html).not.toContain('katex');
   });
+
+  it('does not leave the display delimiters around a formula that follows prose', () => {
+    // The model writes `**Return definition**\n$$r_t = ...$$` with no blank
+    // line. The block must start at the formula, so no literal `$` survives.
+    const content = '**Return definition**\n$$r_t = \\frac{P_t}{P_{t-1}} - 1$$';
+    const html = renderToStaticMarkup(<Markdown content={content} />);
+    expect(html).toContain('r_t = \\frac{P_t}{P_{t-1}} - 1');
+    expect(html).not.toContain('$$');
+  });
 });

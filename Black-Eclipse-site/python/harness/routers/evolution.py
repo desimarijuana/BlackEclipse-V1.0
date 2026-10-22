@@ -210,35 +210,6 @@ def _surface_snapshot(value: SurfaceSnapshotInput, base: Any = None) -> Any:
     )
 
 
-def _surface_signature(
-    *,
-    base_digest: str,
-    snapshot_digest: str,
-    dataset: str,
-    split: str,
-    task_ids: list[str],
-    target_dimension: str,
-    trials: int,
-    seed: Optional[int],
-    baseline_run_id: Optional[str],
-    scope: str = "global",
-) -> str:
-    """Deterministic identity: a changed snapshot/config/scope is a new experiment."""
-    raw = json.dumps({
-        "baseDigest": base_digest,
-        "snapshotDigest": snapshot_digest,
-        "scope": scope,
-        "dataset": dataset,
-        "split": split,
-        "taskIds": sorted(task_ids),
-        "targetDimension": target_dimension,
-        "trials": int(trials),
-        "seed": seed,
-        "baselineRunId": baseline_run_id,
-    }, sort_keys=True, separators=(",", ":"))
-    return "rsl-surface:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
-
-
 def _accepted_decision(run: dict[str, Any]) -> Optional[str]:
     """The verified decision an experiment actually recorded, or None.
 
@@ -1160,38 +1131,35 @@ def create_surface_experiment(
         raise HTTPException(status_code=400, detail="trials must be an integer") from exc
     target_dimension = str(body.targetDimension or "task_success").strip() or "task_success"
     baseline_run_id = str(body.baselineRunId or "").strip() or None
-    surface_config = {
-        "snapshot": candidate.to_dict(),
-        "base": base.to_dict(),
-        "scope": scope,
-        "dataset": body.dataset or "benchmark_v1",
-        "datasetName": dataset.name,
-        "datasetVersion": dataset.version,
-        "taskIds": [task.id for task in tasks],
-        "split": split,
-        "targetDimension": target_dimension,
-        "trials": trials,
-        "seed": body.seed,
-        "baselineRunId": baseline_run_id,
-    }
-    signature = _surface_signature(
-        base_digest=base.sourceDigest,
-        snapshot_digest=candidate.sourceDigest,
+    from ..self_improvement.surface_candidate import (  # noqa: PLC0415
+        save_surface_candidate,
+    )
+
+    created = save_surface_candidate(
+        service.store,
+        base=base,
+        snapshot=candidate,
+        scope=scope,
         dataset=body.dataset or "benchmark_v1",
-        split=split,
+        dataset_name=dataset.name,
+        dataset_version=dataset.version,
         task_ids=[task.id for task in tasks],
+        split=split,
         target_dimension=target_dimension,
         trials=trials,
         seed=body.seed,
         baseline_run_id=baseline_run_id,
-        scope=scope,
+        status="proposed",
+        source_category=body.sourceCategory or "operator",
+        problem_statement=body.problemStatement or (
+            f"Surface harness experiment on {dataset.name} ({split})"
+        ),
     )
-
-    evolution = _store()
-    existing = evolution.get_by_signature(signature)
-    if existing is not None:
+    candidate_row = created["candidate"]
+    if not created["created"]:
+        existing = candidate_row
         if existing.get("status") == "inert":
-            existing = evolution.update_candidate(existing["id"], status="proposed") or existing
+            existing = _store().update_candidate(existing["id"], status="proposed") or existing
         queued = existing.get("status") in {"inert", "proposed"}
         if queued:
             loop.wake()
@@ -1199,25 +1167,51 @@ def create_surface_experiment(
             "success": True, "candidate": existing,
             "created": False, "queued": queued,
         }
-
-    candidate_row = evolution.save_candidate({
-        "signature": signature,
-        "sourceCategory": body.sourceCategory or "operator",
-        "observedCount": 1,
-        "problemStatement": body.problemStatement or (
-            f"Surface harness experiment on {dataset.name} ({split})"
-        ),
-        "targetPath": None,
-        "proposedOps": None,
-        "subjectType": "surface",
-        "surfaceConfig": surface_config,
-        "status": "proposed",
-    })
     loop.wake()
     return {
         "success": True, "candidate": candidate_row,
         "created": True, "queued": True,
     }
+
+
+@router.post("/evolution/surface-lab/{candidate_id}/queue")
+def queue_surface_lab_candidate(
+    candidate_id: str, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Queue a STAGED surface-lab candidate for the loop's verification.
+
+    The lab's measurement is evidence, not a decision: it stages the winner as
+    an INERT candidate. This route is the operator's one click to queue it, and
+    the loop then verifies it through the SAME measured path every other
+    surface experiment uses. Nothing is applied and nothing is activated here.
+    """
+    loop = getattr(service, "_rsl_loop", None)
+    if loop is None:
+        raise HTTPException(status_code=503, detail="RSL loop unavailable")
+    config = getattr(loop, "config", None)
+    if getattr(config, "mode", "off") not in ("verify", "auto"):
+        raise HTTPException(
+            status_code=409,
+            detail="HARNESS_RSL_MODE must be verify or auto to queue a surface experiment",
+        )
+    candidate = _store().get_candidate(candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    if candidate.get("subjectType") != "surface":
+        raise HTTPException(
+            status_code=400, detail="only a surface candidate can be queued here",
+        )
+    if candidate.get("status") not in {"inert", "proposed"}:
+        raise HTTPException(
+            status_code=409,
+            detail=f"a candidate in status {candidate.get('status')!r} cannot be queued",
+        )
+    budget_ok = getattr(loop, "budget_ok", None)
+    if callable(budget_ok) and not budget_ok():
+        raise HTTPException(status_code=429, detail="daily experiment budget exhausted")
+    updated = _store().update_candidate(candidate_id, status="proposed") or candidate
+    loop.wake()
+    return {"success": True, "candidate": updated, "queued": True}
 
 
 @router.post("/evolution/candidates/{candidate_id}/prepare-landing")

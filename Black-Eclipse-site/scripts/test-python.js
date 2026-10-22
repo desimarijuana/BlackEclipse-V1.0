@@ -78,5 +78,10 @@ if (process.argv.includes("smoke")) {
   process.exit(smoke.status ?? 1);
 }
 
-const result = spawnSync(py, ["-m", "pytest", pythonDir], { stdio: "inherit", cwd: root, env: childEnv });
+// Any extra arguments are passed to pytest, so a slice can be run on its own:
+//   node scripts/test-python.js tests/test_rsl_loop.py
+// The full suite is `node scripts/test-python.js` (no arguments).
+const extra = process.argv.slice(2).filter((arg) => arg !== "smoke");
+const targets = extra.length > 0 ? extra : [pythonDir];
+const result = spawnSync(py, ["-m", "pytest", ...targets], { stdio: "inherit", cwd: root, env: childEnv });
 process.exit(result.status ?? 1);

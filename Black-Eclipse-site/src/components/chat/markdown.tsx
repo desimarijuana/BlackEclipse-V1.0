@@ -62,7 +62,7 @@ export function renderInline(nodes: InlineNode[]): ReactNode[] {
         return <Fragment key={i}>{node.value}</Fragment>;
       }
       case 'math':
-        return <MathFormula key={i} value={node.value} />;
+        return <MathFormula key={i} value={node.value} display={node.display} />;
       case 'strong':
         return (
           <strong key={i} className="font-semibold text-foreground">

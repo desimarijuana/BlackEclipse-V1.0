@@ -20,6 +20,7 @@ interface TopBarProps {
 
 const TAB_PLACEHOLDER: Record<string, string> = {
   chat: 'Ask or search anything…',
+  home: 'Search markets, holdings and commands…',
   portfolio: 'Search your funds and holdings…',
   journal: 'Search your trades…',
   discovery: 'Search instruments or markets…',

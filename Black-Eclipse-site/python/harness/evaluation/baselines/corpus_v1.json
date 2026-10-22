@@ -1,8 +1,8 @@
 {
   "agentVersion": "0.1.0",
   "dataset": "eclipse-benchmark",
-  "datasetChecksum": "68a41e71a0964f3d3feefffefcdae915",
-  "gitCommit": "511e05f705fc5ce6a98249325a31a556d719c337",
+  "datasetChecksum": "5cabb0aff46e4343d41ea69559c4a789",
+  "gitCommit": "6d27bfd95efb69921c5de7a4f5555d803f0ca523",
   "metrics": {
     "aggregates": {
       "artifact_delivery": 1.0,
@@ -14,22 +14,22 @@
       "honesty": 1.0,
       "memory_accuracy": 1.0,
       "misroute_rate": null,
-      "planning_quality": 0.861904761904762,
+      "planning_quality": 0.881782945736434,
       "provenance": 1.0,
       "recovery_success": 1.0,
       "reliability": 1.0,
       "research_accuracy": null,
       "safety_score": 1.0,
       "task_success": 1.0,
-      "tool_accuracy": 0.9666666666666667,
+      "tool_accuracy": 0.9704761904761905,
       "visual_delivery": 1.0
     },
     "categories": {
       "adversarial": {
-        "measured": 6,
+        "measured": 14,
         "passRate": 1.0,
-        "passed": 6,
-        "trials": 6,
+        "passed": 14,
+        "trials": 14,
         "unmeasured": 0
       },
       "browser": {
@@ -43,8 +43,8 @@
         "measured": 1,
         "passRate": 1.0,
         "passed": 1,
-        "trials": 1,
-        "unmeasured": 0
+        "trials": 2,
+        "unmeasured": 1
       },
       "coding": {
         "measured": 4,
@@ -61,10 +61,10 @@
         "unmeasured": 0
       },
       "finance": {
-        "measured": 12,
+        "measured": 20,
         "passRate": 1.0,
-        "passed": 12,
-        "trials": 12,
+        "passed": 20,
+        "trials": 20,
         "unmeasured": 0
       },
       "long_horizon": {
@@ -113,8 +113,8 @@
         "measured": 0,
         "passRate": null,
         "passed": 0,
-        "trials": 1,
-        "unmeasured": 1
+        "trials": 4,
+        "unmeasured": 4
       },
       "safety": {
         "measured": 4,
@@ -131,13 +131,13 @@
         "unmeasured": 0
       }
     },
-    "datasetChecksum": "68a41e71a0964f3d3feefffefcdae915",
+    "datasetChecksum": "5cabb0aff46e4343d41ea69559c4a789",
     "passRate": 1.0,
     "tier": 0
   },
   "name": "nightly-corpus",
-  "recordedAt": "2026-10-21T22:20:56.876196+00:00",
-  "runId": "nightly-20261021-222032-4d619a",
+  "recordedAt": "2026-10-22T03:44:12.721497+00:00",
+  "runId": "nightly-20261022-034224-2263e4",
   "split": "validation",
-  "taskCount": 56
+  "taskCount": 76
 }

@@ -224,6 +224,7 @@ class RSLLoop:
         started = self.evolution.experiments_started_since(_utc_day_start())
         maximum = max(0, int(self.config.max_experiments_per_day))
         watch = getattr(self.service, "_drift_watch", None)
+        session = getattr(self.service, "_rsl_session_watch", None)
         return {
             **self.health(),
             "startedToday": started,
@@ -246,6 +247,13 @@ class RSLLoop:
             "driftWatch": watch.health() if watch is not None else {
                 "enabled": False, "intervalSeconds": 0, "running": False, "last": {},
             },
+            "sessionWatch": (
+                session.health() if session is not None else {
+                    "enabled": False, "intervalSeconds": 0, "running": False, "last": {},
+                }
+            ),
+            "surfaceLab": self.config.surface_lab,
+            "maxSurfaceExperimentsPerDay": self.config.max_surface_experiments_per_day,
         }
 
     async def set_config(
@@ -484,6 +492,58 @@ class RSLLoop:
         )
 
     # -- ticks -------------------------------------------------------------
+    def surface_budget_ok(self) -> bool:
+        """Whether one more measured SURFACE session may run today."""
+        if not self.config.surface_lab:
+            return False
+        maximum = max(0, int(self.config.max_surface_experiments_per_day))
+        if maximum <= 0:
+            return False
+        used = 0
+        try:
+            for candidate in self.evolution.list_candidates(limit=500):
+                if str(candidate.get("sourceCategory") or "") == "surface-lab":
+                    created = str(candidate.get("createdAt") or "")
+                    if created >= _utc_day_start():
+                        used += 1
+        except Exception:  # noqa: BLE001 - an unreadable ledger is "no session"
+            return False
+        return used < maximum
+
+    async def run_surface_session(self) -> dict[str, Any]:
+        """Run ONE measured surface session and stage its winner (inert).
+
+        This is the loop improving its OWN harness: the variants come from the
+        lessons it already adopted, each is measured on the corpus, and the
+        winner is staged as an inert candidate for the operator. The session
+        never lands, never activates and never queues.
+        """
+        from .lab_runner import run_lab_session  # noqa: PLC0415
+
+        memory_store = None
+        memory_service = getattr(self.service, "memory_service", None)
+        if memory_service is not None:
+            memory_store = getattr(memory_service, "store", None)
+        return await run_lab_session(
+            self.run_store or self.service.store,
+            memory_store=memory_store,
+            trials=self.config.trials,
+        )
+
+    async def _surface_lab_tick(self) -> dict[str, Any]:
+        """One bounded surface session, when the operator enabled it."""
+        if not self.surface_budget_ok():
+            return {"mode": "surface", "skipped": "budget"}
+        try:
+            lab = await self.run_surface_session()
+        except Exception as exc:  # noqa: BLE001 - a failed session never breaks the loop
+            return {"mode": "surface", "skipped": f"error:{type(exc).__name__}"}
+        return {
+            "mode": "surface",
+            "winner": lab.get("winner"),
+            "staged": bool((lab.get("staged") or {}).get("staged")),
+        }
+
     async def tick(self) -> dict[str, Any]:
         if self.config.is_off:
             return {"mode": "off", "processed": []}
@@ -499,11 +559,13 @@ class RSLLoop:
                 return await self._propose_tick()
             if self.config.mode == "auto":
                 proposed = await self._propose_tick()
+                surface = await self._surface_lab_tick()
                 verified = await self._verify_tick()
                 return {
                     "mode": "auto",
                     "proposed": proposed.get("proposed", []),
                     "refused": proposed.get("refused", []),
+                    "surface": surface,
                     "verified": verified,
                     "processed": (
                         list(proposed.get("processed", []))

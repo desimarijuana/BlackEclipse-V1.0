@@ -10,6 +10,7 @@
 
 export type AppTab =
   | 'chat'
+  | 'home'
   | 'news'
   | 'discovery'
   | 'heatmap'

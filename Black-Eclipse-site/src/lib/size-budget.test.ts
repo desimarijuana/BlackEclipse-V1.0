@@ -173,7 +173,9 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1518→1522: closed chrome (terminal/scheduler/dock/aurora) moved to
   // `screens/lazy-chrome.tsx`, leaving one import, two `active` prop passes and
   // the deferred canvas-content import here. May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1522,
+  // Re-pinned 1522→1534: the new Dashboard tab (a lazy dynamic import + one
+  // keep-alive block above Command Center). May only shrink from here.
+  "src/components/screens/stock-chat.tsx": 1534,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard
@@ -183,7 +185,10 @@ const RATCHET: Record<string, number> = {
     // Re-pinned 1413->1421 for the regression kind and the unknown-kind
   // safety net (an unknown chartType falls back to `auto` instead of
   // invalidating the whole block). May only shrink from here.
-    // Re-pinned 1421->1452 for the pair-carrying marks (a mark's values may be
+  // Re-pinned 1421->1449 for the in-flight chart-spec fields (symbol,
+  // market, interval, window, field and the data source). May only shrink from
+  // here.
+    // Re-pinned 1449->1452 for the pair-carrying marks (a mark's values may be
   // [x, y] pairs - the way a model writes a point - so a chart block is not
   // refused over its data format) and the named data source (a chart that
   // NAMES its series instead of carrying it). May only shrink from here.

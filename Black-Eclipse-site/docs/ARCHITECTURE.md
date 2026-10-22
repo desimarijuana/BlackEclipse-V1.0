@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-10-20
+last-verified: 2026-10-21
 ---
 
 # Architecture
@@ -845,6 +845,48 @@ Key invariants:
 Both workspace systems are real and both are supported. The **retired** thing is
 `src/lib/customize/` — an earlier kernel that is documented as superseded and
 must not receive new features. See ADR-005 and ADR-006.
+
+### Daily Dashboard (`home` tab) — the fixed decision surface
+
+The **Dashboard** tab (`AppTab 'home'`, `/?tab=home`, F2 in the shipped defaults)
+is deliberately *not* the Command Center. The Command Center is the user-built
+widget board; the Dashboard is a fixed, read-only daily brief in the AlphaGen
+homepage mould: personal brief → summary tiles → leadership/regime → portfolio
+health/trend mix → attention buckets → portfolio watch → watchlist radar →
+concentration → full-universe CTA → alerts archive. It is global-first (default
+scope `GLOBAL`) with a market selector persisted in
+`localStorage['be_home_dashboard_market_v1']`.
+
+Data path (real JDDS only; no simulated series):
+
+- `src/lib/dashboard/use-home-data.ts` fans out to `/api/regime`,
+  `/api/heatmap?market=…`, `/api/global-overview` (GLOBAL only),
+  `/api/price-history?symbol=…&market=…&range=6mo` (benchmark) and `/api/alerts`,
+  while the existing portfolio/watchlist hooks supply held positions and saved
+  names. A market-scoped view filters holdings by the quote's real `marketId`.
+- The **regime** card renders `/api/regime` verbatim. When its core
+  price/breadth input is stale or missing, `coreAvailable` is false and the card
+  says **Unavailable** — it never turns that into a neutral call. The hero may
+  fall back to a **breadth-derived weather** tone (`weatherTone`: cap-weighted
+  market change + advancing count), explicitly labelled `Breadth-derived`.
+- Portfolio **health** is Eclipse's own deterministic trend score, not a
+  fundamental rating: positions are classified `uptrend` / `weak_uptrend` /
+  `downtrend` from SMA20 vs the long average, weighted by USD value, with a
+  concentration penalty above 35% single-name weight. Coverage below 30% of book
+  value returns an unavailable score. The sample fund book is seeded demo data
+  and is labelled **Demo book**.
+- **Leadership** is relative strength: GLOBAL ranks markets from cached index
+  changes in the global overview; a country view ranks `/api/heatmap` sectors
+  against the cap-weighted market change. "Advancing" and "beating benchmark"
+  are separate counts.
+- **Watchlist radar** shows unheld saved names by absolute session move; it does
+  not claim a breakout. **Concentration** groups held value by the quote's JDDS
+  sector (falling back to `Unclassified`) and folds the tail into `Other`.
+
+UI lives in `src/components/screens/dashboard/home-dashboard.tsx` (layout,
+selector, skeletons), `home-cards.tsx` (cards) and `home-primitives.tsx`
+(glass tiles, health ring, sector donut, SVG sparklines). Pure scoring lives in
+`src/lib/dashboard/home-model.ts` and is covered by `home-model.test.ts`.
 
 ### Dashboard layout grammar (personas + track board)
 

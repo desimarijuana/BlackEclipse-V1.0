@@ -18,6 +18,7 @@ import type { AppTab, Destination } from './types';
 // to ChatBot. Order is the declaration order.
 const ALL_TABS: Record<AppTab, true> = {
   chat: true,
+  home: true,
   news: true,
   discovery: true,
   heatmap: true,

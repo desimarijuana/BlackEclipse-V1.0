@@ -181,6 +181,16 @@ export interface EvolutionRslReport {
   markdown: string;
 }
 
+/** A surface candidate the lab STAGED: inert evidence, never a landing. */
+export interface EvolutionSurfaceLabCandidate {
+  id: string;
+  status: string;
+  problemStatement?: string;
+  createdAt?: string;
+  scope?: string;
+  snapshotDigest?: string;
+}
+
 export interface EvolutionRslTickResult {
   success: boolean;
   mode: string;
@@ -807,6 +817,29 @@ export async function getEvolutionRslReport(
   return request<EvolutionRslReport>(`/evolution/rsl/report${query ? `?${query}` : ""}`, {
     method: "GET",
   });
+}
+
+/** The surface candidates the lab staged (inert evidence). */
+export async function listEvolutionSurfaceLabCandidates(
+  input: { limit?: number } = {},
+): Promise<{ success: boolean; candidates: EvolutionSurfaceLabCandidate[] }> {
+  const params = new URLSearchParams();
+  if (input.limit != null) params.set("limit", String(input.limit));
+  const query = params.toString();
+  return request<{ success: boolean; candidates: EvolutionSurfaceLabCandidate[] }>(
+    `/evolution/surface-lab/candidates${query ? `?${query}` : ""}`,
+    { method: "GET" },
+  );
+}
+
+/** Queue a staged lab candidate for the loop's verification. */
+export async function queueEvolutionSurfaceLabCandidate(
+  candidateId: string,
+): Promise<{ success: boolean; queued: boolean }> {
+  return request<{ success: boolean; queued: boolean }>(
+    `/evolution/surface-lab/${encodeURIComponent(candidateId)}/queue`,
+    { method: "POST", body: "{}" },
+  );
 }
 
 export async function getEvolutionDrift(

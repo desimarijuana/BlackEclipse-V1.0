@@ -2243,14 +2243,19 @@ def _guardrail_failure(
         )
 
         try:
-            tool_calls = len(store.list_tool_executions(run_id))
+            executions = store.list_tool_executions(run_id)
         except Exception:  # noqa: BLE001 - an unreadable ledger is "unknown"
-            tool_calls = 0
+            executions = []
+        tool_calls = len(executions)
+        tool_texts = [
+            str(row.get("text") or "") for row in executions[:200]
+        ]
         violations = evaluate_guardrails(
             guardrails,
             output=output or "",
             tool_calls=tool_calls,
             max_answer_chars=max_chars,
+            tool_texts=tool_texts,
         )
         return guardrail_error(violations)
     except Exception:  # noqa: BLE001 - a broken guardrail never breaks the run

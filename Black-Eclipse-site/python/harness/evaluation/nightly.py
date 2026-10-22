@@ -142,6 +142,8 @@ async def run_nightly(
     directory: Optional[str] = None,
     baseline_file: Optional[str] = None,
     write_baseline: Optional[str] = None,
+    live: bool = False,
+    model_settings: Any = None,
 ) -> dict[str, Any]:
     """Run the corpus once and return the verdict (never raises for a failure)."""
     eval_store = EvaluationStore(store)
@@ -155,6 +157,33 @@ async def run_nightly(
             dataset_name = dataset
         tasks = select_tasks(loaded, split=split)
     runner = EvaluationRunner(store, eval_store=eval_store)
+    if live:
+        # The live tier answers the corpus with a REAL model: the only tier in
+        # which a prompt change can move the result. The base is the production
+        # agent restricted to the tools the evaluation registry exposes.
+        from ..agents import get_agent  # noqa: PLC0415
+        from ..self_improvement.models import HarnessSnapshot  # noqa: PLC0415
+        from .candidate_invoker import CandidateAgentInvoker  # noqa: PLC0415
+        from .runner import _build_registry  # noqa: PLC0415
+
+        agent = get_agent("eclipse-agent")
+        registered = set(_build_registry().names())
+        base_snapshot = HarnessSnapshot(
+            systemPrompt=agent.systemPrompt,
+            toolNames=tuple(
+                name for name in (agent.tools or ()) if name in registered
+            ),
+            maxSteps=min(int(agent.maxSteps or 8), 32),
+            maxToolCalls=min(int(agent.maxToolCalls or 200), 200),
+        )
+        runner = EvaluationRunner(
+            store,
+            invoker=CandidateAgentInvoker(
+                store, base_snapshot, base=base_snapshot,
+                live=True, model_settings=model_settings,
+            ),
+            eval_store=eval_store,
+        )
     suite = await runner.run_suite(
         tasks,
         dataset_name=dataset_name,
@@ -197,6 +226,7 @@ async def run_nightly(
         "hasBaseline": bool(previous_metrics),
         "baselineId": previous_id,
         "baselineFile": baseline_file,
+        "tier": "live" if live else "scripted",
         "agentVersion": getattr(suite, "agent_version", None),
         "gitCommit": getattr(suite, "git_commit", None),
         "metrics": metrics,
@@ -239,6 +269,12 @@ def _parser() -> argparse.ArgumentParser:
                         help="compare against a COMMITTED baseline file")
     parser.add_argument("--write-baseline", default="",
                         help="write the current measures as a baseline file")
+    parser.add_argument("--live", action="store_true",
+                        help="answer the corpus with a real model (the only tier "
+                             "in which a prompt change can move the result)")
+    parser.add_argument("--provider", default="")
+    parser.add_argument("--model", default="")
+    parser.add_argument("--base-url", default="")
     parser.add_argument("--promote", action="store_true",
                         help="move the baseline forward when the run is clean")
     parser.add_argument("--run-db", default="")
@@ -253,6 +289,23 @@ def main(argv: Optional[list[str]] = None) -> int:
     try:
         import asyncio  # noqa: PLC0415
 
+        model_settings = None
+        if args.live:
+            if not args.provider or not args.model:
+                print("--live requires --provider and --model", file=sys.stderr)
+                return 2
+            from ..schemas import ModelSettings  # noqa: PLC0415
+
+            model_settings = ModelSettings(
+                provider=args.provider,
+                model=args.model,
+                base_url=args.base_url or None,
+                api_key=os.environ.get("HARNESS_EVAL_API_KEY") or None,
+            )
+            print(
+                "LIVE tier: real model requests will be sent for every trial",
+                file=sys.stderr,
+            )
         payload = asyncio.run(run_nightly(
             store,
             dataset=args.dataset,
@@ -263,6 +316,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             directory=args.out or None,
             baseline_file=args.baseline_file or None,
             write_baseline=args.write_baseline or None,
+            live=bool(args.live),
+            model_settings=model_settings,
         ))
     finally:
         store.close()

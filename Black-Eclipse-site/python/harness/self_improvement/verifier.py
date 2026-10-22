@@ -373,14 +373,24 @@ async def verify_surface(
     temperature: Optional[float] = None,
     skill_store: Optional[Any] = None,
     metadata: Optional[dict[str, Any]] = None,
+    live: bool = False,
+    model_settings: Optional[Any] = None,
 ) -> dict[str, Any]:
     """Benchmark a validated snapshot through the real evaluator.
 
     This is the ONLY R4 path that can return a measured benchmark delta. The
     candidate runs in the isolated invoker; the comparison is recorded on an
     `EvaluationRun` with the RSL experiment metadata.
+
+    `live` runs the SAME path with a real provider/model instead of the
+    deterministic script. It needs explicit `model_settings` (the runtime never
+    guesses a provider or a credential), and it is how a prompt change is
+    actually measured - a scripted answer does not depend on the prompt.
     """
-    invoker = CandidateAgentInvoker(store, snapshot, base=base, skill_store=skill_store)
+    invoker = CandidateAgentInvoker(
+        store, snapshot, base=base, skill_store=skill_store,
+        live=live, model_settings=model_settings,
+    )
     run_store = eval_store or EvaluationStore(store)
     runner = EvaluationRunner(store, invoker=invoker, eval_store=run_store)
     proposal = ImprovementProposal(

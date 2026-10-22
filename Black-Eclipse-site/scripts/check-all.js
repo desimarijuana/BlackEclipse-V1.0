@@ -1,9 +1,5 @@
-// The ONE honest release gate (replaces the unreachable CI workflow).
-//
-// WHY: the repo's workflows lived at `Black-Eclipse-site/.github/workflows/`,
-// but GitHub Actions reads only `/.github/workflows` at the repository root, so
-// they never ran. Rather than keep two half-gates, this runs exactly what CI was
-// meant to run, locally and verifiably, and exits non-zero on the first failure.
+// The ONE honest local release gate; it mirrors `.github/workflows/ci.yml` at the
+// repository ROOT step-for-step, so a green local run means a green CI run.
 //
 // Steps, in order:
 //   1. prisma generate      (the client the app imports)

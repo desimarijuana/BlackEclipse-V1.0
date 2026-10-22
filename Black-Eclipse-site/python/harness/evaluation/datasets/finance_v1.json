@@ -102,6 +102,158 @@
         "suites": ["finance"],
         "agent_script": [{"type": "final", "content": "The position weight is 0.25 (250 / 1000, i.e. a quarter of the portfolio)."}]
       }
+    },
+    {
+      "id": "finance.percentage_change.002",
+      "version": 1,
+      "name": "Percentage change",
+      "description": "Compute the percentage change between two prices; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "A price moved from 80 to 92. What is the percentage change?"},
+      "expected_output": {"numeric": {"value": 15.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "percentage_change", "inputs": {"start": 80, "end": 92}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "agent_script": [{"type": "final", "content": "The price rose 15.0% ((92 - 80) / 80)."}]
+      }
+    },
+    {
+      "id": "finance.cagr.002",
+      "version": 1,
+      "name": "Compound annual growth over three years",
+      "description": "Compute the three-year compound annual growth rate; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {"prompt": "A value grew from 100 to 150 over 3 years. What is the compound annual growth rate?"},
+      "expected_output": {"numeric": {"value": 14.47, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "cagr", "inputs": {"start": 100, "end": 150, "years": 3}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "agent_script": [{"type": "final", "content": "The compound annual growth rate is 14.47% ((150 / 100) ^ (1/3) - 1)."}]
+      }
+    },
+    {
+      "id": "finance.fcf.002",
+      "version": 1,
+      "name": "Free cash flow after capital spending",
+      "description": "Compute free cash flow from operating cash flow and capital spending.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "Operating cash flow is 500 and capital spending is 120. What is free cash flow?"},
+      "expected_output": {"numeric": {"value": 380.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "fcf", "inputs": {"operating_cash_flow": 500, "capex": 120}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "agent_script": [{"type": "final", "content": "Free cash flow is 380.0 (500 - 120)."}]
+      }
+    },
+    {
+      "id": "finance.position_size.001",
+      "version": 1,
+      "name": "Position size from reward and risk",
+      "description": "Compute the position size from the reward and the risk per unit.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "The reward is 6 and the risk is 2. What is the position size?"},
+      "expected_output": {"numeric": {"value": 3.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "position_size", "inputs": {"reward": 6, "risk": 2}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "agent_script": [{"type": "final", "content": "The position size is 3.0 (reward 6 / risk 2)."}]
+      }
+    },
+    {
+      "id": "finance.gross_margin.002",
+      "version": 1,
+      "name": "Gross margin from gross profit",
+      "description": "Compute the gross margin from revenue and gross profit.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "Revenue is 500 and gross profit is 150. What is the gross margin?"},
+      "expected_output": {"numeric": {"value": 30.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "gross_margin", "inputs": {"revenue": 500, "gross_profit": 150}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "agent_script": [{"type": "final", "content": "The gross margin is 30.0% (150 / 500)."}]
+      }
+    },
+    {
+      "id": "finance.ps.002",
+      "version": 1,
+      "name": "Price to sales per share",
+      "description": "Compute price-to-sales-per-share from the price and sales per share.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "The price is 40 and sales per share is 5. What is the price-to-sales ratio?"},
+      "expected_output": {"numeric": {"value": 8.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "ps", "inputs": {"price": 40, "sales_per_share": 5}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "agent_script": [{"type": "final", "content": "The price-to-sales ratio is 8.0 (40 / 5)."}]
+      }
+    },
+    {
+      "id": "finance.percentage_change.003",
+      "version": 1,
+      "name": "A decline is a negative change",
+      "description": "Compute the percentage change for a price that FELL; the sign matters.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {"prompt": "A price moved from 120 down to 96. What is the percentage change?"},
+      "expected_output": {"numeric": {"value": -20.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "percentage_change", "inputs": {"start": 120, "end": 96}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "agent_script": [{"type": "final", "content": "The percentage change is -20.0% ((96 - 120) / 120)."}]
+      }
+    },
+    {
+      "id": "finance.operating_margin.002",
+      "version": 1,
+      "name": "Operating margin from operating income",
+      "description": "Compute the operating margin from revenue and operating income.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "Revenue is 1250 and operating income is 250. What is the operating margin?"},
+      "expected_output": {"numeric": {"value": 20.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "operating_margin", "inputs": {"revenue": 1250, "operating_income": 250}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "agent_script": [{"type": "final", "content": "The operating margin is 20.0% (250 / 1250)."}]
+      }
     }
   ]
 }

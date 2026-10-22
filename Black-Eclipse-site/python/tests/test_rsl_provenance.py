@@ -233,14 +233,15 @@ def test_split_selection_and_built_in_splits():
     assert len(select_tasks(load_builtin_dataset("team_v1"), split="held_out")) == 2
 
     merged = load_all_builtin()
-    # The built-in corpus is 68 tasks: benchmark_v1 (31) + construction_v1 (16)
-    # + adversarial_v1 (4) + finance_v1 (5) = validation (56), routing_e2e_v1
-    # (4) + replay_v1 (6) = optimization (10), team_v1 (2) = held_out.
-    assert len(select_tasks(merged, split="validation")) == 56
+    # The built-in corpus is 88 tasks: benchmark_v1 (31) + construction_v1 (16)
+    # + adversarial_v1 (12) + finance_v1 (13) + research_v1 (4) = validation
+    # (76), routing_e2e_v1 (4) + replay_v1 (6) = optimization (10), team_v1 (2)
+    # = held_out.
+    assert len(select_tasks(merged, split="validation")) == 76
     assert len(select_tasks(merged, split="optimization")) == 10
     assert len(select_tasks(merged, split="held_out")) == 2
     # No filter keeps every task for the release gate.
-    assert len(select_tasks(merged)) == 68
+    assert len(select_tasks(merged)) == 88
 
 
 def test_self_evolution_cost_stays_unmeasured_when_any_trial_is_unknown():
