@@ -34,7 +34,7 @@ def install_market_layer(service: Any) -> None:
         from .cache import MarketCache
         from .gateway import MarketDataGateway
         from .history_cache import HistoryCache
-        from .series_store import SeriesStore
+        from .series_store import SeriesStore, set_series_store
         from .research_tools import register_research_data_tools
         from .router import default_router
         from .store import MarketStore
@@ -46,6 +46,7 @@ def install_market_layer(service: Any) -> None:
         # from them instead of re-fetching every bar.
         try:
             service.market_series_store = SeriesStore(service.store)
+            set_series_store(service.market_series_store)
             service.market_history_cache = HistoryCache(service.market_series_store)
         except Exception:  # noqa: BLE001 - the durable cache is best-effort
             service.market_series_store = None

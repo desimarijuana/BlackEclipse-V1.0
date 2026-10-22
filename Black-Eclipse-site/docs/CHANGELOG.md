@@ -7,6 +7,22 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-21
+- **feat(quant): the local data vault, made visible.** A cache nobody can see
+  is a cache nobody trusts. The **Local History** widget on the Command Center
+  now shows what the machine actually holds - which instruments, how many bars,
+  how fresh, from which provider - with the coverage of one instrument on
+  demand, and the agent can ask the same question through the new
+  `history_catalog` tool. The runtime serves it from the durable cache
+  (`GET /market/history`, `/market/history/{symbol}`,
+  `/market/history/{symbol}/bars`), so it works OFFLINE and can never claim a
+  bar the runtime does not have. Files: python/harness/routers/market.py,
+  python/harness/market/tools.py, python/harness/market/series_store.py,
+  python/harness/market/bootstrap.py, src/lib/dashboard/history-widget.tsx
+  (new), src/lib/dashboard/registry.tsx, src/app/api/market/history/route.ts
+  (new), src/app/api/market/history/[symbol]/route.ts (new). Tests:
+  python/tests/test_market_history_cache.py (11). docs updated:
+  docs/quant-engine.md.
+
 - **feat(quant): the durable history cache - one copy of the history Eclipse
   has already seen.** The gateway cached history IN PROCESS, so every restart
   re-fetched every bar from the provider. The durable half now lives on the ONE
@@ -2238,6 +2254,22 @@ umpy/pandas are **already installed** in the runtime and the analysis
   `python/tests/test_surface_candidate.py` (4). Docs updated:
   `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/decisions.md`
   (ADR-H291).
+- **feat(rsl): the live lab tier - a prompt can only be measured with a real
+  model (v3 P5 slice 3).** The lab has two tiers and they are not
+  interchangeable. The scripted tier (the default) replays a deterministic
+  answer: it proves the harness path works and it CANNOT see a prompt change,
+  because a scripted answer does not depend on the prompt - so it reports
+  "flat" and no winner, which is the honest result, not a gap. The live tier
+  (`npm run rsl:lab -- --live --provider <p> --model <m>`, credential from
+  `HARNESS_EVAL_API_KEY`) runs the SAME measured path with a real model: the
+  runtime never guesses a provider, a model or a key, and a live run without
+  explicit settings is refused before it starts. The live tier is the only tier
+  in which the lab's verdict about a PROMPT change means anything. Files:
+  `python/harness/self_improvement/{surface_lab,verifier}.py`. Tests:
+  `python/tests/test_surface_lab.py` (the live tier reaches the invoker with the
+  explicit settings; the test run stays deterministic). Docs updated:
+  `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/decisions.md`
+  (ADR-H292), `docs/QUICKSTART.md`.
 
 ## 2026-10-19
 

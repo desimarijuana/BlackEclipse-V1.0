@@ -675,6 +675,16 @@ Two rules keep it honest:
   pins its window is served from the cache; an open-ended request refetches the
   tail.
 
+### Seeing it: the local data vault
+
+A cache nobody can see is a cache nobody trusts. The **Local History** widget on
+the Command Center shows what the machine actually holds - which instruments,
+how many bars, how fresh, from which provider - and the coverage of one
+instrument on demand. The runtime's own routes serve it
+(`GET /market/history`, `/market/history/{symbol}`, `/market/history/{symbol}/bars`),
+the agent can ask the same question through the `history_catalog` tool, and the
+bars are served from the local copy, so it works offline.
+
 ## The Edge Report (`quant/edge_report.py`)
 
 The verdict, the regimes and the Monte-Carlo used to be three answers in three

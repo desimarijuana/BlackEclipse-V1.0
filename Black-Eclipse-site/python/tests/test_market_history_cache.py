@@ -157,3 +157,21 @@ async def test_the_quant_fetch_is_served_from_the_cache(tmp_path):
     # a pinned window rather than an open-ended one.
     await fetch_series(gateway, "AAPL", interval="1d")
     assert calls["n"] == 2
+
+
+def test_the_history_routes_are_mounted():
+    from harness.main import app
+
+    paths = set(app.openapi().get("paths", {}))
+    for path in ("/market/history", "/market/history/{symbol}",
+                 "/market/history/{symbol}/bars"):
+        assert path in paths, path
+
+
+def test_the_history_tool_is_registered():
+    from harness.tools import ToolRegistry
+    from harness.market.tools import register_market_tools
+
+    registry = ToolRegistry()
+    register_market_tools(registry)
+    assert "history_catalog" in registry.names()

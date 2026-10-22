@@ -125,4 +125,18 @@ class SeriesStore:
         return [dict(r) for r in rows]
 
 
-__all__ = ["SeriesStore"]
+#: The process-wide series store, so a tool can reach the durable history
+#: without a run context carrying it (the Artifact Center's pattern).
+_SERIES_STORE: Optional["SeriesStore"] = None
+
+
+def set_series_store(store: Optional["SeriesStore"]) -> None:
+    global _SERIES_STORE
+    _SERIES_STORE = store
+
+
+def get_series_store() -> Optional["SeriesStore"]:
+    return _SERIES_STORE
+
+
+__all__ = ["SeriesStore", "get_series_store", "set_series_store"]

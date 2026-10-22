@@ -328,6 +328,9 @@ ECLIPSE_AGENT = AgentConfig(
         "get_quote",
         "get_historical_prices",
         "get_ohlcv",
+        # The local data vault: what history this machine already holds. Served
+        # from the durable cache, so it works offline.
+        "history_catalog",
         "get_volume",
         "get_orderbook",
         "get_trades",

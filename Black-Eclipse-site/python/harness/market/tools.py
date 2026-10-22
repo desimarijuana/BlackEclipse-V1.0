@@ -492,6 +492,42 @@ def _render_stream(snapshot: Any) -> str:
 
 # ── Registration ────────────────────────────────────────────────────────────
 
+async def history_catalog(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """What history this machine already holds."""
+    from .series_store import get_series_store
+
+    store = getattr(ctx, "market_series_store", None) or get_series_store()
+    if store is None:
+        return ("The durable history cache is unavailable in this runtime.",
+                {"status": "unavailable",
+                 "reason": "the durable history cache is unavailable in this runtime"})
+    symbol = str(args.get("symbol") or "").strip()
+    interval = str(args.get("interval") or "1d")
+    try:
+        if symbol:
+            coverage = store.coverage(symbol, interval)
+            series = [coverage]
+        else:
+            series = store.list_series(limit=int(args.get("limit") or 100))
+    except Exception as exc:  # noqa: BLE001 - a read failure is reported
+        return (f"The history catalog could not be read: {exc}",
+                {"status": "error", "reason": str(exc)[:200]})
+    if not series:
+        return ("This machine holds no cached history yet.",
+                {"status": "ok", "series": [], "count": 0})
+    lines = []
+    for row in series:
+        if symbol:
+            lines.append(f"{row.get('symbol')} {row.get('interval')}: "
+                         f"{row.get('barCount')} bars, {row.get('start')} -> "
+                         f"{row.get('end')}")
+        else:
+            lines.append(f"{row.get('symbol')} {row.get('interval')}: "
+                         f"{row.get('barCount')} bars from {row.get('provider')}, "
+                         f"{row.get('start')} -> {row.get('end')}")
+    return ("\n".join(lines), {"status": "ok", "series": series, "count": len(series)})
+
+
 def register_market_tools(registry: Any) -> None:
     """Register the fourteen market-data tools on the shared registry."""
     from ..tools import ToolDefinition
@@ -502,6 +538,19 @@ def register_market_tools(registry: Any) -> None:
             handler=handler, permission="read", risk="low", timeout_ms=timeout,
         ))
 
+    _def(
+        "history_catalog",
+        "What history this machine already holds: the durable local copy of the "
+        "market Eclipse has already paid for - which instruments, how many bars, "
+        "how fresh, and from which provider. With `symbol`, the coverage of that "
+        "one instrument. Served from the local cache; no provider is called.",
+        history_catalog,
+        {"type": "object", "properties": {
+            "symbol": {"type": "string"},
+            "interval": {"type": "string"},
+            "limit": {"type": "integer"}}, "required": []},
+        20_000,
+    )
     _def(
         "get_quote",
         "Get the latest price/quote for an instrument (equity, ETF, crypto, FX). "
