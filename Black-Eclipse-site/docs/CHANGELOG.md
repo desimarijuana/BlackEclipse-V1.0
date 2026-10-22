@@ -56,6 +56,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: docs/harness/roadmap/round-4-gap-closure.md,
   docs/releases/v0.2.0.md.
 
+- **refactor(git): nine diff ops, one argv builder.** Round 4 / V2, first slice.
+  The nine `diff_*` operations differed only by a flag prefix and whether the
+  revision pair was `(base)` or `(from, to)`, so they are now one `_diff_argv`
+  plus a nine-row table. Every name, argument list and argv string is unchanged
+  (verified by building all nine against sample args and diffing the output), so
+  no caller and no shim is affected. 319 git tests pass; the total falls from
+  377,242 to 377,238 lines. The saving is small on purpose: the audit found the
+  catalog was already dense, so V2 cannot deliver its promised reduction this
+  way and that is recorded in the plan rather than papered over.
+  no doc change — internal refactor, no contract or architecture change.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how
