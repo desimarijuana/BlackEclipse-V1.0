@@ -80,6 +80,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   The gate now reports **zero** legacy exemptions: 303 entries, H1..H308, all
   shaped. docs updated: docs/harness/decisions.md.
 
+- **test(graph): the cancellation test waits for the retry instead of guessing.**
+  Round 4 / V3a. `test_cancellation_during_retry_still_cancels` slept a fixed
+  0.3 s and then cancelled, assuming the first attempt had already overflowed and
+  the retry had begun. On a loaded machine that race went the other way, so the
+  cancel landed during the *first* attempt and the assertion described a state
+  the run had not reached. The model now sets an `asyncio.Event` on its second
+  call and the test awaits it (10 s ceiling) before cancelling - the same
+  assertion, no race, and a failure to reach the retry now reports as a timeout
+  rather than a wrong status. 16/16 in the file, twice.
+  no doc change — test-only fix, no contract or behaviour change.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how
