@@ -219,10 +219,31 @@ def _finish(ctx: Any, result: Any, capability: str) -> tuple[str, Any]:
             "`scraper_run` with the source URL (the operator approves the site "
             "once) and label the rows SCRAPER-sourced."
         )
+        # The WHOLE trail of providers, so the next call does not repeat a
+        # route that already failed, and a provider that needs a credential it
+        # does not have is never tried again.
+        trail = ""
+        tried = (result.detail or {}).get("providers") or []
+        if tried:
+            parts = [
+                f"{entry.get('provider')}: {entry.get('code')}"
+                + (f" ({str(entry.get('message'))[:90]})" if entry.get("message") else "")
+                for entry in tried
+                if isinstance(entry, dict)
+            ]
+            if parts:
+                trail = " Providers tried: " + "; ".join(parts) + "."
+        credential_note = ""
+        if result.code == "AUTHENTICATION_FAILED":
+            credential_note = (
+                " That provider needs a credential it does not have - do not try it again."
+            )
         return (
             f"UNAVAILABLE — {result.code}: {result.message}"
             + (f" (provider={result.provider})" if result.provider else "")
             + (" This may be retryable." if result.retryable else "")
+            + trail
+            + credential_note
             + next_route,
             {"status": "UNAVAILABLE", "error": result.to_dict(), "nextRoute": "scraper_run"},
         )

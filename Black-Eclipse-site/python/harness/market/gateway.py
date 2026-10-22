@@ -320,6 +320,10 @@ class MarketDataGateway:
             )
 
         last_error: Optional[MarketError] = None
+        # Every provider's failure, in the order they were tried. The refusal
+        # must show the WHOLE list: the last provider's error alone (a missing
+        # key, say) hides the more useful one (a keyless route with no data).
+        failures: list[dict[str, Any]] = []
         for index, provider in enumerate(order):
             if index >= self.config.max_providers:
                 break
@@ -347,6 +351,11 @@ class MarketDataGateway:
             self._note_provider(provider, (time.monotonic() - started) * 1000)
             if error is not None or payload is None:
                 last_error = error
+                failures.append({
+                    "provider": provider,
+                    "code": getattr(error, "code", None) or DATA_NOT_AVAILABLE,
+                    "message": str(getattr(error, "message", "") or "no data")[:220],
+                })
                 if error is not None and error.code == RATE_LIMITED:
                     await self.rate_limits.record_429(provider, error.retry_after_s)
                 if router:
@@ -362,6 +371,11 @@ class MarketDataGateway:
             if record is None:
                 last_error = MarketError(DATA_NOT_AVAILABLE, "provider returned an unusable payload",
                                          provider=provider, capability=capability)
+                failures.append({
+                    "provider": provider,
+                    "code": DATA_NOT_AVAILABLE,
+                    "message": "provider returned an unusable payload",
+                })
                 continue
             report = evaluate(record, capability)
             if report.invalid and record.meta.data_status == "UNAVAILABLE":
@@ -370,6 +384,11 @@ class MarketDataGateway:
                                          "provider data failed validation",
                                          provider=provider, capability=capability,
                                          detail={"findings": [f.to_dict() for f in report.findings]})
+                failures.append({
+                    "provider": provider,
+                    "code": DATA_NOT_AVAILABLE,
+                    "message": "provider data failed validation",
+                })
                 continue
             # A non-blocking quality finding (e.g. a slightly stale reading) is
             # returned WITH its warning; only an invalid value is withheld. The
@@ -380,6 +399,12 @@ class MarketDataGateway:
                 data_timestamp=record.meta.event_time, provider=provider, freshness=freshness,
             )
             return record
+        if last_error is not None and failures:
+            # The refusal carries the whole trail, so the next call does not
+            # repeat a route that already failed.
+            detail = dict(last_error.detail or {})
+            detail["providers"] = failures
+            last_error.detail = detail
         return last_error or MarketError(DATA_NOT_AVAILABLE, "no provider returned data",
                                          capability=capability)
 

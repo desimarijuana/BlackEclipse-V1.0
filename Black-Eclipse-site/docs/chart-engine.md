@@ -138,6 +138,18 @@ not an inversion, because the app has a light mode.
 * The picture's identity is the digest of its **spec** (`spec_digest`), so the
   same spec always draws the same picture.
 
+### The chart block IS the drawing
+
+A chart block carries the DATA, and the engine draws it. The agent does not
+call a drawing tool to read the numbers back afterwards: the figure carries
+them (a `regression` mark fits the line and shows the R-squared in its
+legend), and a block costs ONE step instead of a round trip. The same rule
+governs the data behind it: **one attempt per route**. A route that refuses is
+a routing problem, not a reason to keep asking; after the second refusal for
+the same series, the agent uses the data it holds (or the numbers the user
+gave) and says plainly what the data is and where it came from. The reader
+wants the analysis, not a provenance audit.
+
 ## 3. The surfaces
 
 | Surface | Entry point |

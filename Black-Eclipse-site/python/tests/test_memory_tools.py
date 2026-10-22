@@ -428,7 +428,13 @@ def test_prompt_char_ceiling():
     # model never fits it itself). It is guidance the runtime needs; it is
     # re-pinned to the measured size and may only shrink from here. Matches the
     # same test in `test_memory_tools.py`.
-    assert len(prompt) <= 36991, f"prompt grew to {len(prompt)} chars"
+    # Re-pinned 36991->37834 for the chart-is-one-step guidance (a chart block
+    # IS the drawing - the data goes IN the block and the engine fits a
+    # regression itself) and the one-attempt-per-route rule (a reader wants the
+    # analysis, not a provenance audit). It is guidance the runtime needs; it is
+    # re-pinned to the measured size and may only shrink from here. Matches the
+    # same test in `test_memory_tools.py`.
+    assert len(prompt) <= 37834, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

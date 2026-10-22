@@ -438,6 +438,36 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/tests/test_chart_regression.py`, `src/lib/response/chart-regression.test.ts`.
   docs updated: `docs/chart-engine.md`, `docs/interactive-response-engine.md`.
 
+- **fix(chat): a chart is ONE step, and a market refusal names the routes that
+  already failed.**
+  A real run of "regress AAPL's daily close over 12 months" burned all 24
+  steps and 2.7M tokens and answered with prose and no chart. The engine was
+  never the problem: the agent had the 251 closes by step 7 and then spent
+  sixteen steps re-verifying them (6 scraper runs, 5 browser evaluations, 3
+  sandbox computations) because it thought a chart needed a drawing TOOL call
+  to read the numbers back. Two rules fix that:
+  - **A chart block IS the drawing.** The data goes IN the block and the engine
+    draws it: a `regression` mark fits the line and shows the R-squared in its
+    legend. No drawing tool call, no round trip, ONE step. The agent is told
+    never to fit the line itself and never to quote an R-squared it has not
+    read back.
+  - **One attempt per route.** A route that refuses is a routing problem, not
+    a reason to keep asking: try the next route once, and if the second route
+    for the same series also refuses, use the data already in hand (or the
+    numbers the user gave) and say plainly what it is and where it came from.
+    Never re-verify a series you already hold, and never spend a browser on a
+    provenance audit the reader did not ask for.
+  The market refusal now carries the WHOLE provider trail
+  (`Providers tried: yahoo: DATA_NOT_AVAILABLE (...); stooq: ...; polygon:
+  AUTHENTICATION_FAILED (no POLYGON_API_KEY)`) and says that a provider
+  answering AUTHENTICATION_FAILED needs a credential it does not have - do
+  not try it again. The last provider's error alone hid the more useful one
+  (a keyless route with no data), so the agent could not tell which routes had
+  already been tried and went to scrape a page instead.
+  Files: `python/harness/prompts.py`, `python/harness/market/{gateway.py,tools.py}`.
+  Tests: `python/tests/test_market_refusal_trail.py`. docs updated:
+  `docs/chart-engine.md`, `docs/harness/market-data.md`.
+
 ## 2026-10-20
 
 - **fix(charts): the full-view chart no longer collides with the app's header.**
