@@ -194,6 +194,37 @@ widget**, which shows the active project's next step and a button to run it -
 after which the widget re-reads the digest and the proposals, because the
 project's next step has changed.
 
+## Acting without being asked
+
+The proposer names the next experiment; the loop runs it. The last question is
+whether a project may do that **on its own**, unattended.
+
+`python/harness/projects/policy.py` owns the policy and the ledger; a project
+has a policy that says:
+
+- whether it is enabled at all (**off for every project until someone turns it
+  on**);
+- how many runs a day and how many seconds a day it may spend;
+- how far apart two runs must be;
+- **which tools it may run** - and that list is filtered to
+  `AUTO_RUNNABLE_TOOLS`, which contains only **compute** tools (a backtest, a
+  sweep, a rule evaluation). A project can never act on the world by itself, no
+  matter what the policy asks for.
+
+`python/harness/projects/auto.py` is the loop: every tick, each project whose
+policy allows it runs **one** proposal, through the same tool path an agent
+would use, and the outcome goes into the ledger - the successful runs and the
+refusals alike. A project that cannot act is a **normal outcome, not an
+error**: it is skipped, with the reason (`daily_run_budget`,
+`min_interval`, `no_runnable_proposal`) recorded.
+
+The policy is visible in the curated view, so the agent can see that a project
+acts on its own and what it has spent today.
+
+Surfaces: the tools `project_auto_policy` and `project_auto_run`; the routes
+`GET/POST /projects/{id}/auto` and `POST /projects/auto/run`. The loop starts
+at boot and stops at shutdown.
+
 ## How a project fills itself up
 
 `python/harness/projects/attach.py` is the policy, and it is deliberately
@@ -217,11 +248,13 @@ bookkeeping step.
 ## The remaining slice
 
 The entity, the tools, the binding, the app surface, the auto-populate policy,
-the curated view, the proposer and the loop that runs a proposal are in place.
-What is **not** built is a project that acts **without being asked**: the loop
-runs when the agent (or the user) asks it to, because a project that spends
-money or wall-clock on its own initiative is a policy decision, not a
-technical one. Everything the decision would need - the proposals, the
-evidence, the actions - is already there.
+the curated view, the proposer, the loop that runs a proposal and the policy
+that lets a project act unattended are in place.
+
+What is **not** built is the *content* side: the proposer reasons over
+strategies, experiments and regimes, and it knows about the trade log, but it
+does not yet read a research *note* the user wrote, and it does not yet know
+which hypothesis the project is actually trying to test. That is a modelling
+question - what a project believes - and it is the next one worth asking.
 
 Tests: `python/tests/test_projects.py`, `src/lib/projects/project-client.test.ts`.

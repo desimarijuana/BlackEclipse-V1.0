@@ -18,6 +18,36 @@ from ..projects import ProjectError
 router = APIRouter(tags=["projects"])
 
 
+def _auto_store() -> Any:
+    store = getattr(service, "auto_run_store", None)
+    if store is None:
+        raise HTTPException(status_code=503,
+                            detail="the auto-run policy store is unavailable")
+    return store
+
+
+def _day_ago():
+    from datetime import datetime, timedelta, timezone
+
+    return datetime.now(timezone.utc) - timedelta(days=1)
+
+
+def _auto_context() -> Any:
+    """The context the auto-run acts in."""
+    from ..tools import ToolContext
+
+    return ToolContext(
+        run_id="project_auto_route",
+        log=lambda *_a, **_k: None,
+        quant_store=getattr(service, "quant_store", None),
+        market_gateway=getattr(service, "market_gateway", None),
+        data_bridge=service.server_bridge(),
+        tool_registry=getattr(service, "registry", None),
+        project_store=getattr(service, "project_store", None),
+        auto_run_store=getattr(service, "auto_run_store", None),
+    )
+
+
 def _store() -> Any:
     store = getattr(service, "project_store", None)
     if store is None:
@@ -122,6 +152,41 @@ async def run_project_proposal_route(project_id: str, proposal_id: str,
                                     quant_store=getattr(service, "quant_store", None),
                                     firm=firm, firm_size=size)
     return {"status": "OK", "run": run.to_dict()}
+
+
+@router.get("/projects/{project_id}/auto")
+async def project_auto_policy_route(project_id: str,
+                                   _: bool = Depends(require_operator)) -> dict:
+    """The auto-run policy of a project and what is left of its budget."""
+    store = _auto_store()
+    policy = store.get_policy(project_id)
+    return {"policy": policy.to_dict(), "budget": store.budget_state(policy),
+            "runs": store.runs_since(project_id, _day_ago())[-20:]}
+
+
+@router.post("/projects/{project_id}/auto")
+async def set_project_auto_policy_route(project_id: str,
+                                        body: dict[str, Any],
+                                        _: bool = Depends(require_operator)) -> dict:
+    """Set the auto-run policy of a project. Off unless explicitly enabled."""
+    store = _auto_store()
+    policy = store.set_policy(project_id, **{
+        "enabled": body.get("enabled"),
+        "maxRunsPerDay": body.get("maxRunsPerDay"),
+        "maxSecondsPerDay": body.get("maxSecondsPerDay"),
+        "minIntervalMinutes": body.get("minIntervalMinutes"),
+        "allowedTools": body.get("allowedTools"),
+    })
+    return {"policy": policy.to_dict(), "budget": store.budget_state(policy)}
+
+
+@router.post("/projects/auto/run")
+async def run_project_auto_route(_: bool = Depends(require_operator)) -> dict:
+    """One tick: let every project whose policy allows it act once."""
+    from ..projects.auto import tick_projects
+
+    ctx = _auto_context()
+    return {"status": "OK", **await tick_projects(ctx)}
 
 
 @router.post("/projects/{project_id}/members")

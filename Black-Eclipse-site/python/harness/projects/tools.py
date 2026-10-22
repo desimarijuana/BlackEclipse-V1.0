@@ -32,6 +32,17 @@ def _store(ctx: ToolContext) -> Any:
     return store
 
 
+def _auto_store(ctx: ToolContext) -> Any:
+    from .policy import get_auto_run_store
+
+    store = getattr(ctx, "auto_run_store", None) or get_auto_run_store()
+    if store is None:
+        raise RuntimeError(
+            "the auto-run policy store is not configured in this runtime; the "
+            "auto-run tools are unavailable")
+    return store
+
+
 def _err(code: str, message: str) -> tuple[str, Any]:
     return (f"ERROR - {code}: {message}",
             {"status": "ERROR", "error": {"code": code, "message": message}})
@@ -134,7 +145,10 @@ async def project_digest(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
         store = _store(ctx)
         from .curate import curate_project
 
-        digest = curate_project(store, project_id)
+        from .policy import get_auto_run_store
+
+        digest = curate_project(store, project_id,
+                                auto_run_store=get_auto_run_store())
         if digest is None:
             return _err("PROJECT_NOT_FOUND", f"no project {project_id!r}")
         return (digest.to_markdown(), {"status": "OK", "digest": digest.to_dict()})
@@ -205,6 +219,61 @@ async def project_run_proposal(args: dict[str, Any],
         return _err("PROJECT_RUN_FAILED", str(exc))
 
 
+async def project_auto_policy(args: dict[str, Any],
+                             ctx: ToolContext) -> tuple[str, Any]:
+    """Read or set the auto-run policy: when a project may act on its own."""
+    project_id = str(args.get("projectId") or "")
+    if not project_id:
+        return _err("PROJECT_ID_REQUIRED", "provide `projectId`")
+    try:
+        store = _auto_store(ctx)
+        if args.get("enable") is None and not args.get("set"):
+            policy = store.get_policy(project_id)
+            budget = store.budget_state(policy)
+            return (f"Auto-run for {project_id} is "
+                    f"{'ON' if policy.enabled else 'OFF'}: {budget['usedRuns']}/"
+                    f"{policy.max_runs_per_day} runs today, "
+                    f"{budget['usedSeconds']:.0f}/{policy.max_seconds_per_day}s, "
+                    f"every {policy.min_interval_minutes} min. Allowed tools: "
+                    f"{', '.join(policy.allowed_tools)}.",
+                    {"status": "OK", "policy": policy.to_dict(), "budget": budget})
+        patch = {k: v for k, v in (
+            ("enabled", args.get("enable")),
+            ("maxRunsPerDay", args.get("maxRunsPerDay")),
+            ("maxSecondsPerDay", args.get("maxSecondsPerDay")),
+            ("minIntervalMinutes", args.get("minIntervalMinutes")),
+            ("allowedTools", args.get("allowedTools")),
+        ) if v is not None}
+        if "enable" in patch:
+            patch["enabled"] = patch.pop("enable")
+        policy = store.set_policy(project_id, **patch)
+        return (f"Auto-run for {project_id} is now "
+                f"{'ON' if policy.enabled else 'OFF'}.",
+                {"status": "OK", "policy": policy.to_dict()})
+    except Exception as exc:  # noqa: BLE001
+        return _err("PROJECT_AUTO_POLICY_FAILED", str(exc))
+
+
+async def project_auto_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Let every project that is allowed to act, act once."""
+    try:
+        from .auto import tick_projects
+
+        report = await tick_projects(ctx)
+        ran = report.get("ran") or []
+        if not ran:
+            skipped = report.get("skipped") or []
+            return (f"no project acted ({len(skipped)} considered and held back"
+                    + (f": {', '.join(sorted({str(s.get('reason')) for s in skipped}))}"
+                       if skipped else "") + ").",
+                    {"status": "OK", **report})
+        lines = [f"{entry['projectId']}: {entry['status']} - {entry['summary']}"
+                 for entry in ran]
+        return ("\n".join(lines), {"status": "OK", **report})
+    except Exception as exc:  # noqa: BLE001
+        return _err("PROJECT_AUTO_RUN_FAILED", str(exc))
+
+
 PROJECT_TOOLS: tuple[str, ...] = (
     "project_create",
     "project_list",
@@ -214,6 +283,8 @@ PROJECT_TOOLS: tuple[str, ...] = (
     "project_digest",
     "project_next",
     "project_run_proposal",
+    "project_auto_policy",
+    "project_auto_run",
 )
 
 
@@ -299,6 +370,33 @@ def register_project_tools(registry: Any) -> list[str]:
             "size": {"type": "string"}},
             "required": ["projectId", "proposalId"]},
         handler=project_run_proposal, permission="read", risk="low", timeout_ms=180_000,
+        long_running=True))
+    registry.register(ToolDefinition(
+        name="project_auto_policy",
+        description="Read or set the AUTO-RUN policy: whether this project may act "
+                    "on its own, how many runs a day, how many seconds a day, how far "
+                    "apart two runs must be, and which tools it may run. Off by "
+                    "default. Only compute tools may be run automatically - a "
+                    "project can never act on the world by itself.",
+        input_schema={"type": "object", "properties": {
+            "projectId": {"type": "string"},
+            "enable": {"type": "boolean"},
+            "set": {"type": "boolean"},
+            "maxRunsPerDay": {"type": "integer"},
+            "maxSecondsPerDay": {"type": "integer"},
+            "minIntervalMinutes": {"type": "integer"},
+            "allowedTools": {"type": "array", "items": {"type": "string"}}},
+            "required": ["projectId"]},
+        handler=project_auto_policy, permission="read", risk="low", timeout_ms=20_000))
+    registry.register(ToolDefinition(
+        name="project_auto_run",
+        description="Let every project whose auto-run policy allows it act once: the "
+                    "project runs its own top proposal, inside its budget, and the "
+                    "outcome is recorded in the project. Nothing is run that the "
+                    "policy does not allow, and a project that cannot act is a "
+                    "normal outcome, not an error.",
+        input_schema={"type": "object", "properties": {}, "required": []},
+        handler=project_auto_run, permission="read", risk="low", timeout_ms=180_000,
         long_running=True))
     registry.register(ToolDefinition(
         name="project_digest",

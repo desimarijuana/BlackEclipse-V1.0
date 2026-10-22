@@ -263,7 +263,10 @@ def propose_next(
     max_proposals: int = 6,
 ) -> dict[str, Any]:
     """Propose the next steps for a project, from its own evidence."""
-    digest = curate_project(project_store, project_id)
+    from .policy import get_auto_run_store
+
+    digest = curate_project(project_store, project_id,
+                            auto_run_store=get_auto_run_store())
     if digest is None:
         return {"available": False, "reason": f"no project {project_id!r}",
                 "proposals": []}

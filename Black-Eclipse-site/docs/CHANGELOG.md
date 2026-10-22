@@ -7,6 +7,33 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-21
+- **feat(harness): a project may act on its own - inside a policy the operator
+  can see.** The loop that runs a proposal existed, but only when the agent or
+  the user asked. A project can now act unattended, and the bound is explicit
+  and enforced BY THE RUNTIME rather than by the model's good intentions. The
+  policy says whether the project is enabled (OFF for every project until
+  someone turns it on), how many runs a day and how many seconds a day it may
+  spend, how far apart two runs must be, and which tools it may run - and that
+  tool list is filtered to **compute only** (a backtest, a sweep, a rule
+  evaluation), so a project can never act on the world by itself, whatever the
+  policy asks for. Every tick, each project whose policy allows it runs ONE
+  proposal through the same tool path an agent would use, and the outcome goes
+  into a ledger - the successful runs and the refusals alike. A project that
+  cannot act is a NORMAL outcome, not an error: it is skipped with the reason
+  (`daily_run_budget`, `min_interval`, `no_runnable_proposal`) recorded. The
+  policy and what is left of its budget are visible in the curated view, so the
+  agent can see that a project acts on its own and what it has spent today.
+  Surfaces: the tools `project_auto_policy` and `project_auto_run`; the routes
+  GET/POST /projects/{id}/auto and POST /projects/auto/run. The loop starts at
+  boot and stops at shutdown, and the implementation lives in
+  `python/harness/projects/` - `service.py` and `graph.py` are untouched, so
+  their size ratchets do not move. Files:
+  python/harness/projects/policy.py (new), python/harness/projects/auto.py
+  (new), python/harness/projects/curate.py, python/harness/projects/propose.py,
+  python/harness/projects/tools.py, python/harness/projects/bootstrap.py,
+  python/harness/routers/projects.py, python/harness/boot.py.
+  Tests: python/tests/test_project_auto.py (10). docs updated: docs/projects.md.
+
 - **feat(harness): a project runs its own proposal and records the outcome.**
   The proposer named the next experiment; now it is RUN - through the same tool
   the agent would have called, so the policy gate, the allowlist, the sandbox
@@ -2146,6 +2173,25 @@ umpy/pandas are **already installed** in the runtime and the analysis
   `python/tests/test_surface_lab.py` (7). Docs updated:
   `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/decisions.md`
   (ADR-H290), `docs/QUICKSTART.md`.
+- **feat(rsl): ONE surface-candidate path, and the lab stages EVIDENCE
+  (v3 P5 slice 2).** The identity of a surface experiment and the row it
+  creates now live in `self_improvement/surface_candidate.py`; the operator
+  route and the surface lab BOTH call it, so a lab winner and an operator
+  experiment are the same thing to the rest of the system, and re-running the
+  same experiment never creates a second row. The lab stages its winner as an
+  INERT surface candidate whose problem statement carries the measured delta
+  and the lessons it came from; `POST /evolution/surface-lab/{id}/queue` is the
+  operator's one click to queue it, and the loop then verifies it through the
+  SAME measured path every other surface experiment uses - only then can it be
+  activated (canary + rollback). The lab never lands, never activates and never
+  queues: a machine-authored improvement meets the same gate as an
+  operator-authored one. Files:
+  `python/harness/self_improvement/surface_candidate.py` (new),
+  `python/harness/self_improvement/surface_lab.py`,
+  `python/harness/routers/evolution.py`. Tests:
+  `python/tests/test_surface_candidate.py` (4). Docs updated:
+  `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/decisions.md`
+  (ADR-H291).
 
 ## 2026-10-19
 

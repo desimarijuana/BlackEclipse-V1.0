@@ -70,6 +70,7 @@ class ProjectDigest:
     members: list[CuratedMember] = field(default_factory=list)
     gaps: list[str] = field(default_factory=list)
     counts: dict[str, int] = field(default_factory=dict)
+    auto_run: Optional[dict[str, Any]] = None
 
     @property
     def member_count(self) -> int:
@@ -85,6 +86,7 @@ class ProjectDigest:
             "memberCount": self.member_count,
             "gaps": list(self.gaps),
             "counts": dict(self.counts),
+            "autoRun": self.auto_run,
         }
 
     def to_markdown(self) -> str:
@@ -100,6 +102,9 @@ class ProjectDigest:
                 lines.append(f"- {member.kind}: `{member.ref}`{label} — {member.reason}")
         else:
             lines.append("Members: none yet.")
+        if self.auto_run:
+            state = "ON" if self.auto_run.get("enabled") else "off"
+            lines.append(f"Auto-run: {state} - {self.auto_run.get('summary', '')}")
         if self.gaps:
             lines.append("Still missing:")
             for gap in self.gaps:
@@ -165,6 +170,7 @@ def curate_project(
     project_id: str,
     *,
     max_members: int = 20,
+    auto_run_store: Any = None,
 ) -> Optional[ProjectDigest]:
     """Curate one project: what it is, what matters, what it lacks."""
     project = project_store.get(str(project_id))
@@ -209,7 +215,27 @@ def curate_project(
         members=ranked[:max_members],
         gaps=_gaps(counts, len(members)),
         counts=counts,
+        auto_run=_auto_run_state(auto_run_store, project.id),
     )
+
+
+def _auto_run_state(auto_run_store: Any, project_id: str) -> Optional[dict[str, Any]]:
+    """What the auto-run policy says about this project, and what is left."""
+    if auto_run_store is None:
+        return None
+    try:
+        policy = auto_run_store.get_policy(project_id)
+        budget = auto_run_store.budget_state(policy)
+    except Exception:  # noqa: BLE001 - the policy is a nicety, never a blocker
+        return None
+    return {
+        "enabled": policy.enabled,
+        "summary": (f"{budget['usedRuns']}/{policy.max_runs_per_day} run(s) today, "
+                    f"{budget['usedSeconds']:.0f}/{policy.max_seconds_per_day}s, "
+                    f"at most every {policy.min_interval_minutes} min"),
+        "budget": budget,
+        "allowedTools": list(policy.allowed_tools),
+    }
 
 
 def _negated(stamp: str) -> str:
