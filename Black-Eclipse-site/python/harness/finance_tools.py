@@ -588,7 +588,7 @@ def register_finance_tools(registry: ToolRegistry) -> None:
             handler=get_market_snapshot,
             permission="read",
             risk="low",
-            timeout_ms=10_000,
+            timeout_ms=25_000,
         )
     )
     registry.register(

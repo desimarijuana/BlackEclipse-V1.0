@@ -10257,3 +10257,36 @@ and its CLI flags), `evaluation/candidate_invoker.py` (the live invoker already
 refuses to run without explicit settings). Tests: `test_surface_lab.py` (the
 live tier reaches the invoker with the explicit settings, and the run stays
 deterministic in the test). Docs: `docs/self-improvement/rsl-v3-plan.md`.
+
+## ADR-H309 - The structured-read budget is set from the measured slowest read, not from a guess
+
+**Decision.** The data bridge's structured-read timeout is **15 s**, and the
+comment above it names the measurement that produced that number. It stays below
+the run's tool budget (20 s, `graph.py`), so a slow read still returns a structured
+`UNAVAILABLE` instead of being killed as `TOOL_TIMEOUT`.
+
+**Why.** The budget was 8 s, justified in prose as "before the smallest
+market-tool budget (10 s)". The 10 s budget was real, and the pair was simply too
+tight: the slowest read is 8.56 s. Measured against the live bridge on
+this machine, one structured capability cannot fit 8 s:
+
+    market_data             3.91 s
+    market_snapshot         0.04 s  (cached)
+    live_quote              3.57 s
+    financial_statements    8.56 s  (cold)
+
+`financial_statements` therefore failed on EVERY call, and the live evaluation
+lane could not measure a single finance dimension. Six attempts to paper over it
+from the other side - a production build (68 -> 15 failures), a 9.5 s budget (12),
+concurrency 1 (13) - all failed, because the slowest read was above the line and
+queueing pushed the rest over it.
+
+**Consequences.** The finance tools' `timeout_ms` moves 10 s -> 25 s in the same
+change, so the ordering the contract depends on (bridge 15 s < tool 25 s) holds
+and `test_timeout_classes_stay_inside_the_tool_budgets_they_serve` still enforces
+it. `bridge.py::HttpDataBridge._TIMEOUT_S` is 15.0 with the measured
+basis in the comment. A structured read that now takes longer than 15 s means the
+provider regressed, not that the budget is wrong - the number must be re-measured
+before it is changed again. The network class (20 s) is unchanged. This does not
+claim the finance dimensions now measure well; it removes the reason they measured
+NOTHING.

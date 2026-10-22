@@ -21,9 +21,10 @@ class HttpDataBridge(DataBridge):
     """Reads JDdS data through the thin TS bridge.
 
     Two timeout classes. A STRUCTURED/vault read (market snapshot, quote,
-    fundamentals, provider adapters) must fail BEFORE the smallest market-tool
-    budget (10s) so the tool returns a structured UNAVAILABLE instead of being
-    killed as TOOL_TIMEOUT. A capability that fetches the public web
+    fundamentals, provider adapters) must fail BEFORE the tool budget
+    (`graph.py`: `toolTimeoutMs or 20_000`) so the tool returns a structured
+    UNAVAILABLE instead of being killed as TOOL_TIMEOUT. A capability that fetches
+    the public web
     (search/extract/education/image) may legitimately take longer and gets the
     slower class — still under the 30s research-tool budget.
 
@@ -35,7 +36,11 @@ class HttpDataBridge(DataBridge):
     bounded by one per-class timeout, never by two.
     """
 
-    _TIMEOUT_S = 8.0
+    #: The slowest structured read measured on this machine is
+    #: `financial_statements` at 8.56 s (cold), so 8.0 s could never return it.
+    #: 15 s covers that plus queueing and still fails well before the 20 s tool
+    #: budget, keeping UNAVAILABLE distinguishable from TOOL_TIMEOUT.
+    _TIMEOUT_S = 15.0
     _NETWORK_TIMEOUT_S = 20.0
     _RETRY_DELAY_S = 0.4
     _NETWORK_CAPABILITIES = frozenset({

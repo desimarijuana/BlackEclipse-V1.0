@@ -91,6 +91,22 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   rather than a wrong status. 16/16 in the file, twice.
   no doc change — test-only fix, no contract or behaviour change.
 
+- **fix(bridge): the structured-read budget is now measured, not assumed.** Round
+  4 / V5. The bridge gave structured reads 8 s because "the smallest market-tool
+  budget is 10 s" — true, and still too tight. Timed against the live front door:
+  `market_data` 3.91 s, `live_quote` 3.57 s, `market_snapshot` 0.04 s cached, and
+  **`financial_statements` 8.56 s cold** — permanently over the line, so the live
+  lane could not measure a single finance dimension. Bridge is now 15 s and the
+  finance tools' `timeout_ms` 25 s, preserving the ordering the contract depends
+  on (15 s < 25 s), which the existing timeout test still enforces. Live-suite
+  bridge failures fell 15 -> 6 -> 3 across the runs. It did not reach zero: the
+  three remaining calls include `market_snapshot`, measured at 42 ms, so they are
+  connection faults under suite load and not budget faults - recorded as the next
+  open item rather than claimed fixed. ADR-H309 carries the measurement and the
+  reasoning; the plan's V1-V6 ADR reservations shift to H310-H315.
+  docs updated: docs/harness/decisions.md,
+  docs/harness/roadmap/round-4-gap-closure.md.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how

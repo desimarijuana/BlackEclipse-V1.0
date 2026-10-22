@@ -99,7 +99,7 @@ Six workstreams, four waves. Each ends with a gate that must exit zero.
 > now reserve **H309–H314**. The other stream's local `main` is behind and
 > must `git pull` (their tree had 84 uncommitted files at landing time).
 
-> Closes **O1, O2** · Moves **Ops +0.20** · ADR-H309
+> Closes **O1, O2** · Moves **Ops +0.20** · ADR-H310
 > **Priority 1 — one command, and it makes everything else real.**
 
 **Why.** The work is finished, verified, and on a branch nobody else is
@@ -133,7 +133,7 @@ is not a release, and a branch is not a product.
 
 ### V2 — Shrink it, one merge per release
 
-> Closes **O3** · Moves **Ops +0.10** · ADR-H310
+> Closes **O3** · Moves **Ops +0.10** · ADR-H311
 > **Priority 2 — the structural fix, and the only one that is multi-release.**
 
 **Why.** The harness is 375,997 lines. The enforcement is real (a per-module
@@ -177,7 +177,7 @@ formality. The named duplicates are still there.
 
 ### V3 — A second pair of eyes
 
-> Closes **O4, O5, O8** · Moves **Ops +0.10** · ADR-H311
+> Closes **O4, O5, O8** · Moves **Ops +0.10** · ADR-H312
 > **Priority 2 — the risk item, and the one that cannot be automated.**
 
 **Why.** 90% of this harness's history is one author, and the harness is the
@@ -222,7 +222,7 @@ being reachable, a policy that stops narrowing, a size that grows back. A
 
 ### V4 — Distribute it
 
-> Closes **O6, O7** · Moves **Ops +0.04** · ADR-H312
+> Closes **O6, O7** · Moves **Ops +0.04** · ADR-H313
 > **Priority 4 — reach, not score. Do it after V1–V3.**
 
 **Why.** The harness has a declared public surface, a portable tool manifest
@@ -254,7 +254,7 @@ join a multi-agent session.
 
 ### V5 — The first live number
 
-> Closes **E1, E3, E4** · Moves **Eval +0.03** · ADR-H313
+> Closes **E1, E3, E4** · Moves **Eval +0.03** · ADR-H314
 > **Priority 1 for Eval — the only thing that turns `NOT MEASURED` into a number.**
 
 **Why.** The offline tier replaces the model with a recorded script, so
@@ -296,7 +296,7 @@ row is honest and it is not evidence.
 
 ### V6 — An external suite
 
-> Closes **E2** · Moves **Eval +0.02** · ADR-H314
+> Closes **E2** · Moves **Eval +0.02** · ADR-H315
 > **Priority 2 for Eval — the only route to a number anyone else can compare.**
 
 **Why.** Nothing in this repository matches `swe.?bench`, Vals or SWE-rebench.
