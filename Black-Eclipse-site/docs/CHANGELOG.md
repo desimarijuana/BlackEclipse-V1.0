@@ -44,6 +44,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   than raising the ceiling.
   docs updated: docs/harness/decisions.md.
 
+- **release(harness): v0.2.0 is tagged, and `main` is the released tree.** Round 4
+  V1 is closed. `origin/main` fast-forwarded to `b3e08d1c` (no force), the branch
+  was pushed, and an annotated `v0.2.0` (`8068674e`) was pushed and verified with
+  `git ls-remote`. The release was only cut after the full `check:all` passed on
+  the exact tree that was tagged - the gate had failed four times first, each time
+  on something real (a divergent `main`, stale generated artifacts, a module over
+  its ratchet, and CRLF this tool wrote into an LF file). The plan's ADR
+  reservations were shifted to H309-H314, because the merge resolution consumed
+  H306-H308. The other stream's local `main` is behind and must `git pull`.
+  docs updated: docs/harness/roadmap/round-4-gap-closure.md,
+  docs/releases/v0.2.0.md.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how
