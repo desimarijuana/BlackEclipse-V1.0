@@ -7,6 +7,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-22
+- **fix(tests): type the chart-route fetch mock so the lint gate passes.** The
+  mock was declared `Promise<any>`; `npx eslint .` is a step of the release gate
+  (`check:all`) and of the CI workflow, so one `no-explicit-any` error kept the
+  whole gate red. It is now typed `Promise<Response>`. Files:
+  `src/app/api/harness/charts/route.test.ts`. Docs updated: none - test-only.
 - **fix(chat): a display formula after a prose line is typeset, not printed
   between dollar signs.** A real run wrote `**Return definition**\n$$r_t = ...$$`
   with no blank line; `$$` was not a block start, so the paragraph swallowed the
