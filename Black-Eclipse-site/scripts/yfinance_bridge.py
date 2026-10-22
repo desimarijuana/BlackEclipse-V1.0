@@ -138,16 +138,37 @@ def fetch_quotes(symbols):
     return {sym: q for sym, q in results.items() if q is not None}
 
 
-def fetch_history(symbols, period, interval):
-    data = yf.download(
+def fetch_history(symbols, period, interval, start=None, end=None):
+    # An EXPLICIT window is passed to yfinance as start/end, not as a rolling
+    # `period`: a 1y range is anchored to "now" and its first session can fall
+    # outside the requested window (a request for 2025-10-20..2026-10-20 came
+    # back starting on the 21st — a silently short series that changes every
+    # return, drawdown and statistic computed from it).
+    kwargs = dict(
         tickers=" ".join(symbols),
-        period=period,
         interval=interval,
         group_by="ticker",
         progress=False,
         threads=True,
         auto_adjust=False,
     )
+    if start:
+        kwargs["start"] = start
+        if end:
+            # yfinance's `end` is EXCLUSIVE; our window's end date is inclusive.
+            # Asking for the end date itself drops the last session.
+            try:
+                import datetime as _dt
+
+                inclusive_end = (
+                    _dt.date.fromisoformat(str(end)[:10]) + _dt.timedelta(days=1)
+                ).isoformat()
+            except Exception:
+                inclusive_end = end
+            kwargs["end"] = inclusive_end
+    else:
+        kwargs["period"] = period
+    data = yf.download(**kwargs)
     history = {}
     for sym in symbols:
         if isinstance(data.columns, pd.MultiIndex):
@@ -205,22 +226,25 @@ def main():
 
 def run():
     if len(sys.argv) < 3:
-        return {"error": "usage: yfinance_bridge.py <market> <sym1,sym2,...> [interval] [period]"}
+        return {"error": "usage: yfinance_bridge.py <market> <sym1,sym2,...> [interval] [period] [start] [end]"}
 
     market = sys.argv[1].upper()
     raw_symbols = [s.strip().upper() for s in sys.argv[2].split(",") if s.strip()]
     interval = sys.argv[3].lower() if len(sys.argv) > 3 and sys.argv[3] else "1d"
     period = sys.argv[4].lower() if len(sys.argv) > 4 and sys.argv[4] else "1d"
+    # An explicit window (start[/end]) overrides the rolling period.
+    start = sys.argv[5].strip() if len(sys.argv) > 5 and sys.argv[5] else None
+    end = sys.argv[6].strip() if len(sys.argv) > 6 and sys.argv[6] else None
 
     if not raw_symbols:
         return {"error": "no symbols given"}
 
     tickers = [yahoo_symbol(s, market) for s in raw_symbols]
 
-    want_history = interval != "1d" or period not in ("", "1d")
-    if want_history and interval in VALID_INTERVALS and period in VALID_PERIODS:
+    want_history = interval != "1d" or period not in ("", "1d") or bool(start)
+    if want_history and interval in VALID_INTERVALS and (period in VALID_PERIODS or start):
         try:
-            history = fetch_history(tickers, period, interval)
+            history = fetch_history(tickers, period, interval, start=start, end=end)
             return {"market": market, "history": history}
         except Exception as exc:  # noqa: BLE001
             return {"error": f"history failed: {exc}"}

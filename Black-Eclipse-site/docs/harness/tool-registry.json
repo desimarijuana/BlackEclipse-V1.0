@@ -1,7 +1,7 @@
 {
-  "digest": "815485cccc03f23d",
+  "digest": "bc16cdcfda2e4a45",
   "manifestVersion": "1",
-  "toolCount": 946,
+  "toolCount": 953,
   "tools": [
     {
       "deprecated": false,
@@ -277,6 +277,44 @@
     },
     {
       "deprecated": false,
+      "description": "Read a closed-trade log against the conditions in which each entry happened: every entry is placed on the regime of its entry bar (the same causal trend x volatility classifier the Edge Report uses), the P&L is attributed per regime, and the concentration of the profit is measured. Takes the Journal's own trades when no log is passed.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "end": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "trades": {
+            "description": "the closed trades; omit to use the Journal",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "analyse_trade_log",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Work something out from data with a short calculation — a return, a drawdown, a correlation, a reconciliation, a what-if. Ready-made recipes: returns_series(prices) - what did this do over time; drawdown_profile(prices) - how bad was the worst fall, and how long; correlation_matrix(returns) - are these moving together; contribution_to_return(holdings) - what drove the result; reconciliation(left, right) - do these two sets agree, and where not; period_comparison(current, previous) - this quarter vs last; scenario_shock(values, shockPct) - what if this fell 20%; drawdown_figure(prices) - show me the worst fall as a chart; distribution_profile(values) - how is this spread — the shape, the middle and the tails; monte_carlo_paths(returns, start_value, paths, horizon, seed) - what could happen, drawn from the returns you supplied. Otherwise give a short program that reads `inputs` and puts its answer in `result`. The result is always labelled as worked out by Eclipse, never as data from a source. If a needed input is missing, ask — never invent it.",
       "effect": null,
       "inputSchema": {
@@ -299,7 +337,7 @@
             "type": "boolean"
           },
           "source": {
-            "description": "Only when no recipe fits: a short Python program. It reads its data from `inputs` and puts its answer in `result`. It may `import eclipse_tools` and call the read-only bindings market_snapshot, live_quote, price_history; arguments are JSON values and fetched data stays out of the conversation. No network, no writes, no files outside its own folder.",
+            "description": "Only when no recipe fits: a short Python program. It reads its data from `inputs` and puts its answer in `result`. It may `import eclipse_tools` and call the read-only bindings market_snapshot(symbol, market?); live_quote(symbol, market?); price_history(symbol, market?, interval?, range?, start?, end?) (the required argument has no '?'); arguments are JSON values and fetched data stays out of the conversation. No network, no writes, no files outside its own folder.",
             "type": "string"
           },
           "timeout_s": {
@@ -14602,6 +14640,70 @@
     },
     {
       "deprecated": false,
+      "description": "Grade a Pine Script with ECLIPSE's own machinery: the run is translated into the engine's trade shape, the metrics engine computes the numbers, the bars are classified into market regimes, the trade sequence is resampled, and the Edge Verdict returns an A-F grade with the overfit tells - the same report an Eclipse strategy gets. Returns the report and the figures.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "bars": {
+            "description": "OHLCV bars: {time,o,h,l,c,v}",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "datasetId": {
+            "description": "a stored research dataset to run on",
+            "type": "string"
+          },
+          "maxBars": {
+            "type": "integer"
+          },
+          "monteCarlo": {
+            "type": "boolean"
+          },
+          "monteCarloMethod": {
+            "enum": [
+              "regime_block_bootstrap",
+              "trade_reshuffle"
+            ],
+            "type": "string"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "simulations": {
+            "type": "integer"
+          },
+          "source": {
+            "description": "the Pine Script source",
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "timeframe": {
+            "type": "string"
+          },
+          "timeoutS": {
+            "type": "number"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "type": "object"
+      },
+      "name": "grade_pine_script",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Grade the evidence behind a strategy's edge from A to F across edge, robustness, risk and sample size, and name the overfit tells (a suspiciously smooth equity curve, P&L concentrated in a few trades, expectancy not positive, a sample too small to tell from luck). Reads a stored experiment or runs the backtest; optionally folds in a regime-block Monte-Carlo result.",
       "effect": null,
       "inputSchema": {
@@ -19348,6 +19450,63 @@
     },
     {
       "deprecated": false,
+      "description": "Read or set the AUTO-RUN policy: whether this project may act on its own, how many runs a day, how many seconds a day, how far apart two runs must be, and which tools it may run. Off by default. Only compute tools may be run automatically - a project can never act on the world by itself.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "allowedTools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "enable": {
+            "type": "boolean"
+          },
+          "maxRunsPerDay": {
+            "type": "integer"
+          },
+          "maxSecondsPerDay": {
+            "type": "integer"
+          },
+          "minIntervalMinutes": {
+            "type": "integer"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "set": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "projectId"
+        ],
+        "type": "object"
+      },
+      "name": "project_auto_policy",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Let every project whose auto-run policy allows it act once: the project runs its own top proposal, inside its budget, and the outcome is recorded in the project. Nothing is run that the policy does not allow, and a project that cannot act is a normal outcome, not an error.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "project_auto_run",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Create a project: a named scope that holds the strategies, backtests, datasets, artifacts and notes that belong to one piece of work. A project carries the instruments it covers.",
       "effect": null,
       "inputSchema": {
@@ -19409,6 +19568,27 @@
     },
     {
       "deprecated": false,
+      "description": "The CURATED view of a project: what it is about, which members matter most (and why), and what it does not have yet. Use it instead of project_show when the question is 'where does this project stand?' rather than 'list every member'.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "projectId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "projectId"
+        ],
+        "type": "object"
+      },
+      "name": "project_digest",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "List the projects, most recently active first, with their member counts.",
       "effect": null,
       "inputSchema": {
@@ -19424,6 +19604,66 @@
         "type": "object"
       },
       "name": "project_list",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Propose what this project should do next, FROM ITS OWN EVIDENCE: a strategy with no result, a result with too few trades, a strategy whose trades only ever happened in a few market regimes, a result whose tail is unsafe, and whether the strategy survives a prop firm's evaluation rules. Each proposal cites its evidence and names the exact tool call to run.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "firm": {
+            "description": "the prop firm to test fit against",
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "size": {
+            "description": "that firm's account size",
+            "type": "string"
+          }
+        },
+        "required": [
+          "projectId"
+        ],
+        "type": "object"
+      },
+      "name": "project_next",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "RUN one of this project's proposals and record the outcome back into the project, so the next proposal is made against a project that knows what just happened. The run goes through the same tool the agent would have called, so the policy gate, the allowlist and the persistence are identical. A failed run is recorded as a failure - a project that hides its failures cannot learn.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "firm": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "proposalId": {
+            "type": "string"
+          },
+          "size": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "projectId",
+          "proposalId"
+        ],
+        "type": "object"
+      },
+      "name": "project_run_proposal",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -19733,7 +19973,14 @@
                           "candlestick",
                           "waterfall",
                           "ridge",
-                          "stem"
+                          "stem",
+                          "treemap",
+                          "sunburst",
+                          "funnel",
+                          "sankey",
+                          "scatter3d",
+                          "surface",
+                          "regression"
                         ],
                         "type": "string"
                       },

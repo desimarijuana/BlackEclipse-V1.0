@@ -112,6 +112,133 @@ returns `null`.
   vault it belongs to (JDdS, the quant store, the Artifact Center).
 - **Not a permission.** Membership grants nothing. A member is a pointer.
 
+## The curated view
+
+A member list is a filing cabinet. The **curated** view is a summary: what this
+project is about, which members matter most, and what it does not have yet.
+
+`python/harness/projects/curate.py` does it deterministically and explainably:
+
+- **Ranking** is by a fixed priority per kind - an `experiment` (a tested
+  result) outranks a `strategy` (an intent to trade), which outranks a `dataset`
+  (an input), which outranks an `artifact` (an output), which outranks a run
+  record. The newest member breaks a tie. Every promoted member carries **the
+  reason it was promoted**, so the ranking can be argued with rather than
+  merely trusted.
+- **The headline** is derived from what the project actually holds: "NQ momentum
+  on NQ, ES - 1 strategy, 2 results."
+- **The gaps** are named plainly. A project with a strategy and no result is not
+  finished, and it says so: *no result has been attached yet - a strategy with
+  no tested outcome is an intention, not a finding.*
+
+The curated view is what the **agent** sees: the run's per-run project context
+is the digest, not a flat member list, so a turn inside a project starts from
+"where does this stand?" rather than from a wall of references.
+
+Surfaces: the tool `project_digest`; the route `GET /projects/{id}/digest`; and
+the **Project Scope widget**, which shows the active project's headline, its
+top members with their reasons, and what it still lacks.
+
+## What should this project do next?
+
+The curated view says where a project stands. `python/harness/projects/propose.py`
+says what to do about it, and it may only say it from **evidence the project
+actually holds**.
+
+| The evidence | The proposal |
+|---|---|
+| a strategy with no result | test it - the exact `run_backtest` call, with the strategy id and the instruments |
+| a result resting on fewer than 30 trades | widen the sample - below 30 trades the difference between an edge and luck is not measurable |
+| a strategy whose trades only ever happened in a few market regimes | widen the window - the regimes it has never been observed in are unknown |
+| a Monte-Carlo whose probability of loss is high, or whose 5th-percentile return is not positive | the tail is the problem, not the average - test the cost assumption |
+| any result with trades | does it survive a firm's evaluation rules? - the prop-firm engine, run on this strategy's own trade sequence |
+
+Every proposal carries the **evidence** it came from (an experiment id, a
+regime, a metric, a pass probability) and the **action** it proposes, as a
+concrete tool call with arguments. A proposal that cannot cite its evidence is
+not made: if the project holds what it needs, the honest answer is that there
+is nothing to propose, and that is what comes back.
+
+A rule that could not be evaluated is **reported**, never silently skipped - a
+broken check must not look like a project with nothing to propose. The
+`skipped` list names it.
+
+Surfaces: the tool `project_next`; the route `GET /projects/{id}/proposals`;
+and the **Project Scope widget**, which shows the active project's next step
+under its curated view.
+
+## Closing the loop
+
+The proposer names the next experiment. `python/harness/projects/execute.py`
+**runs it** - through the same tool the agent would have called, so the policy
+gate, the allowlist, the sandbox and the persistence are the agent's own path,
+not a second one - and then records the outcome **back into the project**, so
+the next proposal is made against a project that knows what just happened.
+
+Three rules:
+
+- **A proposal is only run when it names a tool and the arguments it needs.**
+  A proposal that cannot be run is reported, not attempted.
+- **A failure is recorded as a failure.** A refused or failed run is attached
+  to the project as a note that says what went wrong - a project that hides
+  its failures is a project that cannot learn.
+- **Nothing is attached that did not happen.** The executor attaches the
+  experiment the run really produced, by the id the run really returned.
+
+A completed run attaches the **experiment** it produced; a failed one attaches
+a **note** that says what went wrong. Nothing else is ever attached.
+
+Surfaces: the tool `project_run_proposal`; the route
+`POST /projects/{id}/proposals/{proposal_id}/run`; and the **Project Scope
+widget**, which shows the active project's next step and a button to run it -
+after which the widget re-reads the digest and the proposals, because the
+project's next step has changed.
+
+## Acting without being asked
+
+The proposer names the next experiment; the loop runs it. The last question is
+whether a project may do that **on its own**, unattended.
+
+`python/harness/projects/policy.py` owns the policy and the ledger; a project
+has a policy that says:
+
+- whether it is enabled at all (**off for every project until someone turns it
+  on**);
+- how many runs a day and how many seconds a day it may spend;
+- how far apart two runs must be;
+- **which tools it may run** - and that list is filtered to
+  `AUTO_RUNNABLE_TOOLS`, which contains only **compute** tools (a backtest, a
+  sweep, a rule evaluation). A project can never act on the world by itself, no
+  matter what the policy asks for.
+
+`python/harness/projects/auto.py` is the loop: every tick, each project whose
+policy allows it runs **one** proposal, through the same tool path an agent
+would use, and the outcome goes into the ledger - the successful runs and the
+refusals alike. A project that cannot act is a **normal outcome, not an
+error**: it is skipped, with the reason (`daily_run_budget`,
+`min_interval`, `no_runnable_proposal`) recorded.
+
+The policy is visible in the curated view, so the agent can see that a project
+acts on its own and what it has spent today.
+
+Surfaces: the tools `project_auto_policy` and `project_auto_run`; the routes
+`GET/POST /projects/{id}/auto` and `POST /projects/auto/run`. The loop starts
+at boot and stops at shutdown.
+
+## The notes are evidence too
+
+A note is a finding a human wrote down, and the proposer reads it. If a note
+names a **regime** that no attached result was ever measured in - "the NQ cross
+has never been traded in `up_high`" - the proposer raises it: *the notes record
+`up_high`, which no result has covered*. The action is a backtest of the
+strategy the note is about.
+
+If a result already covers that regime, nothing is proposed: a note that has
+been tested is a note that has been answered.
+
+That is the proposer's content edge: it is not only a function of what the
+project *holds*, it is a function of what the project *says*.
+
 ## How a project fills itself up
 
 `python/harness/projects/attach.py` is the policy, and it is deliberately
@@ -134,9 +261,14 @@ bookkeeping step.
 
 ## The remaining slice
 
-The entity, the tools, the binding, the app surface and the auto-populate
-policy are in place. What is **not** built is a *curated* view of a project -
-which members matter, in what order, and what the project is trying to answer.
-That is a design question, not a plumbing one.
+The entity, the tools, the binding, the app surface, the auto-populate policy,
+the curated view, the proposer, the loop that runs a proposal and the policy
+that lets a project act unattended are in place.
+
+What is **not** built is the *content* side: the proposer reasons over
+strategies, experiments and regimes, and it knows about the trade log, but it
+does not yet read a research *note* the user wrote, and it does not yet know
+which hypothesis the project is actually trying to test. That is a modelling
+question - what a project believes - and it is the next one worth asking.
 
 Tests: `python/tests/test_projects.py`, `src/lib/projects/project-client.test.ts`.

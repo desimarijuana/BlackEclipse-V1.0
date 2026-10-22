@@ -62,10 +62,26 @@ export function failureMessage(cls: FailureClass): string {
   return MESSAGES[cls];
 }
 
+/**
+ * The next route when a data source cannot answer.
+ *
+ * A refusal must TEACH its correction. The vault does not hold everything, so
+ * the route after a failed data call is a SCRAPER for the page that has it -
+ * named here, where the agent reads the failure, instead of leaving it to
+ * guess (or to stop).
+ */
+const NEXT_ROUTE =
+  ' Next route: a scraper can collect this from the page that has it - call ' +
+  '`scraper_run` with the source URL (the operator approves the site once) and ' +
+  'label the rows SCRAPER-sourced.';
+
 export function makeFailure(cls: FailureClass, detail?: string, candidates?: string[]): Failure {
+  const base = detail ? `${MESSAGES[cls]} ${detail}`.trim() : MESSAGES[cls];
+  // An ambiguity is a question for the user, not a missing source.
+  const message = cls === "ambiguous" ? base : `${base}${NEXT_ROUTE}`;
   return {
     failureClass: cls,
-    message: detail ? `${MESSAGES[cls]} ${detail}`.trim() : MESSAGES[cls],
+    message,
     ...(candidates && candidates.length ? { candidates } : {}),
   };
 }

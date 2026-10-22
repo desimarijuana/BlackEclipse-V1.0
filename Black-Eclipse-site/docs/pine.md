@@ -105,6 +105,48 @@ engine evaluates against them.
   fill-model equivalence claim, no data from TradingView.
 - **Not a live-trading path.** A Pine run is a bounded, historical evaluation.
 
+## Grading a Pine run with Eclipse's own machinery
+
+`python/harness/quant/pine_report.py` is the adapter that lets a Pine run be
+judged by the same engines that judge an Eclipse strategy. It does three things
+and nothing else:
+
+1. **Translate** the Pine engine's trades into the engine's own trade shape.
+2. **Rebuild** the equity and drawdown curves the metrics engine needs, from
+   the bars the script was actually run on.
+3. **Hand over** to the existing engines: `metrics` computes the numbers,
+   `regime` classifies the conditions, `montecarlo` resamples the sequence,
+   `verdict` grades it, `edge_report` writes the document.
+
+So a TradingView script gets an **Eclipse-native A-F grade**, with the same
+regime attribution, the same Monte-Carlo fan and the same downloadable report
+as a strategy written in Eclipse.
+
+The Monte-Carlo needed one small generalisation to serve this: the families
+that resample a *recorded* trade sequence (the reshuffle and the regime-block
+methods) now work on any recorded run
+(`MonteCarloEngine.from_recorded`). The families that re-run the *strategy*
+(parameter and execution perturbation) cannot ? a Pine script is not ours to
+re-run ? and they refuse with a named reason instead of pretending.
+
+### What the adapter does not do
+
+It does **not** re-account the trades. The Pine engine's own fills, sizes and
+P&L are taken as produced, and the report says so in two warnings that travel
+with the artifact:
+
+- `PINE_EQUITY_MARKED_AT_EXIT` ? the equity curve is marked at each trade's
+  exit bar, because the Pine engine reports fills, not a mark-to-market curve.
+  Per-bar volatility is therefore understated and the risk-adjusted ratios are
+  optimistic relative to a mark-to-market curve.
+- `PINE_FILLS_ARE_THE_ENGINES_OWN` ? the fills are the Pine broker model's, so
+  they are not comparable to an Eclipse backtest's fills.
+
+Both warnings appear in the Edge Report's "Warnings from the run" section, so
+a reader cannot miss them.
+
+Surfaces: the tool `grade_pine_script`; the route `POST /quant/pine/report`.
+
 ## The fix loop
 
 `python/harness/quant/pine_repair.py` is the loop QuantPad demonstrates: the

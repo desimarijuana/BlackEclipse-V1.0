@@ -66,10 +66,14 @@ export interface CheckpointSnapshot {
 export const SESSION_LIMITS = {
   /** Max size of a single uploaded file. */
   maxFileBytes: 8 * 1024 * 1024,
-  /** Max characters of any one document injected into a run. */
-  maxDocChars: 20_000,
+  /**
+   * Max characters of any one document injected into a run. Matches the turn
+   * bound (`MAX_QUERY_LENGTH`): a pasted wall of text becomes a document, and
+   * it must arrive as readable as it would have as a message.
+   */
+  maxDocChars: 100_000,
   /** Max combined characters of all injected documents. */
-  maxTotalDocChars: 60_000,
+  maxTotalDocChars: 200_000,
   /** Max number of context files per conversation. */
   maxContextFiles: 20,
 } as const;

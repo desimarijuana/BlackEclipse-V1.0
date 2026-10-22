@@ -15,9 +15,22 @@ that retires ECharts.
 ## 1. What the engine is for
 
 The **chat's** charts are drawn by this engine, and **only** by this engine.
-A `chart` block in an answer is turned into a picture by the runtime
-(matplotlib) and shown as an artifact. The chat has no ECharts path: a chart
-in a chat answer is never a live canvas.
+A `chart` block in an answer becomes a **real chart**: the runtime authors it
+in Python (a Plotly *figure*), and the browser renders it as **vector SVG** with
+zoom, pan, a hover readout, a legend and a PNG/zoom toolbar. It is a chart, not
+a picture of one.
+
+The chat has no ECharts path: a chart in a chat answer is never a live canvas
+of the old kind — it is a live canvas of the new kind.
+
+Two outputs come from one spec:
+
+| Output | What it is | Used for |
+|---|---|---|
+| the **figure** | a Plotly figure (JSON): vector, interactive | the chat |
+| the **picture** | a PNG (matplotlib), recorded as an artifact | the PNG/PDF export, and the fallback when the chart library cannot load |
+
+Both are produced from the SAME data, so they can never disagree.
 
 **The rest of the application is NOT part of this.** The journal, the
 portfolio, the dashboard, the backtest screen, the economics and fundamentals
@@ -47,12 +60,30 @@ invented for it.
 
 `line` · `area` · `bar` · `scatter` · `band` · `rule` · `label` · `box` ·
 `violin` · `histogram` · `errorbar` · `heatmap` · `pie` · `donut` ·
-`candlestick` · `waterfall` · `ridge` · `stem`
+`candlestick` · `waterfall` · `ridge` · `stem` · `treemap` · `sunburst` ·
+`funnel` · `sankey` · `scatter3d` · `surface` · `regression`
 
-A mark may set: `name` (the legend), `y` / `x` / `values` / `lower` /
+A mark may set: `name` (the legend), `y` / `x` / `z` / `values` / `lower` /
 `upper` / `sizes` / `matrix` / `labels` / `rowLabels` / `colLabels`, `color`,
 `alpha`, `width`, `style` (`solid` / `dashed` / `dotted`), `fill`, `label`,
 `yAxis` (`left` / `right` — a dual-axis chart), `stack` and `bins`.
+
+**A regression is a mark, and the engine fits it.** `regression` takes the
+points (`x` and `y`) and draws them, plus ONE ordinary least-squares line
+through them, with the R-squared in the legend. The fit is computed by the
+engine from the same numbers it draws - it is never smoothed, weighted or
+robustly re-fitted behind the reader's back, so the picture and the R-squared
+can never disagree. A fit that cannot be computed (fewer than two points, no
+variation in x, no variation in y) is NOT drawn: the points are, and the trace
+says why. A missing reading drops its own point and never shifts the x axis
+under the points that remain. The same arithmetic is in
+`python/harness/charts/regression.py`, and it is plain on purpose: a reader
+must be able to check `R2 = 0.87` from the picture.
+
+**3D is a mark, not a separate chart.** `scatter3d` (a point cloud) and
+`surface` (a grid) carry a third dimension (`z`) and live in the figure's
+`scene` — a camera, three axes and a cube — so the reader can orbit, zoom and
+pick points. The flat axes step aside for a 3D chart.
 
 A panel may set: `title`, `xLabel`, `yLabel`, `valueFormat`, `logScale` and
 `height` (its share of the figure). A scene is up to 6 panels.
@@ -107,13 +138,26 @@ not an inversion, because the app has a light mode.
 * The picture's identity is the digest of its **spec** (`spec_digest`), so the
   same spec always draws the same picture.
 
+### The chart block IS the drawing
+
+A chart block carries the DATA, and the engine draws it. The agent does not
+call a drawing tool to read the numbers back afterwards: the figure carries
+them (a `regression` mark fits the line and shows the R-squared in its
+legend), and a block costs ONE step instead of a round trip. The same rule
+governs the data behind it: **one attempt per route**. A route that refuses is
+a routing problem, not a reason to keep asking; after the second refusal for
+the same series, the agent uses the data it holds (or the numbers the user
+gave) and says plainly what the data is and where it came from. The reader
+wants the analysis, not a provenance audit.
+
 ## 3. The surfaces
 
 | Surface | Entry point |
 |---|---|
 | The agent | the `python_chart` tool (`python/harness/charts/tools.py`) — registered on the one tool registry and on the chat agent's allowlist |
 | The front door | `POST /api/harness/charts` → `python/harness/routers/charts.py` → `POST /charts/render` (operator-gated) |
-| The browser | `src/lib/harness/charts.ts` (`renderChart`) + `src/components/charts/python-chart.tsx` |
+| The browser | `src/lib/harness/charts.ts` (`renderChart`) + `src/components/charts/plotly-chart.tsx` (the live chart) |
+| The chart library | `src/app/api/harness/charts/plotly/route.ts` (serves plotly.js from the Python package, cached) |
 | The **chat's chart blocks** | `src/lib/response/chart-spec.ts` (block -> spec) + `src/components/response/response-chart.tsx` (the picture) |
 | The drawn-chart registry | `src/lib/response/chart-registry.ts` (block id -> artifact id, for PNG/PDF export) |
 
@@ -131,14 +175,66 @@ chart block ──▶ chart-spec.ts ──▶ spec ──▶ python_chart tool /
                                       browser ◀── /api/artifacts/<id>/download
 ```
 
+### 3.1 The live chart
+
+The engine's figure is rendered by the browser with **plotly.js**, which the
+app serves from its OWN route (`/api/harness/charts/plotly`): the library ships
+inside the Python package, so it is never vendored into git and never fetched
+from a CDN — the app keeps working offline. The browser loads it once and
+reuses it for every chart.
+
+The figure has **no background** (`paper_bgcolor` and `plot_bgcolor` are
+transparent), so the chart sits on the app's frosted surface without hiding
+the frost. The chart's ink, grid and hover label are the app's own tokens.
+
+If the library cannot load, the chat says so and falls back to the drawn
+picture — an honest degradation, never a broken chart.
+
+### 3.2 The picture is hoverable
+
+A PNG cannot be hovered. The engine therefore returns, with the picture, an
+**interaction map**: the picture's own pixel geometry (the axes' box) and, per
+category, its x position and each series' value there
+(`python/harness/charts/interaction.py`).
+
+The browser draws the pointer experience over the picture from that map: a
+crosshair at the nearest category and a tooltip with the values
+(`src/components/charts/chart-hover.tsx`). Because the map is in the picture's
+pixels and the browser converts it to percentages, the interaction survives any
+display size — the picture is never stretched, and the crosshair still lands on
+the right column.
+
+The map is a convenience, never a claim: the values it carries are the same
+values the picture was drawn from, and a gap stays a gap (no value at all).
+
+### 3.2 The picture's size and its legibility
+
+The chat draws at **1000×560** and shows it at its natural aspect, left
+aligned, capped at 860 px wide (`object-contain`, no fixed height), inside a
+card that **shrinks to the picture** (`w-fit`) rather than spanning the
+column. The old `w-full` + a fixed `maxHeight` stretched the picture; now it
+is never distorted, and the focus view simply shows the same picture larger.
+
+Two rules keep the picture readable:
+
+* **The text is a fraction of the picture, not of the screen.** The engine
+  draws in fewer inches at a higher resolution (`DRAW_DPI = 150`), so the
+  labels and strokes scale with the picture — a chart shown at 860 px has
+  legible labels whether it was drawn at 720 px or at 1400 px.
+* **Crowded axes are thinned, never faked.** When a category axis carries
+  more than ~12 labels, the engine keeps every Nth label (and turns long
+  ones, because a row of `2026-07-01` strings cannot share a line). The DATA is
+  never thinned — only the labels are.
+
 ## 4. What the user gets
 
 | | The chat's chart |
 |---|---|
-| Engine | the Python chart engine (matplotlib) in the runtime |
-| Interaction | a picture: no hover tooltip, no crosshair — the values live in the block's own table/text |
-| Any chart | yes: the SCENE form draws any composition of the marks |
-| Export | the artifact's bytes (PNG and PDF both embed the picture the user saw) |
+| Engine | the Python chart engine: a Plotly figure authored in the runtime, rendered as SVG |
+| Interaction | zoom, pan, a hover readout, a legend, a PNG/zoom toolbar — it is a chart, not a picture |
+| Any chart | yes: the SCENE form draws any composition of the marks (and the family charts — treemap, sunburst, funnel, sankey — are marks now) |
+| Export | the artifact's bytes (PNG and PDF both embed the picture); the chart's own toolbar also exports a PNG at 2× |
+| Background | none — the chart is transparent, so the frosted surface shows through |
 | Provenance | always `computed`, never evidence |
 
 What the rest of the app does is unchanged: ECharts, with its live hover,
@@ -161,7 +257,10 @@ crosshair and zoom.
 | The response chart surface | `src/components/response/response-chart.tsx` |
 | The chart registry | `src/lib/response/chart-registry.ts` |
 | The scene (panels of marks) | `python/harness/charts/scene.py` + `scene_render.py` |
-| Tests | `python/tests/test_charts.py`, `python/tests/test_chart_scene.py`, `src/lib/harness/charts.test.ts`, `src/app/api/harness/charts/route.test.ts`, `src/lib/response/chart-spec.test.ts` |
+| The live figure | `python/harness/charts/plotly_figure.py` |
+| The chart library route | `src/app/api/harness/charts/plotly/route.ts` |
+| The live chart component | `src/components/charts/plotly-chart.tsx` |
+| Tests | `python/tests/test_charts.py`, `python/tests/test_chart_scene.py`, `python/tests/test_chart_figure.py`, `src/lib/harness/charts.test.ts`, `src/app/api/harness/charts/route.test.ts`, `src/lib/response/chart-spec.test.ts` |
 
 The decision itself is **ADR-050** (`skills/ARCHITECT.md`, mirrored in
 `docs/DECISIONS.md`).

@@ -12,7 +12,7 @@
 // sharing the streaming logic.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getAgentProvider } from './registry';
+import { getAgentProvider, ChatRequestError } from './registry';
 import type { ChatMessage } from './types';
 import type { HarnessUiEvent } from './events';
 import type { AssistantTurn, PendingApproval } from './response-model';
@@ -22,6 +22,10 @@ import { endActivity, initialActivityState, startActivity } from './activity-red
 import { ALERT_NOTIFY_EVENT } from '@/lib/alerts/browser-notifier';
 import { useNotificationsStore } from '@/lib/notifications/store';
 import { getUiFocus } from '@/lib/ui-engineering/ui-focus';
+
+// Re-exported so a chat surface can read the front door's error code without
+// importing the provider registry a second time.
+export { ChatRequestError };
 
 export interface StartRunArgs {
   /** Conversation turns BEFORE the new user message (role + content). */
@@ -374,7 +378,13 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           }
         } else {
           t.status = 'error';
-          t.error = { message: err instanceof Error ? err.message : String(err) };
+          // Keep the front door's code (e.g. `INVALID_INPUT`) so the card can
+          // badge the failure instead of showing a bare sentence.
+          const code = err instanceof ChatRequestError ? err.code : undefined;
+          t.error = {
+            message: err instanceof Error ? err.message : String(err),
+            ...(code ? { code } : {}),
+          };
         }
         t.done = true;
         publish(true);

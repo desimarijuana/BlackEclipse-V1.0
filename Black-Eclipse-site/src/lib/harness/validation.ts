@@ -13,7 +13,19 @@ export interface InputValidationResult {
   issues: string[];
 }
 
-const MAX_QUERY_LENGTH = 4000;
+/**
+ * The largest single turn the front door accepts, in characters.
+ *
+ * A turn is whatever the person pasted into Eclipse — a question, a pasted
+ * report, a long spec. The cap exists only to bound one request body; it is
+ * deliberately generous (~25k tokens) so ordinary use never hits it. The
+ * runtime owns the REAL limit: it measures the assembled request against the
+ * resolved model's context window and reports an honest CONTEXT_OVERFLOW when
+ * a prompt genuinely does not fit. This number must stay >= the runtime's
+ * `RunInput.query` bound (`python/harness/schemas.py`), or the runtime would
+ * reject a request the front door accepted.
+ */
+export const MAX_QUERY_LENGTH = 100_000;
 const MAX_WORKSPACE_ROOT = 1024;
 const MAX_BASE_REVISION = 128;
 
@@ -65,10 +77,35 @@ export function validateWorkspaceRef(raw: unknown): {
 
 const MAX_CONTEXT_KEYS = 50;
 const MAX_HISTORY_TURNS = 20;
-const MAX_HISTORY_CONTENT = 20_000;
+/**
+ * The largest single PRIOR turn carried as history.
+ *
+ * It matches `MAX_QUERY_LENGTH` on purpose: a message the composer accepted
+ * must not be silently cut down when it comes back as history on the next
+ * turn. The runtime still bounds the assembled history against the model's
+ * window (and drops the oldest turns first) — that is a prompt-budget
+ * decision, not a validation rejection.
+ */
+const MAX_HISTORY_CONTENT = MAX_QUERY_LENGTH;
+/**
+ * The whole history the front door forwards, in characters.
+ *
+ * This bounds ONE REQUEST (and therefore the run row persisted for it) at the
+ * same order it was bounded before a turn could exceed 4 000 characters. When
+ * it is exceeded the OLDEST turns are dropped — whole turns, never a sliced
+ * one — so the runtime still sees every turn it is given intact and applies
+ * its own budget (and reports what it drops) on top.
+ */
+const MAX_HISTORY_TOTAL_CHARS = 400_000;
 const MAX_DOCUMENTS = 20;
-const MAX_DOCUMENT_CHARS = 20_000;
-const MAX_TOTAL_DOCUMENT_CHARS = 60_000;
+/**
+ * Document caps. They match the turn bound: a big paste becomes an attached
+ * document, so it must carry as much text as a message could. The runtime
+ * measures the assembled turn (documents included) against the model window
+ * and reports an honest CONTEXT_OVERFLOW rather than silently dropping text.
+ */
+const MAX_DOCUMENT_CHARS = 100_000;
+const MAX_TOTAL_DOCUMENT_CHARS = 200_000;
 
 export function validateRunInput(raw: unknown): InputValidationResult {
   const issues: string[] = [];
@@ -79,7 +116,10 @@ export function validateRunInput(raw: unknown): InputValidationResult {
 
   const query = typeof body.query === "string" ? body.query.trim() : "";
   if (!query) issues.push("query is required");
-  else if (query.length > MAX_QUERY_LENGTH) issues.push(`query too long (max ${MAX_QUERY_LENGTH} chars)`);
+  else if (query.length > MAX_QUERY_LENGTH)
+    issues.push(
+      `message is too long for one turn (max ${MAX_QUERY_LENGTH} characters) — send it in smaller parts or attach it as a document`,
+    );
 
   let ticker: string | undefined;
   if (body.ticker !== undefined && body.ticker !== null) {
@@ -130,6 +170,14 @@ export function validateRunInput(raw: unknown): InputValidationResult {
         turns.push({ role, content: content.slice(0, MAX_HISTORY_CONTENT) });
       }
       if (turns.length > MAX_HISTORY_TURNS) turns.splice(0, turns.length - MAX_HISTORY_TURNS);
+      // Keep the MOST RECENT turns when the whole history is over budget:
+      // drop whole turns (never slice one) so the runtime receives every turn
+      // it is given intact and applies its own budget on top.
+      let total = turns.reduce((n, t) => n + t.content.length, 0);
+      while (turns.length > 1 && total > MAX_HISTORY_TOTAL_CHARS) {
+        total -= turns[0].content.length;
+        turns.shift();
+      }
       history = turns;
     }
   }

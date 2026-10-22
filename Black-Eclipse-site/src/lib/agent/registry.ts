@@ -68,6 +68,40 @@ function buildPayload(messages: ChatMessage[], options?: ChatOptions) {
   return { query, history, chatId: options?.chatId, runId, model: options?.model, reasoningEffort: options?.reasoningEffort, uiContext: options?.uiContext, memoryScope: options?.memoryScope, projectId };
 }
 
+/**
+ * A chat request the front door refused, carrying its error code and status.
+ *
+ * Why: the chat card used to show a bare "Something went wrong" plus the
+ * server's sentence, with no code — so a rejected request was
+ * indistinguishable from a runtime failure. The code is what lets the UI badge
+ * the failure, and the type is what tells the retry logic that repeating the
+ * SAME request cannot help (a refused request fails the same way every time).
+ */
+export class ChatRequestError extends Error {
+  /** The front door's machine-readable code (e.g. `INVALID_INPUT`), when it sent one. */
+  readonly code?: string;
+  /** The HTTP status of the refused request. */
+  readonly status: number;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = 'ChatRequestError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/** Read a refused response into a typed error, keeping the server's code. */
+async function readRequestError(res: Response): Promise<ChatRequestError> {
+  const data = (await res.json().catch(() => ({}))) as { error?: unknown; code?: unknown };
+  const message =
+    typeof data.error === 'string' && data.error.trim()
+      ? data.error
+      : `Agent run failed (${res.status})`;
+  const code = typeof data.code === 'string' && data.code ? data.code : undefined;
+  return new ChatRequestError(message, res.status, code);
+}
+
 /** One-shot fallback used when SSE is unavailable. */
 async function chatOnce(messages: ChatMessage[], options?: ChatOptions): Promise<string> {
   const payload = buildPayload(messages, options);
@@ -77,8 +111,8 @@ async function chatOnce(messages: ChatMessage[], options?: ChatOptions): Promise
     body: JSON.stringify(payload),
     signal: options?.signal,
   });
+  if (!res.ok) throw await readRequestError(res);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Agent run failed (${res.status})`);
   return data.content as string;
 }
 
@@ -119,7 +153,17 @@ async function chatStreaming(messages: ChatMessage[], options?: ChatOptions): Pr
     body: JSON.stringify(payload),
     signal: options?.signal,
   });
-  if (!res.ok || !res.body) {
+  if (!res.ok) {
+    // A missing streaming ENDPOINT (an older front door) still has the
+    // one-shot path — fall back to it. Anything else means the REQUEST was
+    // refused: repeating it would only produce the same refusal, so fail fast
+    // with the real reason (and the front door's code) instead.
+    if (res.status === 404 || res.status === 405) {
+      return chatOnce(messages, { ...options, onRunId: undefined, signal: options?.signal });
+    }
+    throw await readRequestError(res);
+  }
+  if (!res.body) {
     // Streaming not available — fall back to the one-shot path. Drop the abort
     // signal so a cancellation that raced the fallback still works, and drop
     // onRunId so the run id is regenerated for the one-shot call.
@@ -189,6 +233,9 @@ const eclipseAgent: AgentProvider = {
     } catch (err) {
       // A user cancellation is not a failure to recover from.
       if (options?.signal?.aborted) throw err;
+      // A request the server REFUSED cannot be fixed by repeating it (and the
+      // run may not even have started). Only a broken stream is retried.
+      if (err instanceof ChatRequestError) throw err;
       // A streaming failure must not lose the run: retry once, one-shot.
       if (options?.onDelta || options?.onStatus || options?.onEvent) {
         return chatOnce(messages, { ...options, onRunId: undefined });

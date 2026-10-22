@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardExpensiveMutation } from "@/lib/api-guard";
-import { chatWithAgent, HarnessError, HarnessRuntimeUnavailable, toHarnessErrorJson } from "@/lib/harness";
+import { chatWithAgent, HarnessError, HarnessRuntimeUnavailable, toHarnessErrorJson, MAX_QUERY_LENGTH } from "@/lib/harness";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
 import { loadContextDocuments, writeSessionFile } from "@/lib/chat/session-store";
 import { isReasoningLevel } from "@/lib/agent/reasoning";
@@ -34,10 +34,19 @@ export async function POST(request: Request) {
       ? ((body as Record<string, unknown>).query as string).trim()
       : "";
     if (!query) {
-      return NextResponse.json({ error: "query is required" }, { status: 400 });
+      return NextResponse.json({ error: "query is required", code: "INVALID_INPUT" }, { status: 400 });
     }
-    if (query.length > 4000) {
-      return NextResponse.json({ error: "query too long (max 4000 chars)" }, { status: 400 });
+    // A turn is whatever the person pasted. The cap only bounds one request
+    // body — the runtime decides whether a prompt actually fits the model's
+    // context window, and says so honestly when it does not.
+    if (query.length > MAX_QUERY_LENGTH) {
+      return NextResponse.json(
+        {
+          error: `message is too long for one turn (max ${MAX_QUERY_LENGTH} characters) — send it in smaller parts or attach it as a document`,
+          code: "INVALID_INPUT",
+        },
+        { status: 400 },
+      );
     }
 
     // A routed slash command (`/skills`, `/skill`, `/status`, …) is executed by the

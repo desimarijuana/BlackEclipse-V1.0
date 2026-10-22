@@ -244,6 +244,17 @@ def _rsl_accepted(run: dict[str, Any]) -> bool:
     return isinstance(record, dict) and record.get("accepted") is True
 
 
+def _run_cost(run: dict[str, Any]) -> Optional[float]:
+    """The real cost an RSL run reported, or None (never a fabricated zero)."""
+    for source in (run.get("config"), run.get("metadata")):
+        payload = _run_json(source)
+        for key in ("costUsd", "cost"):
+            value = payload.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return float(value)
+    return None
+
+
 def metrics_from_rsl_runs(
     runs: Optional[list[dict[str, Any]]],
 ) -> dict[str, Any]:
@@ -263,6 +274,8 @@ def metrics_from_rsl_runs(
             "rsl_rejected": None,
             "rsl_unmeasured": None,
             "regression_rate": None,
+            "rsl_cost_usd": None,
+            "rsl_cost_per_accepted": None,
         }
     completed = [
         run for run in runs
@@ -273,7 +286,11 @@ def metrics_from_rsl_runs(
     unmeasured = 0
     measured = 0
     regressed = 0
+    costs: list[float] = []
     for run in completed:
+        cost = _run_cost(run)
+        if cost is not None:
+            costs.append(cost)
         if _rsl_benchmark(run) != "MEASURED":
             unmeasured += 1
             continue
@@ -289,12 +306,18 @@ def metrics_from_rsl_runs(
             regressions = record.get("regressions")
         if regressions:
             regressed += 1
+    total_cost = round(sum(costs), 6) if costs else None
     return {
         "rsl_experiments": len(completed),
         "rsl_accepted": accepted,
         "rsl_rejected": rejected,
         "rsl_unmeasured": unmeasured,
         "regression_rate": (regressed / measured) if measured else None,
+        "rsl_cost_usd": total_cost,
+        "rsl_cost_per_accepted": (
+            round(total_cost / accepted, 6)
+            if total_cost is not None and accepted > 0 else None
+        ),
     }
 
 
@@ -319,6 +342,8 @@ def collect_self_evolution_metrics(
         "rsl_rejected": None,
         "rsl_unmeasured": None,
         "regression_rate": None,
+        "rsl_cost_usd": None,
+        "rsl_cost_per_accepted": None,
     }
     metrics.update(metrics_from_recovery(incidents, attempts_by_incident))
     metrics.update(metrics_from_tasks(tasks))

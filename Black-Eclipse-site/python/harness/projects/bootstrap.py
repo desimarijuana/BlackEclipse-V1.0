@@ -19,10 +19,14 @@ def install_project_layer(service: Any) -> None:
         from .store import ProjectStore
         from .tools import register_project_tools
 
+        from .policy import AutoRunStore, set_auto_run_store
+
         register_project_tools(service.registry)
         store = getattr(service, "store", None)
         if store is not None:
             service.project_store = ProjectStore(store)
+            service.auto_run_store = AutoRunStore(store)
+            set_auto_run_store(service.auto_run_store)
     except Exception:  # noqa: BLE001 - projects must never block boot
         log.warning("project layer unavailable", exc_info=True)
 

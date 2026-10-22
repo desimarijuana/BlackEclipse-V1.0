@@ -151,8 +151,7 @@ TOOL_BINDINGS: dict[str, ToolBinding] = {
 
 #: The data bindings the analysis sandbox may use (no network).
 DATA_TOOL_NAMES: tuple[str, ...] = (
-    "market_snapshot", "live_quote", "price_history",
-)
+    "market_snapshot", "live_quote", "price_history",)
 #: The web binding — the scraper lane's only way out of the sandbox.
 WEB_TOOL_NAMES: tuple[str, ...] = ("web_page",)
 
@@ -185,6 +184,26 @@ class ToolCallRef(BaseModel):
 def tool_names() -> tuple[str, ...]:
     """The bindings the ANALYSIS sandbox may use: the data reads, no network."""
     return DATA_TOOL_NAMES
+
+
+def tool_signatures() -> str:
+    """The bindings WITH their parameters, as one line.
+
+    A program that has to discover `price_history`'s arguments by trial burns
+    runs and usually concludes the surface is broken. The signature is part of
+    the tool's description for that reason.
+    """
+    parts: list[str] = []
+    for name in DATA_TOOL_NAMES:
+        binding = TOOL_BINDINGS.get(name)
+        if binding is None:
+            continue
+        params = ", ".join(
+            f"{param_name}{'' if spec.required else '?'}"
+            for param_name, spec in binding.params.items()
+        )
+        parts.append(f"{name}({params})")
+    return "; ".join(parts)
 
 
 def select_tool_names(names: tuple[str, ...]) -> tuple[str, ...]:

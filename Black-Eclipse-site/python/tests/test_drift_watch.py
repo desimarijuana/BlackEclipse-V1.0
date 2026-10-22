@@ -96,3 +96,51 @@ async def test_start_runs_checks_and_stop_cancels(tmp_path, monkeypatch):
         assert watcher.health()["running"] is False
     finally:
         store.close()
+
+@pytest.mark.asyncio
+async def test_drift_watch_opens_an_inert_candidate_only_when_opted_in(tmp_path, monkeypatch):
+    store = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
+    published: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        watch_module, "publish_event",
+        lambda type, payload, **_kwargs: published.append((type, payload)),
+    )
+    monkeypatch.delenv("HARNESS_RSL_DRIFT_AUTOCANDIDATE", raising=False)
+    try:
+        _insert(store, day=21, completed=10, failed=20)
+        _insert(store, day=20, completed=100, failed=0)
+        watcher = DriftWatcher(_Service(store), interval_seconds=0)
+
+        await watcher.check()
+
+        # OFF by default: a drift transition never opens a candidate.
+        assert not any(
+            event[0] == "self_improvement.drift_candidate_created"
+            for event in published
+        )
+        assert watcher.health()["autoCandidate"] is False
+
+        # ON: the SAME inert candidate the operator route opens. The watch
+        # state is cleared so this is a NEW episode, not the same transition.
+        monkeypatch.setenv("HARNESS_RSL_DRIFT_AUTOCANDIDATE", "on")
+        assert watcher.health()["autoCandidate"] is True
+        store._db.execute("DELETE FROM DriftWatchState")
+        store._db.commit()
+        watcher2 = DriftWatcher(_Service(store), interval_seconds=0)
+        await watcher2.check()
+        assert any(
+            event[0] == "self_improvement.drift_candidate_created"
+            for event in published
+        )
+        # The candidate carries no target and no operations: it is evidence.
+        from harness.code.evolution_store import EvolutionStore
+
+        candidates = [
+            row for row in EvolutionStore(store).list_candidates(limit=50)
+            if row.get("sourceCategory") == "drift"
+        ]
+        assert candidates
+        assert not candidates[0].get("targetPath")
+        assert not candidates[0].get("proposedOps")
+    finally:
+        store.close()

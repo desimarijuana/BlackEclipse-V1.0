@@ -100,6 +100,18 @@ capability and handed to the authenticated runtime — the same trust boundary a
 
 ## Routing, fallback, health
 
+A refusal carries the WHOLE trail of providers that were tried, in the order
+they were tried: `Providers tried: yahoo: DATA_NOT_AVAILABLE (no history for
+AAPL); stooq: DATA_NOT_AVAILABLE (no history for AAPL); polygon:
+AUTHENTICATION_FAILED (no POLYGON_API_KEY).` The last provider's error alone
+hides the more useful one - a keyless route that answered with no data - and
+an agent that cannot see the trail repeats the routes that already failed. A
+provider that answers `AUTHENTICATION_FAILED` is a CREDENTIAL problem, not a
+data problem: the refusal says so, and the agent is told not to try that
+provider again. The correction is always named (`nextRoute: "scraper_run"`), so
+a refusal is a routing instruction, not a dead end.
+
+
 `ProviderRouter` (`router.py`) selects providers by capability + asset class +
 configured priority (`config.DEFAULT_PRIORITY`, overridable by env), skipping
 operator-disabled providers and any provider whose circuit breaker is open. The

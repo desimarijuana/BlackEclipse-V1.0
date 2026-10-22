@@ -76,14 +76,21 @@ export interface ChartMark {
   type:
     | "line" | "area" | "bar" | "scatter" | "band" | "rule" | "label"
     | "box" | "violin" | "histogram" | "errorbar" | "heatmap" | "pie"
-    | "donut" | "candlestick" | "waterfall" | "ridge" | "stem";
+    | "donut" | "candlestick" | "waterfall" | "ridge" | "stem"
+    | "treemap" | "sunburst" | "funnel" | "sankey"
+    // The 3D family.
+    | "scatter3d" | "surface"
+    // The points, the least-squares line through them, and its R-squared.
+    | "regression";
   name?: string;
-  y?: Array<number | null>;
-  x?: Array<number | null>;
+  y?: Array<number | string | null>;
+  x?: Array<number | string | null>;
   values?: Array<number | null>;
   lower?: Array<number | null>;
   upper?: Array<number | null>;
   sizes?: Array<number | null>;
+  /** The third dimension (a 3D mark's z). */
+  z?: Array<number | null>;
   matrix?: number[][];
   labels?: string[];
   rowLabels?: string[];
@@ -160,6 +167,18 @@ export interface ChartSpec {
   height?: number;
 }
 
+/** Where each category sits on the picture, so the browser can hover it. */
+export interface ChartInteraction {
+  width: number;
+  height: number;
+  plot: { left: number; right: number; top: number; bottom: number };
+  columns: Array<{
+    label: string;
+    x: number;
+    values: Array<{ name: string; value: number; color: string }>;
+  }>;
+}
+
 export interface ChartFigure {
   kind: ChartKind;
   label: string;
@@ -175,10 +194,20 @@ export interface ChartFigure {
   title: string | null;
   series: Array<{ name: string; points: number }>;
   summary: string;
+  /** Present when the picture can be hovered (a category axis). */
+  interaction?: ChartInteraction;
+}
+
+/** A live chart: the Plotly figure the engine authored. */
+export interface ChartFigureData {
+  data: Array<Record<string, unknown>>;
+  layout: Record<string, unknown>;
 }
 
 export interface RenderedChart {
   figure: ChartFigure;
+  /** The LIVE chart (vector, zoomable, pannable). Absent when plotly is off. */
+  chart?: ChartFigureData;
   artifact: {
     id: string | null;
     name: string;
@@ -199,6 +228,7 @@ export async function renderChart(spec: ChartSpec): Promise<RenderedChart> {
     body: JSON.stringify(spec),
   });
   const body = (await res.json().catch(() => ({}))) as Partial<RenderedChart> & {
+    chart?: ChartFigureData;
     status?: string;
     error?: string;
     detail?: { code?: string; message?: string } | string;
@@ -216,6 +246,7 @@ export async function renderChart(spec: ChartSpec): Promise<RenderedChart> {
   if (!body.figure) throw new Error("the chart engine returned no figure");
   return {
     figure: body.figure,
+    ...(body.chart ? { chart: body.chart } : {}),
     artifact: body.artifact ?? {
       id: null,
       name: body.figure.artifact,

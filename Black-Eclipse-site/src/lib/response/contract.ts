@@ -263,6 +263,8 @@ export const CHART_TYPES = [
   'waterfall',
   'candlestick',
   'ohlc',
+  // The points, the least-squares line through them, and its R-squared.
+  'regression',
 ] as const;
 
 const chartBandSchema = z.object({
@@ -297,18 +299,30 @@ const chartSeriesSchema = z.object({
 const CHART_MARK_TYPES = [
   'line', 'area', 'bar', 'scatter', 'band', 'rule', 'label', 'box', 'violin',
   'histogram', 'errorbar', 'heatmap', 'pie', 'donut', 'candlestick', 'waterfall',
-  'ridge', 'stem',
+  'ridge', 'stem', 'treemap', 'sunburst', 'funnel', 'sankey',
+  // The 3D family: a point cloud, a surface.
+  'scatter3d', 'surface',
+  // The points, the least-squares line through them, and its R-squared.
+  'regression',
 ] as const;
 
 const chartMarkSchema = z.object({
-  type: z.enum(CHART_MARK_TYPES),
+  /** The mark's primitive. An UNKNOWN type falls back to `line`: one odd mark must never cost the reader every other panel. */
+  type: z.enum(CHART_MARK_TYPES).catch('line'),
   name: shortString.optional(),
-  y: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
-  x: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  y: z.array(z.union([z.number().finite(), z.string().max(80), z.null()])).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  data: z.array(z.union([z.number().finite(), z.string().max(80), z.null()])).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  x: z.array(z.union([z.number().finite(), z.string().max(80), z.null()])).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   values: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   lower: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   upper: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
   sizes: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  /** The third dimension (a 3D mark's z). */
+  z: z.array(z.number().finite().nullable()).max(RESPONSE_LIMITS.maxPointsPerSeries).optional(),
+  /** A treemap/sunburst node's parent ("" is the root); per-item colours; a sankey's links. */
+  parents: z.array(shortString).max(200).optional(), colors: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/)).max(200).optional(),
+  sources: z.array(z.number().int().min(0)).max(500).optional(), targets: z.array(z.number().int().min(0)).max(500).optional(),
+  weights: z.array(z.number().finite()).max(500).optional(),
   matrix: z.array(z.array(z.number().finite())).max(200).optional(),
   labels: z.array(shortString).max(50).optional(),
   rowLabels: z.array(shortString).max(50).optional(),
@@ -337,7 +351,13 @@ const chartPanelSchema = z.object({
 const chartBlock = z.object({
   type: z.literal('chart'),
   id: idString.optional(),
-  chartType: z.enum(CHART_TYPES),
+  /**
+   * The chart's kind. An UNKNOWN type falls back to `auto`: one odd kind must
+   * never cost the reader the whole chart - the same rule the mark types
+   * follow. (`regression` is a real kind: the points, the least-squares line
+   * and its R-squared.)
+   */
+  chartType: z.enum(CHART_TYPES).catch('auto'),
   title: shortString.optional(),
   description: shortString.optional(),
   source: shortString.optional(),

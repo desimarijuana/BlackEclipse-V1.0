@@ -69,6 +69,8 @@ async def render_chart_route(
     return {
         "status": "OK",
         "figure": figure,
+        # The LIVE chart: a Plotly figure the browser renders (vector, zoomable).
+        **({"chart": rendered.chart} if rendered.chart else {}),
         "artifact": {
             "id": artifact_id,
             "name": rendered.name,

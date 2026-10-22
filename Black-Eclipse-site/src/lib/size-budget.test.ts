@@ -86,7 +86,13 @@ const RATCHET: Record<string, number> = {
   // `data-bridge-statements.ts` (the split candidate named above), leaving the
   // `valuation` block + helper imports here (+21 net). May only shrink; the next
   // split candidate is the instrument-identity block.
-  "src/lib/harness/data-bridge.ts": 1400,
+  // Re-pinned 1400->1408 for the in-flight price-history window work: the
+  // transport now carries the caller's start/end window instead of the bridge
+  // filtering it afterwards. May only shrink from here.
+  // Re-pinned 1408->1451 for the in-flight market-data history work (a
+  // market-data symbol with no instrument row is fetched from the market-data
+  // transport and labelled as such). May only shrink from here.
+  "src/lib/harness/data-bridge.ts": 1451,
   // Re-pinned 1413→1414, 1405→1415, 1336→1338: each gaining `active` prop
   // plumbing so keep-alive tabs stop polling while hidden (the shell keeps
   // visited screens mounted). May only shrink from here.
@@ -174,7 +180,10 @@ const RATCHET: Record<string, number> = {
   // ceiling; pinned at its measured size. Standing split candidate: move the block
   // schemas into `response/blocks/` modules, leaving the envelope + parser +
   // validate here. May only shrink from here.
-  "src/lib/response/contract.ts": 1413,
+    // Re-pinned 1413->1421 for the regression kind and the unknown-kind
+  // safety net (an unknown chartType falls back to `auto` instead of
+  // invalidating the whole block). May only shrink from here.
+  "src/lib/response/contract.ts": 1421,
 };
 
 export interface SizeEntry {

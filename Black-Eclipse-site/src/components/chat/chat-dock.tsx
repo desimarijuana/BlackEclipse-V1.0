@@ -529,8 +529,8 @@ export function ChatDock({
 
   // Upload attached documents into the dock's own session folder, where the
   // front door picks them up as context for the next run.
-  const handleAttach = async (files: FileList | null) => {
-    if (!files || !files.length) return;
+  const handleAttach = async (files: FileList | File[] | null) => {
+    if (!files) return;
     for (const file of Array.from(files)) {
       if (file.size > SESSION_LIMITS.maxFileBytes) continue;
       const bytes = new Uint8Array(await file.arrayBuffer());

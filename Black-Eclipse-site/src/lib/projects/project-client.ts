@@ -60,6 +60,45 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+export interface CuratedMember {
+  id: string;
+  kind: string;
+  ref: string;
+  label: string;
+  score: number;
+  reason: string;
+  createdAt: string;
+  meta: Record<string, unknown>;
+}
+
+export interface ProjectDigest {
+  projectId: string;
+  name: string;
+  headline: string;
+  summary: string;
+  members: CuratedMember[];
+  memberCount: number;
+  gaps: string[];
+  counts: Record<string, number>;
+}
+
+export interface ProjectProposal {
+  id: string;
+  title: string;
+  rationale: string;
+  evidence: string[];
+  action: { tool?: string; args?: Record<string, unknown> };
+  priority: number;
+}
+
+export interface ProjectProposals {
+  available: boolean;
+  projectId: string;
+  summary: string;
+  proposals: ProjectProposal[];
+  proposalCount: number;
+}
+
 export const projectClient = {
   list: (status?: string) => {
     const query = status ? `?status=${encodeURIComponent(status)}` : "";
@@ -78,6 +117,19 @@ export const projectClient = {
 
   get: (id: string) =>
     jsonFetch<ProjectDetail>(`/${encodeURIComponent(id)}`),
+
+  digest: (id: string) =>
+    jsonFetch<{ digest: ProjectDigest }>(`/${encodeURIComponent(id)}/digest`)
+      .then((r) => r.digest),
+
+  proposals: (id: string) =>
+    jsonFetch<ProjectProposals>(`/${encodeURIComponent(id)}/proposals`),
+
+  runProposal: (id: string, proposalId: string) =>
+    jsonFetch<{ run: { status: string; summary: string; experimentId?: string | null } }>(
+      `/${encodeURIComponent(id)}/proposals/${encodeURIComponent(proposalId)}/run`,
+      { method: "POST" },
+    ),
 };
 
 /**

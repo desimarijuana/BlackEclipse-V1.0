@@ -206,6 +206,10 @@ class ToolContext:
     # The model settings for THIS run, so a controlled skill sub-run inherits the
     # same provider/credentials (never a second adapter).
     model_settings: Any = None
+    # The RESOLVED agent for this run (prompt, tool allowlist, ceilings and any
+    # surface policy). The delegation tool reads the surface's subagent prompt
+    # from it, so a delegated child inherits the parent's context policy.
+    agent: Any = None
     # The run's live event bus, so a skill child-run's `skill.*` events reach the
     # parent's SSE stream.
     bus: Any = None

@@ -164,6 +164,11 @@ async def _persist(result: BacktestResult, strategy: StrategySpec, store, kind: 
         return None
 
 
+#: The wall clock one backtest may take (the CPU-bound part runs in a worker
+#: thread, so the runtime's event loop is never blocked by it).
+BACKTEST_TIMEOUT_S = 300
+
+
 async def _run_one(strategy: StrategySpec, gateway, args: dict[str, Any]) -> BacktestResult:
     dataset = await dataset_from_strategy(
         gateway, strategy, start=args.get("start"), end=args.get("end"),
@@ -175,7 +180,30 @@ async def _run_one(strategy: StrategySpec, gateway, args: dict[str, Any]) -> Bac
         risk_free_rate=float(args.get("riskFreeRate") or 0.0),
         random_seed=int(args.get("randomSeed") or 42),
     )
-    return run_backtest(strategy, dataset, cfg, symbols=args.get("symbols"))
+    # The backtest is CPU-BOUND and SYNCHRONOUS. Run it in a worker thread so
+    # it cannot block the runtime's event loop (a long backtest used to stall
+    # every other request), and bound it with a wall clock so a runaway is an
+    # honest refusal rather than a hang.
+    symbols = args.get("symbols")
+    return await asyncio.wait_for(
+        asyncio.to_thread(
+            lambda: run_backtest(strategy, dataset, cfg, symbols=symbols)
+        ),
+        timeout=_backtest_timeout_s(),
+    )
+
+
+def _backtest_timeout_s() -> float:
+    """The wall clock one backtest may take (overridable by the operator)."""
+    raw = os.environ.get("HARNESS_QUANT_BACKTEST_TIMEOUT_S", "").strip()
+    if raw:
+        try:
+            value = float(raw)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    return float(BACKTEST_TIMEOUT_S)
 
 
 # ── Handlers ─────────────────────────────────────────────────────────────────
@@ -1193,7 +1221,7 @@ QUANT_TOOLS: tuple[str, ...] = (
     "run_out_of_sample_test", "run_bootstrap_test", "compare_backtests",
     "run_multiple_testing_diagnostics", "price_option", "implied_volatility",
     "analyze_option_strategy", "build_continuous_contract",
-    "run_regime_monte_carlo", "grade_strategy_edge", "run_prop_firm_simulation",
+    "run_regime_monte_carlo", "grade_strategy_edge", "analyse_trade_log", "run_prop_firm_simulation",
     "list_prop_firm_rules", "generate_edge_report", *PINE_TOOLS,
     )
 

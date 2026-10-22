@@ -160,14 +160,14 @@ renderer to keep in sync.
 
 | Family | `type` | Notes |
 |---|---|---|
-| Content | `markdown` | Full existing Markdown subset |
+| Content | `markdown` | Full existing Markdown subset, **including typeset formulas** (`$...$` / `$$...$$` in LaTeX - see "Formulas in the chat" in `docs/chat-ui-audit.md`) |
 | | `heading` | level 1–4 |
 | | `callout` | info/note/success/warning/danger |
 | | `key_value` | label/value pairs |
 | | `details` | collapsible; native `<details>` |
 | Data | `metric_grid` | KPI cards; `unavailable: true` renders an explicit chip |
 | | `data_table` | sort + filter + paginate + TSV copy (all local) |
-| Visualization | `chart` | line, area, bar, stacked_bar, grouped_bar, pie, scatter, bubble, histogram, heatmap, treemap, sunburst, funnel, gauge, radar, waterfall, **candlestick**, **ohlc** |
+| Visualization | `chart` | line, area, bar, stacked_bar, grouped_bar, pie, scatter, bubble, histogram, heatmap, treemap, sunburst, funnel, gauge, radar, waterfall, **candlestick**, **ohlc**, **regression** (the points, the least-squares line and its R-squared - the engine fits it, so the model never fits it itself) |
 | | `diagram` | flowchart, dependency, state — native SVG, read-only |
 | | `node_graph` | selectable node/edge graph — same layout engine; a node's `detail` shows on selection |
 | | `anatomy` | interactive isometric **mechanism figure**: a declarative scene (slab/cylinder `parts`, `wires`, `legend`, deterministic `stages`) compiled by the Anatomy-derived kit (`lib/anatomy/`, see its `NOTICE`). A stage's `readout` is the ONLY source of live text, so the animation can never invent a value. See ADR-047 and "Isometric mechanism figures" in §3. |

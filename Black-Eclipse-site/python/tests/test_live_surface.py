@@ -185,3 +185,66 @@ def test_tool_guidance_is_applied_but_does_not_change_the_allowlist(store):
     assert applied is not None
     assert "Use tool_a; never invent its result." in updated.systemPrompt
     assert updated.tools == ["tool_a"]
+
+def test_a_surface_can_narrow_the_context_it_injects(store):
+    states = HarnessStateStore(store)
+    root = states.save_state({
+        "scope": "eclipse-agent", "snapshotDigest": "base",
+        "metrics": {"aggregates": {"task_success": 0.7}},
+        "utility": 0.7, "status": "current",
+    })
+    narrowed = HarnessSnapshot(
+        systemPrompt="measured prompt",
+        toolNames=("tool_a",),
+        skillManifest="none",
+        memoryPolicy="off",
+        maxSteps=6,
+        maxToolCalls=8,
+    )
+    state = states.save_state({
+        "scope": "eclipse-agent", "snapshotDigest": narrowed.sourceDigest,
+        "metrics": {"aggregates": {"task_success": 0.8}},
+        "utility": 0.8, "status": "candidate", "parentStateId": root["id"],
+    })
+    states.activate_surface(
+        state["id"], snapshot=narrowed.to_dict(), base=_base().to_dict(),
+    )
+
+    updated, applied = apply_active_surface(store, _agent())
+
+    assert applied is not None
+    assert updated.skillManifest == "none"
+    assert updated.memoryPolicy == "off"
+    # The context policy adds nothing to the allowlist: the tools are exactly
+    # the ones the snapshot declared.
+    assert updated.tools == ["tool_a"]
+
+def test_a_surface_guardrail_reaches_the_live_agent(store):
+    states = HarnessStateStore(store)
+    root = states.save_state({
+        "scope": "eclipse-agent", "snapshotDigest": "base",
+        "metrics": {"aggregates": {"task_success": 0.7}},
+        "utility": 0.7, "status": "current",
+    })
+    guarded = HarnessSnapshot(
+        systemPrompt="measured prompt",
+        toolNames=("tool_a",),
+        guardrails=("require_citation",),
+        maxAnswerChars=4000,
+        maxSteps=6,
+        maxToolCalls=8,
+    )
+    state = states.save_state({
+        "scope": "eclipse-agent", "snapshotDigest": guarded.sourceDigest,
+        "metrics": {"aggregates": {"task_success": 0.8}},
+        "utility": 0.8, "status": "candidate", "parentStateId": root["id"],
+    })
+    states.activate_surface(
+        state["id"], snapshot=guarded.to_dict(), base=_base().to_dict(),
+    )
+
+    updated, applied = apply_active_surface(store, _agent())
+
+    assert applied is not None
+    assert updated.guardrails == ("require_citation",)
+    assert updated.maxAnswerChars == 4000

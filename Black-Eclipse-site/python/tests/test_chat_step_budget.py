@@ -1,8 +1,11 @@
 """Chat step budget (QA Round 1, Q5).
 
 8 model steps was too tight for a multi-tool navigation turn; the QA run hit the
-cap mid-task. Ordinary chat now defaults to 12, an operator can set
-`ECLIPSE_CHAT_MAX_STEPS` (1..32), and an explicit per-run agent config wins.
+cap mid-task, and 12 was too tight for a request that carries several
+deliverables (fetch -> compute -> chart -> report -> widget): the run spent its
+budget on the data work and never produced the file. Ordinary chat now defaults
+to 24, an operator can set `ECLIPSE_CHAT_MAX_STEPS` (1..32), and an explicit
+per-run agent config wins.
 """
 
 from __future__ import annotations
@@ -17,9 +20,9 @@ def _req(explicit=None):
     return SimpleNamespace(agent=explicit)
 
 
-def test_default_chat_budget_is_twelve(monkeypatch):
+def test_default_chat_budget_is_twenty_four(monkeypatch):
     monkeypatch.delenv("ECLIPSE_CHAT_MAX_STEPS", raising=False)
-    assert chat_step_budget(ECLIPSE_AGENT, _req()) == 12
+    assert chat_step_budget(ECLIPSE_AGENT, _req()) == 24
 
 
 def test_env_override_and_clamp(monkeypatch):
@@ -33,7 +36,7 @@ def test_env_override_and_clamp(monkeypatch):
 
 def test_invalid_env_is_ignored(monkeypatch):
     monkeypatch.setenv("ECLIPSE_CHAT_MAX_STEPS", "not-a-number")
-    assert chat_step_budget(ECLIPSE_AGENT, _req()) == 12
+    assert chat_step_budget(ECLIPSE_AGENT, _req()) == 24
 
 
 def test_explicit_agent_config_wins(monkeypatch):

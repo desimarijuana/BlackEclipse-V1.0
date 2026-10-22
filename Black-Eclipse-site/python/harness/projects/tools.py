@@ -16,6 +16,8 @@ refusal, not an empty list.
 
 from __future__ import annotations
 
+import json
+
 from typing import Any, Optional
 
 from ..tools import ToolContext, ToolDefinition
@@ -27,6 +29,17 @@ def _store(ctx: ToolContext) -> Any:
         raise RuntimeError(
             "the project store is not configured in this runtime; project tools "
             "are unavailable")
+    return store
+
+
+def _auto_store(ctx: ToolContext) -> Any:
+    from .policy import get_auto_run_store
+
+    store = getattr(ctx, "auto_run_store", None) or get_auto_run_store()
+    if store is None:
+        raise RuntimeError(
+            "the auto-run policy store is not configured in this runtime; the "
+            "auto-run tools are unavailable")
     return store
 
 
@@ -123,12 +136,155 @@ async def project_detach(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
         return _err("PROJECT_DETACH_FAILED", str(exc))
 
 
+async def project_digest(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """The curated view of a project: what it is, what matters, what it lacks."""
+    project_id = str(args.get("projectId") or "")
+    if not project_id:
+        return _err("PROJECT_ID_REQUIRED", "provide `projectId`")
+    try:
+        store = _store(ctx)
+        from .curate import curate_project
+
+        from .policy import get_auto_run_store
+
+        digest = curate_project(store, project_id,
+                                auto_run_store=get_auto_run_store())
+        if digest is None:
+            return _err("PROJECT_NOT_FOUND", f"no project {project_id!r}")
+        return (digest.to_markdown(), {"status": "OK", "digest": digest.to_dict()})
+    except Exception as exc:  # noqa: BLE001
+        return _err("PROJECT_DIGEST_FAILED", str(exc))
+
+
+async def project_next(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Propose what this project should do next, from its own evidence."""
+    project_id = str(args.get("projectId") or "")
+    if not project_id:
+        return _err("PROJECT_ID_REQUIRED", "provide `projectId`")
+    try:
+        store = _store(ctx)
+        from .propose import propose_next
+
+        quant_store = getattr(ctx, "quant_store", None)
+        report = propose_next(
+            store, project_id,
+            quant_store=quant_store,
+            firm=str(args.get("firm") or "topstep"),
+            firm_size=str(args.get("size") or "50k"),
+        )
+        if not report.get("available"):
+            return _err("PROJECT_NOT_FOUND", str(report.get("reason")))
+        lines = [report["summary"], ""]
+        for proposal in report["proposals"]:
+            lines.append(f"**{proposal['title']}**")
+            lines.append(f"- why: {proposal['rationale']}")
+            if proposal["evidence"]:
+                lines.append(f"- evidence: {', '.join(proposal['evidence'])}")
+            action = proposal.get("action") or {}
+            if action:
+                lines.append(f"- do: `{action.get('tool')}` "
+                             f"{json.dumps(action.get('args') or {}, sort_keys=True)}")
+            lines.append("")
+        return ("\n".join(lines).strip(), {"status": "OK", **report})
+    except Exception as exc:  # noqa: BLE001
+        return _err("PROJECT_NEXT_FAILED", str(exc))
+
+
+async def project_run_proposal(args: dict[str, Any],
+                              ctx: ToolContext) -> tuple[str, Any]:
+    """Run one of this project's proposals and record the outcome in the project."""
+    project_id = str(args.get("projectId") or "")
+    proposal_id = str(args.get("proposalId") or "")
+    if not project_id or not proposal_id:
+        return _err("PROJECT_RUN_INPUT_REQUIRED",
+                    "provide `projectId` and `proposalId`")
+    try:
+        store = _store(ctx)
+        from .execute import run_project_proposal
+
+        quant_store = getattr(ctx, "quant_store", None)
+        run = await run_project_proposal(
+            ctx, project_id, proposal_id, quant_store=quant_store,
+            firm=str(args.get("firm") or "topstep"),
+            firm_size=str(args.get("size") or "50k"),
+        )
+        if run.status == "not_runnable":
+            return (f"NOT RUNNABLE - {run.summary}",
+                    {"status": "OK", "run": run.to_dict()})
+        return (f"Proposal {proposal_id} ran ({run.status}): {run.summary}"
+                + (f" — recorded as {run.attached['kind']} {run.attached['ref']}"
+                   if run.attached else ""),
+                {"status": "OK", "run": run.to_dict()})
+    except Exception as exc:  # noqa: BLE001
+        return _err("PROJECT_RUN_FAILED", str(exc))
+
+
+async def project_auto_policy(args: dict[str, Any],
+                             ctx: ToolContext) -> tuple[str, Any]:
+    """Read or set the auto-run policy: when a project may act on its own."""
+    project_id = str(args.get("projectId") or "")
+    if not project_id:
+        return _err("PROJECT_ID_REQUIRED", "provide `projectId`")
+    try:
+        store = _auto_store(ctx)
+        if args.get("enable") is None and not args.get("set"):
+            policy = store.get_policy(project_id)
+            budget = store.budget_state(policy)
+            return (f"Auto-run for {project_id} is "
+                    f"{'ON' if policy.enabled else 'OFF'}: {budget['usedRuns']}/"
+                    f"{policy.max_runs_per_day} runs today, "
+                    f"{budget['usedSeconds']:.0f}/{policy.max_seconds_per_day}s, "
+                    f"every {policy.min_interval_minutes} min. Allowed tools: "
+                    f"{', '.join(policy.allowed_tools)}.",
+                    {"status": "OK", "policy": policy.to_dict(), "budget": budget})
+        patch = {k: v for k, v in (
+            ("enabled", args.get("enable")),
+            ("maxRunsPerDay", args.get("maxRunsPerDay")),
+            ("maxSecondsPerDay", args.get("maxSecondsPerDay")),
+            ("minIntervalMinutes", args.get("minIntervalMinutes")),
+            ("allowedTools", args.get("allowedTools")),
+        ) if v is not None}
+        if "enable" in patch:
+            patch["enabled"] = patch.pop("enable")
+        policy = store.set_policy(project_id, **patch)
+        return (f"Auto-run for {project_id} is now "
+                f"{'ON' if policy.enabled else 'OFF'}.",
+                {"status": "OK", "policy": policy.to_dict()})
+    except Exception as exc:  # noqa: BLE001
+        return _err("PROJECT_AUTO_POLICY_FAILED", str(exc))
+
+
+async def project_auto_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Let every project that is allowed to act, act once."""
+    try:
+        from .auto import tick_projects
+
+        report = await tick_projects(ctx)
+        ran = report.get("ran") or []
+        if not ran:
+            skipped = report.get("skipped") or []
+            return (f"no project acted ({len(skipped)} considered and held back"
+                    + (f": {', '.join(sorted({str(s.get('reason')) for s in skipped}))}"
+                       if skipped else "") + ").",
+                    {"status": "OK", **report})
+        lines = [f"{entry['projectId']}: {entry['status']} - {entry['summary']}"
+                 for entry in ran]
+        return ("\n".join(lines), {"status": "OK", **report})
+    except Exception as exc:  # noqa: BLE001
+        return _err("PROJECT_AUTO_RUN_FAILED", str(exc))
+
+
 PROJECT_TOOLS: tuple[str, ...] = (
     "project_create",
     "project_list",
     "project_show",
     "project_attach",
     "project_detach",
+    "project_digest",
+    "project_next",
+    "project_run_proposal",
+    "project_auto_policy",
+    "project_auto_run",
 )
 
 
@@ -185,6 +341,72 @@ def register_project_tools(registry: Any) -> list[str]:
             "memberId": {"type": "string"}},
             "required": ["projectId", "memberId"]},
         handler=project_detach, permission="read", risk="low", timeout_ms=20_000))
+    registry.register(ToolDefinition(
+        name="project_next",
+        description="Propose what this project should do next, FROM ITS OWN EVIDENCE: "
+                    "a strategy with no result, a result with too few trades, a "
+                    "strategy whose trades only ever happened in a few market regimes, "
+                    "a result whose tail is unsafe, and whether the strategy survives "
+                    "a prop firm's evaluation rules. Each proposal cites its evidence "
+                    "and names the exact tool call to run.",
+        input_schema={"type": "object", "properties": {
+            "projectId": {"type": "string"},
+            "firm": {"type": "string", "description": "the prop firm to test fit against"},
+            "size": {"type": "string", "description": "that firm's account size"}},
+            "required": ["projectId"]},
+        handler=project_next, permission="read", risk="low", timeout_ms=60_000))
+    registry.register(ToolDefinition(
+        name="project_run_proposal",
+        description="RUN one of this project's proposals and record the outcome back "
+                    "into the project, so the next proposal is made against a project "
+                    "that knows what just happened. The run goes through the same tool "
+                    "the agent would have called, so the policy gate, the allowlist and "
+                    "the persistence are identical. A failed run is recorded as a "
+                    "failure - a project that hides its failures cannot learn.",
+        input_schema={"type": "object", "properties": {
+            "projectId": {"type": "string"},
+            "proposalId": {"type": "string"},
+            "firm": {"type": "string"},
+            "size": {"type": "string"}},
+            "required": ["projectId", "proposalId"]},
+        handler=project_run_proposal, permission="read", risk="low", timeout_ms=180_000,
+        long_running=True))
+    registry.register(ToolDefinition(
+        name="project_auto_policy",
+        description="Read or set the AUTO-RUN policy: whether this project may act "
+                    "on its own, how many runs a day, how many seconds a day, how far "
+                    "apart two runs must be, and which tools it may run. Off by "
+                    "default. Only compute tools may be run automatically - a "
+                    "project can never act on the world by itself.",
+        input_schema={"type": "object", "properties": {
+            "projectId": {"type": "string"},
+            "enable": {"type": "boolean"},
+            "set": {"type": "boolean"},
+            "maxRunsPerDay": {"type": "integer"},
+            "maxSecondsPerDay": {"type": "integer"},
+            "minIntervalMinutes": {"type": "integer"},
+            "allowedTools": {"type": "array", "items": {"type": "string"}}},
+            "required": ["projectId"]},
+        handler=project_auto_policy, permission="read", risk="low", timeout_ms=20_000))
+    registry.register(ToolDefinition(
+        name="project_auto_run",
+        description="Let every project whose auto-run policy allows it act once: the "
+                    "project runs its own top proposal, inside its budget, and the "
+                    "outcome is recorded in the project. Nothing is run that the "
+                    "policy does not allow, and a project that cannot act is a "
+                    "normal outcome, not an error.",
+        input_schema={"type": "object", "properties": {}, "required": []},
+        handler=project_auto_run, permission="read", risk="low", timeout_ms=180_000,
+        long_running=True))
+    registry.register(ToolDefinition(
+        name="project_digest",
+        description="The CURATED view of a project: what it is about, which members "
+                    "matter most (and why), and what it does not have yet. Use it "
+                    "instead of project_show when the question is 'where does this "
+                    "project stand?' rather than 'list every member'.",
+        input_schema={"type": "object", "properties": {
+            "projectId": {"type": "string"}}, "required": ["projectId"]},
+        handler=project_digest, permission="read", risk="low", timeout_ms=20_000))
     return list(PROJECT_TOOLS)
 
 

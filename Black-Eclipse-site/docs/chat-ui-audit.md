@@ -1,7 +1,7 @@
 ---
 title: Chat & Agent Experience — Audit and Overhaul Plan
 status: Current
-last-verified: 2026-09-22
+last-verified: 2026-10-21
 ---
 
 # Chat & Agent Experience — Audit and Overhaul Plan
@@ -133,6 +133,35 @@ execution. Any subagent UI would be fabricated today — see Risk R4.
 
 `ChatHistory` renders the status as a "thinking header" above the *last*
 assistant turn, and renders assistant content through the custom `Markdown`.
+
+### Formulas in the chat
+
+The Markdown subset **typesets mathematics**. A formula is LaTeX: `$...$`
+inline, `$$...$$` as its own block. The parser (`src/lib/chat/markdown.ts`)
+recognises them and the renderer (`src/components/chat/math.tsx`) draws them
+with KaTeX, so a Sharpe ratio, a VaR, a duration or a Black-Scholes line
+arrives as a formula instead of as source text.
+
+**Money is not a formula.** A `$...$` span only counts as mathematics when it
+looks like mathematics: it carries a LaTeX operator (`\`, `^`, `_`, `{`, `}`,
+`=`, `+`, `<`, `>`) or is a single non-digit symbol (`$x$`, `$\mu$`). On top of
+that, the opening `$` may not follow a word character or a digit (`US$100`),
+the span may not break over a line, it may not begin or end with whitespace
+(`$5 and $10` is prose), and the closing `$` may not be followed by a digit
+(`$100`). So `it trades at $100` stays money and `$S = \frac{r_p - r_f}{\sigma}$`
+is a formula. The agent is told the same rule: **never write money inside a
+dollar sign** - write `USD 100` (`python/harness/prompts.py`, "Formulas").
+
+**KaTeX is loaded on demand.** The library is imported dynamically, so the
+chat's initial bundle does not carry it; until it arrives the formula shows
+its own source, and a formula KaTeX cannot parse shows the same way rather
+than crashing the message. Its stylesheet is global (`src/app/katex.css`),
+because KaTeX ships one stylesheet for its whole typesetting and its own
+maths faces.
+
+The same renderer serves the `eclipse-response` fence, so a `markdown` block
+inside a structured answer typesets formulas too (see
+`docs/interactive-response-engine.md`).
 
 ---
 
@@ -689,11 +718,84 @@ retrieval:LIVE_STRUCTURED:macro_series`.
   resolve correctly. `use-agent-run` delegates to it. A `hasUniqueIds` invariant
   and five reducer tests (including the exact duplicate-id case) were added.
 
+---
 
+## 21. Turn length — the front door no longer refuses a long message (2026-10-21)
 
+### The rule
 
+**A turn is whatever the person pasted.** The front door's bound on a chat turn
+(`MAX_QUERY_LENGTH`, `src/lib/harness/validation.ts`) guards **one request
+body** — it is not a prompt limit, and it is not a policy about how much a
+person may ask. It is currently 100 000 characters (~25k tokens), mirrored by
+the runtime's `RunInput.query` bound (`python/harness/schemas.py`,
+`MAX_QUERY_CHARS`).
 
+**The real limit belongs to the runtime.** It measures the assembled request —
+system prompt, tool schemas, per-run blocks, the user turn — against the
+resolved model's declared context window (`context_budget.py`) and reports an
+honest `CONTEXT_OVERFLOW` with a reason and a remedy when a prompt genuinely
+does not fit. A front-door rejection cannot make that judgement; it can only
+guess a number, and a guessed number refuses legitimate work.
 
+**The two bounds are mirrored on purpose.** The front door's bound must stay
+`>=` the runtime's, or the runtime would reject a request the app accepted
+with a bare pydantic 422 instead of a readable error. Change one, change both.
 
+### Why it changed
 
+A message over 4 000 characters was refused by the front door and rendered as
+the generic "Something went wrong" card. The composer had accepted the text;
+the refusal happened on the way to the agent; and the card gave the user no way
+to tell a rejected request from a broken agent.
 
+Two consequences are now fixed with it:
+
+- **A refusal carries a stable code.** The front door answers a refused turn
+  with `INVALID_INPUT`, and the client keeps it (`ChatRequestError` in
+  `src/lib/agent/registry.ts`) so the chat card badges the real reason instead
+  of showing a bare sentence.
+- **A refusal is not repeated.** A refused request used to be sent three times
+  — stream 400, one-shot fallback 400, one-shot retry 400 — all failing
+  identically. A refused request now fails **once**. A missing streaming
+  ENDPOINT (404/405, an older front door) still falls back to the one-shot
+  path; that is a different failure and it still recovers.
+
+### The knock-on: history
+
+A prior turn carries the same per-turn bound, so a long message is **not
+silently sliced** when it returns as history on the next turn. The whole
+history is bounded too, and it is bounded the way the runtime bounds it: the
+**oldest whole turns are dropped**, never a turn cut in half — so the runtime
+receives every turn it is given intact and applies its own budget on top. The
+runtime still bounds the ASSEMBLED history against the model's window and
+reports what IT drops (`memory.history_bounded` + the dropped-context block);
+that is a prompt-budget decision, not a rejection.
+
+### A big paste is an attachment, not a composer full of text
+
+A paste above `PASTE_AS_ATTACHMENT_CHARS` (4 000, `src/lib/chat/paste.ts`) is
+intercepted by the composer and attached instead: the text is written into the
+conversation's session folder as a `pasted-text.txt` context document and
+shows as a chip, exactly like an uploaded file. Small pastes insert normally.
+
+**Why a chip and not a message.** A multi-thousand-character blob makes the
+composer unusable (it grows four lines, then scrolls), and a message that large
+is really a document the user is handing over. The chip makes that visible,
+**readable** (click it for a preview of the text) and removable, and it reuses
+the ONE attachment pipeline — the same extraction, the same run documents, the
+same truncation provenance — instead of adding a second way to get text to the
+agent.
+
+**A paste with nothing typed IS the message.** Pressing Enter after pasting
+sends the pasted text as the user turn: it is taken back out of the attachment
+list first, so the same text is never also injected as a document. With only a
+FILE attached and no text, a neutral "Read the attached document." is sent —
+a send that produces nothing is worse than a plain instruction.
+
+**Why the document caps moved.** They are now the turn bound (100 000 chars per
+document, 200 000 combined). A paste that becomes a document must arrive as
+readable as the same text would have as a message; a lower document cap would
+have made the chip a downgrade. The runtime measures the assembled turn —
+documents included — against the model window, so a document that genuinely
+does not fit is reported, never silently dropped.

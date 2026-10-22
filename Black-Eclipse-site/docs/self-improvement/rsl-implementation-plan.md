@@ -163,7 +163,7 @@ recorded benchmark delta.
 | Candidate/attempt persistence | `code/evolution_store.py` (`EvolutionCandidate`, `EvolutionAttempt`) | Exists on `agent-memory.db`, nullable cost columns |
 | Worktree test evaluation | `code/evolution_service.py:87` (`evaluate`), `code/evolution.py:317` | Exists; applies ops in a worktree and runs owning tests |
 | Benchmark verification | `evaluation/improvement.py:101` (`evaluate_candidate`), `:169` (`run_loop`) | Exists; **test/CLI only** |
-| Evaluator | `evaluation/runner.py`, `graders/`, `scoring.py`, `regression.py` | Complete; 53 tasks across four datasets (`benchmark_v1` 31, `construction_v1` 16, `routing_e2e_v1` 4, `team_v1` 2) |
+| Evaluator | `evaluation/runner.py`, `graders/`, `scoring.py`, `regression.py` | Complete; 62 tasks across six datasets (`benchmark_v1` 31, `construction_v1` 16, `adversarial_v1` 4, `finance_v1` 5, `routing_e2e_v1` 4, `team_v1` 2) |
 | Failure mining | `evaluation/mining.py` | Exists; **CLI only** (`evaluation/cli.py:218`) |
 | Failure event | `event_system/service.py:218-243` publishes `evaluation.started` | Emitted; **no consumer runs an evaluation** |
 | Operator routes | `routers/evolution.py`, `routers/evaluation.py`, `routers/code.py` | Operator-gated |

@@ -12,8 +12,9 @@
 //   4. security preflight   (deploy checklist; advisory on a loopback bind)
 //   5. decision record       (every ADR number names exactly one decision)
 //   6. harness size budget   (the committed total + per-subsystem ceilings)
-//   7. tests                (vitest + python suite)
-//   8. eval gates           (retrieval / contradiction / compaction floors)
+//   7. corpus gate           (the corpus vs the COMMITTED baseline)
+//   8. tests                (vitest + python suite)
+//   9. eval gates           (retrieval / contradiction / compaction floors)
 //
 // Usage: node scripts/check-all.js   (or `npm run check:all`)
 const { spawnSync } = require("child_process");
@@ -46,5 +47,15 @@ run("decision record", "node", ["scripts/check-adr-numbers.js"]);
 run("harness size budget", "node", ["scripts/size-budget.js"]);
 run("tests (vitest + python)", "npm", ["run", "test"]);
 run("eval gates", "node", ["scripts/test-evals.js"]);
+// The corpus GATE: the same corpus, compared with the COMMITTED baseline. A
+// critical regression (task success, safety, hallucination rate, financial
+// accuracy, routing) fails the release here.
+run("corpus gate (nightly vs committed baseline)", "node", [
+  "scripts/rsl-nightly.js",
+  "--dataset",
+  "all",
+  "--baseline-file",
+  "python/harness/evaluation/baselines/corpus_v1.json",
+]);
 
 console.log("\n[check-all] ALL GATES PASSED");

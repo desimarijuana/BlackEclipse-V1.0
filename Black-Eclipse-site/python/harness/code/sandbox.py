@@ -809,6 +809,27 @@ def backend_name() -> str:
         return "unavailable"
 
 
+def isolation_required() -> bool:
+    """Whether the operator demands a real isolation primitive.
+
+    The LOCAL backend is a process launcher: it kills the tree, caps memory and
+    the process count, and scrubs the environment — but it does NOT confine the
+    filesystem or the network. With `HARNESS_SANDBOX_REQUIRED=1` the analysis
+    path refuses to run on the local backend instead of pretending the boundary
+    is stronger than it is.
+    """
+    raw = (os.environ.get("HARNESS_SANDBOX_REQUIRED", "") or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def isolation_satisfied() -> bool:
+    """Whether the backend in force meets the operator's requirement."""
+    if not isolation_required():
+        return True
+    # The local backend is not a filesystem/network boundary.
+    return backend_name() not in ("local", "windows-job", "posix-rlimit", "unavailable")
+
+
 __all__ = [
     "MAX_OUTPUT_CAP_BYTES",
     "PosixBackend",
@@ -820,6 +841,8 @@ __all__ = [
     "WindowsJobBackend",
     "backend_name",
     "build_env",
+    "isolation_required",
+    "isolation_satisfied",
     "run",
     "select_backend",
     "set_backend",

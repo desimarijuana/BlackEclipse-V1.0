@@ -26,6 +26,17 @@ _SERIES: list[dict[str, Any]] = [
     {"id": "US:FRED:CPILFESL", "geography": "US", "institution": "FRED", "measure": "cpi_core", "adjustment": "sa", "frequency": "monthly", "sourceId": "fred-analytics", "providerSeries": "CPILFESL"},
     {"id": "US:FRED:UNRATE", "geography": "US", "institution": "FRED", "measure": "unemployment_rate", "adjustment": "sa", "frequency": "monthly", "sourceId": "fred-analytics", "providerSeries": "UNRATE"},
     {"id": "US:FRED:GDP", "geography": "US", "institution": "FRED", "measure": "gdp_nominal", "adjustment": "sa", "frequency": "quarterly", "sourceId": "fred-analytics", "providerSeries": "GDP"},
+    # The RATES and the DOLLAR an asset analysis needs: a real-yield series is
+    # the difference between "gold is expensive" and "gold is expensive
+    # because real yields are". The broad dollar index and the volatility index
+    # are the other two legs of every gold/growth-factor model.
+    {"id": "US:FRED:DFII10", "geography": "US", "institution": "FRED", "measure": "real_yield_10y", "adjustment": "nsa", "frequency": "daily", "sourceId": "fred-analytics", "providerSeries": "DFII10"},
+    {"id": "US:FRED:DFII5", "geography": "US", "institution": "FRED", "measure": "real_yield_5y", "adjustment": "nsa", "frequency": "daily", "sourceId": "fred-analytics", "providerSeries": "DFII5"},
+    {"id": "US:FRED:DGS10", "geography": "US", "institution": "FRED", "measure": "nominal_yield_10y", "adjustment": "nsa", "frequency": "daily", "sourceId": "fred-analytics", "providerSeries": "DGS10"},
+    {"id": "US:FRED:DGS2", "geography": "US", "institution": "FRED", "measure": "nominal_yield_2y", "adjustment": "nsa", "frequency": "daily", "sourceId": "fred-analytics", "providerSeries": "DGS2"},
+    {"id": "US:FRED:T10YIE", "geography": "US", "institution": "FRED", "measure": "breakeven_inflation_10y", "adjustment": "nsa", "frequency": "daily", "sourceId": "fred-analytics", "providerSeries": "T10YIE"},
+    {"id": "US:FRED:DTWEXBGS", "geography": "US", "institution": "FRED", "measure": "broad_dollar_index", "adjustment": "nsa", "frequency": "daily", "sourceId": "fred-analytics", "providerSeries": "DTWEXBGS"},
+    {"id": "US:FRED:VIXCLS", "geography": "US", "institution": "FRED", "measure": "equity_volatility_index", "adjustment": "nsa", "frequency": "daily", "sourceId": "fred-analytics", "providerSeries": "VIXCLS"},
     {"id": "EA:ECB:DEPOSIT", "geography": "EA", "institution": "ECB", "measure": "ecb_deposit_facility_rate", "adjustment": "nsa", "frequency": "daily", "sourceId": "ecb", "providerSeries": "deposit"},
     {"id": "EA:ECB:MRR", "geography": "EA", "institution": "ECB", "measure": "ecb_main_refinancing_rate", "adjustment": "nsa", "frequency": "daily", "sourceId": "ecb", "providerSeries": "mrr"},
     {"id": "WLD:WORLDBANK:GDP", "geography": "WLD", "institution": "WorldBank", "measure": "gdp_nominal", "adjustment": "nsa", "frequency": "annual", "sourceId": "worldbank", "providerSeries": "NY.GDP.MKTP.CD"},
@@ -40,6 +51,17 @@ _GENERIC_MEASURE_FAMILIES = {
     "core_inflation": ["cpi_core"],
     "unemployment": ["unemployment_rate"],
     "gdp": ["gdp_nominal"],
+    "real_yield": ["real_yield_10y", "real_yield_5y"],
+    "real_rates": ["real_yield_10y", "real_yield_5y"],
+    "nominal_yield": ["nominal_yield_10y", "nominal_yield_2y"],
+    "treasury_yield": ["nominal_yield_10y", "nominal_yield_2y"],
+    "breakeven": ["breakeven_inflation_10y"],
+    "breakeven_inflation": ["breakeven_inflation_10y"],
+    "dollar_index": ["broad_dollar_index"],
+    "broad_dollar": ["broad_dollar_index"],
+    "dxy": ["broad_dollar_index"],
+    "vix": ["equity_volatility_index"],
+    "volatility_index": ["equity_volatility_index"],
 }
 
 # Country alias → geography (accepts country names, ISO2, and venue codes).

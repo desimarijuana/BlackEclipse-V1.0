@@ -39,13 +39,19 @@ python/harness/evaluation/
   mining.py         production-failure → regression-candidate pipeline
   improvement.py    the self-improvement verification loop
   ablation.py       baseline vs surface vs surface+lessons, Wilson CI + veto
+  nightly.py        the unattended session: corpus vs baseline, a GATE exit code
+  export.py         the corpus as a portable, checksum-verified bundle
   replay_builder.py recorded runs → deduped, redacted, live-only replay tasks
   experiments.py    A/B, model matrix, routing, skill and memory comparison
   dependencies.py   the affected-component map
   gate.py           the offline gate (used by scripts/test-evals.js)
   cli.py            `eclipse eval …`
   tools.py          sandbox tools the scripted tier exposes to the agent
-  datasets/         the labelled benchmark (benchmark_v1 + construction_v1)
+  datasets/         the labelled benchmark (benchmark_v1 + construction_v1 +
+                   routing_e2e_v1 + team_v1 + adversarial_v1 + finance_v1 +
+                   replay_v1)
+  baselines/        the COMMITTED corpus baseline (corpus_v1.json) the release
+                   gate compares against
 ```
 
 Two invokers drive the SAME runtime:
@@ -281,9 +287,11 @@ preview and never applies it.
 `validation`, `held_out` and `release`. A task's `metadata.split` wins, then the
 dataset's top-level `metadata.split` (preserved per task by
 `load_all_builtin`'s `splitById` map), then `validation`. The built-ins are:
-`benchmark_v1` + `construction_v1` = validation (47), `routing_e2e_v1` =
-optimization (4), `team_v1` = held_out (2). `select_tasks` without `split`
-still returns every task (53) for the release gate; an unknown split is refused.
+`benchmark_v1` + `construction_v1` + `adversarial_v1` + `finance_v1` =
+validation (56), `routing_e2e_v1` + `replay_v1` = optimization (10),
+`team_v1` = held_out (2).
+`select_tasks` without `split` still returns every task (68) for the release
+gate; an unknown split is refused.
 
 **Provenance.** A persisted run records `agentVersion`, `gitCommit` (or
 `gitCommitUnavailable`), the dataset checksum, and a config identity
@@ -299,8 +307,9 @@ piece. Cost and latency are `None` when no real source reported them, never
 
 1. Add a task object to `python/harness/evaluation/datasets/benchmark_v1.json`
    (or a new `datasets/<name>.json` — `construction_v1.json` is the R3-08
-   construction benchmark; `load_all_builtin` merges every dataset and rejects
-   duplicate ids).
+   construction benchmark, `adversarial_v1.json` the refusal/overclaim set and
+   `finance_v1.json` the recomputed-ratio set; `load_all_builtin` merges every
+   dataset and rejects duplicate ids).
 2. Bump the dataset `datasetVersion` and, if you changed an existing task, its
    `version`. Never edit a task in place without bumping `version`.
 3. A construction task should declare `metadata.suites: ["construction"]`,
@@ -364,7 +373,7 @@ R3-08, `task_success >= 0.9` and `recovery_success >= 0.85` are gated too (both
 measured 1.0 offline) — never weakened to make a run pass.
 
 ```
-evaluation gate: PASS (tasks=53 run=…)
+evaluation gate: PASS (tasks=68 run=…)
   construction: 16/16 measured, 100%
   finance: 7/7 measured, 100%
   …
@@ -503,6 +512,70 @@ suite with the change applied and reverts it on rejection.
 | live tier unavailable | no model/credentials configured | use the offline tier, or configure a provider |
 | `unknown environment '…'` | the task's `environment.type` is not registered | use a known type or `register_environment` |
 | `unknown grader '…'` | the task names a grader that is not registered | add it or fix the name |
+
+## 17. Sharing the corpus (our own benchmark)
+
+The corpus is Eclipse's own benchmark, so it must travel without any external
+framework. `evaluation/export.py` writes a **portable bundle**: one entry per
+built-in dataset with its version, its split and a content checksum, plus every
+task in the shared task schema.
+
+```bash
+npm run rsl:corpus -- --out .black-eclipse/evaluation/corpus.json
+npm run rsl:corpus -- --verify .black-eclipse/evaluation/corpus.json
+```
+
+- `--out` writes the bundle (add `--split validation` to export one split).
+- `--verify` RECOMPUTES each dataset's checksum from the tasks themselves and
+  exits non-zero when a task was edited in flight. A bundle is tamper-evident,
+  not trusted.
+- `import_corpus(path)` reads a bundle back through the same task schema, so an
+  imported task is validated exactly like a built-in one.
+
+The bundle is derived data: labelled tasks only, no production data, no market
+data.
+
+## 18. The unattended session (`npm run rsl:nightly`)
+
+The session runs the corpus once (the deterministic tier), compares the result
+with the recorded baseline through the SAME per-dimension regression gates, and
+writes a dated JSON + Markdown report under
+`.black-eclipse/evaluation/reports/`.
+
+```bash
+npm run rsl:nightly                 # run, compare, report
+npm run rsl:nightly -- --promote    # move the baseline forward on a clean run
+```
+
+- A **critical** regression (task success, safety score, hallucination rate,
+  financial accuracy, routing) makes the session **exit non-zero** — that is
+  the exit code CI reads.
+- Cost, latency and token movements are **warnings**: reported, not fatal.
+- The baseline moves forward only on a clean run AND with `--promote`. A worse
+  run never silently becomes the new normal.
+- With no baseline yet, the first run reports what it measured and passes.
+
+`evaluation/nightly.py` adds no second gate and no second baseline store: it
+uses `baseline.py`, `regression.py` and the report writers. The gate is proven
+by planting a regression (`test_evaluation_nightly.py`): a task that does not
+pass must make the session say `FAIL` and name the measure.
+
+### The committed baseline (the release gate)
+
+`python/harness/evaluation/baselines/corpus_v1.json` is the COMMITTED record of
+what the corpus measures today (the stable measures only - cost, latency and
+token usage move on every run and are never pinned). `scripts/check-all.js`
+(the repo's release gate - the GitHub workflows never ran from this subfolder)
+now ends with the corpus gate:
+
+```bash
+npm run rsl:nightly -- --dataset all \
+  --baseline-file python/harness/evaluation/baselines/corpus_v1.json
+```
+
+A critical regression fails the release. Refreshing the baseline is a
+deliberate act: `npm run rsl:nightly -- --dataset all --write-baseline
+python/harness/evaluation/baselines/corpus_v1.json`.
 
 ## Related
 

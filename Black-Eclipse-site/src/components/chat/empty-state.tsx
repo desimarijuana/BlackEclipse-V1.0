@@ -18,6 +18,8 @@ interface EmptyStateProps {
   /** Attached documents shown as visible chips above the composer. */
   attachments?: AttachmentChip[];
   onRemoveAttachment?: (name: string) => void;
+  /** Open an attachment so its content can be read before sending. */
+  onOpenAttachment?: (name: string) => void;
   /** The assistant is working (rare here, but keeps the composer consistent). */
   busy?: boolean;
   onCancel?: () => void;
@@ -27,13 +29,15 @@ interface EmptyStateProps {
   effortState?: ReasoningEffortState;
   /** Bots + group chats the user can `@`-mention from the composer. */
   mentionTargets?: MentionTarget[];
+  /** A paste too big for the composer becomes an attached document. */
+  onPasteText?: (text: string) => void;
 }
 
 /**
  * The chat landing surface: nothing but the composer, full width. The eclipse
  * background is painted by the chat tab container, so this stays transparent.
  */
-export function EmptyState({ query, setQuery, onSend, onAttach, onAttachImage, attachments, onRemoveAttachment, busy, onCancel, modelState, effortState, mentionTargets }: EmptyStateProps) {
+export function EmptyState({ query, setQuery, onSend, onAttach, onAttachImage, attachments, onRemoveAttachment, onOpenAttachment, busy, onCancel, modelState, effortState, mentionTargets, onPasteText }: EmptyStateProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-end w-full px-4 md:px-6 pb-2 z-10 relative">
       <div
@@ -48,11 +52,13 @@ export function EmptyState({ query, setQuery, onSend, onAttach, onAttachImage, a
           onAttachImage={onAttachImage}
           attachments={attachments}
           onRemoveAttachment={onRemoveAttachment}
+          onOpenAttachment={onOpenAttachment}
           busy={busy}
           onCancel={onCancel}
           modelState={modelState}
           effortState={effortState}
           mentionTargets={mentionTargets}
+          onPasteText={onPasteText}
         />
       </div>
     </div>

@@ -4,6 +4,8 @@
 //   • CPI/GDP/unemployment from FRED public CSV too (CPIAUCSL, GDPC1, UNRATE).
 // If a fetch fails, the entry is marked unavailable — never fabricated.
 
+import { isHtmlPayload } from "./fetch";
+
 export interface SnapshotMetric {
   id: string;
   label: string;
@@ -70,6 +72,11 @@ async function fredCSV(id: string): Promise<{ date: string; value: number }[]> {
   const res = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}`, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) throw new Error(`HTTP ${res.status} from FRED CSV (${id})`);
   const csv = await res.text();
+  // A provider under maintenance answers HTTP 200 with a maintenance PAGE; it
+  // is a transport failure, never data.
+  if (isHtmlPayload(csv)) {
+    throw new Error(`FRED is serving a web page instead of CSV (${id}) - the series is unavailable right now`);
+  }
   const lines = csv.trim().split("\n");
   const out: { date: string; value: number }[] = [];
   for (const line of lines.slice(1)) {

@@ -17,11 +17,11 @@ A deterministic script replaces the model, so this measures the
 **runtime** (the tool surface, the policy, the graders, the wiring)
 - not the model. It is the floor the harness must never fall below.
 
-- run: `evalrun-1792625119960`
-- dataset: `eclipse-benchmark` @ `1` (checksum `e2bd76d948aeb516ab6db7e56cc253aa`)
+- run: `evalrun-1792638945412`
+- dataset: `eclipse-benchmark` @ `1` (checksum `d8939d9ab004d61990ced8ca95adca4e`)
 - tier: 0
 - agent version: `0.1.0`
-- git commit: `873539aff67be008c7c6d0b6cff1cd0d07e91505`
+- git commit: `e4abf567a4eeebe45ef40d8cdad3369aa7b8c45a`
 - grader version: `1`
 - config: `{'trials': 1, 'tier': 0, 'split': 'validation', 'graderVersion': 1}`
 - gate: **PASS**
@@ -29,13 +29,13 @@ A deterministic script replaces the model, so this measures the
 | dimension | value |
 |---|---|
 | task_success | 1.0000 |
-| tool_accuracy | 0.9668 |
+| tool_accuracy | 0.9683 |
 | research_accuracy | UNKNOWN |
 | citation_accuracy | 1.0000 |
 | code_correctness | 1.0000 |
 | financial_accuracy | 1.0000 |
 | memory_accuracy | 1.0000 |
-| planning_quality | 0.8863 |
+| planning_quality | 0.8791 |
 | recovery_success | 1.0000 |
 | misroute_rate | 0.0000 |
 | escalation_correct | 1.0000 |
@@ -46,7 +46,7 @@ A deterministic script replaces the model, so this measures the
 | hallucination_rate | 0.0000 |
 | safety_score | 1.0000 |
 | cost | 0.0000 |
-| latency | 0.1192 |
+| latency | 0.1341 |
 | token_usage | 0.0000 |
 | reliability | 1.0000 |
 
@@ -54,18 +54,18 @@ A deterministic script replaces the model, so this measures the
 
 | category | passed / measured | unmeasured | pass rate |
 |---|---|---|---|
-| adversarial | 2/2 | 0 | 100.0% |
+| adversarial | 6/6 | 0 | 100.0% |
 | browser | 0/0 | 1 | UNKNOWN |
 | citations | 1/1 | 0 | 100.0% |
 | coding | 4/4 | 0 | 100.0% |
 | core | 4/4 | 0 | 100.0% |
-| finance | 7/7 | 0 | 100.0% |
+| finance | 12/12 | 0 | 100.0% |
 | long_horizon | 2/2 | 0 | 100.0% |
 | memory | 2/2 | 0 | 100.0% |
 | parallel | 3/3 | 0 | 100.0% |
 | planning | 2/2 | 0 | 100.0% |
 | recovery | 7/7 | 0 | 100.0% |
-| regression | 1/1 | 0 | 100.0% |
+| regression | 1/1 | 6 | 100.0% |
 | research | 0/0 | 1 | UNKNOWN |
 | safety | 4/4 | 0 | 100.0% |
 | tools | 12/12 | 0 | 100.0% |
@@ -74,6 +74,12 @@ A deterministic script replaces the model, so this measures the
 
 - `research.live.001`
 - `browser.live.001`
+- `replay.quote.001`
+- `replay.fundamentals.001`
+- `replay.news.001`
+- `replay.unavailable.001`
+- `replay.stale.001`
+- `replay.refused.001`
 
 ## Live tier - a real model
 

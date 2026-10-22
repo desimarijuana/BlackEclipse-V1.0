@@ -2,6 +2,22 @@
 // apply a change. Keep mechanism words ("worktree", "commit") out of user copy.
 
 export const evolution = {
+  'evolution.weekly.title': 'What improved recently',
+  'evolution.weekly.subtitle': 'What Eclipse tried in the last {days} days, what it measured and what it cost.',
+  'evolution.weekly.experiments': 'Tried',
+  'evolution.weekly.accepted': 'Improved',
+  'evolution.weekly.rejected': 'No improvement',
+  'evolution.weekly.unmeasured': 'Not measurable yet',
+  'evolution.weekly.cost': 'Cost so far',
+  'evolution.weekly.costPerAccepted': 'Cost per improvement',
+  'evolution.weekly.candidates': 'Still in progress',
+  'evolution.weekly.lessons': 'Lessons learned',
+  'evolution.weekly.lessonsEmpty': 'No lessons learned yet.',
+  'evolution.weekly.drift': 'Recent success rate',
+  'evolution.weekly.driftUnknown': 'Not enough recent runs to tell yet.',
+  'evolution.weekly.refresh': 'Refresh',
+  'evolution.weekly.loading': 'Loading the summary…',
+  'evolution.weekly.failed': 'The summary could not be loaded.',
   'evolution.lesson.title': 'Adopted lessons',
   'evolution.lesson.subtitle': 'Verified lessons retrieved by cue on later matching tasks. Adoption still requires a completed RSL experiment.',
   'evolution.lesson.refresh': 'Refresh lessons',

@@ -149,11 +149,40 @@ async def delegate_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
 
     async def _run_child(child: DelegationChild, child_run_id: str, allowed: Any, actor: Actor) -> Any:
         query = child.goal if not child.context else f"{child.goal}\n\nContext:\n{child.context}"
+        # A surface may give delegated children their own bounded prompt. The
+        # child keeps its OWN agent preset and its narrowed allowlist; the
+        # surface only appends prompt evidence, never a tool or a permission.
+        child_agent = None
+        subagent_prompt = str(
+            getattr(getattr(ctx, "agent", None), "subagentPrompt", "") or ""
+        ).strip()
+        if subagent_prompt:
+            from .agents import get_agent  # noqa: PLC0415
+            from .schemas import AgentConfig  # noqa: PLC0415
+
+            base = get_agent(child.agent_id or DEFAULT_AGENT_ID)
+            # The child's tools are the NARROWED set the delegation already
+            # computed (the parent's allowlist, or the child's request within it).
+            tool_names = [
+                name for name in (base.tools or [])
+                if allowed is None or name in allowed
+            ]
+            child_agent = AgentConfig(
+                id=base.id,
+                name=base.name,
+                systemPrompt=(
+                    f"{base.systemPrompt}\n\n## Delegated work\n{subagent_prompt}"
+                ),
+                tools=tool_names,
+                maxSteps=base.maxSteps,
+                maxToolCalls=base.maxToolCalls,
+            )
         child_request = RunRequest(
             runId=child_run_id,
             # Carry the depth so a grandchild cannot reset it to 0 and bypass MAX_DEPTH.
             input=RunInput(query=query[:4000], context={"delegationDepth": depth + 1}),
             agentId=child.agent_id or DEFAULT_AGENT_ID,
+            **({"agent": child_agent} if child_agent is not None else {}),
             modelSettings=ctx.model_settings,
             parentRunId=ctx.run_id,
             autonomy=getattr(ctx, "autonomy", None) if child.workspace_id else None,

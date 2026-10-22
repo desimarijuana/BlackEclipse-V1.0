@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { statusFromEvent, unwrapEventPayload } from "./registry";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { statusFromEvent, unwrapEventPayload, getAgentProvider } from "./registry";
 
 // Regression: the runtime wraps events in a full envelope
 // (`{ type, data: { text } }`). Reading `data.text` off the envelope silently
@@ -50,5 +50,69 @@ describe("statusFromEvent", () => {
 
   it("returns null for an unknown event", () => {
     expect(statusFromEvent("something.else", {})).toBeNull();
+  });
+});
+
+describe("eclipseAgent chat — a refused request", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("does not repeat a request the front door refused, and keeps the code", async () => {
+    // The old 4 000-char cap made a long message fail with a bare
+    // "Something went wrong". A refused request must fail ONCE, with the
+    // front door's code, instead of being sent again down the fallback path.
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ error: "message is too long", code: "INVALID_INPUT" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      getAgentProvider().chat([{ role: "user", content: "a long message" }], undefined, {
+        onEvent: () => {},
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT", status: 400 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still falls back to the one-shot path when the server fails", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ error: "runtime unavailable", code: "RUNTIME_UNAVAILABLE" }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      getAgentProvider().chat([{ role: "user", content: "hello" }], undefined, {
+        onEvent: () => {},
+      }),
+    ).rejects.toMatchObject({ code: "RUNTIME_UNAVAILABLE", status: 503 });
+    // A refused request is not repeated — the same request would fail the
+    // same way, and the run never started.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to the one-shot path when the streaming endpoint is missing", async () => {
+    // An older front door has no /stream route: the one-shot path still works.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/stream")) {
+        return new Response(JSON.stringify({ error: "not found" }), { status: 404 });
+      }
+      return new Response(JSON.stringify({ content: "the answer" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const reply = await getAgentProvider().chat([{ role: "user", content: "hello" }], undefined, {
+      onEvent: () => {},
+    });
+    expect(reply).toBe("the answer");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

@@ -108,7 +108,7 @@ describe('price_history — instrument identity', () => {
     });
     const result = await fetchCapability('price_history', { symbol: 'FFC', market: 'PSX' });
     expect(result.status).toBe('OK');
-    expect(fetchYahooBatchRaw).toHaveBeenCalledWith(['FFC'], 'PK', expect.any(String), expect.any(String));
+    expect(fetchYahooBatchRaw).toHaveBeenCalledWith(['FFC'], 'PK', expect.any(String), expect.any(String), undefined);
   });
 });
 

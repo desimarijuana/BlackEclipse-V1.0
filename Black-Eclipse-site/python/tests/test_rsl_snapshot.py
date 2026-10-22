@@ -119,3 +119,52 @@ def test_tool_guidance_is_bounded_and_part_of_the_digest():
             systemPrompt="You are Eclipse.",
             toolGuidance="x" * 4_001,
         )
+
+def test_context_policies_are_closed_sets_and_reach_the_agent_config():
+    from harness.schemas import AgentConfig
+
+    guided = HarnessSnapshot(
+        systemPrompt="You are Eclipse.",
+        skillManifest="top3",
+        memoryPolicy="profile_only",
+    )
+    config = guided.to_agent_config()
+    assert config.skillManifest == "top3"
+    assert config.memoryPolicy == "profile_only"
+    assert config.tools == []
+
+    with pytest.raises(ValueError):
+        HarnessSnapshot(systemPrompt="You are Eclipse.", skillManifest="everything")
+    with pytest.raises(ValueError):
+        HarnessSnapshot(systemPrompt="You are Eclipse.", memoryPolicy="everything")
+    with pytest.raises(ValueError):
+        AgentConfig(
+            id="x", name="x", systemPrompt="p", skillManifest="everything",
+        )
+
+
+def test_a_context_policy_changes_the_snapshot_identity():
+    plain = HarnessSnapshot(systemPrompt="You are Eclipse.")
+    narrowed = HarnessSnapshot(
+        systemPrompt="You are Eclipse.", skillManifest="none",
+    )
+    assert plain.sourceDigest != narrowed.sourceDigest
+    assert "skillManifest" in narrowed.to_dict()
+    assert "skillManifest" not in plain.to_dict()
+
+def test_the_subagent_prompt_is_bounded_and_reaches_the_agent_config():
+    snapshot = HarnessSnapshot(
+        systemPrompt="You are Eclipse.",
+        subagentPrompt="Report the numbers and the source of each one.",
+    )
+    assert snapshot.to_agent_config().subagentPrompt == (
+        "Report the numbers and the source of each one."
+    )
+    assert snapshot.sourceDigest != HarnessSnapshot(
+        systemPrompt="You are Eclipse."
+    ).sourceDigest
+
+    with pytest.raises(ValueError):
+        HarnessSnapshot(
+            systemPrompt="You are Eclipse.", subagentPrompt="x" * 4_001,
+        )

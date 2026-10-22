@@ -112,6 +112,14 @@ matplotlib>=3.8
 numpy>=1.26
 pandas>=2.1
 
+# The chart engine's LIVE output: the chat's charts are authored in Python and
+# rendered in the browser as vector SVG (zoom, pan, hover, a legend), so they
+# are real charts and not pictures of charts. The library ships inside this
+# package and is served by the app from its own route - never from a CDN, so
+# the app keeps working offline. Without it the chat falls back to the drawn
+# picture (honest degradation, no broken chart).
+plotly>=5.20
+
 # Vision / Multimodal subsystem.
 # * pypdfium2: self-contained PDFium binding (no system binary) used to render
 #   PDF pages to images for document/PDF vision. Imported lazily; when absent,

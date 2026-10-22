@@ -161,8 +161,11 @@ def _render(record: MarketRecord, capability: str) -> str:
 def _render_payload(record: MarketRecord, capability: str) -> str:
     if capability in ("historical", "ohlcv"):
         bars = getattr(record, "bars", []) or []
-        head = bars[:5]
-        tail = bars[-3:] if len(bars) > 8 else []
+        # The RECENT window is what an analysis needs: the first bar is shown
+        # for context, and the last ten carry the present. Showing the OLDEST
+        # bars (as this did) made a 5-year series read as 2021 data.
+        head = bars[:1]
+        tail = bars[-10:] if len(bars) > 1 else []
         parts = [f"  {len(bars)} bar(s), interval={getattr(record, 'interval', None) or '?'}"]
         if getattr(record, "aggregation", None):
             parts.append(f"  aggregation: {record.aggregation}")
@@ -209,11 +212,40 @@ def _render_payload(record: MarketRecord, capability: str) -> str:
 def _finish(ctx: Any, result: Any, capability: str) -> tuple[str, Any]:
     """Uniform result handling for a capability call."""
     if isinstance(result, MarketError):
+        # A refusal must TEACH its correction: the next route is named here,
+        # so the agent collects the data instead of stopping at UNAVAILABLE.
+        next_route = (
+            " A scraper can collect this from the page that has it: call "
+            "`scraper_run` with the source URL (the operator approves the site "
+            "once) and label the rows SCRAPER-sourced."
+        )
+        # The WHOLE trail of providers, so the next call does not repeat a
+        # route that already failed, and a provider that needs a credential it
+        # does not have is never tried again.
+        trail = ""
+        tried = (result.detail or {}).get("providers") or []
+        if tried:
+            parts = [
+                f"{entry.get('provider')}: {entry.get('code')}"
+                + (f" ({str(entry.get('message'))[:90]})" if entry.get("message") else "")
+                for entry in tried
+                if isinstance(entry, dict)
+            ]
+            if parts:
+                trail = " Providers tried: " + "; ".join(parts) + "."
+        credential_note = ""
+        if result.code == "AUTHENTICATION_FAILED":
+            credential_note = (
+                " That provider needs a credential it does not have - do not try it again."
+            )
         return (
             f"UNAVAILABLE — {result.code}: {result.message}"
             + (f" (provider={result.provider})" if result.provider else "")
-            + (" This may be retryable." if result.retryable else ""),
-            {"status": "UNAVAILABLE", "error": result.to_dict()},
+            + (" This may be retryable." if result.retryable else "")
+            + trail
+            + credential_note
+            + next_route,
+            {"status": "UNAVAILABLE", "error": result.to_dict(), "nextRoute": "scraper_run"},
         )
     _collect(ctx, result, capability)
     _persist(ctx, result, capability)

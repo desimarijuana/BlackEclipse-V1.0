@@ -5,6 +5,12 @@ up when someone opens the card is not monitored. This task reads the same
 `detect_store_drift` signal for every configured scope on a cadence, publishes
 `self_improvement.drift_detected` on a transition into `drift`, and never creates
 a candidate or changes the harness. Read-only and best-effort.
+
+One opt-in exception: with `HARNESS_RSL_DRIFT_AUTOCANDIDATE=on` a NEW drift
+transition also materializes the SAME inert candidate the operator route
+creates. The candidate carries no target and no operations - it is evidence
+that enters the existing propose -> verify -> land flow; it never lands,
+never activates and never bypasses the operator.
 """
 
 from __future__ import annotations
@@ -30,6 +36,12 @@ def _interval_seconds() -> int:
     except (TypeError, ValueError):
         return DEFAULT_INTERVAL_SECONDS
     return max(0, value)
+
+
+def _autocandidate_enabled() -> bool:
+    """Whether a NEW drift transition may open an inert candidate (off by default)."""
+    raw = str(os.getenv("HARNESS_RSL_DRIFT_AUTOCANDIDATE", "") or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
 
 
 class DriftWatcher:
@@ -173,14 +185,49 @@ class DriftWatcher:
                     "[harness-py] drift detected for %s: drop=%s",
                     scope, signal.get("drop"),
                 )
+                if _autocandidate_enabled():
+                    self._open_candidate(store, signal)
         self._prune(scopes)
         return {"checked": len(scopes), "drifted": drifted}
+
+    def _open_candidate(self, store: Any, signal: dict[str, Any]) -> dict[str, Any]:
+        """Open the SAME inert candidate the operator route would open.
+
+        The candidate is evidence with no target and no operations; it enters
+        the existing propose -> verify -> land flow and lands nothing by
+        itself. Failures are recorded, never raised: a watch must not die.
+        """
+        try:
+            from .drift import record_drift_candidate  # noqa: PLC0415
+
+            recorded = record_drift_candidate(store, signal)
+            if recorded.get("created"):
+                publish_event(
+                    "self_improvement.drift_candidate_created",
+                    {
+                        "candidateId": (recorded.get("candidate") or {}).get("id"),
+                        "scope": signal.get("scope"),
+                        "anchor": signal.get("anchor"),
+                        "drop": signal.get("drop"),
+                        "source": "drift-watch",
+                    },
+                    source="self_improvement",
+                )
+                log.warning(
+                    "[harness-py] drift candidate opened for %s",
+                    signal.get("scope"),
+                )
+            return recorded
+        except Exception as exc:  # noqa: BLE001 - a failed candidate never kills the watch
+            log.warning("[harness-py] drift candidate failed", exc_info=True)
+            return {"created": False, "reason": f"error:{type(exc).__name__}"}
 
     def health(self) -> dict[str, Any]:
         return {
             "enabled": self.interval_seconds > 0,
             "intervalSeconds": self.interval_seconds,
             "running": bool(self._task is not None and not self._task.done()),
+            "autoCandidate": _autocandidate_enabled(),
             "last": dict(self._last),
         }
 

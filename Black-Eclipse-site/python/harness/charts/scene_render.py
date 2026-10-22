@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from .regression import linear_fit
 from .scene import ChartMark, ChartPanel
 from .theme import ChartTheme
 
@@ -109,6 +110,43 @@ def draw_mark(ax: Any, mark: ChartMark, theme: ChartTheme, index: int, panel: Ch
             xs[:count], ys[:count], color=color, alpha=0.85 * alpha,
             s=[(sizes[i] if i < len(sizes) else 1) * scale for i in range(count)] if sizes else 40,
             label=mark.name, edgecolors="none",
+        )
+        return
+
+    if mark.type == "regression":
+        # The points, the least-squares line, and the R-squared - the same
+        # arithmetic as the live figure, so the exported picture agrees with
+        # what the reader saw.
+        ys = _series(mark)
+        xs = _x_series(mark)
+        pairs = [
+            (x, y)
+            for x, y in zip(xs, ys)
+            if isinstance(x, (int, float)) and not isinstance(x, bool)
+            and isinstance(y, (int, float)) and not isinstance(y, bool)
+        ]
+        if len(pairs) < 2:
+            if pairs:
+                ax.scatter(
+                    [p[0] for p in pairs], [p[1] for p in pairs],
+                    color=color, s=18, alpha=alpha, label=mark.name,
+                )
+            return
+        fit = linear_fit([p[0] for p in pairs], [p[1] for p in pairs])
+        if fit is None:
+            ax.scatter(
+                [p[0] for p in pairs], [p[1] for p in pairs],
+                color=color, s=18, alpha=alpha, label=f"{mark.name} (no line to fit)",
+            )
+            return
+        ax.scatter(
+            [p[0] for p in pairs], [p[1] for p in pairs],
+            color=color, s=18, alpha=alpha, label=mark.name,
+        )
+        ax.plot(
+            [fit.x_min, fit.x_max], [fit.at(fit.x_min), fit.at(fit.x_max)],
+            color=color, linewidth=1.8, linestyle="--",
+            label=f"{mark.name} fit (R2 = {fit.r_squared:.3f})",
         )
         return
 

@@ -122,6 +122,13 @@ async def _boot() -> None:
     # Native Automation Engine (ADR-H152): one durable scheduler/trigger router
     # beside the three TS refresh loops, which stay exactly as they are.
     await service.start_automation()
+    # Project auto-run: a project may act on its own, but only where its policy
+    # says so (off by default) and only inside that policy's budget. It runs
+    # COMPUTE tools only; it can never act on the world by itself. The loop and
+    # its policy live in `python/harness/projects/`.
+    from .projects.auto import start_auto_loop
+
+    start_auto_loop(service)
     # Event System: the durable event store + bus. Started AFTER the subsystems
     # that publish, so their legacy run-bus emissions are ingested from boot.
     from .event_system.bootstrap import start_events
@@ -221,6 +228,10 @@ async def _shutdown() -> None:
     from .channels.bootstrap import stop_channels
 
     await stop_channels(service)
+    # The project auto-run loop: stop it before the stores it writes to go away.
+    from .projects.auto import stop_auto_loop
+
+    await stop_auto_loop(service)
     from .plugins.bootstrap import stop_plugins
 
     await stop_plugins(service)

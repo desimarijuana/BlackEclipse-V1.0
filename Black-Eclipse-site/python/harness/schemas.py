@@ -32,8 +32,35 @@ HarnessErrorCode = Literal[
     "RESUME_CONFLICT",
     "CANCELLED",
     "PERSISTENCE_ERROR",
+    # Surface guardrails (v3 P3): the finished answer broke a rule the
+    # activated surface set. The run fails instead of shipping the answer.
+    "GUARDRAIL_TOOL_REQUIRED",
+    "GUARDRAIL_CITATION_MISSING",
+    "GUARDRAIL_ANSWER_TOO_LONG",
     "INTERNAL_ERROR",
 ]
+
+# The largest single turn the runtime accepts, in characters. It MIRRORS the
+# front door's `MAX_QUERY_LENGTH` (`src/lib/harness/validation.ts`): the front
+# door rejects anything larger, so the runtime must accept everything the front
+# door lets through — otherwise a request the app accepted fails here with a
+# bare pydantic 422.
+#
+# This is NOT the real limit on a prompt. The real limit is the resolved
+# model's context window, which the runtime measures against the assembled
+# request (`context_budget.py`) and reports as an honest CONTEXT_OVERFLOW.
+MAX_QUERY_CHARS = 100_000
+
+# The largest text one attached document may carry. It matches `MAX_QUERY_CHARS`
+# because a big paste becomes an attached document (the composer hands it over
+# as one): it must arrive as readable as the same text would have as a message.
+MAX_DOCUMENT_CHARS = 100_000
+
+# The largest single PRIOR turn carried as history. It matches
+# `MAX_QUERY_CHARS` so a message the composer accepted is not silently cut
+# down when it returns as history. The runtime still bounds the ASSEMBLED
+# history against the model's window (oldest turns dropped first).
+MAX_TURN_CONTENT_CHARS = 100_000
 
 
 class HarnessError(BaseModel):
@@ -46,7 +73,7 @@ class ConversationTurn(BaseModel):
     """One prior turn, so a chat follow-up has context."""
 
     role: Literal["user", "assistant"]
-    content: str = Field(max_length=20_000)
+    content: str = Field(max_length=MAX_TURN_CONTENT_CHARS)
 
 
 class RunDocument(BaseModel):
@@ -59,7 +86,7 @@ class RunDocument(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     name: str = Field(min_length=1, max_length=128)
-    text: str = Field(min_length=1, max_length=20_000)
+    text: str = Field(min_length=1, max_length=MAX_DOCUMENT_CHARS)
     # The front door SHORTENS an over-large document (per-doc then combined caps).
     # `truncated` marks it so the runtime can say so instead of answering from
     # only the first part; `original_chars` is the pre-truncation length when the
@@ -69,7 +96,7 @@ class RunDocument(BaseModel):
 
 
 class RunInput(BaseModel):
-    query: str = Field(min_length=1, max_length=4000)
+    query: str = Field(min_length=1, max_length=MAX_QUERY_CHARS)
     ticker: Optional[str] = None
     market: Optional[str] = None
     context: Optional[dict[str, Any]] = None
@@ -115,6 +142,12 @@ class ModelSettings(BaseModel):
     context_window: Optional[int] = Field(default=None, ge=1, le=10_000_000)
 
 
+#: The context policies a live surface may set. Both are CLOSED SETS: an
+#: unknown value is refused, never silently treated as the default.
+SKILL_MANIFEST_POLICIES: tuple[str, ...] = ("none", "top3", "top8")
+MEMORY_POLICIES: tuple[str, ...] = ("off", "profile_only", "profile_plus_search")
+
+
 class AgentConfig(BaseModel):
     id: str
     name: str
@@ -143,7 +176,63 @@ class AgentConfig(BaseModel):
     # plugin is enabled, which is an operator decision.
     allowPluginTools: bool = False  # noqa: N815
 
+    # Surface-controlled CONTEXT policy (v3 P3). None means the runtime
+    # default; a value narrows how much context the agent receives. Neither
+    # field grants a tool, a permission or an effect: they only bound what is
+    # injected into the prompt.
+    #   skillManifest: "none" | "top3" | "top8"  -> how many skills are listed
+    #   memoryPolicy:  "off" | "profile_only" | "profile_plus_search"
+    skillManifest: Optional[str] = None  # noqa: N815
+    memoryPolicy: Optional[str] = None  # noqa: N815
+
+    # Surface-controlled ANSWER RULES (v3 P3). A guardrail is checked by the
+    # RUNTIME at the end of the run: a violation fails the run with a named
+    # code. It can only reject an answer, never grant a tool or a permission.
+    guardrails: tuple[str, ...] = ()
+    maxAnswerChars: Optional[int] = Field(default=None, ge=1, le=200_000)  # noqa: N815
+
+    # The bounded prompt a DELEGATED child inherits (the parent's own prompt
+    # plus this). It is prompt evidence: it cannot add a tool, a permission or
+    # an effect, and the child's allowlist is still the parent's narrowed one.
+    subagentPrompt: Optional[str] = Field(default=None, max_length=4_000)  # noqa: N815
+
     model_config = {"populate_by_name": True}
+
+    @field_validator("guardrails")
+    @classmethod
+    def _known_guardrails(cls, value: Any) -> tuple[str, ...]:
+        from .self_improvement.guardrails import GUARDRAILS  # noqa: PLC0415
+
+        names = tuple(str(name) for name in (value or ()))
+        unknown = sorted(set(names) - set(GUARDRAILS))
+        if unknown:
+            raise ValueError(
+                f"unknown guardrail(s): {', '.join(unknown)} "
+                f"(known: {', '.join(GUARDRAILS)})"
+            )
+        return names
+
+    @field_validator("skillManifest")
+    @classmethod
+    def _known_skill_manifest_policy(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        if value not in SKILL_MANIFEST_POLICIES:
+            raise ValueError(
+                f"skillManifest must be one of {SKILL_MANIFEST_POLICIES}, got {value!r}"
+            )
+        return value
+
+    @field_validator("memoryPolicy")
+    @classmethod
+    def _known_memory_policy(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        if value not in MEMORY_POLICIES:
+            raise ValueError(
+                f"memoryPolicy must be one of {MEMORY_POLICIES}, got {value!r}"
+            )
+        return value
 
 
 class RunWorkspace(BaseModel):

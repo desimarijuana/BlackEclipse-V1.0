@@ -16,7 +16,11 @@ describe('schema-meta introspection (drives repair, cannot drift)', () => {
     const chartType = fields.find((f) => f.name === 'chartType');
     expect(chartType?.kind).toBe('enum');
     expect(chartType?.enumValues).toContain('bar');
-    expect(chartType?.required).toBe(true);
+    // The kind is OPTIONAL: a missing or unknown kind falls back to `auto` and
+    // the director picks the kind from the data's shape. One odd (or missing)
+    // kind must never cost the reader the whole chart - the same rule the mark
+    // types already follow.
+    expect(chartType?.required).toBe(false);
 
     const series = fields.find((f) => f.name === 'series');
     expect(series?.kind).toBe('array');

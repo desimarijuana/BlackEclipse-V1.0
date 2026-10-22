@@ -23,18 +23,26 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from .render import ChartRenderError, render_chart
+from .render import ChartRenderError, render_chart_with_interaction
 from .spec import ChartSpec
+from .theme import get_theme
 
 
 @dataclass(frozen=True)
 class RenderedChart:
-    """A drawn chart and its identity."""
+    """A drawn chart, its identity, and the map that makes it hoverable."""
 
     spec: ChartSpec
     png: bytes
     sha256: str
     name: str
+    #: Where each category sits on the picture and what each series' value is
+    #: there - so the browser can draw a crosshair and a tooltip over the
+    #: picture (a PNG cannot be hovered on its own).
+    interaction: Optional[dict[str, Any]] = None
+    #: The LIVE chart: a Plotly figure (vector, zoomable, pannable). The
+    #: browser renders this; the PNG is the fallback and the export.
+    chart: Optional[dict[str, Any]] = None
 
     @property
     def bytes(self) -> int:
@@ -61,6 +69,7 @@ class RenderedChart:
                 {"name": s.name, "points": len(s.data)} for s in self.spec.series
             ],
             "summary": self.spec.summary(),
+            **({"interaction": self.interaction} if self.interaction else {}),
         }
 
 
@@ -70,12 +79,25 @@ def spec_digest(spec: ChartSpec) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def build_chart_figure(spec: ChartSpec) -> Optional[dict[str, Any]]:
+    """The spec → a live Plotly figure. None when plotly is unavailable."""
+    try:
+        from .plotly_figure import build_figure  # noqa: PLC0415
+
+        return build_figure(spec, get_theme(spec.theme))
+    except Exception:  # noqa: BLE001 - the PNG is still a valid fallback
+        return None
+
+
 def render_spec(spec: ChartSpec) -> RenderedChart:
     """Draw the spec. Raises `ChartRenderError` when it cannot be drawn."""
-    png = render_chart(spec)
+    png, interaction = render_chart_with_interaction(spec)
     digest = hashlib.sha256(png).hexdigest()
     name = f"chart-{spec.kind}-{digest[:12]}.png"
-    return RenderedChart(spec=spec, png=png, sha256=digest, name=name)
+    return RenderedChart(
+        spec=spec, png=png, sha256=digest, name=name, interaction=interaction,
+        chart=build_chart_figure(spec),
+    )
 
 
 def register_chart_artifact(

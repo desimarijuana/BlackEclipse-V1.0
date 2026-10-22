@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateRunInput, assertRunInput } from "./validation";
+import { validateRunInput, assertRunInput, MAX_QUERY_LENGTH } from "./validation";
 import { HarnessError } from "./errors";
 
 describe("validateRunInput (front door)", () => {
@@ -20,10 +20,44 @@ describe("validateRunInput (front door)", () => {
     expect(validateRunInput("nope").ok).toBe(false);
   });
 
+  it("accepts a long query — a turn is whatever the person pasted", () => {
+    // The old 4 000-char cap rejected ordinary long prompts with a generic
+    // "Something went wrong". The cap now only bounds one request body.
+    const result = validateRunInput({ query: "x".repeat(50_000) });
+    expect(result.ok).toBe(true);
+    expect(result.value?.query.length).toBe(50_000);
+  });
+
   it("rejects an over-long query", () => {
-    const result = validateRunInput({ query: "x".repeat(4001) });
+    const result = validateRunInput({ query: "x".repeat(MAX_QUERY_LENGTH + 1) });
     expect(result.ok).toBe(false);
     expect(result.issues[0]).toContain("too long");
+  });
+
+  it("keeps a long prior turn intact as history", () => {
+    // A message the composer accepted must not be silently cut down when it
+    // comes back as history on the next turn.
+    const result = validateRunInput({
+      query: "follow up",
+      history: [{ role: "user", content: "y".repeat(50_000) }],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.value?.history?.[0].content.length).toBe(50_000);
+  });
+
+  it("drops the OLDEST turns (never slices one) when the history is over budget", () => {
+    const history = Array.from({ length: 12 }, (_, i) => ({
+      role: "user" as const,
+      content: String(i).padEnd(50_000, "x"),
+    }));
+    const result = validateRunInput({ query: "follow up", history });
+    expect(result.ok).toBe(true);
+    const kept = result.value?.history ?? [];
+    // The newest turn is kept; the oldest ones are dropped whole.
+    expect(kept.length).toBeLessThan(history.length);
+    expect(kept[kept.length - 1].content).toBe(history[history.length - 1].content);
+    // No turn was sliced: every kept turn is a full turn.
+    for (const turn of kept) expect(turn.content.length).toBe(50_000);
   });
 
   it("rejects a non-object context", () => {
@@ -72,7 +106,7 @@ describe("validateRunInput (front door)", () => {
   it("caps the combined document size", () => {
     const documents = Array.from({ length: 5 }, (_, i) => ({
       name: `d${i}.txt`,
-      text: "x".repeat(20_000),
+      text: "x".repeat(100_000),
     }));
     const result = validateRunInput({ query: "hi", documents });
     expect(result.ok).toBe(false);
@@ -93,13 +127,13 @@ describe("validateRunInput (front door)", () => {
   it("marks a document the validator itself shortened", () => {
     const result = validateRunInput({
       query: "hi",
-      documents: [{ name: "big.txt", text: "y".repeat(20_500) }],
+      documents: [{ name: "big.txt", text: "y".repeat(100_500) }],
     });
     expect(result.ok).toBe(true);
     const doc = result.value?.documents?.[0];
-    expect(doc?.text.length).toBe(20_000);
+    expect(doc?.text.length).toBe(100_000);
     expect(doc?.truncated).toBe(true);
-    expect(doc?.originalChars).toBe(20_500);
+    expect(doc?.originalChars).toBe(100_500);
   });
 
   it("assertRunInput throws a structured HarnessError", () => {

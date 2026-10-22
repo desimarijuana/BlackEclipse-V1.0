@@ -109,7 +109,15 @@ describe('chartBlockToSpec', () => {
     expect(plan?.spec.kind).toBe('line');
     expect(plan?.spec.categories).toEqual(['Jan', 'Feb']);
     expect(plan?.spec.series?.[0].data).toEqual([100, 104]);
-    expect(plan?.spec.title).toBe('NAV');
+    // The title is the CHAT's business (it shows it above the chart), so the
+    // picture does not repeat it - unless a caller asks for it.
+    expect(plan?.spec.title).toBeUndefined();
+    expect(
+      chartBlockToSpec(
+        block({ chartType: 'line', title: 'NAV', series: [{ name: 's', data: [1] }] }),
+        { includeTitle: true },
+      )?.spec.title,
+    ).toBe('NAV');
   });
 
   it('keeps a missing point missing — never a zero', () => {

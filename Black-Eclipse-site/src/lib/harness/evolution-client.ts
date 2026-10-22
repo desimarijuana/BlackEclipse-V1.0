@@ -145,6 +145,42 @@ export interface EvolutionRslStatus {
   maxCostUsd?: number;
 }
 
+export interface EvolutionRslDigest {
+  days: number;
+  since: string;
+  experiments: {
+    rsl_experiments: number | null;
+    rsl_accepted: number | null;
+    rsl_rejected: number | null;
+    rsl_unmeasured: number | null;
+    regression_rate: number | null;
+    cost_usd: number | null;
+    cost_per_accepted: number | null;
+  };
+  candidates: Record<string, number>;
+  recentCandidates: Array<{
+    id: string;
+    status: string;
+    subjectType?: string;
+    sourceCategory?: string;
+    createdAt?: string;
+  }>;
+  lessons: Array<{ id: string; cue: string; lesson: string; createdAt?: string }>;
+  drift: {
+    scope?: string;
+    status?: string;
+    drop?: number | null;
+    window?: number;
+    minSamples?: number;
+  };
+}
+
+export interface EvolutionRslReport {
+  success: boolean;
+  digest: EvolutionRslDigest;
+  markdown: string;
+}
+
 export interface EvolutionRslTickResult {
   success: boolean;
   mode: string;
@@ -757,6 +793,20 @@ export async function modelProposeEvolutionCandidate(
 
 export async function getEvolutionRslStatus(): Promise<EvolutionRslStatus> {
   return request<EvolutionRslStatus>("/evolution/rsl", { method: "GET" });
+}
+
+/** The operator digest: what the loop did, what it cost, where it drifts. */
+export async function getEvolutionRslReport(
+  input: { days?: number; scope?: string; limit?: number } = {},
+): Promise<EvolutionRslReport> {
+  const params = new URLSearchParams();
+  if (input.days != null) params.set("days", String(input.days));
+  if (input.scope) params.set("scope", input.scope);
+  if (input.limit != null) params.set("limit", String(input.limit));
+  const query = params.toString();
+  return request<EvolutionRslReport>(`/evolution/rsl/report${query ? `?${query}` : ""}`, {
+    method: "GET",
+  });
 }
 
 export async function getEvolutionDrift(

@@ -15,13 +15,16 @@
 //     Gantt, a funnel, a ridgeline, a dual-axis chart) without a new chart
 //     kind existing for it.
 //
-// What a drawn picture cannot do, stated plainly: there is no hover tooltip
-// and no crosshair. The values live in the block's own table/text, and the
-// picture is the picture.
+// The picture is a LIVE chart: the engine authors it as a vector figure, so
+// the reader can zoom, pan, hover a point and export it. What it is not is a
+// canvas the app owns: the values a tooltip would show live in the block's own
+// table/text.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom';
 import { downloadUrl } from '@/lib/harness/artifacts-browser';
-import { renderChart } from '@/lib/harness/charts';
+import { renderChart, type ChartFigureData } from '@/lib/harness/charts';
+import { PlotlyChart } from '@/components/charts/plotly-chart';
 import { chartBlockToSpec } from '@/lib/response/chart-spec';
 import { registerChartArtifact, unregisterChart } from '@/lib/response/chart-registry';
 import { Maximize2, Minimize2, X } from '@/lib/icons';
@@ -38,7 +41,7 @@ export interface ResponseChartProps {
 
 type State =
   | { status: 'loading' }
-  | { status: 'ready'; src: string }
+  | { status: 'ready'; src: string; chart?: ChartFigureData }
   | { status: 'error'; message: string };
 
 export function ResponseChart({ block, height = 260, className, focusable = true }: ResponseChartProps) {
@@ -46,7 +49,9 @@ export function ResponseChart({ block, height = 260, className, focusable = true
   const [focused, setFocused] = useState(false);
 
   const plan = useMemo(
-    () => chartBlockToSpec(block, { theme: 'eclipse-dark' }),
+    // Drawn close to how it is displayed, so the labels stay crisp. The title
+    // is NOT drawn in the picture - the chat shows it above the chart.
+    () => chartBlockToSpec(block, { theme: 'eclipse-dark', width: 1000, height: 560 }),
     [block],
   );
   const specKey = useMemo(() => (plan ? JSON.stringify(plan.spec) : ''), [plan]);
@@ -66,7 +71,11 @@ export function ResponseChart({ block, height = 260, className, focusable = true
         }
         // The export helpers fetch the picture by artifact id.
         if (chartId) registerChartArtifact(chartId, artifactId);
-        setState({ status: 'ready', src: downloadUrl(artifactId) });
+        setState({
+          status: 'ready',
+          src: downloadUrl(artifactId),
+          chart: rendered.chart,
+        });
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -113,8 +122,9 @@ export function ResponseChart({ block, height = 260, className, focusable = true
   const card = (
     <div
       className={cn(
-        'glass-card-subtle rounded-xl p-3',
-        focused && 'w-full max-w-[1400px] shadow-2xl',
+        // Plain: no glass panel behind a chart - the chart IS the surface.
+        'w-full',
+        focused && 'mx-auto flex max-h-full max-w-[1600px] flex-col',
       )}
     >
       {focusable && (
@@ -141,37 +151,63 @@ export function ResponseChart({ block, height = 260, className, focusable = true
         </div>
       )}
       {state.status === 'ready' ? (
-        <>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={state.src}
+        <div className={cn('relative mx-auto w-full', focused ? 'max-w-[1400px]' : 'max-w-[1100px]')}>
+          {/* The LIVE chart: vector, zoomable, pannable, with a hover readout.
+              The drawn picture is the fallback (and the export). */}
+          <PlotlyChart
+            figure={state.chart}
+            fallbackSrc={state.src}
+            height={
+              focused
+                ? typeof window !== 'undefined'
+                  ? Math.round(window.innerHeight * 0.82)
+                  : 640
+                : Math.max(420, height)
+            }
             alt={block.title ?? 'Chart'}
             className="w-full"
-            style={focused ? { maxHeight: '78vh' } : { maxHeight: height }}
-            data-testid="response-chart-image"
           />
           {plan.notes.length > 0 && (
             <p className="mt-1 text-[10px] text-muted-foreground/70">{plan.notes.join(' ')}</p>
           )}
-        </>
+        </div>
       ) : (
-        <div className="w-full animate-pulse" style={{ height }} aria-busy="true" />
+        <div
+          className="flex w-full items-center justify-center rounded-xl border border-border/10"
+          style={{ height }}
+          aria-busy="true"
+          data-testid="response-chart-loading"
+        >
+          <span className="flex items-center gap-2 text-xs text-muted-foreground/70">
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary" />
+            Drawing the chart…
+          </span>
+        </div>
       )}
     </div>
   );
 
   if (!focused) return card;
 
-  return (
+  // The full view is PORTALLED to <body>: inside the chat it would live in the
+  // chat's stacking context, so the app's own header (the top bar and the
+  // price ribbon) would paint OVER the chart and collide with its toolbar. On
+  // <body> the overlay sits above the shell, so the chart's toolbar is clear of
+  // the header - and the backdrop stays the same frosted blur it has always
+  // been, so the app reads through it.
+  if (typeof document === 'undefined') return card;
+  return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[300] flex flex-col bg-black/55 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label={block.title ? `Chart: ${block.title}` : 'Chart focus view'}
       onClick={() => setFocused(false)}
+      data-testid="response-chart-focus"
     >
       {card}
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -48,6 +48,7 @@ import {
   type EvolutionVerifiedEventDetail,
 } from "@/lib/harness/evolution-events";
 import { SurfaceActivationCard } from "./surface-activation-card";
+import { RslWeeklyCard } from "./rsl-weekly-card";
 
 function announceVerified(result: EvolutionRslTickResult) {
   if (typeof window === "undefined" || !result.candidateId) return;
@@ -450,6 +451,7 @@ export function RslControlPanel({
 
   return (
     <section className="glass-card-subtle p-4">
+      <RslWeeklyCard className="mb-3" />
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h4 className="text-xs font-semibold text-foreground">{t("evolution.rsl.title")}</h4>

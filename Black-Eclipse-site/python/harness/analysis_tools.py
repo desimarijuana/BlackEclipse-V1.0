@@ -33,7 +33,7 @@ from .code.execution import (
     run_analysis,
 )
 from .code.recipes import get_recipe, list_recipes, run_recipe
-from .code.sandbox_tools import ToolResolver, tool_names
+from .code.sandbox_tools import ToolResolver, tool_names, tool_signatures
 from .tools import ToolContext
 
 
@@ -80,7 +80,8 @@ def analysis_schema() -> dict[str, Any]:
                 "description": (
                     "Only when no recipe fits: a short Python program. It reads its data from "
                     "`inputs` and puts its answer in `result`. It may `import eclipse_tools` "
-                    f"and call the read-only bindings {', '.join(tool_names())}; arguments are "
+                    f"and call the read-only bindings {tool_signatures()} (the required "
+                    "argument has no '?'); arguments are "
                     "JSON values and fetched data stays out of the conversation. No network, "
                     "no writes, no files outside its own folder."
                 ),
@@ -332,7 +333,10 @@ def _computed_text(result: AnalysisResult, purpose: str) -> str:
         )
     if result.artifacts:
         names = ", ".join(a.name for a in result.artifacts)
-        lines.append(f"Saved: {names}")
+        # Say WHERE the file is: it is registered in the Artifact Center (the
+        # ids ride the result), NOT written into the project tree — otherwise
+        # the model hunts the filesystem for a file that was never there.
+        lines.append(f"Saved: {names} (registered in the Artifact Center; the ids ride this result)")
     return "\n".join(lines)
 
 
@@ -374,6 +378,44 @@ def _cancel_signal(ctx: ToolContext) -> Optional[Any]:
     except Exception:  # noqa: BLE001 - no loop: the call is synchronous anyway
         return None
     return signal
+
+
+def _slots() -> "asyncio.Semaphore":
+    """The admission gate for analyses (one per event loop).
+
+    The sandbox is CPU- and memory-heavy; without a bound, a burst of runs
+    would stampede the host and every other request with it. The limit is the
+    operator's (`HARNESS_ANALYSIS_CONCURRENCY`, default 2).
+    """
+    limit = 2
+    raw = (os.environ.get("HARNESS_ANALYSIS_CONCURRENCY", "") or "").strip()
+    if raw:
+        try:
+            parsed = int(raw)
+            if parsed > 0:
+                limit = parsed
+        except ValueError:
+            limit = 2
+    loop = asyncio.get_running_loop()
+    sem = getattr(loop, "_eclipse_analysis_slots", None)
+    if sem is None or getattr(sem, "_eclipse_limit", None) != limit:
+        sem = asyncio.Semaphore(limit)
+        setattr(sem, "_eclipse_limit", limit)
+        setattr(loop, "_eclipse_analysis_slots", sem)
+    return sem
+
+
+def _queue_wait_s() -> float:
+    """How long a run may wait for a slot before the queue is called full."""
+    raw = (os.environ.get("HARNESS_ANALYSIS_QUEUE_WAIT_S", "") or "").strip()
+    if raw:
+        try:
+            value = float(raw)
+            if value > 0:
+                return value
+        except ValueError:
+            pass
+    return 30.0
 
 
 async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -449,8 +491,23 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
 
     try:
         # The sandbox is synchronous; run it OFF the event loop so a read-only
-        # bridge call can be posted back to this loop while it waits.
-        result = await asyncio.to_thread(_run_sync)
+        # bridge call can be posted back to this loop while it waits. The
+        # admission gate bounds how many analyses run at once: a burst waits
+        # for a slot, and a full queue is told so honestly instead of quietly
+        # piling up against the host.
+        slot = _slots()
+        try:
+            await asyncio.wait_for(slot.acquire(), timeout=_queue_wait_s())
+        except asyncio.TimeoutError:
+            await emit_code_event(ctx, "analysis.refused", {"code": "ANALYSIS_QUEUE_FULL"})
+            return _refusal(
+                "ANALYSIS_QUEUE_FULL",
+                "the analysis queue is full — try again in a moment",
+            )
+        try:
+            result = await asyncio.to_thread(_run_sync)
+        finally:
+            slot.release()
     except AnalysisError as exc:
         await emit_code_event(ctx, "analysis.refused", {"code": exc.code})
         return _refusal(exc.code, exc.reason)
@@ -502,6 +559,13 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         reason = {IMPORT_NOT_ALLOWED: "that used something I'm not allowed to use",
                   SANDBOX_UNAVAILABLE: "I can't work things out safely on this computer right now",
                   OUTPUT_TOO_LARGE: "the result was too big to keep"}.get(result.code or "", "I couldn't work that out")
+        # The refusal must CARRY the runtime's own explanation: the recipe
+        # catalogue (an unknown name), the input spec (a missing input), the
+        # refused element (a source rule). Without it the model is told only
+        # "I couldn't work that out" and has to guess the next name.
+        detail = (result.stderr or "").strip()
+        if detail:
+            reason = f"{reason}. {detail[:600]}"
         return _refusal(result.code or "ANALYSIS_REFUSED", reason)
 
     text = _computed_text(result, model.purpose)

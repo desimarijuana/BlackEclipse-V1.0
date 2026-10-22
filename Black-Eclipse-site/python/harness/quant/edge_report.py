@@ -315,6 +315,16 @@ def _markdown(
 
     assumptions = verdict.get("assumptions") or {}
     not_graded = assumptions.get("notGradedOn") or []
+    artifact_warnings = artifact.get("warnings") or []
+    if artifact_warnings:
+        lines.append("## Warnings from the run")
+        lines.append("")
+        for warning in artifact_warnings:
+            code = warning.get("code") if isinstance(warning, dict) else "WARNING"
+            message = (warning.get("message") if isinstance(warning, dict)
+                       else str(warning))
+            lines.append(f"- **{code}**: {message}")
+        lines.append("")
     lines.append("## What this report does not say")
     lines.append("")
     if not_graded:

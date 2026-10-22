@@ -11,10 +11,10 @@ absent (the engine then warns and disables the indicators that needed them).
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from ..market.errors import MarketError
-from .data import BarSeries, MarketDataset, series_from_historical
+from .data import BarSeries, MarketDataset, series_from_historical, series_from_rows
 from .errors import InvalidSymbol, MissingData, UnsupportedTimeframe
 from .strategy import StrategySpec
 
@@ -28,6 +28,19 @@ async def fetch_series(
     end: Optional[str] = None,
     adjusted: bool = True,
 ) -> BarSeries:
+    # The DURABLE cache comes first: history the runtime has already paid for
+    # is kept on this machine, so a repeat run is served from it and the whole
+    # stack (the backtest, the regimes, the Monte-Carlo, Pine, the trade-log
+    # analysis) reads the SAME local bars.
+    cache = getattr(gateway, "history_cache", None)
+    if cache is not None and getattr(cache, "available", False):
+        cached = cache.lookup(symbol, interval, adjusted=adjusted,
+                              start=start, end=end)
+        if cached:
+            series = series_from_rows(symbol, interval, cached, source="cache")
+            if series.length:
+                return series
+
     result = await gateway.get_historical_prices(
         symbol, None, start=start, end=end, interval=interval, adjusted=adjusted
     )
@@ -45,7 +58,23 @@ async def fetch_series(
     if series.length == 0:
         raise MissingData(f"{symbol} returned no bars at {interval}",
                           detail={"symbol": symbol, "interval": interval})
+    # Keep what we just fetched, so the next request for this window is a hit.
+    if cache is not None and getattr(cache, "available", False):
+        bars = getattr(result, "bars", None) or []
+        if bars:
+            provider = str(getattr(result, "provider", "") or "unknown")
+            cache.store(symbol, interval, provider, adjusted,
+                        [_bar_row(bar) for bar in bars])
     return series
+
+
+def _bar_row(bar: Any) -> dict[str, Any]:
+    """A bar as the durable store wants it, whether it is a model or a dict."""
+    if isinstance(bar, dict):
+        return {k: bar.get(k) for k in
+                ("timestamp", "open", "high", "low", "close", "volume", "vwap")}
+    return {k: getattr(bar, k, None) for k in
+            ("timestamp", "open", "high", "low", "close", "volume", "vwap")}
 
 
 async def resolve_dataset(

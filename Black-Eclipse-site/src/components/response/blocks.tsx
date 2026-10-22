@@ -49,7 +49,6 @@ export function HeadingBlock({ text, level, compact }: { text: string; level: nu
 const CALLOUT_TONE = {
   info: {
     icon: Info,
-    bar: 'from-sky-300 to-sky-500/60',
     chip: 'bg-sky-400/15 text-sky-300 ring-sky-400/30',
     title: 'text-sky-100',
     glow: 'bg-sky-500/30',
@@ -57,7 +56,6 @@ const CALLOUT_TONE = {
   },
   note: {
     icon: Lightbulb,
-    bar: 'from-violet-300 to-violet-500/60',
     chip: 'bg-violet-400/15 text-violet-300 ring-violet-400/30',
     title: 'text-violet-100',
     glow: 'bg-violet-500/30',
@@ -65,7 +63,6 @@ const CALLOUT_TONE = {
   },
   success: {
     icon: CheckCircle2,
-    bar: 'from-emerald-300 to-emerald-500/60',
     chip: 'bg-emerald-400/15 text-emerald-300 ring-emerald-400/30',
     title: 'text-emerald-100',
     glow: 'bg-emerald-500/30',
@@ -73,7 +70,6 @@ const CALLOUT_TONE = {
   },
   warning: {
     icon: AlertTriangle,
-    bar: 'from-amber-300 to-amber-500/60',
     chip: 'bg-amber-400/15 text-amber-300 ring-amber-400/30',
     title: 'text-amber-100',
     glow: 'bg-amber-500/30',
@@ -81,7 +77,6 @@ const CALLOUT_TONE = {
   },
   danger: {
     icon: AlertTriangle,
-    bar: 'from-rose-300 to-rose-500/60',
     chip: 'bg-rose-400/15 text-rose-300 ring-rose-400/30',
     title: 'text-rose-100',
     glow: 'bg-rose-500/30',
@@ -96,8 +91,8 @@ type NoticeIcon = ComponentType<{ size?: number | string; className?: string }>;
 /**
  * The shared visual language for every inline notice/warning surface in the
  * response renderer (callouts, unsupported-block cards, render failures, …):
- * a frosted subtle surface with a tone accent bar, a tone-tinted icon chip and
- * tone-coloured title. Keeps warnings from looking like detached flat boxes.
+ * a frosted subtle surface with a tone-tinted icon chip and tone-coloured
+ * title. Keeps warnings from looking like detached flat boxes.
  */
 export function NoticeCard({
   tone,
@@ -114,7 +109,7 @@ export function NoticeCard({
   className?: string;
   children?: ReactNode;
 }) {
-  const { icon: DefaultIcon, bar, chip, title: titleCls, glow, wash } = CALLOUT_TONE[tone];
+  const { icon: DefaultIcon, chip, title: titleCls, glow, wash } = CALLOUT_TONE[tone];
   const Icon = icon ?? DefaultIcon;
   return (
     <div
@@ -126,7 +121,6 @@ export function NoticeCard({
     >
       <span className={cn('pointer-events-none absolute inset-0 bg-gradient-to-r to-transparent', wash)} aria-hidden />
       <span className={cn('pointer-events-none absolute -left-12 -top-14 h-28 w-28 rounded-full opacity-50 blur-2xl', glow)} aria-hidden />
-      <span className={cn('absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-gradient-to-b', bar)} aria-hidden />
       <div className="relative flex items-start gap-2.5">
         <span
           className={cn(
