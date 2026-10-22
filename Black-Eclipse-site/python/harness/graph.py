@@ -2249,19 +2249,14 @@ def _guardrail_failure(
     if not guardrails and max_chars is None:
         return None
     try:
-        from .self_improvement.guardrails import (  # noqa: PLC0415
-            evaluate_guardrails,
-            guardrail_error,
-        )
+        from .self_improvement.guardrails import evaluate_guardrails, guardrail_error  # noqa: PLC0415
 
         try:
             executions = store.list_tool_executions(run_id)
         except Exception:  # noqa: BLE001 - an unreadable ledger is "unknown"
             executions = []
         tool_calls = len(executions)
-        tool_texts = [
-            str(row.get("text") or "") for row in executions[:200]
-        ]
+        tool_texts = [str(row.get("text") or "") for row in executions[:200]]
         violations = evaluate_guardrails(
             guardrails,
             output=output or "",

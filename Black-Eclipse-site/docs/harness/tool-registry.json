@@ -1,5 +1,5 @@
 {
-  "digest": "92b37cb846e517e2",
+  "digest": "cc523b84547c456c",
   "manifestVersion": "1",
   "toolCount": 956,
   "tools": [
@@ -23440,7 +23440,7 @@
     },
     {
       "deprecated": false,
-      "description": "Open an Eclipse surface in the running app. Use tab 'dashboard' for the Command Center, 'pages' with `page` for a saved page, or any other AppTab id. Optional `dashboardId` selects a Command Center board.",
+      "description": "Open an Eclipse surface in the running app. Use tab 'home' for the Dashboard, 'dashboard' for the Command Center, 'pages' with `page` for a saved page, or any other AppTab id. Optional `dashboardId` selects a Command Center board.",
       "effect": null,
       "inputSchema": {
         "properties": {

@@ -26,6 +26,24 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/lib/chat/math.test.ts`, `src/components/chat/math-render.test.tsx`.
   docs updated: `docs/chat-ui-audit.md`.
 
+- **fix(harness): repair the broken merge state, regenerate the two published
+  artifacts, and hold `graph.py` under its ratchet.** The tree about to land was
+  internally inconsistent: `boot.py` imported
+  `harness.self_improvement.session_watch`, but that module only existed on
+  main's newer commit, so four a2a tests and two recovery tests failed with
+  `ModuleNotFoundError`. Merging main fixed all six. Three conflicts resolved:
+  the RSL lab ADRs claimed H290/H291/H292, which were already the sandbox ADRs,
+  so they became **H306/H307/H308** with a provenance note on each (the decision
+  text is untouched; the gate now reports 303 entries, H1..H308, contiguous); the
+  `package.json` kept both sides; and their `Promise<Response>` on the chart-route
+  mock does not compile, because the mock returns a plain object - `unknown` is
+  the form that passes both `tsc` and `eslint`. The merge also made both generated
+  artifacts stale, so `docs/harness/tool-registry.json` (956 tools, digest
+  `cc523b84547c456c`) and `docs/harness/benchmarks.md` were regenerated, and
+  `graph.py` (2,314 lines, past its pinned 2,309) was compacted to 2,308 rather
+  than raising the ceiling.
+  docs updated: docs/harness/decisions.md.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how
