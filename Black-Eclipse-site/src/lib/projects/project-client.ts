@@ -124,6 +124,12 @@ export const projectClient = {
 
   proposals: (id: string) =>
     jsonFetch<ProjectProposals>(`/${encodeURIComponent(id)}/proposals`),
+
+  runProposal: (id: string, proposalId: string) =>
+    jsonFetch<{ run: { status: string; summary: string; experimentId?: string | null } }>(
+      `/${encodeURIComponent(id)}/proposals/${encodeURIComponent(proposalId)}/run`,
+      { method: "POST" },
+    ),
 };
 
 /**

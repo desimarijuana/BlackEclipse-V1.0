@@ -79,6 +79,17 @@ def _experiment_artifact(quant_store: Any, experiment_id: str) -> Optional[dict[
         return None
 
 
+def _strategy_of(entry: dict[str, Any]) -> str:
+    """The strategy an experiment belongs to, from its own metadata."""
+    metadata = (entry.get("artifact") or {}).get("metadata") or {}
+    return str(metadata.get("strategyId") or "")
+
+
+def _symbols_of(entry: dict[str, Any]) -> list[str]:
+    metadata = (entry.get("artifact") or {}).get("metadata") or {}
+    return list(metadata.get("symbols") or [])
+
+
 def _all_regimes() -> set[str]:
     """Every regime label the classifier can produce."""
     from ..quant.regime import TREND_LABELS, VOL_LABELS
@@ -100,13 +111,16 @@ def _propose_missing_result(
             "args": {
                 "strategyId": strategy["id"],
                 **({"symbols": symbols} if symbols else {}),
+                "save": True,
             },
         },
         priority=90,
     )
 
 
-def _propose_thin_sample(experiment_id: str, metrics: dict[str, Any]) -> Optional[Proposal]:
+def _propose_thin_sample(experiment_id: str, metrics: dict[str, Any],
+                         strategy_id: str = "", symbols: Optional[list[str]] = None
+                         ) -> Optional[Proposal]:
     trades = metrics.get("trade_count")
     try:
         count = int(trades or 0)
@@ -124,7 +138,11 @@ def _propose_thin_sample(experiment_id: str, metrics: dict[str, Any]) -> Optiona
         evidence=[f"experiment:{experiment_id}", f"trade_count={count}"],
         action={
             "tool": "run_backtest",
-            "args": {"experimentId": experiment_id, "widerWindow": True},
+            "args": {
+                "strategyId": strategy_id or experiment_id,
+                **({"symbols": symbols} if symbols else {}),
+                "save": True,
+            },
         },
         priority=80,
     )
@@ -132,6 +150,7 @@ def _propose_thin_sample(experiment_id: str, metrics: dict[str, Any]) -> Optiona
 
 def _propose_regime_blind_spot(
     experiment_id: str, attribution: dict[str, Any],
+    strategy_id: str = "", symbols: Optional[list[str]] = None,
 ) -> Optional[Proposal]:
     regimes = (attribution or {}).get("regimes") or {}
     if not regimes:
@@ -153,13 +172,18 @@ def _propose_regime_blind_spot(
         evidence=[f"experiment:{experiment_id}"] + [f"regime:{r}" for r in sorted(covered)],
         action={
             "tool": "run_backtest",
-            "args": {"experimentId": experiment_id, "widerWindow": True},
+            "args": {
+                "strategyId": strategy_id or experiment_id,
+                **({"symbols": symbols} if symbols else {}),
+                "save": True,
+            },
         },
         priority=70,
     )
 
 
-def _propose_unsafe_tail(experiment_id: str, monte_carlo: dict[str, Any]) -> Optional[Proposal]:
+def _propose_unsafe_tail(experiment_id: str, monte_carlo: dict[str, Any],
+                          strategy_id: str = "") -> Optional[Proposal]:
     probability = monte_carlo.get("probabilityOfLoss")
     percentiles = monte_carlo.get("returnPercentiles") or {}
     p5 = percentiles.get("p5")
@@ -177,9 +201,12 @@ def _propose_unsafe_tail(experiment_id: str, monte_carlo: dict[str, Any]) -> Opt
         evidence=[f"experiment:{experiment_id}", f"probabilityOfLoss={probability}",
                    f"p5={p5}"],
         action={
-            "tool": "run_sensitivity_analysis",
-            "args": {"experimentId": experiment_id,
-                     "costMultipliers": [1.0, 2.0, 5.0]},
+            "tool": "run_robustness_analysis",
+            "args": {
+                "strategyId": strategy_id or experiment_id,
+                "costMultipliers": [1.0, 2.0, 5.0],
+                "save": True,
+            },
         },
         priority=75,
     )
@@ -288,20 +315,23 @@ def propose_next(
     # 2. a result with too few trades
     for result in results:
         metrics = result["artifact"].get("metrics") or {}
-        proposal = attempt(_propose_thin_sample, result["id"], metrics)
+        proposal = attempt(_propose_thin_sample, result["id"], metrics,
+                           _strategy_of(result), _symbols_of(result))
         if proposal:
             proposals.append(proposal)
 
     # 3. a strategy that only ever traded in a few regimes
     for entry in monte_carlos:
         attribution = entry["artifact"].get("regimeAttribution") or {}
-        proposal = attempt(_propose_regime_blind_spot, entry["id"], attribution)
+        proposal = attempt(_propose_regime_blind_spot, entry["id"], attribution,
+                           _strategy_of(entry), _symbols_of(entry))
         if proposal:
             proposals.append(proposal)
 
     # 4. a result whose tail is unsafe
     for entry in monte_carlos:
-        proposal = attempt(_propose_unsafe_tail, entry["id"], entry["artifact"])
+        proposal = attempt(_propose_unsafe_tail, entry["id"], entry["artifact"],
+                           _strategy_of(entry))
         if proposal:
             proposals.append(proposal)
 

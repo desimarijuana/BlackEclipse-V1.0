@@ -18,13 +18,15 @@ import {
   type ProjectSummary,
 } from '@/lib/projects/project-client';
 import { cn } from '@/lib/utils';
-import { FolderPlus, Loader2, Plus } from '@/lib/icons';
+import { FolderPlus, Loader2, Play, Plus } from '@/lib/icons';
 
 export function ProjectScopeWidget() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [digest, setDigest] = useState<ProjectDigest | null>(null);
   const [proposals, setProposals] = useState<ProjectProposals | null>(null);
+  const [running, setRunning] = useState(false);
+  const [runNote, setRunNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +83,29 @@ export function ProjectScopeWidget() {
     setActiveProjectId(id);
     setActiveId(id);
   }, []);
+
+  // Run the project's own next proposal, then re-read it: the project now
+  // knows what just happened, so its next proposal is made against that.
+  const runTopProposal = useCallback(async () => {
+    const top = proposals?.proposals?.[0];
+    if (!activeId || !top || running) return;
+    setRunning(true);
+    setRunNote(null);
+    try {
+      const { run } = await projectClient.runProposal(activeId, top.id);
+      setRunNote(run.summary || `the proposal ${run.status}`);
+      const [digest, next] = await Promise.all([
+        projectClient.digest(activeId).catch(() => null),
+        projectClient.proposals(activeId).catch(() => null),
+      ]);
+      if (digest) setDigest(digest);
+      if (next) setProposals(next);
+    } catch (err) {
+      setRunNote(err instanceof Error ? err.message : 'the proposal could not be run');
+    } finally {
+      setRunning(false);
+    }
+  }, [activeId, proposals, running]);
 
   const create = useCallback(async () => {
     const clean = name.trim();
@@ -198,6 +223,20 @@ export function ProjectScopeWidget() {
               <p className="mt-0.5 text-[9px] leading-relaxed text-muted-foreground/80">
                 {proposals.proposals[0].rationale}
               </p>
+              <button
+                type="button"
+                onClick={() => void runTopProposal()}
+                disabled={running}
+                className="glass-button mt-1 flex w-full items-center justify-center gap-1 rounded px-2 py-1 text-[9px] disabled:opacity-40"
+              >
+                {running ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                {running ? 'Running…' : 'Run it'}
+              </button>
+              {runNote && (
+                <p className="mt-1 text-[9px] leading-relaxed text-muted-foreground">
+                  {runNote}
+                </p>
+              )}
             </div>
           )}
         </div>

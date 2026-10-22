@@ -176,6 +176,35 @@ async def project_next(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         return _err("PROJECT_NEXT_FAILED", str(exc))
 
 
+async def project_run_proposal(args: dict[str, Any],
+                              ctx: ToolContext) -> tuple[str, Any]:
+    """Run one of this project's proposals and record the outcome in the project."""
+    project_id = str(args.get("projectId") or "")
+    proposal_id = str(args.get("proposalId") or "")
+    if not project_id or not proposal_id:
+        return _err("PROJECT_RUN_INPUT_REQUIRED",
+                    "provide `projectId` and `proposalId`")
+    try:
+        store = _store(ctx)
+        from .execute import run_project_proposal
+
+        quant_store = getattr(ctx, "quant_store", None)
+        run = await run_project_proposal(
+            ctx, project_id, proposal_id, quant_store=quant_store,
+            firm=str(args.get("firm") or "topstep"),
+            firm_size=str(args.get("size") or "50k"),
+        )
+        if run.status == "not_runnable":
+            return (f"NOT RUNNABLE - {run.summary}",
+                    {"status": "OK", "run": run.to_dict()})
+        return (f"Proposal {proposal_id} ran ({run.status}): {run.summary}"
+                + (f" — recorded as {run.attached['kind']} {run.attached['ref']}"
+                   if run.attached else ""),
+                {"status": "OK", "run": run.to_dict()})
+    except Exception as exc:  # noqa: BLE001
+        return _err("PROJECT_RUN_FAILED", str(exc))
+
+
 PROJECT_TOOLS: tuple[str, ...] = (
     "project_create",
     "project_list",
@@ -184,6 +213,7 @@ PROJECT_TOOLS: tuple[str, ...] = (
     "project_detach",
     "project_digest",
     "project_next",
+    "project_run_proposal",
 )
 
 
@@ -254,6 +284,22 @@ def register_project_tools(registry: Any) -> list[str]:
             "size": {"type": "string", "description": "that firm's account size"}},
             "required": ["projectId"]},
         handler=project_next, permission="read", risk="low", timeout_ms=60_000))
+    registry.register(ToolDefinition(
+        name="project_run_proposal",
+        description="RUN one of this project's proposals and record the outcome back "
+                    "into the project, so the next proposal is made against a project "
+                    "that knows what just happened. The run goes through the same tool "
+                    "the agent would have called, so the policy gate, the allowlist and "
+                    "the persistence are identical. A failed run is recorded as a "
+                    "failure - a project that hides its failures cannot learn.",
+        input_schema={"type": "object", "properties": {
+            "projectId": {"type": "string"},
+            "proposalId": {"type": "string"},
+            "firm": {"type": "string"},
+            "size": {"type": "string"}},
+            "required": ["projectId", "proposalId"]},
+        handler=project_run_proposal, permission="read", risk="low", timeout_ms=180_000,
+        long_running=True))
     registry.register(ToolDefinition(
         name="project_digest",
         description="The CURATED view of a project: what it is about, which members "

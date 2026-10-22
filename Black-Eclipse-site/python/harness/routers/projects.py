@@ -103,6 +103,27 @@ async def project_proposals_route(project_id: str, firm: str = "topstep",
     return report
 
 
+@router.post("/projects/{project_id}/proposals/{proposal_id}/run")
+async def run_project_proposal_route(project_id: str, proposal_id: str,
+                                     firm: str = "topstep", size: str = "50k",
+                                     _: bool = Depends(require_operator)) -> dict:
+    """Run one of a project's proposals and record the outcome in the project."""
+    from ..projects.execute import run_project_proposal
+
+    class _Ctx:
+        """The slice of a run context the executor needs."""
+
+        def __init__(self) -> None:
+            self.project_store = getattr(service, "project_store", None)
+            self.quant_store = getattr(service, "quant_store", None)
+            self.tool_registry = getattr(service, "registry", None)
+
+    run = await run_project_proposal(_Ctx(), project_id, proposal_id,
+                                    quant_store=getattr(service, "quant_store", None),
+                                    firm=firm, firm_size=size)
+    return {"status": "OK", "run": run.to_dict()}
+
+
 @router.post("/projects/{project_id}/members")
 async def attach_member(project_id: str, body: AttachMemberBody,
                         _: bool = Depends(require_operator)) -> dict:

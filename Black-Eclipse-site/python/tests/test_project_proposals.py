@@ -137,7 +137,7 @@ def test_an_unsafe_tail_is_proposed_for_a_cost_test(tmp_path):
     report = propose_next(store, project.id, quant_store=quant)
     proposal = next(p for p in report["proposals"] if p["id"].startswith("tail:"))
     assert "tail" in proposal["title"]
-    assert proposal["action"]["tool"] == "run_sensitivity_analysis"
+    assert proposal["action"]["tool"] == "run_robustness_analysis"
 
 
 def test_a_strategy_is_tested_against_a_firms_rules(tmp_path):

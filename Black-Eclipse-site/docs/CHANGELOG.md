@@ -7,6 +7,34 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-21
+- **feat(harness): a project runs its own proposal and records the outcome.**
+  The proposer named the next experiment; now it is RUN - through the same tool
+  the agent would have called, so the policy gate, the allowlist, the sandbox
+  and the persistence are the agent's own path, not a second one - and the
+  outcome is recorded back into the project, so the next proposal is made
+  against a project that knows what just happened. Three rules: a proposal is
+  only run when it names a tool and the arguments it needs (a proposal that
+  cannot be run is reported, not attempted); a FAILURE is recorded as a
+  failure - a refused or failed run is attached as a note that says what went
+  wrong, because a project that hides its failures cannot learn; and nothing is
+  attached that did not happen - the executor attaches the experiment the run
+  really produced, by the id the run really returned. The proposal actions are
+  now real, executable tool calls (a strategy that was never run names
+  `run_backtest` with its id and instruments; an unsafe tail names
+  `run_robustness_analysis` with the cost multipliers). Surfaces: the tool
+  `project_run_proposal`, the route
+  POST /projects/{id}/proposals/{proposal_id}/run, and the Project Scope
+  widget, which now shows the project's next step with a button that runs it -
+  after which the widget re-reads the digest and the proposals, because the
+  next step has changed. Files: python/harness/projects/execute.py (new),
+  python/harness/projects/propose.py, python/harness/projects/tools.py,
+  python/harness/routers/projects.py,
+  src/app/api/harness/projects/[...path]/route.ts (new - the digest, the
+  proposals and the run needed a front door that did not exist),
+  src/lib/projects/project-client.ts, src/lib/dashboard/project-widget.tsx.
+  Tests: python/tests/test_project_execute.py (7),
+  python/tests/test_project_proposals.py. docs updated: docs/projects.md.
+
 - **feat(quant): the trade-log analysis - where the money actually came from.**
   A trade log on its own says what you made; it does not say WHEN you made it,
   which is the question that decides whether a strategy is worth trading. Every
@@ -2083,6 +2111,44 @@ umpy/pandas are **already installed** in the runtime and the analysis
   `python/tests/test_evaluation_nightly.py` (the committed baseline is the
   gate; a broken baseline file is refused). Docs updated:
   `docs/harness/agent-evaluation.md`, `docs/self-improvement/rsl-v3-plan.md`.
+- **feat(eval): the corpus grows to 76 tasks - a second adversarial + finance
+  tranche.** `adversarial_v1` (8) and `finance_v1` (9) join the corpus, and
+  the committed baseline is refreshed against it. The new adversarial fixtures
+  are about HONESTY under pressure: two sources that disagree (report both, do
+  not pick one), a quote in the wrong currency (name the currency you
+  actually have), a price with no currency at all (the unit is missing), and a
+  document carrying an injected instruction (a document is data; publishing is
+  not allowed). The new finance fixtures are independently recomputed:
+  percentage change, three-year CAGR, free cash flow after capital spending,
+  and a position size from reward and risk. The corpus is now 76 tasks (64
+  validation / 10 optimization / 2 held_out) and the release gate still passes
+  against the committed baseline. Files:
+  `python/harness/evaluation/datasets/{adversarial_v1,finance_v1}.json`,
+  `python/harness/evaluation/baselines/corpus_v1.json`. Docs updated:
+  `docs/harness/agent-evaluation.md`, `docs/self-improvement/rsl-v3-plan.md`.
+- **feat(rsl): the lab tries to improve the harness itself, and it may only
+  report a CANDIDATE (v3 P5 slice).** Everything the loop can change is code
+  (a worktree, a promotion) or a surface (prompt, tool guidance, context
+  policy, guardrails). The surface is the cheap one - no worktree, no landing -
+  and it is where most of the headroom is. `npm run rsl:lab` (the surface lab)
+  does that honestly: the variants are DETERMINISTIC and derived from the
+  lessons the loop already ADOPTED (one lesson, the top three, their cues as a
+  checklist - with no adopted lesson there is no variant, because the lab never
+  invents an instruction nobody verified); each variant is measured on the SAME
+  tasks through the existing measured surface path against the base's own run;
+  an UNMEASURED variant is never a winner, a critical regression (safety,
+  adversarial) is VETOED even when the average is better, and "flat" is a
+  result, not a win; the winner is a CANDIDATE for the operator - the lab never
+  lands, never activates and never writes to the harness. On the scripted tier
+  the lab correctly finds NO improvement, because a scripted answer does not
+  depend on the prompt. Files: `python/harness/self_improvement/surface_lab.py`
+  (new), `scripts/rsl-lab.js`, `package.json`. Tests:
+  `python/tests/test_surface_lab.py` (7). Docs updated:
+  `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/decisions.md`
+  (ADR-H290), `docs/QUICKSTART.md`.
+
+## 2026-10-19
+
 - **fix(shell): the sidebar mode is now per browser tab/window.** Switching to
   Bots in one tab no longer drags another open tab out of its mode. The mode
   lives in `sessionStorage` per shell; remote `/api/sdk/app` updates still sync

@@ -167,6 +167,33 @@ Surfaces: the tool `project_next`; the route `GET /projects/{id}/proposals`;
 and the **Project Scope widget**, which shows the active project's next step
 under its curated view.
 
+## Closing the loop
+
+The proposer names the next experiment. `python/harness/projects/execute.py`
+**runs it** - through the same tool the agent would have called, so the policy
+gate, the allowlist, the sandbox and the persistence are the agent's own path,
+not a second one - and then records the outcome **back into the project**, so
+the next proposal is made against a project that knows what just happened.
+
+Three rules:
+
+- **A proposal is only run when it names a tool and the arguments it needs.**
+  A proposal that cannot be run is reported, not attempted.
+- **A failure is recorded as a failure.** A refused or failed run is attached
+  to the project as a note that says what went wrong - a project that hides
+  its failures is a project that cannot learn.
+- **Nothing is attached that did not happen.** The executor attaches the
+  experiment the run really produced, by the id the run really returned.
+
+A completed run attaches the **experiment** it produced; a failed one attaches
+a **note** that says what went wrong. Nothing else is ever attached.
+
+Surfaces: the tool `project_run_proposal`; the route
+`POST /projects/{id}/proposals/{proposal_id}/run`; and the **Project Scope
+widget**, which shows the active project's next step and a button to run it -
+after which the widget re-reads the digest and the proposals, because the
+project's next step has changed.
+
 ## How a project fills itself up
 
 `python/harness/projects/attach.py` is the policy, and it is deliberately
@@ -190,10 +217,11 @@ bookkeeping step.
 ## The remaining slice
 
 The entity, the tools, the binding, the app surface, the auto-populate policy,
-the curated view and the proposer are in place. What is **not** built is a
-project that *acts* on its own proposals: the proposer names the next
-experiment, but nothing yet runs it, records the result back into the project
-and re-proposes. That closing of the loop is a policy question (when should a
-project act without being asked?), not a plumbing one.
+the curated view, the proposer and the loop that runs a proposal are in place.
+What is **not** built is a project that acts **without being asked**: the loop
+runs when the agent (or the user) asks it to, because a project that spends
+money or wall-clock on its own initiative is a policy decision, not a
+technical one. Everything the decision would need - the proposals, the
+evidence, the actions - is already there.
 
 Tests: `python/tests/test_projects.py`, `src/lib/projects/project-client.test.ts`.
