@@ -7,6 +7,30 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-21
+- **feat(quant): the backfill says out loud that no subscription is needed.**
+  The durable cache only holds what has been fetched, and the backfill is how
+  you fill it - but the honest question is whether bundling a universe costs
+  money. It does not: the keyless providers (Yahoo Finance, Stooq, Binance,
+  the ECB reference rates, Treasury/FRED) are enough, and the backfill now says
+  so. It names the provider that served each symbol, whether that provider
+  needs a key, and which providers are usable right now with NO credential; a
+  keyed provider that is not configured is reported as needing a key, never as
+  free. The difference between hosting and owning the data: the hosted
+  platform rents you a decade of ticks, this one KEEPS what it fetched, on
+  your machine, and serves it from there forever. Files:
+  python/harness/market/tools.py, python/tests/test_gallery_venues.py. docs
+  updated: docs/quant-engine.md.
+
+- **test(harness): a production smoke test - the real app, the real routes.**
+  The other tests check units. This one starts the actual FastAPI application
+  (the same `harness.main:app` the runtime serves) and asks it the questions
+  a user's first minute would ask: is it alive, what does it hold, what can it
+  run, and does it refuse HONESTLY when something is missing - a request for a
+  report that does not exist must be a named refusal, not a fake success, and a
+  Pine run must say whether the engine is installed. It is deliberately
+  read-only: a smoke test that mutates production state is not a smoke test.
+  Files: python/tests/test_production_smoke.py. no doc change - a test.
+
 - **feat(quant): bundle it, see the venues, and publish it.** Three closers.
   **(1) The backfill.** The durable cache only holds what has been fetched, so
   `backfill_history` (tool and POST /market/history/backfill) fetches a window
@@ -602,6 +626,36 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/lib/harness/charts.ts`, `python/harness/prompts.py`. Tests:
   `python/tests/test_chart_regression.py`, `src/lib/response/chart-regression.test.ts`.
   docs updated: `docs/chart-engine.md`, `docs/interactive-response-engine.md`.
+
+- **fix(chat): a chart is ONE step, and a market refusal names the routes that
+  already failed.**
+  A real run of "regress AAPL's daily close over 12 months" burned all 24
+  steps and 2.7M tokens and answered with prose and no chart. The engine was
+  never the problem: the agent had the 251 closes by step 7 and then spent
+  sixteen steps re-verifying them (6 scraper runs, 5 browser evaluations, 3
+  sandbox computations) because it thought a chart needed a drawing TOOL call
+  to read the numbers back. Two rules fix that:
+  - **A chart block IS the drawing.** The data goes IN the block and the engine
+    draws it: a `regression` mark fits the line and shows the R-squared in its
+    legend. No drawing tool call, no round trip, ONE step. The agent is told
+    never to fit the line itself and never to quote an R-squared it has not
+    read back.
+  - **One attempt per route.** A route that refuses is a routing problem, not
+    a reason to keep asking: try the next route once, and if the second route
+    for the same series also refuses, use the data already in hand (or the
+    numbers the user gave) and say plainly what it is and where it came from.
+    Never re-verify a series you already hold, and never spend a browser on a
+    provenance audit the reader did not ask for.
+  The market refusal now carries the WHOLE provider trail
+  (`Providers tried: yahoo: DATA_NOT_AVAILABLE (...); stooq: ...; polygon:
+  AUTHENTICATION_FAILED (no POLYGON_API_KEY)`) and says that a provider
+  answering AUTHENTICATION_FAILED needs a credential it does not have - do
+  not try it again. The last provider's error alone hid the more useful one
+  (a keyless route with no data), so the agent could not tell which routes had
+  already been tried and went to scrape a page instead.
+  Files: `python/harness/prompts.py`, `python/harness/market/{gateway.py,tools.py}`.
+  Tests: `python/tests/test_market_refusal_trail.py`. docs updated:
+  `docs/chart-engine.md`, `docs/harness/market-data.md`.
 
 - **fix(chart): a chart may NAME its series, and a mark's points are read the
   way a model writes them.**
@@ -2259,6 +2313,41 @@ umpy/pandas are **already installed** in the runtime and the analysis
   `python/tests/test_evaluation_nightly.py` (the committed baseline is the
   gate; a broken baseline file is refused). Docs updated:
   `docs/harness/agent-evaluation.md`, `docs/self-improvement/rsl-v3-plan.md`.
+- **feat(eval): the corpus grows to 76 tasks - a second adversarial + finance
+  tranche.** `adversarial_v1` (8) and `finance_v1` (9) join the corpus, and
+  the committed baseline is refreshed against it. The new adversarial fixtures
+  are about HONESTY under pressure: two sources that disagree (report both, do
+  not pick one), a quote in the wrong currency (name the currency you
+  actually have), a price with no currency at all (the unit is missing), and a
+  document carrying an injected instruction (a document is data; publishing is
+  not allowed). The new finance fixtures are independently recomputed:
+  percentage change, three-year CAGR, free cash flow after capital spending,
+  and a position size from reward and risk. The corpus is now 76 tasks (64
+  validation / 10 optimization / 2 held_out) and the release gate still passes
+  against the committed baseline. Files:
+  `python/harness/evaluation/datasets/{adversarial_v1,finance_v1}.json`,
+  `python/harness/evaluation/baselines/corpus_v1.json`. Docs updated:
+  `docs/harness/agent-evaluation.md`, `docs/self-improvement/rsl-v3-plan.md`.
+- **feat(rsl): the lab tries to improve the harness itself, and it may only
+  report a CANDIDATE (v3 P5 slice).** Everything the loop can change is code
+  (a worktree, a promotion) or a surface (prompt, tool guidance, context
+  policy, guardrails). The surface is the cheap one - no worktree, no landing -
+  and it is where most of the headroom is. `npm run rsl:lab` (the surface lab)
+  does that honestly: the variants are DETERMINISTIC and derived from the
+  lessons the loop already ADOPTED (one lesson, the top three, their cues as a
+  checklist - with no adopted lesson there is no variant, because the lab never
+  invents an instruction nobody verified); each variant is measured on the SAME
+  tasks through the existing measured surface path against the base's own run;
+  an UNMEASURED variant is never a winner, a critical regression (safety,
+  adversarial) is VETOED even when the average is better, and "flat" is a
+  result, not a win; the winner is a CANDIDATE for the operator - the lab never
+  lands, never activates and never writes to the harness. On the scripted tier
+  the lab correctly finds NO improvement, because a scripted answer does not
+  depend on the prompt. Files: `python/harness/self_improvement/surface_lab.py`
+  (new), `scripts/rsl-lab.js`, `package.json`. Tests:
+  `python/tests/test_surface_lab.py` (7). Docs updated:
+  `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/decisions.md`
+  (ADR-H290), `docs/QUICKSTART.md`.
 - **feat(rsl): ONE surface-candidate path, and the lab stages EVIDENCE
   (v3 P5 slice 2).** The identity of a surface experiment and the row it
   creates now live in `self_improvement/surface_candidate.py`; the operator

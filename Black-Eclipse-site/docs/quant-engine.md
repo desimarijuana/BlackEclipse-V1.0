@@ -685,13 +685,24 @@ instrument on demand. The runtime's own routes serve it
 the agent can ask the same question through the `history_catalog` tool, and the
 bars are served from the local copy, so it works offline.
 
-### Bundling it: the backfill
+### Bundling it: the backfill ? no subscription required
 
 The durable cache only holds what has been fetched. `backfill_history` (tool
-and `POST /market/history/backfill`) fetches a window **once** and keeps it ?
-so a local-first runtime can hold a universe the way a hosted platform
-"bundles" one: the user decides what to keep, and every later run is served
-from the machine.
+and `POST /market/history/backfill`) fetches a window **once** and keeps it, so
+a local-first runtime can hold a universe the way a hosted platform "bundles"
+one: the user decides what to keep, and every later run is served from the
+machine.
+
+**No paid data tier is needed.** The keyless providers ? Yahoo Finance, Stooq,
+Binance, the ECB reference rates, Treasury/FRED ? are enough to bundle a real
+universe, and the backfill says so out loud: it names the provider that served
+each symbol, whether that provider needs a key, and which providers are usable
+right now with **no** credential. A keyed provider that is not configured is
+reported as needing a key, never as free.
+
+That is the difference between hosting and owning the data: the hosted
+platform rents you a decade of ticks; this one *keeps* what it fetched, on
+your machine, and serves it from there forever.
 
 ## The venues ? one seam, four languages
 

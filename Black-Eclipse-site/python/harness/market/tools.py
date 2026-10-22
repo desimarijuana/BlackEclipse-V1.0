@@ -524,6 +524,12 @@ async def backfill_history(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     provider = args.get("provider")
     adjusted = bool(args.get("adjusted", True))
 
+    # Which providers are usable RIGHT NOW, and which of them need a key. This
+    # is the honest answer to "do I need a subscription to bundle data?": the
+    # keyless providers (Yahoo, Stooq, Binance, ECB, Treasury/FRED) are enough
+    # to hold a real universe, and the local vault keeps it.
+    provider_states = _provider_states(gateway)
+
     added: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
     for symbol in symbols:
@@ -548,6 +554,8 @@ async def backfill_history(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
                                    str(getattr(result, "provider", "") or "unknown"),
                                    adjusted, rows)
         after = store.coverage(symbol, interval, adjusted=adjusted)
+        served_by = str(getattr(result, "provider", "") or "")
+        state = provider_states.get(served_by, {})
         added.append({
             "symbol": symbol,
             "barsWritten": written,
@@ -555,11 +563,19 @@ async def backfill_history(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
             "start": after.get("start"),
             "end": after.get("end"),
             "wasHolding": before.get("barCount"),
+            "provider": served_by,
+            "needsCredential": bool(state.get("credentialRef")),
+            "credentialConfigured": bool(state.get("configured")),
         })
 
     held = sum(int(a.get("barsHeld") or 0) for a in added)
     lines = [f"{a['symbol']}: {a['barsHeld']} bars held "
              f"({a['start']} ? {a['end']})" for a in added]
+    keyless = sorted({a["provider"] for a in added
+                       if a.get("provider") and not a.get("needsCredential")})
+    if keyless:
+        lines.append("bundled from keyless providers: " + ", ".join(keyless)
+                     + " - no subscription, and the local vault keeps it")
     if failed:
         lines.append(f"{len(failed)} symbol(s) could not be bundled: "
                      + ", ".join(f"{f['symbol']}" for f in failed))
@@ -568,7 +584,30 @@ async def backfill_history(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
                                              "failed": failed})
     return ("Bundled " + "; ".join(lines) + f" - {held} bars held locally.",
             {"status": "ok", "added": added, "failed": failed,
-             "barsHeld": held, "count": len(added)})
+             "barsHeld": held, "count": len(added),
+             "keylessProviders": keyless,
+             "providers": provider_states})
+
+
+def _provider_states(gateway: Any) -> dict[str, Any]:
+    """What each provider needs, right now: a key, or nothing at all."""
+    try:
+        described = gateway._router_ref().describe()  # noqa: SLF001 - introspection seam
+    except Exception:  # noqa: BLE001 - introspection is a nicety
+        return {}
+    out: dict[str, Any] = {}
+    for provider in (described or {}).get("providers", []) or []:
+        pid = str(provider.get("id") or "")
+        if not pid:
+            continue
+        out[pid] = {
+            "label": provider.get("label"),
+            "credentialRef": provider.get("credentialRef"),
+            "configured": provider.get("configured"),
+            "historical": provider.get("historical"),
+            "implemented": provider.get("implemented"),
+        }
+    return out
 
 
 def _bar_row(bar: Any) -> dict[str, Any]:

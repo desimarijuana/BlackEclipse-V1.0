@@ -176,3 +176,53 @@ async def test_the_backfill_refuses_without_symbols(tmp_path):
     ctx = SimpleNamespace(market_gateway=object(), market_series_store=store)
     text, data = await backfill_history({}, ctx)
     assert data["status"] == "error"
+
+
+async def test_the_backfill_reports_that_no_subscription_is_needed(tmp_path):
+    """The keyless providers are enough to hold a universe."""
+    from harness.market.series_store import SeriesStore
+    from harness.market.tools import backfill_history
+
+    ams = AgentMemoryStore(str(tmp_path / "am.db"))
+    store = SeriesStore(ams)
+
+    class _Bar:
+        def __init__(self, i):
+            self.timestamp = f"2024-01-{i + 1:02d}T00:00:00Z"
+            self.open = 100.0 + i
+            self.high = 101.0 + i
+            self.low = 99.0 + i
+            self.close = 100.5 + i
+            self.volume = 1000.0
+
+    class _Result:
+        provider = "yahoo"
+        bars = [_Bar(i) for i in range(3)]
+
+    class _Router:
+        def describe(self):
+            return {"providers": [
+                {"id": "yahoo", "label": "Yahoo Finance", "credentialRef": None,
+                 "configured": True, "historical": True, "implemented": True},
+                {"id": "polygon", "label": "Polygon", "credentialRef": "POLYGON_API_KEY",
+                 "configured": False, "historical": True, "implemented": True},
+            ]}
+
+    class _Gateway:
+        def _router_ref(self):
+            return _Router()
+
+        async def get_historical_prices(self, *_a, **_k):
+            return _Result()
+
+    ctx = SimpleNamespace(market_gateway=_Gateway(), market_series_store=store)
+    text, data = await backfill_history({"symbols": ["AAPL"]}, ctx)
+    assert data["keylessProviders"] == ["yahoo"]
+    assert "no subscription" in text
+    entry = data["added"][0]
+    assert entry["provider"] == "yahoo"
+    assert entry["needsCredential"] is False
+    # A provider that DOES need a key is reported as needing one - the backfill
+    # never pretends a keyed provider is free.
+    assert data["providers"]["polygon"]["credentialRef"] == "POLYGON_API_KEY"
+    assert data["providers"]["polygon"]["configured"] is False
