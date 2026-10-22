@@ -33,18 +33,37 @@ def install_market_layer(service: Any) -> None:
     try:
         from .cache import MarketCache
         from .gateway import MarketDataGateway
+        from .history_cache import HistoryCache
+        from .series_store import SeriesStore
         from .research_tools import register_research_data_tools
         from .router import default_router
         from .store import MarketStore
         from .tools import register_market_tools
 
         service.market_store = MarketStore(service.store)
+        # The durable half of the cache: the bars the runtime has already paid
+        # for, kept on the ONE agent-memory connection so a later run is served
+        # from them instead of re-fetching every bar.
+        try:
+            service.market_series_store = SeriesStore(service.store)
+            service.market_history_cache = HistoryCache(service.market_series_store)
+        except Exception:  # noqa: BLE001 - the durable cache is best-effort
+            service.market_series_store = None
+            service.market_history_cache = None
         service.market_router = default_router()
         service.market_cache = MarketCache()
         # Built without a bridge; bound to the per-run bridge at run time (service.run).
         service.market_gateway = MarketDataGateway(
             None, cache=service.market_cache, router=service.market_router
         )
+        # The gateway carries the durable cache, so every consumer of the market
+        # layer - the quant engine, the graph nodes, the trade-log analysis -
+        # reads the SAME local history.
+        if getattr(service, "market_history_cache", None) is not None:
+            try:
+                service.market_gateway.history_cache = service.market_history_cache
+            except Exception:  # noqa: BLE001 - the attribute is best-effort
+                pass
         try:
             from .streaming import default_stream_manager
 
@@ -58,6 +77,8 @@ def install_market_layer(service: Any) -> None:
     except Exception:  # noqa: BLE001 - market data must never block boot
         service.market_store = None
         service.market_gateway = None
+        service.market_series_store = None
+        service.market_history_cache = None
         service.market_stream = None
         log.warning("market data layer unavailable", exc_info=True)
 

@@ -79,6 +79,33 @@ def _experiment_artifact(quant_store: Any, experiment_id: str) -> Optional[dict[
         return None
 
 
+def _notes_of(digest: Any) -> list[str]:
+    """What the project's own notes say - the findings a human wrote down.
+
+    A note is evidence like any other: the project may have recorded a finding
+    that no attached result covers. The proposer reads them for exactly that.
+    """
+    out: list[str] = []
+    for member in getattr(digest, "members", []) or []:
+        if getattr(member, "kind", "") != "note":
+            continue
+        text = str(getattr(member, "label", "") or "").strip()
+        if not text:
+            text = str((getattr(member, "meta", {}) or {}).get("excerpt") or "").strip()
+        if text:
+            out.append(text)
+    return out
+
+
+def _regimes_in(text: str) -> set[str]:
+    """The regime labels a note names."""
+    from ..quant.regime import TREND_LABELS, VOL_LABELS
+
+    known = {f"{trend}_{vol}" for trend in TREND_LABELS for vol in VOL_LABELS}
+    words = set(text.replace("-", "_").replace(",", " ").split())
+    return {label for label in known if label in words}
+
+
 def _strategy_of(entry: dict[str, Any]) -> str:
     """The strategy an experiment belongs to, from its own metadata."""
     metadata = (entry.get("artifact") or {}).get("metadata") or {}
@@ -253,6 +280,44 @@ def _propose_firm_fit(
     )
 
 
+def _propose_from_a_note(
+    note: str,
+    *,
+    strategy_id: str = "",
+    symbols: Optional[list[str]] = None,
+    covered_regimes: Optional[set[str]] = None,
+) -> Optional[Proposal]:
+    """A finding the project recorded that no result has tested.
+
+    Either a regime a note names and no result has covered, or a strategy a
+    note names and no result exists for.
+    """
+    if covered_regimes is None:
+        covered_regimes = set()
+    named = _regimes_in(note)
+    uncovered = sorted(named - covered_regimes)
+    if uncovered and strategy_id:
+        regime = uncovered[0]
+        return Proposal(
+            id=f"note-regime:{regime}",
+            title=f"The notes record {regime}, which no result has covered",
+            rationale=(f"the project recorded something in {regime} - "
+                       f"“{note[:160]}” - and no attached result was ever "
+                       f"measured in that condition, so the edge there is unknown"),
+            evidence=[f"note:{note[:60]}", f"regime:{regime}"],
+            action={
+                "tool": "run_backtest",
+                "args": {
+                    "strategyId": strategy_id,
+                    **({"symbols": symbols} if symbols else {}),
+                    "save": True,
+                },
+            },
+            priority=75,
+        )
+    return None
+
+
 def propose_next(
     project_store: Any,
     project_id: str,
@@ -302,6 +367,32 @@ def propose_next(
                     monte_carlos.append({"id": member.ref, "artifact": artifact})
 
     project_symbols = list(getattr(project_store.get(project_id), "symbols", []) or [])
+
+    # What the project's notes say, and which regimes its results already cover.
+    notes = _notes_of(digest)
+    covered_regimes: set[str] = set()
+    for entry in monte_carlos:
+        attribution = (entry["artifact"].get("regimeAttribution") or {}).get("regimes") or {}
+        covered_regimes.update(str(k) for k in attribution)
+    for entry in results:
+        attribution = (entry["artifact"].get("regimeAttribution") or {}).get("regimes") or {}
+        covered_regimes.update(str(k) for k in attribution)
+
+    # A note that names a strategy the project has never tested.
+    result_strategy_ids = {
+        str(((r["artifact"].get("metadata") or {}).get("strategyId")) or "")
+        for r in results
+    }
+    for note in notes:
+        for strategy in strategies:
+            if strategy["id"] in note and strategy["id"] not in result_strategy_ids:
+                proposal = attempt(_propose_from_a_note, note,
+                                   strategy_id=strategy["id"],
+                                   symbols=strategy["symbols"] or project_symbols,
+                                   covered_regimes=covered_regimes)
+                if proposal:
+                    proposals.append(proposal)
+                    break
 
     # 1. a strategy with no result at all
     for strategy in strategies:

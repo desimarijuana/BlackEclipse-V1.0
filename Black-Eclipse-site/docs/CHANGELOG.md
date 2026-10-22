@@ -7,6 +7,52 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-21
+- **feat(quant): the durable history cache - one copy of the history Eclipse
+  has already seen.** The gateway cached history IN PROCESS, so every restart
+  re-fetched every bar from the provider. The durable half now lives on the ONE
+  agent-memory connection, and a later request for the same window is served
+  from it. This is the engineering half of "bundled data": it does not buy a
+  vendor's history, it buys ONE copy of the history Eclipse has already paid
+  for - on the machine, offline, reproducible - and the SAME bars then feed the
+  backtest, the regime classifier, the Monte-Carlo, the Pine engine and the
+  trade-log analysis, so all five agree by construction. Two rules keep it
+  honest: a cached window is served only when it actually COVERS the request (a
+  partial cache is a miss, not a short answer), and a stale tail is refetched -
+  with no explicit window the cache is only the whole history if its last bar is
+  still fresh, because a cache that never refreshed would silently freeze the
+  market. A backtest that pins its window is served from the cache; an
+  open-ended request refetches the tail. Files:
+  python/harness/market/history_cache.py (new),
+  python/harness/market/bootstrap.py, python/harness/quant/datasets.py.
+  Tests: python/tests/test_market_history_cache.py (9). docs updated:
+  docs/quant-engine.md.
+
+- **feat(sdk): eclipse_data - ECLIPSE's data and research from a notebook.** The
+  runtime is the authority; this package is a thin client for it, so a notebook
+  and the app see the SAME bars, the SAME verdict and the SAME project. It
+  speaks to the local runtime (the operator token when one is configured) and
+  exposes: normalized OHLCV with its provenance, the coverage the runtime
+  already holds, the projects and their curated digests, the proposals, the
+  Edge Report, a prop-firm evaluation of a trade log, and a Pine script with
+  and without its grade. It has NO third-party dependency - the standard
+  library alone - and it never invents a value: a refusal from the runtime is
+  raised with the runtime's own code and message. A test checks every path the
+  client calls against the runtime's OWN OpenAPI schema, so the client cannot
+  drift away from the surface it talks to. Files: sdk/eclipse_data/ (new:
+  __init__.py, pyproject.toml, README.md), python/tests/test_eclipse_sdk.py.
+  docs updated: docs/quant-engine.md.
+
+- **feat(harness): the proposer reads the project's own notes.** A note is a
+  finding a human wrote down, and it is evidence like any other. If a note
+  names a regime that no attached result was ever measured in - "the NQ cross has
+  never been traded in up_high" - the proposer raises it and proposes the
+  backtest that would answer it. If a result already covers that regime,
+  nothing is proposed: a note that has been tested is a note that has been
+  answered. That is the proposer's content edge: it is a function not only of
+  what the project HOLDS, but of what it SAYS. Files:
+  python/harness/projects/propose.py. Tests:
+  python/tests/test_project_proposals.py (12). docs updated: docs/projects.md.
+
 - **feat(harness): a project may act on its own - inside a policy the operator
   can see.** The loop that runs a proposal existed, but only when the agent or
   the user asked. A project can now act unattended, and the bound is explicit

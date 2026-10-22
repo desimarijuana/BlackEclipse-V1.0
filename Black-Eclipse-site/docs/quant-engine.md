@@ -651,6 +651,30 @@ says where the money came from, and what it could not measure.
 Surfaces: the agent tool `analyse_trade_log` (which reads the Journal's own
 trades when no log is passed); the route `POST /quant/trade-log`.
 
+## The durable history cache
+
+The gateway caches history **in process**, so every restart re-fetched every bar
+from the provider. `market/history_cache.py` adds the durable half on top of
+the existing `SeriesStore`: the bars the runtime has already paid for are kept
+on the ONE `agent-memory.db` connection, and a later request for the same
+window is served from them.
+
+That is the engineering half of "bundled data". It does not buy a vendor's
+history - it buys **one copy of the history Eclipse has already seen**, on the
+machine, offline, reproducible. The same bars then feed the backtest, the
+regime classifier, the Monte-Carlo, the Pine engine and the trade-log
+analysis, so all five agree by construction.
+
+Two rules keep it honest:
+
+- **A cached window is served only when it actually covers the request.** A
+  partial cache is a miss, not a short answer.
+- **A stale tail is refetched.** With no explicit window the cache is only the
+  whole history if its last bar is still fresh; otherwise the market has moved
+  on and a cache that never refreshed would silently freeze it. A backtest that
+  pins its window is served from the cache; an open-ended request refetches the
+  tail.
+
 ## The Edge Report (`quant/edge_report.py`)
 
 The verdict, the regimes and the Monte-Carlo used to be three answers in three

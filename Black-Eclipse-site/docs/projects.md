@@ -225,6 +225,20 @@ Surfaces: the tools `project_auto_policy` and `project_auto_run`; the routes
 `GET/POST /projects/{id}/auto` and `POST /projects/auto/run`. The loop starts
 at boot and stops at shutdown.
 
+## The notes are evidence too
+
+A note is a finding a human wrote down, and the proposer reads it. If a note
+names a **regime** that no attached result was ever measured in - "the NQ cross
+has never been traded in `up_high`" - the proposer raises it: *the notes record
+`up_high`, which no result has covered*. The action is a backtest of the
+strategy the note is about.
+
+If a result already covers that regime, nothing is proposed: a note that has
+been tested is a note that has been answered.
+
+That is the proposer's content edge: it is not only a function of what the
+project *holds*, it is a function of what the project *says*.
+
 ## How a project fills itself up
 
 `python/harness/projects/attach.py` is the policy, and it is deliberately
