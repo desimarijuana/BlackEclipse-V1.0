@@ -962,6 +962,36 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-20
 
+- **docs(harness): Round 4 — the plan that closes the last two dimensions,
+  and a correction to the score.** Round 3 finished every workstream, and five
+  of the seven dimensions are at target. The remaining gap is concentrated:
+  **Evaluation 9.0** and **Operations 4.0**. The plan re-derives the weighted
+  score and **corrects an earlier over-claim**: it was reported as ~9.42 with
+  Ops at 7.5, which was optimistic about the *process* criteria. Scored against
+  its own sub-criteria, Ops is **4.0** (`v0.2.0` is prepared but `git tag -l` is
+  empty; `CODEOWNERS` has placeholder owners; the branch is not on `main`; the
+  tree is 375,997 lines and grew this round), so the published number is
+  **9.01**, not 9.42. The arithmetic then lands exactly: Eval 9.0 → 9.5 is
+  +0.05 and Ops 4.0 → 9.5 is +0.44, and **9.01 + 0.49 = 9.50**. That is why the
+  plan spends nothing on Loop/Ctx/ACI/Safe/Ext — they are at target and further
+  work there cannot move the total. Six workstreams in four waves: **V1** land
+  the branch and tag it (one command, +0.20, and every other "done" claim is
+  measured against a landed tree); **V2** shrink the surface, one merge per
+  release, with the ceiling required to *fall* (and an explicit warning not to
+  merge `browser/` into `computer/` — they were listed together by size, not by
+  duplication); **V3** a second pair of eyes, which closes the 15 legacy ADR
+  shape gaps by **re-labelling prose that is already there**, never by inventing
+  a rationale, and fixes the one flaky test; **V4** distribute; **V5** the first
+  live number — the only thing that turns `NOT MEASURED` into a number — and
+  the four dimensions that are measured but ungated (`cost`, `latency`,
+  `token_usage`, `reliability`), gated from that measured baseline; **V6** an
+  external suite, the only route to a number anyone else can compare. The plan
+  also names the four inputs only the operator can supply (a provider key, the
+  SWE-bench dataset, a second human, a PyPI credential) so a blocked workstream
+  is never reported as unknown. docs updated:
+  docs/harness/roadmap/round-4-gap-closure.md,
+  docs/harness/roadmap/README.md.
+
 - **chore(harness): the Round 3 work is merged onto main, and the decision
   series is unambiguous again.** The two branches had both taken ADR numbers
   284-289, so the merged series had seven DUPLICATES and a reference to

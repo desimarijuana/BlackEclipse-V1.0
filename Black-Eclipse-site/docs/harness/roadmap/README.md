@@ -53,6 +53,7 @@ harness with published numbers.
 | Round 3 plan | File | Depends on | Unlocks |
 |---|---|---|---|
 | Harness parity plan (10 workstreams, 3 waves) | [round-3-parity-plan.md](./round-3-parity-plan.md) 🟡 Draft 2026-10-20 | rounds 1–2 | a competitive coding harness |
+| Gap-closure plan (6 workstreams, 4 waves) — the last two dimensions, 9.01 → 9.50 | [round-4-gap-closure.md](./round-4-gap-closure.md) 🟡 Draft 2026-10-21 | rounds 1–3 | a published, tagged, externally measured harness |
 
 Round 3 is a **plan, not a phase set** — it is one file with ten workstreams
 (W1–W10), because the work is coupled: the same files (`graph.py`,
