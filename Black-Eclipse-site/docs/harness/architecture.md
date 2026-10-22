@@ -596,6 +596,20 @@ naming one of them. The response-contract loss was a visible defect:
 response-schema digest and the response-mode plan, so a coding turn produced a
 degraded structured response with no error.
 
+**The harness has a PUBLIC surface (ADR-H298).**
+`python/harness/public.py` is the whole public API - `AgenticService`,
+`ToolRegistry`, the run contract, and the export functions - and it is a
+closed list. `export_tool_schemas()` produces the PORTABLE tool manifest: the
+MCP tool-manifest shape plus the parts a consumer needs to bind a tool
+safely (`permission`, `effect`, `risk`, `version`, the deprecation fields). The
+honesty contract is the point: a tool is exported with its permission and its
+effect class, or it is NOT exported. A write-ish tool with an undeclared
+effect is withheld, because a consumer cannot honour a rule it cannot read.
+`docs/harness/tool-registry.json` is that manifest, generated, with a drift
+test. The package metadata (`pyproject.toml`) declares the RUNTIME and no
+data: the provider SDKs are optional extras, no package data ships, and the
+app stays private.
+
 **A shell sees no more of the environment than a command does (ADR-H297).**
 The real host shell used to inherit the FULL `os.environ`, so one `shell_run`
 could read a provider key, the callback token or the vault and print it into

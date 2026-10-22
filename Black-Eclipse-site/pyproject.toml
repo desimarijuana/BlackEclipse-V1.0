@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "black-eclipse-harness"
+version = "0.2.0"
+description = "The Eclipse agent runtime: agents, tools, providers, events, persistence."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["agent", "harness", "llm", "tools", "finance", "mcp"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30",
+  "pydantic>=2.7",
+  "langchain>=1.0",
+  "langchain-core>=1.0",
+  "langgraph>=1.0",
+  "httpx>=0.27,<0.29",
+]
+
+[project.optional-dependencies]
+# The providers are OPTIONAL: a caller that only wants the tool surface, the
+# retrieval layer or the evaluation harness should not have to install an SDK
+# for a model they never call.
+providers = [
+  "langchain-openai>=1.0",
+  "langchain-anthropic>=0.3",
+  "langchain-google-genai>=2.0",
+  "langchain-mistralai>=0.2",
+  "langchain-groq>=0.2",
+]
+mcp = ["mcp>=2,<3"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+
+[project.urls]
+Homepage = "https://github.com/black-eclipse/black-eclipse"
+Documentation = "https://github.com/black-eclipse/black-eclipse/tree/main/Black-Eclipse-site/docs/harness"
+
+# The published package is the RUNTIME. It carries NO app data, NO vault and
+# NO credentials - the data belongs to the installation that runs it. The
+# packaging test asserts that this list stays empty of anything data-shaped.
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["python"]
+include = ["harness*"]
+
+[tool.setuptools.package-data]
+"harness" = ["py.typed"]

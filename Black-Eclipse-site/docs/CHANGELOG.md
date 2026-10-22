@@ -8,6 +8,43 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-21
 
+- **feat(harness): the harness has a PUBLIC surface, a published tool
+  manifest, and a package that carries no data.** The harness was excellent and
+  unreachable: everything it could do - the retrieval layer, the research
+  verifier, the comparability gate, the receipts, the tool surface - was
+  valuable to another harness and available only here. And a public surface
+  that is not DECLARED is not a public surface; it is a directory listing.
+  `python/harness/public.py` is now the WHOLE public API -
+  `AgenticService`, `ToolRegistry`, the run contract, and the export
+  functions - and it is a closed list, asserted by a test.
+  `export_tool_schemas()` produces the PORTABLE tool manifest: the MCP
+  tool-manifest shape plus the parts a consumer needs to bind a tool safely
+  (`permission`, `effect`, `risk`, `version`, the deprecation fields).
+  `docs/harness/tool-registry.json` is that manifest, GENERATED, with a drift
+  test that regenerates and compares: **946 tools**. The honesty contract is
+  the point of the export - a tool is published with its permission and its
+  effect class, or it is NOT published, because a consumer cannot honour a
+  rule it cannot read and a tool that cannot be classified is a tool nobody
+  should call. A consumer inherits Eclipse's honesty: it can see that a tool
+  writes, or that it reaches the network, before it binds it. The package
+  metadata (`pyproject.toml`) declares `black-eclipse-harness` - the RUNTIME,
+  with the provider SDKs as OPTIONAL extras (a consumer that only wants the
+  tool surface should not install an SDK for a model it never calls), no
+  package data, and no dependency on the app.
+  The manifest also caught a real bug: the `analysis_run` tool's description
+  interpolated the FUNCTION OBJECT instead of its result, so the tool that
+  runs analyses had been advertising `<function recipe_catalogue_text at
+  0x...>` to the model instead of the recipes it can actually run. That is
+  fixed, and a guard now asserts that no published description carries an
+  object repr. Files: python/harness/public.py (new),
+  Black-Eclipse-site/pyproject.toml (new),
+  scripts/generate-tool-registry.js (new),
+  scripts/size-budget.json (the ceiling was raised on purpose for the public
+  surface - a real addition, not drift),
+  docs/harness/tool-registry.json (generated),
+  python/tests/test_public_api.py (new). ADR-H298. docs updated:
+  docs/harness/decisions.md, docs/harness/architecture.md, docs/NAVIGATION.md.
+
 - **fix(harness): a shell sees no more of the environment than a command
   does, the output is redacted, and the network is refused BY NAME.** The real
   host shell used to inherit the FULL `os.environ`, so a single `shell_run`

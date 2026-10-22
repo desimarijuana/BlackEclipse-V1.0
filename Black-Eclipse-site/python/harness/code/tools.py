@@ -1196,7 +1196,13 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
         name="analysis_run",
         description=(
             "Work something out from data with a short calculation — a return, a drawdown, "
-            f"a correlation, a reconciliation, a what-if. Ready-made recipes: {_RECIPE_CATALOG}. Otherwise "
+            # Round 3 / W10 (ADR-H298): this was the FUNCTION OBJECT, not its
+            # result - so the tool that runs analyses advertised
+            # `<function recipe_catalogue_text at 0x...>` to the model instead
+            # of the recipes it can actually run. The description is now the
+            # catalogue, and it is byte-stable, which is what makes the
+            # published manifest comparable.
+            f"a correlation, a reconciliation, a what-if. Ready-made recipes: {_RECIPE_CATALOG()}. Otherwise "
             "give a short program that reads `inputs` and puts its answer in `result`. The "
             "result is always labelled as worked out by Eclipse, never as data from a source. "
             "If a needed input is missing, ask — never invent it."

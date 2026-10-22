@@ -733,7 +733,7 @@ a wall-clock timeout, an output cap and a process-tree kill. But:
 
 ### W10 — Distribution: a package, a registry, and a protocol
 
-> **Closes:** O8 · **Moves:** Ext +0.06, ACI +0.05 · **ADR:** H289
+> **Closes:** O8 · **Moves:** Ext +0.06, ACI +0.05 · **ADR:** H298 · ✅ **Done 2026-10-21** — the public surface, the published manifest and the package metadata are in; PyPI publication, ACP and a host plugin are NOT (the ACP spec was not available to verify against, and shipping an implementation written from memory would be a claim, not a measurement)
 > **Priority: 3 — the score is close; this is about reach.**
 
 **Why.** Eclipse's extensibility is already above the field median: 14 hook

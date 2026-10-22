@@ -9876,3 +9876,67 @@ raises `SandboxUnavailable` and the command is REFUSED rather than degraded.
 That is the documented behaviour, and it is honest: no degradation, ever
 (`README` invariant 3.5). Making the container the default is a packaging
 decision, not a policy one.
+
+## ADR-H298 - The harness has a PUBLIC surface, a published tool manifest, and a package that carries no data
+
+**Decision.** Three things.
+
+**A public surface.** `python/harness/public.py` is the WHOLE public API:
+`AgenticService`, `ToolRegistry`, `ToolDefinition`, the run contract
+(`RunRequest` / `RunInput` / `RunResult` / `ModelSettings`), and the export
+functions. It is a closed list, and a test asserts the list is exactly what it
+declares. Before this, everything the harness could do was reachable only
+from inside this repository, and a caller who wanted to use it had to read the
+source to find out what was safe to touch.
+
+**A published tool manifest.** `export_tool_schemas()` produces the portable
+manifest - the MCP tool-manifest shape (name / description / inputSchema) PLUS
+the parts a consumer needs to bind a tool safely: `permission`, `effect`,
+`risk`, `version`, and the deprecation fields. `docs/harness/tool-registry.json`
+is that manifest, GENERATED, with a drift test that regenerates and compares.
+
+**The honesty contract, and it is the point of the export.** A tool is
+exported with its permission and its effect class, or it is NOT exported. A
+tool whose permission is not "read" and whose effect is undeclared is WITHHELD,
+because a consumer cannot honour a rule it cannot read - and a tool that
+cannot be classified is a tool nobody should call. A consumer inherits
+Eclipse's honesty: it can see that a tool writes, or that it reaches the
+network, before it binds it.
+
+**A package that carries no data.** `pyproject.toml` declares
+`black-eclipse-harness`: the RUNTIME, with the provider SDKs as OPTIONAL
+extras (a consumer that only wants the tool surface should not install an SDK
+for a model it never calls), no package data, and no dependency on the app.
+The packaging test asserts there is no data-shaped file, no credential-shaped
+dependency, and that the app stays private. The published thing is the
+runtime; the data belongs to the installation that runs it.
+
+**Why.** The harness was excellent and unreachable. Everything it could do -
+the retrieval layer, the research verifier, the comparability gate, the
+receipts, the tool surface - was valuable to another harness and was
+available only here. And a public surface that is not DECLARED is not a public
+surface; it is a directory listing.
+
+**Consequences.** `python/harness/public.py`,
+`Black-Eclipse-site/pyproject.toml`,
+`scripts/generate-tool-registry.js`,
+`docs/harness/tool-registry.json` (generated, 946 tools),
+`python/tests/test_public_api.py`, and the regenerated manifest. The
+published manifest also caught a real bug: the `analysis_run` tool's
+description interpolated the FUNCTION OBJECT instead of its result, so the
+tool that runs analyses had been advertising `<function recipe_catalogue_text
+at 0x...>` to the model instead of the recipes it can actually run. A guard
+now asserts that no published description carries an object repr.
+
+**What is NOT here, and why.** (1) **The package is not published to PyPI** -
+that needs a credential and a decision about the name; the metadata is ready
+for it. (2) **ACP is not implemented.** The Agent Client Protocol would be
+the right interop surface - the 2026 field is converging on it - but the
+protocol specification was not available in this environment, and shipping an
+implementation written from memory would be exactly the "a claim, not a
+measurement" this harness refuses. The portable manifest is the honest
+interim: it is a stable, versioned, digested description of the tool surface
+that any host can consume. (3) **There is no opencode/Claude Code plugin
+yet.** The repository has no plugin source to follow, and a plugin that
+duplicates the manifest would be a second source of truth. When a plugin
+exists, it should READ the manifest.
