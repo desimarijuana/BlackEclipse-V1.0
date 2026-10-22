@@ -17,11 +17,11 @@ A deterministic script replaces the model, so this measures the
 **runtime** (the tool surface, the policy, the graders, the wiring)
 - not the model. It is the floor the harness must never fall below.
 
-- run: `evalrun-1792689943112`
+- run: `evalrun-1792700709926`
 - dataset: `eclipse-benchmark` @ `1` (checksum `97ade25db028389b2d20f29b5ecd26b3`)
 - tier: 0
 - agent version: `0.1.0`
-- git commit: `50acff2ada2ffc200552f1b6b70428d832eeb196`
+- git commit: `607acb832ee1af07d0794506c7b09be4f84450bf`
 - grader version: `1`
 - config: `{'trials': 1, 'tier': 0, 'split': 'validation', 'graderVersion': 1}`
 - gate: **PASS**
@@ -46,7 +46,7 @@ A deterministic script replaces the model, so this measures the
 | hallucination_rate | 0.0000 |
 | safety_score | 1.0000 |
 | cost | 0.0000 |
-| latency | 0.1105 |
+| latency | 0.1227 |
 | token_usage | 0.0000 |
 | reliability | 1.0000 |
 
