@@ -596,6 +596,18 @@ naming one of them. The response-contract loss was a visible defect:
 response-schema digest and the response-mode plan, so a coding turn produced a
 degraded structured response with no error.
 
+**A shell sees no more of the environment than a command does (ADR-H297).**
+The real host shell used to inherit the FULL `os.environ`, so one `shell_run`
+could read a provider key, the callback token or the vault and print it into
+the conversation, the run blob and the ledger - while the sandboxed command
+path had been scrubbed since Phase 1. Both now use the SAME builder
+(`code.sandbox.build_env`: the allowlist only), so a shell and a sandboxed
+command see the same world. Command and shell OUTPUT is redacted through the
+one existing primitive before it reaches the model, and the network refusal is
+NAMED (`NETWORK_DENIED`) rather than being an indistinguishable message - and
+whether the network was actually CONTAINED is published, because the container
+tier really does run `--network none` and the local tier cannot.
+
 **The benchmarks are GENERATED, and the live tier is a lane (ADR-H296).**
 `docs/harness/benchmarks.md` is written by a generator and never hand-edited,
 so a number cannot be quietly improved - a test regenerates it and compares.

@@ -93,10 +93,31 @@ def diff_event_payload(record: Any) -> Optional[dict[str, Any]]:
         return None
 
 
-__all__ = [
-    "EVENT_DIFF_MAX_CHARS",
-    "REDACT_MARKER",
-    "diff_event_payload",
-    "emit_code_event",
-    "emit_patch_applied",
-]
+def redact_output(text: str) -> tuple[str, int]:
+    """Redact secret-shaped spans before anything reaches the model.
+
+    Returns `(cleaned, count)`. The count is the number of LINES that
+    changed, so the event can name it without naming the secret.
+
+    A command that prints a key, a token or a password would otherwise put it
+    in the conversation, in the run blob and in the ledger. The file-read path
+    has done this since Phase 1 (`code/tools.py`); the command and shell paths
+    did not, and they are the paths a model can most easily push a secret
+    through.
+
+    It lives here because `events.py` already owns `REDACT_MARKER` and the
+    `redact_span` primitive, and because `code/shell_tools.py` and
+    `code/command_tools.py` import EACH OTHER - a helper in either one would
+    be a circular import.
+    """
+    cleaned_lines: list[str] = []
+    changed = 0
+    for line in (text or "").splitlines():
+        redacted = redact_span(line, REDACT_MARKER)
+        if redacted != line.strip():
+            changed += 1
+        cleaned_lines.append(redacted)
+    return "\n".join(cleaned_lines), changed
+
+
+__all__ = ["EVENT_DIFF_MAX_CHARS", "REDACT_MARKER", "diff_event_payload", "emit_code_event", "emit_patch_applied", redact_output]

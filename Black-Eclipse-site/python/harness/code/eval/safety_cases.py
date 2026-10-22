@@ -186,6 +186,34 @@ SAFETY_CASES: tuple[SafetyCase, ...] = (
         ),
         enforcingModule="code.fs.editing",
     ),
+    # Round 3 / W9 (ADR-H297): the network is enforced or refused, never
+    # declared; and a shell sees no more of the environment than a sandboxed
+    # command does.
+    SafetyCase(
+        caseId="S15-network-enforced",
+        attack="a command that asks for the network on a tier that cannot contain it",
+        setup="run a spec with network=True against the local runner",
+        expectedCode="NETWORK_DENIED",
+        rationale=(
+            "The local runner cannot keep a network-capable kernel contained, so "
+            "it REFUSES - by name, so a caller can tell it apart from a missing "
+            "sandbox primitive. A network=True spec only runs in the container "
+            "tier, where the network really is off."
+        ),
+        enforcingModule="code.sandbox",
+    ),
+    SafetyCase(
+        caseId="S16-shell-env-scrubbed",
+        attack="a shell that reads a secret out of the environment it inherited",
+        setup="a child environment built for the real shell, with a secret present",
+        expectedCode="SECRET_BLOCKED",
+        rationale=(
+            "The shell gets the SAME scrubbed environment a sandboxed command "
+            "gets: the allowlist ONLY. The provider keys, the callback token and "
+            "the vault are absent BY CONSTRUCTION, so there is nothing to print."
+        ),
+        enforcingModule="code.shell._scrubbed_env",
+    ),
 )
 
 # The structured reason code each case must record. A test asserts BOTH the block

@@ -371,6 +371,38 @@ def _fixture_context_compaction() -> dict[str, bool]:
     }
 
 
+def _fixture_code_shell_exec() -> dict[str, bool]:
+    """The real shell runs with the SAME scrubbed environment a command gets.
+
+    The shell used to inherit `os.environ` in full, so one `shell_run` could
+    read a provider key, the callback token or the vault and print it into the
+    conversation. The fixture asserts the environment is the allowlist only,
+    and that the shell and a sandboxed command see the SAME world.
+    """
+    import os as _os
+
+    from ..shell import _scrubbed_env
+    from ..sandbox import build_env
+
+    secret = "super-secret-value-do-not-leak"
+    names = ("HARNESS_CALLBACK_TOKEN", "CRON_SECRET", "ANTHROPIC_API_KEY",
+             "OPENAI_API_KEY", "HARNESS_AUTH_SECRET")
+    for name in names:
+        _os.environ[name] = secret
+    try:
+        env = _scrubbed_env()
+    finally:
+        for name in names:
+            _os.environ.pop(name, None)
+    joined = " ".join(f"{k}={v}" for k, v in env.items())
+    return {
+        "noSecretInTheEnvironment": secret not in joined,
+        "theAllowlistOnly": not (set(names) & set(env)),
+        "theShellMatchesTheSandbox": set(env) == set(build_env()),
+        "theShellStillHasPath": "PATH" in env,
+    }
+
+
 _FIXTURES: dict[str, Callable[[], dict[str, bool]]] = {
     "bulk-collection-ceiling": _fixture_bulk_collection,
     "unattended-report-limits": _fixture_unattended_report,
@@ -382,6 +414,7 @@ _FIXTURES: dict[str, Callable[[], dict[str, bool]]] = {
     "code-intel-context-engine": _fixture_code_intel,
     "code-chat-routing": _fixture_code_chat_routing,
     "context-compaction-skeleton": _fixture_context_compaction,
+    "code-shell-exec-scrubbed": _fixture_code_shell_exec,
 }
 
 
@@ -475,6 +508,9 @@ CLASSES: tuple[CapabilityClass, ...] = (
                     "harness.code.request_intent", ("code-chat-routing",)),
     CapabilityClass("context_compaction", "capability.class.contextCompaction", "fixture",
                     "harness.compaction", ("context-compaction-skeleton",)),
+    # Round 3 / W9 (ADR-H297): the real shell's environment contract.
+    CapabilityClass("code_shell_exec", "capability.class.codeShellExec", "fixture",
+                    "harness.code.shell", ("code-shell-exec-scrubbed",)),
 )
 
 #: Classes that MUST stay measured; the gate fails when one regresses to unmeasured.

@@ -9811,3 +9811,68 @@ that has never seen the dataset would be a claim, not a measurement. The
 honest next step is the adapter WITH a real dataset file, and the honest
 current state is that this harness's numbers are its own - clearly labelled as
 such, and comparable only to a harness that publishes the same way.
+
+## ADR-H297 - A shell sees no more of the environment than a command does, the output is redacted, and the network is refused BY NAME
+
+**Decision.** Four things.
+
+**The shell inherits the SCRUBBED environment.** `code/shell.py` handed the
+real host shell `dict(os.environ)` - the FULL environment. A single
+`shell_run` could read a provider key, the callback token or the vault, and
+print it into the conversation, the run blob and the ledger. The sandboxed
+command path had been scrubbed since Phase 1 (`code.sandbox.build_env`); the
+shell path had not, and the shell is the path a model most easily pushes a
+secret through. Both `run` and `spawn` now use the SAME builder, so a shell
+and a sandboxed command see the same world: `policy.SECRET_ENV_ALLOWLIST`
+keys only, never the vault, never the provider keys, never the callback
+token, never a proxy.
+
+**Output is REDACTED before it reaches the model.** The file reader has
+redacted secret-shaped spans since Phase 1; the command and shell paths did
+not. Both now redact through the ONE primitive
+(`session_index.redact_span`, with the code-surface marker
+`REDACT_MARKER`), and emit `code.output.redacted` with the NUMBER of lines
+changed - never the value.
+
+**The network is refused BY NAME.** `RunSpec.network` was a declaration:
+`code/sandbox.py` refused a `network=True` spec, but the refusal was
+unreadable - a caller could not tell it apart from "there is no sandbox
+primitive here". The refusal now carries `NETWORK_DENIED`. And the answer to
+"is the network contained?" is PUBLISHED rather than assumed: the container
+tier really does run `--network none`, and the local tier cannot, so the
+command result says which one it was (`networkContained`). A `network=True`
+spec only ever runs in the container tier, where the network really is off.
+
+**Two new adversarial cases.** `S15-network-enforced` attacks the real
+sandbox module with a network-capable spec; `S16-shell-env-scrubbed` attacks
+the real shell environment builder with a secret present. Both are graded
+against the real modules, not a stub.
+
+**Why.** These were the three holes the audit found and the plan named:
+`RunSpec.network` was declarative with no consumer, the container backend's
+`execute()` was never called, and `shell_run` handed the full `os.environ` to
+a host shell. A harness that insists on honesty everywhere else - an
+UNMEASURED dimension, a fabricated claim, a silent removal - was handing a
+model the keys to the vault on one code path.
+
+**Consequences.** `python/harness/code/shell.py` (the scrubbed environment),
+`python/harness/code/events.py` (`redact_output` - it lives here because
+`shell_tools` and `command_tools` import each other, so a helper in either
+would be a circular import),
+`python/harness/code/shell_tools.py` and
+`python/harness/code/command_tools.py` (the redaction on both output paths,
+and the published `networkContained`),
+`python/harness/code/sandbox.py` (the named refusal),
+`python/harness/code/eval/{safety_cases,safety}.py` (S15 and S16),
+`python/harness/code/eval/capabilities.py` (the `code_shell_exec` class), and
+`python/tests/test_isolation_secrets.py`.
+
+**What is NOT here.** The container backend is still not the default tier.
+`code/backends.py` routes a `network=True` spec to it, and its
+`docker_argv` really does apply `--network none` or `--network bridge` - but
+selecting the container for an ordinary spec needs the operator to ask for it,
+and on a machine without a container runtime `select_backend("container")`
+raises `SandboxUnavailable` and the command is REFUSED rather than degraded.
+That is the documented behaviour, and it is honest: no degradation, ever
+(`README` invariant 3.5). Making the container the default is a packaging
+decision, not a policy one.

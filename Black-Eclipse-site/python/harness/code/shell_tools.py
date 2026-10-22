@@ -120,10 +120,20 @@ async def shell_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         "commandClass": "shell", "program": verdict.program, "exitCode": result.exit_code,
         "durationMs": result.duration_ms, "timedOut": result.timed_out, "backend": "shell",
     })
+    # Round 3 / W9 (ADR-H297): the output is REDACTED before it reaches the
+    # model, the run blob or the ledger. A command that prints a key would
+    # otherwise put it in all three, and in the conversation.
+    stdout, stdout_redacted = redact_output(result.stdout)
+    stderr, stderr_redacted = redact_output(result.stderr)
+    redacted_lines = stdout_redacted + stderr_redacted
+    if redacted_lines:
+        await emit_code_event(ctx, "code.output.redacted", {
+            "commandClass": "shell", "lines": redacted_lines,
+        })
     _record_command(
         ctx, command_class="shell", argv=[model.command], cwd=str(cwd),
         exit_code=result.exit_code if result.exit_code is not None else -1,
-        duration_ms=result.duration_ms, output=(result.stdout + result.stderr),
+        duration_ms=result.duration_ms, output=(stdout + stderr),
         total_chars=len(result.stdout) + len(result.stderr), backend="shell",
         decision={"allowed": True, "code": "OK", "verdict": verdict.kind},
         timed_out=result.timed_out, truncated=result.truncated,
@@ -131,16 +141,19 @@ async def shell_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     status = result.status
     header = f"Ran `{model.command}`: exit={result.exit_code} durationMs={result.duration_ms}{' TIMED OUT' if result.timed_out else ''}"
     parts = [header]
-    if result.stdout:
-        parts.append(result.stdout.rstrip())
-    if result.stderr:
-        parts.append("STDERR:\n" + result.stderr.rstrip())
+    if redacted_lines:
+        parts.append(f"[{redacted_lines} line(s) redacted for privacy]")
+    if stdout:
+        parts.append(stdout.rstrip())
+    if stderr:
+        parts.append("STDERR:\n" + stderr.rstrip())
     text = "\n".join(parts)
     data = {
         "status": status, "commandClass": "shell", "program": verdict.program,
         "cwd": str(cwd), "exitCode": result.exit_code, "durationMs": result.duration_ms,
         "timedOut": result.timed_out, "truncated": result.truncated,
-        "stdout": result.stdout, "stderr": result.stderr,
+        "stdout": stdout, "stderr": stderr,
+        "redactedLines": redacted_lines,
     }
     return text, data
 

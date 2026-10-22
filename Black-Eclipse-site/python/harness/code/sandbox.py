@@ -45,9 +45,14 @@ class SandboxUnavailable(RuntimeError):
 
     code = "SANDBOX_UNAVAILABLE"
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, code: Optional[str] = None) -> None:
         super().__init__(reason)
         self.reason = reason
+        # Round 3 / W9 (ADR-H297): the code can be NAMED per refusal, so a
+        # caller can tell "the network is refused" from "there is no sandbox
+        # primitive here". The class default is unchanged.
+        if code:
+            self.code = code
 
 
 class SandboxStreamError(RuntimeError):
@@ -379,8 +384,13 @@ class _BaseBackend:
 
     def spawn(self, spec: RunSpec, *, line_cap_bytes: int = _LINE_CAP_BYTES) -> SpawnedProcess:
         if spec.network:
+            # Round 3 / W9 (ADR-H297): the refusal is NAMEABLE. "The local
+            # runner cannot keep a network-capable kernel contained" was true
+            # but unreadable - a caller could not tell it apart from "there is
+            # no sandbox primitive here".
             raise SandboxUnavailable(
-                "the local runner cannot keep a network-capable kernel contained"
+                "the local runner cannot keep a network-capable kernel contained",
+                code="NETWORK_DENIED",
             )
         try:
             proc = self._popen_interactive(spec)
@@ -766,9 +776,13 @@ def run(spec: RunSpec, *, cancel_event: Optional[threading.Event] = None) -> Raw
     routed to the network-capable tier by its caller (`code/backends.py`).
     """
     if spec.network:
+        # Round 3 / W9 (ADR-H297): the refusal is NAMEABLE, so a caller can
+        # tell "the network is refused" from "there is no sandbox primitive
+        # here". Never silently run with the host network.
         raise SandboxUnavailable(
             "this command needs a runner that can keep its network use contained; "
-            "the local runner cannot, so it was not run"
+            "the local runner cannot, so it was not run",
+            code="NETWORK_DENIED",
         )
     return select_backend().run(spec, cancel_event=cancel_event)
 

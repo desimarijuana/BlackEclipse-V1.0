@@ -8,6 +8,35 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 ## 2026-10-21
 
+- **fix(harness): a shell sees no more of the environment than a command
+  does, the output is redacted, and the network is refused BY NAME.** The real
+  host shell used to inherit the FULL `os.environ`, so a single `shell_run`
+  could read a provider key, the callback token or the vault and print it into
+  the conversation, the run blob and the ledger - while the sandboxed command
+  path had been scrubbed since Phase 1. Both now use the SAME builder
+  (`code.sandbox.build_env`: the allowlist ONLY, never the vault, never the
+  provider keys, never the callback token, never a proxy), so a shell and a
+  sandboxed command see the same world. Command and shell OUTPUT is now
+  REDACTED through the one existing primitive before it reaches the model -
+  the file reader has done this since Phase 1, and the command and shell paths
+  are the ones a model can most easily push a secret through - and the
+  `code.output.redacted` event names the NUMBER of lines changed, never the
+  value. `RunSpec.network` was a declaration whose refusal was unreadable: a
+  caller could not tell "the network is refused" from "there is no sandbox
+  primitive here". The refusal now carries `NETWORK_DENIED`, and the answer to
+  "is the network contained?" is PUBLISHED rather than assumed - the container
+  tier really does run `--network none`, and the local tier cannot, so the
+  command result says which one it was. Two new adversarial cases attack the
+  real modules: `S15-network-enforced` and `S16-shell-env-scrubbed`. Files:
+  python/harness/code/shell.py, python/harness/code/events.py,
+  python/harness/code/shell_tools.py, python/harness/code/command_tools.py,
+  python/harness/code/sandbox.py,
+  python/harness/code/eval/safety_cases.py, python/harness/code/eval/safety.py,
+  python/harness/code/eval/capabilities.py,
+  python/tests/test_isolation_secrets.py (new). ADR-H297. docs updated:
+  docs/harness/decisions.md, docs/harness/architecture.md, docs/NAVIGATION.md,
+  docs/harness/capability-statement.md.
+
 - **feat(harness): the benchmarks are GENERATED, the live tier is a lane, and
   no capability is published unmeasured.** The evaluation framework was already
   first-rate - the real graph, 17 graders, 22 dimensions with un-averagable

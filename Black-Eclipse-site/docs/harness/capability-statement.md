@@ -44,7 +44,7 @@ and lives in the terminal and the progress log; it is never shown to a user.
 ask for; a class with no fixture is published as `not measured yet` with its
 reason, never omitted.
 
-0 of 24 classes are not measured yet.
+0 of 25 classes are not measured yet.
 
 | What you can ask for | Can Eclipse do it today? | Proof | What is missing |
 |---|---|---|---|
@@ -72,3 +72,4 @@ reason, never omitted.
 | `capability.class.codeIntel` | `capability.status.yes` | graded through `harness.code.intel.manager` | — |
 | `capability.class.codeChatRouting` | `capability.status.yes` | graded through `harness.code.request_intent` | — |
 | `capability.class.contextCompaction` | `capability.status.yes` | graded through `harness.compaction` | — |
+| `capability.class.codeShellExec` | `capability.status.yes` | graded through `harness.code.shell` | — |
