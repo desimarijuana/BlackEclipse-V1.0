@@ -119,9 +119,21 @@ async def _boot() -> None:
 
     service._drift_watch = DriftWatcher(service)
     await service._drift_watch.start()
+    # The unattended RSL session: on a cadence, ONE measured surface session
+    # stages its winner as an inert candidate. Off by default
+    # (HARNESS_RSL_SESSION_SECONDS=0); it never lands anything.
+    from .self_improvement.session_watch import SessionWatcher  # noqa: PLC0415
+
+    service._rsl_session_watch = SessionWatcher(service)
+    await service._rsl_session_watch.start()
     # Native Automation Engine (ADR-H152): one durable scheduler/trigger router
     # beside the three TS refresh loops, which stay exactly as they are.
     await service.start_automation()
+    # The gallery: a local catalogue of published strategies. Registered here so
+    # the agent and the UI share ONE catalogue.
+    from .gallery.bootstrap import install_gallery_layer
+
+    install_gallery_layer(service)
     # Project auto-run: a project may act on its own, but only where its policy
     # says so (off by default) and only inside that policy's budget. It runs
     # COMPUTE tools only; it can never act on the world by itself. The loop and
@@ -262,6 +274,9 @@ async def _shutdown() -> None:
     drift_watch = getattr(service, "_drift_watch", None)
     if drift_watch is not None:
         await drift_watch.stop()
+    session_watch = getattr(service, "_rsl_session_watch", None)
+    if session_watch is not None:
+        await session_watch.stop()
     await stop_events(service)
     await service.stop_automation()
     orchestration = getattr(service, "orchestration", None)

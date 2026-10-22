@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..deps import require_operator, service
@@ -19,6 +19,95 @@ router = APIRouter(tags=["market"])
 
 def _gateway() -> Any:
     return getattr(service, "market_gateway", None)
+
+
+class BackfillBody(BaseModel):
+    symbols: list[str] = Field(default_factory=list)
+    interval: str = "1d"
+    start: Optional[str] = None
+    end: Optional[str] = None
+    provider: Optional[str] = None
+    adjusted: bool = True
+    maxSymbols: int = 25
+
+
+@router.post("/market/history/backfill")
+async def market_history_backfill(body: BackfillBody,
+                                  _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Bundle history into the local vault: fetch the window once and keep it."""
+    from ..market.tools import backfill_history
+
+    class _Ctx:
+        """The slice of a run context the backfill needs."""
+
+        def __init__(self) -> None:
+            self.market_gateway = getattr(service, "market_gateway", None)
+            self.market_series_store = getattr(service, "market_series_store", None)
+
+    if not body.symbols:
+        raise HTTPException(status_code=422, detail="provide the symbols to bundle")
+    text, payload = await backfill_history({
+        "symbols": body.symbols, "interval": body.interval, "start": body.start,
+        "end": body.end, "provider": body.provider, "adjusted": body.adjusted,
+        "maxSymbols": body.maxSymbols,
+    }, _Ctx())
+    return {"status": payload.get("status", "ok"), "summary": text, **payload}
+
+
+@router.get("/market/history")
+async def market_history(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """The history this machine holds.
+
+    The durable cache is the local copy of the market Eclipse has already paid
+    for: what it covers, how fresh it is, and where it came from. It is the
+    honest answer to "what data do I actually have?".
+    """
+    store = getattr(service, "market_series_store", None)
+    if store is None:
+        return {"available": False,
+                "reason": "the durable history cache is unavailable in this runtime"}
+    try:
+        series = store.list_series(limit=200)
+    except Exception as exc:  # noqa: BLE001 - a read failure is reported
+        return {"available": False, "reason": str(exc)[:200]}
+    return {"available": True, "series": series, "count": len(series)}
+
+
+@router.get("/market/history/{symbol}")
+async def market_history_coverage(symbol: str, interval: str = "1d",
+                                  _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """What the durable cache holds for one instrument."""
+    store = getattr(service, "market_series_store", None)
+    if store is None:
+        return {"available": False,
+                "reason": "the durable history cache is unavailable in this runtime"}
+    try:
+        coverage = store.coverage(symbol, interval)
+    except Exception as exc:  # noqa: BLE001 - a read failure is reported
+        return {"available": False, "reason": str(exc)[:200]}
+    return {"available": True, "coverage": coverage}
+
+
+@router.get("/market/history/{symbol}/bars")
+async def market_history_bars(symbol: str, interval: str = "1d", limit: int = 5_000,
+                              start: Optional[str] = None, end: Optional[str] = None,
+                              _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """The cached bars for one instrument.
+
+    Served from the local copy - no provider is called, so this works offline.
+    """
+    store = getattr(service, "market_series_store", None)
+    if store is None:
+        return {"available": False,
+                "reason": "the durable history cache is unavailable in this runtime"}
+    try:
+        bars = store.get_bars(symbol, interval, start=start, end=end,
+                              limit=max(1, min(int(limit), 100_000)))
+    except Exception as exc:  # noqa: BLE001 - a read failure is reported
+        return {"available": False, "reason": str(exc)[:200]}
+    return {"available": True, "symbol": symbol.upper(), "interval": interval,
+            "bars": bars, "count": len(bars),
+            "source": "durable-cache"}
 
 
 @router.get("/market/providers")

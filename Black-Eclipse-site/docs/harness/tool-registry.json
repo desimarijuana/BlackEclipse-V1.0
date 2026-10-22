@@ -1,7 +1,7 @@
 {
-  "digest": "bc16cdcfda2e4a45",
+  "digest": "92b37cb846e517e2",
   "manifestVersion": "1",
-  "toolCount": 953,
+  "toolCount": 956,
   "tools": [
     {
       "deprecated": false,
@@ -1004,6 +1004,48 @@
         "type": "object"
       },
       "name": "attach_task_artifact",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Bundle history into the local vault: fetch the window once and keep it, so every later run is served from this machine - offline, fast and reproducible. This is how a local-first runtime holds a universe: the user decides what to keep, and the data becomes local. Reports what each symbol now holds and what could not be bundled.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "adjusted": {
+            "type": "boolean"
+          },
+          "end": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "maxSymbols": {
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "symbols"
+        ],
+        "type": "object"
+      },
+      "name": "backfill_history",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -14919,6 +14961,31 @@
     },
     {
       "deprecated": false,
+      "description": "What history this machine already holds: the durable local copy of the market Eclipse has already paid for - which instruments, how many bars, how fresh, and from which provider. With `symbol`, the coverage of that one instrument. Served from the local cache; no provider is called.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "interval": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "symbol": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "history_catalog",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Hybrid search fusing semantic and keyword retrieval (the default). Prefer this unless a specific mode is required.",
       "effect": null,
       "inputSchema": {
@@ -16692,6 +16759,21 @@
         "type": "object"
       },
       "name": "list_strategy_nodes",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Every strategy language Eclipse knows, and whether it can run RIGHT NOW: Pine Script runs in an isolated engine; the other venues name exactly what is missing. Never claims a venue works when it does not.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "name": "list_strategy_venues",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -19885,6 +19967,51 @@
                       "color": {
                         "description": "#rrggbb.",
                         "type": "string"
+                      },
+                      "dataSource": {
+                        "additionalProperties": false,
+                        "description": "WHERE this mark's numbers come from, instead of the numbers themselves. The engine fetches the series through the same market gateway every price comes from. Use it for a market series: a chart that spells out 250 prices is a long message, and a long message gets truncated.",
+                        "properties": {
+                          "end": {
+                            "description": "The window's last day (YYYY-MM-DD).",
+                            "type": "string"
+                          },
+                          "field": {
+                            "description": "Which value the chart draws. The close, by default.",
+                            "enum": [
+                              "close",
+                              "open",
+                              "high",
+                              "low",
+                              "volume"
+                            ],
+                            "type": "string"
+                          },
+                          "interval": {
+                            "description": "The bar size (1d).",
+                            "type": "string"
+                          },
+                          "market": {
+                            "description": "The market the symbol belongs to (US).",
+                            "type": "string"
+                          },
+                          "name": {
+                            "description": "The series name in the legend.",
+                            "type": "string"
+                          },
+                          "start": {
+                            "description": "The window's first day (YYYY-MM-DD).",
+                            "type": "string"
+                          },
+                          "symbol": {
+                            "description": "The instrument (AAPL, ^VIX, GC=F).",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "symbol"
+                        ],
+                        "type": "object"
                       },
                       "fill": {
                         "description": "Fill the area under a line.",

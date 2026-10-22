@@ -98,6 +98,16 @@ The Python runtime never holds a key for REST (the TS adapter does). For a KEYED
 capability and handed to the authenticated runtime — the same trust boundary as
 `mcp_secret_resolve`; the token is never persisted or logged by Python.
 
+## A chart fetches through this gateway too
+
+A chart may NAME the series it draws (`dataSource`: symbol, market, interval,
+window, field) and the chart engine fetches it through THIS gateway — the same
+routing, the same quality checks, the same provenance. Two reasons this is the
+right shape: the reader gets the same numbers a quote would come from, and the
+model never has to carry 250 prices in a message (a long message gets
+truncated, and a truncated chart block is a lost chart). A source that cannot
+be fetched is a named refusal, never a drawn guess.
+
 ## Routing, fallback, health
 
 A refusal carries the WHOLE trail of providers that were tried, in the order

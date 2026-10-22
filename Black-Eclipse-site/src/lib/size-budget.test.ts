@@ -183,7 +183,11 @@ const RATCHET: Record<string, number> = {
     // Re-pinned 1413->1421 for the regression kind and the unknown-kind
   // safety net (an unknown chartType falls back to `auto` instead of
   // invalidating the whole block). May only shrink from here.
-  "src/lib/response/contract.ts": 1421,
+    // Re-pinned 1421->1452 for the pair-carrying marks (a mark's values may be
+  // [x, y] pairs - the way a model writes a point - so a chart block is not
+  // refused over its data format) and the named data source (a chart that
+  // NAMES its series instead of carrying it). May only shrink from here.
+  "src/lib/response/contract.ts": 1452,
 };
 
 export interface SizeEntry {

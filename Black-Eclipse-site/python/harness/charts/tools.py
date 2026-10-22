@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from ..tools import ToolContext, ToolDefinition, ToolRegistry
+from .source import ChartSourceError, resolve_data_sources
 from .render import (
     CHART_RENDER_FAILED,
     CHART_RENDER_UNAVAILABLE,
@@ -184,6 +185,31 @@ def chart_schema() -> dict[str, Any]:
                                     "yAxis": {"type": "string", "enum": ["left", "right"], "description": "Which value axis the mark belongs to (a dual-axis chart)."},
                                     "stack": {"type": "string", "description": "The stack the mark joins."},
                                     "bins": {"type": "integer", "description": "The histogram's bin count."},
+                                    "dataSource": {
+                                        "type": "object",
+                                        "description": (
+                                            "WHERE this mark's numbers come from, instead of the numbers "
+                                            "themselves. The engine fetches the series through the same "
+                                            "market gateway every price comes from. Use it for a market "
+                                            "series: a chart that spells out 250 prices is a long message, "
+                                            "and a long message gets truncated."
+                                        ),
+                                        "properties": {
+                                            "symbol": {"type": "string", "description": "The instrument (AAPL, ^VIX, GC=F)."},
+                                            "market": {"type": "string", "description": "The market the symbol belongs to (US)."},
+                                            "interval": {"type": "string", "description": "The bar size (1d)."},
+                                            "start": {"type": "string", "description": "The window's first day (YYYY-MM-DD)."},
+                                            "end": {"type": "string", "description": "The window's last day (YYYY-MM-DD)."},
+                                            "field": {
+                                                "type": "string",
+                                                "enum": ["close", "open", "high", "low", "volume"],
+                                                "description": "Which value the chart draws. The close, by default.",
+                                            },
+                                            "name": {"type": "string", "description": "The series name in the legend."},
+                                        },
+                                        "required": ["symbol"],
+                                        "additionalProperties": False,
+                                    },
                                 },
                                 "required": ["type"],
                                 "additionalProperties": False,
@@ -214,6 +240,13 @@ async def python_chart(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         spec = ChartSpec(**payload)
     except Exception as exc:  # noqa: BLE001 - a malformed spec is a refusal
         return _refusal(CHART_SPEC_INVALID, f"that chart cannot be described: {exc}")
+
+    # A chart may NAME its series instead of carrying it: the engine fetches
+    # it through the same market gateway every price comes from.
+    try:
+        spec = await resolve_data_sources(spec, ctx)
+    except ChartSourceError as exc:
+        return _refusal(exc.code, exc.reason)
 
     try:
         rendered = render_spec(spec)

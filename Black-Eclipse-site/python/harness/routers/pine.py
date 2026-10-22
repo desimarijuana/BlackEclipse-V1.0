@@ -31,6 +31,14 @@ class PineRunBody(BaseModel):
     seed: int = 42
 
 
+@router.get("/quant/venues")
+async def list_venues_route(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Every strategy language Eclipse knows, and whether it can run now."""
+    from ..quant.venues import list_venues
+
+    return {"venues": list_venues()}
+
+
 @router.get("/quant/pine")
 async def pine_status(_: bool = Depends(require_operator)) -> dict:
     """Whether the Pine engine is installed, and why not when it is not."""

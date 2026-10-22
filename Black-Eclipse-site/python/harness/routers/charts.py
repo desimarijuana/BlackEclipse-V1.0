@@ -24,10 +24,37 @@ from ..charts.render import (
     ChartRenderError,
 )
 from ..charts.service import register_chart_artifact, render_spec
+from ..charts.source import ChartSourceError, resolve_data_sources
 from ..charts.spec import ChartSpec
 from ..deps import require_operator, service
 
 router = APIRouter(tags=["charts"])
+
+
+def _market_ctx() -> Any:
+    """The context a chart's named source is fetched through.
+
+    Outside a run the gateway has no bridge (it is bound per run), so the
+    server bridge is bound here: a chart that names its series is drawn from
+    the same market data a quote would come from.
+    """
+    gateway = getattr(service, "server_market_gateway", None)
+    if callable(gateway):
+        gateway = gateway()
+    if gateway is None:
+        return service
+    return _GatewayCtx(service, gateway)
+
+
+class _GatewayCtx:
+    """A tiny context that carries the gateway the chart's source needs."""
+
+    def __init__(self, ctx: Any, gateway: Any) -> None:
+        self._ctx = ctx
+        self.market_gateway = gateway
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._ctx, name)
 
 
 @router.post("/charts/render")
@@ -49,6 +76,17 @@ async def render_chart_route(
         raise HTTPException(
             status_code=400,
             detail={"code": CHART_SPEC_INVALID, "message": str(exc)},
+        ) from exc
+
+    # A chart may NAME its series instead of carrying it. The engine fetches
+    # it through the same market gateway every price comes from, so a 250-point
+    # chart never has to travel inside a message.
+    try:
+        spec = await resolve_data_sources(spec, _market_ctx())
+    except ChartSourceError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": exc.code, "message": exc.reason},
         ) from exc
 
     try:

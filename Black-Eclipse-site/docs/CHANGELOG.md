@@ -7,6 +7,94 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-21
+- **feat(quant): the backfill says out loud that no subscription is needed.**
+  The durable cache only holds what has been fetched, and the backfill is how
+  you fill it - but the honest question is whether bundling a universe costs
+  money. It does not: the keyless providers (Yahoo Finance, Stooq, Binance,
+  the ECB reference rates, Treasury/FRED) are enough, and the backfill now says
+  so. It names the provider that served each symbol, whether that provider
+  needs a key, and which providers are usable right now with NO credential; a
+  keyed provider that is not configured is reported as needing a key, never as
+  free. The difference between hosting and owning the data: the hosted
+  platform rents you a decade of ticks, this one KEEPS what it fetched, on
+  your machine, and serves it from there forever. Files:
+  python/harness/market/tools.py, python/tests/test_gallery_venues.py. docs
+  updated: docs/quant-engine.md.
+
+- **test(harness): a production smoke test - the real app, the real routes.**
+  The other tests check units. This one starts the actual FastAPI application
+  (the same `harness.main:app` the runtime serves) and asks it the questions
+  a user's first minute would ask: is it alive, what does it hold, what can it
+  run, and does it refuse HONESTLY when something is missing - a request for a
+  report that does not exist must be a named refusal, not a fake success, and a
+  Pine run must say whether the engine is installed. It is deliberately
+  read-only: a smoke test that mutates production state is not a smoke test.
+  Files: python/tests/test_production_smoke.py. no doc change - a test.
+
+- **feat(quant): bundle it, see the venues, and publish it.** Three closers.
+  **(1) The backfill.** The durable cache only holds what has been fetched, so
+  `backfill_history` (tool and POST /market/history/backfill) fetches a window
+  ONCE and keeps it - that is how a local-first runtime holds a universe the way
+  a hosted platform "bundles" one: the user decides what to keep, and every
+  later run is served from the machine. **(2) The venue seam.**
+  `quant/venues.py` makes the multi-DSL promise explicit instead of implied: a
+  venue is a language a strategy can be written in, and each declares whether
+  it can run, what it needs and how to reach its engine. Pine runs (the isolated
+  engine, on Eclipse's bars); NinjaScript, PowerLanguage and EasyLanguage are
+  NAMED gaps that say exactly what is missing - "no NinjaScript engine is
+  installed; the venue needs a C# runtime" - because a venue that never claims
+  to work is better than a promise the runtime cannot keep. The seam exists so
+  that adding a venue is a registration, not a refactor. **(3) The gallery.**
+  `python/harness/gallery/` is the community layer, done honestly for a
+  local-first, single-operator runtime: a catalogue of FROZEN, GRADED
+  strategies. Publishing freezes a strategy and the Edge Report that graded it
+  into an immutable record; cloning copies the spec into the quant store as a
+  NEW strategy, so the published record and the live strategy never share an
+  identity; favouriting counts interest locally. Surfaces: the tools
+  `backfill_history`, `list_strategy_venues`, `publish_strategy`,
+  `list_gallery`, `favourite_published_strategy`, `clone_published_strategy`;
+  the routes /market/history/backfill, /quant/venues and /gallery*; and the
+  Strategy Gallery widget on the Command Center. Files:
+  python/harness/gallery/ (new), python/harness/routers/gallery.py (new),
+  python/harness/quant/venues.py (new), python/harness/market/tools.py,
+  python/harness/routers/market.py, python/harness/boot.py,
+  python/harness/agents.py, src/lib/dashboard/gallery-widget.tsx (new),
+  src/lib/dashboard/registry.tsx, src/app/api/harness/gallery/ (new).
+  Tests: python/tests/test_gallery_venues.py (13),
+  python/tests/test_market_history_cache.py (11). docs updated:
+  docs/quant-engine.md.
+
+- **feat(ui): a global-first Dashboard tab now sits above Command Center.**
+  The new `home` tab (`/?tab=home`, F2 by default) folds market weather,
+  sector/market leadership, portfolio trend health + trend mix, the review
+  queue, portfolio watch, watchlist radar, sector concentration, screener CTAs
+  and the alerts archive into one daily decision surface. It reads real JDDS
+  data only (`/api/regime`, `/api/heatmap`, `/api/global-overview`,
+  `/api/price-history`, `/api/alerts`) plus the existing seeded fund book
+  (labelled **Demo book**). When the explainable regime read is stale or
+  unavailable, the hero falls back to a labelled breadth-derived weather read;
+  the regime card stays honestly **Unavailable**. Files:
+  `src/components/screens/dashboard/home-{dashboard,cards,primitives}.tsx`,
+  `src/lib/dashboard/{use-home-data,home-model}.ts(x)`, plus the `home`
+  AppTab/deep-link/sidebar/search/i18n/mobile-nav wiring and 23 model tests.
+  docs updated: docs/OVERVIEW.md, docs/NAVIGATION.md, docs/ARCHITECTURE.md.
+
+- **feat(quant): the local data vault, made visible.** A cache nobody can see
+  is a cache nobody trusts. The **Local History** widget on the Command Center
+  now shows what the machine actually holds - which instruments, how many bars,
+  how fresh, from which provider - with the coverage of one instrument on
+  demand, and the agent can ask the same question through the new
+  `history_catalog` tool. The runtime serves it from the durable cache
+  (`GET /market/history`, `/market/history/{symbol}`,
+  `/market/history/{symbol}/bars`), so it works OFFLINE and can never claim a
+  bar the runtime does not have. Files: python/harness/routers/market.py,
+  python/harness/market/tools.py, python/harness/market/series_store.py,
+  python/harness/market/bootstrap.py, src/lib/dashboard/history-widget.tsx
+  (new), src/lib/dashboard/registry.tsx, src/app/api/market/history/route.ts
+  (new), src/app/api/market/history/[symbol]/route.ts (new). Tests:
+  python/tests/test_market_history_cache.py (11). docs updated:
+  docs/quant-engine.md.
+
 - **feat(quant): the durable history cache - one copy of the history Eclipse
   has already seen.** The gateway cached history IN PROCESS, so every restart
   re-fetched every bar from the provider. The durable half now lives on the ONE
@@ -829,6 +917,47 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   already been tried and went to scrape a page instead.
   Files: `python/harness/prompts.py`, `python/harness/market/{gateway.py,tools.py}`.
   Tests: `python/tests/test_market_refusal_trail.py`. docs updated:
+  `docs/chart-engine.md`, `docs/harness/market-data.md`.
+
+- **fix(chart): a chart may NAME its series, and a mark's points are read the
+  way a model writes them.**
+  A real run of "regress AAPL's daily close over 12 months" produced no chart
+  at all, and the run's own record says why - in the model's words: "The chart
+  did not render. The scatter-plus-regression block I built failed the
+  renderer's schema check on the mark data format, and I've run out of steps
+  to resubmit it." Three separate causes, all fixed:
+  - **A mark's points are read the way a person writes them.** A mark's `y` /
+    `data` now accept a scalar, an `[x, y]` pair (the pair carries its own x)
+    or an object with named fields - `{i: 1, close: 188.7}` (a field named
+    like an x is the x, one named like a y is the y; when the names say
+    nothing, the first two numeric fields are the point, in order). The engine
+    splits a pair into its x and its y. A chart that refuses a point over its
+    FORMAT is a chart the reader never sees.
+  - **A chart may NAME its series instead of carrying it.** A mark (or a whole
+    chart block) may set a `dataSource` - `{symbol, market?, interval?,
+    start?, end?, field?, name?}` - and the engine fetches that series through
+    the SAME market gateway every price comes from, then draws and fits it. A
+    chart that spells out 250 prices is a long message, and a long message
+    gets truncated: the block stops being valid and the chart is lost with no
+    diagnostic. With a named source the model writes ~200 characters and the
+    reader gets the real 251-bar series, fitted (R2 = 0.687 on AAPL over
+    2025-10-22..2026-10-21). A source that cannot be fetched is a named
+    refusal, never a guess. The chart route binds the server bridge to the
+    gateway (the bridge is bound per RUN, so a route outside a run had none).
+  - **The agent is told not to fetch a market series into its own context.**
+    The market tool's text result is truncated by design (a 251-bar series
+    arrives as its first 30 and last 10 bars), so a model that tries to fit
+    the series itself is fitting a fraction of it. The chart fetches the
+    series; the model does not.
+  Verified in the real app: the same request now answers with a live chart -
+  the points, the fitted line and the legend "Series fit (R2 = 0.687)" - in
+  14 steps and a 1 KB block (was 24 steps and a 3.8 KB block that was lost).
+  Files: `python/harness/charts/{scene.py,source.py,tools.py,spec.py}`,
+  `python/harness/routers/charts.py`, `python/harness/service.py`,
+  `src/lib/response/{contract.ts,normalize.ts,chart-spec.ts}`,
+  `src/lib/harness/charts.ts`, `python/harness/prompts.py`. Tests:
+  `python/tests/test_chart_{pairs,source}.py`,
+  `src/lib/response/chart-{pairs,point-shapes,source}.test.ts`. docs updated:
   `docs/chart-engine.md`, `docs/harness/market-data.md`.
 
 ## 2026-10-20
@@ -2521,6 +2650,70 @@ umpy/pandas are **already installed** in the runtime and the analysis
   `python/tests/test_surface_candidate.py` (4). Docs updated:
   `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/decisions.md`
   (ADR-H291).
+- **feat(rsl): the live lab tier - a prompt can only be measured with a real
+  model (v3 P5 slice 3).** The lab has two tiers and they are not
+  interchangeable. The scripted tier (the default) replays a deterministic
+  answer: it proves the harness path works and it CANNOT see a prompt change,
+  because a scripted answer does not depend on the prompt - so it reports
+  "flat" and no winner, which is the honest result, not a gap. The live tier
+  (`npm run rsl:lab -- --live --provider <p> --model <m>`, credential from
+  `HARNESS_EVAL_API_KEY`) runs the SAME measured path with a real model: the
+  runtime never guesses a provider, a model or a key, and a live run without
+  explicit settings is refused before it starts. The live tier is the only tier
+  in which the lab's verdict about a PROMPT change means anything. Files:
+  `python/harness/self_improvement/{surface_lab,verifier}.py`. Tests:
+  `python/tests/test_surface_lab.py` (the live tier reaches the invoker with the
+  explicit settings; the test run stays deterministic). Docs updated:
+  `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/decisions.md`
+  (ADR-H292), `docs/QUICKSTART.md`.
+- **feat(rsl): the whole remaining list, in one pass (v3 P2/P3/P4/P5 + the
+  evidence program).**
+  - **The conductor now improves its OWN harness.** `HARNESS_RSL_SURFACE_LAB=on`
+    makes the `auto` tick run ONE measured surface session
+    (`self_improvement/lab_runner.py`) and STAGE the winner as an inert
+    candidate. The surface budget is SEPARATE from the code budget
+    (`HARNESS_RSL_MAX_SURFACE_EXPERIMENTS_PER_DAY`), so exploring the harness
+    is never starved by (or starves) the code experiments.
+  - **The session can run unattended.** `HARNESS_RSL_SESSION_SECONDS` starts
+    the session watcher inside the runtime (the drift-watch pattern): one bounded
+    session per cadence, bounded by the surface budget, staging evidence only.
+  - **The lab searches the WHOLE surface**, not just the prompt: guidance
+    variants from the adopted lessons, a context-policy variant and a
+    guardrail variant.
+  - **Two more runtime guardrails**: `no_fabricated_url` (the answer may only
+    cite a URL a TOOL returned) and `require_source_for_numbers` (a number
+    needs a source, or the answer must say the data was unavailable).
+  - **The corpus gate has a live tier** (`npm run rsl:nightly -- --live
+    --provider <p> --model <m>`): the corpus answered by a real model, compared
+    against a committed live baseline. The scripted tier stays the default.
+  - **The corpus is 88 tasks** (was 76): `adversarial_v1` (12) and
+    `finance_v1` (13) grew, and `research_v1` (4) joined - the SOURCE-DISCIPLINE
+    set where the PROMPT decides the answer (cite the source you used, say when
+    the data is not there, present a conflict, carry the as-of date). Those four
+    are live-only on purpose: a scripted answer does not depend on the prompt,
+    so the scripted tier reports them UNMEASURED rather than pretending.
+  - **The operator sees the loop's own work**: the weekly card now shows what
+    Eclipse tried on itself, with a "check it again" button that queues a
+    staged candidate for the loop's verification; the digest remembers the last
+    one and reports the week-over-week change; `GET /evolution/replay/digest`
+    reports how much REAL-RUN evidence the store holds.
+  - **Verification hygiene**: `npm run test:rsl` runs the RSL slice in ~80
+    seconds; `npm run check:all` is the gate of record (this repo has no
+    working remote CI - the workflows live in a subfolder GitHub never reads).
+  - **Two decisions, recorded**: the loop stays `off` by default (zero-config
+    must not write), and the size ratchets keep their history (the real fix is
+    splitting the hot files, not moving the pins).
+  Files: `python/harness/self_improvement/{lab_runner,session_watch,guardrails,report,config,loop}.py`,
+  `python/harness/evaluation/{nightly,replay_builder}.py`,
+  `python/harness/evaluation/datasets/{adversarial_v1,finance_v1,research_v1}.json`,
+  `python/harness/routers/evolution_report.py`,
+  `src/components/screens/skills/rsl-lab-card.tsx` (new),
+  `src/app/api/evolution/surface-lab/**` (new), `scripts/test-python.js`,
+  `package.json`. Tests: `test_rsl_session.py`, `test_rsl_guardrails.py`,
+  `test_surface_lab.py`, `test_rsl_digest.py`. Docs updated:
+  `docs/self-improvement/rsl-v3-plan.md`, `docs/harness/agent-evaluation.md`,
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H292),
+  `docs/QUICKSTART.md`.
 
 ## 2026-10-19
 

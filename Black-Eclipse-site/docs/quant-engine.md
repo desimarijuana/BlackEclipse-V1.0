@@ -675,6 +675,73 @@ Two rules keep it honest:
   pins its window is served from the cache; an open-ended request refetches the
   tail.
 
+### Seeing it: the local data vault
+
+A cache nobody can see is a cache nobody trusts. The **Local History** widget on
+the Command Center shows what the machine actually holds - which instruments,
+how many bars, how fresh, from which provider - and the coverage of one
+instrument on demand. The runtime's own routes serve it
+(`GET /market/history`, `/market/history/{symbol}`, `/market/history/{symbol}/bars`),
+the agent can ask the same question through the `history_catalog` tool, and the
+bars are served from the local copy, so it works offline.
+
+### Bundling it: the backfill ? no subscription required
+
+The durable cache only holds what has been fetched. `backfill_history` (tool
+and `POST /market/history/backfill`) fetches a window **once** and keeps it, so
+a local-first runtime can hold a universe the way a hosted platform "bundles"
+one: the user decides what to keep, and every later run is served from the
+machine.
+
+**No paid data tier is needed.** The keyless providers ? Yahoo Finance, Stooq,
+Binance, the ECB reference rates, Treasury/FRED ? are enough to bundle a real
+universe, and the backfill says so out loud: it names the provider that served
+each symbol, whether that provider needs a key, and which providers are usable
+right now with **no** credential. A keyed provider that is not configured is
+reported as needing a key, never as free.
+
+That is the difference between hosting and owning the data: the hosted
+platform rents you a decade of ticks; this one *keeps* what it fetched, on
+your machine, and serves it from there forever.
+
+## The venues ? one seam, four languages
+
+`quant/venues.py` makes the multi-DSL promise explicit instead of implied. A
+**venue** is a language a strategy can be written in, and each one declares
+whether it can run, what it needs, and how to reach its engine:
+
+| Venue | Engine | State |
+|---|---|---|
+| `pine` | `pine-engine` (pinets), isolated | **runs** ? the bars come from Eclipse |
+| `ninjascript` | ? | named gap: *no NinjaScript engine is installed; the venue needs a C# runtime* |
+| `powerlanguage` | ? | named gap: *no PowerLanguage engine is installed* |
+| `easylanguage` | ? | named gap: *no EasyLanguage engine is installed* |
+
+A venue never claims to work. `available` is False and `reason` says exactly
+what is missing, until an engine is actually installed and probed. The seam
+exists so that adding a venue is a **registration, not a refactor**.
+
+Surfaces: the tool `list_strategy_venues`; the route `GET /quant/venues`.
+
+## The gallery ? a local catalogue of published strategies
+
+`python/harness/gallery/` is the community layer, done honestly for a
+local-first, single-operator runtime. QuantPad has a community of strangers; a
+local runtime cannot, and pretending to would be a lie. What it CAN have is the
+part that matters: a catalogue of **frozen, graded** strategies.
+
+- **publish** freezes a strategy ? and optionally the Edge Report that graded
+  it ? into an immutable record. The live strategy may move on; the published
+  record does not.
+- **clone** copies a published spec into the quant store as a **new**
+  strategy. The published record and the live strategy never share an
+  identity, and the original is untouched.
+- **favourite** counts interest locally.
+
+Surfaces: the tools `publish_strategy`, `list_gallery`,
+`favourite_published_strategy`, `clone_published_strategy`; the routes
+`/gallery*`; and the **Strategy Gallery** widget on the Command Center.
+
 ## The Edge Report (`quant/edge_report.py`)
 
 The verdict, the regimes and the Monte-Carlo used to be three answers in three
