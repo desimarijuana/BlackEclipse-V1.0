@@ -34,6 +34,7 @@ from .sdk.tools import SDK_TOOLS
 # drift from what is registered.
 from .quant.tools import QUANT_TOOLS
 from .projects.tools import PROJECT_TOOLS
+from .gallery.tools import GALLERY_TOOLS
 from .stats.tools import STATS_TOOLS
 # The shared quantitative-research data tools (verification, resampling,
 # alignment, versioned datasets). Registered by `market/bootstrap.py`; imported as
@@ -328,9 +329,11 @@ ECLIPSE_AGENT = AgentConfig(
         "get_quote",
         "get_historical_prices",
         "get_ohlcv",
-        # The local data vault: what history this machine already holds. Served
-        # from the durable cache, so it works offline.
+        # The local data vault: what history this machine already holds, and how
+        # to bundle more of it. Served from the durable cache, so it works
+        # offline.
         "history_catalog",
+        "backfill_history",
         "get_volume",
         "get_orderbook",
         "get_trades",
@@ -352,6 +355,7 @@ ECLIPSE_AGENT = AgentConfig(
         # verified datasets.
         *QUANT_TOOLS,
     *PROJECT_TOOLS,
+    *GALLERY_TOOLS,
         # The pine-script tools ride in through `*QUANT_TOOLS` (which now splats
         # `PINE_TOOLS`), so they are declared EXACTLY ONCE. Splatting them here
         # as well declared `run_pine_script` twice and broke the durable

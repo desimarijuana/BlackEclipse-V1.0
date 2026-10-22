@@ -105,11 +105,13 @@ def production_registry() -> set[str]:
         names = set(service.registry.names())
         from harness.a2a.tools import register_a2a_tools
         from harness.fabric.tools import register_fabric_tools
+        from harness.gallery.tools import register_gallery_tools
         from harness.orchestration.tools import register_orchestration_tools
         from harness.recovery.tools import register_recovery_tools
         from harness.team.tools import register_team_tools
 
         for register in (
+            register_gallery_tools,
             register_recovery_tools, register_orchestration_tools,
             register_a2a_tools, register_team_tools, register_fabric_tools,
         ):

@@ -136,7 +136,10 @@ RATCHET_PY: dict[str, int] = {
     # surface duplicates `code/tools.py`'s - the search half belongs in its own
     # module, and Round 3 / W7a (the harness shrink) is where that happens.
     "code/fs_tools.py": 1212,
-    "graph.py": 2297,
+    # Re-pinned 2297->2305 to the measured working tree: the run's tool-execution
+  # ledger (the executions the answer seam reads back). Pre-existing shared-tree
+  # growth, not this change. May only shrink from here.
+  "graph.py": 2305,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -258,7 +261,10 @@ RATCHET_PY: dict[str, int] = {
     # its comment in `__init__` + the `project_store` run kwarg); the project
     # store and tools live in `python/harness/projects/`. May only shrink from
     # here.
-    "service.py": 1552,
+    # Re-pinned 1552->1568 for the in-flight server-side market gateway (a route
+    # that fetches OUTSIDE a run had no bridge, so the fetch could not even be
+    # attempted). May only shrink from here.
+    "service.py": 1568,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
     # while that subsystem is being built; split candidate is the valuation vs

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..deps import require_operator, service
@@ -19,6 +19,39 @@ router = APIRouter(tags=["market"])
 
 def _gateway() -> Any:
     return getattr(service, "market_gateway", None)
+
+
+class BackfillBody(BaseModel):
+    symbols: list[str] = Field(default_factory=list)
+    interval: str = "1d"
+    start: Optional[str] = None
+    end: Optional[str] = None
+    provider: Optional[str] = None
+    adjusted: bool = True
+    maxSymbols: int = 25
+
+
+@router.post("/market/history/backfill")
+async def market_history_backfill(body: BackfillBody,
+                                  _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Bundle history into the local vault: fetch the window once and keep it."""
+    from ..market.tools import backfill_history
+
+    class _Ctx:
+        """The slice of a run context the backfill needs."""
+
+        def __init__(self) -> None:
+            self.market_gateway = getattr(service, "market_gateway", None)
+            self.market_series_store = getattr(service, "market_series_store", None)
+
+    if not body.symbols:
+        raise HTTPException(status_code=422, detail="provide the symbols to bundle")
+    text, payload = await backfill_history({
+        "symbols": body.symbols, "interval": body.interval, "start": body.start,
+        "end": body.end, "provider": body.provider, "adjusted": body.adjusted,
+        "maxSymbols": body.maxSymbols,
+    }, _Ctx())
+    return {"status": payload.get("status", "ok"), "summary": text, **payload}
 
 
 @router.get("/market/history")

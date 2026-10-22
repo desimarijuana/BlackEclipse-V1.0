@@ -1220,9 +1220,8 @@ QUANT_TOOLS: tuple[str, ...] = (
     "simulate_slippage", "simulate_spread", "simulate_market_impact",
     "run_out_of_sample_test", "run_bootstrap_test", "compare_backtests",
     "run_multiple_testing_diagnostics", "price_option", "implied_volatility",
-    "analyze_option_strategy", "build_continuous_contract",
-    "run_regime_monte_carlo", "grade_strategy_edge", "analyse_trade_log", "run_prop_firm_simulation",
-    "list_prop_firm_rules", "generate_edge_report", *PINE_TOOLS,
+    "analyze_option_strategy", "build_continuous_contract", "run_regime_monte_carlo", "grade_strategy_edge", "analyse_trade_log",
+    "list_strategy_venues", "run_prop_firm_simulation", "list_prop_firm_rules", "generate_edge_report", *PINE_TOOLS,
     )
 
 

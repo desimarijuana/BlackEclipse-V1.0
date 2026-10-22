@@ -896,6 +896,24 @@ async def _bars_for_symbols(ctx: Any, symbols: list[str],
     return out
 
 
+async def list_strategy_venues(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Every strategy language Eclipse knows, and whether it can run now."""
+    t = _t()
+    try:
+        from .venues import list_venues
+
+        venues = list_venues()
+        lines = []
+        for venue in venues:
+            state = "available" if venue["available"] else "unavailable"
+            detail = "" if venue["available"] else f" - {venue['reason']}"
+            lines.append(f"{venue['id']}: {state}{detail}")
+        return ("\n".join(lines), {"status": "OK", "venues": venues,
+                                    "count": len(venues)})
+    except Exception as exc:  # noqa: BLE001
+        return t._err(exc)
+
+
 # ── Registration ─────────────────────────────────────────────────────────────
 
 def register_advanced_tools(registry: Any) -> list[str]:
@@ -1111,6 +1129,12 @@ def register_advanced_tools(registry: Any) -> list[str]:
          "before running a prop-firm simulation.",
          list_prop_firm_rules, {"type": "object", "properties": {}, "required": []})
 
+    _def("list_strategy_venues",
+         "Every strategy language Eclipse knows, and whether it can run RIGHT NOW: "
+         "Pine Script runs in an isolated engine; the other venues name exactly "
+         "what is missing. Never claims a venue works when it does not.",
+         list_strategy_venues, {"type": "object", "properties": {},
+                                 "required": []}, 30_000)
     _def("analyse_trade_log",
          "Read a closed-trade log against the conditions in which each entry "
          "happened: every entry is placed on the regime of its entry bar (the same "

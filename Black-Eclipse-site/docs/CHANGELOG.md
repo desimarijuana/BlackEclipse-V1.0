@@ -7,6 +7,54 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-21
+- **feat(quant): bundle it, see the venues, and publish it.** Three closers.
+  **(1) The backfill.** The durable cache only holds what has been fetched, so
+  `backfill_history` (tool and POST /market/history/backfill) fetches a window
+  ONCE and keeps it - that is how a local-first runtime holds a universe the way
+  a hosted platform "bundles" one: the user decides what to keep, and every
+  later run is served from the machine. **(2) The venue seam.**
+  `quant/venues.py` makes the multi-DSL promise explicit instead of implied: a
+  venue is a language a strategy can be written in, and each declares whether
+  it can run, what it needs and how to reach its engine. Pine runs (the isolated
+  engine, on Eclipse's bars); NinjaScript, PowerLanguage and EasyLanguage are
+  NAMED gaps that say exactly what is missing - "no NinjaScript engine is
+  installed; the venue needs a C# runtime" - because a venue that never claims
+  to work is better than a promise the runtime cannot keep. The seam exists so
+  that adding a venue is a registration, not a refactor. **(3) The gallery.**
+  `python/harness/gallery/` is the community layer, done honestly for a
+  local-first, single-operator runtime: a catalogue of FROZEN, GRADED
+  strategies. Publishing freezes a strategy and the Edge Report that graded it
+  into an immutable record; cloning copies the spec into the quant store as a
+  NEW strategy, so the published record and the live strategy never share an
+  identity; favouriting counts interest locally. Surfaces: the tools
+  `backfill_history`, `list_strategy_venues`, `publish_strategy`,
+  `list_gallery`, `favourite_published_strategy`, `clone_published_strategy`;
+  the routes /market/history/backfill, /quant/venues and /gallery*; and the
+  Strategy Gallery widget on the Command Center. Files:
+  python/harness/gallery/ (new), python/harness/routers/gallery.py (new),
+  python/harness/quant/venues.py (new), python/harness/market/tools.py,
+  python/harness/routers/market.py, python/harness/boot.py,
+  python/harness/agents.py, src/lib/dashboard/gallery-widget.tsx (new),
+  src/lib/dashboard/registry.tsx, src/app/api/harness/gallery/ (new).
+  Tests: python/tests/test_gallery_venues.py (13),
+  python/tests/test_market_history_cache.py (11). docs updated:
+  docs/quant-engine.md.
+
+- **feat(ui): a global-first Dashboard tab now sits above Command Center.**
+  The new `home` tab (`/?tab=home`, F2 by default) folds market weather,
+  sector/market leadership, portfolio trend health + trend mix, the review
+  queue, portfolio watch, watchlist radar, sector concentration, screener CTAs
+  and the alerts archive into one daily decision surface. It reads real JDDS
+  data only (`/api/regime`, `/api/heatmap`, `/api/global-overview`,
+  `/api/price-history`, `/api/alerts`) plus the existing seeded fund book
+  (labelled **Demo book**). When the explainable regime read is stale or
+  unavailable, the hero falls back to a labelled breadth-derived weather read;
+  the regime card stays honestly **Unavailable**. Files:
+  `src/components/screens/dashboard/home-{dashboard,cards,primitives}.tsx`,
+  `src/lib/dashboard/{use-home-data,home-model}.ts(x)`, plus the `home`
+  AppTab/deep-link/sidebar/search/i18n/mobile-nav wiring and 23 model tests.
+  docs updated: docs/OVERVIEW.md, docs/NAVIGATION.md, docs/ARCHITECTURE.md.
+
 - **feat(quant): the local data vault, made visible.** A cache nobody can see
   is a cache nobody trusts. The **Local History** widget on the Command Center
   now shows what the machine actually holds - which instruments, how many bars,

@@ -492,6 +492,94 @@ def _render_stream(snapshot: Any) -> str:
 
 # ── Registration ────────────────────────────────────────────────────────────
 
+async def backfill_history(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Fill the local vault: fetch history once and keep it.
+
+    This is how a local-first runtime "bundles" data: the user decides which
+    universe to hold, Eclipse fetches it once, and every later run is served
+    from the machine - offline, fast and reproducible.
+    """
+    from .series_store import get_series_store
+
+    gateway = getattr(ctx, "market_gateway", None)
+    store = getattr(ctx, "market_series_store", None) or get_series_store()
+    if gateway is None:
+        return ("The market data layer is unavailable in this runtime.",
+                {"status": "unavailable",
+                 "reason": "the market data layer is unavailable"})
+    if store is None:
+        return ("The durable history cache is unavailable in this runtime.",
+                {"status": "unavailable",
+                 "reason": "the durable history cache is unavailable"})
+
+    symbols = [str(s).strip() for s in (args.get("symbols") or []) if str(s).strip()]
+    if not symbols:
+        return ("Provide the `symbols` to bundle.",
+                {"status": "error", "reason": "at least one symbol is required"})
+    max_symbols = max(1, min(int(args.get("maxSymbols") or 25), 100))
+    symbols = symbols[:max_symbols]
+    interval = str(args.get("interval") or "1d")
+    start = args.get("start")
+    end = args.get("end")
+    provider = args.get("provider")
+    adjusted = bool(args.get("adjusted", True))
+
+    added: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    for symbol in symbols:
+        try:
+            before = store.coverage(symbol, interval, adjusted=adjusted)
+            result = await gateway.get_historical_prices(
+                symbol, None, start=start, end=end, interval=interval,
+                adjusted=adjusted, provider=provider)
+        except Exception as exc:  # noqa: BLE001 - one symbol must not stop the run
+            failed.append({"symbol": symbol, "reason": str(exc)[:200]})
+            continue
+        if isinstance(result, str) or not hasattr(result, "bars"):
+            failed.append({"symbol": symbol,
+                           "reason": "the provider returned no series"})
+            continue
+        bars = list(getattr(result, "bars", []) or [])
+        if not bars:
+            failed.append({"symbol": symbol, "reason": "no bars in the window"})
+            continue
+        rows = [_bar_row(bar) for bar in bars]
+        written = store.save_bars(symbol, interval,
+                                   str(getattr(result, "provider", "") or "unknown"),
+                                   adjusted, rows)
+        after = store.coverage(symbol, interval, adjusted=adjusted)
+        added.append({
+            "symbol": symbol,
+            "barsWritten": written,
+            "barsHeld": after.get("barCount"),
+            "start": after.get("start"),
+            "end": after.get("end"),
+            "wasHolding": before.get("barCount"),
+        })
+
+    held = sum(int(a.get("barsHeld") or 0) for a in added)
+    lines = [f"{a['symbol']}: {a['barsHeld']} bars held "
+             f"({a['start']} ? {a['end']})" for a in added]
+    if failed:
+        lines.append(f"{len(failed)} symbol(s) could not be bundled: "
+                     + ", ".join(f"{f['symbol']}" for f in failed))
+    if not lines:
+        return ("Nothing could be bundled.", {"status": "error", "added": added,
+                                             "failed": failed})
+    return ("Bundled " + "; ".join(lines) + f" - {held} bars held locally.",
+            {"status": "ok", "added": added, "failed": failed,
+             "barsHeld": held, "count": len(added)})
+
+
+def _bar_row(bar: Any) -> dict[str, Any]:
+    """A bar as the durable store wants it, whether it is a model or a dict."""
+    if isinstance(bar, dict):
+        return {k: bar.get(k) for k in
+                ("timestamp", "open", "high", "low", "close", "volume", "vwap")}
+    return {k: getattr(bar, k, None) for k in
+            ("timestamp", "open", "high", "low", "close", "volume", "vwap")}
+
+
 async def history_catalog(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     """What history this machine already holds."""
     from .series_store import get_series_store
@@ -538,6 +626,24 @@ def register_market_tools(registry: Any) -> None:
             handler=handler, permission="read", risk="low", timeout_ms=timeout,
         ))
 
+    _def(
+        "backfill_history",
+        "Bundle history into the local vault: fetch the window once and keep it, so "
+        "every later run is served from this machine - offline, fast and "
+        "reproducible. This is how a local-first runtime holds a universe: the user "
+        "decides what to keep, and the data becomes local. Reports what each symbol "
+        "now holds and what could not be bundled.",
+        backfill_history,
+        {"type": "object", "properties": {
+            "symbols": {"type": "array", "items": {"type": "string"}},
+            "interval": {"type": "string"},
+            "start": {"type": "string"}, "end": {"type": "string"},
+            "provider": {"type": "string"},
+            "adjusted": {"type": "boolean"},
+            "maxSymbols": {"type": "integer"}},
+            "required": ["symbols"]},
+        300_000,
+    )
     _def(
         "history_catalog",
         "What history this machine already holds: the durable local copy of the "
