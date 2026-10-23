@@ -7,6 +7,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **ci(rsl): a quarterly rotation reminder that cannot write a dataset.**
+  Added `.github/workflows/rsl-rotation.yml`: quarterly schedule plus dispatch,
+  resolves and validates the quarter label, runs
+  `node scripts/rsl-rotate.js --json` (dry run), publishes the plan to the step
+  summary and fails when `plan.ok` is false. It never passes `--apply`, and it
+  proves the dry run left the corpus tree unchanged. `--json`
+  now keeps stdout pure JSON (the human dry-run note goes to stderr) so the
+  plan can be redirected and parsed. Files: `.github/workflows/rsl-rotation.yml`,
+  `python/harness/evaluation/rotation.py`,
+  `python/tests/test_evaluation_rotation.py`.
+  docs updated: `docs/harness/agent-evaluation.md`,
+  `docs/self-improvement/rsl-v4-plan.md`, `docs/CHANGELOG.md`.
 - **feat(rsl-ui): corpus and autonomy cards on the RSL control panel.**
   Added typed runtime calls and Next proxies for `GET /evolution/corpus`, the
   rotation preview, autonomy status/pause/resume/decide and the state

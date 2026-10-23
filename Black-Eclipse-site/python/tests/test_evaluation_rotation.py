@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import json
 
-from harness.evaluation.rotation import apply_rotation, plan_rotation, render_plan
+from harness.evaluation.rotation import (
+    apply_rotation,
+    main,
+    plan_rotation,
+    render_plan,
+)
 
 
 def _task(task_id, split):
@@ -136,3 +141,35 @@ def test_render_plan_names_every_move(tmp_path):
     assert "2026Q1" in text
     for move in plan["moves"]:
         assert move["taskId"] in text
+
+
+def test_json_dry_run_is_machine_readable(tmp_path, capsys):
+    _write(tmp_path)
+    code = main([
+        "--quarter", "2026Q1", "--count", "2",
+        "--datasets-dir", str(tmp_path), "--json",
+    ])
+    captured = capsys.readouterr()
+    assert code == 0
+    payload = json.loads(captured.out)
+    assert payload["ok"] is True
+    assert payload["quarter"] == "2026Q1"
+    assert "dry run" in captured.err
+
+
+def test_json_is_emitted_even_when_the_plan_is_not_applicable(tmp_path, capsys):
+    payload = {
+        "datasetName": "only-validation",
+        "datasetVersion": "1",
+        "schemaVersion": 1,
+        "tasks": [_task("v1", "validation")],
+    }
+    (tmp_path / "v.json").write_text(json.dumps(payload), encoding="utf-8")
+    code = main([
+        "--quarter", "2026Q1", "--datasets-dir", str(tmp_path), "--json",
+    ])
+    captured = capsys.readouterr()
+    assert code == 1
+    body = json.loads(captured.out)
+    assert body["ok"] is False
+    assert body["reason"] == "no_optimization_tasks"

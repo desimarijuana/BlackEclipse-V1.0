@@ -269,7 +269,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not plan.get("ok"):
         return 1
     if not args.apply:
-        print("\n(dry run; re-run with --apply to write it)")
+        # `--json` is machine-readable: keep stdout pure JSON so a workflow can
+        # redirect it straight into a file. The human note goes to stderr.
+        print(
+            "\n(dry run; re-run with --apply to write it)",
+            file=sys.stderr if args.json else sys.stdout,
+        )
         return 0
     result = apply_rotation(
         plan,
