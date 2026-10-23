@@ -700,6 +700,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   bought a lower number at the cost of the check that the number is honest.
   no doc change — the budget file is the record.
 
+- **revert(eval): drop the minimum-sample rule; it collided with RSL baselines.**
+  `MIN_SAMPLES_FOR_RATE = 5` fixed `safety_score 0.6667` from n=2 by publishing
+  `None` instead - but a surface candidate's baseline is verified through the same
+  metrics, so any baseline with fewer than five measurable trials became
+  `SURFACE_BASELINE_UNMEASURED` and `test_surface_candidate_reuses_a_matching_
+  recorded_baseline` failed. The rule is right and the collision is real: a
+  baseline and a published rate have different sample requirements, and deciding
+  that needs design, not a constant. Reverted rather than special-cased. The
+  preflight stays (it is independent and verified). Budget re-pinned to the
+  actual tree: 381,900 total, 11,475 evaluation.
+  docs updated: none needed.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how
