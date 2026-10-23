@@ -282,6 +282,18 @@ def _is_stale(outcome: SourceOutcome, authority: DataTypeAuthority, request: Fin
         return None
     request_window = max_age_seconds(request.freshnessRequirement)
     window = min(authority.request_window_s, request_window)
+    # D4: a macro series is judged by its NATIVE cadence, not a global 12h
+    # window. A daily Treasury series is legitimately one business day old.
+    if request.dataType == "macro_series":
+        from .freshness import cadence_tolerance_seconds  # noqa: PLC0415
+
+        raw = outcome.raw if isinstance(outcome.raw, dict) else {}
+        window = cadence_tolerance_seconds(
+            raw.get("provider"),
+            raw.get("series") or request.quantity or request.instrument,
+            raw.get("cadence") or raw.get("nativeCadence") or "daily",
+            observation=newest,
+        )
     if window <= 0:
         window = authority.request_window_s
     if age > window:
@@ -310,6 +322,46 @@ def _numeric_groups(objects: list[NormalizedFinancialObject]) -> dict[str, list[
 def _newest(objects: list[NormalizedFinancialObject]) -> str:
     stamps = [str(o.observation_time or o.dataTimestamp) for o in objects if (o.observation_time or o.dataTimestamp)]
     return max(stamps) if stamps else ""
+
+
+_QUOTE_METRICS = ("price", "mid", "rate", "last", "close")
+
+
+def _cross_source_quote_conflict(
+    outcomes: dict[str, SourceOutcome], survivors: list[str],
+    *, tolerance: float = 0.01,
+) -> Optional[str]:
+    """A CONFLICTING reason when two quote sources materially disagree."""
+    from ..market.quality_contract import compare_values  # noqa: PLC0415
+
+    per_source: list[tuple[str, float, Optional[str]]] = []
+    for name in survivors:
+        outcome = outcomes.get(name)
+        if outcome is None:
+            continue
+        for obj in outcome.objects:
+            if obj.name not in _QUOTE_METRICS:
+                continue
+            if isinstance(obj.value, (int, float)) and not isinstance(obj.value, bool):
+                per_source.append((name, float(obj.value),
+                                   obj.dataTimestamp or obj.observation_time))
+                break
+    if len(per_source) < 2:
+        return None
+    base = per_source[0]
+    for other in per_source[1:]:
+        verdict, gap, factor = compare_values(base[1], other[1], tolerance=tolerance)
+        if verdict == "VALID":
+            continue
+        detail = (
+            f"{base[0]}={base[1]} at {base[2] or 'unknown'} vs "
+            f"{other[0]}={other[1]} at {other[2] or 'unknown'} "
+            f"(gap {gap:.1%}, tolerance {tolerance:.1%})"
+        )
+        if verdict == "SCALE_MISMATCH":
+            return f"CONFLICTING (SCALE_MISMATCH x{factor:g}): {detail}"
+        return f"CONFLICTING (DIVERGENT): {detail}"
+    return None
 
 
 def decide_source(
@@ -378,6 +430,16 @@ def decide_source(
     combined: list[NormalizedFinancialObject] = []
     for name in survivors:
         combined.extend(all_outcomes[name].objects)
+
+    # Cross-source price comparison (D1): two providers answering for the same
+    # (symbol, market) at different clocks must still be compared. A 100x gap is
+    # a data/units conflict, not an "explainable timestamp difference", and is
+    # never averaged.
+    if request.dataType == "current_quote":
+        quote_conflict = _cross_source_quote_conflict(all_outcomes, survivors)
+        if quote_conflict is not None:
+            return SourceDecision(None, quote_conflict, rejected)
+
     _chosen, _warnings, unresolved = detect_conflicts(_numeric_groups(combined))
     if unresolved:
         return SourceDecision(
