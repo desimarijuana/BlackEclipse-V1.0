@@ -136,6 +136,42 @@ def _finish(ctx: ToolContext, result: Any) -> tuple[str, Any]:
     The analysis is computed ONCE and shared with the text summary.
     """
     payload = result.model_dump()
+    try:
+        from .market.quality_contract import DataQualityEnvelope
+
+        verdict = {
+            "OK": "VALID", "STALE": "STALE", "CONFLICTING": "DIVERGENT",
+            "UNAVAILABLE": "UNAVAILABLE", "AMBIGUOUS": "UNVERIFIED",
+            "INVALID": "UNAVAILABLE", "PARTIAL": "UNVERIFIED",
+        }.get(str(result.status), "UNVERIFIED")
+        if result.quality == "warning" and verdict == "VALID":
+            verdict = "UNVERIFIED"
+        providers = [r.source for r in result.sourceReferences if r.source]
+        obs = None
+        for item in result.evidence:
+            for obj in getattr(item, "objects", []) or []:
+                if getattr(obj, "observation_time", None) or getattr(obj, "dataTimestamp", None):
+                    obs = obj.observation_time or obj.dataTimestamp
+                    break
+            if obs:
+                break
+        payload["envelope"] = DataQualityEnvelope(
+            provider=",".join(dict.fromkeys(providers)) or None,
+            observationTimestamp=obs,
+            retrievalTimestamp=result.retrievedAt,
+            qualityVerdict=verdict,
+            conflicts=[
+                {
+                    "metric": c.get("metric") or "value",
+                    "candidates": c.get("candidates") or [],
+                }
+                for c in result.conflicts
+            ],
+            stale=bool(getattr(result, "stale", False)),
+            reasonCode=getattr(result, "reasonCode", None),
+        ).to_dict()
+    except Exception:  # noqa: BLE001 - the envelope is additive, never fatal
+        pass
     analysis = None
     try:
         from .finance_facts.analysis import analyze_result
@@ -261,6 +297,49 @@ def _render_data(data: Any) -> str:
 
 
 async def market_get_quote(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    # D3: FX has ONE canonical resolver. Every FX entry point (get_fx_rate,
+    # get_currency_conversion, market_get_quote) routes through the same gateway
+    # method, so all three return the same instrument, rate and timestamp (or
+    # the same named refusal).
+    from .market.errors import MarketError
+    from .market.gateway import MarketDataGateway
+    from .market.instruments import classify_identifier
+
+    symbol = str(args.get("symbol", "")).strip().upper()
+    market = (str(args["market"]).strip().upper() if args.get("market") else None)
+    kind = classify_identifier(symbol, market)
+    if kind.get("kind") == "fx":
+        gateway = getattr(ctx, "market_gateway", None) or MarketDataGateway(
+            getattr(ctx, "data_bridge", None)
+        )
+        try:
+            ctx.market_gateway = gateway  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            pass
+        fx = await gateway.get_fx_rate(
+            base=kind.get("base"), quote=kind.get("quote"), symbol=symbol,
+            freshness="realtime",
+        )
+        if isinstance(fx, MarketError):
+            return (f"UNAVAILABLE — {fx.code}: {fx.message}",
+                    {"status": "UNAVAILABLE", "error": fx.to_dict(),
+                     "reasonCode": fx.code, "qualityVerdict": "UNAVAILABLE"})
+        rate = fx.mid or fx.rate
+        return (
+            f"FX {fx.base}/{fx.quote}: {rate} (provider {fx.meta.provider})",
+            {"status": "OK", "rate": rate, "base": fx.base, "quote": fx.quote,
+             "timestamp": fx.meta.event_time, "asOf": fx.meta.event_time,
+             "provider": fx.meta.provider, "qualityVerdict": "VALID",
+             "instrumentId": fx.meta.instrument_id,
+             "envelope": {"value": rate, "unit": "rate", "currency": fx.quote,
+                          "provider": fx.meta.provider,
+                          "observationTimestamp": fx.meta.event_time,
+                          "retrievalTimestamp": fx.meta.retrieved_at,
+                          "nativeCadence": "realtime", "qualityVerdict": "VALID",
+                          "conflicts": [], "routesSkipped": [], "stale": False,
+                          "reasonCode": None}},
+        )
+
     request = FinancialRetrievalRequest(
         objective=str(args.get("objective") or f"latest quote for {args.get('symbol', '')}"),
         dataType="current_quote",
@@ -387,6 +466,29 @@ async def research_retrieve_source(args: dict[str, Any], ctx: ToolContext) -> tu
             {"status": "UNAVAILABLE", "url": url, "category": category},
         )
     text = str(payload.get("text") or "")[:6000]
+    # D11: "fetched but zero text" is IMAGE_ONLY, never an empty success. If OCR
+    # is not available, say OCR_UNAVAILABLE and name the missing capability.
+    if not text.strip():
+        _record_fetched(ctx, url=url, title=None, ok=False)
+        from .vision.ocr import ocr_available
+
+        if ocr_available():
+            return (
+                f"IMAGE_ONLY — {url} was fetched but has no extractable text "
+                "(scanned/image-only document). It was NOT read; it has been routed "
+                "to the OCR path.",
+                {"status": "IMAGE_ONLY", "url": url, "text": "",
+                 "documentStatus": "IMAGE_ONLY", "ocrAvailable": True,
+                 "reasonCode": "IMAGE_ONLY"},
+            )
+        return (
+            f"OCR_UNAVAILABLE — {url} was fetched but has no extractable text "
+            "(scanned/image-only document), and this runtime has no OCR capability. "
+            "The document was NOT read; do not treat it as evidence.",
+            {"status": "OCR_UNAVAILABLE", "url": url, "text": "",
+             "documentStatus": "IMAGE_ONLY", "ocrAvailable": False,
+             "missingCapability": "OCR", "reasonCode": "OCR_UNAVAILABLE"},
+        )
     title = payload.get("title") or url
     extraction = payload.get("extraction")
     language = payload.get("language")
