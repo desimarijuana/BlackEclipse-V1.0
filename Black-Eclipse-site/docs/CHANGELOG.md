@@ -24,7 +24,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   H293-H302 to H316-H325 so H310-H315 stay reserved for the Round 4 plan;
   `scripts/check-adr-numbers.js` now reserves that range, and every doc reference
   was updated. Raised the harness size ceilings to the measured merged tree
-  (381,872 total; `.` 24,845; routers 17,212; evaluation 11,447), pinned
+  (381,881 total; `.` 24,845; routers 17,212; evaluation 11,456), pinned
   `graph.py` at 2,323, regenerated the tool registry (957 tools) and benchmarks,
   and included the read-only corpus/rotation routes
   (`python/harness/routers/evolution_corpus.py`, its test, the `main.py`
