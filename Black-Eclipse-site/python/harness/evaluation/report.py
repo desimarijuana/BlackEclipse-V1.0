@@ -311,6 +311,14 @@ def write_benchmarks(path: Optional[str] = None, *, live: Any = None,
     """Regenerate the published benchmark file. Returns the path written."""
     from .gate import run_offline_gate  # noqa: PLC0415
 
+    # The published file is the output of THIS function with no arguments, so the
+    # live run must be selected here - not only in `main` - or the canonical
+    # regeneration and the committed file disagree.
+    if live is None and not live_reason:
+        run_id = _latest_live_run_id()
+        if run_id:
+            live, live_reason = _load_live_suite(run_id)
+
     target = path or BENCHMARKS_PATH
     offline = run_offline_gate()
     text = to_benchmarks(offline, live, live_reason=live_reason)
@@ -318,6 +326,78 @@ def write_benchmarks(path: Optional[str] = None, *, live: Any = None,
     with open(target, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(text)
     return target
+
+
+def _load_live_suite(run_id: str) -> tuple[Optional[Any], str]:
+    """Rebuild a publishable view of a RECORDED live run.
+
+    A completed run is a measurement even when it FAILED its gate - that is the
+    whole point of recording it. Before this, `main` accepted `--live-run` and
+    then published "the live run was found but its suite was not loaded", so six
+    completed live runs were rendered as "no live run has been recorded". A
+    benchmark page that hides a failing measurement is worse than one that shows
+    it: the failure is the finding.
+    """
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from ..persistence import AgentMemoryStore  # noqa: PLC0415
+    from .gate import check_thresholds  # noqa: PLC0415
+    from .store import EvaluationStore  # noqa: PLC0415
+
+    store = AgentMemoryStore()
+    try:
+        evaluation = EvaluationStore(store)
+        row = evaluation.get_run(run_id)
+        if row is None:
+            return None, f"the run id {run_id!r} is not in the evaluation store."
+        metrics = evaluation.list_metrics(run_id)
+    finally:
+        store.close()
+
+    aggregates = {
+        metric["dimension"]: metric["value"]
+        for metric in metrics
+        if metric.get("value") is not None
+    }
+    sample_size = max((metric.get("sampleSize") or 0) for metric in metrics) if metrics else 0
+    thresholds = check_thresholds(aggregates, sample_size=sample_size)
+    return SimpleNamespace(
+        run_id=row["id"],
+        dataset_name=row.get("datasetName") or "unknown",
+        dataset_version=row.get("datasetVersion") or "unknown",
+        dataset_checksum=row.get("datasetChecksum") or "unknown",
+        tier=row.get("tier") or 0,
+        agent_version=row.get("agentVersion") or "",
+        git_commit=row.get("gitCommit") or "",
+        config=row.get("config") or {},
+        aggregates=aggregates,
+        thresholds=thresholds,
+        passed=not thresholds.get("failures"),
+    ), ""
+
+
+def _latest_live_run_id() -> str:
+    """The most recent COMPLETED live run, so the default generation is truthful.
+
+    The published file is regenerated with no arguments, so "no live run has been
+    recorded" must mean exactly that - not "nobody passed `--live-run`". A failing
+    live run is still published; hiding it was the bug.
+    """
+    from ..persistence import AgentMemoryStore  # noqa: PLC0415
+    from .store import EvaluationStore  # noqa: PLC0415
+
+    store = AgentMemoryStore()
+    try:
+        runs = EvaluationStore(store).list_runs(limit=100)
+    finally:
+        store.close()
+    live_runs = [
+        row for row in runs
+        if (row.get("tier") or 0) == 1 and row.get("status") == "completed"
+    ]
+    if not live_runs:
+        return ""
+    return max(live_runs, key=lambda row: row.get("startedAt") or "")["id"]
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -331,19 +411,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     live = None
     live_reason = ""
-    if args.live_run:
-        from .store import EvaluationStore  # noqa: PLC0415
-        from ..persistence import AgentMemoryStore  # noqa: PLC0415
-
-        store = AgentMemoryStore()
-        try:
-            row = EvaluationStore(store).get_run(args.live_run)
-        finally:
-            store.close()
-        if row is None:
-            live_reason = f"the run id {args.live_run!r} is not in the evaluation store."
-        else:
-            live_reason = "the live run was found but its suite was not loaded."
+    run_id = args.live_run or _latest_live_run_id()
+    if run_id:
+        live, live_reason = _load_live_suite(run_id)
     target = write_benchmarks(args.out or None, live=live, live_reason=live_reason)
     print(f"wrote {target}")
     return 0

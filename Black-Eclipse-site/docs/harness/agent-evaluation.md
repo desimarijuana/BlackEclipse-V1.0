@@ -367,10 +367,16 @@ always names the tier, provider, model, prompt hash, corpus checksum and verdict
 
 ```bash
 npm run rsl:nightly -- --live --provider <p> --model <m> \
+  --limit 10 --max-cost 5 \
   --write-live-baseline --publish
 ```
 
-The three live-baseline flags require `--live`.
+The three live-baseline flags require `--live`. A live session is also refused
+before any request unless it names a positive `--max-cost`; `--limit N` runs
+only the first N tasks (hard bound 500). Both are recorded in the report as
+`limit`, `maxCostUsd` and `estimatedWorstCaseTrials`, so a bounded smoke run is
+distinguishable from a full one. `--publish` with no value resolves to the app
+root's `docs/self-improvement` — never the Python child's `cwd` (`python/`).
 
 **Held_out rotation.** A task a candidate has seen is no longer a clean canary.
 `evaluation/rotation.py` plans a quarter's rotation deterministically (the seed
@@ -385,6 +391,12 @@ manifest. Re-applying the same quarter is a no-op.
 npm run rsl:rotate -- --quarter 2026Q1          # plan only
 npm run rsl:rotate -- --quarter 2026Q1 --apply  # write it
 ```
+
+**Read-only operator surfaces.** `GET /evolution/corpus` returns the compact
+committed manifest, its verification and the authoring audit;
+`GET /evolution/corpus/rotation?quarter=...&count=...` returns a rotation
+PREVIEW. Neither writes a dataset; rotation apply stays a deliberate CLI
+action.
 
 ## 8. Adding tasks
 

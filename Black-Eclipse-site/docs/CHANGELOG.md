@@ -7,18 +7,32 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **safety(evaluation): the live nightly is bounded and capped before it spends.**
+  `--limit N` runs only the first N tasks (hard bound 500) and a positive
+  `--max-cost USD` is required for `--live`; both are validated before any task
+  is sent and recorded in the report (`limit`, `maxCostUsd`,
+  `estimatedWorstCaseTrials`). `--publish` with no value now resolves to the app
+  root's `docs/self-improvement` instead of the Python child's cwd. Files:
+  `python/harness/evaluation/nightly.py`, `scripts/rsl-nightly.js`,
+  `python/tests/test_evaluation_nightly.py`.
+  docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
 - **merge(harness): origin/main's Round 3/4 work landed on the local tree.**
-  Merged 21 upstream commits (Round 3/4, v0.2.0) and resolved the three content
-  conflicts in `docs/harness/decisions.md`, `package.json` and
-  `python/tests/test_size_budget.py`. The local RSL v4 / notebook decisions
-  moved from H293-H302 to H316-H325 so H310-H315 stay reserved for the Round 4
-  plan; `scripts/check-adr-numbers.js` now reserves that range, and every doc
-  reference was updated. Raised the harness size ceilings to the measured
-  merged tree (381,722 total; `.` 24,843; routers 17,125; evaluation 11,386),
-  pinned `graph.py` at 2,323, and regenerated the tool registry (957 tools) and
-  benchmarks. `npx tsc --noEmit` clean; lint 0 errors; ADR and size gates pass;
-  full suite 8,223 passed / 27 skipped, with only the two
-  stale-generated-artifact failures, both regenerated and their 15 tests green.
+  Merged 22 upstream commits (Round 3/4, v0.2.0, and the live-eval publishing
+  fix) and resolved the content conflicts in `docs/harness/decisions.md`,
+  `package.json`, `python/tests/test_size_budget.py` and the generated
+  `docs/harness/benchmarks.md`. The local RSL v4 / notebook decisions moved from
+  H293-H302 to H316-H325 so H310-H315 stay reserved for the Round 4 plan;
+  `scripts/check-adr-numbers.js` now reserves that range, and every doc reference
+  was updated. Raised the harness size ceilings to the measured merged tree
+  (381,872 total; `.` 24,845; routers 17,212; evaluation 11,447), pinned
+  `graph.py` at 2,323, regenerated the tool registry (957 tools) and benchmarks,
+  and included the read-only corpus/rotation routes
+  (`python/harness/routers/evolution_corpus.py`, its test, the `main.py`
+  registration and the `agent-evaluation.md` note). `npx tsc --noEmit` clean;
+  lint 0 errors; ADR and size gates pass; full suite 8,223 passed / 27 skipped,
+  with only the two stale-generated-artifact failures, both regenerated and
+  their 15 tests green; the follow-up eval-publishing merge's affected
+  benchmark/public/size tests (15) also pass.
   docs updated: `docs/harness/decisions.md`,
   `docs/harness/roadmap/round-4-gap-closure.md`,
   `docs/harness/agent-evaluation.md`, `docs/NAVIGATION.md`,
@@ -609,6 +623,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   environment, so they are recorded as an operations issue rather than a harness
   defect.
   no doc change — diagnosability and retry class only, no contract change.
+
+- **fix(eval): the published benchmarks show the live run that exists.** The
+  generator accepted `--live-run <id>` and then never loaded the suite, so it
+  published *"no live run has been recorded"* while six completed live runs sat in
+  the store. `_load_live_suite` now rebuilds the publishable view from the
+  `EvaluationRun` row plus its metrics and recomputes the thresholds with the same
+  `check_thresholds` the live gate uses. `write_benchmarks()` selects the most
+  recent completed live run itself, so the canonical regeneration and the
+  committed file agree - which the `generated not hand-edited` test enforces.
+  The live tier now publishes `deepseek-v4.1-flash:cloud` with gate **FAIL** and
+  its real dimensions (`task_success 0.0`, `tool_accuracy 0.2985`,
+  `planning_quality 0.9872`, `safety_score 0.6667`, `reliability 1.0`). A failing
+  measurement is published, not hidden - that is the point of recording it.
+  docs updated: docs/harness/benchmarks.md.
 
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
