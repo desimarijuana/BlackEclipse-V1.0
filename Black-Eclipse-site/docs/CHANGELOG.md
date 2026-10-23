@@ -660,6 +660,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   reproducible live measurement is committed instead of a number nobody else can
   regenerate. docs updated: docs/harness/benchmarks.md.
 
+- **chore(ownership): CODEOWNERS names a real owner.** Round 4 / V3. The twelve
+  harness paths were assigned to `@harness-owner`/`@code-owner`/`@docs-owner` -
+  names that resolve to nobody. They are now `@desimarijuana`, so every path has
+  an owner who can be requested for review. The file states plainly what this does
+  NOT do: one person reviewing their own work is not a second pair of eyes, so the
+  external-review criterion stays open.
+  no doc change — ownership metadata, recorded here.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how

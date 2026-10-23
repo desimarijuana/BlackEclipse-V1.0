@@ -4,15 +4,16 @@
 # see: a tool that quietly stops being reachable, a policy that stops
 # narrowing, a size that grows back. These paths get a second pair of eyes.
 #
-# NOTE: the owner names are PLACEHOLDERS until a second human is
-# confirmed. An unresolved owner is still better than none - the request
-# is visible, and the point of this file is that the path is OWNED.
+# NOTE: `@desimarijuana` is the sole owner today. That makes every path OWNED
+# and reviewable, which is what this file is for. It does NOT satisfy the
+# "second pair of eyes" criterion - one person reviewing their own work is not
+# a second reviewer. That stays open until a second human is named.
 
-/Black-Eclipse-site/python/harness/            @harness-owner
-/Black-Eclipse-site/python/harness/code/       @harness-owner @code-owner
-/Black-Eclipse-site/python/harness/graph.py     @harness-owner
-/Black-Eclipse-site/python/harness/persistence.py @harness-owner
-/Black-Eclipse-site/python/harness/tools.py     @harness-owner
-/Black-Eclipse-site/docs/harness/               @harness-owner @docs-owner
-/Black-Eclipse-site/python/tests/               @harness-owner
-/.github/workflows/                             @harness-owner
+/Black-Eclipse-site/python/harness/            @desimarijuana
+/Black-Eclipse-site/python/harness/code/       @desimarijuana
+/Black-Eclipse-site/python/harness/graph.py     @desimarijuana
+/Black-Eclipse-site/python/harness/persistence.py @desimarijuana
+/Black-Eclipse-site/python/harness/tools.py     @desimarijuana
+/Black-Eclipse-site/docs/harness/               @desimarijuana
+/Black-Eclipse-site/python/tests/               @desimarijuana
+/.github/workflows/                             @desimarijuana
