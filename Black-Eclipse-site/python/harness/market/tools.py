@@ -238,6 +238,8 @@ def _finish(ctx: Any, result: Any, capability: str) -> tuple[str, Any]:
             credential_note = (
                 " That provider needs a credential it does not have - do not try it again."
             )
+        from .quality_contract import DataQualityEnvelope
+
         return (
             f"UNAVAILABLE — {result.code}: {result.message}"
             + (f" (provider={result.provider})" if result.provider else "")
@@ -245,11 +247,26 @@ def _finish(ctx: Any, result: Any, capability: str) -> tuple[str, Any]:
             + trail
             + credential_note
             + next_route,
-            {"status": "UNAVAILABLE", "error": result.to_dict(), "nextRoute": "scraper_run"},
+            {"status": "UNAVAILABLE", "error": result.to_dict(), "nextRoute": "scraper_run",
+             "qualityVerdict": "UNAVAILABLE", "reasonCode": result.code,
+             "envelope": DataQualityEnvelope(
+                 provider=result.provider,
+                 qualityVerdict="UNAVAILABLE",
+                 routesSkipped=(result.detail or {}).get("providers") or [],
+                 reasonCode=result.code,
+             ).to_dict()},
         )
     _collect(ctx, result, capability)
     _persist(ctx, result, capability)
-    return _render(result, capability), {"status": result.meta.data_status, **result.to_dict()}
+    from .quality_contract import envelope_from_record
+
+    payload = {"status": result.meta.data_status, **result.to_dict()}
+    envelope = envelope_from_record(result)
+    payload["qualityVerdict"] = envelope.qualityVerdict
+    payload["envelope"] = envelope.to_dict()
+    if result.conflict:
+        payload["conflict"] = result.conflict
+    return _render(result, capability), payload
 
 
 # ── Handlers ────────────────────────────────────────────────────────────────

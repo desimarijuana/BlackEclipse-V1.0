@@ -7,6 +7,33 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **feat(stock detail): more charts and web-backed source verification.**
+  Added 1Y price-trend and drawdown charts so the panel shows sourced data even
+  when a symbol has no fundamentals, and made every unavailable chart render as
+  a card with its reason instead of collapsing the section. The intelligence
+  route now resolves the listing market from JDdS (the screener can omit
+  country, e.g. EMAAR was being requested as US) and falls back from Yahoo to
+  Stooq for US daily closes. Added `GET /api/stocks/[symbol]/verification`,
+  which reuses the existing web-search transport to check identity, listing,
+  filings and a quote cross-check; official hosts are required for `VERIFIED`,
+  snippets only ever `CORROBORATE`, and results are cached for 30 minutes.
+  Files: `src/lib/stock-intelligence/{types,charts,verification,use-stock-verification}.ts`,
+  `src/lib/scraper/stooq-chart.ts`, `src/app/api/stocks/[symbol]/{intelligence,verification}/route.ts`,
+  `src/components/screens/stock-detail/{charts/intelligence-panel.tsx,verification-panel.tsx}`,
+  `src/components/screens/tradingview-chart.tsx`, tests alongside each module.
+  `npx tsc --noEmit` clean; targeted Vitest 20/20 pass; lint 0 errors.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **fix(harness): twelve data-integrity defects closed in retrieval/routing.**
+  Added the shared `DataQualityEnvelope` (VALID/STALE/DIVERGENT/SCALE_MISMATCH/
+  UNAVAILABLE/UNVERIFIED), cross-source price comparison with both candidates
+  preserved, statement period-age + cache-key versioning, one FX pair resolver,
+  cadence-aware freshness (business days + holidays), provider health read from
+  the recorded run ledger, breaker-demoted routes with provenance, capability
+  mismatch blocks + CI allowlist, undated-news filtering, bounded retry/body
+  cache/success-rate for research fetches, Levenshtein tool suggestions, and
+  IMAGE_ONLY/OCR_UNAVAILABLE document handling. Evidence in `HARNESS_FIXES.md`
+  and `scripts/repro_{baseline,after}.txt`.
+  docs updated: `docs/harness/market-data.md`, `docs/CHANGELOG.md`.
 - **docs(nav): NAVIGATION covers the corpus, rotation, live-baseline and
   supervised-change surfaces.** Updated the evaluation row (338 tasks — 263
   oracle-backed + 75 exemptions, plus `corpus.py` / `contamination.py` /
@@ -16,6 +43,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   operator-triggered apply with the CLI, routes, UI cards and the quarterly
   workflow. Files: `docs/NAVIGATION.md`.
   docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(desktop): the icon now opens `blackeclipse`, with a visible boot console
+  and a fast start.** `scripts/start-desktop.js` manages the production profile
+  (`black eclipse --restart`: built Next on 3100 behind the local proxy),
+  restarts an unmanaged instance so tab-close owns its lifecycle, and opens
+  `https://blackeclipse` (http fallback). `start-eclipse.vbs` runs it with a
+  visible console that closes when the tab closes; closing the console by hand
+  stops the server. Desktop launches set `BE_DESKTOP_FAST`, and `doctor.js`
+  skips the optional Python/browser/sandbox probes; the first launch still
+  rebuilds. Files: `scripts/start-desktop.js`, `start-eclipse.vbs`,
+  `scripts/doctor.js`.
+  docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
 - **ci(rsl): a quarterly rotation reminder that cannot write a dataset.**
   Added `.github/workflows/rsl-rotation.yml`: quarterly schedule plus dispatch,
   resolves and validates the quarter label, runs
@@ -51,17 +89,6 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/harness/decisions.md`, `docs/self-improvement/rsl-v4-plan.md`.
   docs updated: `docs/harness/decisions.md`,
   `docs/self-improvement/rsl-v4-plan.md`, `docs/CHANGELOG.md`.
-- **fix(evaluation): the nightly report can no longer contradict its exit code.**
-  Moved the report write to the end of `run_nightly`, after the live comparison,
-  promotion and baseline write; a live regression used to set `ok=False` after
-  the PASS file was already on disk (and the file omitted those results).
-  `GET /evolution/corpus` now also exposes `oracleExemptCount`. Size ceilings
-  raised 5 lines (382,030 total; evaluation 11,603; routers 17,214). Files:
-  `python/harness/evaluation/nightly.py`,
-  `python/harness/routers/evolution_corpus.py`,
-  `python/tests/{test_evaluation_nightly,test_evolution_corpus_routes}.py`,
-  `scripts/size-budget.json`.
-  docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
 - **data(evaluation): the first live-tier baseline is pinned.**
   Recorded `ollama` / `deepseek-v4.1-flash:cloud` on the validation split of the
   338-task corpus (244 tasks, dataset checksum `d6375ca4…`, prompt hash
@@ -72,6 +99,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   smoothed. Cost reads 0.0 because `ollama/*` is priced free/local. Files:
   `python/harness/evaluation/baselines/live_v1.json`,
   `docs/self-improvement/rsl-report-2026-10-23.md`.
+  docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
+- **fix(evaluation): the nightly report can no longer contradict its exit code.**
+  Moved the report write to the end of `run_nightly`, after the live comparison,
+  promotion and baseline write; a live regression used to set `ok=False` after
+  the PASS file was already on disk (and the file omitted those results).
+  `GET /evolution/corpus` now also exposes `oracleExemptCount`. Size ceilings
+  raised 5 lines (382,030 total; evaluation 11,603; routers 17,214). Files:
+  `python/harness/evaluation/nightly.py`,
+  `python/harness/routers/evolution_corpus.py`,
+  `python/tests/{test_evaluation_nightly,test_evolution_corpus_routes}.py`,
+  `scripts/size-budget.json`.
   docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
 - **data(evaluation): 338-task corpus with 263 real oracles and 75 documented
   exemptions.** Added `metadata.oracleExempt` + `oracleReason` (task or dataset
@@ -141,6 +179,76 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   not a fixed size. `python/tests/test_evaluation_export.py`.
   no canonical doc change — test-only; the rolling-window rotation moved the
   2026-10-16 section into `docs/changelog/2026-10.md`.
+
+- **ui(stock detail): the overlay is compact and chart-led.** Reworked the
+  full-screen stock detail overlay into a compact header + key-statistics band,
+  one Interactive/History chart card, a collapsible AI brief, tabbed
+  fundamentals, clamped news, merged Technical & Risk, merged profile +
+  leadership, and a header glossary. Fixed overlay stacking above the chat dock,
+  restored blur, contained rail overscroll, made the glossary clear the mobile
+  header, and added explicit history loading/empty/error states. Forward P/E now
+  comes from the selected stock; history ranges read `1M/3M/6M` and volume labels
+  no longer collide. Kept `market-overview.tsx` at its 2,760-line ratchet by
+  keeping the new prop on the existing line. Files:
+  `src/components/screens/tradingview-chart.tsx`,
+  `src/components/screens/company/sections.tsx`,
+  `src/components/screens/fundamentals/panel.tsx`,
+  `src/components/screens/market-overview.tsx`, `src/app/globals.css`.
+  `npx tsc --noEmit` clean; Vitest 384 files / 3828 tests pass; lint 0 errors;
+  size budget pass. no canonical doc change — presentation-only; no contract or
+  data-shape change. docs updated: `docs/CHANGELOG.md`.
+
+- **chore(evaluation): regenerated the published benchmark after the 2026Q4
+  rotation.** The rotation changed the benchmark checksum, so
+  `test_published_benchmarks` failed; `npm run eval:benchmarks` rewrote
+  `docs/harness/benchmarks.md` from a fresh offline gate, and the targeted
+  benchmark + watcher tests now pass (37). Files: `docs/harness/benchmarks.md`.
+  docs updated: `docs/harness/benchmarks.md`, `docs/CHANGELOG.md`.
+
+- **fix(home): removed the dead space below the dashboard footer.** The home
+  dashboard root carried `pb-24`; its mobile clearance is already supplied by
+  `#main-content`, so the extra 96px left a large empty band under the footer.
+  Reduced to `pb-6`. File: `src/components/screens/dashboard/home-dashboard.tsx`.
+  no doc change — spacing-only fix with no contract or architecture impact.
+
+- **fix(windows): child processes no longer open console windows on server
+  start.** Node's `spawn`/`exec*` default to `windowsHide: false`, so the
+  auto-started Python harness, port checks, and doctor probes could pop a
+  `cmd.exe` window on Windows. Set `windowsHide: true` on the harness spawn,
+  Python resolver, launcher/server spawns, doctor, and kill-port. Files:
+  `src/lib/harness/python-runtime.ts`, `src/lib/scraper/fetchers/python.ts`,
+  `scripts/local-host.js`, `scripts/lib/server.js`, `scripts/doctor.js`,
+  `scripts/kill-port.js`.
+  no doc change — process-launch detail, no contract or architecture change.
+
+- **feat(desktop): silent launcher that stops the server when the tab closes.**
+  Added `scripts/start-desktop.js` (probe known app URLs, start `npm run dev`
+  detached with no stdio, wait for HTTP, open `?desktop=1`) and
+  `start-eclipse.vbs` (windowless wrapper). `<DesktopSession />` beacons
+  `alive`/`leave` to `/api/desktop/session`; the launcher watches the beacon
+  file and kills the process tree ~20s after the tab closes, with a reload grace
+  window. The route is inert unless `BE_DESKTOP_HEARTBEAT_FILE` is set, so
+  console-launched servers are unaffected. A `Black Eclipse` Desktop shortcut
+  points at the VBS. Files: `scripts/start-desktop.js`, `start-eclipse.vbs`,
+  `src/components/layout/desktop-session.tsx`,
+  `src/app/api/desktop/session/route.ts`, `src/app/layout.tsx`.
+  docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
+
+- **feat(stock-detail): sourced market-intelligence charts on the company overlay.**
+  Added a read-only `GET /api/stocks/[symbol]/intelligence` route that fans out
+  to the existing fundamentals service and Yahoo daily closes, then returns
+  three derived charts: 6M return vs the home-market benchmark, trailing P/E at
+  each fiscal year-end, and earnings surprise. Every chart carries a provenance
+  block and an explicit `UNAVAILABLE` reason instead of invented points; web/AI
+  facts are deliberately excluded from historical numeric series. The overlay
+  mounts a new `Market intelligence` section between the price chart and the AI
+  brief, with `SourceBadge` provenance chips and a 5-minute server cache.
+  Files: `src/lib/stock-intelligence/{types,charts,use-stock-intelligence}.ts`,
+  `src/app/api/stocks/[symbol]/intelligence/route.ts`,
+  `src/components/screens/stock-detail/charts/{intelligence-panel,source-badge}.tsx`,
+  `src/components/screens/tradingview-chart.tsx`,
+  `src/lib/stock-intelligence/charts.test.ts`.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 
 ## 2026-10-22
 - **fix(chat): a sent paste stays visible in the transcript.** A long paste is

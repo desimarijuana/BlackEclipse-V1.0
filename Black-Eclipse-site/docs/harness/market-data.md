@@ -1,7 +1,7 @@
 ---
 title: Market Data Layer
 status: Current
-last-verified: 2026-10-13
+last-verified: 2026-10-23
 ---
 
 # Market Data Layer
@@ -154,6 +154,33 @@ Errors use the closed vocabulary in `errors.py`
 duplicate timestamps, gaps, >50% outlier bars, freshness vs the requested class.
 An **invalid** finding withholds the value (the gateway tries the next provider);
 a **warning** is surfaced on `meta.warnings`. The engine never repairs silently.
+
+### The shared quality contract (`market/quality_contract.py`)
+
+Every market, fundamental, macro and FX result carries a
+`DataQualityEnvelope` with ONE verdict vocabulary:
+
+`VALID | STALE | DIVERGENT | SCALE_MISMATCH | UNAVAILABLE | UNVERIFIED`.
+
+* `VALID` requires agreement among every source that answered, a provider, and
+  an observation inside its cadence tolerance. A `VALID` result may not carry a
+  conflict, a stale timestamp or zero providers (enforced by
+  `evaluate_envelope_invariants`).
+* Two providers answering for the same `(symbol, market, timestamp basis)` are
+  compared with a configurable relative tolerance
+  (`HARNESS_MARKET_CONFLICT_TOLERANCE`, default 1%). A material gap is
+  `DIVERGENT`; a near-round ratio (2/10/100/1000) is `SCALE_MISMATCH` with the
+  suspected factor named. **Both** values, providers and timestamps ride in
+  `conflicts[]`; nothing is averaged and no winner is chosen automatically.
+* The conflict is written to the market quality ledger, and
+  `get_data_provenance` surfaces it for the symbol.
+* `stale` and `reasonCode` are machine-readable; a consumer never has to parse
+  a warning string.
+
+Statement periods have their own age contract (annual 548 days, quarterly 150
+days, measured from the **period end**, not the cache write). An out-of-cadence
+period is `STALE` with `periodEnd`/`periodAgeDays`; the TS cache key carries
+`STATEMENT_CACHE_VERSION` so a poisoned entry is not re-served.
 
 ## Freshness & caching
 
