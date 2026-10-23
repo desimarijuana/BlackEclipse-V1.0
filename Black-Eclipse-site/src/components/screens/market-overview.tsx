@@ -2717,7 +2717,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
         <TradingViewChart
           symbol={selectedAnalysisStock.symbol}
           stockName={selectedAnalysisStock.name}
-          peRatio={selectedAnalysisStock.peRatio}
+          peRatio={selectedAnalysisStock.peRatio} forwardPE={selectedAnalysisStock.forwardPE}
           marketCap={selectedAnalysisStock.marketCap}
           dividendYield={selectedAnalysisStock.dividendYield}
           shortFloat={selectedAnalysisStock.shortFloat}

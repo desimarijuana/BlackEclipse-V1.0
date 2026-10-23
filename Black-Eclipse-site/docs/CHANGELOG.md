@@ -7,6 +7,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **chore(stock detail): ship the intelligence + verification slice.** Committed
+  the five-chart market-intelligence panel, JDdS listing-market resolution,
+  Yahoo→Stooq price fallback, and the web-backed identity/listing/filing/quote
+  verification route and panel. Checks: `npx tsc --noEmit` clean; targeted
+  Vitest 20/20; changed-file ESLint 0 errors. Files:
+  `src/app/api/stocks/[symbol]/{intelligence,verification}/route.ts`,
+  `src/lib/stock-intelligence/`, `src/lib/scraper/stooq-chart.ts`,
+  `src/components/screens/stock-detail/`,
+  `src/components/screens/tradingview-chart.tsx`.
+  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
 - **feat(stock detail): more charts and web-backed source verification.**
   Added 1Y price-trend and drawdown charts so the panel shows sourced data even
   when a symbol has no fundamentals, and made every unavailable chart render as

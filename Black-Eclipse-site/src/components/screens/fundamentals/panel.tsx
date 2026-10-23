@@ -73,7 +73,7 @@ export function FundamentalsBody({ data, section, onSectionChange, compact }: Fu
 // the single-page company detail experience (Sections D/E/F/H).
 export function FundamentalsFull({ data, compact }: { data: FundamentalsSnapshot; compact?: boolean }) {
   return (
-    <div className={cn('flex flex-col', compact ? 'gap-8' : 'gap-10')}>
+    <div className={cn('flex flex-col', compact ? 'gap-5' : 'gap-8')}>
       <section>
         <SectionHead title="Financial overview" desc="Signals and highlights derived from the reported statements." />
         <OverviewSection data={data} compact={compact} />
@@ -160,11 +160,11 @@ function ProvenanceChip({ provenance }: { provenance: FundamentalsSnapshot['prov
 function OverviewSection({ data, compact }: { data: FundamentalsSnapshot; compact?: boolean }) {
   const latest = data.periods[data.periods.length - 1] ?? null;
   return (
-    <div className={cn('flex flex-col', compact ? 'gap-6' : 'gap-8')}>
+    <div className={cn('flex flex-col', compact ? 'gap-5' : 'gap-6')}>
       {data.insights.length > 0 && (
         <section>
           <SectionHead title="Signal" desc="Generated from the actual statements — each point names its evidence." />
-          <div className={cn('grid gap-3', compact ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3')}>
+          <div className={cn('grid gap-3', compact ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3')}>
             {data.insights.map((insight) => (
               <InsightCard key={insight.id} insight={insight} />
             ))}
@@ -177,7 +177,7 @@ function OverviewSection({ data, compact }: { data: FundamentalsSnapshot; compac
         <MetricGrid metrics={data.metrics} keys={OVERVIEW_KEYS} currency={data.currency} compact={compact} />
       </section>
 
-      <section className={cn('grid grid-cols-1 gap-5', compact ? '' : 'xl:grid-cols-2')}>
+      <section className={cn('grid grid-cols-1 gap-4', compact ? 'md:grid-cols-2' : 'xl:grid-cols-2')}>
         <ChartCard title="Revenue trend" hint={latest ? fiscalLabel(latest.endDate) : ''}>
           <RevenueChart data={data} />
         </ChartCard>
@@ -192,7 +192,7 @@ function OverviewSection({ data, compact }: { data: FundamentalsSnapshot; compac
         </ChartCard>
       </section>
 
-      <section className={cn('grid grid-cols-1 gap-5', compact ? '' : 'xl:grid-cols-3')}>
+      <section className={cn('grid grid-cols-1 gap-4', compact ? 'md:grid-cols-2' : 'xl:grid-cols-3')}>
         <ChartCard title="Debt vs cash" hint="Latest period">
           <DebtCashChart periods={data.periods} />
         </ChartCard>
@@ -749,7 +749,7 @@ export function LoadingState() {
 
 export function UnavailableState({ symbol, market, reason }: { symbol: string; market: string; reason: string | null }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-2xl glass-card border border-border/15 py-16 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-2xl glass-card border border-border/15 py-8 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-border/25 bg-white/[0.02]">
         <BarChart3 size={22} className="text-muted-foreground" />
       </div>

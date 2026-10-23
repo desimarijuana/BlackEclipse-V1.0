@@ -6,9 +6,11 @@
 // driven by the parent) so a stock detail page never starts duplicate requests.
 // Nothing here fabricates a value or a citation.
 
+import { useState } from 'react';
 import {
   RefreshCw, ExternalLink, Newspaper, ShieldAlert, AlertTriangle,
   CheckCircle2, HelpCircle, BookOpen, Activity, TrendingUp, Landmark,
+  ChevronDown, ChevronUp,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { TechnicalSnapshot } from '@/lib/company/technical';
@@ -72,12 +74,19 @@ export function AiResearchSection({
   const claims = (detail?.claims ?? []) as ClaimRow[];
   const sources = (detail?.sources ?? []) as SourceRow[];
   const conflicts = (detail?.conflicts ?? []) as unknown[];
+  const [expanded, setExpanded] = useState(false);
 
   const synth = parseSynthesis(detail?.run?.answer);
   const conclusionKeys = ['partially', 'not established', 'conflict', 'gap', 'excluded', 'citation'];
   const sections = variant === 'conclusion'
     ? synth.sections.filter((s) => conclusionKeys.some((k) => s.title.toLowerCase().includes(k)))
     : synth.sections;
+
+  const collapsed = variant === 'brief' && !expanded;
+  const visibleSections = collapsed ? sections.slice(0, 3) : sections;
+  const hiddenSections = sections.length - visibleSections.length;
+  const hasHiddenItems = sections.some((s) => s.items.length > 4);
+  const canCollapse = variant === 'brief' && (sections.length > 3 || hasHiddenItems);
 
   const sourceCount = status?.sourceCount ?? sources.length;
   const evidenceCount = status?.evidenceCount ?? findingsCount(detail);
@@ -119,21 +128,39 @@ export function AiResearchSection({
       {/* Structured synthesis — titled sections instead of a wall of text. */}
       {!running && sections.length > 0 && (
         <div className="space-y-3">
-          {sections.map((s) => (
-            <div key={s.title}>
-              <h3 className={cn('text-[10px] font-bold uppercase tracking-wider mb-1', toneText(s.tone))}>
-                {s.title}
-              </h3>
-              <ul className="space-y-1">
-                {s.items.map((it, i) => (
-                  <li key={i} className="flex gap-2 text-[12px] leading-relaxed text-foreground/90">
-                    <span className={cn('mt-[7px] h-1 w-1 rounded-full shrink-0', toneDot(s.tone))} />
-                    <span>{it}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+          {visibleSections.map((s) => {
+            const items = collapsed ? s.items.slice(0, 4) : s.items;
+            const hiddenItems = s.items.length - items.length;
+            return (
+              <div key={s.title}>
+                <h3 className={cn('text-[10px] font-bold uppercase tracking-wider mb-1', toneText(s.tone))}>
+                  {s.title}
+                </h3>
+                <ul className="space-y-1">
+                  {items.map((it, i) => (
+                    <li key={i} className="flex gap-2 text-[12px] leading-relaxed text-foreground/90">
+                      <span className={cn('mt-[7px] h-1 w-1 rounded-full shrink-0', toneDot(s.tone))} />
+                      <span>{it}</span>
+                    </li>
+                  ))}
+                  {hiddenItems > 0 && (
+                    <li className="text-[10px] text-muted-foreground/70 pl-3">+{hiddenItems} more</li>
+                  )}
+                </ul>
+              </div>
+            );
+          })}
+          {canCollapse && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="inline-flex items-center gap-1 rounded-md border border-border/40 px-2 py-1 text-[10px] font-bold text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            >
+              {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              {expanded
+                ? 'Show less'
+                : `Show full brief${hiddenSections > 0 ? ` · ${hiddenSections} more section${hiddenSections === 1 ? '' : 's'}` : ''}`}
+            </button>
+          )}
         </div>
       )}
 
@@ -384,6 +411,8 @@ function toneDot(tone: SynthTone): string {
 
 // ── Section G: news ──────────────────────────────────────────────────────────
 export function CompanyNewsSection({ news }: { news: CompanyNewsState & { refresh: () => void } }) {
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? news.items : news.items.slice(0, 4);
   return (
     <SectionShell
       icon={<Newspaper size={14} className="text-primary" />}
@@ -399,13 +428,13 @@ export function CompanyNewsSection({ news }: { news: CompanyNewsState & { refres
         <p className="text-[11px] text-muted-foreground">No recent coverage found in the ingested feed for this instrument.</p>
       )}
       <ul className="space-y-2.5">
-        {news.items.map((n) => (
+        {shown.map((n) => (
           <li key={n.id} className="border-b border-border/10 pb-2">
             <a href={n.url || '#'} target="_blank" rel="noreferrer" className="text-[12px] font-semibold hover:text-primary inline-flex items-start gap-1">
               {n.headline} {n.url && <ExternalLink size={10} className="mt-1 shrink-0" />}
             </a>
-            {n.summary && <p className="text-[11px] text-muted-foreground mt-0.5">{n.summary}</p>}
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-[9px] font-mono text-muted-foreground">
+            {n.summary && <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{n.summary}</p>}
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] font-mono text-muted-foreground">
               <span>{n.source}</span>
               <span>· {new Date(n.publishedAt).toLocaleString()}</span>
               {n.sourceCount > 1 && <span>· {n.sourceCount} outlets</span>}
@@ -416,12 +445,21 @@ export function CompanyNewsSection({ news }: { news: CompanyNewsState & { refres
           </li>
         ))}
       </ul>
+      {news.items.length > 4 && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="inline-flex items-center gap-1 rounded-md border border-border/40 px-2 py-1 text-[10px] font-bold text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+        >
+          {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+          {expanded ? 'Show fewer' : `View all ${news.items.length} headlines`}
+        </button>
+      )}
     </SectionShell>
   );
 }
 
 // ── Section I: technical analysis ────────────────────────────────────────────
-export function TechnicalSection({ tech }: { tech: TechnicalSnapshot }) {
+export function TechnicalSection({ tech, bare = false }: { tech: TechnicalSnapshot; bare?: boolean }) {
   const rows: Array<[string, string, string]> = [
     ['Trend', tech.trend, tech.sma50 != null ? `Last ${num(tech.last)} vs SMA50 ${num(tech.sma50)}` : 'insufficient data'],
     ['RSI (14)', num(tech.rsi14, 1), `State: ${tech.rsiState}`],
@@ -433,17 +471,12 @@ export function TechnicalSection({ tech }: { tech: TechnicalSnapshot }) {
     ['Volume trend', tech.volumeTrend == null ? '—' : `${tech.volumeTrend.toFixed(2)}×`, 'Recent 10 vs 50-bar average'],
     ['Support / Resistance', `${num(tech.support)} / ${num(tech.resistance)}`, '20-bar close min / max'],
   ];
-  return (
-    <SectionShell
-      icon={<Activity size={14} className="text-primary" />}
-      title="Technical analysis"
-      subtitle={tech.asOf ? `as of ${tech.asOf} · ${tech.bars} bars` : undefined}
-      right={<span className="text-[9px] font-mono text-muted-foreground">observed, not a forecast</span>}
-    >
+  const content = (
+    <>
       {tech.bars === 0 ? (
         <p className="text-[11px] text-muted-foreground">No historical series available for technical analysis.</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+        <div className="grid grid-cols-1 gap-x-6 gap-y-2">
           {rows.map(([k, v, note]) => (
             <div key={k} className="flex items-baseline justify-between border-b border-border/10 py-1">
               <span className="text-[11px] text-muted-foreground">{k}</span>
@@ -456,19 +489,25 @@ export function TechnicalSection({ tech }: { tech: TechnicalSnapshot }) {
         </div>
       )}
       <p className="text-[9px] text-muted-foreground/70">Computed deterministically from the fetched OHLCV series. Conditions are observed, not predictions.</p>
+    </>
+  );
+  if (bare) return content;
+  return (
+    <SectionShell
+      icon={<Activity size={14} className="text-primary" />}
+      title="Technical analysis"
+      subtitle={tech.asOf ? `as of ${tech.asOf} · ${tech.bars} bars` : undefined}
+      right={<span className="text-[9px] font-mono text-muted-foreground">observed, not a forecast</span>}
+    >
+      {content}
     </SectionShell>
   );
 }
 
 // ── Section J: risk ──────────────────────────────────────────────────────────
-export function RiskSection({ risks }: { risks: RiskEntry[] }) {
-  return (
-    <SectionShell
-      icon={<ShieldAlert size={14} className="text-primary" />}
-      title="Risk analysis"
-      subtitle={`${risks.length} factor${risks.length === 1 ? '' : 's'}`}
-      right={<span className="text-[9px] font-mono text-muted-foreground">documented thresholds</span>}
-    >
+export function RiskSection({ risks, bare = false }: { risks: RiskEntry[]; bare?: boolean }) {
+  const content = (
+    <>
       {risks.length === 0 ? (
         <p className="text-[11px] text-muted-foreground">No computable risk factors from the available data.</p>
       ) : (
@@ -491,26 +530,63 @@ export function RiskSection({ risks }: { risks: RiskEntry[] }) {
           ))}
         </ul>
       )}
+    </>
+  );
+  if (bare) return content;
+  return (
+    <SectionShell
+      icon={<ShieldAlert size={14} className="text-primary" />}
+      title="Risk analysis"
+      subtitle={`${risks.length} factor${risks.length === 1 ? '' : 's'}`}
+      right={<span className="text-[9px] font-mono text-muted-foreground">documented thresholds</span>}
+    >
+      {content}
+    </SectionShell>
+  );
+}
+
+// One full-width card with two internal columns — keeps technical and risk
+// aligned without letting the shorter side stretch an empty card surface.
+export function TechnicalRiskSection({ tech, risks }: { tech: TechnicalSnapshot; risks: RiskEntry[] }) {
+  return (
+    <SectionShell
+      icon={<Activity size={14} className="text-primary" />}
+      title="Technical & risk"
+      subtitle={tech.asOf ? `as of ${tech.asOf} · ${tech.bars} bars` : undefined}
+      right={<span className="text-[9px] font-mono text-muted-foreground">observed, not a forecast</span>}
+    >
+      <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
+        <div className="min-w-0">
+          <h3 className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Technical analysis
+          </h3>
+          <TechnicalSection tech={tech} bare />
+        </div>
+        <div className="min-w-0 border-t border-border/10 pt-4 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+          <h3 className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Risk analysis
+            <span className="ml-auto font-normal normal-case tracking-normal text-[9px]">documented thresholds</span>
+          </h3>
+          <RiskSection risks={risks} bare />
+        </div>
+      </div>
     </SectionShell>
   );
 }
 
 // ── Section F: leadership ────────────────────────────────────────────────────
-export function LeadershipSection({ officers, companyName }: { officers: Officer[]; companyName: string }) {
-  return (
-    <SectionShell
-      icon={<Landmark size={14} className="text-primary" />}
-      title="Leadership & management"
-      subtitle={companyName}
-      right={<span className="text-[9px] font-mono text-muted-foreground">provider-disclosed</span>}
-    >
+export function LeadershipSection({
+  officers, companyName, bare = false,
+}: { officers: Officer[]; companyName: string; bare?: boolean }) {
+  const content = (
+    <>
       {officers.length === 0 ? (
         <p className="text-[11px] text-muted-foreground">
           No executive names are disclosed by the configured fundamentals providers for this instrument.
           The AI brief above surfaces dated leadership evidence when the research run retrieves it.
         </p>
       ) : (
-        <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5">
+        <ul className="grid grid-cols-1 gap-x-6 gap-y-1.5 md:grid-cols-2">
           {officers.map((o, i) => (
             <li key={`${o.name}-${i}`} className="flex items-baseline justify-between border-b border-border/10 py-1">
               <span className="min-w-0">
@@ -532,6 +608,17 @@ export function LeadershipSection({ officers, companyName }: { officers: Officer
       <p className="text-[9px] text-muted-foreground/70">
         Names and titles are provider-reported and can lag an appointment. Verify current officeholders against the latest filing before relying on them.
       </p>
+    </>
+  );
+  if (bare) return content;
+  return (
+    <SectionShell
+      icon={<Landmark size={14} className="text-primary" />}
+      title="Leadership & management"
+      subtitle={companyName}
+      right={<span className="text-[9px] font-mono text-muted-foreground">provider-disclosed</span>}
+    >
+      {content}
     </SectionShell>
   );
 }

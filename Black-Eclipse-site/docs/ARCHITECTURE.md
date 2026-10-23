@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-10-22
+last-verified: 2026-10-23
 ---
 
 # Architecture
@@ -1650,14 +1650,79 @@ history chart reconstructs multiples from the CURRENT price and each year's
 reported EPS/revenue — it says so in the caption.
 
 **Route:** `GET /api/fundamentals?symbol=…&market=…[&refresh=1]` (rate-limited).
-**UI:** the Market Screener popup (`tradingview-chart.tsx`) **Fundamentals** tab,
-which renders the shared `panel.tsx` sections — Overview (insight strip, metric
+**UI:** the single-page company detail overlay (`tradingview-chart.tsx`)
+renders the shared `panel.tsx` sections — Overview (insight strip, metric
 grid, revenue/EPS/FCF/margin/debt/valuation charts), Statements (period tabs +
 statement table + growth), Valuation (multiples, earnings, ownership), Timeline
 (filings + profile) — followed by the live price-history/performance/quote
 sections of the old "All Metrics" tab. The market id is derived with
 `countryToMarketId()` from `src/lib/markets.ts` because JDDS `Asset.country` is
 inconsistent ("United States" vs "US").
+
+## Stock-detail market intelligence (cross-source charts)
+
+The single-page company detail overlay renders a `Market intelligence` section
+between the price chart and the AI brief. It adds five sourced charts: 1Y price
+trend, drawdown from the running high, benchmark-relative total return,
+historical P/E at fiscal year-ends, and earnings surprise. This is the first
+slice of the wider "less JDdS-dependent" stock research surface; web/AI-extracted
+facts stay separate from precise historical series.
+
+```
+GET /api/stocks/[symbol]/intelligence?market=...
+  -> resolve market from JDdS Asset rows   (screener rows can omit country)
+  -> getFundamentals(symbol, market)       (merged provider snapshot)
+  -> daily closes: Yahoo, then Stooq (US)  (numeric time series only)
+  -> derived chart specs + provenance      (no fabricated points)
+```
+
+`price-trend` and `drawdown` depend only on price history, so they are the first
+cards to become ready. Every requested chart is still rendered as a card when
+unavailable, with the exact reason — the panel never collapses to a blank box or
+a single generic warning.
+
+### Source verification (web-backed, asynchronous)
+
+The overlay also mounts `Source verification`, backed by:
+
+```
+GET /api/stocks/[symbol]/verification?market=...&name=...&price=...
+  -> existing web_search capability (same provider chain as research/Python)
+  -> official-host checks + search pointers
+  -> per-check evidence + VERIFIED / CORROBORATED / UNVERIFIED / UNAVAILABLE
+```
+
+Checks cover company identity, listing/exchange, filings, and a quote
+cross-check. An official host (regulator/exchange/filing archive) is required
+for `VERIFIED`; two independent results can only `CORROBORATE`; a snippet can
+corroborate a quote but never makes it official. Results are cached in memory
+for 30 minutes, so page opens do not run four live searches every time. The
+route reuses the existing web-search transport — no second search stack.
+
+| File | Owns |
+|---|---|
+| `src/lib/stock-intelligence/types.ts` | The response contract (`StockChart`, `StockProvenance`, `StockSourceRef`) |
+| `src/lib/stock-intelligence/charts.ts` | Pure derived series: price trend, drawdown, relative performance, fiscal-year-end P/E, earnings surprise |
+| `src/lib/stock-intelligence/verification.ts` | Pure official-host/identity/listing/filing/quote verification rules |
+| `src/lib/stock-intelligence/use-stock-intelligence.ts` | Client hook for the read-only intelligence route |
+| `src/lib/stock-intelligence/use-stock-verification.ts` | Client hook for the verification route |
+| `src/app/api/stocks/[symbol]/intelligence/route.ts` | Market resolution, provider fallback, 5-minute cache, provenance assembly |
+| `src/lib/scraper/stooq-chart.ts` | Keyless US daily-close fallback when the primary chart provider returns nothing |
+| `src/app/api/stocks/[symbol]/verification/route.ts` | Existing web-search fan-out, evidence assembly, 30-minute cache |
+| `src/components/screens/stock-detail/charts/` | Chart cards and the `SourceBadge` |
+| `src/components/screens/stock-detail/verification-panel.tsx` | Web-backed source-verification cards |
+| `src/components/screens/tradingview-chart.tsx` | Mounts both sections in the overlay |
+
+**Honesty rules.** Every chart carries a `state` (`READY` / `UNAVAILABLE`) and a
+`provenance` block naming its sources and a state such as `HISTORICAL` or
+`DERIVED`. Missing benchmark history, unprofitable fiscal years, or absent
+actual-vs-estimate EPS produce an explicit reason, never a synthetic point. The
+relative-return chart uses only dates present in both series; the P/E chart uses
+the actual close nearest each fiscal year-end; earnings surprise is derived from
+provider-reported actual and estimate EPS, not an Eclipse forecast. Price-history
+sources fall back from Yahoo to Stooq (US) and are labelled with the provider
+that actually returned the series. Web search and AI extraction are not used for
+these historical numeric series; verification is a separate, explicit layer.
 
 ## Investor Eye (the world-state surface)
 
