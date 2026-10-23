@@ -712,6 +712,19 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   actual tree: 381,900 total, 11,475 evaluation.
   docs updated: none needed.
 
+- **fix(eval): an outage is not an agent failure.** Round 4 / the RSL's empirical
+  foundation, root cause. `score_trial` turned every non-completed trajectory into
+  a failed task and a `reliability 0.0` sample - including trials that failed
+  because the data bridge was down. The signal is the explicit `UNAVAILABLE`
+  error code on the trajectory outcome: a trial carrying it is now `unmeasured`,
+  excluded from `task_success` and from `reliability`, so `task_success 0.0` stops
+  counting an outage as the agent's inability. The taxonomy's `infrastructure`
+  label was tried first and rejected - it is the catch-all for ANY unlabeled
+  failure, so honouring it would have excused real agent failures too (it broke
+  `test_the_lab_never_invents_a_winner_on_the_scripted_tier`).
+  Tests: `test_an_outage_is_not_an_agent_failure`. Budget re-pinned to the tree.
+  docs updated: none needed.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how
