@@ -64,6 +64,7 @@ from .models import (
     VolumeStats,
 )
 from .quality import evaluate
+from .quality_contract import compare_values
 from .ratelimit import MarketRateLimiter
 
 # Capability id → the bridge capability the TS adapter router serves it under.
@@ -390,6 +391,15 @@ class MarketDataGateway:
                     "message": "provider data failed validation",
                 })
                 continue
+            # Cross-source comparison (D1): a value is only VALID when every
+            # configured source that answered agrees. Disagreement is preserved
+            # - both values, providers and timestamps - and the result is never
+            # averaged and never stamped `valid`.
+            if not pin_provider and capability in ("quote", "historical", "fx"):
+                await self._cross_source_check(
+                    capability, instrument, params, record, provider, order,
+                    freshness=freshness,
+                )
             # A non-blocking quality finding (e.g. a slightly stale reading) is
             # returned WITH its warning; only an invalid value is withheld. The
             # cache re-checks freshness on read, so a stale entry is never served
@@ -407,6 +417,85 @@ class MarketDataGateway:
             last_error.detail = detail
         return last_error or MarketError(DATA_NOT_AVAILABLE, "no provider returned data",
                                          capability=capability)
+
+    @staticmethod
+    def _primary_value(record: Any) -> tuple[Optional[float], Optional[str], str]:
+        """The one comparable scalar for a record (never a blend)."""
+        if getattr(record, "bars", None):
+            bar = record.bars[-1]
+            close = getattr(bar, "close", None)
+            return (float(close) if isinstance(close, (int, float)) else None,
+                    getattr(bar, "timestamp", None), "close")
+        for name in ("price", "mid", "rate"):
+            value = getattr(record, name, None)
+            if isinstance(value, (int, float)):
+                return float(value), record.meta.event_time, name
+        return None, None, "value"
+
+    async def _cross_source_check(
+        self,
+        capability: str,
+        instrument: CanonicalInstrument,
+        params: dict[str, Any],
+        record: Any,
+        provider: str,
+        order: tuple[str, ...],
+        *,
+        freshness: str,
+    ) -> None:
+        """Compare the answering provider against the next eligible one.
+
+        A disagreement beyond tolerance is DIVERGENT; a near-round ratio is
+        SCALE_MISMATCH (with the suspected factor named). Neither is averaged
+        and neither is allowed to remain `valid`.
+        """
+        primary_value, primary_ts, metric = self._primary_value(record)
+        if primary_value is None:
+            return
+        alternate = next((p for p in order if p != provider), None)
+        if alternate is None:
+            return
+        router = self._router_ref()
+        if router and not router.allow(alternate):
+            return
+        payload, error = await self._fetch_provider(
+            capability, instrument, params, provider=alternate, freshness=freshness
+        )
+        if error is not None or payload is None:
+            return
+        if router:
+            router.record_success(alternate)
+        alt_record = _normalize_for(capability, payload, instrument, alternate, freshness)
+        if alt_record is None:
+            return
+        alt_value, alt_ts, _ = self._primary_value(alt_record)
+        if alt_value is None:
+            return
+        tolerance = self.config.conflict_rel_tolerance
+        verdict, gap, factor = compare_values(primary_value, alt_value, tolerance=tolerance)
+        if verdict == "VALID":
+            return
+        candidates = [
+            {"provider": provider, "value": primary_value, "timestamp": primary_ts},
+            {"provider": alternate, "value": alt_value, "timestamp": alt_ts},
+        ]
+        record.conflict = {
+            "metric": metric,
+            "verdict": verdict,
+            "relativeGap": round(gap, 6),
+            "tolerance": tolerance,
+            "scaleFactor": factor,
+            "candidates": candidates,
+        }
+        record.meta.quality = "warning"
+        record.meta.data_status = "CONFLICTING"
+        record.meta.warnings = [
+            *record.meta.warnings,
+            f"{verdict}: {provider}={primary_value} vs {alternate}={alt_value} "
+            f"(relative gap {gap:.1%}, tolerance {tolerance:.1%})"
+            + (f"; suspected scale factor x{factor:g}" if factor else ""),
+        ]
+        self.metrics["conflicts"] += 1
 
     def candidate_providers(self, capability: str, instrument: Any) -> tuple[str, ...]:
         """Ordered, capability-fitting providers for a request (for verification).
@@ -665,6 +754,21 @@ class MarketDataGateway:
 
 
 # ── Normalizers (bridge payload → canonical record) ──────────────────────────
+def _normalize_for(capability: str, payload: Any, instrument: CanonicalInstrument,
+                   provider: str, freshness: str) -> Any:
+    normalizer = {
+        "quote": _normalize_quote,
+        "historical": _normalize_series,
+        "fx": _normalize_fx,
+    }.get(capability)
+    if normalizer is None:
+        return None
+    try:
+        return normalizer(payload, instrument, provider, freshness)
+    except Exception:  # noqa: BLE001 - a bad alternate payload is not the primary's fault
+        return None
+
+
 
 def _observation(payload: dict[str, Any], fallback: Optional[str] = None) -> tuple[Optional[str], str]:
     """The event time + how it was obtained. Never dresses one up as another."""
