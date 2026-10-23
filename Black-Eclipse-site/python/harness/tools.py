@@ -497,6 +497,16 @@ class ToolRegistry:
     def list(self) -> list[ToolDefinition]:
         return list(self._tools.values())
 
+    def suggest(self, name: str, *, limit: int = 5, max_distance: int = 2) -> list[str]:
+        """Registered tool names within Levenshtein distance ``max_distance``."""
+        scored: list[tuple[int, str]] = []
+        for candidate in self._tools:
+            distance = _levenshtein(str(name), candidate)
+            if distance <= max_distance:
+                scored.append((distance, candidate))
+        scored.sort(key=lambda item: (item[0], item[1]))
+        return [candidate for _distance, candidate in scored[:limit]]
+
     def schemas(self, allowed: Optional[set[str]] = None) -> list[dict[str, Any]]:
         return [
             {"name": t.name, "description": t.description, "parameters": t.input_schema}
@@ -550,7 +560,16 @@ class ToolRegistry:
 
         tool = self._tools.get(name)
         if tool is None:
-            return self._failure(call_id, name, "TOOL_NOT_FOUND", f"Unknown tool {name!r}", started)
+            # D10: keep the refusal, but teach the correction. Suggestions are
+            # advisory only - the suggested tool is NEVER auto-executed.
+            suggestions = self.suggest(name)
+            message = f"Unknown tool {name!r}"
+            if suggestions:
+                message += f". Did you mean: {', '.join(suggestions)}?"
+            return self._failure(
+                call_id, name, "TOOL_NOT_FOUND", message, started,
+                data={"suggestions": suggestions, "autoExecuted": False},
+            )
         if allowed is not None and name not in allowed:
             return self._failure(call_id, name, "TOOL_FORBIDDEN", f"Tool {name!r} is not allowed for this run", started)
 
@@ -649,12 +668,14 @@ class ToolRegistry:
             total_chars=total_chars,
         )
 
-    def _failure(self, call_id: str, name: str, code: str, message: str, started: float) -> ToolResult:
+    def _failure(self, call_id: str, name: str, code: str, message: str, started: float,
+                 data: Any = None) -> ToolResult:
         return ToolResult(
             tool_call_id=call_id,
             name=name,
             ok=False,
             text=f"Tool error ({code}): {message}",
+            data=data,
             error=HarnessError(code=code, message=message),  # type: ignore[arg-type]
             duration_ms=int((time.monotonic() - started) * 1000),
         )
@@ -747,6 +768,26 @@ def effective_timeout_ms(
         return tool_ms
     ceiling = _clamp_timeout(agent_ceiling_ms)
     return min(tool_ms, ceiling)
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Classic edit distance (insert/delete/substitute) over two short names."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    previous = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        current = [i]
+        for j, cb in enumerate(b, start=1):
+            insert = current[j - 1] + 1
+            delete = previous[j] + 1
+            substitute = previous[j - 1] + (0 if ca == cb else 1)
+            current.append(min(insert, delete, substitute))
+        previous = current
+    return previous[-1]
 
 
 def dumps(value: Any) -> str:
