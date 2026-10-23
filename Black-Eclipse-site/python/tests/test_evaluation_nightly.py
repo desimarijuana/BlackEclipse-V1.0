@@ -12,7 +12,7 @@ import os
 
 import pytest
 
-from harness.evaluation.nightly import run_nightly
+from harness.evaluation.nightly import MAX_TASKS, main, run_nightly
 from harness.evaluation.tasks import EvaluationTask
 from harness.persistence import AgentMemoryStore
 
@@ -118,6 +118,58 @@ def test_a_broken_baseline_file_is_refused():
 
     with pytest.raises(ValueError):
         read_baseline_file("does-not-exist.json")
+
+
+@pytest.mark.asyncio
+async def test_limit_selects_the_first_n_tasks_and_records_it(store, tmp_path):
+    reports = str(tmp_path / "reports")
+    payload = await run_nightly(
+        store,
+        tasks=[
+            _task("nightly.one", answer="READY"),
+            _task("nightly.two", answer="READY"),
+            # Outside the slice: if --limit were ignored this task would FAIL.
+            _task("nightly.three", answer="MAYBE"),
+        ],
+        directory=reports,
+        limit=2,
+        max_cost=5.0,
+    )
+    assert payload["ok"] is True
+    assert payload["taskCount"] == 2
+    assert payload["limit"] == 2
+    assert payload["maxCostUsd"] == 5.0
+    assert payload["estimatedWorstCaseTrials"] == 2
+    with open(payload["report"]["json"], encoding="utf-8") as handle:
+        body = json.load(handle)
+    assert body["limit"] == 2
+    assert body["taskCount"] == 2
+    with open(payload["report"]["markdown"], encoding="utf-8") as handle:
+        assert "limit 2" in handle.read()
+
+
+def test_live_without_a_cost_cap_is_refused_before_any_request(tmp_path):
+    base = ["--live", "--provider", "openai", "--model", "gpt-x",
+            "--out", str(tmp_path)]
+    assert main(base) == 2
+    assert main([*base, "--max-cost", "0"]) == 2
+    assert main([*base, "--max-cost", "-1"]) == 2
+
+
+def test_an_out_of_bound_limit_is_refused(tmp_path):
+    assert main(["--limit", "0", "--out", str(tmp_path)]) == 2
+    assert main(["--limit", str(MAX_TASKS + 1), "--out", str(tmp_path)]) == 2
+
+
+@pytest.mark.asyncio
+async def test_run_nightly_refuses_an_uncapped_live_run(store, tmp_path):
+    with pytest.raises(ValueError, match="max-cost"):
+        await run_nightly(
+            store,
+            tasks=[_task("nightly.good", answer="READY")],
+            directory=str(tmp_path),
+            live=True,
+        )
 
 
 @pytest.mark.asyncio

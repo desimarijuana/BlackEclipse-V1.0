@@ -14,7 +14,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `estimatedWorstCaseTrials`). `--publish` with no value now resolves to the app
   root's `docs/self-improvement` instead of the Python child's cwd. Files:
   `python/harness/evaluation/nightly.py`, `scripts/rsl-nightly.js`,
-  `python/tests/test_evaluation_nightly.py`.
+  `python/tests/test_evaluation_nightly.py`; raised the committed size
+  ceilings to the measured tree (381,950 total; evaluation 11,525) for the 69
+  added lines, `scripts/size-budget.json`.
   docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
 - **merge(harness): origin/main's Round 3/4 work landed on the local tree.**
   Merged 22 upstream commits (Round 3/4, v0.2.0, and the live-eval publishing

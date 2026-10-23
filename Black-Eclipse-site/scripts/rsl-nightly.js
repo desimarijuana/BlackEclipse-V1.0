@@ -40,12 +40,23 @@ const PATH_FLAGS = new Set([
   "--write-live-baseline",
   "--publish",
 ]);
+const DEFAULT_PUBLISH = path.join(root, "docs", "self-improvement");
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i += 1) {
   if (!PATH_FLAGS.has(args[i])) continue;
   const value = args[i + 1];
-  if (!value || path.isAbsolute(value)) continue;
-  args[i + 1] = path.resolve(root, value);
+  const valueless = value === undefined || value.startsWith("--");
+  if (valueless) {
+    // --publish is nargs="?": with no value Python applies a repo-relative
+    // default, which cwd=python/ would redirect to python/docs/. Inject the
+    // resolved absolute path instead.
+    if (args[i] === "--publish") {
+      args.splice(i + 1, 0, DEFAULT_PUBLISH);
+      i += 1;
+    }
+    continue;
+  }
+  if (!path.isAbsolute(value)) args[i + 1] = path.resolve(root, value);
 }
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "be-rsl-nightly-"));

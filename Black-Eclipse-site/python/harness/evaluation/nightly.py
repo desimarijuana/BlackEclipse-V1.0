@@ -29,9 +29,43 @@ from .tasks import load_all_builtin, load_builtin_dataset, select_tasks
 
 DEFAULT_BASELINE = "nightly-corpus"
 
+#: The hard bound on a single session's task count. A live run is the only one
+#: that spends money, so an unbounded slice is refused before any request.
+MAX_TASKS = 500
+
+#: The app root (the parent of `python/`). The published report is resolved
+#: against it so the Python child's cwd (`python/`) cannot redirect the write
+#: into `python/docs/`.
+APP_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..")
+)
+DEFAULT_PUBLISH = os.path.join(APP_ROOT, "docs", "self-improvement")
+
 #: The measures that move on every run and would make a committed baseline
 #: noisy. They are reported as warnings, never compared against a file.
 VOLATILE_DIMENSIONS: tuple[str, ...] = ("cost", "latency", "token_usage")
+
+
+def validate_budget(
+    *,
+    live: bool,
+    limit: Optional[int] = None,
+    max_cost: Optional[float] = None,
+) -> None:
+    """Refuse an unbounded or uncapped run BEFORE any task is sent (fail-closed).
+
+    A live session costs real money: it must name a positive cap, and no
+    session may exceed the task bound. A scripted session needs neither, but
+    the task bound still applies when a limit is given.
+    """
+    if limit is not None and (int(limit) <= 0 or int(limit) > MAX_TASKS):
+        raise ValueError(
+            f"--limit must be between 1 and {MAX_TASKS} tasks; got {limit}"
+        )
+    if live and (max_cost is None or float(max_cost) <= 0):
+        raise ValueError(
+            "--live requires a positive --max-cost: an uncapped paid run is refused"
+        )
 
 
 def stable_aggregates(metrics: dict[str, Any]) -> dict[str, Any]:
@@ -98,6 +132,17 @@ def render_markdown(payload: dict[str, Any]) -> str:
         f"- run: `{payload.get('runId')}`",
         f"- dataset: `{payload.get('dataset')}` (split `{payload.get('split')}`) · "
         f"tasks: {payload.get('taskCount')}",
+    ]
+    budget = []
+    if payload.get("limit") is not None:
+        budget.append(f"limit {payload.get('limit')}")
+    if payload.get("maxCostUsd") is not None:
+        budget.append(f"max cost ${payload.get('maxCostUsd')}")
+    if payload.get("estimatedWorstCaseTrials"):
+        budget.append(f"worst-case trials {payload.get('estimatedWorstCaseTrials')}")
+    if budget:
+        lines.append(f"- budget: {' · '.join(budget)}")
+    lines += [
         f"- verdict: {'PASS' if payload.get('ok') else 'FAIL'}",
         "",
         "## Measures",
@@ -152,8 +197,11 @@ async def run_nightly(
     live_baseline: Optional[str] = None,
     write_live_baseline: Optional[str] = None,
     publish: Optional[str] = None,
+    limit: Optional[int] = None,
+    max_cost: Optional[float] = None,
 ) -> dict[str, Any]:
     """Run the corpus once and return the verdict (never raises for a failure)."""
+    validate_budget(live=live, limit=limit, max_cost=max_cost)
     eval_store = EvaluationStore(store)
     dataset_name = dataset
     if tasks is None:
@@ -164,6 +212,10 @@ async def run_nightly(
             loaded = load_builtin_dataset(dataset)
             dataset_name = dataset
         tasks = select_tasks(loaded, split=split)
+    tasks = list(tasks)
+    if limit is not None:
+        tasks = tasks[: int(limit)]
+    trials = max(1, int(trials))
     runner = EvaluationRunner(store, eval_store=eval_store)
     prompt_hash = ""
     if live:
@@ -198,7 +250,7 @@ async def run_nightly(
         tasks,
         dataset_name=dataset_name,
         dataset_version="1",
-        trials=max(1, int(trials)),
+        trials=trials,
         tier=0,
         run_id=(
             f"nightly-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
@@ -231,7 +283,10 @@ async def run_nightly(
         "dataset": dataset_name,
         "split": split,
         "taskCount": len(tasks),
-        "trials": max(1, int(trials)),
+        "trials": trials,
+        "limit": limit,
+        "maxCostUsd": max_cost,
+        "estimatedWorstCaseTrials": len(tasks) * trials,
         "baselineName": baseline_name,
         "hasBaseline": bool(previous_metrics),
         "baselineId": previous_id,
@@ -337,6 +392,10 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset", default="benchmark_v1")
     parser.add_argument("--split", default="validation")
     parser.add_argument("--trials", type=int, default=1)
+    parser.add_argument("--limit", type=int, default=None,
+                        help=f"run only the first N tasks (1..{MAX_TASKS})")
+    parser.add_argument("--max-cost", type=float, default=None,
+                        help="USD cap for the session; required with --live")
     parser.add_argument("--baseline", default=DEFAULT_BASELINE)
     parser.add_argument("--out", default="", help="report directory")
     parser.add_argument("--baseline-file", default="",
@@ -357,15 +416,23 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--write-live-baseline", nargs="?",
                         const=DEFAULT_LIVE_BASELINE, default="",
                         help="pin this live run as a baseline entry")
-    parser.add_argument("--publish", nargs="?", const="docs/self-improvement",
+    parser.add_argument("--publish", nargs="?", const=DEFAULT_PUBLISH,
                         default="",
-                        help="write the live-tier Markdown report here")
+                        help="write the live-tier Markdown report here "
+                             "(defaults to docs/self-improvement in the app root)")
     parser.add_argument("--run-db", default="")
     return parser
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = _parser().parse_args(argv)
+    try:
+        validate_budget(
+            live=bool(args.live), limit=args.limit, max_cost=args.max_cost,
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     if (args.live_baseline or args.write_live_baseline or args.publish) and not args.live:
         print(
             "--live-baseline/--write-live-baseline/--publish require --live: "
@@ -414,6 +481,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             live_baseline=args.live_baseline or None,
             write_live_baseline=args.write_live_baseline or None,
             publish=args.publish or None,
+            limit=args.limit,
+            max_cost=args.max_cost,
         ))
     finally:
         store.close()
