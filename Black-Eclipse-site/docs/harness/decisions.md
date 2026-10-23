@@ -10596,3 +10596,26 @@ acceptance set and the search must never train on it.
 `npm run rsl:rotate`, `datasets/team_v1.json` (`rotationExempt`), the refreshed
 manifest. Tests: `python/tests/test_evaluation_rotation.py`. Docs:
 `docs/harness/agent-evaluation.md`, `docs/self-improvement/rsl-v4-plan.md`.
+
+## ADR-H326 - Auto-apply stays operator-triggered; there is no scheduler tick
+
+**Decision.** `RSLLoop.auto_apply_surface` is invoked only by the operator route
+`POST /evolution/states/{state_id}/autonomy-apply`. No timer, `tick()`, or
+background task calls it, and no `HARNESS_RSL_AUTO_APPLY` switch exists. The
+existing policy (supervised/bounded level, L1 ceiling, paired evidence, kill
+switch, daily budget) still bounds that operator-triggered path. A scheduler may
+be added later only as a separate, bounded slice behind an off-by-default flag.
+
+**Why.** The activation row is the rollback handle, but an unattended scheduler
+changes the failure mode: a bad L1 change can be applied and observed by users
+between ticks. The Phase 4 review found no operator need for unattended
+activation, and the daily budget is not a substitute for a human noticing a
+regression. Keeping the seam explicit means every activation has an operator
+action behind it and a rollback one click away.
+
+**Consequences.** No new config, no tick wiring, no scheduler tests. The
+operator path remains covered by `python/tests/test_autonomy_apply.py` (apply +
+rollback, daily budget, kill switch, L2/non-surface refusals, missing evidence).
+Docs: `docs/self-improvement/rsl-v4-plan.md`, this ADR. A future scheduler needs
+its own ADR, an off-by-default flag, a per-tick limit of one, and a dry-run
+period.

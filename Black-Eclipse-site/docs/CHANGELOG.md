@@ -7,6 +7,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **docs(rsl): auto-apply stays operator-triggered (Phase 4 decision).**
+  Recorded ADR-H326: no scheduler tick and no `HARNESS_RSL_AUTO_APPLY` switch;
+  the only activation path remains `POST
+  /evolution/states/{id}/autonomy-apply`, bounded by the existing
+  L1/evidence/kill-switch/daily-budget policy. A future scheduler needs its own
+  ADR, an off-by-default flag, one apply per tick and a dry-run period. Files:
+  `docs/harness/decisions.md`, `docs/self-improvement/rsl-v4-plan.md`.
+  docs updated: `docs/harness/decisions.md`,
+  `docs/self-improvement/rsl-v4-plan.md`, `docs/CHANGELOG.md`.
 - **fix(evaluation): the nightly report can no longer contradict its exit code.**
   Moved the report write to the end of `run_nightly`, after the live comparison,
   promotion and baseline write; a live regression used to set `ok=False` after
