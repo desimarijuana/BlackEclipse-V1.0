@@ -121,6 +121,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   defect.
   no doc change — diagnosability and retry class only, no contract change.
 
+- **fix(eval): the published benchmarks show the live run that exists.** The
+  generator accepted `--live-run <id>` and then never loaded the suite, so it
+  published *"no live run has been recorded"* while six completed live runs sat in
+  the store. `_load_live_suite` now rebuilds the publishable view from the
+  `EvaluationRun` row plus its metrics and recomputes the thresholds with the same
+  `check_thresholds` the live gate uses. `write_benchmarks()` selects the most
+  recent completed live run itself, so the canonical regeneration and the
+  committed file agree - which the `generated not hand-edited` test enforces.
+  The live tier now publishes `deepseek-v4.1-flash:cloud` with gate **FAIL** and
+  its real dimensions (`task_success 0.0`, `tool_accuracy 0.2985`,
+  `planning_quality 0.9872`, `safety_score 0.6667`, `reliability 1.0`). A failing
+  measurement is published, not hidden - that is the point of recording it.
+  docs updated: docs/harness/benchmarks.md.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how
