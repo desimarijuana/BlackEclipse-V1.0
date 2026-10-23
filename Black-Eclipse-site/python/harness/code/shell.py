@@ -29,6 +29,18 @@ DEFAULT_TIMEOUT_S = 120
 MAX_TIMEOUT_S = 900
 
 
+def _scrubbed_env() -> dict[str, str]:
+    """The child environment: the allowlist ONLY, never `os.environ` in full.
+
+    This is the SAME builder the sandboxed command path uses
+    (`code.sandbox.build_env`), so a shell and a sandboxed command see the
+    same world. A secret that is absent from one is absent from both.
+    """
+    from .sandbox import build_env  # noqa: PLC0415
+
+    return build_env()
+
+
 def detect_shell() -> list[str]:
     """The argv prefix for the host shell, best-effort."""
     if os.name == "nt":
@@ -66,7 +78,13 @@ def run(
     stdin: Optional[str] = None,
 ) -> ShellResult:
     argv = detect_shell() + [command]
-    env = dict(os.environ)
+    # Round 3 / W9 (ADR-H297): the shell gets the SAME scrubbed environment a
+    # sandboxed command gets - `policy.SECRET_ENV_ALLOWLIST` keys ONLY. It used
+    # to inherit `os.environ` in full, so a single `shell_run` could read the
+    # provider keys, the callback token and the vault, and print them into the
+    # conversation. A shell must never see more of the environment than a
+    # sandboxed command does.
+    env = _scrubbed_env()
     if env_extra:
         env.update(env_extra)
     timeout = max(1, min(int(timeout_s or DEFAULT_TIMEOUT_S), MAX_TIMEOUT_S))
@@ -124,7 +142,9 @@ _PROCESSES_LOCK = threading.Lock()
 
 def spawn(command: str, *, cwd: Path, env_extra: Optional[dict[str, str]] = None) -> ProcessHandle:
     argv = detect_shell() + [command]
-    env = dict(os.environ)
+    # Round 3 / W9 (ADR-H297): the same scrubbed environment as `run` - a
+    # background process must not be a way around the scrub.
+    env = _scrubbed_env()
     if env_extra:
         env.update(env_extra)
     proc = subprocess.Popen(

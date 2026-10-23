@@ -46,7 +46,7 @@ def _bound(reg: ToolRegistry, autonomy: str | None) -> set[str]:
 def test_a_code_change_turn_binds_write_and_execute() -> None:
     reg = _registry()
     bound = _bound(reg, "edit_verify")
-    assert "workspace_patch_apply" in bound
+    assert "code_edit" in bound
     assert "command_run" in bound
     assert "workspace_revert" in bound
     # Every bound tool must be registered (no schema for a nonexistent tool).
@@ -66,7 +66,7 @@ def test_a_finance_turn_binds_no_change_or_execute_tool() -> None:
     # The specific write/execute tools the phase opens are NOT bound for a
     # finance turn. (`scaffold_kit` was already an ECLIPSE_AGENT tool before this
     # phase and refuses without a workspace-bound profile; it is unchanged here.)
-    assert "workspace_patch_apply" not in allowed
+    assert "code_edit" not in allowed
     assert "workspace_revert" not in allowed
     assert "command_run" not in allowed
     assert not (READ_TOOLS & allowed)

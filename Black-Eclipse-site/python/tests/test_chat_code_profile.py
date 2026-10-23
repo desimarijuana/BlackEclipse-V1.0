@@ -20,7 +20,6 @@ EXPECTED = (
     'workspace_list',
     'workspace_read',
     'workspace_docs',
-    'workspace_patch_apply',
     'workspace_diff',
     'workspace_revert',
     'command_run',
@@ -53,13 +52,10 @@ EXPECTED = (
     'rename_file',
     'create_directory',
     'delete_directory',
-    'patch_file',
-    'replace_text',
     'insert_text',
     'delete_text',
+    'code_edit',
     'apply_diff',
-    'multi_file_patch',
-    'edit_file',
     'execute_command',
     'open_shell',
     'close_shell',
@@ -397,7 +393,7 @@ def test_edit_verify_turn_binds_write_and_execute_but_no_external() -> None:
     allowed = chat_code_allowlist(ECLIPSE_AGENT, reg, "edit_verify")
     assert allowed is not None
     bound = set(reg.names()) & allowed
-    assert "workspace_patch_apply" in bound
+    assert "code_edit" in bound
     assert "command_run" in bound
     assert not (set(EXTERNAL_ACTION_TOOLS) & bound)
 
@@ -408,7 +404,7 @@ def test_plan_only_turn_binds_read_only() -> None:
     assert allowed is not None
     bound = set(reg.names()) & allowed
     assert "workspace_read" in bound
-    assert "workspace_patch_apply" not in bound
+    assert "code_edit" not in bound
     assert "command_run" not in bound
     assert not (set(EXTERNAL_ACTION_TOOLS) & bound)
 

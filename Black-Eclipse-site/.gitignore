@@ -133,4 +133,11 @@ local-*-linux.*
 # artifacts belong under .black-eclipse/; these stray dirs are never source.
 python/sec/
 sec/
+# The bundled SEC reference plugin is SOURCE, not one of those scratch dirs.
+# The bare `sec/` pattern above matches a directory of that name at ANY depth,
+# so it was silently excluding python/harness/plugins/bundled/sec/ from version
+# control: a clean clone shipped without a reference plugin, and the plugin
+# marketplace gate failed on every checkout that was not the author's own
+# working tree. Re-include it explicitly.
+!python/harness/plugins/bundled/sec/
 

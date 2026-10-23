@@ -42,7 +42,7 @@ file, not here.
 | 18 — Visual output | [phase-18](./phase-18-visual-output.md) 🟡 In progress 2026-10-13 (first figure recipe shipped — ADR-H192; payload + inline renderer remain) | 15, 16 | 19, 20 | new |
 | 19 — Verifying what it produced | [phase-19](./phase-19-self-verification.md) ✅ Done 2026-10-13 (ADR-H191) | 14, 18 | 20 | new |
 | 20 — Measuring all of it | [phase-20](./phase-20-measuring-all-of-it.md) 🟡 In progress 2026-10-13 (registry + runner + statement + gate step shipped — ADR-H193; remaining fixtures named) | 13–19 | — | §15.3 **7F** extended |
-| 21 — Editable notebook cells in chat | [phase-21](./phase-21-notebook-cells.md) ✅ Done 2026-10-22 (cell document, sandbox run/restart, chart codegen, Monaco surface — ADR-H300) | 14, 18 | — | new |
+| 21 — Editable notebook cells in chat | [phase-21](./phase-21-notebook-cells.md) ✅ Done 2026-10-22 (cell document, sandbox run/restart, chart codegen, Monaco surface — ADR-H323) | 14, 18 | — | new |
 
 **Round 3 (2026-10-20) — competitive as a coding harness, shippable as a
 product.** Rounds 1 and 2 built the machinery and made it reachable. Round 3
@@ -54,6 +54,7 @@ harness with published numbers.
 | Round 3 plan | File | Depends on | Unlocks |
 |---|---|---|---|
 | Harness parity plan (10 workstreams, 3 waves) | [round-3-parity-plan.md](./round-3-parity-plan.md) 🟡 Draft 2026-10-20 | rounds 1–2 | a competitive coding harness |
+| Gap-closure plan (6 workstreams, 4 waves) — the last two dimensions, 9.01 → 9.50 | [round-4-gap-closure.md](./round-4-gap-closure.md) 🟡 Draft 2026-10-21 | rounds 1–3 | a published, tagged, externally measured harness |
 
 Round 3 is a **plan, not a phase set** — it is one file with ten workstreams
 (W1–W10), because the work is coupled: the same files (`graph.py`,

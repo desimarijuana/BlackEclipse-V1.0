@@ -596,6 +596,123 @@ naming one of them. The response-contract loss was a visible defect:
 response-schema digest and the response-mode plan, so a coding turn produced a
 degraded structured response with no error.
 
+**The harness has a PUBLIC surface (ADR-H298).**
+`python/harness/public.py` is the whole public API - `AgenticService`,
+`ToolRegistry`, the run contract, and the export functions - and it is a
+closed list. `export_tool_schemas()` produces the PORTABLE tool manifest: the
+MCP tool-manifest shape plus the parts a consumer needs to bind a tool
+safely (`permission`, `effect`, `risk`, `version`, the deprecation fields). The
+honesty contract is the point: a tool is exported with its permission and its
+effect class, or it is NOT exported. A write-ish tool with an undeclared
+effect is withheld, because a consumer cannot honour a rule it cannot read.
+`docs/harness/tool-registry.json` is that manifest, generated, with a drift
+test. The package metadata (`pyproject.toml`) declares the RUNTIME and no
+data: the provider SDKs are optional extras, no package data ships, and the
+app stays private.
+
+**A shell sees no more of the environment than a command does (ADR-H297).**
+The real host shell used to inherit the FULL `os.environ`, so one `shell_run`
+could read a provider key, the callback token or the vault and print it into
+the conversation, the run blob and the ledger - while the sandboxed command
+path had been scrubbed since Phase 1. Both now use the SAME builder
+(`code.sandbox.build_env`: the allowlist only), so a shell and a sandboxed
+command see the same world. Command and shell OUTPUT is redacted through the
+one existing primitive before it reaches the model, and the network refusal is
+NAMED (`NETWORK_DENIED`) rather than being an indistinguishable message - and
+whether the network was actually CONTAINED is published, because the container
+tier really does run `--network none` and the local tier cannot.
+
+**The benchmarks are GENERATED, and the live tier is a lane (ADR-H296).**
+`docs/harness/benchmarks.md` is written by a generator and never hand-edited,
+so a number cannot be quietly improved - a test regenerates it and compares.
+The two tiers are kept APART and named: the OFFLINE tier replaces the model
+with a recorded script, so it measures the RUNTIME (the tool surface, the
+policy, the graders, the wiring) and says so; the LIVE tier runs a real model
+and is the only tier that measures the agent. Both carry their dataset,
+checksum, agent version, commit and grader version. The live lane never
+fabricates: with no provider it publishes "NOT MEASURED" with the reason and
+exits 0, and the nightly workflow SKIPS rather than failing when no secret is
+configured.
+
+**The decision record, the size ceiling and the release (ADR-H295).**
+A decision series that cannot be referenced is not a record. The harness
+series had seven DUPLICATE numbers and five gaps, so "ADR-H242" named two
+different things; the later duplicate of each was renumbered and the old
+number retired with a redirect, and the withdrawn numbers are reserved.
+`scripts/check-adr-numbers.js` fails the release gate on a duplicate, an
+unreserved gap, or an entry that does not carry Decision / Why / Consequences
+- and it never renumbers anything, because renumbering is a judgement call
+that belongs to a human. The shape is enforced from H288 onward; the
+older entries are reported and countable rather than rewritten, because
+inventing a rationale for someone else's decision is not honesty.
+
+The harness also has a TOTAL ceiling now, not just per-module ones:
+`scripts/size-budget.js` checks a committed budget for the whole tree and for
+its twelve largest subsystems, so the harness can no longer double by adding
+files. And the release is real - the version, a release note derived from the
+CHANGELOG, a rotation script for the changelog's rolling window, and a
+CODEOWNERS file for the paths where a mistake is hardest to see.
+
+**The model is TOLD the shape of the project (ADR-H287).** A *repo map*
+- the folders, and a symbol outline of the top files - is built EAGERLY and
+DETERMINISTICALLY and handed to the model in the FIRST turn, together with the
+CIUE context engine's answer for THIS request (the "seeded slice"), resolved
+once per run with no model call. The model no longer has to guess a path to
+find out what exists.
+
+The map is BOUNDED (a file count, a symbols-per-file count, a byte budget and
+a render budget - it is a summary, never a copy), DETERMINISTIC (the same tree
+produces the same map and the same digest, byte for byte), and HONEST about
+its engine: the outline comes from the stdlib extractor (Python's own `ast`,
+a brace/regex scanner for everything else), and tree-sitter's availability is
+published in the code-intel status because an optional layer that silently
+no-ops is a false capability.
+
+The map's content hash is the prompt-cache key's witness: a project whose
+shape changed invalidates the cache, and one that did not change does not. It
+gets its OWN segment for exactly that reason - `runtime_context` is
+run-frozen and its content is not hashed, so a map appended there would have
+been cache-key-invisible.
+
+**The dropped turns are COMPACTED, not just dropped (ADR-H286).** The
+history bound no longer throws the conversation away. What it removes is
+carried forward as a fenced, labelled summary: the requests that were made
+and the answers that were given (the DETERMINISTIC skeleton, which always
+runs), plus a bounded model NARRATIVE on top of it - the decisions taken, the
+open questions, the state of the work. The existing inert dropped-context
+block is not replaced: both reach the model, the compaction first. The
+narrative is ADDITIVE and fails CLOSED - an unavailable, silent or failing
+model leaves the skeleton untouched, and the run records why. The block is
+DATA, never instruction (a compaction can contain anything the user typed),
+and it never enters a research claim: a summary of a conversation is not
+evidence.
+
+**One edit tool, and it insists the run read the file (ADR-H285).** A *text
+edit* is ONE tool: `code_edit` (`path`, `oldText`, `newText`,
+`expectedOccurrences`). It replaces text; the operations that are genuinely
+different - creating a file, deleting one, moving one, inserting without a
+replace target, deleting a line range, applying a prepared diff - stay as the
+tools they are. What went is the DUPLICATION: `replace_text`, `patch_file`,
+`edit_file`, `multi_file_patch` and `workspace_patch_apply` are deprecated,
+still callable, and each names its replacement.
+
+Two rules make the one tool safe, and both are enforced in code:
+
+- **A file may only be changed if THIS RUN read it.** The per-run READ LEDGER
+  (`harness.tools.read_ledger`) records every file a read tool returned a hash
+  for, and the registry feeds it in ONE place - so every read tool
+  participates. An edit to a file the run never read is refused with
+  `FILE_NOT_READ`, and the refusal names the read that would make it legal.
+- **A file may only be changed if it has not changed since it was read.** The
+  ledger's hash is passed to the edit engine as `expected_hash`, so the
+  engine's own `STALE_FILE` refusal fires - the same code, the same recovery
+  hint, in one place. An ambiguous match is refused too, never guessed.
+
+`code_edit` is a WRITE tool in the ONE policy authority, so `plan_only`
+removes it and `edit_verify` keeps it - exactly like the tool it replaces. A
+wrong path comes back with up to five nearest candidates rather than a bare
+"that file isn't there".
+
 **The search surface is two tools, and the engine is always named (ADR-H284).**
 A model asks two questions about a codebase - "what does this SAY?" and "what
 files are there?" - and the harness answers them with exactly two tools:

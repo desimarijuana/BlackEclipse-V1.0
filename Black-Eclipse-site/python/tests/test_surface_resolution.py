@@ -143,7 +143,7 @@ def test_an_ordinary_chat_turn_is_unchanged() -> None:
     allowed = set(resolution.allowed or ())
     assert "market_get_quote" in allowed
     # A finance turn still binds no code tool.
-    assert "workspace_patch_apply" not in allowed
+    assert "code_edit" not in allowed
     assert "command_run" not in allowed
 
 
@@ -167,7 +167,7 @@ def test_plan_only_removes_the_write_tools_from_both_halves() -> None:
 def test_edit_verify_keeps_writes_but_never_an_external_action() -> None:
     resolution = _resolution(autonomy="edit_verify")
     allowed = set(resolution.allowed or ())
-    assert "workspace_patch_apply" in allowed
+    assert "code_edit" in allowed
     assert "command_run" in allowed
     assert not (set(EXTERNAL_ACTION_TOOLS) & allowed)
 
@@ -249,7 +249,7 @@ def test_the_code_agent_preset_keeps_its_own_closed_surface() -> None:
     """The union is for a surface ON a base. The code agent HAS no base."""
     resolution = resolve_surface_detail(CODE_AGENT, _registry(), {}, "edit_verify")
     allowed = set(resolution.allowed or ())
-    assert "workspace_patch_apply" in allowed
+    assert "code_edit" in allowed
     # The code agent never reached a finance tool and still does not.
     assert "market_get_quote" not in allowed
 

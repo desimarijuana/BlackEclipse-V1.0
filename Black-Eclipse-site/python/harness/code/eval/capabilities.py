@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Literal, Optional
@@ -138,11 +139,282 @@ def _fixture_change_review() -> dict[str, bool]:
     }
 
 
+def _fixture_price_authority() -> dict[str, bool]:
+    """Two disagreeing sources are ARBITRATED, and the conflict is recorded.
+
+    The point of the authority table is that the answer does NOT depend on
+    which source answered first. Two sources that disagree beyond the
+    tolerance produce NO answer (`chosen is None`) and a CONFLICTING reason -
+    never a silent first-success.
+    """
+    from harness.retrieval.authority import authority_for, decide_source
+    from harness.retrieval.contract import (
+        FinancialRetrievalRequest,
+        NormalizedFinancialObject,
+        SourceReference,
+    )
+    from harness.retrieval.sources import SourceOutcome
+
+    # A FRESH observation: a stale one is rejected before the arbitration
+    # ever runs, which would prove nothing about the arbitration.
+    stamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    def _obj(value: float, tier: str = "structured") -> Any:
+        return NormalizedFinancialObject(
+            name="price", value=value,
+            source=SourceReference(source="X", sourceType=tier),
+            observation_time=stamp, observation_source="provider_asof",
+        )
+
+    request = FinancialRetrievalRequest(
+        objective="q", dataType="current_quote", freshnessRequirement="realtime",
+    )
+    vault = SourceOutcome(source="JDDS", status="OK", objects=[_obj(100.0)])
+    live = SourceOutcome(source="LIVE_STRUCTURED", status="OK", objects=[_obj(130.0)])
+    authority = authority_for("current_quote")
+
+    conflict = decide_source(authority, [vault, live], request)
+    reversed_decision = decide_source(authority, [live, vault], request)
+    agree_vault = SourceOutcome(source="JDDS", status="OK", objects=[_obj(100.0)])
+    agree_live = SourceOutcome(source="LIVE_STRUCTURED", status="OK", objects=[_obj(100.0)])
+    agreement = decide_source(authority, [agree_vault, agree_live], request)
+
+    return {
+        "conflictIsRecorded": conflict.chosen is None and "CONFLICTING" in conflict.reason,
+        # The CHOSEN and the REASON are order-independent - that is the point
+        # of the arbitration. The `rejected` list is not: it names the
+        # candidates in the order they were offered, which is a report, not a
+        # verdict.
+        "choiceIsOrderIndependent": (
+            conflict.chosen == reversed_decision.chosen
+            and conflict.reason == reversed_decision.reason
+        ),
+        "agreementResolves": agreement.chosen is not None,
+        "rejectionsAreNamed": bool(conflict.rejected),
+    }
+
+
+def _fixture_promotion_landing() -> dict[str, bool]:
+    """A change lands in the real folder, and can be put back EXACTLY.
+
+    The full path: a disposable workspace with a change in it, a preview that
+    names the change and hashes it, an approval bound to that preview, the
+    apply, the rollback, and the apply again. Every step asserts on the real
+    bytes in the real folder.
+    """
+    import subprocess
+    import tempfile
+
+    from harness.code import promotion as promotion_mod
+    from harness.code import worktree as worktree_mod
+    from harness.code.store import CodeWorkspaceStore
+    from harness.persistence import AgentMemoryStore
+
+    with tempfile.TemporaryDirectory(prefix="be-promotion-") as root:
+        checkout = os.path.join(root, "checkout")
+        os.makedirs(checkout)
+        env = {**os.environ, "GIT_AUTHOR_NAME": "eval", "GIT_AUTHOR_EMAIL": "eval@example.invalid"}
+        subprocess.run(["git", "init", "-q"], cwd=checkout, check=True, env=env)
+        subprocess.run(["git", "config", "user.email", "eval@example.invalid"], cwd=checkout, check=True, env=env)
+        subprocess.run(["git", "config", "user.name", "eval"], cwd=checkout, check=True, env=env)
+        with open(os.path.join(checkout, "a.py"), "w", encoding="utf-8") as handle:
+            handle.write("ORIGINAL\n")
+        subprocess.run(["git", "add", "-A"], cwd=checkout, check=True, env=env)
+        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=checkout, check=True, env=env)
+
+        # The allocator resolves the root INTERNALLY, so point it at the
+        # checkout for the duration of the fixture.
+        previous_root = os.environ.get("BLACK_ECLIPSE_CODE_ROOT")
+        os.environ["BLACK_ECLIPSE_CODE_ROOT"] = checkout
+        try:
+            workspace = worktree_mod.allocate("HEAD")
+            with open(os.path.join(str(workspace.root), "a.py"), "w", encoding="utf-8") as handle:
+                handle.write("CHANGED\n")
+            store = AgentMemoryStore(os.path.join(root, "agent-memory.db"))
+            try:
+                code_store = CodeWorkspaceStore(store)
+                code_store.save_workspace(
+                    workspace.id, str(workspace.root), workspace.base_revision,
+                    workspace.strategy, run_id="run_promo", file_count=1,
+                )
+                preview = promotion_mod.build_preview(
+                    "run_promo", code_store=code_store, checkout_root=checkout,
+                )
+                applied = promotion_mod.apply_promotion(preview)
+                changed = open(os.path.join(checkout, "a.py"), encoding="utf-8").read()
+                rolled = promotion_mod.rollback_promotion(
+                    applied["rollbackId"], checkout_root=checkout,
+                )
+                restored = open(os.path.join(checkout, "a.py"), encoding="utf-8").read()
+                re_applied = promotion_mod.apply_promotion(preview)
+                again = open(os.path.join(checkout, "a.py"), encoding="utf-8").read()
+            finally:
+                store.close()
+                worktree_mod.release(workspace.id)
+        finally:
+            if previous_root is None:
+                os.environ.pop("BLACK_ECLIPSE_CODE_ROOT", None)
+            else:
+                os.environ["BLACK_ECLIPSE_CODE_ROOT"] = previous_root
+
+    return {
+        "previewNamesTheChange": preview.get("filesChanged") == 1,
+        "previewHashesBothSides": bool(preview["files"][0].get("beforeHash")) and bool(preview["files"][0].get("afterHash")),
+        "applyReachesTheFolder": changed == "CHANGED\n",
+        "rollbackRestoresExactly": restored == "ORIGINAL\n",
+        "reApplyWorks": again == "CHANGED\n",
+        "rollbackIsReported": bool(rolled.get("restored")),
+    }
+
+
+def _fixture_scraping_breadth() -> dict[str, bool]:
+    """The acquisition registry knows MORE THAN ONE KIND of data source.
+
+    "Breadth" is the number of distinct bridge CAPABILITIES across the
+    registry - a name-glob search would not count. The registry is data, so
+    the fixture asserts the data is coherent and deterministic.
+    """
+    from harness.acquire.registry import SOURCES, get_source, list_sources, registry_issues
+
+    kinds = {source.capability for source in SOURCES.values()}
+    return {
+        "multipleKinds": len(kinds) > 1,
+        "deterministic": kinds == {get_source(i).capability for i in sorted(SOURCES)},
+        "registryIsClean": registry_issues() == [],
+        "everySourceIsListed": {row["id"] for row in list_sources()} == set(SOURCES),
+    }
+
+
+def _fixture_code_intel() -> dict[str, bool]:
+    """The code-intelligence context engine answers - and says so when it cannot.
+
+    A query that matches nothing must return a VALID EMPTY packet, never None
+    and never an exception: the engine is a tool the model can call, and a
+    refusal to answer is not an answer.
+    """
+    import tempfile
+
+    from harness.code.intel.manager import CodeIntelligenceManager
+    from harness.code.intel.persistence.index import CodeIndex
+    from harness.code.intel.project import project_id_for
+    from harness.code.policy import WorkspaceBinding
+    from harness.code.workspace import ResolvedWorkspace
+
+    # A plain temp directory, not a TemporaryDirectory: the code index holds a
+    # sqlite connection, and Windows cannot remove an open file - the cleanup
+    # would raise where the fixture did not.
+    root = tempfile.mkdtemp(prefix="be-intel-")
+    if True:
+        path = os.path.abspath(root)
+        binding = WorkspaceBinding(
+            id="ws_intel", root=path, base_revision="unknown", strategy="checkout",
+        )
+        workspace = ResolvedWorkspace(
+            id="ws_intel", root=path, base_revision="unknown",
+            strategy="checkout", binding=binding,
+        )
+        manager = CodeIntelligenceManager(
+            workspace,
+            index=CodeIndex(project_id_for(path, "ws_intel"), path=os.path.join(path, "idx.db")),
+        )
+        packet = manager.get_relevant_context("zzz_no_such_symbol")
+    return {
+        "answers": packet.get("status") == "ok",
+        "namesItsEngine": packet.get("engine") == "context",
+        "emptyIsEmpty": not packet.get("files") and not packet.get("symbols"),
+        "countsAreHonest": packet.get("fileCount") == 0 and packet.get("symbolCount") == 0,
+    }
+
+
+def _fixture_code_chat_routing() -> dict[str, bool]:
+    """The chat classifier routes a request to the right surface - and refuses safely."""
+    from harness.code.request_intent import classify_code_request
+
+    return {
+        "routesAChange": classify_code_request("add a function to auth.py").verdict == "code_change",
+        "routesAQuestion": classify_code_request("what is wrong with the api handler?").verdict == "code_question",
+        "routesADataTask": classify_code_request("scrape the prices into a csv").verdict == "data_task",
+        "refusesSafely": classify_code_request("show me the data").verdict == "not_code",
+        "emptyIsNotCode": classify_code_request("").verdict == "not_code",
+    }
+
+
+def _fixture_context_compaction() -> dict[str, bool]:
+    """Compaction carries the conversation forward - deterministically, and bounded."""
+    from harness.compaction import build_skeleton, render_compaction_block
+
+    class _Turn:
+        def __init__(self, role: str, content: str) -> None:
+            self.role = role
+            self.content = content
+
+    turns = [
+        _Turn("user", "add a feature flag"),
+        _Turn("assistant", "Done - the flag reads the env var"),
+    ]
+    requests, answers = build_skeleton(turns)
+    block = render_repo_map = render_compaction = None
+    from harness.compaction import render_compaction_block
+
+    block = render_compaction_block(
+        type("R", (), {
+            "requests": requests, "answers": answers, "dropped_turns": len(turns),
+            "narrative": "", "used_model": False, "ok": True, "reason": "",
+        })()
+    )
+    return {
+        "carriesTheRequests": requests == ("add a feature flag",),
+        "carriesTheAnswers": answers == ("Done - the flag reads the env var",),
+        "isFenced": block.startswith("<compacted-conversation>"),
+        "isLabelledAsData": "DATA" in block,
+        "isDeterministic": build_skeleton(turns) == (requests, answers),
+    }
+
+
+def _fixture_code_shell_exec() -> dict[str, bool]:
+    """The real shell runs with the SAME scrubbed environment a command gets.
+
+    The shell used to inherit `os.environ` in full, so one `shell_run` could
+    read a provider key, the callback token or the vault and print it into the
+    conversation. The fixture asserts the environment is the allowlist only,
+    and that the shell and a sandboxed command see the SAME world.
+    """
+    import os as _os
+
+    from ..shell import _scrubbed_env
+    from ..sandbox import build_env
+
+    secret = "super-secret-value-do-not-leak"
+    names = ("HARNESS_CALLBACK_TOKEN", "CRON_SECRET", "ANTHROPIC_API_KEY",
+             "OPENAI_API_KEY", "HARNESS_AUTH_SECRET")
+    for name in names:
+        _os.environ[name] = secret
+    try:
+        env = _scrubbed_env()
+    finally:
+        for name in names:
+            _os.environ.pop(name, None)
+    joined = " ".join(f"{k}={v}" for k, v in env.items())
+    return {
+        "noSecretInTheEnvironment": secret not in joined,
+        "theAllowlistOnly": not (set(names) & set(env)),
+        "theShellMatchesTheSandbox": set(env) == set(build_env()),
+        "theShellStillHasPath": "PATH" in env,
+    }
+
+
 _FIXTURES: dict[str, Callable[[], dict[str, bool]]] = {
     "bulk-collection-ceiling": _fixture_bulk_collection,
     "unattended-report-limits": _fixture_unattended_report,
     "artifact-claim-marked": _fixture_artifact_verification,
     "change-review-rules": _fixture_change_review,
+    "price-authority-arbitrates": _fixture_price_authority,
+    "promotion-landing-round-trip": _fixture_promotion_landing,
+    "scraping-breadth-across-kinds": _fixture_scraping_breadth,
+    "code-intel-context-engine": _fixture_code_intel,
+    "code-chat-routing": _fixture_code_chat_routing,
+    "context-compaction-skeleton": _fixture_context_compaction,
+    "code-shell-exec-scrubbed": _fixture_code_shell_exec,
 }
 
 
@@ -170,6 +442,19 @@ CLASSES: tuple[CapabilityClass, ...] = (
     # content search and one name search, that the deprecated names still work
     # and now run on the same engine, and that the canonical name search kept
     # every filter the old one had.
+    # Round 3 / W3 (ADR-H282): the ONE edit tool and the two rules that make it
+    # safe - the file must have been READ by this run, and it must not have
+    # changed since. The gates assert the refusals, the deprecations, the
+    # policy classification and the path recovery.
+    CapabilityClass("code_edit_contract", "capability.class.codeEditContract", "test_gate",
+                    "harness.code.edit_tools",
+                    ("pytest:python/tests/test_code_edit_primitive.py",)),
+    # Round 3 / W4 (ADR-H287): the repo map - deterministic, bounded, and
+    # joined to the prompt-cache key. The gates assert the determinism, the
+    # bounds, the cache-key contract and the measured index freshness.
+    CapabilityClass("code_repo_map", "capability.class.codeRepoMap", "test_gate",
+                    "harness.code.intel.repo_map",
+                    ("pytest:python/tests/test_repo_map.py",)),
     CapabilityClass("code_search", "capability.class.codeSearch", "test_gate",
                     "harness.code.fs.search",
                     ("pytest:python/tests/test_code_search_surface.py",)),
@@ -205,18 +490,27 @@ CLASSES: tuple[CapabilityClass, ...] = (
                     ("pytest:python/tests/test_advisory_gate.py",
                      "pytest:python/tests/test_advisory_ledger.py")),
     # Declared and NOT graded — published as not measured, with the reason.
-    CapabilityClass("price_authority", "capability.class.priceAuthority", "unmeasured",
-                    "harness.retrieval.authority", (),
-                    reason="Not graded yet — the source-choice logic is tested in pieces, not end to end."),
-    CapabilityClass("promotion", "capability.class.promotion", "unmeasured",
-                    "harness.code.actions", (),
-                    reason="Not graded yet — putting a change into your files is tested in pieces, not end to end."),
-    CapabilityClass("scraping_breadth", "capability.class.scrapingBreadth", "unmeasured",
-                    "harness.acquire.registry", (),
-                    reason="Not graded yet — only a few kinds of data sources are set up."),
-    CapabilityClass("messaging_gateway", "capability.class.messagingGateway", "unmeasured",
-                    "harness.gateway", (),
-                    reason="Not built yet."),
+    # Round 3 / W8 (ADR-H296): these three are now graded END TO END, not in
+    # pieces. A capability class that is published but not measured is worse
+    # than one that is honestly absent - so each of these moved from
+    # `unmeasured` to a real fixture.
+    CapabilityClass("price_authority", "capability.class.priceAuthority", "fixture",
+                    "harness.retrieval.authority", ("price-authority-arbitrates",)),
+    CapabilityClass("promotion", "capability.class.promotion", "fixture",
+                    "harness.code.promotion", ("promotion-landing-round-trip",)),
+    CapabilityClass("scraping_breadth", "capability.class.scrapingBreadth", "fixture",
+                    "harness.acquire.registry", ("scraping-breadth-across-kinds",)),
+    # The capability classes that had no row at all. A capability with no class
+    # is where the work goes silent.
+    CapabilityClass("code_intel", "capability.class.codeIntel", "fixture",
+                    "harness.code.intel.manager", ("code-intel-context-engine",)),
+    CapabilityClass("code_chat_routing", "capability.class.codeChatRouting", "fixture",
+                    "harness.code.request_intent", ("code-chat-routing",)),
+    CapabilityClass("context_compaction", "capability.class.contextCompaction", "fixture",
+                    "harness.compaction", ("context-compaction-skeleton",)),
+    # Round 3 / W9 (ADR-H297): the real shell's environment contract.
+    CapabilityClass("code_shell_exec", "capability.class.codeShellExec", "fixture",
+                    "harness.code.shell", ("code-shell-exec-scrubbed",)),
 )
 
 #: Classes that MUST stay measured; the gate fails when one regresses to unmeasured.

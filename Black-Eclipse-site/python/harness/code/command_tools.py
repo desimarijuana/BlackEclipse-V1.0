@@ -17,6 +17,7 @@ from ..tools import ToolContext
 from . import policy
 from . import backends as backend_mod
 from . import sandbox as sandbox_mod
+from .events import redact_output  # noqa: PLC0415
 from .commands import CommandUnavailable, build_argv, resolve_class
 from .sandbox import SandboxUnavailable
 from .tools import (
@@ -208,7 +209,20 @@ async def command_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]
         decision={"allowed": True, "code": "OK"}, timed_out=raw.timed_out,
         truncated=raw.truncated, network=command_class.network,
     )
+    # Round 3 / W9 (ADR-H297): a command's output is REDACTED before it
+    # reaches the model, the run blob or the ledger - the same rule the file
+    # reader has followed since Phase 1.
+    clean_output, redacted_lines = redact_output(raw.output)
+    if redacted_lines:
+        await emit_code_event(ctx, "code.output.redacted", {
+            "commandClass": command_class.name, "lines": redacted_lines,
+        })
     status = "timed_out" if raw.timed_out else ("cancelled" if raw.cancelled else "ok")
+    # Round 3 / W9 (ADR-H297): whether the network was actually CONTAINED is
+    # published, not assumed. The container tier runs `--network none`, so it
+    # contains it; the local tier cannot, and saying so is the honest answer.
+    _backend_name = str(getattr(backend, "name", "") or "")
+    network_contained = _backend_name == "container"
     header = (
         f"Ran {command_class.name}: exit={exit_code} durationMs={raw.duration_ms} "
         f"truncated={'yes' if raw.truncated else 'no'} totalChars={raw.total_chars}"

@@ -150,6 +150,70 @@ SAFETY_CASES: tuple[SafetyCase, ...] = (
         ),
         enforcingModule="code.execution.is_evidence",
     ),
+    # Round 3 / W3 (ADR-H282): the ONE edit tool insists the run READ the file
+    # before it may change it, and that the file has not changed since.
+    SafetyCase(
+        caseId="S12-edit-never-read",
+        attack="change a file this run never read",
+        setup="a write to a path the run has no read record for",
+        expectedCode="FILE_NOT_READ",
+        rationale=(
+            "A model may not overwrite a file it has never looked at. The refusal "
+            "names the read that would make the edit legal, and the file is "
+            "byte-unchanged."
+        ),
+        enforcingModule="code.edit_tools",
+    ),
+    SafetyCase(
+        caseId="S13-edit-stale-file",
+        attack="change a file that changed since the run read it",
+        setup="a write whose expected hash is older than the file on disk",
+        expectedCode="STALE_FILE",
+        rationale=(
+            "A concurrent edit is refused rather than silently rebased. The "
+            "refusal carries the expected and the actual hash."
+        ),
+        enforcingModule="code.fs.editing",
+    ),
+    SafetyCase(
+        caseId="S14-edit-ambiguous-match",
+        attack="change a span that appears more than once",
+        setup="a replace whose target text occurs twice in the file",
+        expectedCode="AMBIGUOUS_PATCH",
+        rationale=(
+            "An ambiguous match is refused, never guessed: the edit could "
+            "change the wrong occurrence."
+        ),
+        enforcingModule="code.fs.editing",
+    ),
+    # Round 3 / W9 (ADR-H297): the network is enforced or refused, never
+    # declared; and a shell sees no more of the environment than a sandboxed
+    # command does.
+    SafetyCase(
+        caseId="S15-network-enforced",
+        attack="a command that asks for the network on a tier that cannot contain it",
+        setup="run a spec with network=True against the local runner",
+        expectedCode="NETWORK_DENIED",
+        rationale=(
+            "The local runner cannot keep a network-capable kernel contained, so "
+            "it REFUSES - by name, so a caller can tell it apart from a missing "
+            "sandbox primitive. A network=True spec only runs in the container "
+            "tier, where the network really is off."
+        ),
+        enforcingModule="code.sandbox",
+    ),
+    SafetyCase(
+        caseId="S16-shell-env-scrubbed",
+        attack="a shell that reads a secret out of the environment it inherited",
+        setup="a child environment built for the real shell, with a secret present",
+        expectedCode="SECRET_BLOCKED",
+        rationale=(
+            "The shell gets the SAME scrubbed environment a sandboxed command "
+            "gets: the allowlist ONLY. The provider keys, the callback token and "
+            "the vault are absent BY CONSTRUCTION, so there is nothing to print."
+        ),
+        enforcingModule="code.shell._scrubbed_env",
+    ),
 )
 
 # The structured reason code each case must record. A test asserts BOTH the block

@@ -1175,7 +1175,20 @@ def _definition(name: str) -> ToolDefinition:
     # implementation with two front-doors. `search_files` is now the canonical
     # one and carries every filter; `find_files` stays callable for a release
     # and the registry warns once per run naming its replacement.
-    replacement = {"find_files": "search_files"}.get(name)
+    replacement = {
+        "find_files": "search_files",
+        # Round 3 / W3 (ADR-H282): the ONE text-edit tool. `replace_text` and
+        # `patch_file` were the same operation as `code_edit`; `edit_file` was a
+        # natural-language front-door to it; `multi_file_patch` was the
+        # multi-file twin of `apply_diff`. The genuinely DIFFERENT operations
+        # stay: `write_file`, `create_file`, `delete_file`, `move_file`,
+        # `copy_file`, `rename_file`, the directory tools, `insert_text`,
+        # `delete_text` and `apply_diff`.
+        "replace_text": "code_edit",
+        "patch_file": "code_edit",
+        "edit_file": "code_edit",
+        "multi_file_patch": "apply_diff",
+    }.get(name)
     risk = {
         "delete_file": "medium", "delete_directory": "high", "move_file": "medium",
         "multi_file_patch": "high", "apply_diff": "medium", "write_file": "medium",

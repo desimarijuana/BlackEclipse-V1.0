@@ -7,6 +7,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **merge(harness): origin/main's Round 3/4 work landed on the local tree.**
+  Merged 21 upstream commits (Round 3/4, v0.2.0) and resolved the three content
+  conflicts in `docs/harness/decisions.md`, `package.json` and
+  `python/tests/test_size_budget.py`. The local RSL v4 / notebook decisions
+  moved from H293-H302 to H316-H325 so H310-H315 stay reserved for the Round 4
+  plan; `scripts/check-adr-numbers.js` now reserves that range, and every doc
+  reference was updated. Raised the harness size ceilings to the measured
+  merged tree (381,722 total; `.` 24,843; routers 17,125; evaluation 11,386),
+  pinned `graph.py` at 2,323, and regenerated the tool registry (957 tools) and
+  benchmarks. `npx tsc --noEmit` clean; lint 0 errors; ADR and size gates pass;
+  full suite 8,223 passed / 27 skipped, with only the two
+  stale-generated-artifact failures, both regenerated and their 15 tests green.
+  docs updated: `docs/harness/decisions.md`,
+  `docs/harness/roadmap/round-4-gap-closure.md`,
+  `docs/harness/agent-evaluation.md`, `docs/NAVIGATION.md`,
+  `docs/self-improvement/rsl-v4-plan.md`,
+  `docs/harness/roadmap/{README,phase-21-notebook-cells}.md`,
+  `docs/harness/benchmarks.md`, `docs/harness/tool-registry.json`,
+  `docs/CHANGELOG.md`.
 - **test(evaluation): the one-split export check no longer hardcodes 61 tasks.**
   `test_one_split_can_be_exported_alone` now compares the optimization split
   count against the full built-in corpus, so legitimate corpus growth (64
@@ -118,12 +137,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   double-click still resets. Files: `src/components/charts/plotly-chart.tsx`,
   `src/components/response/response-chart.tsx`; docs updated:
   `docs/chart-engine.md`, `docs/CHANGELOG.md`.
-- **docs(harness): plan editable notebook cells in chat (ADR-H300 + phase 21).**
+- **docs(harness): plan editable notebook cells in chat (ADR-H323 + phase 21).**
   Added a plan for a per-conversation cell document over the existing analysis
   sandbox, an "Edit code" path from a chart into a linked cell, chart-spec to
   matplotlib codegen, and an opt-in persistent kernel namespace. The chart
   contract stays data-only and `analysis_run` keeps a fresh namespace. Docs:
-  `docs/harness/decisions.md` (ADR-H300),
+  `docs/harness/decisions.md` (ADR-H323),
   `docs/harness/roadmap/phase-21-notebook-cells.md` (new),
   `docs/harness/roadmap/README.md`, `docs/NAVIGATION.md`,
   `docs/CHANGELOG.md`.
@@ -187,6 +206,24 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/app/api/harness/charts/route.test.ts` (typed the fetch mock so the lint
   gate passes). docs updated: docs/CHANGELOG.md (no other doc change — the
   Dashboard data path is already documented in docs/ARCHITECTURE.md).
+- **chore(harness): regenerate the committed capability statement.** The full
+  Python suite's `test_the_committed_statement_matches_a_fresh_generation`
+  caught the generated `docs/harness/capability-statement.md` drifting from
+  `render_statement()` after the in-flight capability changes. Regenerated it
+  from the module; the statement is derived data and the test now passes. Files:
+  `docs/harness/capability-statement.md`. no other doc change - generated
+  artifact.
+
+- **feat(evaluation): read-only corpus and rotation operator routes.** Added
+  `routers/evolution_corpus.py` (mounted in `main.py`):
+  `GET /evolution/corpus` returns the compact committed manifest, its
+  verification and the authoring audit; `GET /evolution/corpus/rotation`
+  returns a deterministic rotation PREVIEW. Neither writes a dataset - rotation
+  apply stays the deliberate `npm run rsl:rotate -- --apply` CLI action. Files:
+  `python/harness/routers/evolution_corpus.py`, `python/harness/main.py`,
+  `python/tests/test_evolution_corpus_routes.py`, `package.json`. Docs updated:
+  `docs/harness/agent-evaluation.md`.
+
 - **feat(evaluation): a deterministic, operator-applied held_out rotation.**
   A held_out task a candidate has seen is no longer a clean canary. Added
   `evaluation/rotation.py` and `npm run rsl:rotate`: the plan is seeded by the
@@ -201,7 +238,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/tests/test_evaluation_rotation.py`, `scripts/rsl-rotate.js`,
   `package.json`. Docs updated: `docs/harness/agent-evaluation.md`,
   `docs/self-improvement/rsl-v4-plan.md`, `docs/harness/decisions.md`
-  (ADR-H302).
+  (ADR-H325).
 
 - **feat(evaluation): finance tranche 6 - the corpus reaches 250 tasks.** Added
   `datasets/finance_v6.json`: 50 deterministic fixtures (three validation and
@@ -248,7 +285,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/harness/routers/evolution_autonomy.py`,
   `python/tests/test_autonomy_apply.py`, `package.json`. Docs updated:
   `docs/self-improvement/rsl-v4-plan.md`, `docs/harness/architecture.md`,
-  `docs/harness/decisions.md` (ADR-H301).
+  `docs/harness/decisions.md` (ADR-H324).
 
 - **feat(evaluation): finance tranche 4 - 36 generated oracle-tagged tasks.**
   Added `datasets/finance_v4.json`: 36 deterministic fixtures across twelve
@@ -325,7 +362,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   loop,__init__}.py`, `python/harness/routers/evolution.py`,
   `python/tests/test_autonomy.py`, `package.json`, `.env.example`. Docs
   updated: `docs/self-improvement/rsl-v4-plan.md`,
-  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H299).
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H322).
 
 - **feat(evaluation): only the live tier may be pinned, and the key includes the
   prompt and corpus.** The scripted tier cannot see a prompt change, so pinning
@@ -345,7 +382,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/tests/test_live_baseline.py`, `scripts/rsl-nightly.js`.
   Docs updated: `docs/harness/agent-evaluation.md`,
   `docs/self-improvement/rsl-v4-plan.md`, `docs/harness/decisions.md`
-  (ADR-H298).
+  (ADR-H321).
 
 - **feat(evaluation): a lift must clear its paired noise floor.** A Wilson
   interval describes one arm; the acceptance decision was comparing point
@@ -364,7 +401,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/tests/{test_significance.py,test_rsl_significance.py}`, `package.json`,
   `.env.example`. Docs updated: `docs/harness/agent-evaluation.md`,
   `docs/self-improvement/rsl-v4-plan.md`, `docs/harness/decisions.md`
-  (ADR-H297).
+  (ADR-H320).
 
 - **feat(evaluation): a committed corpus manifest and one split per purpose.**
   The corpus count had drifted between documents (76 vs 88) with nothing
@@ -386,7 +423,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `scripts/{rsl-manifest.js,test-evals.js}`, `package.json`. Docs updated:
   `docs/harness/agent-evaluation.md`,
   `docs/self-improvement/rsl-v4-plan.md`, `docs/harness/decisions.md`
-  (ADR-H296).
+  (ADR-H319).
 
 - **feat(rsl): type every proposal, veto near-duplicates, and let islands migrate
   evidence.** A proposal now names the surface it mutates (prompt, tool guidance,
@@ -408,7 +445,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/harness/self_improvement/{operators,proposer,archive,config,recursion,loop,__init__}.py`,
   `python/tests/{test_rsl_operators.py,test_rsl_islands.py}`, `package.json`,
   `.env.example`. Docs updated: `docs/self-improvement/rsl-v4-plan.md`,
-  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H295).
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H318).
 
 - **feat(rsl): rank exploration parents by what their descendants achieved.**
   The archive ranked a state by its own score; HGM showed that is a poor proxy
@@ -424,7 +461,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `python/harness/self_improvement/{cmp,archive,config,loop,__init__}.py`,
   `python/tests/test_rsl_cmp.py`, `package.json`, `.env.example`. Docs updated:
   `docs/self-improvement/rsl-v4-plan.md`, `docs/harness/architecture.md`,
-  `docs/harness/decisions.md` (ADR-H294).
+  `docs/harness/decisions.md` (ADR-H317).
 
 - **feat(rsl): the climb may explore from a measured stepping stone, and only the
   champion can be replaced.** Greedy ascent proposed only from the incumbent and
@@ -444,7 +481,7 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   behavior is byte-identical. Files: `python/harness/self_improvement/{archive,sampler,state,hillclimb,config,loop,__init__}.py`,
   `python/tests/{test_rsl_archive.py,test_rsl_loop.py}`, `package.json`,
   `.env.example`. Docs updated: `docs/self-improvement/rsl-v4-plan.md` (new),
-  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H293).
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H316).
 
 - **fix(ui): the Dashboard is monochrome white and its portfolio panels wait honestly.**
   Replaced the initial gold/amber chrome with a white/grey treatment (green/red
@@ -477,6 +514,101 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/lib/chat/markdown.ts`, `src/components/chat/markdown.tsx`; tests
   `src/lib/chat/math.test.ts`, `src/components/chat/math-render.test.tsx`.
   docs updated: `docs/chat-ui-audit.md`.
+
+- **fix(harness): repair the broken merge state, regenerate the two published
+  artifacts, and hold `graph.py` under its ratchet.** The tree about to land was
+  internally inconsistent: `boot.py` imported
+  `harness.self_improvement.session_watch`, but that module only existed on
+  main's newer commit, so four a2a tests and two recovery tests failed with
+  `ModuleNotFoundError`. Merging main fixed all six. Three conflicts resolved:
+  the RSL lab ADRs claimed H290/H291/H292, which were already the sandbox ADRs,
+  so they became **H306/H307/H308** with a provenance note on each (the decision
+  text is untouched; the gate now reports 303 entries, H1..H308, contiguous); the
+  `package.json` kept both sides; and their `Promise<Response>` on the chart-route
+  mock does not compile, because the mock returns a plain object - `unknown` is
+  the form that passes both `tsc` and `eslint`. The merge also made both generated
+  artifacts stale, so `docs/harness/tool-registry.json` (956 tools, digest
+  `cc523b84547c456c`) and `docs/harness/benchmarks.md` were regenerated, and
+  `graph.py` (2,314 lines, past its pinned 2,309) was compacted to 2,308 rather
+  than raising the ceiling.
+  docs updated: docs/harness/decisions.md.
+
+- **release(harness): v0.2.0 is tagged, and `main` is the released tree.** Round 4
+  V1 is closed. `origin/main` fast-forwarded to `b3e08d1c` (no force), the branch
+  was pushed, and an annotated `v0.2.0` (`8068674e`) was pushed and verified with
+  `git ls-remote`. The release was only cut after the full `check:all` passed on
+  the exact tree that was tagged - the gate had failed four times first, each time
+  on something real (a divergent `main`, stale generated artifacts, a module over
+  its ratchet, and CRLF this tool wrote into an LF file). The plan's ADR
+  reservations were shifted to H309-H314, because the merge resolution consumed
+  H306-H308. The other stream's local `main` is behind and must `git pull`.
+  docs updated: docs/harness/roadmap/round-4-gap-closure.md,
+  docs/releases/v0.2.0.md.
+
+- **refactor(git): nine diff ops, one argv builder.** Round 4 / V2, first slice.
+  The nine `diff_*` operations differed only by a flag prefix and whether the
+  revision pair was `(base)` or `(from, to)`, so they are now one `_diff_argv`
+  plus a nine-row table. Every name, argument list and argv string is unchanged
+  (verified by building all nine against sample args and diffing the output), so
+  no caller and no shim is affected. 319 git tests pass; the total falls from
+  377,242 to 377,238 lines. The saving is small on purpose: the audit found the
+  catalog was already dense, so V2 cannot deliver its promised reduction this
+  way and that is recorded in the plan rather than papered over.
+  no doc change — internal refactor, no contract or architecture change.
+
+- **docs(adr): the 15 legacy entries now carry the full shape.** Round 4 / V3a.
+  The gate had been exempting 15 decisions below H295. Every one was closed by
+  re-labelling prose that was already written, never by inventing a rationale:
+  `Impact` became `Consequences` (H45-H50, six), `Context` became `Why`
+  (H147-H151, five - each Context paragraph already stated the motivation),
+  `Consequences (non-goals)` became `Consequences` (H96), `Why this supersedes
+  ADR-H75's choice (b)` became `Why` (H76), and H7's marker was welded to its
+  heading by a missing line break. One heading - H70's `Consequences` - had no
+  prose to relabel, so it restates what that entry's own Decision section already
+  says about subscriptions, conditional registration and inert prompt text.
+  The gate now reports **zero** legacy exemptions: 303 entries, H1..H308, all
+  shaped. docs updated: docs/harness/decisions.md.
+
+- **test(graph): the cancellation test waits for the retry instead of guessing.**
+  Round 4 / V3a. `test_cancellation_during_retry_still_cancels` slept a fixed
+  0.3 s and then cancelled, assuming the first attempt had already overflowed and
+  the retry had begun. On a loaded machine that race went the other way, so the
+  cancel landed during the *first* attempt and the assertion described a state
+  the run had not reached. The model now sets an `asyncio.Event` on its second
+  call and the test awaits it (10 s ceiling) before cancelling - the same
+  assertion, no race, and a failure to reach the retry now reports as a timeout
+  rather than a wrong status. 16/16 in the file, twice.
+  no doc change — test-only fix, no contract or behaviour change.
+
+- **fix(bridge): the structured-read budget is now measured, not assumed.** Round
+  4 / V5. The bridge gave structured reads 8 s because "the smallest market-tool
+  budget is 10 s" — true, and still too tight. Timed against the live front door:
+  `market_data` 3.91 s, `live_quote` 3.57 s, `market_snapshot` 0.04 s cached, and
+  **`financial_statements` 8.56 s cold** — permanently over the line, so the live
+  lane could not measure a single finance dimension. Bridge is now 15 s and the
+  finance tools' `timeout_ms` 25 s, preserving the ordering the contract depends
+  on (15 s < 25 s), which the existing timeout test still enforces. Live-suite
+  bridge failures fell 15 -> 6 -> 3 across the runs. It did not reach zero: the
+  three remaining calls include `market_snapshot`, measured at 42 ms, so they are
+  connection faults under suite load and not budget faults - recorded as the next
+  open item rather than claimed fixed. ADR-H309 carries the measurement and the
+  reasoning; the plan's V1-V6 ADR reservations shift to H310-H315.
+  docs updated: docs/harness/decisions.md,
+  docs/harness/roadmap/round-4-gap-closure.md.
+
+- **fix(bridge): a bridge failure now names its exception, and a dropped peer is
+  retried.** The three remaining live-suite failures logged as
+  `data bridge failed (market_snapshot):` with nothing after the colon, which made
+  them indistinguishable from a timeout. The logger now always prefixes the
+  exception type and the returned error carries the same text. That immediately
+  identified them: **`ConnectError: All connection attempts failed`** - the front
+  door was not listening, not a budget problem. `RemoteProtocolError` (a peer that
+  accepts then drops the request, and whose `str()` is empty) is now retried once
+  alongside `ConnectError`; a timeout still never is. The residual failures are
+  environmental: the local server is not surviving between runs in this
+  environment, so they are recorded as an operations issue rather than a harness
+  defect.
+  no doc change — diagnosability and retry class only, no contract change.
 
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
@@ -753,6 +885,268 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   python/tests/test_project_curation.py (10), python/tests/test_projects.py.
   docs updated: docs/projects.md.
 
+
+- **feat(harness): the harness has a PUBLIC surface, a published tool
+  manifest, and a package that carries no data.** The harness was excellent and
+  unreachable: everything it could do - the retrieval layer, the research
+  verifier, the comparability gate, the receipts, the tool surface - was
+  valuable to another harness and available only here. And a public surface
+  that is not DECLARED is not a public surface; it is a directory listing.
+  `python/harness/public.py` is now the WHOLE public API -
+  `AgenticService`, `ToolRegistry`, the run contract, and the export
+  functions - and it is a closed list, asserted by a test.
+  `export_tool_schemas()` produces the PORTABLE tool manifest: the MCP
+  tool-manifest shape plus the parts a consumer needs to bind a tool safely
+  (`permission`, `effect`, `risk`, `version`, the deprecation fields).
+  `docs/harness/tool-registry.json` is that manifest, GENERATED, with a drift
+  test that regenerates and compares: **946 tools**. The honesty contract is
+  the point of the export - a tool is published with its permission and its
+  effect class, or it is NOT published, because a consumer cannot honour a
+  rule it cannot read and a tool that cannot be classified is a tool nobody
+  should call. A consumer inherits Eclipse's honesty: it can see that a tool
+  writes, or that it reaches the network, before it binds it. The package
+  metadata (`pyproject.toml`) declares `black-eclipse-harness` - the RUNTIME,
+  with the provider SDKs as OPTIONAL extras (a consumer that only wants the
+  tool surface should not install an SDK for a model it never calls), no
+  package data, and no dependency on the app.
+  The manifest also caught a real bug: the `analysis_run` tool's description
+  interpolated the FUNCTION OBJECT instead of its result, so the tool that
+  runs analyses had been advertising `<function recipe_catalogue_text at
+  0x...>` to the model instead of the recipes it can actually run. That is
+  fixed, and a guard now asserts that no published description carries an
+  object repr. Files: python/harness/public.py (new),
+  Black-Eclipse-site/pyproject.toml (new),
+  scripts/generate-tool-registry.js (new),
+  scripts/size-budget.json (the ceiling was raised on purpose for the public
+  surface - a real addition, not drift),
+  docs/harness/tool-registry.json (generated),
+  python/tests/test_public_api.py (new). ADR-H298. docs updated:
+  docs/harness/decisions.md, docs/harness/architecture.md, docs/NAVIGATION.md.
+
+- **fix(harness): a shell sees no more of the environment than a command
+  does, the output is redacted, and the network is refused BY NAME.** The real
+  host shell used to inherit the FULL `os.environ`, so a single `shell_run`
+  could read a provider key, the callback token or the vault and print it into
+  the conversation, the run blob and the ledger - while the sandboxed command
+  path had been scrubbed since Phase 1. Both now use the SAME builder
+  (`code.sandbox.build_env`: the allowlist ONLY, never the vault, never the
+  provider keys, never the callback token, never a proxy), so a shell and a
+  sandboxed command see the same world. Command and shell OUTPUT is now
+  REDACTED through the one existing primitive before it reaches the model -
+  the file reader has done this since Phase 1, and the command and shell paths
+  are the ones a model can most easily push a secret through - and the
+  `code.output.redacted` event names the NUMBER of lines changed, never the
+  value. `RunSpec.network` was a declaration whose refusal was unreadable: a
+  caller could not tell "the network is refused" from "there is no sandbox
+  primitive here". The refusal now carries `NETWORK_DENIED`, and the answer to
+  "is the network contained?" is PUBLISHED rather than assumed - the container
+  tier really does run `--network none`, and the local tier cannot, so the
+  command result says which one it was. Two new adversarial cases attack the
+  real modules: `S15-network-enforced` and `S16-shell-env-scrubbed`. Files:
+  python/harness/code/shell.py, python/harness/code/events.py,
+  python/harness/code/shell_tools.py, python/harness/code/command_tools.py,
+  python/harness/code/sandbox.py,
+  python/harness/code/eval/safety_cases.py, python/harness/code/eval/safety.py,
+  python/harness/code/eval/capabilities.py,
+  python/tests/test_isolation_secrets.py (new). ADR-H297. docs updated:
+  docs/harness/decisions.md, docs/harness/architecture.md, docs/NAVIGATION.md,
+  docs/harness/capability-statement.md.
+
+- **feat(harness): the benchmarks are GENERATED, the live tier is a lane, and
+  no capability is published unmeasured.** The evaluation framework was already
+  first-rate - the real graph, 17 graders, 22 dimensions with un-averagable
+  criticals, `pass@k` with Wilson intervals, flakiness classification, frozen
+  baselines stamped with the commit, per-dimension regression detection, a
+  worktree invoker, a canary split, a verdict-leak tripwire, and a
+  team-vs-single benchmark that returned a NEGATIVE verdict and therefore did
+  not ship. Almost nobody builds that. And then: the offline tier REPLACED the
+  model with a recorded program, the live tier existed but was reachable only
+  by hand, no number a stranger could check had ever been published, and four
+  capability classes were published unmeasured. `docs/harness/benchmarks.md` is
+  now GENERATED by `python -m harness.evaluation.report` (or
+  `npm run eval:benchmarks`) and never hand-edited, so a number cannot be
+  quietly improved - a test regenerates it and compares. The two tiers are
+  kept APART and named: the OFFLINE tier replaces the model with a recorded
+  script, so it measures the RUNTIME - the tool surface, the policy, the
+  graders, the wiring - and it says so; the LIVE tier runs a real model and
+  is the only tier that measures the agent. Both carry their dataset,
+  checksum, agent version, commit and grader version, because a number without
+  its provenance is a rumour, and a rumour in a benchmark table is worse than
+  an empty row. The live lane never fabricates: with no provider it publishes
+  "NOT MEASURED" with the reason and exits 0, and the nightly workflow SKIPS
+  rather than failing when no secret is configured. And the capability
+  registry stops publishing things it cannot back: `price_authority` (the
+  authority ARBITRATES a disagreement rather than taking the first answer, and
+  the conflict is recorded), `promotion` (the full landing round trip -
+  preview, apply, rollback, re-apply - asserted on the real bytes in a real
+  folder) and `scraping_breadth` (the registry knows more than one KIND of
+  data source) are now graded END TO END; `code_intel`, `code_chat_routing` and
+  `context_compaction` are new classes; and the `messaging_gateway` class is
+  RETIRED, because it names a capability that is not built and a published
+  class for something that does not exist is worse than an unmeasured one. The
+  registry is now **24 classes, 24 measured, 0 not measured yet.** Files:
+  python/harness/evaluation/report.py, python/harness/evaluation/live_gate.py
+  (new), python/harness/code/eval/capabilities.py,
+  scripts/generate-benchmarks.js (new), scripts/run-live-evals.js (new),
+  python/tests/test_published_benchmarks.py (new),
+  .github/workflows/live-evals.yml (new), docs/harness/benchmarks.md
+  (generated), docs/harness/capability-statement.md (regenerated). ADR-H296.
+  docs updated: docs/harness/decisions.md, docs/harness/architecture.md,
+  docs/NAVIGATION.md, docs/harness/capability-statement.md,
+  docs/harness/benchmarks.md.
+
+- **chore(harness): the decision record is unambiguous, the harness has a TOTAL
+  ceiling, and the release is real.** The operational score was the harness's
+  weakest dimension, and the reason was not capability - it was DISCIPLINE. The
+  decision series had SEVEN duplicate numbers (H160, H162, H242 x2, H243, H244,
+  H245) and five gaps: "ADR-H242" named two different things. The later
+  duplicate of each was renumbered and the old number RETIRED with a redirect,
+  so an old reference still resolves and the decision is unchanged. The
+  withdrawn numbers are reserved explicitly. `scripts/check-adr-numbers.js`
+  now fails the release gate on a duplicate, an unreserved gap, or an entry
+  without Decision / Why / Consequences - and it NEVER renumbers anything,
+  because renumbering is a judgement call that belongs to a human. The shape is
+  enforced from H288 onward; the older entries are reported and
+  countable rather than rewritten, because inventing a rationale for someone
+  else's decision is not honesty. The harness also gains the missing half of
+  its size ratchet: `python/tests/test_size_budget.py` bounded each FILE's
+  growth but not the TREE's, so a harness could keep every file under its pin
+  and still double by adding files. `scripts/size-budget.js` adds a committed
+  TOTAL ceiling (`scripts/size-budget.json`) plus the twelve largest
+  subsystem ceilings; the harness is 368,218 lines against a 371,900 ceiling
+  that must now be raised ON PURPOSE. And the release is real: the version is
+  0.2.0, `docs/releases/v0.2.0.md` is derived from the CHANGELOG, the
+  changelog's rolling 7-section window is rotated by a script instead of by
+  hand, and `CODEOWNERS` names the harness paths - the part of the tree where
+  a mistake is hardest to see. The 30% surface cut is NOT in this release: it
+  is a multi-release program over DUPLICATION, not capability, and the two
+  candidates the plan named first (the FS write stack and the search stack) are
+  already merged. Files: scripts/check-adr-numbers.js (new),
+  scripts/size-budget.js (new), scripts/size-budget.json (new),
+  scripts/rotate-changelog.js (new), scripts/check-all.js, package.json,
+  .github/workflows/ci.yml, CODEOWNERS (new), docs/releases/v0.2.0.md (new),
+  docs/harness/decisions.md, docs/harness/roadmap/phase-20-measuring-all-of-it.md.
+  ADR-H295. docs updated: docs/harness/decisions.md,
+  docs/harness/architecture.md, docs/NAVIGATION.md,
+  docs/harness/roadmap/phase-20-measuring-all-of-it.md, docs/releases/v0.2.0.md.
+
+- **feat(harness): the model is TOLD the shape of the project.** The harness
+  had NO repo map at all. A model that wanted to know what was in the project
+  had to GUESS a path, spend a tool call on it, and - on a miss - get a bare
+  "that file isn't there". The CIUE index and the context engine are genuinely
+  good - the context engine ranks files by symbol matches, path matches and
+  related tests, and finds the related test file too - but they were
+  reachable only if the model THOUGHT to call `code_get_relevant_context`.
+  Excellent machinery, invisible. A repo map - the folders, and a symbol
+  outline of the top files - is now built EAGERLY and DETERMINISTICALLY and
+  handed to the model in the FIRST turn, together with the CIUE context
+  engine's answer for THIS request (the "seeded slice"), resolved once per
+  run with no model call. The map is BOUNDED (a file count, a
+  symbols-per-file count, a byte budget and a render budget - it is a summary,
+  never a copy), DETERMINISTIC (the same tree produces the same map and the
+  same digest, byte for byte), and HONEST about its engine: the outline comes
+  from the stdlib extractor (Python's own `ast`, a brace/regex scanner for
+  everything else), and tree-sitter's availability is published in the
+  code-intel status - an optional layer that silently no-ops is a false
+  capability. The map's content hash is the prompt-cache key's witness: a
+  project whose shape changed invalidates the cache, and one that did not
+  change does not. It gets its OWN segment for exactly that reason -
+  `runtime_context` is run-frozen and its content is NOT hashed, so a map
+  appended there would have been cache-key-invisible. The same change fixes an
+  UNMEASURED claim: `CodeIntelRuntime.is_fresh()` used to `return True` for
+  EVERY workspace - including one that was never indexed and one with no
+  background indexer. It now looks for the EVIDENCE (the background watcher
+  that owns the index's freshness), and a workspace with neither is honestly
+  not fresh - which is what lets a read path ask for a refresh instead of
+  trusting a claim. Files:
+  python/harness/code/intel/repo_map.py (new),
+  python/harness/code/intel/runtime.py, python/harness/prompt_segments.py,
+  python/harness/graph_context.py, python/harness/graph.py,
+  python/harness/code/eval/capabilities.py,
+  python/tests/test_repo_map.py (new, 14 cases). ADR-H287. docs updated:
+  docs/harness/decisions.md, docs/harness/architecture.md, docs/NAVIGATION.md,
+  docs/harness/capability-statement.md.
+
+- **feat(harness): the dropped turns are COMPACTED, not just dropped.** The
+  harness TRUNCATED its history: `_bounded_history` kept the most recent turns
+  and dropped the oldest, and the dropped-context extractor mined them for
+  INERT candidates ("you mentioned a file called X"). Everything else the
+  conversation carried - the decision that was made, the question that was
+  still open, the state of the work - was GONE. `context_budget.py` said it
+  plainly: *"no tokenizer dependency, no network call, no summarization."*
+  Every top-tier harness compacts; a long run in Eclipse could keep twenty
+  turns and no more, and the twenty-first turn started from nothing. What the
+  history bound removes is now carried forward as a fenced, labelled summary:
+  the requests that were made and the answers that were given (the
+  DETERMINISTIC skeleton, which always runs), plus a bounded model NARRATIVE
+  on top of it - the decisions taken, the open questions, the state of the
+  work. The existing inert dropped-context block is NOT replaced: both reach
+  the model, the compaction first. The narrative is ADDITIVE and fails
+  CLOSED - an unavailable, silent or failing model leaves the skeleton
+  untouched and the run records why - and the block is DATA, never instruction
+  (a compaction can contain anything the user typed). It never enters a
+  research claim: a summary of a conversation is not evidence. The model
+  narrative is OPT-IN (the policy key `history_compaction_model` turns it
+  ON), because it costs a model call and up to twenty seconds on the run's
+  critical path - the deterministic skeleton is what actually carries the
+  conversation forward, and it ALWAYS runs. Files: python/harness/compaction.py (new), python/harness/history.py,
+  python/tests/test_history_compaction.py (new, 12 cases),
+  python/tests/test_size_budget.py (the re-pin). ADR-H286. docs updated:
+  docs/harness/decisions.md, docs/harness/architecture.md, docs/NAVIGATION.md.
+
+- **fix(harness): ONE edit tool, and it insists the run read the file.** The
+  harness had THREE ways to change a file's contents and ELEVEN more
+  file-lifecycle tools, spread over two subsystems - and NONE of them required
+  proof that the model had seen the file it was about to change. `expectedHash`
+  was accepted everywhere and required NOWHERE, so the model could write to a
+  file it had never read, and a file that had changed underneath it was
+  overwritten silently. The text-edit surface is now ONE tool, `code_edit`
+  (`path`, `oldText`, `newText`, `expectedOccurrences`), with two rules
+  enforced in code. **A file may only be changed if THIS RUN read it**: the
+  per-run READ LEDGER records every file a read tool returned a hash for, the
+  registry feeds it in ONE place so every read tool participates, and an edit
+  to a file the run never read is refused with `FILE_NOT_READ` - the refusal
+  names the read that would make the edit legal. **A file may only be changed
+  if it has not changed since it was read**: the ledger's hash is passed to
+  the edit engine as `expected_hash`, so the engine's own `STALE_FILE`
+  refusal fires - the same code, the same recovery hint, in one place. An
+  ambiguous match is refused, never guessed. `code_edit` is a WRITE tool in the
+  ONE policy authority, so `plan_only` removes it and `edit_verify` keeps it -
+  exactly like the tool it replaces. A wrong path comes back with up to five
+  nearest candidates instead of a bare "that file isn't there". The mutators
+  `code_edit` subsumes are DEPRECATED, still callable, and name their
+  replacement (`replace_text`, `patch_file` and `edit_file` name `code_edit`;
+  `multi_file_patch` names `apply_diff`; `workspace_patch_apply` names
+  `code_edit`). The genuinely DIFFERENT operations - create, delete, move,
+  copy, rename, the directory tools, insert, line-range delete, unified diff -
+  are NOT deprecated: removing those would remove capability, not duplication.
+  The plan had sketched thirteen deprecations; the audit showed nine of them
+  are distinct operations one edit tool cannot express, so the honest set is
+  the four text-edit paths it actually subsumes. `workspace_read` now returns
+  the file's hash, so a workspace-level read feeds the ledger too. Three new
+  adversarial cases (S12 never-read, S13 stale-file, S14 ambiguous-match)
+  attack the real enforcing modules, and the `code_edit_contract` capability
+  class makes the whole contract measured. Files:
+  python/harness/code/edit_tools.py (new), python/harness/tools.py,
+  python/harness/code/fs/errors.py, python/harness/code/policy.py,
+  python/harness/code/tools.py, python/harness/code/fs_tools.py,
+  python/harness/agents.py,
+  python/harness/code/eval/{safety_cases,safety,capabilities}.py,
+  python/tests/test_code_edit_primitive.py (new, 13 cases). ADR-H285. docs
+  updated: docs/harness/decisions.md, docs/harness/architecture.md,
+  docs/NAVIGATION.md, docs/harness/capability-statement.md.
+
+- **fix(plugins): the bundled SEC reference plugin is source, not a scratch
+  dir.** `.gitignore` carried a bare `sec/` pattern - a gitignore pattern with
+  no leading slash matches a directory of that name at ANY depth - so it was
+  silently excluding `python/harness/plugins/bundled/sec/` from version
+  control. Every clean clone therefore shipped without a reference plugin, and
+  the plugin marketplace gate (`test_plugins_reference.py`) failed on any
+  checkout that was not the author's own working tree - which is exactly why it
+  passed locally and failed everywhere else. The pattern is re-included
+  explicitly and the plugin is tracked. Files: Black-Eclipse-site/.gitignore,
+  Black-Eclipse-site/python/harness/plugins/bundled/sec/{plugin.py,plugin.yaml}.
+  docs updated: docs/CHANGELOG.md.
 
 - **feat(charts): the chat's charts are drawn by the PYTHON engine, and ANY chart
   can be drawn.** The chat's `chart` block no longer has an ECharts path: the
@@ -1171,6 +1565,57 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/chart-engine.md`, `docs/harness/market-data.md`.
 
 ## 2026-10-20
+
+- **docs(harness): Round 4 — the plan that closes the last two dimensions,
+  and a correction to the score.** Round 3 finished every workstream, and five
+  of the seven dimensions are at target. The remaining gap is concentrated:
+  **Evaluation 9.0** and **Operations 4.0**. The plan re-derives the weighted
+  score and **corrects an earlier over-claim**: it was reported as ~9.42 with
+  Ops at 7.5, which was optimistic about the *process* criteria. Scored against
+  its own sub-criteria, Ops is **4.0** (`v0.2.0` is prepared but `git tag -l` is
+  empty; `CODEOWNERS` has placeholder owners; the branch is not on `main`; the
+  tree is 375,997 lines and grew this round), so the published number is
+  **9.01**, not 9.42. The arithmetic then lands exactly: Eval 9.0 → 9.5 is
+  +0.05 and Ops 4.0 → 9.5 is +0.44, and **9.01 + 0.49 = 9.50**. That is why the
+  plan spends nothing on Loop/Ctx/ACI/Safe/Ext — they are at target and further
+  work there cannot move the total. Six workstreams in four waves: **V1** land
+  the branch and tag it (one command, +0.20, and every other "done" claim is
+  measured against a landed tree); **V2** shrink the surface, one merge per
+  release, with the ceiling required to *fall* (and an explicit warning not to
+  merge `browser/` into `computer/` — they were listed together by size, not by
+  duplication); **V3** a second pair of eyes, which closes the 15 legacy ADR
+  shape gaps by **re-labelling prose that is already there**, never by inventing
+  a rationale, and fixes the one flaky test; **V4** distribute; **V5** the first
+  live number — the only thing that turns `NOT MEASURED` into a number — and
+  the four dimensions that are measured but ungated (`cost`, `latency`,
+  `token_usage`, `reliability`), gated from that measured baseline; **V6** an
+  external suite, the only route to a number anyone else can compare. The plan
+  also names the four inputs only the operator can supply (a provider key, the
+  SWE-bench dataset, a second human, a PyPI credential) so a blocked workstream
+  is never reported as unknown. docs updated:
+  docs/harness/roadmap/round-4-gap-closure.md,
+  docs/harness/roadmap/README.md.
+
+- **chore(harness): the Round 3 work is merged onto main, and the decision
+  series is unambiguous again.** The two branches had both taken ADR numbers
+  284-289, so the merged series had seven DUPLICATES and a reference to
+  "ADR-H284" would have named two different decisions. The later occurrence of
+  each was renumbered and the old number retired with a redirect, so an old
+  reference still resolves and the decision is unchanged; the vacated numbers
+  are now explicitly RESERVED in the ADR check. The release gate keeps both
+  sides' steps: the decision record, the harness size budget and the corpus
+  gate all run before the tests. The size ratchets were re-pinned to the
+  merged tree, and the generated artifacts (the capability statement, the
+  published benchmarks, the portable tool manifest - now 953 tools) were
+  regenerated against it. One lint error that was already on `main` and
+  blocked `npm run check:all` for everyone is fixed (`Promise<any>` in the
+  chart route's test - a mock's return type, which the rule rejects and which
+  nothing reads). Files: docs/harness/decisions.md,
+  python/tests/test_size_budget.py, scripts/check-all.js,
+  scripts/size-budget.json, scripts/check-adr-numbers.js,
+  docs/harness/capability-statement.md, docs/harness/benchmarks.md,
+  docs/harness/tool-registry.json,
+  src/app/api/harness/charts/route.test.ts.
 
 - **fix(charts): the full-view chart no longer collides with the app's header.**
   The focus overlay lived inside the chat's stacking context, so the top bar and

@@ -22,7 +22,7 @@ last-verified: 2026-10-22
 | **Unlocks** | A conversation that can be worked in, not only read. |
 | **Estimated work** | 14–20 h of agent time. |
 | **Deliverable type** | a per-chat cell document + one execution route + a Monaco cell + a chart-to-cell bridge. |
-| **Decision records** | ADR-H300 (the notebook is a sidecar document over the existing sandbox; a chart's code is a linked alternate view) |
+| **Decision records** | ADR-H323 (the notebook is a sidecar document over the existing sandbox; a chart's code is a linked alternate view) |
 | **Prompt to copy** | [§11 below](#11-implementation-prompt) |
 
 ---
@@ -265,7 +265,7 @@ commands and keeps the current fresh-dict behaviour otherwise.
 
 ## 7. Work items (ordered)
 
-1. ADR-H300 in `docs/harness/decisions.md` (this change).
+1. ADR-H323 in `docs/harness/decisions.md` (this change).
 2. This phase file + the roadmap index row + the NAVIGATION triggers.
 3. `NotebookDocument` store + client (`src/lib/harness/notebook-*`) with tests.
 4. `charts/codegen.py` + `POST /charts/code` + tests (simple kinds first).
@@ -343,7 +343,7 @@ git status --short        # jdds.db must NOT appear
   re-run.
 - Every cell output is labelled `computed` and never appears as evidence.
 - The gates above run, with raw output pasted into the progress file.
-- ADR-H300, this file, `NAVIGATION.md` and `CHANGELOG.md` are updated.
+- ADR-H323, this file, `NAVIGATION.md` and `CHANGELOG.md` are updated.
 
 ## 11. Implementation prompt
 
@@ -352,7 +352,7 @@ Task: Phase 21 — editable notebook cells in chat (with editable chart code).
 
 Read first, in full:
 - docs/harness/roadmap/phase-21-notebook-cells.md (this file, verbatim)
-- docs/harness/decisions.md ADR-H300
+- docs/harness/decisions.md ADR-H323
 - docs/harness/roadmap/phase-18-visual-output.md (the figure path and the
   named extra_imports rule)
 - python/harness/charts/{spec,render,service,source,tools}.py

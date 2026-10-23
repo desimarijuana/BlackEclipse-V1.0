@@ -1356,6 +1356,16 @@ async def execute_run(
                                           project_store)
     if project_brief:
         runtime_context = f"{runtime_context}\n\n{project_brief}"
+    # Round 3 / W4 (ADR-H287): the REPO MAP and the SEEDED relevant slice. The
+    # map is built eagerly and deterministically, so the model no longer has to
+    # guess a path to find out what exists. Its digest is the cache key's
+    # witness that the project shape has not changed.
+    repo_map_block, repo_map_digest = await _repo_map_context(
+        request, workspace=resolve_workspace(request.workspace),
+        code_intel_runtime=code_intel_runtime, emitter=emitter,
+    )
+    if repo_map_block:
+        runtime_context = f"{runtime_context}\n\n{repo_map_block}"
 
     prompt_plan = build_prompt_plan(
         system_prompt=system_prompt,
@@ -1367,6 +1377,7 @@ async def execute_run(
         skill_manifest_version=skill_manifest_version, lesson_manifest=lesson_manifest,
         runtime_context=runtime_context,
         user_message=request.input.query,
+        repo_map=repo_map_block, repo_map_version=repo_map_digest,
     )
     await emitter.emit("prompt.plan", {**prompt_plan.to_dict(), "surface": surface_summary(agent.id, allowed)})
 
@@ -2196,6 +2207,7 @@ from .graph_context import (  # noqa: E402,F401
     _memory_context,
     _outcome_blob,
     _profile_context,
+    _repo_map_context,
     _skill_manifest_context,
     learning_eligibility_for_run, surface_summary,
 )
@@ -2251,19 +2263,14 @@ def _guardrail_failure(
     if not guardrails and max_chars is None:
         return None
     try:
-        from .self_improvement.guardrails import (  # noqa: PLC0415
-            evaluate_guardrails,
-            guardrail_error,
-        )
+        from .self_improvement.guardrails import evaluate_guardrails, guardrail_error  # noqa: PLC0415
 
         try:
             executions = store.list_tool_executions(run_id)
         except Exception:  # noqa: BLE001 - an unreadable ledger is "unknown"
             executions = []
         tool_calls = len(executions)
-        tool_texts = [
-            str(row.get("text") or "") for row in executions[:200]
-        ]
+        tool_texts = [str(row.get("text") or "") for row in executions[:200]]
         violations = evaluate_guardrails(
             guardrails,
             output=output or "",

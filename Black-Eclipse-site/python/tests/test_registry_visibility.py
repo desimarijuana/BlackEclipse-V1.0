@@ -31,6 +31,13 @@ DELIBERATE_INVISIBLE: frozenset[str] = frozenset({
   # `workspace_search` are registered but are NOT in any agent allowlist yet,
   # so an agent must not be told they exist.
   "find_files", "workspace_search",
+  # Round 3 / W3 (ADR-H285): the text-edit mutators code_edit supersedes.
+  # They stay REGISTERED so an older surface or a saved transcript still
+  # works, and the registry warns once per run naming the replacement - but
+  # they are deliberately NOT in any agent allowlist, because the ONE edit
+  # tool is what an agent should be told about.
+  "replace_text", "patch_file", "edit_file", "multi_file_patch",
+  "workspace_patch_apply",
   # Recovery console: durable incidents are inspected via `/recovery/*`.
     "recovery_diagnose", "recovery_discover", "recovery_incident",
     "recovery_incidents", "recovery_summary",

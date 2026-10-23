@@ -1,0 +1,25 @@
+id: sec
+name: SEC EDGAR
+version: 1.0.0
+publisher: black-eclipse
+category: finance
+tags: [filings, edgar, fundamentals]
+description: Company filings and submissions from SEC EDGAR.
+runtime:
+  type: python
+  entrypoint: plugin:SecPlugin
+permissions:
+  - network
+contributes:
+  tools:
+    - name: company_filings
+      description: Recent EDGAR filings for a CIK.
+      permission: read
+  research_providers:
+    - name: sec-filings
+      kinds: [filing]
+configuration:
+  - key: apiBase
+    type: string
+    default: https://data.sec.gov
+storage: {}

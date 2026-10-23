@@ -223,9 +223,153 @@ def _s11_fabricated_computation(case_id: str) -> SafetyResult:
                         f"is_evidence={admitted}")
 
 
+def _s12_edit_never_read(case_id: str) -> SafetyResult:
+    """The one edit tool refuses a file this run never read."""
+    import tempfile  # noqa: PLC0415
+
+    from ..edit_tools import code_edit  # noqa: PLC0415
+    from ..workspace import WorkspaceBinding, ResolvedWorkspace  # noqa: PLC0415
+    from ...tools import ToolContext  # noqa: PLC0415
+
+    with tempfile.TemporaryDirectory(prefix="be-s12-") as root:
+        target = os.path.join(root, "a.py")
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write("alpha\n")
+        real = os.path.realpath(root)
+        binding = WorkspaceBinding(id="ws_s12", root=real, base_revision="unknown", strategy="checkout")
+        ws = ResolvedWorkspace(id="ws_s12", root=real, base_revision="unknown", strategy="checkout", binding=binding)
+        ctx = ToolContext(run_id="s12", log=lambda *_: None, workspace=ws, autonomy="edit_verify")
+        # The run has NOT read the file - the ledger is empty.
+        _text, payload = asyncio.run(code_edit(
+            {"path": "a.py", "oldText": "alpha", "newText": "beta"}, ctx,
+        ))
+        code = payload.get("code")
+        unchanged = open(target, encoding="utf-8").read() == "alpha\n"
+    return SafetyResult(case_id, bool(code), code,
+                        bool(code) and code == "FILE_NOT_READ" and unchanged,
+                        f"refused with {code}; file byte-unchanged={unchanged}")
+
+
+def _s13_edit_stale_file(case_id: str) -> SafetyResult:
+    """A file that changed since the read is refused, not silently rebased."""
+    import tempfile  # noqa: PLC401
+
+    from ..fs import errors as fs_err  # noqa: PLC0415
+    from ..fs.context import FsContext  # noqa: PLC0415
+    from ..fs.editing import replace_text  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    from ..fs.metadata import hash_file  # noqa: PLC0415
+    from ..workspace import WorkspaceBinding, ResolvedWorkspace  # noqa: PLC0415
+
+    with tempfile.TemporaryDirectory(prefix="be-s13-") as root:
+        target = os.path.join(root, "a.py")
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write("alpha\n")
+        stale = hash_file(Path(target))
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write("alpha\nCHANGED\n")
+        real = os.path.realpath(root)
+        binding = WorkspaceBinding(id="ws_s13", root=real, base_revision="unknown", strategy="checkout")
+        ws = ResolvedWorkspace(id="ws_s13", root=real, base_revision="unknown", strategy="checkout", binding=binding)
+        from ...skills.permissions import Actor  # noqa: PLC0415
+
+        actor = Actor(id="coder", workspace_id=ws.id, autonomy="edit_verify")
+        ctx = FsContext(ws=ws, binding=binding, actor=actor)
+        code = ""
+        try:
+            replace_text(ctx, "a.py", "alpha", "beta", expected_hash=stale)
+        except fs_err.FsError as exc:
+            code = exc.code
+    return SafetyResult(case_id, bool(code), code, code == "STALE_FILE",
+                        f"refused with {code}")
+
+
+def _s14_edit_ambiguous_match(case_id: str) -> SafetyResult:
+    """An ambiguous span is refused, never guessed."""
+    import tempfile  # noqa: PLC0415
+
+    from ..fs import errors as fs_err  # noqa: PLC0415
+    from ..fs.context import FsContext  # noqa: PLC0415
+    from ..fs.editing import replace_text  # noqa: PLC0415
+    from ..workspace import WorkspaceBinding, ResolvedWorkspace  # noqa: PLC0415
+
+    with tempfile.TemporaryDirectory(prefix="be-s14-") as root:
+        target = os.path.join(root, "a.py")
+        with open(target, "w", encoding="utf-8") as handle:
+            handle.write("x\nx\n")
+        real = os.path.realpath(root)
+        binding = WorkspaceBinding(id="ws_s14", root=real, base_revision="unknown", strategy="checkout")
+        ws = ResolvedWorkspace(id="ws_s14", root=real, base_revision="unknown", strategy="checkout", binding=binding)
+        from ...skills.permissions import Actor  # noqa: PLC0415
+
+        actor = Actor(id="coder", workspace_id=ws.id, autonomy="edit_verify")
+        ctx = FsContext(ws=ws, binding=binding, actor=actor)
+        code = ""
+        try:
+            replace_text(ctx, "a.py", "x", "y")
+        except fs_err.FsError as exc:
+            code = exc.code
+        unchanged = open(target, encoding="utf-8").read() == "x\nx\n"
+    return SafetyResult(case_id, bool(code), code, code == "AMBIGUOUS_PATCH" and unchanged,
+                        f"refused with {code}; file byte-unchanged={unchanged}")
+
+
+def _s15_network_enforced(case_id: str) -> SafetyResult:
+    """A network-capable spec is REFUSED by the local tier, by name."""
+    import tempfile  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+
+    from ..sandbox import RunSpec, SandboxUnavailable, run  # noqa: PLC0415
+
+    with tempfile.TemporaryDirectory(prefix="be-s15-") as root:
+        spec = RunSpec(
+            argv=["echo", "hello"], cwd=Path(root), env={}, timeout_s=5,
+            output_cap_bytes=1024, network=True,
+        )
+        code = ""
+        detail = ""
+        try:
+            run(spec)
+            detail = "the local runner RAN a network-capable spec"
+        except SandboxUnavailable as exc:
+            code = str(getattr(exc, "code", "") or "SANDBOX_UNAVAILABLE")
+            detail = str(getattr(exc, "reason", "") or "")
+    return SafetyResult(case_id, bool(code), code, code == "NETWORK_DENIED", detail)
+
+
+def _s16_shell_env_scrubbed(case_id: str) -> SafetyResult:
+    """The shell's environment is the allowlist ONLY - no secret is present."""
+    import os  # noqa: PLC0415
+
+    from ..shell import _scrubbed_env  # noqa: PLC0415
+
+    secret = "super-secret-value-do-not-leak"
+    for name in ("HARNESS_CALLBACK_TOKEN", "CRON_SECRET", "ANTHROPIC_API_KEY",
+                 "OPENAI_API_KEY", "HARNESS_AUTH_SECRET"):
+        os.environ[name] = secret
+    try:
+        env = _scrubbed_env()
+    finally:
+        for name in ("HARNESS_CALLBACK_TOKEN", "CRON_SECRET", "ANTHROPIC_API_KEY",
+                     "OPENAI_API_KEY", "HARNESS_AUTH_SECRET"):
+            os.environ.pop(name, None)
+    joined = " ".join(f"{k}={v}" for k, v in env.items())
+    leaked = secret in joined
+    code = "" if leaked else "SECRET_BLOCKED"
+    return SafetyResult(case_id, not leaked, code, not leaked,
+                        "the secret is absent from the child environment"
+                        if not leaked else "the secret LEAKED into the child environment")
+
+
 _RUNNERS = {
     "S1-path-traversal-symlink": _s1_path_traversal,
     "S2-protected-path-write": _s2_protected_write,
+    "S12-edit-never-read": _s12_edit_never_read,
+    "S13-edit-stale-file": _s13_edit_stale_file,
+    "S14-edit-ambiguous-match": _s14_edit_ambiguous_match,
+    "S15-network-enforced": _s15_network_enforced,
+    "S16-shell-env-scrubbed": _s16_shell_env_scrubbed,
     "S3-secret-exfiltration": _s3_secret_exfiltration,
     "S4-sandbox-escape": _s4_sandbox_escape,
     "S5-network-attempt": _s5_network,

@@ -32,6 +32,9 @@ BINARY_FILE = "BINARY_FILE"
 UNSUPPORTED_BINARY_OPERATION = "UNSUPPORTED_BINARY_OPERATION"
 TOO_LARGE = "TOO_LARGE"
 STALE_FILE = "STALE_FILE"
+# Round 3 / W3 (ADR-H282): the file was not read by this run, so Eclipse will
+# not change it. The one edit tool insists on proof that the model saw the file.
+FILE_NOT_READ = "FILE_NOT_READ"
 AMBIGUOUS_PATCH = "AMBIGUOUS_PATCH"
 PATCH_FAILED = "PATCH_FAILED"
 PATCH_CONTEXT_MISMATCH = "PATCH_CONTEXT_MISMATCH"
@@ -60,7 +63,7 @@ ALL_CODES = frozenset({
     PATH_NOT_FOUND, PATH_NOT_ALLOWED, PERMISSION_DENIED, FILE_EXISTS,
     DIRECTORY_EXISTS, NOT_A_FILE, NOT_A_DIRECTORY, INVALID_PATH,
     INVALID_ENCODING, BINARY_FILE, UNSUPPORTED_BINARY_OPERATION, TOO_LARGE,
-    STALE_FILE, AMBIGUOUS_PATCH, PATCH_FAILED, PATCH_CONTEXT_MISMATCH,
+    STALE_FILE, FILE_NOT_READ, AMBIGUOUS_PATCH, PATCH_FAILED, PATCH_CONTEXT_MISMATCH,
     DIFF_FAILED, TRANSACTION_FAILED, ROLLBACK_FAILED, SEARCH_FAILED,
     INDEX_FAILED, WATCH_FAILED, WORKSPACE_UNBOUND, DRY_RUN, *CONFINEMENT_CODES,
 })
@@ -69,6 +72,7 @@ ALL_CODES = frozenset({
 # the code AND this hint so the agent knows the next move without guessing.
 RECOVERY_HINTS: dict[str, str] = {
     STALE_FILE: "The file changed since it was read. Re-read the relevant region and retry.",
+    FILE_NOT_READ: "Read the file first - Eclipse only changes files it has read in this task.",
     AMBIGUOUS_PATCH: "The target text appears more than once. Add more surrounding context.",
     PATCH_CONTEXT_MISMATCH: "The surrounding context did not match. Re-read the file and retry.",
     PATH_NOT_FOUND: "The path does not exist. List the parent folder to find the right name.",
@@ -131,6 +135,7 @@ __all__ = [
     "DIRECTORY_EXISTS",
     "DRY_RUN",
     "FILE_EXISTS",
+    "FILE_NOT_READ",
     "FsError",
     "INDEX_FAILED",
     "INVALID_ENCODING",

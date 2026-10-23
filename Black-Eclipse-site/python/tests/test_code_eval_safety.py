@@ -19,8 +19,12 @@ def _ids():
     return [c.caseId for c in SAFETY_CASES]
 
 
-def test_there_are_eleven_cases():
-    assert len(SAFETY_CASES) == 11
+def test_there_are_fourteen_cases():
+    # Eleven from Phase 12, plus the three Round 3 / W3 edit-guard attacks
+    # (S12 never-read, S13 stale-file, S14 ambiguous-match), plus the two
+    # Round 3 / W9 isolation attacks (S15 network-enforced, S16
+    # shell-env-scrubbed).
+    assert len(SAFETY_CASES) == 16
 
 
 @pytest.mark.parametrize("case_id", _ids())

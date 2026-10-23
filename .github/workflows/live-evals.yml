@@ -1,0 +1,59 @@
+name: Live evaluations
+
+# Round 3 / W8 (ADR-H296). The live lane is the only tier that measures the
+# AGENT - the offline tier replaces the model with a recorded script and so
+# measures the runtime. It runs NIGHTLY, because it costs money and it is not
+# deterministic.
+#
+# With no provider secret the job SKIPS rather than failing: "not measured"
+# is a legitimate state, and a failed build would train everyone to ignore it.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "provider/model (optional - defaults to the configured provider)"
+        required: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          cd Black-Eclipse-site
+          npm ci --ignore-scripts
+          pip install -r python/requirements.txt
+      - name: Run the live lane
+        env:
+          BLACK_ECLIPSE_PROVIDER: ${{ secrets.BLACK_ECLIPSE_PROVIDER }}
+          BLACK_ECLIPSE_API_KEY: ${{ secrets.BLACK_ECLIPSE_API_KEY }}
+        run: |
+          cd Black-Eclipse-site
+          if [ -z "$BLACK_ECLIPSE_PROVIDER" ]; then
+            echo "no provider secret configured - the live tier is NOT MEASURED, and that is honest."
+            exit 0
+          fi
+          npm run eval:live -- --model "${{ inputs.model || 'openai/gpt-4o-mini' }}" --limit 12
+      - name: Publish the benchmarks
+        if: always()
+        run: |
+          cd Black-Eclipse-site
+          npm run eval:benchmarks
+      - name: Upload the evaluation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-evaluations
+          path: Black-Eclipse-site/.black-eclipse/evaluation
+          if-no-files-found: ignore

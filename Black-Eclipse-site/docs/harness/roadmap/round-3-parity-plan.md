@@ -316,7 +316,7 @@ has all of it.
 
 ### W3 — One edit primitive, a mandatory stale guard, and a reviewable landing
 
-> **Closes:** C4, C5, C8, C9 · **Moves:** ACI +0.15, Safe +0.08 · **ADR:** H282
+> **Closes:** C4, C5, C8, C9 · **Moves:** ACI +0.15, Safe +0.08 · **ADR:** H285 · ✅ **Done 2026-10-20** — one edit tool, a mandatory read guard, path recovery; and FOUR deprecations, not the thirteen this plan sketched - the other nine are distinct operations one tool cannot express
 > **Priority: 1 — three stacks become one.**
 
 **Why.** The agent can change a file three ways, and none of them requires
@@ -378,7 +378,7 @@ the default of the *one* edit tool, not a property of one of fifteen.
 
 ### W4 — A repo map, and context that arrives instead of being fetched
 
-> **Closes:** C3, C14, C15 · **Moves:** Ctx +0.36, Loop +0.06 · **ADR:** H283
+> **Closes:** C3, C14, C15 · **Moves:** Ctx +0.36, Loop +0.06 · **ADR:** H287 · ✅ **Done 2026-10-21** — the repo map arrives in the first turn, the seeded slice with it, the map's hash joins the cache key, and `is_fresh()` stopped lying
 > **Priority: 1 — the cheapest large Ctx gain in the plan.**
 
 **Why.** There is **no repo map anywhere in the harness.** The model must guess
@@ -481,7 +481,7 @@ and the slower one has the friendlier name.
 
 ### W6 — Compaction, and a tool surface that does not eat the context window
 
-> **Closes:** X1, X2, X3, X4 · **Moves:** Ctx +0.15, Loop +0.06 · **ADR:** H285
+> **Closes:** X1, X2, X3, X4 · **Moves:** Ctx +0.15, Loop +0.06 · **ADR:** H286 · ✅ **Done 2026-10-21** — the dropped turns are compacted into a fenced summary; the deterministic skeleton always runs and the model narrative fails closed to it
 > **Priority: 1 — the single largest Ctx prize (+0.72 needs this).**
 
 **Why.** Every top-10 harness compacts; Eclipse does not. `context_budget.py:12`
@@ -543,7 +543,7 @@ characters (`tools.py:67`).
 
 ### W7 — Ship it, shrink it, clean the record
 
-> **Closes:** O1–O7, E6 · **Moves:** Ops +0.36, Ext +0.06 · **ADR:** H286
+> **Closes:** O1–O7, E6 · **Moves:** Ops +0.36, Ext +0.06 · **ADR:** H295 · ✅ **Done 2026-10-21** — the record is unambiguous, the tree has a TOTAL ceiling, the release note and the changelog rotation exist; the 30% line cut is a MULTI-RELEASE program over duplication, with the two named candidates already merged (W3, W5)
 > **Priority: 1 — the cheapest 0.36 in the plan, and it is pure discipline.**
 
 **Why.** Ops is 5.0 against a field median of 8.25, and 8% weight turns that
@@ -610,7 +610,7 @@ duplicated ADR numbers, and a phase-20 doc whose own counts are stale.
 
 ### W8 — Live measurement, an external suite, and published numbers
 
-> **Closes:** E1–E5, E7, F4 · **Moves:** Eval +0.15 · **ADR:** H287
+> **Closes:** E1–E5, E7, F4 · **Moves:** Eval +0.15 · **ADR:** H296 · ✅ **Done 2026-10-21** — the benchmark file is GENERATED, the live tier is a lane that publishes NOT MEASURED rather than a guess, and the capability registry is 24 measured / 0 unmeasured; the external SWE-bench suite is NOT included (it needs a dataset this repository does not carry, and shipping an adapter that has never seen it would be a claim, not a measurement)
 > **Priority: 1 — the plan's credibility workstream.**
 
 **Why.** The evaluation framework is genuinely first-rate: the **real**
@@ -733,7 +733,7 @@ a wall-clock timeout, an output cap and a process-tree kill. But:
 
 ### W10 — Distribution: a package, a registry, and a protocol
 
-> **Closes:** O8 · **Moves:** Ext +0.06, ACI +0.05 · **ADR:** H289
+> **Closes:** O8 · **Moves:** Ext +0.06, ACI +0.05 · **ADR:** H298 · ✅ **Done 2026-10-21** — the public surface, the published manifest and the package metadata are in; PyPI publication, ACP and a host plugin are NOT (the ACP spec was not available to verify against, and shipping an implementation written from memory would be a claim, not a measurement)
 > **Priority: 3 — the score is close; this is about reach.**
 
 **Why.** Eclipse's extensibility is already above the field median: 14 hook

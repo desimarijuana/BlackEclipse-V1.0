@@ -75,6 +75,10 @@ jobs:
       - name: Security preflight
         run: node scripts/security-preflight.js
 
+      - name: Decision record + harness size budget
+        run: |
+          node scripts/check-adr-numbers.js
+          node scripts/size-budget.js
       - name: Tests (Vitest + Python)
         run: npm test
 

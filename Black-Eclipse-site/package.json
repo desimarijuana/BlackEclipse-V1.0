@@ -1,6 +1,6 @@
 {
   "name": "black-eclipse",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "bin": {
     "black": "bin/black.js",
@@ -28,7 +28,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run && node scripts/test-python.js && node scripts/test-evals.js",
     "test:py": "node scripts/test-python.js",
-    "test:rsl": "node scripts/test-python.js python/tests/test_rsl_loop.py python/tests/test_rsl_config.py python/tests/test_rsl_recursion.py python/tests/test_rsl_hillclimb.py python/tests/test_rsl_archive.py python/tests/test_rsl_cmp.py python/tests/test_rsl_operators.py python/tests/test_rsl_islands.py python/tests/test_significance.py python/tests/test_rsl_significance.py python/tests/test_autonomy.py python/tests/test_autonomy_apply.py python/tests/test_rsl_guardrails.py python/tests/test_rsl_session.py python/tests/test_rsl_digest.py python/tests/test_rsl_snapshot.py python/tests/test_rsl_landing.py python/tests/test_rsl_verifier.py python/tests/test_surface_lab.py python/tests/test_surface_candidate.py python/tests/test_surface_context_policy.py python/tests/test_evolution_rsl_routes.py python/tests/test_evolution_rsl_operator.py python/tests/test_post_landing.py python/tests/test_drift_watch.py python/tests/test_evaluation_nightly.py python/tests/test_evaluation_export.py python/tests/test_replay_builder.py",
+    "rotate:changelog": "node scripts/rotate-changelog.js",
+    "eval:registry": "node scripts/generate-tool-registry.js",
+    "eval:benchmarks": "node scripts/generate-benchmarks.js",
+    "eval:live": "node scripts/run-live-evals.js",
+    "check:adr": "node scripts/check-adr-numbers.js",
+    "check:size": "node scripts/size-budget.js",
+    "test:rsl": "node scripts/test-python.js python/tests/test_rsl_loop.py python/tests/test_rsl_config.py python/tests/test_rsl_recursion.py python/tests/test_rsl_hillclimb.py python/tests/test_rsl_archive.py python/tests/test_rsl_cmp.py python/tests/test_rsl_operators.py python/tests/test_rsl_islands.py python/tests/test_significance.py python/tests/test_rsl_significance.py python/tests/test_autonomy.py python/tests/test_autonomy_apply.py python/tests/test_rsl_guardrails.py python/tests/test_rsl_session.py python/tests/test_rsl_digest.py python/tests/test_rsl_snapshot.py python/tests/test_rsl_landing.py python/tests/test_rsl_verifier.py python/tests/test_surface_lab.py python/tests/test_surface_candidate.py python/tests/test_surface_context_policy.py python/tests/test_evolution_rsl_routes.py python/tests/test_evolution_corpus_routes.py python/tests/test_evolution_rsl_operator.py python/tests/test_post_landing.py python/tests/test_drift_watch.py python/tests/test_evaluation_nightly.py python/tests/test_evaluation_export.py python/tests/test_replay_builder.py",
     "test:evals": "node scripts/test-evals.js",
     "test:drift-ui": "node scripts/drift-ui-smoke.mjs",
     "test:drift-app": "node scripts/drift-app-smoke.mjs",

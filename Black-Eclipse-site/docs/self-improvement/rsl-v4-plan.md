@@ -369,5 +369,5 @@ already approved.
 - `python/tests/test_rsl_hillclimb.py` / `test_rsl_state.py` — unchanged and
   still green (archive-off compatibility).
 
-See ADR-H293 for the decision and `docs/harness/architecture.md` for the module
+See ADR-H316 for the decision and `docs/harness/architecture.md` for the module
 map.

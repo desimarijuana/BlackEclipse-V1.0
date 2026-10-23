@@ -259,11 +259,14 @@ async def test_side_effecting_tool_is_not_re_executed_across_retry(store, monkey
 async def test_cancellation_during_retry_still_cancels(store, monkeypatch):
     import asyncio
 
+    retry_started = asyncio.Event()
+
     class SlowOnRetry(ThresholdModel):
         async def ainvoke(self, messages):
             self.calls += 1
             if self.calls == 1:
                 raise RuntimeError("This model's maximum context length is 4096 tokens.")
+            retry_started.set()
             await asyncio.sleep(10)
             return AIMessage(content="too late")
 
@@ -274,8 +277,11 @@ async def test_cancellation_during_retry_still_cancels(store, monkeypatch):
             _req("run_cancel", _history(30)), _registry(), FakeBridge(), store
         )
     )
-    # Let the first attempt overflow and the retry begin, then cancel.
-    await asyncio.sleep(0.3)
+    # Wait until the retry is actually in flight before cancelling. A fixed sleep
+    # here raced the retry: on a loaded machine the first attempt had not yet
+    # overflowed when the cancel landed, so the test asserted a state it had not
+    # reached. The event removes the race without weakening the assertion.
+    await asyncio.wait_for(retry_started.wait(), timeout=10)
     task.cancel()
     try:
         result = await task

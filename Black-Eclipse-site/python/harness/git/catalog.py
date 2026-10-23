@@ -158,47 +158,43 @@ _register(GitOp(
     args=(_p(required=True),), summary="Whether paths are ignored.",
 ))
 
-# ── Diff family ────────────────────────────────────────────────────────────────
+# ── Diff family ───────────────────────────────────────────────────────────────────
+# Nine registrations, ONE argv builder. The nine names are the capability agents
+# call, so they all stay; the argv differs only by a flag prefix and whether the
+# revision pair is (base) or (from, to). Declaring it once keeps `_diff_opts` the
+# single place context lines, the base revision and the path guard are applied.
 
-_register(GitOp(
-    "diff_worktree", lambda a, exe: _build(exe, "diff", "--no-color", "--no-ext-diff", *_diff_opts(a)),
-    args=(_rev("base", required=False), _p(), GitArg("contextLines", kind="int", min_int=0, max_int=100)),
-    summary="Working tree vs index (or a base).",
-))
-_register(GitOp(
-    "diff_cached", lambda a, exe: _build(exe, "diff", "--cached", "--no-color", "--no-ext-diff", *_diff_opts(a)),
-    args=(_rev("base", required=False), _p()),
-    summary="Index vs HEAD.",
-))
-_register(GitOp(
-    "diff_range", lambda a, exe: _build(exe, "diff", "--no-color", "--no-ext-diff", a["from"], a["to"], *_diff_opts(a)),
-    args=(_rev("from"), _rev("to"), _p()),
-    summary="Two revisions.",
-))
-_register(GitOp(
-    "diff_name_status", lambda a, exe: _build(exe, "diff", "--name-status", "-z", *_diff_opts(a)),
-    args=(_rev("base", required=False), _p()), summary="Changed paths with status letters.",
-))
-_register(GitOp(
-    "diff_name_status_cached", lambda a, exe: _build(exe, "diff", "--cached", "--name-status", "-z", *_diff_opts(a)),
-    args=(_rev("base", required=False), _p()), summary="Staged paths with status letters.",
-))
-_register(GitOp(
-    "diff_name_status_range", lambda a, exe: _build(exe, "diff", "--name-status", "-z", a["from"], a["to"], *_with_paths([], a.get("paths", []))),
-    args=(_rev("from"), _rev("to"), _p()), summary="Two revisions, changed paths.",
-))
-_register(GitOp(
-    "diff_numstat", lambda a, exe: _build(exe, "diff", "--numstat", "-z", *_diff_opts(a)),
-    args=(_rev("base", required=False), _p()), summary="Per-file insertion/deletion counts.",
-))
-_register(GitOp(
-    "diff_numstat_cached", lambda a, exe: _build(exe, "diff", "--cached", "--numstat", "-z", *_diff_opts(a)),
-    args=(_rev("base", required=False), _p()), summary="Staged per-file insertion/deletion counts.",
-))
-_register(GitOp(
-    "diff_numstat_range", lambda a, exe: _build(exe, "diff", "--numstat", "-z", a["from"], a["to"], *_with_paths([], a.get("paths", []))),
-    args=(_rev("from"), _rev("to"), _p()), summary="Two revisions, per-file counts.",
-))
+def _diff_argv(exe: str, a: dict[str, Any], prefix: tuple[str, ...], ranged: bool) -> list[str]:
+    revs = [a["from"], a["to"]] if ranged else []
+    return _build(exe, "diff", *prefix, *revs, *_diff_opts(a))
+
+
+_DIFF_OPS = (
+    ("diff_worktree", ("--no-color", "--no-ext-diff"), False,
+     (_rev("base", required=False), _p(),
+      GitArg("contextLines", kind="int", min_int=0, max_int=100)),
+     "Working tree vs index (or a base)."),
+    ("diff_cached", ("--cached", "--no-color", "--no-ext-diff"), False,
+     (_rev("base", required=False), _p()), "Index vs HEAD."),
+    ("diff_range", ("--no-color", "--no-ext-diff"), True,
+     (_rev("from"), _rev("to"), _p()), "Two revisions."),
+    ("diff_name_status", ("--name-status", "-z"), False,
+     (_rev("base", required=False), _p()), "Changed paths with status letters."),
+    ("diff_name_status_cached", ("--cached", "--name-status", "-z"), False,
+     (_rev("base", required=False), _p()), "Staged paths with status letters."),
+    ("diff_name_status_range", ("--name-status", "-z"), True,
+     (_rev("from"), _rev("to"), _p()), "Two revisions, changed paths."),
+    ("diff_numstat", ("--numstat", "-z"), False,
+     (_rev("base", required=False), _p()), "Per-file insertion/deletion counts."),
+    ("diff_numstat_cached", ("--cached", "--numstat", "-z"), False,
+     (_rev("base", required=False), _p()), "Staged per-file insertion/deletion counts."),
+    ("diff_numstat_range", ("--numstat", "-z"), True,
+     (_rev("from"), _rev("to"), _p()), "Two revisions, per-file counts."),
+)
+for _dname, _dprefix, _dranged, _dargs, _dsummary in _DIFF_OPS:
+    def _dmake(prefix: tuple[str, ...], ranged: bool):
+        return lambda a, exe: _diff_argv(exe, a, prefix, ranged)
+    _register(GitOp(_dname, _dmake(_dprefix, _dranged), args=_dargs, summary=_dsummary))
 
 # ── History ────────────────────────────────────────────────────────────────────
 
