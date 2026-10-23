@@ -305,6 +305,7 @@ export {
   Phosphor_Eye as Eye,
   Phosphor_EyeSlash as EyeOff,
   Phosphor_EnvelopeSimple as Mail,
+  Phosphor_Code as Code,
   Phosphor_FileCode as FileCode2,
   Phosphor_FileJs as FileJson,
   Phosphor_FileArrowDown as FileOutput,

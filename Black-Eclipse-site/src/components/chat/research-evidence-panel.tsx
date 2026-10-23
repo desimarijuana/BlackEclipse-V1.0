@@ -254,20 +254,24 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
   const detailSummary = legs.length > 0 ? `${coverageCounts(legs).covered}/${legs.length} legs covered` : undefined;
 
   return (
-    <div className={cn('mt-3 w-full rounded-xl border border-border/20 glass-card-subtle', compact ? 'p-2' : 'p-2.5')}>
+    <div className={cn('mt-3 w-full rounded-xl border border-border/20', compact ? 'p-2' : 'p-2.5')}>
       {/* One header line — same shape as "What influenced this run". */}
       <button
         type="button"
         onClick={() => setBlockOpen((v) => !v)}
         aria-expanded={blockOpen}
         aria-controls={bodyId}
-        className="flex w-full flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+        className="flex w-full items-start gap-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
       >
-        {blockOpen ? <ChevronDown size={11} className="shrink-0" /> : <ChevronRight size={11} className="shrink-0" />}
-        <Icon size={11} className={cn('shrink-0', meta.tone)} />
-        <span className="font-medium text-foreground/90">{meta.label}</span>
-        <span className="text-muted-foreground/80">{summary}</span>
-        {limitationLabel ? <span className="text-amber-500/90">· {limitationLabel}</span> : null}
+        <span className="mt-px shrink-0">{blockOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}</span>
+        <Icon size={11} className={cn('mt-px shrink-0', meta.tone)} />
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+            <span className="font-medium text-foreground/90">{meta.label}</span>
+            <span className="text-muted-foreground/80">{summary}</span>
+            {limitationLabel ? <span className="text-amber-500/90">· {limitationLabel}</span> : null}
+          </span>
+        </span>
       </button>
 
       {blockOpen ? (

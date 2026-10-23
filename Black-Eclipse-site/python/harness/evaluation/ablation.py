@@ -32,6 +32,7 @@ from .candidate_invoker import (
 )
 from .config import report_dir
 from .runner import EvaluationRunner
+from .significance import paired_bootstrap
 from .stats import wilson_interval
 from .store import EvaluationStore
 from .tasks import (
@@ -187,9 +188,13 @@ def compare_arms(
             verdict = "regressed"
         else:
             verdict = "flat"
+        paired = paired_bootstrap(base.task_rates, arm.task_rates)
         comparisons[arm.arm] = {
             "baseline": base.arm,
             "delta": delta,
+            "deltaCi": [paired["ciLow"], paired["ciHigh"]],
+            "pValue": paired["pValue"],
+            "pairedTasks": paired["pairedTasks"],
             "verdict": verdict,
             "criticalRegressions": regressions,
             "costUsd": arm.cost_usd,
@@ -254,17 +259,19 @@ class AblationReport:
                 "",
                 "## Comparison vs baseline",
                 "",
-                "| arm | delta | verdict | critical regressions | cost / success |",
-                "|---|---|---|---|---|",
+                "| arm | delta | 95% CI | verdict | critical regressions | cost / success |",
+                "|---|---|---|---|---|---|",
             ]
             for name, row in self.comparisons.items():
                 delta = "UNKNOWN" if row["delta"] is None else f"{row['delta']:+.3f}"
+                low, high = row.get("deltaCi") or [None, None]
+                ci = "UNKNOWN" if low is None else f"{low:+.3f}..{high:+.3f}"
                 cps = (
                     "UNKNOWN" if row["costPerSuccess"] is None
                     else f"{row['costPerSuccess']:.4f}"
                 )
                 lines.append(
-                    f"| {name} | {delta} | {row['verdict']} | "
+                    f"| {name} | {delta} | {ci} | {row['verdict']} | "
                     f"{len(row['criticalRegressions'])} | {cps} |"
                 )
         lines += [

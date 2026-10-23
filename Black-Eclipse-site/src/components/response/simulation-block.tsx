@@ -14,6 +14,7 @@ import { useMemo, useState } from 'react';
 import { MessageSquare, SlidersHorizontal } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { reportResponseTelemetry } from '@/lib/response/telemetry';
+import { composeFollowupPrompt, labelsById } from '@/lib/response/followup';
 import type { SimulationBlock as SimulationBlockType } from '@/lib/response/contract';
 import {
   computeSimulation,
@@ -139,6 +140,18 @@ export function SimulationBlock({
     setValues((prev) => ({ ...prev, [id]: next }));
   };
 
+  const explainPrompt = () => {
+    const state = Object.fromEntries(inputs.map((input) => [input.id, values[input.id] ?? input.value]));
+    const base = composeFollowupPrompt({
+      state,
+      order: inputs.map((input) => input.id),
+      labels: labelsById(inputs),
+      lead: 'Explain this configuration',
+    });
+    const derived = computed.map((c) => `${c.output.label} ${c.display}`).join(', ');
+    return derived ? `${base}. Derived: ${derived}.` : `${base}.`;
+  };
+
   return (
     <div className="w-full">
       <div className="glass-card rounded-2xl p-3.5">
@@ -187,13 +200,7 @@ export function SimulationBlock({
       {onFollowup && inputs.length > 0 && (
         <button
           type="button"
-          onClick={() =>
-            onFollowup(
-              `Explain this configuration: ${inputs
-                .map((input) => `${input.label} ${values[input.id] ?? input.value}`)
-                .join(', ')}. Derived: ${computed.map((c) => `${c.output.label} ${c.display}`).join(', ')}.`,
-            )
-          }
+          onClick={() => onFollowup(explainPrompt())}
           className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-accent/30 px-3 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
         >
           <MessageSquare size={11} /> Explain this configuration in chat

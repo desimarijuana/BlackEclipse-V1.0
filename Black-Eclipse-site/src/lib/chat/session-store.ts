@@ -84,7 +84,7 @@ export function sessionsRoot(): string {
   return path.resolve(process.cwd(), ".black-eclipse", "sessions");
 }
 
-function sessionDir(chatId: string): string {
+export function sessionDir(chatId: string): string {
   const root = sessionsRoot();
   const dir = path.resolve(root, assertChatId(chatId));
   // Belt-and-braces: the resolved dir must stay inside the root.

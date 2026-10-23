@@ -55,6 +55,7 @@ def test_a_bundle_can_be_verified_and_a_edited_task_is_detected(tmp_path):
 
 
 def test_one_split_can_be_exported_alone(tmp_path):
+    full = build_corpus()
     payload = build_corpus(splits=("optimization",))
     assert payload["taskCount"] > 0
-    assert payload["taskCount"] < 62
+    assert payload["taskCount"] < full["taskCount"]

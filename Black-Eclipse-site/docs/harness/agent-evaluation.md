@@ -1,7 +1,7 @@
 ---
 title: Agent Evaluation System
 status: Current
-last-verified: 2026-10-20
+last-verified: 2026-10-22
 ---
 
 # Agent Evaluation System
@@ -41,6 +41,9 @@ python/harness/evaluation/
   ablation.py       baseline vs surface vs surface+lessons, Wilson CI + veto
   nightly.py        the unattended session: corpus vs baseline, a GATE exit code
   export.py         the corpus as a portable, checksum-verified bundle
+  corpus.py         the committed corpus manifest + authoring audit (oracle/split)
+  contamination.py  split access control, oracle metadata and decoy canaries
+  live_baseline.py  pinned live-tier baselines + the published Markdown report
   replay_builder.py recorded runs → deduped, redacted, live-only replay tasks
   experiments.py    A/B, model matrix, routing, skill and memory comparison
   dependencies.py   the affected-component map
@@ -49,9 +52,11 @@ python/harness/evaluation/
   tools.py          sandbox tools the scripted tier exposes to the agent
   datasets/         the labelled benchmark (benchmark_v1 + construction_v1 +
                    routing_e2e_v1 + team_v1 + adversarial_v1 + finance_v1 +
-                   replay_v1)
+                   finance_v2 + finance_v3 + finance_v4 + finance_v5 +
+                   finance_v6 + research_v1 + replay_v1)
   baselines/        the COMMITTED corpus baseline (corpus_v1.json) the release
-                   gate compares against
+                    gate compares against, and corpus_manifest.json (the
+                    committed summary of every dataset)
 ```
 
 Two invokers drive the SAME runtime:
@@ -287,11 +292,13 @@ preview and never applies it.
 `validation`, `held_out` and `release`. A task's `metadata.split` wins, then the
 dataset's top-level `metadata.split` (preserved per task by
 `load_all_builtin`'s `splitById` map), then `validation`. The built-ins are:
-`benchmark_v1` + `construction_v1` + `adversarial_v1` (8) + `finance_v1` (9) =
-validation (64), `routing_e2e_v1` + `replay_v1` = optimization (10),
-`team_v1` = held_out (2).
-`select_tasks` without `split` still returns every task (76) for the release
-gate; an unknown split is refused.
+`benchmark_v1` + `construction_v1` + `adversarial_v1` (12) + `finance_v1` (13) +
+`finance_v2` (10) + `finance_v4` (24) + `finance_v5` (36) + `finance_v6` (38) +
+`research_v1` (4) = validation (184), `routing_e2e_v1` (4) + `replay_v1` (6) +
+`finance_v3` (6) + `finance_v4` (12) + `finance_v5` (24) + `finance_v6` (12) =
+optimization (64), `team_v1` = held_out (2). `select_tasks` without `split`
+still returns every task (250) for the release gate; an unknown split is
+refused.
 
 **Provenance.** A persisted run records `agentVersion`, `gitCommit` (or
 `gitCommitUnavailable`), the dataset checksum, and a config identity
@@ -303,20 +310,115 @@ split and the measured-trial count. Task fingerprints are persisted through
 piece. Cost and latency are `None` when no real source reported them, never
 `0`; `cost_per_success` is UNMEASURED if any measured trial's cost is unknown.
 
+## 7.2 Corpus manifest and contamination control
+
+**Manifest.** `corpus.py` writes `baselines/corpus_manifest.json`: a committed
+summary of every dataset (name, version, checksum, task counts by split, oracle
+coverage, canary count). `verify_manifest()` recomputes every checksum from the
+task files and compares - it never trusts the file it checks. The
+`corpus-manifest` gate in `scripts/test-evals.js` fails on drift.
+Refresh deliberately with `npm run rsl:manifest -- --build`; the manifest is
+derived data, never a second task store.
+
+**Oracle coverage.** A task names an independent oracle in `metadata.oracle`
+(a recomputation, never a model). `npm run rsl:manifest -- --audit` reports
+coverage; `--strict` makes a missing oracle or contamination entry an error for
+new work. The legacy corpus predates the rule and reports `0.0` coverage
+honestly rather than inventing labels.
+
+**Contamination.** `contamination.py` maps each purpose to exactly one split:
+`optimization`→`optimization`, `validation`→`validation`,
+`canary`→`held_out`, `release`→`release`. `access_guard` refuses a cross-split
+read (`CONTAMINATION_SPLIT`); `select_for_purpose` returns allowed and
+refused-with-reason. A decoy canary (`metadata.canary`) is a task whose expected
+answer is deliberately wrong: `assert_no_canary_hack` turns a PASS into
+`CANARY_HACK`. A canary may live in the optimization split, never in validation.
+
+## 7.3 Paired significance
+
+A Wilson interval describes ONE arm. The question a self-improvement decision
+asks is whether the DIFFERENCE between two arms is bigger than noise, and the
+comparison is paired because both arms run the same tasks.
+
+`significance.py` provides `paired_bootstrap` (resample TASKS, percentile CI,
+one-sided p-value), `mcnemar` (exact paired pass/fail), `required_trials` (a
+coarse planning estimate) and `paired_rates` (extract per-task rates from a
+metrics dict or a `SuiteResult`). `ablation.compare_arms` reports `deltaCi`,
+`pValue` and `pairedTasks`, and the Markdown table shows the CI.
+
+The RSL acceptance decision uses it only when the operator enables
+`HARNESS_RSL_SIGNIFICANCE`: at least `HARNESS_RSL_SIGNIFICANCE_MIN_TASKS` paired
+tasks are required and the CI low bound must be above zero. A two-task "win" is
+therefore refused instead of accepted. Significance is not a sampling signal and
+does not apply to the archive/CMP ranking.
+
+## 7.4 Live-tier pinned baselines
+
+Only the live tier measures a real model, so only the live tier may be pinned.
+`live_baseline.py` keys an entry by provider + model + base URL + temperature +
+**prompt hash + corpus checksum**: a changed prompt or corpus is a new
+experiment, never a silent update. The committed registry is
+`baselines/live_v1.json` (created on first write; no API key is ever stored).
+
+`compare_live_baseline` runs the existing per-dimension regression gates and
+adds a paired CI and p-value. `publish_report` writes a Markdown report that
+always names the tier, provider, model, prompt hash, corpus checksum and verdict
+(`NOT COMPARED` when no pinned baseline exists, never `PASS`).
+
+```bash
+npm run rsl:nightly -- --live --provider <p> --model <m> \
+  --limit 10 --max-cost 5 \
+  --write-live-baseline --publish
+```
+
+The three live-baseline flags require `--live`. A live session is also refused
+before any request unless it names a positive `--max-cost`; `--limit N` runs
+only the first N tasks (hard bound 500). Both are recorded in the report as
+`limit`, `maxCostUsd` and `estimatedWorstCaseTrials`, so a bounded smoke run is
+distinguishable from a full one. `--publish` with no value resolves to the app
+root's `docs/self-improvement` — never the Python child's `cwd` (`python/`).
+
+**Held_out rotation.** A task a candidate has seen is no longer a clean canary.
+`evaluation/rotation.py` plans a quarter's rotation deterministically (the seed
+is the quarter label): it moves N optimization tasks to `held_out` and returns
+the current `held_out` tasks to `optimization`. It never touches validation, and
+a dataset marked `metadata.rotationExempt` (the frozen team benchmark) is
+excluded. The CLI is a dry run unless `--apply` is given; an apply writes the
+split, bumps each task version, records `metadata.rotation`, and refreshes the
+manifest. Re-applying the same quarter is a no-op.
+
+```bash
+npm run rsl:rotate -- --quarter 2026Q1          # plan only
+npm run rsl:rotate -- --quarter 2026Q1 --apply  # write it
+```
+
+**Read-only operator surfaces.** `GET /evolution/corpus` returns the compact
+committed manifest, its verification and the authoring audit;
+`GET /evolution/corpus/rotation?quarter=...&count=...` returns a rotation
+PREVIEW. Neither writes a dataset; rotation apply stays a deliberate CLI
+action.
+
 ## 8. Adding tasks
 
 1. Add a task object to `python/harness/evaluation/datasets/benchmark_v1.json`
    (or a new `datasets/<name>.json` — `construction_v1.json` is the R3-08
-   construction benchmark, `adversarial_v1.json` the refusal/overclaim set and
-   `finance_v1.json` the recomputed-ratio set; `load_all_builtin` merges every
-   dataset and rejects duplicate ids).
+   construction benchmark, `adversarial_v1.json` the refusal/overclaim set,
+   `finance_v1.json` the recomputed-ratio set and `finance_v2.json` the
+   oracle-tagged tranche 2; `load_all_builtin` merges every dataset and rejects
+   duplicate ids).
 2. Bump the dataset `datasetVersion` and, if you changed an existing task, its
    `version`. Never edit a task in place without bumping `version`.
 3. A construction task should declare `metadata.suites: ["construction"]`,
    `metadata.scenario` and `metadata.measures` (the signals it exercises).
    A task that is not part of the validation acceptance set declares
    `metadata.split` (`optimization`, `held_out` or `release`).
-4. Run `python -m harness.evaluation` — the gate must stay green.
+4. New tasks declare `metadata.oracle` (how the expected value is independently
+   recomputed) and `metadata.contamination` (source + authored date). A decoy
+   canary also sets `metadata.canary: true`. `npm run rsl:manifest -- --audit
+   --strict` enforces this for new work.
+5. Run `python -m harness.evaluation` — the gate must stay green — then refresh
+   the manifest with `npm run rsl:manifest -- --build` and commit it with the
+   task change.
 
 ## 9. Creating regression tests
 

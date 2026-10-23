@@ -61,18 +61,34 @@ export function ComputedResultPanel({
     ? data.artifacts.find((a) => a.name === figure.artifact) ?? null
     : null;
 
+  const preview = rows
+    .slice(0, 2)
+    .map(([key, value]) => `${key} ${formatValue(value)}`)
+    .join(' · ');
+
   return (
-    <div className={cn('mt-2 rounded-xl border border-border/30 glass-card-subtle', compact ? 'p-2' : 'p-2.5')}>
+    <div className={cn('mt-2 rounded-xl border border-border/30', compact ? 'p-2' : 'p-2.5')}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+        className="flex w-full items-start gap-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
       >
-        {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-        <Calculator size={11} className="text-primary" />
-        <span className="font-medium text-foreground/90">{t(statusKey)}</span>
-        {data.provenance ? <span className="text-muted-foreground/80">{data.provenance.detail}</span> : null}
+        <span className="mt-px shrink-0">{open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}</span>
+        <Calculator size={11} className="mt-px shrink-0 text-primary" />
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+            <span className="font-medium text-foreground/90">{t(statusKey)}</span>
+            {!open && preview ? (
+              <span className="truncate font-mono text-[10px] text-muted-foreground/70">{preview}</span>
+            ) : null}
+          </span>
+          {data.provenance ? (
+            <span className={cn('mt-0.5 block break-words text-muted-foreground/70', !open && 'line-clamp-2')}>
+              {data.provenance.detail}
+            </span>
+          ) : null}
+        </span>
       </button>
 
       {open ? (

@@ -574,3 +574,46 @@ async def test_hot_config_persists_and_reloads(store):
 
     await loop.stop()
     await booted.stop()
+
+
+@pytest.mark.asyncio
+async def test_run_hillclimb_with_archive_retains_a_stepping_stone(store):
+    evolution = _evolution(store)
+    loop = _loop(
+        store, evolution, mode="verify", strategy="hillclimb",
+        archive=True, archive_max=10, archive_sample="weighted",
+    )
+    loop.state_store.save_state({
+        "scope": "global",
+        "snapshotDigest": "base",
+        "metrics": {"aggregates": {"task_success": 0.8}, "measuredTrials": 10},
+        "utility": 0.8,
+        "status": "current",
+    })
+    weak = {
+        "id": "climb-weak",
+        "snapshotDigest": "candidate-weak",
+        "candidateId": "evo-weak",
+        "acceptedRunId": "run-weak",
+        "validation": {
+            "aggregates": {"task_success": 0.5}, "measuredTrials": 10,
+        },
+        "replay": {"taskRates": {"a": 1.0}},
+    }
+
+    async def propose(state, k, generation, rejected):
+        return [weak] if generation == 0 else []
+
+    async def evaluate(item, split):
+        return item["validation"] if split == "validation" else item["replay"]
+
+    result = await loop.run_hillclimb(
+        propose=propose,
+        evaluate=evaluate,
+        replay_baseline={"a": 1.0},
+    )
+
+    assert result["accepted"] == []
+    assert result["archive"]["enabled"] is True
+    stones = loop.state_store.list_states(status="stepping_stone")
+    assert any(row["snapshotDigest"] == "candidate-weak" for row in stones)

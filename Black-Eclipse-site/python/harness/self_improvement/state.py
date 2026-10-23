@@ -18,8 +18,27 @@ from typing import Any, Optional
 
 from ..persistence import now_iso
 
-STATUSES: tuple[str, ...] = ("candidate", "current", "superseded", "retired")
+STATUSES: tuple[str, ...] = (
+    "candidate",
+    "current",
+    "superseded",
+    "retired",
+    # A measured state that did not beat the champion but is retained as an
+    # exploration foothold. It is evidence only: never promotable, never
+    # activatable, never current.
+    "stepping_stone",
+)
 _CURRENT = "current"
+_SAMPLABLE = ("candidate", "current", "superseded", "stepping_stone")
+# Additive archive columns. An existing database is migrated in place; a row
+# written before the archive existed keeps its identity and reads NULL/0.
+_ARCHIVE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("visitCount", "INTEGER NOT NULL DEFAULT 0"),
+    ("novelty", "REAL"),
+    ("island", "TEXT"),
+    ("cmpScore", "REAL"),
+    ("lastSampledAt", "TEXT"),
+)
 
 
 def new_state_id() -> str:
@@ -52,6 +71,15 @@ def _activation_row(row: Any) -> dict[str, Any]:
     }
 
 
+def _row_get(row: Any, key: str, default: Any = None) -> Any:
+    """Read one column tolerantly, so a pre-archive row cannot crash a read."""
+    try:
+        value = row[key]
+    except (IndexError, KeyError):
+        return default
+    return default if value is None else value
+
+
 def _state_row(row: Any) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -65,6 +93,11 @@ def _state_row(row: Any) -> dict[str, Any]:
         "status": row["status"],
         "createdAt": row["createdAt"],
         "promotedAt": row["promotedAt"],
+        "visitCount": int(_row_get(row, "visitCount", 0) or 0),
+        "novelty": _row_get(row, "novelty"),
+        "island": _row_get(row, "island"),
+        "cmpScore": _row_get(row, "cmpScore"),
+        "lastSampledAt": _row_get(row, "lastSampledAt"),
     }
 
 
@@ -123,7 +156,20 @@ class HarnessStateStore:
             "CREATE INDEX IF NOT EXISTS idx_harness_activation_scope "
             "ON HarnessActivation(scope, activatedAt)"
         )
+        self._ensure_archive_columns()
         self._db.commit()
+
+    def _ensure_archive_columns(self) -> None:
+        """Add the archive columns to an existing table (idempotent migration)."""
+        existing = {
+            str(_row_get(row, "name", ""))
+            for row in self._db.execute("PRAGMA table_info(HarnessState)").fetchall()
+        }
+        for name, ddl in _ARCHIVE_COLUMNS:
+            if name not in existing:
+                self._db.execute(
+                    f"ALTER TABLE HarnessState ADD COLUMN {name} {ddl}"
+                )
 
     def save_state(self, state: dict[str, Any]) -> dict[str, Any]:
         """Insert one immutable state row. A `current` row is never overwritten."""
@@ -147,14 +193,20 @@ class HarnessStateStore:
             self._db.execute(
                 """INSERT INTO HarnessState
                    (id, parentStateId, scope, snapshotDigest, candidateId,
-                    acceptedRunId, utility, metricsJson, status, createdAt, promotedAt)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    acceptedRunId, utility, metricsJson, status, createdAt, promotedAt,
+                    visitCount, novelty, island, cmpScore, lastSampledAt)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     state_id, state.get("parentStateId"), scope, digest,
                     state.get("candidateId"), state.get("acceptedRunId"),
                     state.get("utility"),
                     json.dumps(state.get("metrics") or {}, sort_keys=True, default=str),
                     status, created, state.get("promotedAt"),
+                    int(state.get("visitCount") or 0),
+                    state.get("novelty"),
+                    state.get("island"),
+                    state.get("cmpScore"),
+                    state.get("lastSampledAt"),
                 ),
             )
             self._db.execute("COMMIT")
@@ -222,6 +274,107 @@ class HarnessStateStore:
             chain.append(row)
             current = row.get("parentStateId")
         return chain
+
+    def find_by_digest(
+        self,
+        snapshot_digest: str,
+        *,
+        scope: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """The existing state for one snapshot identity (digest is the identity)."""
+        digest = str(snapshot_digest or "").strip()
+        if not digest:
+            return None
+        if scope:
+            row = self._db.execute(
+                "SELECT * FROM HarnessState WHERE snapshotDigest=? AND scope=? "
+                "ORDER BY createdAt ASC LIMIT 1",
+                (digest, str(scope)),
+            ).fetchone()
+        else:
+            row = self._db.execute(
+                "SELECT * FROM HarnessState WHERE snapshotDigest=? "
+                "ORDER BY createdAt ASC LIMIT 1",
+                (digest,),
+            ).fetchone()
+        return _state_row(row) if row else None
+
+    def list_for_sampling(
+        self,
+        *,
+        scope: Optional[str] = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """States the archive may sample as an exploration parent.
+
+        Retired rows are excluded; stepping stones are included, which is the
+        whole point of the archive. `current` is included so exploitation stays
+        possible.
+        """
+        limit = max(1, min(int(limit), 500))
+        placeholders = ",".join("?" for _ in _SAMPLABLE)
+        clauses = [f"status IN ({placeholders})"]
+        params: list[Any] = list(_SAMPLABLE)
+        if scope:
+            clauses.append("scope=?")
+            params.append(str(scope))
+        params.append(limit)
+        rows = self._db.execute(
+            f"SELECT * FROM HarnessState WHERE {' AND '.join(clauses)} "
+            "ORDER BY createdAt DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [_state_row(row) for row in rows]
+
+    def children(self, state_id: str) -> list[dict[str, Any]]:
+        """Direct descendants, used by the metaproductivity estimate."""
+        rows = self._db.execute(
+            "SELECT * FROM HarnessState WHERE parentStateId=? "
+            "ORDER BY createdAt ASC",
+            (str(state_id),),
+        ).fetchall()
+        return [_state_row(row) for row in rows]
+
+    def record_visit(self, state_id: str, *, at: Optional[str] = None) -> dict[str, Any]:
+        """Count one archive sampling of a state (UCT needs this)."""
+        self._db.execute(
+            "UPDATE HarnessState SET visitCount=visitCount+1, lastSampledAt=? "
+            "WHERE id=?",
+            (at or now_iso(), str(state_id)),
+        )
+        self._db.commit()
+        state = self.get_state(state_id)
+        if state is None:
+            raise ValueError(f"unknown harness state {state_id!r}")
+        return state
+
+    def set_scores(
+        self,
+        state_id: str,
+        *,
+        novelty: Optional[float] = None,
+        cmp: Optional[float] = None,
+    ) -> dict[str, Any]:
+        """Persist the advisory archive scores. Never part of acceptance."""
+        assignments: list[str] = []
+        params: list[Any] = []
+        if novelty is not None:
+            assignments.append("novelty=?")
+            params.append(float(novelty))
+        if cmp is not None:
+            assignments.append("cmpScore=?")
+            params.append(float(cmp))
+        if assignments:
+            params.append(str(state_id))
+            self._db.execute(
+                f"UPDATE HarnessState SET {', '.join(assignments)} WHERE id=?",
+                params,
+            )
+            self._db.commit()
+        state = self.get_state(state_id)
+        if state is None:
+            raise ValueError(f"unknown harness state {state_id!r}")
+        return state
 
     def promote(self, state_id: str, *, promoted_at: Optional[str] = None) -> dict[str, Any]:
         """Make one state current for its scope; supersede the prior current row.

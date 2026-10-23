@@ -19,6 +19,7 @@ import { parseResponsePayload, ResponseBlockSchema } from "@/lib/response/contra
 import { splitResponseSegments } from "@/lib/response/parse";
 import { finalizeFenceSource } from "@/lib/response/finalize";
 import { RESPONSE_ICON_KEYS } from "@/lib/response/icon-vocabulary";
+import { chartBlockWarning } from "@/lib/response/chart-capabilities";
 import type { DataBridgeResult } from "@/lib/harness/data-bridge-types";
 
 const MAX_VALIDATE_CHARS = 200_000;
@@ -232,12 +233,18 @@ export async function responseContractCapability(
       errors.filter((d) => d.blockIndex != null).map((d) => [d.blockIndex as number, `${d.code}: ${d.message}`]),
     );
     const envelopeError = errors.find((d) => d.blockIndex == null);
-    const blocks = parsed.blocks.map((block, index) => ({
-      index,
-      type: block.type === "unknown" ? (block as { declaredType?: string }).declaredType ?? "unknown" : block.type,
-      ok: block.type !== "unknown",
-      error: diagByIndex.get(index) ?? null,
-    }));
+    const blocks = parsed.blocks.map((block, index) => {
+      // A chart can be schema-valid and still not drawable (empty series, a
+      // mark the renderer does not have). Validate the MAPPED spec too, so
+      // "validated" means "will render" rather than "will parse".
+      const chartWarning = block.type === "chart" ? chartBlockWarning(block) : null;
+      return {
+        index,
+        type: block.type === "unknown" ? (block as { declaredType?: string }).declaredType ?? "unknown" : block.type,
+        ok: block.type !== "unknown" && !chartWarning,
+        error: diagByIndex.get(index) ?? chartWarning ?? null,
+      };
+    });
     return {
       status: "OK",
       op,

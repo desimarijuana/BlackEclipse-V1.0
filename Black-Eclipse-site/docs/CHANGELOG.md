@@ -6,7 +6,510 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-23
+- **safety(evaluation): the live nightly is bounded and capped before it spends.**
+  `--limit N` runs only the first N tasks (hard bound 500) and a positive
+  `--max-cost USD` is required for `--live`; both are validated before any task
+  is sent and recorded in the report (`limit`, `maxCostUsd`,
+  `estimatedWorstCaseTrials`). `--publish` with no value now resolves to the app
+  root's `docs/self-improvement` instead of the Python child's cwd. Files:
+  `python/harness/evaluation/nightly.py`, `scripts/rsl-nightly.js`,
+  `python/tests/test_evaluation_nightly.py`.
+  docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
+- **merge(harness): origin/main's Round 3/4 work landed on the local tree.**
+  Merged 22 upstream commits (Round 3/4, v0.2.0, and the live-eval publishing
+  fix) and resolved the content conflicts in `docs/harness/decisions.md`,
+  `package.json`, `python/tests/test_size_budget.py` and the generated
+  `docs/harness/benchmarks.md`. The local RSL v4 / notebook decisions moved from
+  H293-H302 to H316-H325 so H310-H315 stay reserved for the Round 4 plan;
+  `scripts/check-adr-numbers.js` now reserves that range, and every doc reference
+  was updated. Raised the harness size ceilings to the measured merged tree
+  (381,881 total; `.` 24,845; routers 17,212; evaluation 11,456), pinned
+  `graph.py` at 2,323, regenerated the tool registry (957 tools) and benchmarks,
+  and included the read-only corpus/rotation routes
+  (`python/harness/routers/evolution_corpus.py`, its test, the `main.py`
+  registration and the `agent-evaluation.md` note). `npx tsc --noEmit` clean;
+  lint 0 errors; ADR and size gates pass; full suite 8,223 passed / 27 skipped,
+  with only the two stale-generated-artifact failures, both regenerated and
+  their 15 tests green; the follow-up eval-publishing merge's affected
+  benchmark/public/size tests (15) also pass.
+  docs updated: `docs/harness/decisions.md`,
+  `docs/harness/roadmap/round-4-gap-closure.md`,
+  `docs/harness/agent-evaluation.md`, `docs/NAVIGATION.md`,
+  `docs/self-improvement/rsl-v4-plan.md`,
+  `docs/harness/roadmap/{README,phase-21-notebook-cells}.md`,
+  `docs/harness/benchmarks.md`, `docs/harness/tool-registry.json`,
+  `docs/CHANGELOG.md`.
+- **test(evaluation): the one-split export check no longer hardcodes 61 tasks.**
+  `test_one_split_can_be_exported_alone` now compares the optimization split
+  count against the full built-in corpus, so legitimate corpus growth (64
+  optimization / 250 total) cannot fail a test that is about split filtering,
+  not a fixed size. `python/tests/test_evaluation_export.py`.
+  no canonical doc change — test-only; the rolling-window rotation moved the
+  2026-10-16 section into `docs/changelog/2026-10.md`.
+
 ## 2026-10-22
+- **fix(chat): a sent paste stays visible in the transcript.** A long paste is
+  no longer folded into a giant user message and deleted: it remains a context
+  document and each user turn shows a compact "Pasted text" card (name, chars,
+  preview, Open), so the exact content that went to the run is visible in
+  history. Paste-only sends use "Read the attached document."; pastes over
+  100 000 chars are truncated by the document pipeline instead of rejected by
+  the turn bound. User prompts over 2 000 chars collapse to an 800-char excerpt
+  with "Show full message". New `MessageAttachment` on `Message`; `claimPastes`
+  is unit-tested. Files: `src/components/chat/{chat-history,message-attachments}.tsx`,
+  `src/lib/chat/{paste,use-session}.ts`, `src/components/screens/stock-chat.tsx`,
+  `src/types/chat.ts`, `src/lib/chat/paste.test.ts`; docs updated:
+  `docs/chat-ui-audit.md`, `docs/CHANGELOG.md`.
+- **chat jump rail: tighter hairlines, calm hover wave, scroll thumb moved right.**
+  `MessageRail` ticks are now 1px hairlines stacked 2px apart (was 2px bars with
+  a ~5px pitch), baseline width 7px, active 9px, hover 11px (was 10→14px), and
+  hovering ripples a decaying wave outward with a 28ms-per-step delay instead of
+  one oversized pill. The transcript scroll thumb moved from `right-5` (left of
+  the rail) to `right-0.5`, so it now sits just to the right of the ticks.
+  `src/components/chat/message-rail.tsx`, `src/components/chat/chat-history.tsx`.
+  `npx tsc --noEmit` clean; Vitest 3824 passed (Python suite did not finish
+  within the run window; UI-only change).
+  no doc change — presentation only, no contract or data-shape change.
+- **feat(chat): editable notebook cells + chart code.** Shipped Phase 21:
+  a per-conversation cell document (`notebook.json`), the sandbox-backed
+  `POST /notebook/cells/{id}/run` and kernel restart routes, an opt-in
+  persistent kernel namespace (`AnalysisRequest.persist_namespace`, default
+  false so `analysis_run` stays fresh), chart-spec → matplotlib codegen at
+  `POST /charts/code`, and a Monaco notebook panel with a composer action and a
+  chart "Edit code" link. A cell's outputs are always `computed`, chart data
+  travels as a JSON input (never source text), and the original chart block is
+  never mutated. Files: `python/harness/routers/notebook.py`,
+  `python/harness/charts/codegen.py`, `python/harness/code/{execution,kernel}.py`,
+  `python/harness/analysis_tools.py`, `src/lib/chat/notebook-{types,store}.ts`,
+  `src/lib/harness/notebook-client.ts`, `src/app/api/chat/notebook/route.ts`,
+  `src/app/api/harness/notebook/**`, `src/app/api/harness/charts/code/route.ts`,
+  `src/components/chat/notebook-{cell,panel,provider}.tsx`,
+  `src/components/response/response-chart.tsx`, `src/components/chat/chat-dock.tsx`,
+  `src/components/screens/stock-chat.tsx`, `src/lib/i18n/dictionaries/notebook.ts`;
+  tests `test_{chart_codegen,notebook_kernel,notebook_route}.py`,
+  `notebook-{store,client}.test.ts`; docs `docs/harness/roadmap/phase-21-notebook-cells.md`,
+  `docs/harness/roadmap/progress/phase-21-progress.md`,
+  `docs/harness/roadmap/README.md`, `docs/harness/python-runtime.md`,
+  `docs/chart-engine.md`, `docs/NAVIGATION.md`. Full Python (8160) and Vitest
+  (3824) suites green; `npx tsc --noEmit` clean.
+- **feat(charts): chat charts are interactive ECharts — Plotly and PNG left
+  the chat path.** A `chart` block is mapped to the shared `ChartSpec`
+  (`chart-spec.ts`), a named `dataSource` is resolved in the browser through
+  `/api/price-history` (`chart-data.ts`), and the ONE option builder
+  (`chart-echarts.ts`, `echarts` + `echarts-gl`) renders it.
+  `response-chart.tsx` no longer calls the Python engine or fetches an
+  artifact; `plotly-chart.tsx`, `python-chart.tsx` and
+  `/api/harness/charts/plotly` were deleted. Also: gauge/treemap/funnel/
+  sunburst render natively (no bar stand-in); dated `[date,o,h,l,c]` and
+  object candle rows survive normalization; scatter/bubble and radar read the
+  fields they carry; drawability is checked with the renderer's own list
+  (`chart-capabilities.ts`) inside `response_validate`; an unsupported Python
+  picture mark is a named refusal, not a blank PNG. Chart launch:
+  `/api/price-history` serves the persisted last-good series FIRST on a cold
+  start and refreshes in the background; the batch route dedupes and bounds
+  concurrency; the client hydrates bars from `localStorage` before
+  revalidating. Session-index messages cap raised 4,000→16,000 so a structured
+  answer's fence is not cut. Files:
+  `src/lib/response/chart-{spec,data,echarts,capabilities,registry}.ts`,
+  `src/components/response/response-chart.tsx`,
+  `src/components/charts/echart-chart.tsx`,
+  `src/app/api/price-history/{route,batch/route}.ts`,
+  `src/lib/chart/subscription-manager.ts`,
+  `src/lib/response/normalize.ts`, `src/lib/harness/response-bridge.ts`,
+  `python/harness/charts/scene_render.py`, `python/harness/session_index.py`;
+  tests `chart-render.test.ts`, updated `chart-spec.test.ts`. docs updated:
+  `docs/chart-engine.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`
+  (ADR-050 amendment), `skills/ARCHITECT.md`, `docs/NAVIGATION.md`,
+  `docs/interactive-response-engine.md`.
+- **fix(charts): revert chat charts to Plotly and make them load fast.** The
+  ECharts renderer is removed from the chat path: `chart-echarts.ts` and
+  `echart-chart.tsx` are deleted, and `plotly-chart.tsx`, `python-chart.tsx`
+  and `/api/harness/charts/plotly` are restored. `response-chart.tsx` maps the
+  block to the shared `ChartSpec`, hydrates a named `dataSource` in the
+  browser, asks the Python engine for the figure + PNG, and registers the
+  artifact for export (`chart-registry.ts`). Load is staged: the PNG paints
+  immediately, plotly.js is loaded once on an idle frame only when the chart
+  nears the viewport (`IntersectionObserver`, 400 px margin), and rendered
+  figures are cached per spec so history scrolling does not redraw. Scene
+  marks the matplotlib picture cannot draw no longer fail the render (the
+  Plotly figure still draws them). `chart-capabilities.ts` now names the
+  engine's allowlist (not ECharts). Files:
+  `src/components/charts/plotly-chart.tsx`,
+  `src/components/response/response-chart.tsx`,
+  `src/lib/response/chart-{capabilities,registry}.ts`,
+  `src/app/api/harness/charts/plotly/route.ts`; tests
+  `src/lib/response/chart-render.test.ts`. docs updated:
+  `docs/chart-engine.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`
+  (ADR-050 amendment), `docs/NAVIGATION.md`,
+  `docs/interactive-response-engine.md`, `docs/CHANGELOG.md`.
+- **feat(charts): explicit zoom/reset controls on the live chart.** The
+  bottom-left of every Plotly chart now carries zoom in, zoom out and reset.
+  Zoom scales the current 2-D axis ranges around their centre (or the 3-D
+  camera eye); reset re-applies the figure the engine authored. The focus
+  overlay no longer closes when the chart's own toolbar is clicked, and
+  double-click still resets. Files: `src/components/charts/plotly-chart.tsx`,
+  `src/components/response/response-chart.tsx`; docs updated:
+  `docs/chart-engine.md`, `docs/CHANGELOG.md`.
+- **docs(harness): plan editable notebook cells in chat (ADR-H323 + phase 21).**
+  Added a plan for a per-conversation cell document over the existing analysis
+  sandbox, an "Edit code" path from a chart into a linked cell, chart-spec to
+  matplotlib codegen, and an opt-in persistent kernel namespace. The chart
+  contract stays data-only and `analysis_run` keeps a fresh namespace. Docs:
+  `docs/harness/decisions.md` (ADR-H323),
+  `docs/harness/roadmap/phase-21-notebook-cells.md` (new),
+  `docs/harness/roadmap/README.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **style(chat): computed/proof/sources panels lose their fill and stop
+  colliding.** `ComputedResultPanel`, `CodeVerificationPanel` and
+  `ResearchEvidencePanel` no longer paint a glass background (border-only),
+  their headers are left-aligned with the label on its own row and the method
+  text clamped below it, and the computed header now previews the first two
+  outputs while collapsed so a result is visible without expanding. In
+  `chat-history.tsx` the analysis/research pair stacks full-width instead of
+  sharing a 50/50 row. no doc change — presentation-only.
+- **style(dashboard): strip the header chrome.** Removed the search trigger,
+  Screener / Open portfolio buttons, the Investor/Trader/Both lens toggle and
+  the profile/Investor chip from the Dashboard header. The greeting, market
+  selector and refresh remain. no doc change — layout-only.
+- **feat(response): just-in-time design modules + one shared interaction bridge.**
+  Added `response_style_guide` (seven families: data, chart, diagram, workflow,
+  interactive, explanation, mechanical) so the model loads a family's nuance and
+  worked examples on demand instead of carrying them in every prompt; the field
+  map still comes live from the TS contract, and the prompt gets only a compact
+  module index. Added `RENDER_DISCIPLINE` ("when NOT to render") to the per-run
+  response plan, and extracted `src/lib/response/followup.ts` as the one
+  state→prompt serializer used by `controls` and `simulation`. Files:
+  `python/harness/response_style.py`, `response_tools.py`, `graph.py`,
+  `response_mode.py`, `src/lib/response/followup.ts`, `controls-block.tsx`,
+  `simulation-block.tsx`, tests `test_response_tools.py`, `followup.test.ts`;
+  docs `docs/interactive-response-engine.md`, `docs/NAVIGATION.md`.
+- **feat(dashboard): add the genuinely useful workspace cards.** New
+  Dashboard-only surfaces: today's P&L attribution ("what moved your book"),
+  a "Needs a look" action list (near support / falling / reporting soon) with
+  one-click ±3% alerts, market session clock (time-zone-aware open/closed for
+  12 exchanges), portfolio risk snapshot (volatility, drawdown, beta,
+  concentration), currency exposure, sector rotation buckets, relative
+  performance vs the benchmark, an alerts strip, per-section show/hide +
+  reorder (persisted locally), keyboard shortcuts (J/K, Enter, A, R, /), and a
+  data-freshness strip. Files:
+  `src/components/screens/dashboard/home-alpha-insights.tsx`,
+  `home-{dashboard,alpha-cards,primitives}.tsx`,
+  `src/lib/dashboard/{home-model,use-home-data,home-prefs}.ts`, tests
+  `home-model.test.ts`. no doc change — UI/data additions only.
+- **style(dashboard): remove Getting started and tighten the footer.** The
+  Dashboard no longer shows the onboarding checklist (and its prefs are no
+  longer stored), Portfolio value now leads the feed at full width, and the
+  footer spacing is reduced. no doc change — layout-only.
+- **style(dashboard): the feed fills the full content width.** Removed the
+  1120px max-width cap on `home-dashboard.tsx` so the AlphaGen-style feed uses
+  the whole main panel. no doc change — layout-only.
+- **feat(ui): the Dashboard becomes an international-first, AlphaGen-style decision feed.**
+  The `home` tab is now a borderless single-column feed rather than a widget
+  grid: greeting + display name + Investor/Trader/Both lens + search + market
+  selector, getting-started checklist, portfolio value vs S&P 500, a personal
+  feed over JDDS news/alerts/published results, four-state holdings health,
+  this-week events (company results + macro), global market pulse, confirmed
+  results season, Eclipse-momentum leaders you don’t hold, research/theses on
+  holdings, sector exposure, and a track record drawn from the journal and
+  closed theses. No sidebar, tab, or other-screen changes. Data stays real:
+  no AlphaGen scores, invented report windows, or fabricated track record;
+  unavailable inputs are labelled. Files:
+  `src/components/screens/dashboard/home-{dashboard,alpha-cards,primitives}.tsx`,
+  `src/lib/dashboard/{home-model,use-home-data,home-prefs}.ts(x)`, and
+  `src/app/api/harness/charts/route.test.ts` (typed the fetch mock so the lint
+  gate passes). docs updated: docs/CHANGELOG.md (no other doc change — the
+  Dashboard data path is already documented in docs/ARCHITECTURE.md).
+- **chore(harness): regenerate the committed capability statement.** The full
+  Python suite's `test_the_committed_statement_matches_a_fresh_generation`
+  caught the generated `docs/harness/capability-statement.md` drifting from
+  `render_statement()` after the in-flight capability changes. Regenerated it
+  from the module; the statement is derived data and the test now passes. Files:
+  `docs/harness/capability-statement.md`. no other doc change - generated
+  artifact.
+
+- **feat(evaluation): read-only corpus and rotation operator routes.** Added
+  `routers/evolution_corpus.py` (mounted in `main.py`):
+  `GET /evolution/corpus` returns the compact committed manifest, its
+  verification and the authoring audit; `GET /evolution/corpus/rotation`
+  returns a deterministic rotation PREVIEW. Neither writes a dataset - rotation
+  apply stays the deliberate `npm run rsl:rotate -- --apply` CLI action. Files:
+  `python/harness/routers/evolution_corpus.py`, `python/harness/main.py`,
+  `python/tests/test_evolution_corpus_routes.py`, `package.json`. Docs updated:
+  `docs/harness/agent-evaluation.md`.
+
+- **feat(evaluation): a deterministic, operator-applied held_out rotation.**
+  A held_out task a candidate has seen is no longer a clean canary. Added
+  `evaluation/rotation.py` and `npm run rsl:rotate`: the plan is seeded by the
+  quarter label (reproducible), moves N optimization tasks to `held_out` and
+  returns the current `held_out` tasks to `optimization`, never touches
+  validation, and skips datasets marked `metadata.rotationExempt` (the frozen
+  team benchmark). The CLI is a dry run unless `--apply` is given; an apply
+  writes the split, bumps each task version, records `metadata.rotation`, and
+  refreshes the manifest. Re-applying the same quarter is a no-op. Files:
+  `python/harness/evaluation/rotation.py`,
+  `python/harness/evaluation/datasets/team_v1.json` (`rotationExempt`),
+  `python/tests/test_evaluation_rotation.py`, `scripts/rsl-rotate.js`,
+  `package.json`. Docs updated: `docs/harness/agent-evaluation.md`,
+  `docs/self-improvement/rsl-v4-plan.md`, `docs/harness/decisions.md`
+  (ADR-H325).
+
+- **feat(evaluation): finance tranche 6 - the corpus reaches 250 tasks.** Added
+  `datasets/finance_v6.json`: 50 deterministic fixtures (three validation and
+  one optimization per metric, plus two extra validation fixtures), each with
+  `metadata.oracle` and `metadata.contamination` and graded by the independent
+  `financial` recomputation. The corpus reaches the 250-task target (validation
+  184, optimization 64, held_out 2), oracle coverage 0.648 (162/250), and the
+  evaluation gate reports `finance: 182/182 measured, 100%` at
+  `task_success=1.0`. The committed manifest is refreshed. Files:
+  `python/harness/evaluation/datasets/finance_v6.json`,
+  `python/harness/evaluation/baselines/corpus_manifest.json`,
+  `python/tests/test_rsl_provenance.py`. Docs updated:
+  `docs/harness/agent-evaluation.md`,
+  `docs/self-improvement/rsl-v4-plan.md`.
+
+- **feat(evaluation): finance tranche 5 - the corpus reaches 200 tasks.** Added
+  `datasets/finance_v5.json`: 60 deterministic fixtures across the same twelve
+  metrics (three validation and two optimization per metric), each with
+  `metadata.oracle` and `metadata.contamination` and graded by the independent
+  `financial` recomputation. The corpus grows 140 → 200 (validation 146,
+  optimization 52), oracle coverage 0.371 → 0.560, and the evaluation gate
+  reports `finance: 132/132 measured, 100%` at `task_success=1.0`. The committed
+  manifest is refreshed. Files:
+  `python/harness/evaluation/datasets/finance_v5.json`,
+  `python/harness/evaluation/baselines/corpus_manifest.json`,
+  `python/tests/test_rsl_provenance.py`. Docs updated:
+  `docs/harness/agent-evaluation.md`,
+  `docs/self-improvement/rsl-v4-plan.md`.
+
+- **feat(rsl): supervised autonomy can apply one measured L1 surface state.**
+  The P6 policy could decide "allowed" but nothing acted on it. Added
+  `RSLLoop.auto_apply_surface(state_id)`: it accepts only a `candidate` state
+  whose `EvolutionCandidate` is a surface with a valid `surfaceConfig`, derives
+  per-task rates from the recorded baseline and candidate `EvaluationRun`s, runs
+  the paired bootstrap and the regression gates, classifies the risk, and calls
+  the existing `decide(...)` policy (kill switch, L1, lift floor, canary/replay,
+  daily budget). On success it uses the existing
+  `HarnessStateStore.activate_surface`, so the returned `HarnessActivation` row
+  is the rollback handle; missing paired evidence is a refusal. The activation
+  counter is persisted (`rsl.autonomy.activations`) so a restart cannot reset
+  the budget. `POST /evolution/states/{state_id}/autonomy-apply` is the
+  operator-triggered seam. Files:
+  `python/harness/self_improvement/{autonomy,loop}.py`,
+  `python/harness/routers/evolution_autonomy.py`,
+  `python/tests/test_autonomy_apply.py`, `package.json`. Docs updated:
+  `docs/self-improvement/rsl-v4-plan.md`, `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H324).
+
+- **feat(evaluation): finance tranche 4 - 36 generated oracle-tagged tasks.**
+  Added `datasets/finance_v4.json`: 36 deterministic fixtures across twelve
+  metrics (two validation and one optimization per metric), each with
+  `metadata.oracle` and `metadata.contamination` and graded only by the
+  independent `financial` recomputation. The corpus grows 104 → 140 tasks
+  (validation 110, optimization 28), oracle coverage 0.154 → 0.371, and the
+  evaluation gate reports `finance: 72/72 measured, 100%`. The committed
+  manifest is refreshed. Files:
+  `python/harness/evaluation/datasets/finance_v4.json`,
+  `python/harness/evaluation/baselines/corpus_manifest.json`,
+  `python/tests/test_rsl_provenance.py`. Docs updated:
+  `docs/harness/agent-evaluation.md`,
+  `docs/self-improvement/rsl-v4-plan.md`.
+
+- **feat(evaluation): optimization-split finance tranche 3.** Added
+  `datasets/finance_v3.json` (6 deterministic finance tasks: EPS, P/E, P/S,
+  FCF, CAGR, gross margin) reserved for the **optimization** split, so the RSL
+  search has measured material it may train on while validation stays the
+  acceptance set. Every task carries `metadata.oracle` and
+  `metadata.contamination`; the corpus grows 98 → 104 (optimization 10 → 16,
+  oracle coverage 0.154) and `finance` is 36/36 measured in the gate. The
+  committed manifest is refreshed. Files:
+  `python/harness/evaluation/datasets/finance_v3.json`,
+  `python/harness/evaluation/baselines/corpus_manifest.json`,
+  `python/tests/test_rsl_provenance.py`. Docs updated:
+  `docs/harness/agent-evaluation.md`,
+  `docs/self-improvement/rsl-v4-plan.md`.
+
+- **chore(rsl): keep the autonomy routes out of the ratcheted evolution router,
+  and re-pin the shared graph.** The P6 routes pushed
+  `routers/evolution.py` past its size ratchet, so they now live in
+  `routers/evolution_autonomy.py` and are included by the existing evolution
+  router (the same pattern as `evolution_drift`/`evolution_models`/
+  `evolution_report`). `graph.py` re-pinned 2305→2316 for the in-flight
+  response-style JIT index wiring; the tool loop is untouched and the
+  subsystem-wiring block remains the split candidate. Files:
+  `python/harness/routers/{evolution,evolution_autonomy}.py`,
+  `python/tests/test_size_budget.py`. Docs updated:
+  `docs/self-improvement/rsl-v4-plan.md` (P6 route module).
+
+- **feat(evaluation): finance tranche 2, with an independent oracle on every
+  task.** Added `datasets/finance_v2.json` (10 deterministic tasks: gross
+  margin, percentage change, CAGR, P/E, P/S, FCF, portfolio weight,
+  reward-to-risk, operating margin, EV/EBITDA). Every task declares
+  `metadata.oracle` (the recomputation) and `metadata.contamination`
+  (source/authored date), so the corpus grows from 88 to 98 tasks and oracle
+  coverage from 0.0 to 0.102. All ten are graded by the independent
+  `financial` grader plus `exact`; the evaluation gate is 98 tasks with finance
+  30/30 measured. The committed manifest is refreshed. Files:
+  `python/harness/evaluation/datasets/finance_v2.json`,
+  `python/harness/evaluation/baselines/corpus_manifest.json`. Docs updated:
+  `docs/harness/agent-evaluation.md`,
+  `docs/self-improvement/rsl-v4-plan.md`.
+
+- **feat(rsl): autonomy is risk-classed, evidence-gated and killable.** Added
+  `self_improvement/autonomy.py`: risk classes `L0` (code, tool widening,
+  guardrail removal, model identity — never automatic), `L2`
+  (capability-widening — human only) and `L1` (bounded surface: prompt wording,
+  tool guidance, narrowed context policy, delegated-child prompt, added
+  guardrails). The pure `decide(...)` policy requires supervised/bounded level,
+  no kill switch, L1 risk, a paired `deltaCiLow` above the floor, no critical
+  regression, a clean canary/replay, a matching predicted direction and a daily
+  budget; it names every refusal reason. `AutonomyKillSwitch` persists under
+  `rsl.autonomy.kill` on the ONE agent-memory DB; `/evolution/rsl/autonomy/
+  pause|resume` stop/allow decisions without a restart, and
+  `/evolution/rsl/autonomy/decide` previews a decision without activating
+  anything. `GET /evolution/rsl` now reports `autonomyStatus`. New opt-in,
+  clamped flags `HARNESS_RSL_AUTONOMY` (off), `HARNESS_RSL_AUTO_MIN_LIFT`
+  (0.02), `HARNESS_RSL_AUTO_MAX_PER_DAY` (1), `HARNESS_RSL_AUTO_RISK` (low),
+  accepted by hot config. Activation remains the existing single-use surface
+  path; auto-applying an L1 winner is a supervised follow-up after a dry run.
+  Files: `python/harness/self_improvement/{autonomy,config,runtime_settings,
+  loop,__init__}.py`, `python/harness/routers/evolution.py`,
+  `python/tests/test_autonomy.py`, `package.json`, `.env.example`. Docs
+  updated: `docs/self-improvement/rsl-v4-plan.md`,
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H322).
+
+- **feat(evaluation): only the live tier may be pinned, and the key includes the
+  prompt and corpus.** The scripted tier cannot see a prompt change, so pinning
+  it as a model baseline would manufacture evidence. Added
+  `evaluation/live_baseline.py`: a baseline is keyed by provider + model + base
+  URL + temperature + prompt hash + corpus checksum; `build_live_baseline`
+  refuses the scripted tier and an empty provider/model, and stores the Wilson
+  CI, per-category rates, task rates, cost/latency and provenance without ever
+  storing a key. `write_live_baseline`/`read_live_baselines`/
+  `find_live_baseline` maintain a committed registry (created on first write);
+  `compare_live_baseline` runs the existing regression gates plus a paired CI;
+  `publish_report` writes Markdown that names the tier, identity, prompt hash,
+  corpus checksum and verdict, with `NOT COMPARED` when unpinned (never PASS).
+  `nightly.py` gained `--live-baseline`/`--write-live-baseline`/`--publish`
+  (all require `--live`); the one recorded live run remains an operator action.
+  Files: `python/harness/evaluation/{live_baseline,nightly}.py`,
+  `python/tests/test_live_baseline.py`, `scripts/rsl-nightly.js`.
+  Docs updated: `docs/harness/agent-evaluation.md`,
+  `docs/self-improvement/rsl-v4-plan.md`, `docs/harness/decisions.md`
+  (ADR-H321).
+
+- **feat(evaluation): a lift must clear its paired noise floor.** A Wilson
+  interval describes one arm; the acceptance decision was comparing point
+  estimates from samples too small to distinguish from noise. Added
+  `evaluation/significance.py`: `paired_bootstrap` (resamples TASKS, percentile
+  CI + one-sided p-value), exact `mcnemar` for paired pass/fail, a
+  `required_trials` planning estimate, and `paired_rates` (a metrics dict or a
+  `SuiteResult`). `ablation.compare_arms` now reports `deltaCi`/`pValue`/
+  `pairedTasks` and renders the CI. `utility.acceptance` gained the opt-in
+  `require_significance`: when `HARNESS_RSL_SIGNIFICANCE=on`, at least
+  `HARNESS_RSL_SIGNIFICANCE_MIN_TASKS` paired tasks are required and the CI low
+  bound must be above zero, so a two-task "win" is refused. It is an acceptance
+  rule, never a sampling signal. Files:
+  `python/harness/evaluation/{significance,ablation}.py`,
+  `python/harness/self_improvement/{utility,hillclimb,config,loop}.py`,
+  `python/tests/{test_significance.py,test_rsl_significance.py}`, `package.json`,
+  `.env.example`. Docs updated: `docs/harness/agent-evaluation.md`,
+  `docs/self-improvement/rsl-v4-plan.md`, `docs/harness/decisions.md`
+  (ADR-H320).
+
+- **feat(evaluation): a committed corpus manifest and one split per purpose.**
+  The corpus count had drifted between documents (76 vs 88) with nothing
+  checking a dataset change against a recorded summary. Added
+  `evaluation/corpus.py` (build/verify/audit; every checksum is recomputed from
+  the task files, never trusted) and `baselines/corpus_manifest.json` (88 tasks,
+  8 datasets, split counts, oracle coverage, canary count). The new
+  `corpus-manifest` gate in `scripts/test-evals.js` fails on drift; refresh it
+  deliberately with `npm run rsl:manifest -- --build`. Added
+  `evaluation/contamination.py`: each purpose reads exactly one split
+  (`optimization`/`validation`/`canary`/`release`), `access_guard` refuses a
+  cross-split read, and a decoy canary (`metadata.canary`) makes a PASS a
+  `CANARY_HACK` instead of a win. `--audit --strict` reports/enforces the
+  oracle + contamination metadata rule for new tasks; the legacy corpus reports
+  `0.0` oracle coverage honestly. Files:
+  `python/harness/evaluation/{corpus,contamination}.py`,
+  `python/harness/evaluation/baselines/corpus_manifest.json`,
+  `python/tests/{test_evaluation_corpus.py,test_evaluation_contamination.py}`,
+  `scripts/{rsl-manifest.js,test-evals.js}`, `package.json`. Docs updated:
+  `docs/harness/agent-evaluation.md`,
+  `docs/self-improvement/rsl-v4-plan.md`, `docs/harness/decisions.md`
+  (ADR-H319).
+
+- **feat(rsl): type every proposal, veto near-duplicates, and let islands migrate
+  evidence.** A proposal now names the surface it mutates (prompt, tool guidance,
+  tool subset, ceilings, context policy, guardrail, subagent prompt, model
+  identity, skill draft, code patch, composition) via the new
+  `self_improvement/operators.py`; `CandidateProposal.operator` carries it as
+  evidence, never authority. `propose_many` gained `novelty_min` and
+  `exclude_signatures`: a Jaccard-near-duplicate of an already-tried proposal is
+  dropped, and if nothing new remains it raises `PROPOSAL_ALL_DUPLICATES`
+  instead of returning a smaller comparison silently. The archive now treats a
+  non-global scope as an island: every `HARNESS_RSL_ISLAND_MIGRATION` measured
+  states, `StateArchive.migrate_best` copies the island's best measured state
+  into `global` as an inert `stepping_stone` (same digest, new row), and
+  `parent_for(island=...)` can restrict sampling. Migration copies evidence, not
+  a decision; acceptance is untouched and the per-scope lease still allows two
+  scopes to climb concurrently. New opt-in, clamped flags
+  `HARNESS_RSL_NOVELTY_MIN` (0), `HARNESS_RSL_ISLANDS` (off),
+  `HARNESS_RSL_ISLAND_MIGRATION` (5), accepted by hot config. Files:
+  `python/harness/self_improvement/{operators,proposer,archive,config,recursion,loop,__init__}.py`,
+  `python/tests/{test_rsl_operators.py,test_rsl_islands.py}`, `package.json`,
+  `.env.example`. Docs updated: `docs/self-improvement/rsl-v4-plan.md`,
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H318).
+
+- **feat(rsl): rank exploration parents by what their descendants achieved.**
+  The archive ranked a state by its own score; HGM showed that is a poor proxy
+  for self-improvement potential. Added `self_improvement/cmp.py` (descendant
+  lift: depth-discounted mean of `utility(descendant) - utility(state)` over
+  measured descendants, bounded horizon, explicit `coldStart` when there is too
+  little evidence). `StateArchive` persists `cmpScore` on a state and its
+  ancestors when a measured state is retained, and attaches a read-path estimate
+  for older rows; `sampler.scores` blends it (weight 0.30). It remains a sampling
+  signal only — `utility.acceptance` is untouched, so a high-lift state cannot
+  promote itself or its children. New opt-in, clamped flags `HARNESS_RSL_CMP`
+  (off) and `HARNESS_RSL_CMP_HORIZON` (3, 1–6), accepted by hot config. Files:
+  `python/harness/self_improvement/{cmp,archive,config,loop,__init__}.py`,
+  `python/tests/test_rsl_cmp.py`, `package.json`, `.env.example`. Docs updated:
+  `docs/self-improvement/rsl-v4-plan.md`, `docs/harness/architecture.md`,
+  `docs/harness/decisions.md` (ADR-H317).
+
+- **feat(rsl): the climb may explore from a measured stepping stone, and only the
+  champion can be replaced.** Greedy ascent proposed only from the incumbent and
+  discarded every measured loser; the DGM ablation reports that exact shape as
+  the weakest (50.0% with an archive vs 39.7% greedy vs 23.0% no archive). Added
+  `self_improvement/sampler.py` (seeded `uniform`/`weighted`/`uct` parent
+  sampling) and `self_improvement/archive.py` (`StateArchive` retains measured
+  states as inert `stepping_stone` rows, refuses unmeasured ones, dedupes by
+  snapshot digest, and evicts only stepping stones). `hillclimb.run_hillclimb`
+  now takes an optional `archive=`/`rng=`, records `proposalParentId`, and
+  retains rejected measured neighbors; acceptance is unchanged and still compares
+  against the champion. `HarnessState` gained additive `visitCount`/`novelty`/
+  `island`/`cmpScore`/`lastSampledAt` columns plus the `stepping_stone` status
+  (never promotable/activatable). New opt-in, clamped env flags
+  `HARNESS_RSL_ARCHIVE` (off), `HARNESS_RSL_ARCHIVE_MAX` (200),
+  `HARNESS_RSL_ARCHIVE_SAMPLE` (weighted), accepted by hot config. Archive-off
+  behavior is byte-identical. Files: `python/harness/self_improvement/{archive,sampler,state,hillclimb,config,loop,__init__}.py`,
+  `python/tests/{test_rsl_archive.py,test_rsl_loop.py}`, `package.json`,
+  `.env.example`. Docs updated: `docs/self-improvement/rsl-v4-plan.md` (new),
+  `docs/harness/architecture.md`, `docs/harness/decisions.md` (ADR-H316).
+
+- **fix(ui): the Dashboard is monochrome white and its portfolio panels wait honestly.**
+  Replaced the initial gold/amber chrome with a white/grey treatment (green/red
+  reserved for up/down and trend semantics), fixed the sidebar migration so an
+  existing nav gets Dashboard directly after ChatBot, and removed the misleading
+  zero-value/unavailable flash while quotes and price history load:
+  `useAggregatePortfolio` now exposes `loading`, `usePriceHistories` marks a new
+  symbol set loading immediately, and the Dashboard cards render explicit
+  loading states instead of `$0.00` / "history missing". Files:
+  `src/components/screens/dashboard/home-{dashboard,cards,primitives}.tsx`,
+  `src/lib/dashboard/{use-home-data,portfolio-store}.ts`,
+  `src/hooks/use-price-histories.ts`, `src/lib/sidebar/config.ts`,
+  `src/lib/sdk/app-shell-types.ts`. no doc change — UI/data-loading polish; the
+  Dashboard architecture and data path are already documented.
 - **fix(tests): type the chart-route fetch mock so the lint gate passes.** The
   mock was declared `Promise<any>`; `npx eslint .` is a step of the release gate
   (`check:all`) and of the CI workflow, so one `no-explicit-any` error kept the
@@ -5922,781 +6425,3 @@ umpy/pandas are **already installed** in the runtime and the analysis
   vitest 332 files pass with the 1 pre-existing `graph-canvas.tsx`
   line-ending failure (untouched by this change). Docs:
   `docs/video-pipeline.md`, `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
-
-## 2026-10-16
-
-- **Chat transcript no longer "disappears" on server restart/refresh.** The
-  localStorage cache is origin-scoped and silently froze once the whole
-  transcript list outgrew the quota (~5 MB; the current tree is ~5.04 MB), so
-  `saveConversations` swallowed the `QuotaExceededError` and kept returning an
-  old snapshot. Boot hydration merged the durable server copy into `conversations`
-  but only pushed `messages` when no active chat was set, so the open transcript
-  stayed stale despite the server already holding the new turns. Two fixes: (1)
-  on boot the open conversation is refreshed from the merged copy (falling back
-  to most-recent when it is gone); (2) the cache writer now degrades gracefully â€”
-  `saveConversationsCache` evicts the least valuable chats (trashed â†’ archived â†’
-  oldest unpinned) until the payload fits instead of freezing, with the server
-  transcript still authoritative. Files:
-  `src/lib/chat/use-conversation-persistence.ts`,
-  `src/lib/chat/chat-organization.ts`, `components/screens/stock-chat.tsx`;
-  regression tests in `chat-organization.test.ts`.
-  `no doc change â€” bug fix, contracts unchanged`.
-
-- **`anatomy` now draws real TURNED solids, not just boxes/tubes.** `slab`,
-  `prism`, `disc` and `knob` all compile to straight extrusions/cylinders, so
-  figures still read as boxes and tubes. Vendored the kit's `lathe.mjs` (with its
-  `iso-kit.mjs` dep) into `src/lib/anatomy/` and wired three **turned** kinds:
-  `lathe` (a turning `profile` of `[axial, radius]` â€” bells, flanges, bottles;
-  `smooth: true` shades a curved profile as one body), `cone` (`radius`/`radiusTop`)
-  and `sphere` (`radius`). They return the same `SolidPaths` shape, so the existing
-  renderer draws them; the shade ramp now reaches the `#303032` highlight. The
-  `/anatomy` directive + both Anatomy skills teach the turned vocabulary ("a
-  machine of only boxes and cylinders is a diagram, not an object"). Files:
-  `src/lib/anatomy/{lathe.mjs,iso-kit.mjs,tube.mjs,NOTICE}`, `scene.ts`,
-  `src/lib/response/blocks/anatomy.ts`, `src/lib/harness/command-agent.ts`,
-  `.opencode/skills/black-eclipse-anatomy/SKILL.md`,
-  `python/harness/skills/library/system/anatomy-figure/SKILL.md`. Verified visually
-  (a bell, cone, sphere, disc, knob on a base) and by compiler tests. docs updated:
-  `docs/interactive-response-engine.md`.
-
-- **`anatomy` gets a real part vocabulary + a finance-customized Anatomy skill.**
-  The block only offered `slab`/`cylinder`, so figures could only be boxes and
-  tubes. Added part **kinds** `prism` (an extruded `points` polygon â€” wedges,
-  plates, brackets), `disc` and `knob` (a knurled control), plus craft
-  **decorations** that make a part read as a real object â€” `groove` (inset top
-  rule), `screws` (corner screws), `ticks` (a ruler strip) and `knurl`/`knurlCount`
-  â€” all compiled in `lib/anatomy/scene.ts` via the kit (`extrude`,
-  `planOutline`, `corners`, `topTicks`, `knurl`). Painter's order is the producer's
-  order (base first); a naive depth sort was tried and reverted (it hid a small
-  part behind a large ground slab). The `/anatomy` directive
-  (`command-agent.ts`) now teaches the richer vocabulary and the base-first rule.
-  Added the finance-customized skill `.opencode/skills/black-eclipse-anatomy/SKILL.md`
-  and rewrote the library skill `system.anatomy-figure/SKILL.md` (finance
-  mappings, craft rules, the in-chat scene). Files:
-  `src/lib/response/blocks/anatomy.ts`, `src/lib/anatomy/scene.ts`,
-  `src/lib/harness/command-agent.ts`, `.opencode/skills/black-eclipse-anatomy/`,
-  `python/harness/skills/library/system/anatomy-figure/SKILL.md`. docs updated:
-  `docs/interactive-response-engine.md`.
-
-- **Verified `/anatomy` end-to-end against the live runtime + added a prompt
-  fixture.** Ran four anatomy prompts through the running app's
-  `POST /api/harness/chat` (matching engine, market-data path `--animated`,
-  portfolio rebalance `--animated`, order book) â€” each returned a single
-  `eclipse-response` fence whose `anatomy` block parses with **0 diagnostics**,
-  does not degrade, compiles (7â€“12 parts each) and renders (screenshot-confirmed).
-  The canonical prompt list now lives in `src/lib/anatomy/prompts.ts` and is
-  exercised by `src/lib/anatomy/prompts.test.ts` (each prompt must route to the
-  `agent.anatomy` directive carrying the schema read-back + single-fence guidance).
-  no doc change â€” test/verification only.
-
-- **`/commands` is now an alias of `/help`** in the chat composer command
-  registry (`src/lib/harness/command-registry.ts`, `HELP.aliases`). Typing
-  `/commands` surfaced "unknown command" because the canonical verb is `/help`;
-  the alias makes the intuitive spelling work in the palette and in the command
-  router. `no doc change â€” alias only, contract unchanged`.
-
-- **`anatomy` palette: base `#141416`, highlight `#303032`.** The dark figure now
-  paints solid bodies in `#141416` with `#303032` top/highlight faces (shade ramp
-  stepped between), neutral-grey outlines, and the status-tone colour reserved for
-  the wires/legend. `src/components/response/anatomy-block.tsx` (`DARK` palette +
-  `SolidShape`). no doc change â€” theme tweak only.
-
-- **Fix: `/anatomy` showed nothing â€” the schema rejected the model's real output
-  and degraded it to text.** Inspecting a stored transcript (`chat_1792204973311`)
-  showed the model DOES emit a well-formed `anatomy` block, but its field
-  VOCABULARY did not match the schema: part/wire `tone: "info"|"success"|"warning"`
-  (I required `hi|mid|lo|faint`), `legend[].mark: "tall cylinder"` (I required a
-  fixed enum), and `stages[].lit: true` (I required an id array). Any one failed
-  the all-or-nothing block, so it degraded to a JSON text blob. The block now
-  speaks the same **status `tone`** vocabulary as every other response block
-  (`neutral|info|success|warning|danger`), `legend[].mark` is free text (known
-  shapes get a swatch, anything else a neutral one), `stages[].lit` accepts a
-  boolean OR an id array, and `normalize.ts` maps tone synonyms onto anatomy
-  again. Long labels are now **numbered callouts (1,2,3â€¦) with a key below the
-  figure** â€” SVG text cannot wrap, so in-plane sentences overflowed. Verified end
-  to end against the model's real block (parses with 0 diagnostics, 8 parts /
-  9 wires, renders). Files: `src/lib/response/blocks/anatomy.ts`,
-  `src/lib/response/normalize.ts`, `src/lib/anatomy/scene.ts`,
-  `src/components/response/anatomy-block.tsx`. docs updated:
-  `docs/interactive-response-engine.md`.
-
-- **Fix: the `anatomy` figure rendered black-on-black and uncontained.** The kit's
-  stylesheet defines its `--anatomy-*` theme variables only on an `.iso` root with
-  a `data-theme`; the renderer never supplied one, so every `var()` was undefined â€”
-  SVG `fill` fell back to **black** and `stroke` to **none** (the dark blobs and
-  black labels), and the figure sprawled across the page instead of sitting in a
-  card. `AnatomyBlock` now carries the `.iso` theme root (with `data-theme` driven
-  by `useDarkScheme`), renders inside the app's **frosted-glass card** (`.glass-card`,
-  width-capped), and adds a **"Full page"** full-screen overlay (portaled to
-  `document.body`, Escape/backdrop/Escape to close, scroll-locked â€” the same pattern
-  as the `flow` block). A scoped stylesheet (`BE_ANATOMY_CSS`) overrides the kit's
-  near-black palette to a mid-grey that reads on the glass in both schemes and
-  clears the kit's standalone plate chrome. **Rewrite:** the drawing is now
-  SELF-CONTAINED â€” every path is painted with explicit `fill`/`stroke` SVG
-  presentation attributes and an inline palette (no kit stylesheet dependency at
-  all), which removes the "undefined CSS variable â†’ black-on-black" failure class
-  for good and delivers a graphite-on-dark-paper look. The compiler now emits a
-  **content-fitted `viewBox`** (no dead vertical space) and labels are larger,
-  brighter and knocked out over any face (`fontSize 10`, panel-stroke halo).
-  Regression test asserts the figure paints explicitly, not via CSS classes.
-  (Verified visually with a headless-Chromium screenshot during development.)
-  docs updated:
-  `docs/interactive-response-engine.md`, `docs/DECISIONS.md` + `skills/ARCHITECT.md`.
-
-- **New `/anatomy` slash command (aliases `/visualize`, `/mechanism`).** A new
-  agent-turn command (like `/skill`) that rewrites `/anatomy <concept>` into a
-  directive telling the agent to explain the concept as an interactive isometric
-  `anatomy` figure â€” consulting `response_block_schema`, authoring a declarative
-  scene (parts/wires/legend/stages), and emitting ONE `eclipse-response` fence.
-  Adds a `visual` command category, the `ANATOMY` `CommandSpec`
-  (`src/lib/harness/command-registry.ts`), the `agent.anatomy` instruction builder
-  (`src/lib/harness/command-agent.ts`), and tests. A matching, inert Skills-library
-  entry `system.anatomy-figure` (`python/harness/skills/library/system/anatomy-figure/`)
-  makes the same capability discoverable/runnable from the Skills surface. docs updated:
-  `docs/harness/slash-commands.md` (last-verified bumped),
-  `docs/interactive-response-engine.md`.
-
-- **Channel Gateway: remote control of Eclipse over external messaging
-  (Telegram first).** A user can now connect an external account and drive the
-  app from it. New core Python subsystem `python/harness/channels/`: provider
-  adapters normalize inbound messages; `ChannelService.handle_inbound` enforces
-  idempotency (native message ids), resolves the sender to a verified
-  `ChannelBinding`, applies a per-binding rate limit, and hands the message to
-  `ChannelDispatcher`, which gates by control scope (`viewer` < `assistant` <
-  `operator`), routes `/commands`, agent turns (via the ONE `service.run`) and
-  the operator `/do` tool bridge (via the ONE `ToolRegistry` + the Security
-  Gateway effect authorizer), and requires a single-use in-channel `/confirm`
-  for mutations. Links are created by short-lived single-use codes
-  (`/link <code>`). Telegram ships first (long-poll â€” no public endpoint, so
-  zero-config is unchanged); Discord/Email/Slack/WhatsApp follow. Router
-  `python/harness/routers/channels.py` (`/channels/*`, operator-gated); boot
-  wiring in `service.py` + `boot.py`; front door
-  `src/app/api/channels/[[...path]]/route.ts` + `channels-{client,browser}.ts`;
-  UI Settings â€º Connections `connections-settings.tsx`. Tests
-  `python/tests/test_channels_{core,api}.py`. docs updated:
-  `docs/harness/channel-gateway.md` (new), `docs/NAVIGATION.md`,
-  `docs/ARCHITECTURE.md`, `docs/harness/decisions.md` (ADR-H199).
-- **Channel Gateway providers: Discord, Email, Slack, WhatsApp, generic
-  webhook.** Providers split by transport (ADR-H200). Pull channels need no
-  public endpoint â€” `providers/discord.py` (bot Gateway WebSocket + REST),
-  `providers/email.py` (IMAP poll + SMTP), alongside Telegram. Push channels
-  cross ONE public, signature-verified boundary
-  `GET|POST /channels/webhook/{kind}` â€” `providers/webhooks.py` (Slack Web API,
-  WhatsApp Cloud API, generic HTTP reply) with pure payload parsers, and
-  `channels/verify.py` (Slack v0 + replay window, WhatsApp `X-Hub-Signature-256`,
-  generic `X-Eclipse-Signature`) verifying an HMAC over the RAW body. The Next.js
-  middleware exempts `/api/channels/webhook/` from the session gate (the
-  signature is the gate); the front-door route forwards the raw body + only the
-  signature headers. `service.py` generalises provider building (`_POLL_KINDS`,
-  outbound for any configured kind, `secret_value`); Settings â€º Connections
-  renders per-kind credential fields + the inbound webhook URL. Tests
-  `python/tests/test_channels_providers.py` + the webhook cases in
-  `test_channels_api.py`. docs updated: `docs/harness/channel-gateway.md`,
-  `docs/NAVIGATION.md`, `docs/harness/decisions.md` (ADR-H200).
-- **Channel credentials are now encrypted at rest.** Saving a channel moves every
-  sensitive key (tokens, passwords, signing secrets) into a Fernet-encrypted
-  vault (`channels/secrets.py`, key file `.black-eclipse/channels/secret.key`,
-  0600, outside the DB) and stores only ciphertext in a new `ChannelSecret` table;
-  the config JSON keeps only non-sensitive keys. `describe_config` still echoes a
-  configured credential as a redacted presence marker (`"botToken": "***"`) plus a
-  `secrets` name list and `secretsEncrypted`, so the Settings contract is
-  unchanged. Resolution is layered (vault â†’ legacy literal / `secret://`); if
-  `cryptography` is unavailable it falls back to the literal config honestly.
-  Deleting a channel purges its secrets. Settings â€º Connections shows "encrypted
-  at rest". Tests `python/tests/test_channels_secrets.py`. docs updated:
-  `docs/harness/channel-gateway.md`, `docs/harness/decisions.md` (ADR-H201).
-- **Channel Gateway: explicit mutation verbs, the one-sender primitive, and
-  notifications.** `/trade`, `/alert`, `/backtest` require the `operator` scope
-  AND always ask for an in-channel `/confirm`, then run as an agent turn with a
-  directive â€” a stronger gate than plain agent text, still ending on the agent's
-  Security-Gateway-authorized tools. `POST /channels/send` /
-  `ChannelService.send_outbound` is the ONE outbound sender any subsystem can use
-  (transport built transiently when the poller is down; delivery recorded). A
-  root-mounted `ChannelActivityWatcher` (+ pure `channel-diff.ts`) polls
-  `GET /api/channels/messages` and raises the shared `be:alert-notify` event for
-  new inbound messages (first poll seeds; outbound ignored). Consolidating the TS
-  alert notifier into this sender is deliberately skipped â€” alert channels are
-  webhook/notification transports owned by JDDS and must not depend on the Python
-  runtime. Tests `test_channels_{core,api}.py` + `channel-diff.test.ts`. docs
-  updated: `docs/harness/channel-gateway.md`, `docs/harness/decisions.md`
-  (ADR-H202).
-- **New `anatomy` response block: interactive isometric mechanism figures.** A
-  new block type renders an "how does it work" illustration inline in chat,
-  built from the MIT-licensed Anatomy-derived isometric kit (`wheresryan22/anatomy`)
-  vendored into `src/lib/anatomy/` (`iso-kit.ts`/`draw.tsx`/`live.tsx` + `NOTICE`
-  and `LICENSE`; upstream commit `e9488296` verified byte-for-byte by git blob
-  hash for `iso-kit.ts`/`live.tsx`, with `draw.tsx` differing only by its import
-  path). The model authors a **declarative scene**
-  â€” slab/cylinder `parts`, `wires`, a `legend`, and deterministic `stages`
-  (`{ label, note, readout, lit[] }`) â€” compiled purely by `src/lib/anatomy/scene.ts`
-  (total, server-safe, no model-authored SVG/code). A stage's `readout` is the
-  ONLY source of live text (model-as-source-of-truth); motion is discrete
-  (no rAF), autoplay is off under `prefers-reduced-motion`, and the timer clears on
-  unmount. Rides the ONE existing pipeline (ADR-043): schema extracted to
-  `src/lib/response/blocks/anatomy.ts` (keeps `contract.ts` under its size ratchet),
-  one registry entry, projection + PDF fallbacks, and automatic
-  `response_block_schema` exposure. `normalize.ts` gained `anatomy` aliases and an
-  exemption so anatomy's own shading `tone` vocabulary is not clobbered by the
-  status-tone rewrite. Tests: `src/lib/anatomy/scene.test.ts`,
-  `src/components/response/anatomy-render.test.tsx`, matrix
-  (`contract-matrix.test.tsx`, 74 cases). docs updated:
-  `docs/interactive-response-engine.md`, `docs/NAVIGATION.md`,
-  `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-047).
-
-- **Fix: uploaded logo kept disappearing.** The app-wide theme is mirrored to
-  `/api/theme` with `fetch(..., { keepalive: true })`, but browsers cap keepalive
-  request bodies at **64 KiB**. A theme carrying an embedded logo/favicon
-  `data:` URL exceeds that, so the PUT was rejected (error swallowed) and the
-  server never stored the logo; on the next load `hydrateFromServer` adopted the
-  older, logo-less server theme and the logo vanished â€” every reload.
-  `pushThemeToServer` now sends `keepalive` only for small bodies (< 60 KB) and
-  a normal request otherwise (`src/lib/theme/store.ts`). Also raised the
-  `normalizeTheme` `logoUrl`/`faviconUrl` cap 400 KB â†’ 500 KB so a 300 KB upload
-  (whose base64 exceeds 400 K chars) is no longer silently dropped
-  (`src/lib/theme/tokens.ts`). Regression test in `store.test.ts`.
-  no doc change â€” bug fix, contracts unchanged.
-
-- **Chat composer: full-width input, adaptive control row.** The composer laid
-  the textarea, `+`, model selector, effort, mic and send in ONE flex row, so the
-  text wrapped as soon as it reached the model picker and the box never used the
-  full width. The form is now a two-row `flex-col`: the textarea spans the full
-  width on its own line (up to the 120px cap) and the controls sit in a row
-  beneath (`+` left, model/effort/mic/send right, wrapping when tight). The
-  landing and follow-up containers also drop the `max-w-[1400px]` cap
-  (`empty-state.tsx`, `stock-chat.tsx`) so the composer fills the chat panel;
-  the now-moot `EmptyState` `focus` prop is removed. no doc change â€” UI layout
-  only.
-
-- **Scheduled bots no longer silently drop runs (misfire default `skip` â†’
-  `run_once`).** Root cause of "bots never fire": `execution.misfire` defaulted to
-  `skip`, so every fire that came due while Eclipse was closed was recorded as
-  `skipped` and discarded â€” a daily bot only ran if the app happened to be open at
-  that exact minute (live `agent-memory.db`: 2075 `skipped` vs 115 `completed`). A
-  missed fire now runs once when the app returns. Changed the default in
-  `python/harness/automation/model.py` (`ExecutionPolicy`) and the Bots draft
-  (`src/lib/bots/state.ts`). Existing automations saved under the old default are
-  upgraded once by a guarded migration (`AutomationStore._migrate_misfire_default`,
-  marker table `AutomationMaintenance`); a later deliberate `skip` is preserved.
-  Recovery is now slot-idempotent (`execution_exists_for_slot`), so repeated
-  restarts cannot re-record the same missed slot. Tests:
-  `test_misfire_default_runs_a_missed_fire_once`,
-  `test_recovery_does_not_repeat_a_missed_slot`,
-  `test_misfire_default_migration_upgrades_stored_skip`. docs updated:
-  `docs/harness/automation-engine.md`.
-
-- **Memory-action panel drops its card background.** The chat memory/learning
-  outcome line under an assistant turn no longer renders as a bordered
-  `glass-card-subtle` box; it is now a quiet inline column (`px-1`) that sits
-  directly on the transcript, so the "Automatically captured as a learning
-  candidate â€” â€¦ Review in Learning Queue" line reads as a subdued metadata
-  footnote rather than a raised card. Presentation-only; no contract change.
-  no doc change â€” UI styling only.
-
-- **Bots mode: recent-first ordering + unread dots.** The Bots sidebar now sorts
-  bots (and group rooms) most-recent-activity first â€” latest chat message, else
-  last run, else last edit. Both the bot thread and group room render
-  **newest-message-first** (the composer stays at the bottom; the thread scrolls
-  to the top instead of the bottom). The sidebar's per-bot dot no longer encodes
-  lifecycle (active/paused); it is now an **unread indicator** shown only when a
-  bot's latest terminal run is newer than the last one the operator opened. The
-  seen-run ledger (`be_bots_seen_v1`) lives in `src/lib/bots/bots-store.ts`
-  (`seenRuns`/`markSeen`); `hydrate` now fetches status for every bot (not just
-  active) so a paused bot with an unseen run still surfaces its dot. Opening a
-  bot clears its dot like a read receipt (Instagram-style): `BotChat` marks the
-  SAME id the sidebar flags â€” `statusById[id].lastExecution.id` â€” so opening
-  always clears the dot (a history-derived id could differ and leave it stuck),
-  and a run landing while you watch raises none. no doc change â€” UI behavior
-  only; contracts and architecture unchanged.
-
-- **Dark theme presets no longer tint the ChatBot landing â€” all dark themes land
-  on `#0a0b0b`.** Applying a theme overrode the scheme-aware default because every
-  dark preset pinned its own `solidColor` (Eclipse `#131615`; others an
-  accent-mixed `#0f0f11`), so the landing stayed theme-specific. `preset()` now
-  leaves `solidColor` unset for dark schemes (light presets keep their light
-  tint); the Eclipse preset's pinned `#131615` is removed. Applying any dark theme
-  now clears the landing fill to the `#0a0b0b` default. A stored landing color
-  that matches a retired preset fill is also cleared on hydrate
-  (`LEGACY_DARK_LANDING_COLORS` + `migrateLegacyLandingColor`), so existing users
-  update without re-applying a theme; an explicit custom pick is preserved. Tests
-  in `src/lib/theme/tokens.test.ts`, `src/lib/backgrounds.test.ts`. docs updated:
-  `docs/ARCHITECTURE.md`.
-
-- **ChatBot landing backdrop defaults to `#0a0b0b` in dark mode on every theme.**
-  The landing backdrop (the page behind the `ECLIPSE AGENT` wordmark) followed the
-  theme's `--background`, so it shifted per theme. A flat solid backdrop with no
-  explicit color now resolves a scheme-aware fill: light stays `var(--background)`,
-  dark defaults to `#0a0b0b` regardless of the active theme. `BackgroundCss` gains
-  a `colorDark` field; `applyBackgroundToDocument` writes `--app-bg-color-dark`;
-  `.app-bg-layer` consumes it under `html.dark`. An explicit pick sets both vars;
-  an image backdrop keeps both transparent. New constant
-  `DEFAULT_SOLID_DARK_COLOR`; tests in `src/lib/backgrounds.test.ts`. docs updated:
-  `docs/ARCHITECTURE.md`.
-
-- **One app-wide theme across every URL.** The Eclipse theme was
-  `localStorage`-only, so `http://localhost:3000`, `http://127.0.0.1:3000` and
-  `https://blackeclipse` â€” three browser ORIGINS â€” each showed their own saved
-  theme. The theme is now an APP-WIDE server property (JDDS `SystemConfig` key
-  `eclipse_theme`, `/api/theme` GET/PUT/DELETE, operator-gated), with
-  `localStorage` demoted to a per-origin first-paint cache: the store hydrates
-  the cache then adopts the server theme (`hydrateFromServer`); a never-initialized
-  server MIGRATES the pre-existing per-origin theme up (so an existing look is
-  kept, not wiped), an explicit reset clears it, edits push to the
-  server, and Reset clears it. The middleware additionally enforces ONE canonical
-  origin when `BE_CANONICAL_HOST` is set (the local-host launcher sets it to the
-  `blackeclipse` hostname), redirecting `localhost`/`127.0.0.1` (307, path +
-  query preserved) so origin-scoped storage never diverges. New
-  `src/lib/theme/server.ts` + `src/app/api/theme/route.ts`; `src/lib/theme/store.ts`,
-  `src/middleware.ts`, `scripts/local-host.js`, `.env.example`. Tests
-  `src/app/api/theme/route.test.ts`, `store.test.ts`, `middleware.test.ts`.
-  docs updated: `docs/ARCHITECTURE.md`, `docs/local-hostname.md`,
-  `docs/NAVIGATION.md`, `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-046).
-
-- **Fix: visualization-surface faults (bridge 500 + UI-Engineering routing).**
-  **(1) Bridge 500 was a STALE dev build**, not a code defect: `contract.ts` had a
-  TDZ (`inputsBlock` referenced before its declaration) that was already fixed in
-  source, but the running server served the pre-fix compiled chunk. A dev-server
-  restart cleared it and the live bridge now returns 200 (`schema`, `validate`);
-  `validate` accepts a known-good payload and rejects a malformed one with a
-  **named field error**. The `/api/harness/data` 500 body now carries a stable
-  `code: "BRIDGE_ERROR"` (plus a dev-only `detail`) so a caller can branch and
-  degrade to prose/tables instead of guessing field names. **(2) `classify_request`
-  now treats NEW-interaction requests** (slider, input form, user-driven parameter,
-  calculator) as new-capability signals â†’ Engineer, so `ui_start_engineering`
-  files a durable task instead of silently no-op'ing; matched as phrases so a
-  "performance" restyle is not misrouted. **(3) `UiCatalog.search` matches on word
-  boundaries**, so `form` no longer returns "per**form**ance" charts. **(4)
-  `ui_list_blueprints` prints widget count + first component ids**, so pages that
-  share a title are distinguishable; and `create_page` now guarantees a **unique
-  title** (a duplicate is suffixed "Main" â†’ "Main 2"). A title EDIT/import can
-  still create a duplicate, so the tested `title_ambiguous` resolution path
-  remains reachable. Also brought the Python suite fully green by aligning pins
-  with in-flight work: reclaimed blank lines in `python/harness/main.py` (back
-  under the hard ceiling), re-pinned `python/harness/service.py` in the size guard
-  for the Channel-Gateway boot wiring, re-pinned the agent-prompt char ceiling
-  (29994, the Fiduciary `<fiduciary_advice>` block) in both ceiling tests, and
-  added `advisory` to the `_run_kwargs` parity expectation. Full suite: tsc clean,
-  vitest 3313 passed, pytest 6507 passed / 0 failed.
-  docs updated: `docs/ui-engineering.md` (naming, new-capability routing, search
-  honesty).
-  Tests: `test_ui_mode.py`, `test_ui_service.py` (word-boundary + summary
-  disambiguation), `src/app/api/harness/data/route.test.ts`.
-
-- **Intelligent UI: envelope state/computed + `inputs` block (deferred Phase 4)
-  and telemetry (Phase 6).** `state`/`computed` landed. The envelope (v1.1) now
-  carries optional `state` (typed scalars) and `computed` (safe expressions over
-  state, the same evaluator as `simulation`); a new `inputs` block renders `state`
-  as controls, and any figure may bind to a computed value with `{ "$computed":
-  "<id>" }`. A change updates the shared state and every bound figure re-renders
-  **locally with 0 model calls**; an unresolvable computed renders UNAVAILABLE.
-  Resolution reuses the Phase-2 pass (`resolveResponseFigures(response, resolver,
-  computed)`; `state.ts` derives values). Edits **persist per message**
-  (`localStorage["eclipse-response-state:<messageId>"]`, latest-wins) via a
-  `ResponseRuntimeProvider` whose `stateKey` is the message id. Telemetry: the
-  server `finalize` read-back now returns a block-type histogram + figure-binding
-  counts (`refs`/`computedRefs`/`stateVars`/`computedVars`) emitted on
-  `onResponseBlocks`; a client seam (`lib/response/telemetry.ts`) reports
-  `first_block` (time-to-first-block), `interaction`, and `partial_parse_failure`.
-  docs updated: `docs/interactive-response-engine.md` (Â§3 envelope state + inputs
-  catalogue row, STATE-001/002, TELEM-001, limitations 10/11);
-  `docs/NAVIGATION.md`. Tests: `state.test.ts`, `refs.test.ts`,
-  `envelope-state.test.tsx`, `telemetry.test.ts`, updated `contract-matrix`.
-
-- **Intelligent UI Phase 5: deterministic Markdown projection.** New
-  `src/lib/response/projection.ts` â€” `toMarkdownProjection(response)`, a total
-  pure function projecting EVERY block type to readable Markdown (prose kept,
-  tables as GFM, charts as their data table, a `simulation` as its expanded
-  default inputs/outputs, a figure `$ref` as UNAVAILABLE never the raw reference,
-  `tabs`/`report`/`carousel`/`layout` flattened). It finalizes first, is derived
-  from block data (never model-authored), and the contract-matrix test asserts
-  every registered type projects non-empty â€” so no block silently vanishes. Used
-  by `projectContentMarkdown` (the copy button now copies readable text, not raw
-  `eclipse-response` JSON), a new Markdown export (`responseToMarkdown` /
-  `downloadResponseMarkdown` + an "MD" button in `response-actions`), and any
-  surface that cannot render blocks.
-  docs updated: `docs/interactive-response-engine.md` (Â§3 projection, PROJ-001);
-  `docs/NAVIGATION.md`.
-  Tests: `projection.test.ts` + contract-matrix coverage.
-
-- **Intelligent UI Phase 4: layout primitives, design tokens & motion.** Two
-  structural blocks: `layout` (a `box`/`row`/`column`/`grid` container with
-  recursively-validated nested blocks) and `divider` (labelled or bare). Styling
-  is driven ONLY by closed token vocabularies â€” spacing / radius / tone / align in
-  `src/lib/response/tokens.ts` mapped to existing utility classes â€” so there is no
-  path from model output to raw CSS or an arbitrary class. Blocks now get a
-  one-shot entrance motion (`response-block-enter`) as they appear, including a
-  block that streams in; it uses `backwards` fill only (no persistent backdrop
-  root above glass) and `prefers-reduced-motion` disables it; the gap wrapper is
-  untouched so the layout-cohesion invariant holds. Wired through the envelope
-  parser, `parseNestedBlocks`, `degradeBlocks` (finalize) and `resolveBlock`
-  (refs), and registered in the renderer.
-  Deferred (documented): envelope-level cross-block `state`/`bind` and persisting
-  a block's interaction values across reload â€” the remaining Phase-4 item.
-  docs updated: `docs/interactive-response-engine.md` (Â§3 layout/tokens/motion,
-  LAYOUT-001, MOTION-001, limitation 10); `docs/NAVIGATION.md`.
-  Tests: `tokens.test.ts`, `layout-block.test.tsx`, updated `contract-matrix`.
-
-- **Intelligent UI Phase 3: incremental (streaming) block rendering.** Structured
-  answers now render block by block as they close instead of holding the whole
-  fence. New `src/lib/response/stream-blocks.ts`: a brace/string-aware scan of the
-  partial fence returns each **fully closed** `blocks[]` entry â€” **a half-written
-  block is never rendered as data** (only a closed, JSON-parseable object is a
-  block). `ResponseFence` renders the closed prefix and keeps the composing
-  placeholder only for the open tail; the settled path stays authoritative. Each
-  closed block goes through a new **block-level chokepoint** (`finalizeBlock`,
-  reusing the repairâ†’degrade machinery) and is **memoized by raw JSON**
-  (`finalizeBlockCached`), so a frame only re-finalizes the changed block. Blocks
-  now carry a **stable key** (`id ?? index:type`) so identity (and local state
-  like a slider position) survives later blocks arriving. Figure refs (Phase 2)
-  stay safe: a streamed block's numbers are ref-bound or illustrative.
-  docs updated: `docs/interactive-response-engine.md` (Â§3 incremental decode,
-  STREAM-002/003); `docs/NAVIGATION.md`.
-  Tests: `stream-blocks.test.ts`, `streaming-fence.test.tsx`.
-
-- **Intelligent UI Phase 2: source-referenced figures (`$ref`).** A figure value
-  (a `metric_grid` metric, a `stat_hero` stat) may now be a reference
-  `{ "$ref": "<namespace>:<id>#/<field>" }` instead of a literal, resolved
-  BEFORE render from a real surface â€” so the model never retypes a financial
-  number. New `src/lib/response/refs.ts` (pure, server-safe): a namespace
-  **allowlist** (`analysis`/`tool`/`jdds`/`artifact`), `parseFigureRef`,
-  `resolveResponseFigures` (walks containers), and `buildFigureResolver` for the
-  turn's computed-result blob. **An unresolvable reference renders UNAVAILABLE â€”
-  it never becomes a literal and never falls back to the string.** Resolution is
-  injected per assistant message via `FigureResolverProvider`
-  (`src/components/response/figure-context.tsx`); a surface without a resolver
-  renders refs UNAVAILABLE (the honest default). Resolved figures show a
-  provenance chip (source/as-of/method), reusing the computed-provenance
-  vocabulary. Scoped, documented remainder: only `analysis` resolves today
-  (tool/jdds/artifact + server-side resolution next), and refs cover the
-  KPI/hero family for now.
-  docs updated: `docs/interactive-response-engine.md` (Â§3 source-referenced
-  figures, REF-001/002, limitation 9); `docs/NAVIGATION.md`.
-  Tests: `refs.test.ts`, `figure-ref.test.tsx`.
-
-- **Intelligent UI Phase 1: declarative in-chat calculators + a safe shared
-  evaluator.** The `simulation` block is now declarative â€” `inputs` are local
-  state, `outputs` are safe expressions over it, with a `risk_reward` preset; a
-  slider move recomputes locally with **0 model calls** (the hard-coded
-  `computeRiskReward` is gone). New `src/lib/response/evaluate.ts`: a tiny
-  recursive-descent expression language with a **closed function whitelist** and
-  **no `eval`/`Function`**; division-by-zero/non-finite/unknown-name/parse-error
-  â†’ UNAVAILABLE (`â€”`), never a wrong number; explicit half-away-from-zero
-  rounding at the format boundary; server-safe (no React). Shipped twice for
-  parity â€” `python/harness/response_eval.py` (reuses the tested
-  `stats/formula.py` parser) â€” driven by ONE shared fixture corpus
-  (`src/lib/response/__fixtures__/evaluate-cases.json`), so the two evaluators
-  cannot drift. New contract limits `maxSimulationInputs`/`Outputs` (12).
-  Deferred (documented): envelope-level cross-block `state`/`bind` â€” it would
-  touch all 32 block schemas, so Phase 1 ships the self-contained calculator and
-  a decimal evaluator backend is noted as a follow-up.
-  docs updated: `docs/interactive-response-engine.md` (Â§3 declarative
-  calculators, catalogue row, EVAL-001/002, SIM-001, limitation 8);
-  `docs/NAVIGATION.md`.
-  Tests: `evaluate.test.ts`, `simulation.test.ts`, `contract-matrix.test.tsx`,
-  `python/tests/test_response_eval.py`.
-
-- **Intelligent UI: the response-mode routing benchmark (Phase 6).** Added
-  `python/harness/response_mode_benchmark.py`: a versioned, labelled set of
-  real-shaped prompts (each with its expected mode, incl. text anti-cases and
-  follow-ups) plus a pure scorer reporting overall accuracy, per-mode
-  precision/recall and the confusion pairs against the SHIPPED deterministic
-  classifier (so it cannot drift). `python -m harness.response_mode_benchmark`
-  prints the report (v1: 100% on 42 cases); `test_response_mode_benchmark.py`
-  asserts an accuracy floor (â‰¥0.95) and per-mode recall floors. The
-  model-assisted path is non-deterministic and deliberately not benchmarked.
-  docs updated: `docs/interactive-response-engine.md` (Â§5 + ORCH-004).
-
-- **Intelligent UI follow-ups: mode on the client, a model-assisted fallback, and
-  an in-chat calculator.** Three increments on the orchestrator. **(A) Client
-  plumbing:** the `response.plan` run event is normalized in
-  `src/lib/agent/events.ts` (`coerceResponsePlan`) and carried on the turn as
-  `AssistantTurn.responsePlan`/`Message.responsePlan`; `chat-history.tsx` shows a
-  small mode chip for non-`text` turns (display only). **(B) Model-assisted
-  fallback:** when the deterministic verdict is `unsure`, an opt-in bounded model
-  call may choose the mode (`python/harness/response_mode_llm.py`,
-  `HARNESS_RESPONSE_MODE_MODEL`, default OFF; hard deadline; total â€” any failure
-  returns the deterministic plan). **(C) New `simulation` block:** a deterministic
-  in-chat calculator (risk/reward + break-even win rate) computed LOCALLY with no
-  model/backend and no arbitrary code, always labelled "Illustrative" with a
-  visible disclaimer; pure math in `src/lib/response/simulation.ts`. Also adds
-  `calculator`/`simulator` type aliases and points the orchestrator's simulation
-  directive at the new block.
-  docs updated: `docs/interactive-response-engine.md` (catalogue row + Â§5 +
-  ORCH-002/003 + SIM-001 + limitation 8), `docs/NAVIGATION.md`.
-  Tests: `python/tests/test_response_mode.py`, `src/lib/agent/events.test.ts`,
-  `src/lib/response/simulation.test.ts`, `contract-matrix.test.tsx`.
-
-- **Intelligent Response Orchestrator: a deterministic presentation planner.**
-  The Interactive Response Engine already rendered structured blocks, but nothing
-  *decided* the presentation â€” the model volunteered an `eclipse-response` fence or
-  it did not. Added `python/harness/response_mode.py`, a pure model-free classifier
-  (modeled on `code/request_intent.py`) that maps a turn to ONE mode â€” `text`,
-  `explanation`, `visualization`, `simulation`, `workflow`, `composite` â€” and
-  returns a prompt directive (bias: ambiguous/short turns stay `text`; a follow-up
-  inherits the prior turn's mode). Wired into `graph.execute_run` on the same
-  surface that may emit blocks, right after the schema digest: the directive is
-  appended to the byte-stable head and the mode is emitted as the `response.plan`
-  run event. Best-effort, never blocks a run, never fabricates data. No new block
-  type, wire contract, or renderer.
-  docs updated: `docs/interactive-response-engine.md` (new Â§5 + ORCH-001),
-  `docs/NAVIGATION.md` (structured-answers row). Tests: `python/tests/test_response_mode.py`.
-
-- **Perf: chat transcript no longer ships ~5MB uncompressed on every page.**
-  `/api/chat/transcript` returns EVERY conversation's full message history and the
-  ChatBot hydrates from it on every app boot â€” 126 files / ~5MB, re-read and
-  re-parsed each load, and served UNcompressed (route-handler responses bypass
-  `next start`'s built-in compression). `listTranscripts` now caches the parsed
-  list in-process (invalidated on write/delete; 15s TTL for external edits), and
-  the route gzips large JSON responses ASYNC (non-blocking). Wire size drops
-  ~4.9MB â†’ ~0.9MB; every route/tab now measures 0.5â€“1.7s.
-  no doc change â€” internal response optimisation, contract unchanged.
-
-- **Fiduciary Gate: closing the loop + the front door.** Four follow-ups landed.
-  **(1) Auto outcome evaluation:** the run captures entry prices from the
-  portfolio computations it performed (`AdvisoryCollector.prices()` â†’
-  `AdvisoryBasis` kind `entry_price`), and `AdvisoryService.evaluate_decisions` /
-  `evaluate_outcome` / `auto_evaluate(gateway)` record a decision's realized
-  return vs benchmark deterministically (right/wrong/neutral) â€” a decision with no
-  entry price or no quote is skipped, never fabricated. Exposed as the
-  `advisory_evaluate_outcomes` tool and `POST /advisory/evaluate`.
-  **(2) Prompt guidance:** the finance prompt gains a `<fiduciary_advice>` block so
-  the agent grounds recommendations in a portfolio computation (fewer
-  false "unverified" flags). **(3) Capability class:** registered
-  `advisory_verification` (test_gate â†’ the advisory suites) + its dictionary name;
-  capability gate 13â†’14 measured. **(4) Front door + UI:** `advisory-client.ts` /
-  `advisory-browser.ts`, the `/api/advisory/[[...path]]` proxy, a **Decisions**
-  view in the Journal (`advisory-decisions.tsx`), and a **Monitors** panel in the
-  Bots scheduler dock (`monitor-panel.tsx` + monitor client + `/api/automations/monitors`).
-  Plus `/advisory/*` operator-gating route tests and a seam-level pipeline test.
-  `tsc` clean; advisory/automation/capability/size suites green; eval gates ALL
-  PASS. docs updated: `docs/fiduciary-advice.md`, `docs/NAVIGATION.md`,
-  `docs/harness/decisions.md` (ADR-H197/H198).
-
-- **Dev/ops: `next dev` now runs on Turbopack; production is the fast path.**
-  Running the app under the webpack `next dev` server compiled ~19k modules on
-  demand AND ballooned the process to ~6.6GB, pushing the host to its commit
-  limit (25/30GB) so a page load took MINUTES. Added `--turbopack` to the dev
-  commands (`dev:next`, `dev:local`, and the `local-host.js` dev spawn): ready in
-  ~3s (vs ~10s) and first-page compile ~34s (vs ~71s) with a small heap.
-  Production (`npm run up` / `black eclipse`) remains the recommended way to USE
-  the app â€” prebuilt chunks serve in ~40â€“130ms with a ~430MB process.
-  docs updated: `docs/QUICKSTART.md` (dev commands + dev-vs-up note).
-
-- **Fix: boot build error `Module not found: Can't resolve 'fs'`.** The boot
-  refactor moved the deferred pipeline's dynamic imports out of the constant
-  `if (process.env.NEXT_RUNTIME === "nodejs")` block into a top-level helper, so
-  webpack followed `investor-eye/scheduler â†’ @/lib/db â†’
-  @prisma/adapter-better-sqlite3 â†’ better-sqlite3/bindings â†’ fs` into the Edge
-  bundle (the app ships a middleware). Rewrapped the whole helper body in the
-  constant `nodejs` guard so webpack's ConstPlugin drops the server-only import
-  graph from the Edge build; deferred-boot behaviour is unchanged.
-  no doc change â€” build-config bug fix, no architecture or contract change.
-
-- **Proactive monitors (Fiduciary Gate, Phase 3): portfolio conditions that run
-  unattended.** The Automation Engine's condition triggers gained a portfolio
-  lens: a `CompositeFactProvider` now composes the market provider with a new
-  `PortfolioFactProvider` (`python/harness/automation/facts.py`) that resolves
-  `pf.<portfolioId>.<field>` (`weight`, `unrealized`, `cash_pct`,
-  `concentration_hhi`, `total_value`, `position_count`) through the ONE portfolio
-  engine â€” a failed read yields NO fact, so a condition evaluates UNAVAILABLE and
-  never fires on a guess. Added a closed monitor catalogue
-  (`python/harness/advisory/monitors.py`: `position_weight_breach`,
-  `tax_loss_harvest`, `cash_buffer_watch`, `concentration_watch`) that builds
-  ordinary `condition` + `run_agent` automations, always saved OFF; exposed via
-  `AutomationService.list_monitors`/`create_monitor` and `GET/POST
-  /automations/monitors`. Added `portfolio/harvest.py` + the read tool
-  `portfolio_harvest_candidates` (proposal-only, wash-sale limitation stated).
-  No second scheduler, no second analysis engine; nothing places a trade.
-  Tests `test_automation_facts.py` (7), `test_advisory_monitors.py` (8),
-  `test_portfolio_harvest.py` (6), plus monitor API cases. docs updated:
-  `docs/fiduciary-advice.md`, `docs/harness/decisions.md` (ADR-H198),
-  `docs/NAVIGATION.md`, `docs/portfolio-accounting.md`.
-
-- **Advisory Ledger (Fiduciary Gate, Phase 2): every recommendation is now a
-  durable, auditable decision.** The Fiduciary Gate's verdict is persisted on the
-  ONE `agent-memory.db` connection as `AdvisoryDecision` / `AdvisoryBasis` /
-  `AdvisoryOutcome` (new `python/harness/advisory/{store,service,tools,bootstrap}.py`),
-  recorded idempotently at the answer seam (a resumed run never double-counts). A
-  decision carries what was advised, its basis (the `portfolio_*` computation
-  and/or the consulted source URLs, or `none`), and an appended outcome
-  (realized vs benchmark â†’ right/wrong/neutral, caller-supplied â€” never
-  invented). Read back via `advisory_list`/`advisory_get`/`advisory_scorecard`
-  agent tools and operator-gated `/advisory/*` routes; boot wiring
-  `install_advisory_layer` in `service.py`; router registered in `main.py`; a
-  deterministic `advisory_scorecard` (counts by status, hit rate, avg realized vs
-  benchmark). Never places a trade. Tests `python/tests/test_advisory_ledger.py`
-  (12); size budgets re-pinned for the seam (graph.py, service.py; main.py kept
-  under the hard ceiling by a reclaimed blank line).
-  docs updated: `docs/fiduciary-advice.md`, `docs/harness/decisions.md` (ADR-H197),
-  `docs/NAVIGATION.md`.
-
-- **Fix: chat conversations no longer vanish when the server restarts or the app
-  origin changes.** Transcripts lived only in browser `localStorage` (`chats_guest`),
-  which is origin-scoped â€” closing the server, opening the app at a different
-  host/port (http vs https, hostname vs IP), or clearing storage silently dropped
-  every conversation, and a follow-up then had no thread. Conversations are now
-  also persisted server-side to `.black-eclipse/sessions/<chatId>/transcript.json`
-  (reusing the existing per-conversation session folder). New
-  `src/lib/chat/transcript-client.ts` + `src/app/api/chat/transcript/route.ts`
-  (GET one/all, POST upsert, DELETE) over `readTranscript`/`writeTranscript`/
-  `listTranscripts`/`deleteTranscript` in `src/lib/chat/session-store.ts`;
-  `src/components/screens/stock-chat.tsx` hydrates from the server on boot, merges
-  with the localStorage cache (server wins per id, local-only chats are pushed up),
-  and debounces writes/deletes. `localStorage` writes are now guarded so a blocked
-  cache can never break a send. Verified live: a chat created at one origin
-  restores in a fresh, empty-storage context; `tsc` clean; vitest 3149 passed.
-  docs updated: `docs/ARCHITECTURE.md`.
-
-- **Perf: `/api/regime` now caches its raw components (SWR).** The route rebuilt
-  all five regime components on EVERY request â€” index quotes, up to 2000
-  asset-sector rows, 400 news rows and the economics calendar (~0.8s of
-  synchronous better-sqlite3 work on the single thread). Added a 60s
-  stale-while-revalidate cache of the components (`src/app/api/regime/route.ts`),
-  keyed by market; `assembleRegime()` still runs per request so `builtAt`/ages
-  stay honest. Response contract unchanged. Covered by a new
-  `src/app/api/regime/route.test.ts` (cache hit + per-market isolation).
-  no doc change â€” internal cache, no architecture/data-shape/contract change.
-
-- **Perf: widget data polling pauses while the tab is hidden.** The `DataHub`
-  (`src/lib/workspace/data-hub.ts`) started an auto-refresh `setInterval` per
-  subscribed topic (the dashboard registers ~20, many every 30â€“120 s), so a
-  backgrounded tab kept hammering the single-threaded SQLite server forever. The
-  interval callback now skips its tick while `document.hidden` (the interval
-  itself keeps running, so it resumes instantly on return), and a
-  `visibilitychange` handler runs a one-shot `refreshVisible()` that catches up
-  ONLY the topics that currently have listeners â€” dormant topics are never
-  woken. Covered by a new `refreshVisible` test in `data-hub.test.ts`.
-  no doc change â€” internal polling behaviour, no architecture/contract change.
-
-- **Perf: command-palette search no longer ships FlexSearch on every route.**
-  `src/lib/search/universe.ts` statically imported `flexsearch`, and the root
-  layout pulls that module in on every route (`search/store` â†’ `universe` via
-  `GlobalSearch`), so the whole FlexSearch bundle sat on the initial critical
-  path even though it is only needed once the palette first loads the universe.
-  Made the import dynamic inside `buildIndex` (cached ctor promise), so
-  FlexSearch is now a lazy chunk fetched on first palette open. Behaviour is
-  unchanged; `searchUniverse`/`getUniverseBySymbol` still return `[]` until the
-  index loads. Covered by a new `src/lib/search/universe.test.ts`.
-  no doc change â€” internal code-splitting, no architecture/contract change.
-
-- **Perf: server boot no longer waits on the heavy pipeline.** `instrumentation
-  .register()` was awaited by Next during startup and awaited `seedUniverse`, the
-  six cron `start*` registrations, provider-key apply, the journal seed, the
-  production warm-up and the ingests â€” so every boot delayed the moment the app
-  could answer its FIRST request (the ~10s "Ready" in the dev log was largely
-  this). Split boot into a short awaited critical path (deployment-exposure log +
-  the LLM-config flag the client reads) and `runBackgroundBootTasks()`, which now
-  runs AFTER `register()` resolves. Same jobs, same order, same guards â€” just off
-  the readiness path. Measured behaviour changes require a rebuild to observe.
-  docs updated: `docs/DEPLOYMENT.md` (health/boot wording),
-  `docs/ARCHITECTURE.md` (Background workers section).
-
-- **Perf: command-palette overlay is code-split off every route.** The root
-  layout statically imported the whole `GlobalSearch` (the dialog UI + the search
-  library), so all of it shipped on every route's initial bundle. Split the two
-  lightweight keybinds into a new always-mounted `GlobalSearchMount`
-  (`src/components/layout/global-search-mount.tsx`) which lazily loads the heavy
-  palette as `GlobalSearchOverlay` (`global-search.tsx`) via `next/dynamic`
-  (`ssr: false`). `âŒ˜K` and `/` still work on the first keypress; the overlay only
-  reacts to `store.open`. Layout now renders `GlobalSearchMount`.
-  docs updated: `docs/ARCHITECTURE.md` (command-center section).
-
-- **Perf: UI cue pack no longer decoded on first paint.** `SoundProvider` called
-  `sound.preload()` on mount, which warmed (fetched + decoded) the whole active
-  pack â€” ~340KB of WAV, ~20% of the first-load bytes â€” even if the user never
-  triggers a sound. `preload()` now only creates the `AudioContext` (so it is
-  armed before the first gesture) and a new `warmIdle()` decodes the pack once
-  the browser is idle. The first gesture (`unlock`) still warms immediately, and
-  `play()` loads a cue on demand if it is not warm yet.
-  docs updated: `docs/ARCHITECTURE.md` (UI sounds section).
-
-- **The Fiduciary Gate: an actionable recommendation is now disclosed unless a
-  computation backs it.** Added `python/harness/advisory/` â€” a deterministic,
-  no-model-call gate at the answer seam that extracts actionable claims (a
-  directive verb + a symbol or numeric target) and labels each `COMPUTED` (a
-  `portfolio_*` computation the run actually performed backs it), `SOURCED` (a
-  symbol the run consulted), or `UNVERIFIED` (neither â†’ an appended
-  `Advisory note: â€¦` disclosure; never stripped, never a trade). A new
-  `AdvisoryCollector` records every `portfolio_*` tool call through
-  `ToolContext.advisory_sink` (wired in `graph.py`), and the verdict is emitted
-  as `advisory.gate` and attached to the run blob as `metadata.advisoryIntegrity`.
-  Sits alongside the finance-fact and citation gates â€” one verifies figures, one
-  advice, one citations. Tests `python/tests/test_advisory_gate.py` (18);
-  `tsc` clean; graph/tools/portfolio/finance/release-gate suites green.
-  docs updated: `docs/fiduciary-advice.md` (new), `docs/harness/decisions.md`
-  (ADR-H196), `docs/NAVIGATION.md`.
-
-- **Fix: Command Center board collapsed on mobile.** Section columns
-  (`workspace-canvas.tsx`) applied `flexBasis:0` + `flexGrow:weight` inline at
-  every breakpoint while the section row flipped to `flex-col` below `md`. In a
-  column-direction parent `flex-basis:0` is a *height* of 0, clamped only by
-  `min-h-[40px]`, so each stacked column became a 40px box whose widgets
-  overflowed and overlapped the next column. Scoped the track weights to `md+`
-  via a `--col-w` CSS var (`md:grow-[var(--col-w)] md:basis-0`) and made stacked
-  columns `w-full` with `items-stretch` on the row, so they size to content on
-  phones and remain weighted horizontal tracks from `md` up. Shared engine, so
-  portfolio fund workspaces are fixed too.
-  no doc change â€” responsive bug fix, layout contract unchanged.
-
-- **Perf: stop the per-page widget-catalog request storm.** `UiCatalogSync`
-  (mounted on the main app route) pushed the dashboard widget specs one POST at a
-  time (`syncCoreCatalog()` â†’ `POST /ui/components`), so every full page load
-  fired ~80 sequential browserâ†’Nextâ†’Python round-trips and saturated the runtime.
-  Added a batched `POST /ui/components/batch` (`python/harness/routers/ui.py`,
-  `src/lib/harness/ui-client.ts`) and switched `syncCoreCatalog` to it, collapsing
-  a page-load seed to ONE idempotent request. `src/lib/harness/ui-sync.test.ts`
-  updated to the batch contract.
-  docs updated: docs/ui-engineering.md.
-
-- **Perf: background pollers back off when the tab is hidden.** The three
-  root-mounted watchers (`alert-notification-provider`, `task-watcher`,
-  `bots-run-watcher`) polled every 10/15/30 s unconditionally; each now throttles
-  while `document.hidden` (60/60/120 s), cutting idle server load on the
-  single-threaded SQLite backend without changing visible-tab behaviour.
-  no doc change â€” internal throttle, no architecture or contract change.
-
-- **Repo hygiene: removed an 825 MB stray installer from the web root.** Deleted
-  `public/backgrounds/local-10.1.2-windows.exe`, a mis-placed Windows installer
-  sitting in the served `public/` directory; it is not part of the UI.
-  no doc change â€” removal of a non-code stray asset.
-
-- **UI composition: certified end to end and repo-wide.** Added two proofs on
-  top of the earlier hardening: (1) a cross-subsystem HTTP test
-  (`python/tests/test_ui_portfolio_e2e.py`) that drives the REAL `harness.main`
-  app â€” create an engine portfolio, add a position, read it via the same route
-  the browser resolver calls (`/portfolio/{id}/query`), then create a UI page
-  with a `data-table` + `metric-card` bound to it and confirm
-  `/ui/blueprints/{id}/verify` reports it renderable; (2) a server-render test
-  (`src/lib/workspace/generic-widgets.render.test.tsx`) proving resolved source
-  data actually becomes table rows and a metric value on screen.
-  Certification run: `npx tsc --noEmit` clean; `vitest run` â€” 3146 passed / 297
-  files (the single-process full-Python run hit a native OOM at ~49%, so it was
-  run in two file-halves: 3484 + 2847 = **6331 passed, 16 skipped, 0 failed**).
-  no doc change â€” tests + verification only; no architecture, data-shape,
-  contract or setup change.
-
-- **Composer `/` and `@` palettes: keyboard highlight now scrolls into view.**
-  Arrowing through a long, scrollable command/mention palette left the scroll
-  position fixed, so the highlighted option could move off-screen. Added an
-  effect keyed on the highlight index + menu-open state that calls
-  `scrollIntoView({ block: 'nearest' })` on the `[aria-selected="true"]` option
-  inside each portaled listbox (`src/components/chat/chat-input.tsx`, both the
-  command and mention palettes).
-  no doc change â€” bug fix, no architecture or contract change.
-
-- **Chat transcripts: durable server copy + shell kept within its size budget.**
-  The ChatBot transcript store gained a server copy (`GET/POST/DELETE
-  /api/chat/transcript`, `src/lib/chat/transcript-client.ts`): on boot the shell
-  hydrates from the server, unions it with the localStorage cache (server wins on
-  a newer timestamp, local-only rows are migrated up), and mirrors subsequent
-  changes with a debounced upsert/delete diff gated on a successful load so a
-  failed load can never delete server rows. The localStorage write is now
-  guarded (private mode / sandboxed origin) so a cache failure can never break
-  the in-memory chat. Because that logic (and the pre-existing local-cache load)
-  pushed `src/components/screens/stock-chat.tsx` past its pinned 1474-line
-  budget, both were EXTRACTED, behavior-preserving, to
-  `src/lib/chat/use-conversation-persistence.ts`; the shell now sits at 1457 and
-  the size-budget guard passes. Also gave the whole-repo line-ending scan in
-  `src/lib/gitignore-guard.test.ts` a 30 s budget (it reads every tracked file
-  and was timing out under load, not detecting a real mixed-ending file).
-  no doc change â€” internal persistence/refactor; API route contract is new but
-  no architecture or setup step changes.

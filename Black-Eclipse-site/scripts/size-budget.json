@@ -1,17 +1,17 @@
 {
   "_comment": "The harness size budget (Round 3 / W7, ADR-H288). The TOTAL is the binding constraint; the per-module ratchet lives in python/tests/test_size_budget.py. Raising a ceiling is allowed but must be a deliberate edit to this file - the point is that growth cannot happen silently.",
-  "totalLines": 379756,
+  "totalLines": 381881,
   "directories": {
-    ".": 24742,
+    ".": 24845,
     "quant": 19665,
     "code": 18345,
-    "routers": 16809,
+    "routers": 17212,
     "research": 16053,
     "eclipse_memory": 11448,
     "execution/application": 11177,
     "mcp": 9657,
     "skills": 9620,
-    "evaluation": 10126,
+    "evaluation": 11456,
     "portfolio": 9290,
     "browser": 9176
   }

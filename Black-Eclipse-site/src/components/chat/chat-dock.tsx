@@ -46,6 +46,7 @@ import { uploadSessionFile } from '@/lib/chat/session-client';
 import { SESSION_LIMITS } from '@/lib/chat/session-types';
 import type { Message } from '@/types/chat';
 import { ChatHistory } from './chat-history';
+import { NotebookButton, NotebookProvider } from './notebook-provider';
 import { ModelSelector } from './chat-input';
 import { EffortControl } from './effort-control';
 import { CheckpointBar } from './checkpoint-bar';
@@ -169,6 +170,7 @@ export function ChatDock({
   const pillRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const sessionIdRef = useRef<string>('dock-temp');
+  const [dockSessionId, setDockSessionId] = useState<string>('dock-temp');
   const attachRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
 
@@ -226,7 +228,9 @@ export function ChatDock({
     setMessages(loadMessages());
     setMinimized(loadMinimized());
     setPillPos(loadPillPos());
-    sessionIdRef.current = loadDockSessionId();
+    const id = loadDockSessionId();
+    sessionIdRef.current = id;
+    setDockSessionId(id);
   }, []);
 
   // Re-clamp the pill if the window shrinks under it. Also runs once on mount
@@ -552,6 +556,7 @@ export function ChatDock({
       )}
       data-nodrag
     >
+      <NotebookProvider chatId={dockSessionId}>
       <div className="pointer-events-auto flex w-[min(560px,100%)] flex-col gap-2">
         {minimized ? (
           // Minimized: a compact pill. Click restores; drag repositions (the
@@ -588,6 +593,7 @@ export function ChatDock({
                 <Bot size={12} />
               </span>
               <p className="min-w-0 flex-1 truncate font-serif text-sm font-semibold text-foreground">{title}</p>
+              <NotebookButton />
               <CheckpointBar
                 chatId={sessionIdRef.current}
                 messages={messages}
@@ -813,6 +819,7 @@ export function ChatDock({
           </>
         )}
       </div>
+      </NotebookProvider>
     </div>,
     document.body,
   );

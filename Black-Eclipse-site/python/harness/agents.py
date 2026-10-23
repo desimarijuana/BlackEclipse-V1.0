@@ -548,9 +548,10 @@ ECLIPSE_AGENT = AgentConfig(
         # advertised.
         *VIDEO_TOOLS,
         # Response-contract read-back: the exact `eclipse-response` block field
-        # names + pre-send validation, so a drifted block is fixed in-turn rather
-        # than silently failing to render. Read-only.
-        "response_block_schema", "response_validate",
+        # names, the JIT design guide (family nuance + worked examples) and
+        # pre-send validation, so a drifted block is fixed in-turn rather than
+        # silently failing to render. Read-only.
+        "response_block_schema", "response_style_guide", "response_validate",
     ],
     maxSteps=8,
     # Per-tool CEILING (WS2). Each tool's own declared `timeout_ms` is

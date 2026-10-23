@@ -13,6 +13,12 @@ from dataclasses import asdict, dataclass
 from typing import Any, Mapping, Optional
 
 from ..evaluation.regression import DEFAULT_GATES, detect_regressions
+from ..evaluation.significance import (
+    DEFAULT_BOOTSTRAP,
+    DEFAULT_SEED,
+    paired_bootstrap,
+    paired_rates,
+)
 from ..evaluation.stats import wilson_interval
 
 UNMEASURED = "UNMEASURED"
@@ -156,6 +162,10 @@ def acceptance(
     *,
     weights: Optional[UtilityWeights] = None,
     gates: Optional[tuple] = None,
+    require_significance: bool = False,
+    significance_min_tasks: int = 5,
+    significance_bootstrap: int = DEFAULT_BOOTSTRAP,
+    significance_seed: int = DEFAULT_SEED,
 ) -> dict[str, Any]:
     """Decide whether a candidate may replace the current state.
 
@@ -196,6 +206,41 @@ def acceptance(
             f"utility did not improve ({current['utility']} → {candidate['utility']})"
         )
 
+    significance: Optional[dict[str, Any]] = None
+    if require_significance:
+        base_rates = paired_rates(current_metrics)
+        candidate_rates = paired_rates(candidate_metrics)
+        paired = set(base_rates) & set(candidate_rates)
+        minimum = max(2, int(significance_min_tasks))
+        if len(paired) < minimum:
+            significance = {
+                "pairedTasks": len(paired),
+                "delta": None,
+                "ciLow": None,
+                "ciHigh": None,
+                "pValue": None,
+                "bootstrapped": 0,
+                "insufficient": True,
+            }
+            reasons.append(
+                f"insufficient paired tasks for significance "
+                f"({len(paired)} < {minimum})"
+            )
+        else:
+            significance = paired_bootstrap(
+                base_rates,
+                candidate_rates,
+                n=significance_bootstrap,
+                seed=significance_seed,
+            )
+            low = significance.get("ciLow")
+            if low is None or float(low) <= 0.0:
+                reasons.append(
+                    "not statistically significant "
+                    f"(delta {significance.get('delta')} "
+                    f"CI {significance.get('ciLow')}..{significance.get('ciHigh')})"
+                )
+
     return {
         "accepted": not reasons,
         "reasons": reasons,
@@ -204,6 +249,7 @@ def acceptance(
         "improvement": round(improvement, 6),
         "regressions": regressions["regressions"],
         "warnings": regressions["warnings"],
+        "significance": significance,
     }
 
 

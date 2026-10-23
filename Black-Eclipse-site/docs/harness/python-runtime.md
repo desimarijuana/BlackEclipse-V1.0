@@ -1,7 +1,7 @@
 ---
 title: Python Analysis Runtime (sandbox, recipes, persistent kernel)
 status: Current
-last-verified: 2026-10-19
+last-verified: 2026-10-22
 ---
 
 # Python Analysis Runtime
@@ -144,6 +144,25 @@ clock, tree kill) sit on top of it.
   program error. The result file and each collected artifact are size-checked
   **before** they are read, so a program cannot make the host allocate without
   limit.
+
+## Notebook cells (Phase 21)
+
+A chat notebook cell is a **user-authored** program, not an agent analysis. It
+runs through the SAME `analysis_run` and kernel, with two host-fixed additions:
+
+- `routers/notebook.py` sets `extra_imports=("io", "matplotlib")` itself; a
+  request body cannot widen the allowlist.
+- `persist_namespace=True` reuses one worker globals dict across the
+  conversation's cells. The kernel only keeps that dict when a command carries
+  `persist`; `analysis_run` never sends it, so agent analyses still start clean.
+- `POST /notebook/kernel/restart` drops the conversation's kernel (and therefore
+  its variables) through the existing `reset_kernel_for_context`.
+- Chart data reaches a cell as an input (`kind="json"`), never as source text.
+
+The cell document itself (source, inputs, outputs, artifact metadata) is owned by
+the chat side (`src/lib/chat/notebook-store.ts`), not by the runtime. A rerun
+clears the cell's output directory first, so a stale picture is never collected
+as if the current program made it.
 
 ## Recipes and generated capabilities
 

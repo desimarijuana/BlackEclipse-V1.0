@@ -1,0 +1,232 @@
+{
+  "datasetName": "eclipse-finance-v2",
+  "datasetVersion": "1.0.0",
+  "schemaVersion": 1,
+  "reviewed": true,
+  "reviewer": "eclipse-eval",
+  "reviewedAt": "2026-10-22",
+  "notes": "Deterministic offline finance fixtures, tranche 2. Every input is a synthetic number written into the task; no market data, no jdds.db content, no provider call. Each task names an independent oracle and is graded by recomputing the metric from the inputs.",
+  "metadata": {"tiers": {"0": "deterministic", "1": "integration", "2": "live"}, "split": "validation"},
+  "tasks": [
+    {
+      "id": "finance.v2.gross_margin.001",
+      "version": 1,
+      "name": "Gross margin",
+      "description": "Compute the gross margin from revenue and gross profit.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "Revenue is 500 and gross profit is 200. What is the gross margin?"},
+      "expected_output": {"numeric": {"value": 40.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "gross_margin", "inputs": {"revenue": 500, "gross_profit": 200}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "split": "validation",
+        "oracle": "gross_profit / revenue * 100, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "Gross margin is 40.0%."}]
+      }
+    },
+    {
+      "id": "finance.v2.percentage_change.001",
+      "version": 1,
+      "name": "Percentage change",
+      "description": "Compute the percentage change from a start value to an end value.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "A price moves from 80 to 100. What is the percentage change?"},
+      "expected_output": {"numeric": {"value": 25.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "percentage_change", "inputs": {"start": 80, "end": 100}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "split": "validation",
+        "oracle": "(end - start) / abs(start) * 100, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "The percentage change is 25.0%."}]
+      }
+    },
+    {
+      "id": "finance.v2.cagr.001",
+      "version": 1,
+      "name": "CAGR",
+      "description": "Compute the compound annual growth rate over two years.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {"prompt": "Revenue grows from 100 to 121 over 2 years. What is the CAGR?"},
+      "expected_output": {"numeric": {"value": 10.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "cagr", "inputs": {"start": 100, "end": 121, "years": 2}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "split": "validation",
+        "oracle": "(end / start) ^ (1 / years) - 1, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "The CAGR is 10.0%."}]
+      }
+    },
+    {
+      "id": "finance.v2.pe.001",
+      "version": 1,
+      "name": "Price-to-earnings",
+      "description": "Compute the P/E ratio from price and EPS.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "The price is 50 and EPS is 2. What is the P/E ratio?"},
+      "expected_output": {"numeric": {"value": 25.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "pe", "inputs": {"price": 50, "eps": 2}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "split": "validation",
+        "oracle": "price / eps, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "The P/E ratio is 25.0."}]
+      }
+    },
+    {
+      "id": "finance.v2.ps.001",
+      "version": 1,
+      "name": "Price-to-sales",
+      "description": "Compute the P/S ratio from price and sales per share.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "The price is 20 and sales per share is 4. What is the P/S ratio?"},
+      "expected_output": {"numeric": {"value": 5.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "ps", "inputs": {"price": 20, "sales_per_share": 4}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "split": "validation",
+        "oracle": "price / sales_per_share, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "The P/S ratio is 5.0."}]
+      }
+    },
+    {
+      "id": "finance.v2.fcf.001",
+      "version": 1,
+      "name": "Free cash flow",
+      "description": "Compute free cash flow from operating cash flow and capital spending.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "Operating cash flow is 300 and capex is 80. What is free cash flow?"},
+      "expected_output": {"numeric": {"value": 220.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "fcf", "inputs": {"operating_cash_flow": 300, "capex": 80}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "split": "validation",
+        "oracle": "operating_cash_flow - capex, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "Free cash flow is 220.0."}]
+      }
+    },
+    {
+      "id": "finance.v2.weight.001",
+      "version": 1,
+      "name": "Portfolio weight",
+      "description": "Compute a position's weight in a portfolio.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "A position is worth 250 in a portfolio worth 1000. What is its weight?"},
+      "expected_output": {"numeric": {"value": 0.25, "tolerance": 0.001}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "weight", "inputs": {"value": 250, "total": 1000}, "tolerance": 0.001}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "split": "validation",
+        "oracle": "value / total, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "The position weight is 0.25."}]
+      }
+    },
+    {
+      "id": "finance.v2.position_size.001",
+      "version": 1,
+      "name": "Reward-to-risk ratio",
+      "description": "Compute the reward-to-risk ratio from the risk and reward.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "The risk is 50 and the reward is 150. What is the reward-to-risk ratio?"},
+      "expected_output": {"numeric": {"value": 3.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "position_size", "inputs": {"risk": 50, "reward": 150}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "split": "validation",
+        "oracle": "reward / abs(risk), recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "The reward-to-risk ratio is 3.0."}]
+      }
+    },
+    {
+      "id": "finance.v2.operating_margin.003",
+      "version": 1,
+      "name": "Operating margin (second fixture)",
+      "description": "Compute the operating margin from revenue and operating income.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {"prompt": "Revenue is 640 and operating income is 96. What is the operating margin?"},
+      "expected_output": {"numeric": {"value": 15.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "operating_margin", "inputs": {"revenue": 640, "operating_income": 96}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "split": "validation",
+        "oracle": "operating_income / revenue * 100, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "The operating margin is 15.0%."}]
+      }
+    },
+    {
+      "id": "finance.v2.ev_ebitda.002",
+      "version": 1,
+      "name": "EV/EBITDA (second fixture)",
+      "description": "Compute EV/EBITDA from enterprise value and EBITDA.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {"prompt": "Enterprise value is 900 and EBITDA is 180. What is EV/EBITDA?"},
+      "expected_output": {"numeric": {"value": 5.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "ev_ebitda", "inputs": {"ev": 900, "ebitda": 180}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": ["finance"],
+        "split": "validation",
+        "oracle": "ev / ebitda, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "EV/EBITDA is 5.0."}]
+      }
+    }
+  ]
+}

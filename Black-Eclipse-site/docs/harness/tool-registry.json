@@ -1,7 +1,7 @@
 {
-  "digest": "cc523b84547c456c",
+  "digest": "822cd1244cf0c45c",
   "manifestVersion": "1",
-  "toolCount": 956,
+  "toolCount": 957,
   "tools": [
     {
       "deprecated": false,
@@ -21502,6 +21502,28 @@
         "type": "object"
       },
       "name": "response_block_schema",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Load a just-in-time design guide for ONE family of eclipse-response blocks BEFORE authoring it: when to use which block, the exact fields (live contract) and 1-2 worked examples. Call it once per family you are about to use; do not load every module. Modules: data, chart, diagram, workflow, interactive, explanation, mechanical.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "module": {
+            "description": "One module key, e.g. chart, data, mechanical.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "module"
+        ],
+        "type": "object"
+      },
+      "name": "response_style_guide",
       "permission": "read",
       "replacement": null,
       "risk": "low",

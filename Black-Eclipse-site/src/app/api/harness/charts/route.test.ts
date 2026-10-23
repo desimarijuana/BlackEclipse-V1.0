@@ -34,7 +34,7 @@ const runtimeFetch = vi.fn(async (_url: string, _init?: RequestInit): Promise<un
       downloadUrl: "/artifacts/art_1/download",
     },
   }),
-}));
+} as unknown as Response));
 
 vi.mock("@/lib/harness/python-runtime", () => ({
   HARNESS_PY_URL: "http://127.0.0.1:8765",
@@ -82,7 +82,7 @@ beforeEach(() => {
         downloadUrl: "/artifacts/art_1/download",
       },
     }),
-  }));
+  } as unknown as Response));
 });
 
 describe("POST /api/harness/charts", () => {
@@ -112,7 +112,7 @@ describe("POST /api/harness/charts", () => {
       ok: false,
       status: 400,
       json: async () => ({ detail: { code: "CHART_SPEC_INVALID", message: "a pie chart needs one label per value" } }),
-    }));
+    } as unknown as Response));
     const res = await POST(req({ kind: "pie", labels: ["a"], values: [1, 2] }));
     expect(res.status).toBe(400);
     const body = await res.json();

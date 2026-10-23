@@ -8,6 +8,7 @@
   "notes": "The W12 multi-agent benchmark: frozen multi-step build tasks. Every task carries BOTH a single-agent program (metadata.agent_script) and an explicit 2-3 specialist decomposition (metadata.team: members, dependency-aware subtasks, one deterministic script per subtask). Both variants run through the SAME real runtime (team/ + A2A + TaskScheduler + execute_run) and are graded on the REAL resulting state, so the comparison in evaluation/team_benchmark.py measures orchestration, not prose. The single-agent variant also runs in the standing offline gate like any other task; the team variant is only ever run by the comparison harness. Synthetic and deterministic - no production data and no jdds.db content.",
   "metadata": {
     "split": "held_out",
+    "rotationExempt": true,
     "tiers": {
       "0": "deterministic",
       "1": "integration",

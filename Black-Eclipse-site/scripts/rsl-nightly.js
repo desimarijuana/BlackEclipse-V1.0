@@ -32,7 +32,14 @@ if (!py) {
 
 // Path flags are resolved against the REPO ROOT: the python child runs with
 // cwd=python/, so a relative path would land in the wrong place.
-const PATH_FLAGS = new Set(["--baseline-file", "--write-baseline", "--out"]);
+const PATH_FLAGS = new Set([
+  "--baseline-file",
+  "--write-baseline",
+  "--out",
+  "--live-baseline",
+  "--write-live-baseline",
+  "--publish",
+]);
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i += 1) {
   if (!PATH_FLAGS.has(args[i])) continue;

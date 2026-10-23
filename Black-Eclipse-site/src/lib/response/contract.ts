@@ -1174,7 +1174,7 @@ export type Metric = z.infer<typeof metricSchema>;
 export type TableColumn = z.infer<typeof tableColumnSchema>;
 export type TableCell = z.infer<typeof tableCellSchema>;
 export type ChartSeries = z.infer<typeof chartSeriesSchema>;
-export type ChartBlock = z.infer<typeof chartBlock>;
+export type ChartDataSource = z.infer<typeof chartDataSourceSchema>; export type ChartBlock = z.infer<typeof chartBlock>;
 export type DiagramBlock = z.infer<typeof diagramBlock>;
 export type DiagramNode = z.infer<typeof diagramNodeSchema>;
 export type DiagramEdge = z.infer<typeof diagramEdgeSchema>;

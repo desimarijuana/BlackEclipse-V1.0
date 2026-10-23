@@ -9,7 +9,22 @@ import { useAggregatePortfolio } from './portfolio-store';
 import { useWatchlist } from './watchlist-store';
 import {
   buildConcentration,
+  buildActionList,
+  buildAttribution,
+  buildFxExposure,
+  buildMarketSessions,
+  buildPortfolioRisk,
+  buildSectorRotation,
+  buildFeed,
   buildHealth,
+  buildHoldingsHealth,
+  buildLeaders,
+  buildMarketPulse,
+  buildPortfolioVsBenchmark,
+  buildRecord,
+  buildResearch,
+  buildResultsSeason,
+  buildWeekEvents,
   buildHomeHoldings,
   buildPersonalBrief,
   buildRadar,
@@ -23,7 +38,27 @@ import {
   weatherTone,
   type Brief,
   type Concentration,
+  type EarningsLike,
+  type EconEventLike,
+  type FeedItem,
+  type HoldingsHealthSummary,
+  type JournalPerformanceLike,
+  type LeaderRow,
+  type MarketPulseData,
+  type NewsLike,
+  type OverviewGroupLike,
+  type PortfolioBenchmarkPoint,
+  type RecordSummary,
+  type ResearchRow,
+  type ResultsSeason,
+  type ThesisLike,
+  type WeekEvent,
   type HealthScore,
+  type ActionRow,
+  type FxSlice,
+  type MarketSession,
+  type PortfolioRisk,
+  type SectorRotationGroup,
   type HomeHolding,
   type RadarRow,
   type SectorBreadth,
@@ -72,6 +107,7 @@ export interface BenchmarkSeries {
 export interface HomeData {
   market: string;
   setMarket: (market: string) => void;
+  marketOptions: Array<{ id: string; label: string }>;
   marketLabel: string;
   active: boolean;
   loading: boolean;
@@ -113,6 +149,28 @@ export interface HomeData {
   includesDemo: boolean;
   universe: { markets: number; instruments: number; advancing: number; tracked: number };
   fundsCount: number;
+  attribution: ReturnType<typeof buildAttribution>;
+  actionList: ActionRow[];
+  sessions: MarketSession[];
+  risk: PortfolioRisk;
+  fxExposure: FxSlice[];
+  rotation: SectorRotationGroup[];
+  earningsDates: Record<string, string>;
+  portfolioSeries: PortfolioBenchmarkPoint[];
+  portfolioReturnPct: number;
+  portfolioCostBasis: number;
+  holdingsHealth: HoldingsHealthSummary;
+  feed: FeedItem[];
+  feedNewCount: number;
+  feedLoading: boolean;
+  markFeedSeen: () => void;
+  weekEvents: WeekEvent[];
+  pulse: MarketPulseData;
+  resultsSeason: ResultsSeason;
+  earningsSource: string;
+  leaders: LeaderRow[];
+  research: ResearchRow[];
+  record: RecordSummary;
 }
 
 const MARKET_KEY = 'be_home_dashboard_market_v1';
@@ -176,6 +234,14 @@ interface Fetched<T> {
   data: T | null;
   error: boolean;
 }
+
+interface NewsResponse { news?: NewsLike[] }
+interface EarningsResponse { rows?: EarningsLike[]; source?: string }
+interface EconResponse { events?: EconEventLike[] }
+interface ThesesResponse { theses?: ThesisLike[] }
+interface JournalResponse { analytics?: { performance?: JournalPerformanceLike } }
+
+const FEED_SEEN_KEY = 'be_home_feed_seen_v1';
 
 async function fetchJson<T>(url: string, signal: AbortSignal): Promise<Fetched<T>> {
   try {
@@ -275,9 +341,22 @@ export function useHomeData(active: boolean): HomeData {
   const [overview, setOverview] = useState<GlobalOverviewGroup[]>([]);
   const [benchmark, setBenchmark] = useState<BenchmarkSeries | null>(null);
   const [alerts, setAlerts] = useState<HomeAlert[]>([]);
+  const [newsItems, setNewsItems] = useState<NewsLike[]>([]);
+  const [earningsRows, setEarningsRows] = useState<EarningsLike[]>([]);
+  const [econEvents, setEconEvents] = useState<EconEventLike[]>([]);
+  const [theses, setTheses] = useState<ThesisLike[]>([]);
+  const [journalPerf, setJournalPerf] = useState<JournalPerformanceLike | null>(null);
+  const [earningsSource, setEarningsSource] = useState('unavailable');
+  const [feedLoading, setFeedLoading] = useState(true);
+  const [feedSeenAt, setFeedSeenAt] = useState(0);
+  const [minuteTick, setMinuteTick] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+
+  useEffect(() => {
+    try { setFeedSeenAt(Number(window.localStorage.getItem(FEED_SEEN_KEY)) || 0); } catch { /* ignore */ }
+  }, []);
 
   useEffect(() => {
     setMarketState(readMarket());
@@ -372,11 +451,15 @@ export function useHomeData(active: boolean): HomeData {
         sector: quote?.sector,
         changePercent: Number.isFinite(holding.dayPct) ? holding.dayPct : 0,
         closes: histories.closes[symbol] ?? [],
+        dates: histories.dates[symbol] ?? [],
+        avgCost: holding.avgCost,
+        quantity: holding.quantity,
+        unrealizedPct: holding.avgCost > 0 ? (holding.currentPrice / holding.avgCost - 1) * 100 : null,
         fxMissing: holding.fxMissing,
       };
     });
     return buildHomeHoldings(raw, market);
-  }, [portfolio.stats.holdings, quoteBySymbol, histories.closes, market]);
+  }, [portfolio.stats.holdings, quoteBySymbol, histories.closes, histories.dates, market]);
 
   const trendMix = useMemo(() => buildTrendMix(holdings), [holdings]);
   const health = useMemo(() => buildHealth(holdings), [holdings]);
@@ -427,6 +510,37 @@ export function useHomeData(active: boolean): HomeData {
     return buildRadar(quotes, new Set(portfolio.stats.holdings.map((holding) => holding.symbol.toUpperCase())));
   }, [watchQuotes.quotes, portfolio.stats.holdings]);
 
+  const heldSet = useMemo(() => new Set(heldSymbols), [heldSymbols]);
+  const watchSet = useMemo(() => new Set(watchSymbols.map((symbol) => symbol.toUpperCase())), [watchSymbols]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+    setFeedLoading(true);
+    const newsUrl = '/api/news?limit=30';
+    void (async () => {
+      const [newsResult, earningsResult, econResult, thesesResult, journalResult] = await Promise.all([
+        fetchJson<NewsResponse>(newsUrl, controller.signal),
+        fetchJson<EarningsResponse>('/api/earnings', controller.signal),
+        fetchJson<EconResponse>('/api/economics/calendar', controller.signal),
+        fetchJson<ThesesResponse>('/api/theses', controller.signal),
+        fetchJson<JournalResponse>('/api/journal/analytics', controller.signal),
+      ]);
+      if (cancelled) return;
+      setNewsItems(Array.isArray(newsResult.data?.news) ? newsResult.data.news : []);
+      setEarningsRows(Array.isArray(earningsResult.data?.rows) ? earningsResult.data.rows : []);
+      setEarningsSource(earningsResult.data?.source ?? 'unavailable');
+      setEconEvents(Array.isArray(econResult.data?.events) ? econResult.data.events : []);
+      setTheses(Array.isArray(thesesResult.data?.theses) ? thesesResult.data.theses : []);
+      setJournalPerf(journalResult.data?.analytics?.performance ?? null);
+      setFeedLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [reload]);
+
   const activeAlerts = alerts.filter((alert) => alert.active).length;
   const recentAlerts = useMemo(
     () => alerts
@@ -436,6 +550,83 @@ export function useHomeData(active: boolean): HomeData {
     [alerts],
   );
 
+  const marketLabel = useMemo(() => marketLabelFor(market), [market]);
+  const holdingsHealth = useMemo(() => buildHoldingsHealth(holdings), [holdings]);
+  const portfolioSeries = useMemo(
+    () => buildPortfolioVsBenchmark(holdings, benchmark ? { dates: benchmark.dates, closes: benchmark.closes } : null),
+    [holdings, benchmark],
+  );
+  const pulse = useMemo(() => buildMarketPulse({
+    market,
+    marketLabel,
+    overview,
+    heatmap,
+    signals,
+    breadth,
+    marketChange,
+    leading,
+  }), [market, marketLabel, overview, heatmap, signals, breadth, marketChange, leading]);
+  const resultsSeason = useMemo(() => buildResultsSeason(earningsRows, earningsSource), [earningsRows, earningsSource]);
+  const leaderUniverse = useMemo<OverviewGroupLike[]>(() => {
+    if (market === 'GLOBAL') return overview;
+    if (!heatmap) return [];
+    const stocks = heatmap.sectors.flatMap((sector) => sector.stocks.map((stock) => ({
+      symbol: stock.symbol,
+      name: stock.name,
+      changePct: stock.changePct,
+      marketCap: stock.rawMarketCap ?? stock.marketCap,
+    })));
+    return [{ id: market, country: marketLabel, name: marketLabel, index: { changePct: marketChange }, stocks }];
+  }, [market, marketLabel, overview, heatmap, marketChange]);
+  const leaders = useMemo(() => buildLeaders(leaderUniverse, heldSet, watchSet), [leaderUniverse, heldSet, watchSet]);
+  const research = useMemo(() => buildResearch(theses, heldSet, watchSet), [theses, heldSet, watchSet]);
+  useEffect(() => {
+    const id = window.setInterval(() => setMinuteTick((value) => value + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const record = useMemo(() => buildRecord(journalPerf, theses), [journalPerf, theses]);
+  const weekEvents = useMemo(() => buildWeekEvents(earningsRows, econEvents, heldSet, watchSet), [earningsRows, econEvents, heldSet, watchSet]);
+  const feed = useMemo(() => buildFeed({
+    news: newsItems,
+    alerts,
+    earnings: earningsRows,
+    held: heldSet,
+    watching: watchSet,
+    pulse,
+  }), [newsItems, alerts, earningsRows, heldSet, watchSet, pulse]);
+  const feedNewCount = useMemo(() => feed.filter((item) => item.at > feedSeenAt).length, [feed, feedSeenAt]);
+  const attribution = useMemo(() => buildAttribution(holdings, market !== 'GLOBAL'), [holdings, market]);
+  const earningsDates = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const row of earningsRows) {
+      const key = row.symbol.toUpperCase();
+      if (!map[key]) map[key] = row.date;
+    }
+    return map;
+  }, [earningsRows]);
+  const earningsBySymbol = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [symbol, date] of Object.entries(earningsDates)) {
+      const ts = Date.parse(date.length === 10 ? `${date}T00:00:00` : date);
+      if (Number.isFinite(ts)) map.set(symbol, ts);
+    }
+    return map;
+  }, [earningsDates]);
+  const actionList = useMemo(() => buildActionList(holdingsHealth, earningsBySymbol), [holdingsHealth, earningsBySymbol]);
+  const sessions = useMemo(() => { void minuteTick; return buildMarketSessions(); }, [minuteTick]);
+  const risk = useMemo(
+    () => buildPortfolioRisk(holdings, benchmark ? { dates: benchmark.dates, closes: benchmark.closes } : null),
+    [holdings, benchmark],
+  );
+  const fxExposure = useMemo(() => buildFxExposure(holdings), [holdings]);
+  const rotation = useMemo(() => buildSectorRotation(signals), [signals]);
+
+  const markFeedSeen = useCallback(() => {
+    const now = Date.now();
+    try { window.localStorage.setItem(FEED_SEEN_KEY, String(now)); } catch { /* ignore */ }
+    setFeedSeenAt(now);
+  }, []);
   const displayCurrency = useMemo(() => {
     const currencies = new Set(holdings.map((holding) => holding.currency));
     return market !== 'GLOBAL' && currencies.size === 1 ? [...currencies][0] : 'USD';
@@ -501,7 +692,8 @@ export function useHomeData(active: boolean): HomeData {
   return {
     market,
     setMarket,
-    marketLabel: marketLabelFor(market),
+    marketOptions: HOME_MARKETS,
+    marketLabel,
     active,
     loading,
     loadError,
@@ -542,5 +734,27 @@ export function useHomeData(active: boolean): HomeData {
     includesDemo,
     universe,
     fundsCount: funds.length,
+    portfolioSeries,
+    portfolioReturnPct: portfolio.stats.roiPercent,
+    portfolioCostBasis: portfolio.stats.costBasis,
+    holdingsHealth,
+    feed,
+    feedNewCount,
+    feedLoading,
+    markFeedSeen,
+    weekEvents,
+    pulse,
+    resultsSeason,
+    earningsSource,
+    leaders,
+    research,
+    record,
+    attribution,
+    actionList,
+    sessions,
+    risk,
+    fxExposure,
+    rotation,
+    earningsDates,
   };
 }

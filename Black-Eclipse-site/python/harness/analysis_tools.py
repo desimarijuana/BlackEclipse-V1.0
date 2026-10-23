@@ -418,7 +418,14 @@ def _queue_wait_s() -> float:
     return 30.0
 
 
-async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+async def analysis_run(
+    args: dict[str, Any],
+    ctx: ToolContext,
+    *,
+    extra_imports: tuple[str, ...] = (),
+    persist_namespace: bool = False,
+    input_kinds: Optional[dict[str, str]] = None,
+) -> tuple[str, Any]:
     from .code.tools import emit_code_event  # noqa: PLC0415
 
     model = AnalysisRunInput(**{k: v for k, v in args.items() if v is not None})
@@ -475,12 +482,20 @@ async def analysis_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
             request = AnalysisRequest(
                 source=model.source or "",
                 inputs=[
-                    AnalysisInput(name=str(name), value=value, kind=_infer_kind(value))
+                    AnalysisInput(
+                        name=str(name),
+                        value=value,
+                        kind=(input_kinds or {}).get(str(name)) or _infer_kind(value),
+                    )
                     for name, value in model.inputs.items()
                 ],
                 purpose=model.purpose,
                 timeout_s=model.timeout_s,
                 allow_tools=resolver is not None,
+                # Phase 21: the notebook route supplies these; the agent tool
+                # never does, so its imports and namespace stay unchanged.
+                extra_imports=tuple(extra_imports),
+                persist_namespace=bool(persist_namespace),
             )
             return run_analysis(
                 request, output_dir=output_dir, tool_resolver=resolver, kernel=kernel,

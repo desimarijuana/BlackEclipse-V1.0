@@ -96,7 +96,7 @@ Six workstreams, four waves. Each ends with a gate that must exit zero.
 > diverged from `origin/main` with an inconsistent pair of commits
 > (`boot.py` imported `session_watch`, the module lived only on the other
 > lineage), and the merge consumed ADR numbers H306–H308, so V1–V6 below
-> now reserve **H309–H314**. The other stream's local `main` is behind and
+> now reserve **H310-H315**. The other stream's local `main` is behind and
 > must `git pull` (their tree had 84 uncommitted files at landing time).
 
 > Closes **O1, O2** · Moves **Ops +0.20** · ADR-H310

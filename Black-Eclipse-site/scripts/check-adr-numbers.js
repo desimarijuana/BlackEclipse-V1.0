@@ -26,10 +26,11 @@ const ROOT = path.resolve(__dirname, "..");
 const DECISIONS = path.join(ROOT, "docs", "harness", "decisions.md");
 
 /*
- * Numbers that were withdrawn during the Round 3 rework and never written.
- * A gap that is RESERVED is intentional; a gap that is not is a mistake.
+ * Numbers that are intentionally not written yet. A gap that is RESERVED is
+ * intentional; a gap that is not is a mistake. H310-H315 are claimed by the
+ * Round 4 plan (V1-V6) and must not be reused by an unrelated decision.
  */
-const RESERVED = new Set([108, 117, 124, 125, 146]);
+const RESERVED = new Set([108, 117, 124, 125, 146, 310, 311, 312, 313, 314, 315]);
 
 /*
  * The canonical shape is enforced FROM THIS NUMBER ONWARD. The entries below

@@ -2,11 +2,24 @@ import { describe, expect, it } from 'vitest';
 import type { RegimeResult } from '@/lib/regime/types';
 import {
   buildConcentration,
+  buildActionList,
+  buildAttribution,
+  buildFeed,
+  buildFxExposure,
   buildHealth,
+  buildHoldingsHealth,
+  buildMarketSessions,
+  buildPortfolioRisk,
+  buildSectorRotation,
   buildHomeHoldings,
+  buildLeaders,
   buildPersonalBrief,
+  buildPortfolioVsBenchmark,
   buildRadar,
+  buildRecord,
+  buildResultsSeason,
   buildTrendMix,
+  buildWeekEvents,
   leadingSignal,
   momentum,
   regimeNeedle,
@@ -261,5 +274,157 @@ describe('personal brief', () => {
     expect(positions.detail).toContain('Live position values are still loading');
     const history = buildPersonalBrief({ ...base, health: { ...base.health, score: null, label: 'Unavailable' }, historyLoading: true });
     expect(history.detail).toContain('Trend history is still loading');
+  });
+});
+
+function mkHolding(overrides: Partial<import('./home-model').HomeHolding> = {}): import('./home-model').HomeHolding {
+  return {
+    symbol: 'AAA',
+    name: 'AAA',
+    valueUsd: 100,
+    valueNative: 100,
+    currency: 'USD',
+    marketId: 'US',
+    sector: 'Technology',
+    changePercent: 0,
+    closes: [],
+    dates: [],
+    weightPct: 100,
+    trend: 'unknown',
+    momentum20: null,
+    ...overrides,
+  };
+}
+
+describe('alpha-style home model', () => {
+  it('classifies holdings into healthy/sideways/broken/falling', () => {
+    const summary = buildHoldingsHealth([
+      mkHolding({ symbol: 'UP', weightPct: 50, closes: rising(60) }),
+      mkHolding({ symbol: 'DOWN', weightPct: 50, closes: falling(60) }),
+    ]);
+    expect(summary.counts.healthy).toBe(1);
+    expect(summary.counts.falling).toBe(1);
+    expect(summary.turningWeak?.symbol).toBe('UP');
+  });
+
+  it('builds a portfolio line against a benchmark', () => {
+    const dates = ['2026-01-01', '2026-01-02', '2026-01-03', '2026-01-04', '2026-01-05'];
+    const points = buildPortfolioVsBenchmark(
+      [mkHolding({ closes: [100, 110, 120, 130, 140], dates })],
+      { dates, closes: [100, 100, 100, 100, 100] },
+    );
+    expect(points).toHaveLength(5);
+    expect(points[4].portfolio).toBeCloseTo(140, 5);
+    expect(points[4].benchmark).toBeCloseTo(100, 5);
+  });
+
+  it('ranks leaders and excludes held/watchlist names', () => {
+    const leaders = buildLeaders([
+      {
+        id: 'US',
+        country: 'United States',
+        name: 'United States',
+        index: { changePct: 1 },
+        stocks: [
+          { symbol: 'STRONG', name: 'Strong', changePct: 3 },
+          { symbol: 'HELD', name: 'Held', changePct: 4 },
+          { symbol: 'WATCH', name: 'Watch', changePct: 2 },
+        ],
+      },
+    ], new Set(['HELD']), new Set(['WATCH']));
+    expect(leaders.map((leader) => leader.symbol)).toEqual(['STRONG']);
+    expect(leaders[0].score).toBeGreaterThan(50);
+  });
+
+  it('counts confirmed earnings for results season', () => {
+    const date = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+    const season = buildResultsSeason([{ symbol: 'AAA', name: 'AAA', date }], 'alphavantage');
+    expect(season.next7).toBe(1);
+    expect(season.windows[0].symbols).toEqual(['AAA']);
+  });
+
+  it('tags feed items for held and watched symbols', () => {
+    const feed = buildFeed({
+      news: [
+        { id: 'n1', ticker: 'AAA', headline: 'AAA wins a contract', timestamp: new Date().toISOString() },
+        { id: 'n2', ticker: 'BBB', headline: 'BBB results', timestamp: new Date().toISOString() },
+      ],
+      alerts: [],
+      earnings: [],
+      held: new Set(['AAA']),
+      watching: new Set(['BBB']),
+      pulse: null,
+    });
+    expect(feed.find((item) => item.symbol === 'AAA')?.tag).toBe('You own');
+    expect(feed.find((item) => item.symbol === 'BBB')?.tag).toBe('Watching');
+  });
+
+  it('does not claim a record when there are no trades or theses', () => {
+    expect(buildRecord(null, []).hasData).toBe(false);
+    expect(buildRecord({ totalTrades: 4, winRate: 0.5, netPnl: 12, profitFactor: 2 }, []).hasData).toBe(true);
+  });
+
+  it('only includes week events for held/watched names plus macro', () => {
+    const date = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const events = buildWeekEvents(
+      [{ symbol: 'AAA', name: 'AAA', date }, { symbol: 'CCC', name: 'CCC', date }],
+      [{ id: 'm1', date, country: 'US', title: 'CPI', importance: 'high' }],
+      new Set(['AAA']),
+      new Set(),
+    );
+    expect(events.some((event) => event.symbol === 'AAA')).toBe(true);
+    expect(events.some((event) => event.symbol === 'CCC')).toBe(false);
+    expect(events.some((event) => event.kind === 'macro')).toBe(true);
+  });
+});
+describe('dashboard insights model', () => {
+  it('attributes today P&L to the biggest movers', () => {
+    const attribution = buildAttribution([
+      mkHolding({ symbol: 'UP', valueUsd: 1000, changePercent: 2 }),
+      mkHolding({ symbol: 'DOWN', valueUsd: 1000, changePercent: -3 }),
+    ]);
+    expect(attribution.gainers[0].symbol).toBe('UP');
+    expect(attribution.losers[0].symbol).toBe('DOWN');
+    expect(attribution.gainers[0].contribution).toBeCloseTo(20, 4);
+    expect(attribution.losers[0].contribution).toBeCloseTo(-30, 4);
+  });
+
+  it('flags holdings near support and falling', () => {
+    const health = buildHoldingsHealth([
+      mkHolding({ symbol: 'UP', weightPct: 100, closes: rising(60) }),
+      mkHolding({ symbol: 'DOWN', weightPct: 0, closes: falling(60) }),
+    ]);
+    const list = buildActionList(health, new Map());
+    expect(list.some((row) => row.symbol === 'DOWN')).toBe(true);
+  });
+
+  it('marks market sessions open or closed', () => {
+    const sessions = buildMarketSessions(new Date('2026-10-22T14:00:00Z'));
+    expect(sessions).toHaveLength(12);
+    expect(sessions.some((session) => session.status === 'open')).toBe(true);
+  });
+
+  it('splits FX exposure by currency', () => {
+    const slices = buildFxExposure([
+      mkHolding({ currency: 'USD', valueUsd: 75 }),
+      mkHolding({ currency: 'PKR', valueUsd: 25 }),
+    ]);
+    expect(slices[0]).toMatchObject({ currency: 'USD', weightPct: 75 });
+    expect(slices[1]).toMatchObject({ currency: 'PKR', weightPct: 25 });
+  });
+
+  it('groups sectors into rotation buckets', () => {
+    const rotation = buildSectorRotation([
+      { name: 'Tech', change: 2, weight: 1, stocks: 1, relative: 1, tone: 'leading' },
+      { name: 'Banks', change: -1, weight: 1, stocks: 1, relative: -1, tone: 'lagging' },
+    ]);
+    expect(rotation.find((group) => group.tone === 'leading')?.sectors).toContain('Tech');
+    expect(rotation.find((group) => group.tone === 'lagging')?.count).toBe(1);
+  });
+
+  it('computes portfolio risk from holding history', () => {
+    const risk = buildPortfolioRisk([mkHolding({ weightPct: 100, closes: rising(60) })], null);
+    expect(risk.volatilityPct).not.toBeNull();
+    expect(risk.concentrationPct).toBe(100);
   });
 });

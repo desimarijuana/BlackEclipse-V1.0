@@ -131,14 +131,16 @@ RATCHET_PY: dict[str, int] = {
     # seeded relevant slice are built per run and joined to the prompt-cache
     # key). Not the surface work. May only shrink; the repo-map call site is
     # a split candidate alongside the other per-run block wiring.
-    "graph.py": 2309,
-
-    "code/fs_tools.py": 1225,
     # Re-pinned 2297->2305 to the measured working tree: the run's tool-execution
-  # ledger (the executions the answer seam reads back). Pre-existing shared-tree
-  # growth, not this change. May only shrink from here.
-  "graph.py": 2309,
-
+    # ledger (the executions the answer seam reads back). Pre-existing shared-tree
+    # growth, not this change. May only shrink from here.
+    # Re-pinned 2305->2315 to the measured tree for the in-flight interactive
+    # response-style JIT index wiring (the `response_style_guide` discovery block
+    # at the run head). That work touches no part of the tool loop; the
+    # subsystem-wiring block remains the split candidate. May only shrink.
+    # Re-pinned 2315->2323 to the merged tree (Round 3 plus the response-style
+    # wiring above). May only shrink.
+    "graph.py": 2323,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.

@@ -66,7 +66,7 @@ const RATCHET: Record<string, number> = {
   // drift-candidate badge. Re-pinned 1263→1266: the post-landing restart
   // verification keys (`code.promote.postLanding*`). The standing split
   // candidate is still per-domain dictionary modules. May only shrink.
-  "src/lib/i18n/dictionaries/en.ts": 1266,
+  "src/lib/i18n/dictionaries/en.ts": 1268,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file
@@ -175,7 +175,7 @@ const RATCHET: Record<string, number> = {
   // the deferred canvas-content import here. May only shrink from here.
   // Re-pinned 1522→1534: the new Dashboard tab (a lazy dynamic import + one
   // keep-alive block above Command Center). May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1534,
+  "src/components/screens/stock-chat.tsx": 1541,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

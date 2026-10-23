@@ -432,6 +432,59 @@ function normalizeBlockFields(raw: Record<string, unknown>): Record<string, unkn
     // Chart.js-style producers spell the series array `datasets`; the contract
     // wants `series`. Without this the block fails with "series: expected array".
     if (out.series === undefined && Array.isArray(out.datasets)) out.series = out.datasets;
+
+    // ── Candle rows ────────────────────────────────────────────────────────
+    // A model writes a candle the way a person does: `[date, o, h, l, c]` or
+    // `{date, open, high, low, close}`. The contract takes the four numbers and
+    // the date belongs on the category axis. Without this pass a dated tuple is
+    // an invalid point (the whole block degrades to prose) and an object row is
+    // flattened to [open, high] (a candlestick with no candles).
+    const candleCategories: string[] = [];
+    const labelOf = (point: Record<string, unknown>): string | null => {
+      for (const key of ['date', 'time', 'label', 'period', 'day', 'timestamp']) {
+        const value = point[key];
+        if (typeof value === 'string' && value) return value;
+        if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+      }
+      return null;
+    };
+    const asCandle = (point: unknown): number[] | null => {
+      if (Array.isArray(point) && point.length >= 5 && typeof point[0] !== 'number') {
+        const ohlc = point.slice(1, 5);
+        if (ohlc.every((v) => typeof v === 'number' && Number.isFinite(v))) {
+          candleCategories.push(String(point[0]));
+          return ohlc as number[];
+        }
+      }
+      if (isRecord(point)) {
+        const { open, high, low, close } = point;
+        if ([open, high, low, close].every((v) => typeof v === 'number' && Number.isFinite(v))) {
+          const label = labelOf(point);
+          if (label !== null) candleCategories.push(label);
+          return [open as number, high as number, low as number, close as number];
+        }
+      }
+      return null;
+    };
+    if (Array.isArray(out.series)) {
+      out.series = out.series.map((entry) => {
+        if (!isRecord(entry) || !Array.isArray(entry.data)) return entry;
+        let changed = false;
+        const data = entry.data.map((point) => {
+          const candle = asCandle(point);
+          if (candle) {
+            changed = true;
+            return candle;
+          }
+          return point;
+        });
+        return changed ? { ...entry, data } : entry;
+      });
+    }
+    if ((out.categories === undefined || (Array.isArray(out.categories) && out.categories.length === 0))
+      && candleCategories.length > 0) {
+      out.categories = candleCategories;
+    }
     // ROW style: a producer may spell the data as labelled rows —
     // `data: [{label, values: [o,h,l,c]}]` (what a model writes for a candle
     // chart). The contract wants `categories` + `series[].data`; without this

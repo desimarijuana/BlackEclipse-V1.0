@@ -23,6 +23,7 @@ import { ComputedResultPanel } from './computed-result-panel';
 import { CapabilityCard } from './capability-card';
 import { AcquisitionPanel } from './acquisition-panel';
 import { MessageRail } from './message-rail';
+import { MessageAttachments } from './message-attachments';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { avatarFor, useBotAvatarStore } from '@/lib/bots/avatar-store';
@@ -62,6 +63,8 @@ interface ChatHistoryProps {
   onResendMessage?: (id: string) => void;
   /** Retry a failed assistant turn (re-runs its preceding user prompt). */
   onRetryMessage?: (id: string) => void;
+  /** Open a document a user turn carried (paste preview or session file). */
+  onOpenAttachment?: (name: string) => void;
   /** Rate an assistant turn. The caller persists the choice on the message. */
   onFeedback?: (id: string, feedback: 'up' | 'down') => void;
   /** Run a follow-up agent turn (used by response `controls` blocks). */
@@ -86,6 +89,14 @@ interface ChatHistoryProps {
 
 /** How close to the bottom counts as "following the stream". */
 const NEAR_BOTTOM_PX = 96;
+
+/**
+ * A user turn longer than this is collapsed to an excerpt. A pasted doc is an
+ * attachment now, but a long typed prompt (or a paste on a surface without the
+ * attachment hook) must not paint an unscrollable wall of text.
+ */
+const LONG_USER_MESSAGE_CHARS = 2_000;
+const USER_MESSAGE_PREVIEW_CHARS = 800;
 
 /**
  * The presentation mode the Intelligent Response Orchestrator chose, as a short
@@ -150,7 +161,7 @@ const AssistantContent = memo(function AssistantContent(props: AssistantContentP
   );
 });
 
-export function ChatHistory({ messages, compact = false, onEditMessage, onResendMessage, onRetryMessage, onFeedback, onFollowup, onOpenCanvas, scrollRef: externalScrollRef, bottomInset }: ChatHistoryProps) {
+export function ChatHistory({ messages, compact = false, onEditMessage, onResendMessage, onRetryMessage, onOpenAttachment, onFeedback, onFollowup, onOpenCanvas, scrollRef: externalScrollRef, bottomInset }: ChatHistoryProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -158,6 +169,8 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // One long user turn expanded at a time; the rest stay compact.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   // The "Latest" pill is portaled to <body> so its backdrop-filter samples the
   // real page. The transcript sits inside the app shell's own `.glass-card`,
   // which is a backdrop root and would silently flatten a nested glass surface —
@@ -447,14 +460,14 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                     compact={compact}
                   />
                   {(msg.analysis || msg.research) && (
-                    <div className="mt-3 flex w-full flex-col gap-3 md:flex-row md:items-start">
+                    <div className="mt-2 flex w-full flex-col gap-2">
                       {msg.analysis ? (
-                        <div className="w-full md:w-1/2 md:min-w-0 [&>div]:mt-0">
+                        <div className="w-full min-w-0 [&>div]:mt-0">
                           <ComputedResultPanel result={msg.analysis} compact={compact} runId={msg.runId} />
                         </div>
                       ) : null}
                       {msg.research ? (
-                        <div className="w-full md:w-1/2 md:min-w-0 [&>div]:mt-0">
+                        <div className="w-full min-w-0 [&>div]:mt-0">
                           <ResearchEvidencePanel research={msg.research} compact={compact} />
                         </div>
                       ) : null}
@@ -642,7 +655,25 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                       // instead of wrapping early inside a fixed-size bubble.
                       : 'w-fit max-w-full px-3.5 py-2 md:px-4 md:py-2.5 text-[13px] md:text-[14px] rounded-2xl',
                   )}>
-                    {msg.content}
+                    {msg.content.length > LONG_USER_MESSAGE_CHARS && expandedId !== msg.id
+                      ? `${msg.content.slice(0, USER_MESSAGE_PREVIEW_CHARS).trimEnd()}…`
+                      : msg.content}
+                    {msg.content.length > LONG_USER_MESSAGE_CHARS && (
+                      <button
+                        type="button"
+                        onClick={() => setExpandedId((id) => (id === msg.id ? null : msg.id))}
+                        aria-expanded={expandedId === msg.id}
+                        className="mt-1.5 block whitespace-normal text-[11px] font-medium text-primary/80 underline-offset-2 transition-colors hover:text-primary hover:underline"
+                      >
+                        {expandedId === msg.id
+                          ? 'Show less'
+                          : `Show full message · ${msg.content.length.toLocaleString()} characters`}
+                      </button>
+                    )}
+                    <MessageAttachments
+                      attachments={msg.attachments}
+                      onOpen={onOpenAttachment}
+                    />
                   </div>
                   <div className="hover-reveal mt-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                     <button
@@ -692,7 +723,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
           aria-label="Scroll conversation"
           onPointerDown={onBarPointerDown}
           className={cn(
-            'absolute right-5 z-20 w-1.5 rounded-full bg-foreground/20 cursor-grab touch-none transition-opacity duration-200 hover:bg-foreground/40',
+            'absolute right-0.5 z-20 w-1.5 rounded-full bg-foreground/20 cursor-grab touch-none transition-opacity duration-200 hover:bg-foreground/40',
             barDragging && 'bg-foreground/50 cursor-grabbing',
             barVisible ? 'opacity-100' : 'opacity-0 pointer-events-none',
           )}

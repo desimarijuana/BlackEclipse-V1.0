@@ -37,6 +37,34 @@ export interface QuoteEntry {
 
 const QUOTE_POLL_MS = 30_000;
 
+// ── Last-good bars on disk ──────────────────────────────────────────────────
+// The in-memory cache dies with the page. Persisting the last series per
+// identity lets a reloaded workspace paint its charts immediately and then
+// revalidate, instead of showing a spinner for every panel.
+const BARS_CACHE_PREFIX = 'be:chart-bars:v1:';
+
+function readCachedBars(key: string): ChartData | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(BARS_CACHE_PREFIX + key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { t?: number; data?: ChartData };
+    if (!parsed?.data || !Array.isArray(parsed.data.bars) || parsed.data.bars.length === 0) return null;
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedBars(key: string, data: ChartData | null): void {
+  if (typeof window === 'undefined' || !data) return;
+  try {
+    window.localStorage.setItem(BARS_CACHE_PREFIX + key, JSON.stringify({ t: Date.now(), data }));
+  } catch {
+    // Quota/full or privacy mode: the in-memory cache still works.
+  }
+}
+
 /**
  * Bars cache lifetime for a timeframe. Intraday candles go stale within
  * seconds, so a flat 10-minute TTL made the candle chart visibly lag the live
@@ -143,6 +171,20 @@ export class DataSubscriptionManager {
         timer: null,
         timeframe,
       };
+      const cached = readCachedBars(key);
+      if (cached) {
+        const cachedSource: DataSource = cached.source === 'yfinance' ? 'LIVE'
+          : cached.source === 'snapshot' ? 'DELAYED'
+            : cached.source === 'demo' ? 'DEMO'
+              : cached.source === 'none' ? 'UNAVAILABLE' : 'LIVE';
+        state.entry = {
+          data: cached,
+          loading: false,
+          error: null,
+          source: cachedSource,
+          updatedAt: null,
+        };
+      }
       this.bars.set(key, state);
     }
     state.listeners.add(listener);
@@ -239,6 +281,7 @@ export class DataSubscriptionManager {
     const state = this.bars.get(key);
     if (!state) return;
     state.entry = entry;
+    if (entry.data) writeCachedBars(key, entry.data);
     this.emitBars(key);
   }
 

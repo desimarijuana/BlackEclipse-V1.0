@@ -150,6 +150,7 @@ async def run_recursive(
     seed: int = 0,
     max_parallel: int = 1,
     actor: Any = None,
+    novelty_min: float = 0.0,
     measure: Optional[composition.Measurement] = None,
     trajectories: Optional[Mapping[str, Any]] = None,
     evidence_dir: Optional[Path | str] = None,
@@ -180,6 +181,7 @@ async def run_recursive(
     try:
         proposals = proposer.propose_many(
             candidate, int(budget["allowed"]), variants=variants, actor=actor,
+            novelty_min=novelty_min,
         )
     except proposer.ProposalRefused as exc:
         return {

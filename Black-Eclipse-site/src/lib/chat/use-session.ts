@@ -12,12 +12,22 @@ import {
   uploadSessionFile,
 } from './session-client';
 import { SESSION_LIMITS, type SessionFile, type SessionInfo } from './session-types';
-import { pastedTextName } from './paste';
+import { claimPastes, pastedTextName } from './paste';
 
 export interface PendingFile {
   name: string;
   bytes: number;
 }
+
+/** A pasted document to show on the user turn that first used it. */
+export interface PastedAttachment {
+  name: string;
+  chars: number;
+  preview: string;
+}
+
+/** How much of a paste is kept for the transcript card (display only). */
+export const PASTED_PREVIEW_CHARS = 240;
 
 /**
  * The visible attachment chips: pending files first, then the session's saved
@@ -51,7 +61,7 @@ export interface SessionController {
    * (same session folder, same chip, same extraction into the run). Used when a
    * paste is too big to belong in the composer.
    */
-  attachText: (text: string) => Promise<void>;
+  attachText: (text: string, reservedNames?: Iterable<string>) => Promise<void>;
   /**
    * Open an attachment for READING. A pasted text opens the in-memory preview
    * (it is not read back from disk); any other document opens the session file.
@@ -61,11 +71,14 @@ export interface SessionController {
   preview: { name: string; text: string } | null;
   closePreview: () => void;
   /**
-   * Take the most recent pasted text back out of the attachment list, so it can
-   * be sent AS the message when the composer is empty (the way a paste is sent
-   * in other chat apps). Returns null when nothing was pasted.
+   * Claim the pasted documents added since the last send. They STAY attachments
+   * (the run keeps reading them as context); the claim only marks that the next
+   * user turn should show them, so an old paste is never re-labelled on every
+   * later message.
    */
-  takePastedText: () => Promise<{ name: string; text: string } | null>;
+  claimPastedAttachments: () => PastedAttachment[];
+  /** Wait for paste uploads already in flight, so the next run sees them. */
+  flushAttachments: () => Promise<void>;
   /**
    * Upload anything attached before the conversation existed into `chatId`, and
    * WAIT for it. Call this before starting a run so the run's context documents
@@ -84,13 +97,24 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
   const [localKey, setLocalKey] = useState(0);
   const [pending, setPending] = useState<PendingFile[]>([]);
   // Pasted text, kept in memory under its attachment name so it can be read
-  // back (a preview) and sent as the message without a disk round-trip.
+  // back (a preview) and shown on the turn that sent it without a disk
+  // round-trip. `claimed` records which pastes already belong to a user turn.
   const pastedTextsRef = useRef(new Map<string, string>());
+  const claimedPastesRef = useRef(new Set<string>());
   const [preview, setPreview] = useState<{ name: string; text: string } | null>(null);
   const chatIdRef = useRef(chatId);
   chatIdRef.current = chatId;
+  // A paste belongs to the conversation it was attached in. Switching chats
+  // must not let an unclaimed paste from the old thread appear on a new turn.
+  useEffect(() => {
+    pastedTextsRef.current.clear();
+    claimedPastesRef.current.clear();
+    setPreview(null);
+  }, [chatId]);
   // Files attached before a conversation exists, flushed on the first reload.
   const pendingRef = useRef<File[]>([]);
+  // Uploads started by a paste. Sending can happen before the round-trip ends.
+  const attachingRef = useRef(new Set<Promise<void>>());
 
   const uploadFiles = useCallback(async (files: FileList | File[]) => {
     const id = chatIdRef.current;
@@ -137,15 +161,29 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
    * path as a file, so it gets a chip, lands in the session folder, and is
    * extracted into every run exactly like an attached document.
    */
-  const attachText = useCallback(async (text: string) => {
+  const attachText = useCallback(async (text: string, reservedNames?: Iterable<string>) => {
     const taken = [
+      ...(reservedNames ?? []),
+      ...pastedTextsRef.current.keys(),
       ...pendingRef.current.map((f) => f.name),
       ...(session?.files ?? []).map((f) => f.name),
     ];
     const name = pastedTextName(taken);
     pastedTextsRef.current.set(name, text);
-    await uploadFiles([new File([text], name, { type: 'text/plain' })]);
+    claimedPastesRef.current.delete(name);
+    const task = uploadFiles([new File([text], name, { type: 'text/plain' })]);
+    attachingRef.current.add(task);
+    try {
+      await task;
+    } finally {
+      attachingRef.current.delete(task);
+    }
   }, [uploadFiles, session]);
+
+  const flushAttachments = useCallback(async () => {
+    if (attachingRef.current.size === 0) return;
+    await Promise.allSettled([...attachingRef.current]);
+  }, []);
 
   const openAttachment = useCallback((name: string) => {
     const text = pastedTextsRef.current.get(name);
@@ -159,21 +197,12 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
 
   const closePreview = useCallback(() => setPreview(null), []);
 
-  const takePastedText = useCallback(async () => {
-    const names = [...pastedTextsRef.current.keys()];
-    const name = names[names.length - 1];
-    if (!name) return null;
-    const text = pastedTextsRef.current.get(name) ?? '';
-    pastedTextsRef.current.delete(name);
-    const id = chatIdRef.current;
-    if (pendingRef.current.some((f) => f.name === name)) {
-      pendingRef.current = pendingRef.current.filter((f) => f.name !== name);
-      setPending((prev) => prev.filter((p) => p.name !== name));
-    } else if (id) {
-      await deleteSessionFile(id, 'context', name).catch(() => undefined);
-      setLocalKey((k) => k + 1);
-    }
-    return { name, text };
+  const claimPastedAttachments = useCallback((): PastedAttachment[] => {
+    return claimPastes(pastedTextsRef.current, claimedPastesRef.current).map(({ name, text }) => ({
+      name,
+      chars: text.length,
+      preview: text.slice(0, PASTED_PREVIEW_CHARS),
+    }));
   }, []);
 
   const flushPending = useCallback(async (id: string) => {
@@ -226,18 +255,24 @@ export function useSession(chatId: string | null, refreshKey = 0): SessionContro
     setBusy(true);
     try {
       await deleteSessionFile(id, file.kind, file.name);
+      pastedTextsRef.current.delete(file.name);
+      claimedPastesRef.current.delete(file.name);
+      if (preview?.name === file.name) setPreview(null);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Delete failed');
     } finally {
       setBusy(false);
     }
-  }, [refresh]);
+  }, [preview, refresh]);
 
   const removePending = useCallback((name: string) => {
     pendingRef.current = pendingRef.current.filter((f) => f.name !== name);
     setPending((prev) => prev.filter((p) => p.name !== name));
-  }, []);
+    pastedTextsRef.current.delete(name);
+    claimedPastesRef.current.delete(name);
+    if (preview?.name === name) setPreview(null);
+  }, [preview]);
 
-  return { session, busy, error, pending, refresh, uploadFiles, attachText, openAttachment, preview, closePreview, takePastedText, flushPending, removeFile, removePending };
+  return { session, busy, error, pending, refresh, uploadFiles, attachText, openAttachment, preview, closePreview, claimPastedAttachments, flushAttachments, flushPending, removeFile, removePending };
 }

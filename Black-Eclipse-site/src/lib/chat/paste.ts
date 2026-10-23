@@ -13,6 +13,8 @@
 //
 // Pure (no DOM, no fs) so the rule and the naming are testable.
 
+import type { Message } from "@/types/chat";
+
 /** Characters above which a paste is treated as a document, not a message. */
 export const PASTE_AS_ATTACHMENT_CHARS = 4_000;
 
@@ -38,4 +40,44 @@ export function pastedTextName(taken: Iterable<string>): string {
   let name = `${PASTED_TEXT_PREFIX}.txt`;
   for (let n = 2; used.has(name); n += 1) name = `${PASTED_TEXT_PREFIX}-${n}.txt`;
   return name;
+}
+
+/**
+ * Claim every paste not yet shown on a user turn. Claiming does NOT remove the
+ * document — the run keeps reading it as context — it only marks which pastes
+ * belong to the turn that is about to be sent.
+ */
+export function claimPastes(
+  pastes: ReadonlyMap<string, string>,
+  claimed: Set<string>,
+): Array<{ name: string; text: string }> {
+  const out: Array<{ name: string; text: string }> = [];
+  for (const [name, text] of pastes) {
+    if (claimed.has(name)) continue;
+    claimed.add(name);
+    out.push({ name, text });
+  }
+  return out;
+}
+
+/**
+ * The user turn for a send. A paste-only send gets a readable prompt (the
+ * document itself stays context); the claimed pastes become compact cards.
+ * Returns null when there is nothing to send.
+ */
+export function buildUserTurn(
+  typed: string,
+  pasted: ReadonlyArray<{ name: string; chars: number; preview: string }>,
+  hasAttachment: boolean,
+): Message | null {
+  const content = typed.trim() || (pasted.length || hasAttachment ? "Read the attached document." : "");
+  if (!content) return null;
+  return {
+    id: Date.now().toString(),
+    role: "user",
+    content,
+    attachments: pasted.length
+      ? pasted.map((p) => ({ name: p.name, chars: p.chars, preview: p.preview, pasted: true }))
+      : undefined,
+  };
 }

@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import inspect
 import json
+import random
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Mapping, Optional
 
@@ -39,6 +40,15 @@ class HillClimbConfig:
     max_evaluations: Optional[int] = None
     objective: str = "single"
     weights: UtilityWeights = field(default_factory=UtilityWeights)
+    # Archive sampling: where to propose FROM. It never changes acceptance.
+    archive_mode: str = "off"
+    archive_max: int = 200
+    # Opt-in paired significance: a measured lift must clear noise, not just
+    # the champion's point estimate.
+    require_significance: bool = False
+    significance_min_tasks: int = 5
+    significance_bootstrap: int = 10_000
+    significance_seed: int = 0
 
 
 async def _await(value: Any) -> Any:
@@ -140,6 +150,8 @@ async def run_hillclimb(
     config: Optional[HillClimbConfig] = None,
     scope: Optional[str] = None,
     on_accept: Optional[AcceptFn] = None,
+    archive: Optional[Any] = None,
+    rng: Optional[random.Random] = None,
 ) -> dict[str, Any]:
     """Climb from `current`, returning every rejected neighbor with its reason.
 
@@ -159,13 +171,51 @@ async def run_hillclimb(
     plateau = 0
     evaluated = 0
     stop_reason = "generations"
+    # The archive steers WHERE to explore; `state` stays the champion and is the
+    # only thing `acceptance` compares against.
+    use_archive = archive is not None and str(settings.archive_mode or "off") != "off"
+    generator = rng or random.Random(0)
+    archive_sampled: list[dict[str, Any]] = []
+    archive_retained = 0
 
     if not state.get("id") and state.get("snapshotDigest"):
         state["id"] = "current"
 
+    def _retain(candidate: Mapping[str, Any], *, status: str, parent: Any) -> None:
+        nonlocal archive_retained
+        if not use_archive:
+            return
+        payload = {
+            **dict(candidate),
+            "scope": state_scope,
+            "metrics": candidate.get("validation") or candidate.get("metrics") or {},
+            "parentStateId": (
+                parent.get("id") if isinstance(parent, Mapping) else None
+            ),
+        }
+        result = archive.retain(payload, status=status)
+        if isinstance(result, Mapping) and result.get("retained"):
+            archive_retained += 1
+
     for generation in range(max(0, int(settings.generations))):
+        proposal_parent = state
+        if use_archive:
+            sampled = archive.parent_for(
+                scope=state_scope, rng=generator, mode=settings.archive_mode,
+            )
+            if isinstance(sampled, Mapping):
+                proposal_parent = dict(sampled)
+                archive_sampled.append({
+                    "generation": generation,
+                    "stateId": proposal_parent.get("id"),
+                    "snapshotDigest": proposal_parent.get("snapshotDigest"),
+                    "status": proposal_parent.get("status"),
+                })
         raw_neighbors = await _await(
-            propose(state, max(1, int(settings.k)), generation, tuple(sorted(rejected_digests)))
+            propose(
+                proposal_parent, max(1, int(settings.k)), generation,
+                tuple(sorted(rejected_digests)),
+            )
         )
         neighbors = [dict(item) for item in (raw_neighbors or []) if isinstance(item, Mapping)]
         records: list[dict[str, Any]] = []
@@ -219,6 +269,10 @@ async def run_hillclimb(
             try:
                 decision = acceptance(
                     _state_metrics(state), validation, weights=settings.weights,
+                    require_significance=settings.require_significance,
+                    significance_min_tasks=settings.significance_min_tasks,
+                    significance_bootstrap=settings.significance_bootstrap,
+                    significance_seed=settings.significance_seed,
                 )
                 if (
                     settings.objective == "pareto"
@@ -254,10 +308,12 @@ async def run_hillclimb(
                 "costUsd": _metric(validation, "cost"),
                 "totalTokens": _metric(validation, "totalTokens"),
                 "replay": None,
+                "proposalParentId": proposal_parent.get("id"),
             }
             if not decision["accepted"]:
                 records.append(record)
                 rejected_digests.add(digest)
+                _retain(record, status="stepping_stone", parent=proposal_parent)
                 continue
 
             try:
@@ -282,12 +338,14 @@ async def run_hillclimb(
                 record["reasons"].append(gate["reason"])
                 records.append(record)
                 rejected_digests.add(digest)
+                _retain(record, status="stepping_stone", parent=proposal_parent)
                 continue
 
             record["decision"] = "accepted"
             record["replayGate"] = gate
             records.append(record)
             improving.append(record)
+            _retain(record, status="candidate", parent=proposal_parent)
 
         if improving:
             best = max(
@@ -295,7 +353,7 @@ async def run_hillclimb(
                 key=lambda item: (float(item.get("utility") or 0.0), str(item.get("id") or "")),
             )
             state_record = _state_record(
-                best, parent=state, metrics=best["validation"],
+                best, parent=proposal_parent, metrics=best["validation"],
                 score={"utility": best["utility"]}, scope=state_scope,
             )
             saved: Any = None
@@ -331,6 +389,7 @@ async def run_hillclimb(
             "neighbors": len(neighbors),
             "evaluated": evaluated,
             "accepted": len(improving),
+            "proposalParentId": proposal_parent.get("id"),
             "records": records,
         })
         if budget_reached:
@@ -355,6 +414,16 @@ async def run_hillclimb(
         "scope": state_scope,
         "objective": settings.objective,
         "pareto": pareto,
+        "archive": (
+            {
+                "enabled": True,
+                "mode": settings.archive_mode,
+                "sampled": archive_sampled,
+                "retained": archive_retained,
+            }
+            if use_archive
+            else {"enabled": False}
+        ),
     }
 
 

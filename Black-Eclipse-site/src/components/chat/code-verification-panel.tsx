@@ -48,7 +48,7 @@ export function CodeVerificationPanel({ verification, compact = false }: CodeVer
   }
 
   return (
-    <div className={cn('glass-card-subtle rounded-xl border border-border/40 p-3', compact ? 'text-[11px]' : 'text-[12px]')}>
+    <div className={cn('mt-2 rounded-xl border border-border/40 p-3', compact ? 'text-[11px]' : 'text-[12px]')}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

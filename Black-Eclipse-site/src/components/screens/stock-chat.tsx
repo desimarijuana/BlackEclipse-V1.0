@@ -19,8 +19,10 @@ import { ChatInput } from '@/components/chat/chat-input';
 import { ApprovalCard } from '@/components/chat/approval-card';
 import { SessionBar } from '@/components/chat/session-bar';
 import { CheckpointBar } from '@/components/chat/checkpoint-bar';
+import { NotebookButton, NotebookProvider } from '@/components/chat/notebook-provider';
 import { ChatWordmark } from '@/components/chat/chat-wordmark';
 import { useSession, mergeAttachmentChips } from '@/lib/chat/use-session';
+import { buildUserTurn } from '@/lib/chat/paste';
 import { mostRecentConversation, saveConversationsCache } from '@/lib/chat/chat-organization';
 import { useChatOrganization } from '@/lib/chat/use-chat-organization';
 import { useConversationPersistence } from '@/lib/chat/use-conversation-persistence';
@@ -239,6 +241,7 @@ function StockChatContent() {
     ),
     [sessionController.pending, sessionController.session],
   );
+  const reservedAttachmentNames = messages.flatMap((m) => m.attachments?.map((a) => a.name) ?? []);
 
   const handleRemoveAttachment = (name: string) => {
     if (sessionController.pending.some((p) => p.name === name)) {
@@ -664,13 +667,9 @@ function StockChatContent() {
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (agentBusy) return;
-    // A pasted document sent with nothing typed IS the message (the way a big
-    // paste is sent elsewhere): take it back out of the attachment list so the
-    // same text is not also injected as a document.
-    const pasted = query.trim() ? null : await sessionController.takePastedText();
-    const userText = query.trim() || pasted?.text || (attachmentChips.length ? 'Read the attached document.' : '');
-    if (!userText) return;
-    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: userText };
+    const userMsg = buildUserTurn(query, sessionController.claimPastedAttachments(), attachmentChips.length > 0);
+    if (!userMsg) return;
+    sessionController.closePreview();
     setQuery('');
     
     const chatId = addMessageToActiveChat(userMsg);
@@ -682,7 +681,8 @@ function StockChatContent() {
     } catch {
       // A failed flush must not block the send; the error is surfaced on the bar.
     }
-    await dispatchTurn(chatId, userText, userMsg);
+    await sessionController.flushAttachments();
+    await dispatchTurn(chatId, userMsg.content, userMsg);
   };
 
   /**
@@ -1152,6 +1152,7 @@ function StockChatContent() {
               data-keyboard-scope="Chat"
               className={activeTab === 'chat' ? 'w-full h-full' : 'hidden'}
             >
+              <NotebookProvider chatId={activeConversationId}>
               <div className={cn(
                 'w-full h-full flex flex-col items-center justify-between pt-2 md:pt-4 relative min-w-0 transition-[padding] duration-500 ease-out',
                 focusMode && 'pt-0',
@@ -1168,14 +1169,14 @@ function StockChatContent() {
                       onAttach={() => fileInputRef.current?.click()}
                       onAttachImage={() => imageInputRef.current?.click()}
                       attachments={attachmentChips} onRemoveAttachment={handleRemoveAttachment} onOpenAttachment={sessionController.openAttachment}
-                      onPasteText={(text) => void sessionController.attachText(text)}
+                      onPasteText={(text) => void sessionController.attachText(text, reservedAttachmentNames)}
                       busy={agentBusy}
                       onCancel={handleCancel}
                       modelState={chatModel}
                       effortState={reasoningEffort}
                       mentionTargets={mentionTargets}
                     />
-                    <div className="w-full px-4 md:px-6"><SessionBar session={sessionController} /></div>
+                    <div className="flex w-full items-center justify-between gap-2 px-4 md:px-6"><SessionBar session={sessionController} /><NotebookButton /></div>
                   </div>
                 ) : (
                   <div
@@ -1188,6 +1189,7 @@ function StockChatContent() {
   onEditMessage={handleEditMessage}
   onResendMessage={handleResendMessage}
   onRetryMessage={handleRetryMessage}
+  onOpenAttachment={sessionController.openAttachment}
   onFeedback={handleFeedback}
   onFollowup={handleFollowup}
   onOpenCanvas={openMessageInCanvas}
@@ -1210,7 +1212,7 @@ function StockChatContent() {
                         onAttachImage={() => imageInputRef.current?.click()}
                         attaching={sessionController.busy}
                         attachments={attachmentChips} onRemoveAttachment={handleRemoveAttachment} onOpenAttachment={sessionController.openAttachment}
-                        onPasteText={(text) => void sessionController.attachText(text)}
+                        onPasteText={(text) => void sessionController.attachText(text, reservedAttachmentNames)}
                         mentionTargets={mentionTargets}
                         contextLabel={sessionController.session && sessionController.session.contextChars > 0 ? `${(sessionController.session.contextChars / 1000).toFixed(1)}k / ${(sessionController.session.contextLimitChars / 1000).toFixed(0)}k chars` : undefined}
                         contextFraction={sessionController.session ? sessionController.session.contextChars / sessionController.session.contextLimitChars : 0}
@@ -1233,6 +1235,7 @@ function StockChatContent() {
                         <div className="min-w-0 flex-1">
                           <SessionBar session={sessionController} />
                         </div>
+                        <NotebookButton />
                         <CheckpointBar
                           chatId={activeConversationId}
                           messages={messages}
@@ -1274,6 +1277,7 @@ function StockChatContent() {
                   }}
                 />
               </div>
+              </NotebookProvider>
             </div>
           )}
 

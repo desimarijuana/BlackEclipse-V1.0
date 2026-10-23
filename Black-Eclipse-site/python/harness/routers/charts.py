@@ -17,6 +17,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
+from ..charts.codegen import generate_source
 from ..charts.render import (
     CHART_RENDER_FAILED,
     CHART_RENDER_UNAVAILABLE,
@@ -118,6 +119,44 @@ async def render_chart_route(
             # the chart engine never serves bytes from a caller-supplied path.
             "downloadUrl": f"/artifacts/{artifact_id}/download" if artifact_id else None,
         },
+    }
+
+
+@router.post("/charts/code")
+async def chart_code_route(
+    body: dict[str, Any] = Body(...),
+    _: None = Depends(require_operator),
+) -> dict[str, Any]:
+    """Return an editable matplotlib starting script for a chart spec.
+
+    The spec is validated and its named series are resolved exactly as the render
+    route does, so the generated program reads the SAME numbers the picture was
+    drawn from. The script is a starting point; `unsupported` names anything the
+    template could not reproduce.
+    """
+    try:
+        spec = ChartSpec(**body)
+    except Exception as exc:  # noqa: BLE001 - a malformed spec is a bad request
+        raise HTTPException(
+            status_code=400,
+            detail={"code": CHART_SPEC_INVALID, "message": str(exc)},
+        ) from exc
+    try:
+        spec = await resolve_data_sources(spec, _market_ctx())
+    except ChartSourceError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": exc.code, "message": exc.reason},
+        ) from exc
+
+    source, unsupported = generate_source(spec)
+    # The resolved spec rides along: a chart that NAMED its series now carries
+    # the fetched data, so the cell's `inputs["chart"]` matches the script.
+    return {
+        "status": "OK",
+        "source": source,
+        "unsupported": unsupported,
+        "spec": spec.to_dict(),
     }
 
 

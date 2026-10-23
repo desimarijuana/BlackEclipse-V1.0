@@ -226,20 +226,33 @@ describe('chartBlockToSpec', () => {
     expect(plan?.spec.series?.[0].band).toEqual({ lower: [0, 1], upper: [2, 3] });
   });
 
-  it('draws a treemap as a bar chart AND says the chart engine draws no treemap', () => {
+  it('draws a treemap natively', () => {
     const plan = chartBlockToSpec(
       block({ chartType: 'treemap', categories: ['a', 'b'], series: [{ name: 's', data: [1, 2] }] }),
     );
-    expect(plan?.spec.kind).toBe('bar');
-    expect(plan?.notes.join(' ')).toMatch(/treemap/i);
+    expect(plan?.spec.kind).toBe('treemap');
+    expect(plan?.spec.tiles).toEqual([
+      { name: 'a', value: 1 },
+      { name: 'b', value: 2 },
+    ]);
+    expect(plan?.notes).toEqual([]);
   });
 
-  it('draws a gauge as a bar chart AND says so', () => {
+  it('draws a gauge natively', () => {
     const plan = chartBlockToSpec(
       block({ chartType: 'gauge', categories: ['a'], series: [{ name: 's', data: [42] }] }),
     );
-    expect(plan?.spec.kind).toBe('bar');
-    expect(plan?.notes.join(' ')).toMatch(/gauge/i);
+    expect(plan?.spec.kind).toBe('gauge');
+    expect(plan?.spec.value).toBe(42);
+    expect(plan?.notes).toEqual([]);
+  });
+
+  it('draws a funnel as a native scene mark', () => {
+    const plan = chartBlockToSpec(
+      block({ chartType: 'funnel', categories: ['a', 'b'], series: [{ name: 's', data: [5, 3] }] }),
+    );
+    expect(plan?.spec.kind).toBe('scene');
+    expect(plan?.spec.panels?.[0].marks[0].type).toBe('funnel');
   });
 
   it('never fabricates a category that was not supplied', () => {

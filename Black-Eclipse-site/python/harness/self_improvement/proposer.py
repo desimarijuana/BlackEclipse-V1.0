@@ -17,6 +17,12 @@ from typing import Any, Mapping, Optional, Sequence
 
 from ..code import evolution
 from ..code.evolution_store import EvolutionStore
+from .operators import (
+    classify_ops,
+    is_near_duplicate,
+    op_signature,
+    tokens_for_ops,
+)
 from .security import RSLTargetError, assert_landable_target
 
 VARIANT_KINDS = ("invariant", "domain")
@@ -49,6 +55,9 @@ class CandidateProposal:
     targetPath: str
     ops: tuple[dict[str, Any], ...]
     description: str = ""
+    # The typed surface the ops mutate (`code_patch`, `prompt`, ...). It is
+    # evidence about WHAT is being tried, never authority.
+    operator: str = "code_patch"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +66,7 @@ class CandidateProposal:
             "targetPath": self.targetPath,
             "ops": [dict(op) for op in self.ops],
             "description": self.description,
+            "operator": self.operator,
         }
 
 
@@ -127,6 +137,7 @@ def _validated_proposal(
         targetPath=target,
         ops=tuple(validated),
         description=str(description or ""),
+        operator=classify_ops(target, validated),
     )
 
 
@@ -183,6 +194,8 @@ def propose_many(
     *,
     variants: Optional[Sequence[Mapping[str, Any]]] = None,
     actor: Any = None,
+    novelty_min: float = 0.0,
+    exclude_signatures: Sequence[str] = (),
 ) -> list[CandidateProposal]:
     """Build up to `k` typed proposals from ONE observation.
 
@@ -208,7 +221,7 @@ def propose_many(
             )
         target = str(observation.get("targetPath") or "")
         ops = observation.get("proposedOps") or []
-        return [
+        proposals: list[CandidateProposal] = [
             _validated_proposal(
                 observation,
                 proposal_id="v1",
@@ -219,30 +232,58 @@ def propose_many(
                 actor=resolved_actor,
             )
         ]
-
-    supplied = list(variants)
-    if not supplied:
-        raise ProposalRefused("PROPOSAL_NO_VARIANTS", "no candidate variants were supplied")
-    proposals: list[CandidateProposal] = []
-    for index, variant in enumerate(supplied[:k]):
-        if not isinstance(variant, Mapping):
+    else:
+        supplied = list(variants)
+        if not supplied:
             raise ProposalRefused(
-                "PROPOSAL_INVALID_VARIANT", "each variant must be an object",
+                "PROPOSAL_NO_VARIANTS", "no candidate variants were supplied",
             )
-        proposals.append(
-            _validated_proposal(
-                observation,
-                proposal_id=f"v{index + 1}",
-                kind=str(variant.get("kind") or "").strip().lower(),
-                target=str(variant.get("targetPath") or observation.get("targetPath") or ""),
-                ops=variant.get("ops") or variant.get("proposedOps") or [],
-                description=str(
-                    variant.get("description") or observation.get("problemStatement") or ""
-                ),
-                actor=resolved_actor,
+        proposals = []
+        for index, variant in enumerate(supplied[:k]):
+            if not isinstance(variant, Mapping):
+                raise ProposalRefused(
+                    "PROPOSAL_INVALID_VARIANT", "each variant must be an object",
+                )
+            proposals.append(
+                _validated_proposal(
+                    observation,
+                    proposal_id=f"v{index + 1}",
+                    kind=str(variant.get("kind") or "").strip().lower(),
+                    target=str(
+                        variant.get("targetPath")
+                        or observation.get("targetPath") or ""
+                    ),
+                    ops=variant.get("ops") or variant.get("proposedOps") or [],
+                    description=str(
+                        variant.get("description")
+                        or observation.get("problemStatement") or ""
+                    ),
+                    actor=resolved_actor,
+                )
             )
+
+    threshold = max(0.0, min(1.0, float(novelty_min)))
+    excluded = {str(item) for item in exclude_signatures if str(item)}
+    if threshold <= 0 and not excluded:
+        return proposals
+
+    kept: list[CandidateProposal] = []
+    kept_tokens: list[set[str]] = []
+    for proposal in proposals:
+        signature = op_signature(proposal.targetPath, proposal.ops)
+        if signature in excluded:
+            continue
+        tokens = tokens_for_ops(proposal.targetPath, proposal.ops)
+        if kept_tokens and is_near_duplicate(tokens, kept_tokens, threshold):
+            continue
+        kept.append(proposal)
+        kept_tokens.append(tokens)
+    if not kept:
+        raise ProposalRefused(
+            "PROPOSAL_ALL_DUPLICATES",
+            "every candidate is a near-duplicate of an already-measured proposal",
         )
-    return proposals
+    return kept
 
 
 __all__ = [

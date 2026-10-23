@@ -168,7 +168,9 @@ class AnalysisInput(BaseModel):
     model_config = _CAMEL
 
     name: str = Field(..., pattern=r"[A-Za-z_][A-Za-z0-9_]{0,40}")
-    kind: Literal["series", "table", "scalar", "text"] = "series"
+    # `json` carries an arbitrary JSON object/array (a chart spec, a nested
+    # record). It is DATA on the inputs file, never interpolated source.
+    kind: Literal["series", "table", "scalar", "text", "json"] = "series"
     value: Any
     provenance: Optional[str] = None
 
@@ -190,6 +192,8 @@ class AnalysisRequest(BaseModel):
     # resolver is attached (the analysis_run path). With no resolver the import
     # is refused, so discovery is never activation.
     allow_tools: bool = False
+    # Phase 21: notebook cells keep one globals dict; analysis_run never sets it.
+    persist_namespace: bool = False
 
 
 class ArtifactRef(BaseModel):
@@ -1108,6 +1112,13 @@ def _validate_input(item: AnalysisInput) -> None:
     elif item.kind == "text":
         if not isinstance(value, str):
             raise AnalysisError(INPUT_INVALID, f"{item.name}: text must be a string")
+    elif item.kind == "json":
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError) as exc:
+            raise AnalysisError(
+                INPUT_INVALID, f"{item.name}: the value is not JSON-serialisable"
+            ) from exc
 
 
 def _collect_artifacts(output_dir: Path, stage: Path) -> list[ArtifactRef]:

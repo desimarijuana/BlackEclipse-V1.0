@@ -252,6 +252,21 @@ export async function GET(request: Request) {
     return NextResponse.json(cached.payload);
   }
 
+  // 0b) COLD START: the in-memory cache is empty after every restart, but the
+  //     last-good payload is already on disk. Serving it first (with its real
+  //     observation/freshness envelope) is what makes a chart paint instantly;
+  //     the upstream refresh then runs in the background. Without this, every
+  //     first chart after a restart paid the full Yahoo latency (2-45s) even
+  //     though the same series was sitting in SystemConfig.
+  const persistedFirst = await loadPersistedHistory(key);
+  if (persistedFirst) {
+    // Mark it stale in memory so the background refresh is not blocked by a
+    // fresh TTL, while still avoiding a second upstream call for every view.
+    historyCache.set(key, { t: Date.now() - ttl, payload: persistedFirst });
+    startBackgroundRefresh(key, symbol, preferred, range, interval);
+    return NextResponse.json(persistedFirst);
+  }
+
   // 1) Real series from the Yahoo chart API — try the hinted market's candidates.
   for (const ticker of yahooChartCandidates(symbol, preferred)) {
     const chart = await fetchYahooChartSeries(ticker, range, interval);
