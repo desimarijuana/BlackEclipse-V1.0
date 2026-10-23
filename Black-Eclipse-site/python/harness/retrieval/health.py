@@ -55,7 +55,7 @@ _CAPABILITY_BY_DATATYPE: dict[str, dict[str, str]] = {
 # healthy route sitting unused next to a 0%-success route).
 _RANK: dict[str, int] = {"healthy": 0, "unknown": 1, "degraded": 1, "failing": 1}
 
-HealthIndex = dict[tuple[str, str, str], dict[str, int]]
+HealthIndex = dict[tuple[str, str, str], dict[str, Any]]
 
 
 def build_health_index(rows: Any) -> HealthIndex:
@@ -86,6 +86,9 @@ def build_health_index(rows: Any) -> HealthIndex:
         cur = index.setdefault(key, {"success": 0, "fail": 0})
         cur["success"] += success
         cur["fail"] += fail
+        last_fail = row.get("lastFailureAt")
+        if last_fail and str(last_fail) > str(cur.get("lastFailureAt") or ""):
+            cur["lastFailureAt"] = str(last_fail)
     return index
 
 
@@ -117,6 +120,90 @@ def health_verdict(
     if counts is None:
         counts = index.get((source, capability, "*"))
     return _verdict(counts)
+
+
+def apply_breaker(
+    order: list[str],
+    index: Optional[HealthIndex],
+    market: Optional[str],
+    data_type: str,
+    *,
+    threshold: Optional[int] = None,
+    cooldown_s: float = 60.0,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Split routes into (kept, skipped-by-breaker).
+
+    A route with N consecutive-recorded failures and ZERO recorded successes is
+    DEAD evidence, not an untested route. It is skipped rather than retried on
+    every request; provenance names it and why. After ``cooldown_s`` since the
+    last failure a single half-open probe is allowed.
+    """
+    import datetime as _dt
+    import os
+
+    if not index:
+        return order, []
+    limit = threshold if threshold is not None else int(
+        os.environ.get("HARNESS_ROUTE_BREAKER_THRESHOLD", "5")
+    )
+    capability_for = _CAPABILITY_BY_DATATYPE.get(data_type, {})
+    if not capability_for:
+        return order, []
+    now = _dt.datetime.now(_dt.timezone.utc)
+    kept: list[str] = []
+    skipped: list[dict[str, Any]] = []
+    for name in order:
+        capability = capability_for.get(name)
+        if not capability:
+            kept.append(name)
+            continue
+        mkt = (market or "").strip()
+        counts = index.get((name, capability, mkt))
+        if counts is None:
+            counts = index.get((name, capability, "*"))
+        if not counts:
+            kept.append(name)
+            continue
+        success = int(counts.get("success", 0))
+        fail = int(counts.get("fail", 0))
+        if success == 0 and fail >= limit:
+            last = counts.get("lastFailureAt")
+            probe = False
+            if last:
+                try:
+                    stamp = _dt.datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+                    if stamp.tzinfo is None:
+                        stamp = stamp.replace(tzinfo=_dt.timezone.utc)
+                    probe = (now - stamp).total_seconds() >= cooldown_s
+                except ValueError:
+                    probe = False
+            if probe:
+                kept.append(name)  # half-open single probe
+                skipped.append({
+                    "provider": name,
+                    "capability": capability,
+                    "routeCategory": "half_open_probe",
+                    "normalizedStatus": "probe",
+                    "success": success,
+                    "fail": fail,
+                    "detail": "cooldown elapsed; one half-open probe allowed",
+                })
+            else:
+                skipped.append({
+                    "provider": name,
+                    "capability": capability,
+                    "routeCategory": "circuit_breaker",
+                    "normalizedStatus": "skipped_by_breaker",
+                    "success": success,
+                    "fail": fail,
+                    "detail": (
+                        f"skipped-by-breaker: {success}/{fail} recorded successes "
+                        f"(consecutive failure threshold {limit})"
+                    ),
+                })
+        else:
+            kept.append(name)
+    return kept, skipped
 
 
 def rank_sources(

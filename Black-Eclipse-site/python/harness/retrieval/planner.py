@@ -26,7 +26,7 @@ Rules (one row per data type lives in `authority.AUTHORITY`):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from .authority import (
     CRYPTO,
@@ -49,6 +49,8 @@ class RetrievalPlan:
     allow_web: bool = True
     requires_precise_data: bool = False
     warnings: list[str] = field(default_factory=list)
+    # D6: routes demoted by the circuit breaker, with the recorded evidence.
+    routes_skipped: list[dict[str, Any]] = field(default_factory=list)
 
 
 _RATIONALE: dict[str, str] = {
