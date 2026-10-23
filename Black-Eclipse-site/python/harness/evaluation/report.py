@@ -314,10 +314,8 @@ def write_benchmarks(path: Optional[str] = None, *, live: Any = None,
     # The published file is the output of THIS function with no arguments, so the
     # live run must be selected here - not only in `main` - or the canonical
     # regeneration and the committed file disagree.
-    if live is None and not live_reason:
-        run_id = _latest_live_run_id()
-        if run_id:
-            live, live_reason = _load_live_suite(run_id)
+    if live is None and not live_reason and PUBLISHED_LIVE_RUN:
+        live, live_reason = _load_live_suite(PUBLISHED_LIVE_RUN)
 
     target = path or BENCHMARKS_PATH
     offline = run_offline_gate()
@@ -376,28 +374,14 @@ def _load_live_suite(run_id: str) -> tuple[Optional[Any], str]:
     ), ""
 
 
-def _latest_live_run_id() -> str:
-    """The most recent COMPLETED live run, so the default generation is truthful.
-
-    The published file is regenerated with no arguments, so "no live run has been
-    recorded" must mean exactly that - not "nobody passed `--live-run`". A failing
-    live run is still published; hiding it was the bug.
-    """
-    from ..persistence import AgentMemoryStore  # noqa: PLC0415
-    from .store import EvaluationStore  # noqa: PLC0415
-
-    store = AgentMemoryStore()
-    try:
-        runs = EvaluationStore(store).list_runs(limit=100)
-    finally:
-        store.close()
-    live_runs = [
-        row for row in runs
-        if (row.get("tier") or 0) == 1 and row.get("status") == "completed"
-    ]
-    if not live_runs:
-        return ""
-    return max(live_runs, key=lambda row: row.get("startedAt") or "")["id"]
+#: The live run published in `docs/harness/benchmarks.md`.
+#:
+#: Pinned ON PURPOSE. Selecting "the latest completed live run" makes the
+#: published file depend on mutable store state: running the test suite adds live
+#: runs, so regeneration and the committed file disagree by test ORDER. A published
+#: number that changes because a test ran is not reproducible. Publishing a new
+#: live run is a one-line change here, reviewed with the artifact.
+PUBLISHED_LIVE_RUN = "evalrun-1792772393137"
 
 
 def main(argv: Optional[list[str]] = None) -> int:
@@ -411,7 +395,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     live = None
     live_reason = ""
-    run_id = args.live_run or _latest_live_run_id()
+    run_id = args.live_run or PUBLISHED_LIVE_RUN
     if run_id:
         live, live_reason = _load_live_suite(run_id)
     target = write_benchmarks(args.out or None, live=live, live_reason=live_reason)

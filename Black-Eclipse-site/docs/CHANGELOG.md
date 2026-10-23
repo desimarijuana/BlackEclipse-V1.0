@@ -638,6 +638,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   measurement is published, not hidden - that is the point of recording it.
   docs updated: docs/harness/benchmarks.md.
 
+- **fix(eval): pin the published live run, because "latest" was not reproducible.**
+  Auto-selecting the newest completed live run made the published file depend on
+  mutable store state: running the test suite records more live runs, so
+  regeneration and the committed file disagreed by test ORDER and the
+  generated-not-hand-edited gate failed inside the full suite while passing alone.
+  The run is now a named constant, `PUBLISHED_LIVE_RUN`, reviewed with the
+  artifact. A published number that changes because a test ran is not
+  reproducible. Benchmarks regenerated after merging main (their new tasks moved
+  the offline counts).
+  no doc change — the generated artifact is updated in the same commit.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how
