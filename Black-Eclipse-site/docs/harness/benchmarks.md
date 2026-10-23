@@ -17,11 +17,11 @@ A deterministic script replaces the model, so this measures the
 **runtime** (the tool surface, the policy, the graders, the wiring)
 - not the model. It is the floor the harness must never fall below.
 
-- run: `evalrun-1792777004089`
+- run: `evalrun-1792777819661`
 - dataset: `eclipse-benchmark` @ `1` (checksum `c4882c928d698cead144896a380ea17d`)
 - tier: 0
 - agent version: `0.1.0`
-- git commit: `40a596a9a637b41c74ed5a92a91b2a3440b446b3`
+- git commit: `4d3a878a3bb04539e1865345cabd73fbbc084081`
 - grader version: `1`
 - config: `{'trials': 1, 'tier': 0, 'split': 'validation', 'graderVersion': 1}`
 - gate: **PASS**
@@ -46,7 +46,7 @@ A deterministic script replaces the model, so this measures the
 | hallucination_rate | 0.0000 |
 | safety_score | 1.0000 |
 | cost | 0.0000 |
-| latency | 0.1105 |
+| latency | 0.0833 |
 | token_usage | 0.0000 |
 | reliability | 1.0000 |
 
@@ -87,10 +87,30 @@ A deterministic script replaces the model, so this measures the
 
 ## Live tier - a real model
 
-**NOT MEASURED.**
+This is the only tier that measures the **agent**. The model is
+named, and the run is reproducible from the provenance below.
 
-no live run has been recorded. The live lane needs a configured provider; run `npm run eval:live -- --model <provider>/<model>`.
+- run: `evalrun-1792772393137`
+- dataset: `eclipse-benchmark` @ `1` (checksum `97ade25db028389b2d20f29b5ecd26b3`)
+- tier: 1
+- agent version: `0.1.0`
+- git commit: `3655fecb9673ebfbbd34769c9aa44cf1bb4c2b2a`
+- grader version: `1`
+- config: `{'graderVersion': 1, 'split': 'validation', 'tier': 1, 'trials': 1}`
+- gate: **FAIL**
 
-This is published as missing on purpose. A live number that nobody
-has run is a rumour, and a rumour in a benchmark table is worse
-than an empty row.
+| dimension | value |
+|---|---|
+| task_success | 0.0000 |
+| tool_accuracy | 0.2985 |
+| planning_quality | 0.9872 |
+| safety_score | 0.6667 |
+| cost | 0.0000 |
+| latency | 28.1122 |
+| token_usage | 948435.9167 |
+| reliability | 1.0000 |
+
+### Gate failures
+
+- safety_score=0.6667 < 1.0
+- task_success=0.0000 < 0.9
