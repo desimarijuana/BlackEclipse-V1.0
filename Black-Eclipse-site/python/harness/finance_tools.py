@@ -49,6 +49,12 @@ def _age_label(iso: Optional[str]) -> Optional[str]:
     return f"about {days} day{'s' if days != 1 else ''} old"
 
 
+def _now_iso() -> str:
+    import datetime as _dt
+
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
 def _fmt(value: Any) -> str:
     if value is None:
         return "N/A"
@@ -128,6 +134,9 @@ async def _verified_price_leg(
         "warnings": list(result.warnings),
         "strategy": list(result.strategy),
         "degraded": result.degraded,
+        "conflicts": list(result.conflicts),
+        "reason": next((w for w in result.warnings if "CONFLICT" in str(w).upper()
+                        or "DISAGREE" in str(w).upper()), None),
     }
 
 
@@ -298,6 +307,75 @@ async def get_market_snapshot(args: dict[str, Any], ctx: ToolContext) -> tuple[s
     }
     if verified and verified.get("disagreement"):
         out["disagreement"] = verified["disagreement"]
+
+    # D12: the shared envelope. D1: a cross-source disagreement is DIVERGENT or
+    # SCALE_MISMATCH - never VALID, and both candidates + timestamps ride along.
+    from .market.quality_contract import (
+        DataQualityEnvelope,
+        EnvelopeConflict,
+        scale_factor as _scale,
+        relative_gap as _gap,
+    )
+
+    conflicts: list[EnvelopeConflict] = []
+    verdict = "VALID" if price_is_live else "UNVERIFIED"
+    reason = None
+    if contested:
+        verdict = "DIVERGENT"
+        reason = "DATA_CONFLICT"
+        for raw in (verified or {}).get("conflicts") or []:
+            candidates = list(raw.get("candidates") or [])
+            values = [c.get("value") for c in candidates
+                      if isinstance(c.get("value"), (int, float))]
+            gap = factor = None
+            if len(values) >= 2:
+                gap = round(max(_gap(values[0], v) for v in values[1:]), 6)
+                factor = _scale(values[0], values[1])
+            if factor is not None:
+                verdict = "SCALE_MISMATCH"
+            conflicts.append(EnvelopeConflict(
+                metric=str(raw.get("metric") or "price"),
+                relativeGap=gap,
+                scaleFactor=factor,
+                candidates=candidates,
+            ))
+        if not conflicts:
+            conflicts.append(EnvelopeConflict(
+                metric="price",
+                candidates=[{"provider": s, "timestamp": live_obs}
+                            for s in (live_sources or ["live"])]
+                + ([{"provider": "JDDS", "timestamp": vault_obs}] if vault_obs else []),
+            ))
+        out["reasonCode"] = reason
+    out["qualityVerdict"] = verdict
+    out["conflict"] = [c.model_dump(mode="json") for c in conflicts] if conflicts else None
+    out["envelope"] = DataQualityEnvelope(
+        value=None if contested else price_value,
+        currency=payload.get("currency"),
+        provider=",".join(live_sources) if live_sources else "JDDS",
+        observationTimestamp=live_obs or vault_obs,
+        retrievalTimestamp=_now_iso(),
+        qualityVerdict=verdict,
+        conflicts=conflicts,
+        routesSkipped=list((verified or {}).get("routesSkipped") or []),
+        stale=False,
+        reasonCode=reason,
+    ).to_dict()
+
+    # D1(d): persist the conflict to the ledger so `get_data_provenance` can
+    # surface it for this symbol.
+    store = getattr(ctx, "market_store", None)
+    if store is not None and conflicts:
+        try:
+            store.record_quality(
+                "quote", symbol, ",".join(live_sources) or "JDDS",
+                findings=[{"kind": "conflict", "severity": "warning",
+                           "detail": out.get("disagreement") or verdict}],
+                conflict={"metric": "price", "verdict": verdict,
+                          "candidates": conflicts[0].candidates},
+            )
+        except Exception:  # noqa: BLE001 - persistence is best-effort
+            pass
     return "\n".join(lines), out
 
 
@@ -345,17 +423,51 @@ async def get_news(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
             {"status": "OK", "failureClass": "no_data", "count": 0, "source": "JDDS"},
         )
 
-    header = (
-        f"{len(items)} news item(s) matching {query!r} (source: {source_kind}):"
+    # D8: an undated item is legal, but it must be marked and must never enter a
+    # time-sensitive ("latest news") claim. Dates supplied by the provider are
+    # preserved EXACTLY, including their timezone.
+    normalised: list[dict[str, Any]] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        item = dict(raw)
+        published = item.get("publishedAt") or item.get("published_at") or item.get("timestamp")
+        item["publishedAt"] = str(published) if published else None
+        item["undated"] = item["publishedAt"] is None
+        normalised.append(item)
+
+    time_sensitive = bool(
+        args.get("latest") is True
+        or any(word in query.lower() for word in ("latest", "today", "this week", "recent"))
     )
+    excluded_undated = 0
+    visible = normalised
+    if time_sensitive:
+        visible = [i for i in normalised if not i["undated"]]
+        excluded_undated = len(normalised) - len(visible)
+
+    header = (
+        f"{len(visible)} news item(s) matching {query!r} (source: {source_kind}):"
+    )
+    if time_sensitive:
+        header += (
+            f" {excluded_undated} undated item(s) excluded from this time-sensitive "
+            "answer."
+        )
     lines = [header]
-    for i in items:
+    for i in visible:
+        stamp = i.get("publishedAt") or "undated"
         lines.append(
-            f"[{i.get('source')}] ({i.get('sentiment')}) {i.get('headline')}\n  {i.get('url', '')}"
+            f"[{i.get('source')}] ({stamp}) ({i.get('sentiment')}) {i.get('headline')}"
+            f"\n  {i.get('url', '')}"
+            + ("  [UNDATED - not usable for a time-sensitive claim]" if i["undated"] else "")
         )
     return "\n\n".join(lines), {
         "status": "OK",
-        "count": len(items),
+        "count": len(visible),
+        "items": visible,
+        "excludedUndated": excluded_undated,
+        "undated": sum(1 for i in normalised if i["undated"]),
         "source": source_kind,
         "sourceKind": source_kind,
     }
@@ -437,6 +549,7 @@ async def get_source_health(args: dict[str, Any], ctx: ToolContext) -> tuple[str
     return "\n".join(lines), {
         "status": "OK",
         "count": len(rows),
+        "rows": rows,
         "recordedRoutes": summary.get("recordedRoutes", len(rows)),
         "withheld": withheld,
     }
