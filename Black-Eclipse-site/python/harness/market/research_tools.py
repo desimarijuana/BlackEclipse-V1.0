@@ -144,21 +144,75 @@ async def list_providers(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
 
 
 async def get_provider_health(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Provider health read from the ONE recorded-run ledger (D5).
+
+    Before this, the tool read only the in-process router counters, which start
+    at zero and disagree with `get_source_health` (which reads the durable
+    SourceHealth ledger). The recorded run ledger is now the source of truth; a
+    route with zero recorded runs is `UNKNOWN`, never a healthy-looking zero.
+    """
     gateway = _gateway(ctx)
     router = gateway._router_ref()  # noqa: SLF001
-    health = router.health_snapshot() if router else []
+    in_process = router.health_snapshot() if router else []
     metrics = gateway.provider_metrics()
     store = getattr(ctx, "market_store", None)
     durable = store.provider_health() if store is not None else []
-    lines = ["Provider health:"]
+
+    ledger_rows: list[dict[str, Any]] = []
+    bridge = getattr(ctx, "data_bridge", None)
+    if bridge is not None:
+        try:
+            payload = await bridge.fetch("source_health", {"recordedOnly": False})
+            if isinstance(payload, dict) and payload.get("status") == "OK":
+                ledger_rows = [r for r in (payload.get("rows") or []) if isinstance(r, dict)]
+        except Exception:  # noqa: BLE001 - health is best-effort, never fatal
+            ledger_rows = []
+
+    health: list[dict[str, Any]] = []
+    if ledger_rows:
+        for row in ledger_rows:
+            success = int(row.get("success") or 0)
+            fail = int(row.get("fail") or 0)
+            records = success + fail
+            state = "UNKNOWN" if records == 0 else (
+                "HEALTHY" if fail == 0 else ("FAILING" if success == 0 else "DEGRADED")
+            )
+            health.append({
+                "provider": row.get("source"),
+                "capability": row.get("capability"),
+                "market": row.get("market"),
+                "assetClass": row.get("assetClass"),
+                "successes": success,
+                "failures": fail,
+                "records": records,
+                "state": state,
+                "successRate": row.get("successRate"),
+                "lastSuccessAt": row.get("lastSuccessAt"),
+                "lastFailureAt": row.get("lastFailureAt"),
+                "source": "run_ledger",
+            })
+    else:
+        # No ledger available: report the in-process counters but label empty
+        # routes UNKNOWN explicitly.
+        for h in in_process:
+            records = int(h.get("successes") or 0) + int(h.get("failures") or 0)
+            health.append({
+                **h,
+                "records": records,
+                "state": "UNKNOWN" if records == 0 else str(h.get("breaker", {}).get("state") or "").upper(),
+                "source": "in_process",
+            })
+
+    lines = ["Provider health (recorded-run ledger):"]
     for h in health:
-        breaker = h.get("breaker", {})
         lines.append(
-            f"  [{h['provider']}] successes={h['successes']} failures={h['failures']} "
-            f"breaker={breaker.get('state')}"
+            f"  [{h['provider']} {h.get('capability') or ''}] "
+            f"successes={h.get('successes')} failures={h.get('failures')} "
+            f"state={h.get('state')}"
         )
     return "\n".join(lines), {
         "status": "OK", "health": health, "metrics": metrics, "durable": durable,
+        "sourceOfTruth": "run_ledger" if ledger_rows else "in_process",
     }
 
 
@@ -713,15 +767,43 @@ async def get_data_provenance(args: dict[str, Any], ctx: Any) -> tuple[str, Any]
                             code="DATA_NOT_AVAILABLE")
     payload = snapshot.get("payload") or {}
     meta = payload.get("meta", {}) if isinstance(payload, dict) else {}
+    # D1(d): surface the persisted conflict ledger for this symbol, not just the
+    # last snapshot's provider/quality.
+    conflicts: list[dict[str, Any]] = []
+    try:
+        for event in market_store.recent_quality(limit=100):
+            if str(event.get("symbol") or "").upper() != symbol:
+                continue
+            if str(event.get("kind")) != "conflict":
+                continue
+            detail = event.get("detail")
+            if isinstance(detail, str):
+                try:
+                    import json as _json
+
+                    detail = _json.loads(detail)
+                except ValueError:
+                    detail = {"detail": detail}
+            conflicts.append({
+                "capability": event.get("capability"),
+                "provider": event.get("provider"),
+                "createdAt": event.get("createdAt"),
+                "conflict": detail,
+            })
+    except Exception:  # noqa: BLE001 - ledger read is best-effort
+        conflicts = []
     return (
         f"PROVENANCE {symbol} ({capability}) — provider={snapshot.get('provider')} "
-        f"eventTime={snapshot.get('eventTime')} quality={snapshot.get('quality')}",
+        f"eventTime={snapshot.get('eventTime')} quality={snapshot.get('quality')}"
+        + (f" — {len(conflicts)} recorded conflict(s)" if conflicts else ""),
         {"status": "OK", "provenance": {
             "symbol": symbol, "capability": capability,
             "provider": snapshot.get("provider"), "eventTime": snapshot.get("eventTime"),
             "retrievedAt": snapshot.get("retrievedAt"), "quality": snapshot.get("quality"),
             "observationSource": meta.get("observation_source"),
             "lineage": meta.get("source"),
+            "conflicts": conflicts,
+            "qualityVerdict": "DIVERGENT" if conflicts else "VALID",
         }},
     )
 
