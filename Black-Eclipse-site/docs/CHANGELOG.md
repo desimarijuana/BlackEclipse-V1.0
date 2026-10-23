@@ -668,6 +668,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   external-review criterion stays open.
   no doc change — ownership metadata, recorded here.
 
+- **chore(ownership): CODEOWNERS uses a role, not a personal account.** The paths
+  were assigned to `@desimarijuana`, which bakes a maintainer's personal GitHub
+  account into a public source tree. They now name `@BlackEclipse/maintainers` - a
+  role that resolves once the project has an org or team, and until then shows as
+  unresolved, which is honest. Ownership is still assigned; no individual identity
+  is committed.
+  no doc change — ownership metadata, recorded here.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how
