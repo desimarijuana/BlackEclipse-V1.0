@@ -691,6 +691,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Tests: `test_live_preflight.py` (dead bridge, healthy bridge, the sample floor).
   docs updated: none needed — behaviour is documented in the module docstrings.
 
+- **chore(size): the ceiling moves 27 lines, on purpose, for the preflight.** The
+  preflight is real code with a real test, so it cannot fit inside a budget that
+  was pinned to the last line. Raising a ceiling is the thing this repo normally
+  refuses, so it is recorded rather than slipped in: `totalLines`
+  381,881 -> 381,908 and `evaluation` 11,456 -> 11,483, exactly the 27 lines the
+  preflight and its test add. The alternative - deleting the tests - would have
+  bought a lower number at the cost of the check that the number is honest.
+  no doc change — the budget file is the record.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how

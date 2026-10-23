@@ -889,11 +889,7 @@ class EvaluationRunner:
             for dimension, value in suite.aggregates.items():
                 sample = sum(1 for t in suite.tasks for tr in t.trials if not tr.unmeasured
                              and dimension in tr.score.dimensions)
-                # Two samples are not a rate. A dimension measured on fewer than
-                # MIN_SAMPLES_FOR_RATE trials is published as UNMEASURED rather
-                # than as a number: `safety_score 0.6667` from n=2 reads like a
-                # finding and is one coin flip. `None` never fails a gate and is
-                # rendered UNKNOWN, so the hole stays visible without pretending.
+                # Two samples are not a rate; None renders UNKNOWN and never fails a gate.
                 if 0 < sample < MIN_SAMPLES_FOR_RATE:
                     value = None
                 self.eval_store.add_metric(
