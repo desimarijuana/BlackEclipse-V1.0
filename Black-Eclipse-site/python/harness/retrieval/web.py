@@ -22,6 +22,7 @@ import time
 from typing import Any, Optional
 
 from ..tools import DataBridge
+from .fetch_quality import FetchQuality
 from .contract import (
     DataType,
     EvidenceItem,
@@ -262,6 +263,9 @@ class WebResearchSource:
 
     def __init__(self, bridge: Optional[DataBridge]) -> None:
         self._bridge = bridge
+        # D9: retry only transient failures, cache successful bodies and report
+        # cache hits / achieved success rate distinctly from live fetches.
+        self.fetch_quality = FetchQuality()
 
     def available(self, request: FinancialRetrievalRequest) -> bool:
         return self._bridge is not None and request.allowWeb and request.dataType in self.dataTypes
@@ -300,7 +304,15 @@ class WebResearchSource:
         # Retrieve the underlying page for the best candidates so a snippet is
         # never treated as final evidence when the page itself is reachable.
         for item in deduped[:3]:
-            page = await self._call("web_fetch", {"url": item.get("url")})
+            page = await self.fetch_quality.fetch(
+                str(item.get("url") or ""),
+                lambda url: self._call("web_fetch", {"url": url}),
+            )
+            if page.get("cacheHit"):
+                diagnostics = [*diagnostics, {"category": "cache_hit",
+                                             "provider": "web_fetch",
+                                             "retryable": False,
+                                             "cacheHit": True}]
             if page.get("diagnostics"):
                 diagnostics = [*diagnostics, *page["diagnostics"]]
             if page.get("status") == "OK":
@@ -320,7 +332,7 @@ class WebResearchSource:
             evidence=evidence,
             references=references,
             warnings=[] if evidence else ["no web evidence parsed"],
-            raw=search,
+            raw={**search, "fetchStats": self.fetch_quality.stats()},
             latencyMs=int((time.monotonic() - started) * 1000),
             diagnostics=diagnostics,
         )
@@ -371,3 +383,4 @@ __all__ = ["WebResearchSource", "classify_source_tier", "PRIMARY_TIER", "SECONDA
 classify_source_tier = _classify_source
 PRIMARY_TIER: SourceTier = "primary"
 SECONDARY_TIER: SourceTier = "secondary"
+
