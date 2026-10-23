@@ -381,7 +381,12 @@ def _load_live_suite(run_id: str) -> tuple[Optional[Any], str]:
 #: runs, so regeneration and the committed file disagree by test ORDER. A published
 #: number that changes because a test ran is not reproducible. Publishing a new
 #: live run is a one-line change here, reviewed with the artifact.
-PUBLISHED_LIVE_RUN = "evalrun-1792772393137"
+#: Empty means "publish no live run". A live run lives in THIS machine's
+#: `agent-memory.db`, and the test suite generates against an isolated store, so
+#: embedding one makes the artifact unreproducible everywhere else. Publishing a
+#: live run requires a checked-in snapshot of that run (next step); until then the
+#: file honestly reports that no reproducible live measurement is committed.
+PUBLISHED_LIVE_RUN = ""
 
 
 def main(argv: Optional[list[str]] = None) -> int:

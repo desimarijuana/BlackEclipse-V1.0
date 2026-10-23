@@ -649,6 +649,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   the offline counts).
   no doc change — the generated artifact is updated in the same commit.
 
+- **revert(eval): do not embed a live run that exists on one machine.** Publishing
+  `evalrun-1792772393137` in the committed artifact made it unreproducible: the
+  run lives in this machine's `agent-memory.db`, while the test suite generates
+  against an isolated store, so the generated file and the committed one disagreed
+  inside the full suite while agreeing alone. The loader (`_load_live_suite`) stays
+  - it is correct and usable with `--live-run <id>` locally. `PUBLISHED_LIVE_RUN`
+  is empty and says why: publishing a live run needs a checked-in snapshot of that
+  run, which is the recorded next step. The file reports honestly that no
+  reproducible live measurement is committed instead of a number nobody else can
+  regenerate. docs updated: docs/harness/benchmarks.md.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how
