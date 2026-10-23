@@ -545,7 +545,7 @@
     },
     {
       "id": "finance.v4.eps.003",
-      "version": 1,
+      "version": 2,
       "name": "eps (optimization 3)",
       "description": "Compute eps from the given inputs; graded by an independent recomputation.",
       "category": "finance",
@@ -577,11 +577,17 @@
         "suites": [
           "finance"
         ],
-        "split": "optimization",
+        "split": "held_out",
         "oracle": "eps recomputed by evaluation/graders/financial.py",
         "contamination": {
           "source": "authored",
           "authoredAt": "2026-10-22"
+        },
+        "rotation": {
+          "quarter": "2026Q4",
+          "from": "optimization",
+          "to": "held_out",
+          "rotatedAt": "2026-10-23T18:02:59.295Z"
         },
         "agent_script": [
           {

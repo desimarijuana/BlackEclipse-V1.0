@@ -449,7 +449,7 @@
     },
     {
       "id": "finance.v5.operating_margin.005",
-      "version": 1,
+      "version": 2,
       "name": "operating margin (optimization 5)",
       "description": "Compute operating margin from the given inputs; graded by an independent recomputation.",
       "category": "finance",
@@ -481,11 +481,17 @@
         "suites": [
           "finance"
         ],
-        "split": "optimization",
+        "split": "held_out",
         "oracle": "operating margin recomputed by evaluation/graders/financial.py",
         "contamination": {
           "source": "authored",
           "authoredAt": "2026-10-22"
+        },
+        "rotation": {
+          "quarter": "2026Q4",
+          "from": "optimization",
+          "to": "held_out",
+          "rotatedAt": "2026-10-23T18:02:59.295Z"
         },
         "agent_script": [
           {
@@ -2326,7 +2332,7 @@
     },
     {
       "id": "finance.v5.percentage_change.004",
-      "version": 1,
+      "version": 2,
       "name": "percentage change (optimization 4)",
       "description": "Compute percentage change from the given inputs; graded by an independent recomputation.",
       "category": "finance",
@@ -2358,11 +2364,17 @@
         "suites": [
           "finance"
         ],
-        "split": "optimization",
+        "split": "held_out",
         "oracle": "percentage change recomputed by evaluation/graders/financial.py",
         "contamination": {
           "source": "authored",
           "authoredAt": "2026-10-22"
+        },
+        "rotation": {
+          "quarter": "2026Q4",
+          "from": "optimization",
+          "to": "held_out",
+          "rotatedAt": "2026-10-23T18:02:59.295Z"
         },
         "agent_script": [
           {

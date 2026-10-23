@@ -7,6 +7,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **data(evaluation): the 2026Q4 held_out rotation moved four finance tasks.**
+  `finance.v5.percentage_change.004`, `finance.v5.operating_margin.005`,
+  `finance.v4.eps.003` and `finance.v3.opt.cagr.001` moved
+  optimization → held_out (version bumped, `metadata.rotation` recorded); the
+  rotation-exempt team tasks stayed put. Splits are now validation 184 /
+  optimization 60 / held_out 6, still 250 tasks; the manifest was rebuilt and
+  verifies. Files: `python/harness/evaluation/datasets/{finance_v3,finance_v4,
+  finance_v5}.json`, `python/harness/evaluation/baselines/corpus_manifest.json`,
+  `python/tests/test_rsl_provenance.py`.
+  docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
 - **safety(evaluation): the live nightly is bounded and capped before it spends.**
   `--limit N` runs only the first N tasks (hard bound 500) and a positive
   `--max-cost USD` is required for `--live`; both are validated before any task

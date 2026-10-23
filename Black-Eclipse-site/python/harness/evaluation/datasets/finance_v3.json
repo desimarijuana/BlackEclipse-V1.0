@@ -90,7 +90,7 @@
     },
     {
       "id": "finance.v3.opt.cagr.001",
-      "version": 1,
+      "version": 2,
       "name": "CAGR (optimization)",
       "description": "Compute the compound annual growth rate over two years.",
       "category": "finance",
@@ -102,9 +102,10 @@
         {"name": "exact"}
       ],
       "metadata": {
-        "tier": 0, "suites": ["finance"], "split": "optimization",
+        "tier": 0, "suites": ["finance"], "split": "held_out",
         "oracle": "(end / start) ^ (1 / years) - 1, recomputed by evaluation/graders/financial.py",
         "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "rotation": {"quarter": "2026Q4", "from": "optimization", "to": "held_out", "rotatedAt": "2026-10-23T18:02:59.295Z"},
         "agent_script": [{"type": "final", "content": "The CAGR is 10.0%."}]
       }
     },
