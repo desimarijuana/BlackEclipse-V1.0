@@ -18,6 +18,68 @@ export interface StaleStatements {
   retrievedAt: string;
   statementSource: string;
   ageDays: number;
+  /** The newest reported period end (not the fetch time). */
+  periodEnd: string | null;
+  /** How old that period end is, in calendar days. */
+  periodAgeDays: number;
+}
+
+/**
+ * Statement cache key version. Bump whenever the cache-key/freshness contract
+ * changes, so a poisoned entry (e.g. FY2018 served as "latest") is not re-served.
+ */
+export const STATEMENT_CACHE_VERSION = 2;
+
+/** Per-statement-type maximum age, calendar-aware. */
+export const ANNUAL_STATEMENT_MAX_AGE_DAYS = 548; // 18 months
+export const QUARTERLY_STATEMENT_MAX_AGE_DAYS = 150;
+
+function periodEndOf(period: unknown): string | null {
+  if (!period || typeof period !== "object") return null;
+  const record = period as Record<string, unknown>;
+  const value =
+    record.endDate ?? record.periodEnd ?? record.date ?? record.fiscalDateEnding ?? record.end;
+  return typeof value === "string" && value.length >= 10 ? value.slice(0, 10) : null;
+}
+
+function newestPeriodEnd(periods: unknown[]): string | null {
+  const dates = periods.map(periodEndOf).filter((d): d is string => Boolean(d)).sort();
+  return dates.length ? dates[dates.length - 1] : null;
+}
+
+function looksQuarterly(periods: unknown[]): boolean {
+  const dates = periods.map(periodEndOf).filter((d): d is string => Boolean(d)).sort();
+  if (dates.length < 2) {
+    const p = periods.find((x) => x && typeof x === "object") as Record<string, unknown> | undefined;
+    return Boolean(p && typeof p.period === "string" && /^Q/i.test(p.period));
+  }
+  const first = Date.parse(dates[0]);
+  const last = Date.parse(dates[dates.length - 1]);
+  if (!Number.isFinite(first) || !Number.isFinite(last) || dates.length < 2) return false;
+  return (last - first) / (dates.length - 1) < 200 * 24 * 3600 * 1000;
+}
+
+export function statementMaxAgeDays(periods: unknown[]): number {
+  return looksQuarterly(periods)
+    ? QUARTERLY_STATEMENT_MAX_AGE_DAYS
+    : ANNUAL_STATEMENT_MAX_AGE_DAYS;
+}
+
+/** Age of the newest reported period (never the cache write time). */
+export function statementPeriodAge(periods: unknown[]): {
+  periodEnd: string | null;
+  periodAgeDays: number;
+  maxAgeDays: number;
+  stale: boolean;
+} {
+  const periodEnd = newestPeriodEnd(periods);
+  const maxAgeDays = statementMaxAgeDays(periods);
+  if (!periodEnd) return { periodEnd: null, periodAgeDays: 0, maxAgeDays, stale: false };
+  const end = Date.parse(periodEnd);
+  const ageDays = Number.isFinite(end)
+    ? Math.max(0, Math.floor((Date.now() - end) / (24 * 3600 * 1000)))
+    : 0;
+  return { periodEnd, periodAgeDays: ageDays, maxAgeDays, stale: ageDays > maxAgeDays };
 }
 
 /** Statements older than this are refreshed before being served. */
@@ -57,6 +119,8 @@ export function readCachedStatements(
   if (periods.length === 0) return {}; // an empty shell is a cache miss
   const ageMs = Date.now() - row.fetchedAt.getTime();
   const ageDays = Math.max(0, Math.round(ageMs / (24 * 3600 * 1000)));
+  const period = statementPeriodAge(periods);
+  const cacheVersion = Number(snapshot.cacheVersion ?? 0);
   const body = {
     symbol: identity.symbol,
     market: identity.market,
@@ -67,11 +131,18 @@ export function readCachedStatements(
     statementSource: (snapshot.primarySource as string | undefined) ?? row.primarySource,
     assetClass: identity.assetClass ?? null,
     periods,
+    periodEnd: period.periodEnd,
+    periodAgeDays: period.periodAgeDays,
+    maxAgeDays: period.maxAgeDays,
   };
-  if (ageMs <= STALE_STATEMENTS_MS && !refresh) {
+  // Fresh only when the CACHE KEY VERSION matches, the fetch is recent AND the
+  // actual reported PERIOD is inside its cadence. A fresh fetch timestamp on an
+  // FY2018 payload is exactly the defect this guards.
+  if (cacheVersion === STATEMENT_CACHE_VERSION && ageMs <= STALE_STATEMENTS_MS
+      && !period.stale && !refresh) {
     return { fresh: { status: "OK", ...body, provenance: "CACHED", cacheAgeDays: ageDays } };
   }
-  return { stale: { ...body, ageDays } };
+  return { stale: { ...body, ageDays, periodEnd: period.periodEnd, periodAgeDays: period.periodAgeDays } };
 }
 
 /**
@@ -92,6 +163,10 @@ export function staleStatementsResult(stale: StaleStatements): DataBridgeResult 
     provenance: "CACHED",
     stale: true,
     cacheAgeDays: stale.ageDays,
+    periodEnd: stale.periodEnd,
+    periodAgeDays: stale.periodAgeDays,
+    qualityVerdict: "STALE",
+    reasonCode: "DATA_STALE",
     periods: stale.periods,
   };
 }

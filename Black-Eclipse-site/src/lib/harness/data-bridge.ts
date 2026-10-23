@@ -60,6 +60,7 @@ import {
   liveCompanyProfile,
   readCachedStatements,
   staleStatementsResult,
+  statementPeriodAge,
   type StaleStatements,
 } from "@/lib/harness/data-bridge-statements";
 import {
@@ -792,6 +793,10 @@ async function financialStatements(params: Record<string, unknown>): Promise<Dat
           "from the vault or a configured provider (SEC/FMP/yfinance)",
       );
     }
+    // A provider can also hand back an ancient period with a fresh fetch
+    // timestamp. Judge the PERIOD, not the fetch: an FY2018 payload is STALE,
+    // naming its period end and age, never "latest".
+    const period = statementPeriodAge(snapshot.periods);
     return {
       status: "OK",
       symbol: identity.symbol,
@@ -804,6 +809,12 @@ async function financialStatements(params: Record<string, unknown>): Promise<Dat
       provenance: snapshot.provenance,
       assetClass: identity.assetClass,
       periods: snapshot.periods,
+      periodEnd: period.periodEnd,
+      periodAgeDays: period.periodAgeDays,
+      maxAgeDays: period.maxAgeDays,
+      ...(period.stale
+        ? { stale: true, qualityVerdict: "STALE", reasonCode: "DATA_STALE" }
+        : {}),
       // The cache now holds this payload; say the read came out fresh.
       cacheAgeDays: 0,
     };

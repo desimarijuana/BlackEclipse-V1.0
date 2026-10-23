@@ -52,6 +52,7 @@ RetrievalStatus = Literal[
     "AMBIGUOUS",     # the instrument identity could not be pinned to one thing
     "UNAVAILABLE",   # no evidence could be retrieved
     "CONFLICTING",   # sources disagree and it could not be resolved
+    "STALE",         # the newest available observation is beyond its cadence
     "INVALID",       # data was retrieved but failed validation
 ]
 
@@ -219,6 +220,11 @@ class FinancialRetrievalResult(BaseModel):
     # D3: provenance is REQUIRED for an OK result with a value. This flag is set
     # by the finalizer when the provenance chain is complete.
     provenanceVerified: bool = False
+    # D2/D12: true when the returned observation is beyond its cadence tolerance.
+    # A consumer can reject it programmatically, not only by reading a warning.
+    stale: bool = False
+    # D12: machine-readable refusal/staleness reason.
+    reasonCode: Optional[str] = None
     # Phase 6 (additive): per-source attempt diagnostics recorded during this
     # retrieval. Each entry names the provider, its normalized status/category,
     # http status, latency, timeout state, result count, parse outcome and

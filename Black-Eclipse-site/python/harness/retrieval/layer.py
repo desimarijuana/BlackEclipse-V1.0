@@ -20,6 +20,7 @@ number.
 
 from __future__ import annotations
 
+import datetime as dt
 import time
 from typing import Any, Optional
 
@@ -38,7 +39,7 @@ from .contract import (
     RetrievalStatus,
 )
 from .crypto import CryptoSource
-from .health import build_health_index, rank_sources
+from .health import apply_breaker, build_health_index, rank_sources
 from .parallel import run_parallel
 from .policies import cadence_for, max_age_seconds
 from .planner import (
@@ -186,6 +187,12 @@ class FinancialRetrievalLayer:
                 plan.sources, index, request.market, request.dataType
             )
             plan.warnings.extend(health_notes)
+            # D6: a route with zero recorded successes over N failures is
+            # demoted and skipped, not retried on every request. Provenance names
+            # it and why.
+            plan.sources, plan.routes_skipped = apply_breaker(
+                plan.sources, index, request.market, request.dataType
+            )
         await self._emit("retrieval.planned", {
             "dataType": request.dataType, "strategy": plan.sources,
             "rationale": plan.rationale, "mcpSources": declared,
@@ -283,6 +290,7 @@ class FinancialRetrievalLayer:
                 quality="unknown",
                 warnings=plan.warnings or ["no available source"],
                 strategy=plan.sources,
+                diagnostics=list(getattr(plan, "routes_skipped", [])),
             )
 
         authority = effective_authority(authority_for(request.dataType), request)
@@ -293,7 +301,7 @@ class FinancialRetrievalLayer:
         """Try planned sources in order; first OK result wins (then validate)."""
         attempts: list[SourceOutcome] = []
         warnings: list[str] = []
-        diagnostics: list[dict[str, Any]] = []
+        diagnostics: list[dict[str, Any]] = [*getattr(plan, "routes_skipped", [])]
         # Fallback misses are recorded separately and are NOT carried into a
         # successful answer: a live source answering after a vault miss is not a
         # degradation of the result, and warning about it makes a fresh quote
@@ -381,7 +389,7 @@ class FinancialRetrievalLayer:
         can be preserved (which was unreachable when the first success won).
         """
         tasks: list[tuple[str, Any]] = []
-        diagnostics: list[dict[str, Any]] = []
+        diagnostics: list[dict[str, Any]] = [*getattr(plan, "routes_skipped", [])]
         for name in plan.sources:
             source = self._sources.get(name)
             skip = classify_skip(name, source, request) if source is not None else ("not_implemented", f"{name} is not registered")
@@ -528,6 +536,16 @@ class FinancialRetrievalLayer:
             )
             warnings.extend(observation_warnings)
 
+        # D2: statements carry a per-statement maximum age. A cache hit whose
+        # reported period ends years ago is not "the latest" - it is STALE, with
+        # the real period end and age, and `stale=true` so a consumer can reject
+        # it without parsing a warning string.
+        statement_stale: Optional[str] = None
+        if request.dataType == "financial_statements":
+            statement_stale = _statement_staleness(request, objects)
+            if statement_stale is not None:
+                warnings.append(statement_stale)
+
         # D2: detect truncated/partial parses. A partial numeric is never emitted
         # as a figure — it is marked invalid and the result is flagged incomplete.
         incomplete_warnings = detect_incomplete(objects)
@@ -555,6 +573,10 @@ class FinancialRetrievalLayer:
         # A precise-data request that only got a web snippet must not claim OK.
         if request.dataType in ("historical_prices", "macro_series", "derived_metric") and outcome.source == WEB:
             status = "UNAVAILABLE"
+        # A statement whose newest period is beyond its cadence is honest STALE,
+        # never presented as "latest".
+        if statement_stale is not None:
+            status = "STALE"
         # D2: an incomplete parse is never a successful value.
         if incomplete:
             status = "UNAVAILABLE"
@@ -601,6 +623,8 @@ class FinancialRetrievalLayer:
             conflicts=conflicts,
             provenanceVerified=provenance_verified,
             diagnostics=diagnostics or [],
+            stale=statement_stale is not None,
+            reasonCode=("DATA_STALE" if statement_stale is not None else None),
         )
         # Cache only successful/partial results.
         if status in ("OK", "PARTIAL"):
@@ -716,6 +740,57 @@ class FinancialRetrievalLayer:
             pass
 
 
+ANNUAL_STATEMENT_MAX_AGE_DAYS = 548      # 18 months
+QUARTERLY_STATEMENT_MAX_AGE_DAYS = 150
+
+
+def _statement_staleness(
+    request: FinancialRetrievalRequest, objects: list[NormalizedFinancialObject]
+) -> Optional[str]:
+    """A named STALE reason when the newest reported period is too old."""
+    stamps = sorted({
+        str(o.dataTimestamp) for o in objects
+        if o.dataTimestamp and len(str(o.dataTimestamp)) >= 10
+    })
+    if not stamps:
+        return None
+    period_text = " ".join(str(o.period or "") for o in objects)
+    quarterly = "Q" in period_text.upper() or any(
+        o.period and str(o.period).upper().startswith("Q") for o in objects
+    )
+    # Infer quarterly cadence when consecutive period ends are ~3 months apart.
+    if not quarterly and len(stamps) >= 2:
+        first = _parse_date(stamps[0])
+        last = _parse_date(stamps[-1])
+        if first and last:
+            span_days = (last - first).days
+            if span_days and len(stamps) > 1 and span_days / (len(stamps) - 1) < 200:
+                quarterly = True
+    max_days = QUARTERLY_STATEMENT_MAX_AGE_DAYS if quarterly else ANNUAL_STATEMENT_MAX_AGE_DAYS
+    newest = stamps[-1]
+    parsed = _parse_date(newest)
+    if parsed is None:
+        return None
+    age_days = (dt.datetime.now(dt.timezone.utc).date() - parsed).days
+    if age_days <= max_days:
+        return None
+    return (
+        f"STALE_STATEMENT: newest period ends {newest} ({age_days} days old); "
+        f"{'quarterly' if quarterly else 'annual'} statements allow {max_days} days"
+    )
+
+
+def _parse_date(value: str) -> Optional[dt.date]:
+    text = str(value).strip().replace("Z", "+00:00")
+    try:
+        return dt.datetime.fromisoformat(text).date()
+    except ValueError:
+        try:
+            return dt.date.fromisoformat(text[:10])
+        except ValueError:
+            return None
+
+
 def _conflicts_payload(objects: list[NormalizedFinancialObject]) -> list[dict[str, Any]]:
     """C4: group conflicting observations, carrying every candidate + provenance.
 
@@ -819,3 +894,5 @@ def _data_payload(request: FinancialRetrievalRequest, objects: list[NormalizedFi
 
 
 __all__ = ["FinancialRetrievalLayer"]
+
+

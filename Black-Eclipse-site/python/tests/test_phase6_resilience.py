@@ -78,9 +78,9 @@ def _sec_payload() -> dict[str, Any]:
         "provider": "sec-edgar",
         "retrievedAt": "2026-09-23T00:00:00Z",
         "periods": [
-            {"endDate": "2024-01-28", "revenue": 60922000000, "netIncome": 29760000000,
+            {"endDate": "2026-01-26", "revenue": 60922000000, "netIncome": 29760000000,
              "form": "10-K", "filed": "2026-02-25"},
-            {"endDate": "2025-01-26", "revenue": 130497000000, "netIncome": 72880000000,
+            {"endDate": "2024-01-28", "revenue": 130497000000, "netIncome": 72880000000,
              "form": "10-K", "filed": "2026-02-25"},
         ],
     }
@@ -143,7 +143,11 @@ def test_sec_unavailable_falls_through_to_vault():
         objective="revenue for AAA", dataType="financial_statements", instrument="AAA",
     )
     result = asyncio.run(layer.retrieve(request))
-    assert result.status == "OK"
+    # The vault DID answer, but only with a 2019 period. Under the per-statement
+    # cadence contract (D2) that is an explicit STALE with its period end/age -
+    # never a silent "latest" answer.
+    assert result.status == "STALE"
+    assert result.stale is True
     # The ledger read (P0-2) is not a data attempt; SEC is the first DATA route.
     data_calls = [cap for cap, _ in bridge.calls if cap != "source_health"]
     assert data_calls and data_calls[0] == "sec_filings"
@@ -370,3 +374,5 @@ def test_jdds_source_still_serves_statements():
     assert JddsSource(ScriptedBridge({})).available(
         FinancialRetrievalRequest(objective="x", dataType="financial_statements")
     )
+
+

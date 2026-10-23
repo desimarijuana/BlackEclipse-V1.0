@@ -103,7 +103,7 @@ class _StubBridge(DataBridge):
 
     async def fetch(self, capability: str, params: dict):
         self.calls.append((capability, params))
-        return self._payloads.get(capability, {"status": "OK", "symbol": params.get("symbol"), "currency": "TWD", "periods": [{"endDate": "2024-12-31", "revenue": 1}]})
+        return self._payloads.get(capability, {"status": "OK", "symbol": params.get("symbol"), "currency": "TWD", "periods": [{"endDate": "2025-12-31", "revenue": 1}]})
 
 
 def test_sec_skipped_for_non_us_and_planner_continues():

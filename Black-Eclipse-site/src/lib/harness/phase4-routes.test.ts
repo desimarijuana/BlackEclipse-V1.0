@@ -93,7 +93,11 @@ describe("stale statements cache (VAULT-1)", () => {
     market: "US",
     primarySource: "sec-edgar",
     fetchedAt,
-    payload: JSON.stringify({ primarySource: "sec-edgar", periods: [{ period: "2019", revenue: 1 }] }),
+    payload: JSON.stringify({
+      cacheVersion: 2,
+      primarySource: "sec-edgar",
+      periods: [{ period: "2026", endDate: new Date().toISOString().slice(0, 10), revenue: 1 }],
+    }),
   });
 
   it("serves a FRESH cached snapshot with its age and no provider call", async () => {
