@@ -61,6 +61,18 @@ export interface CapabilityAxis {
   inconsistent?: MatrixInconsistency | null;
   inconsistencyReason?: string | null;
   /**
+   * D7: an explicit, machine-readable mismatch block. Emitted whenever the
+   * DECLARED level and the OBSERVED run-ledger health disagree, naming both
+   * values and the config key that owns the declaration. A CI check fails on an
+   * unexplained block (see `capability-mismatch-allowlist.json`).
+   */
+  mismatch?: {
+    declared: CapabilityLevel;
+    observed: ObservedHealth;
+    configKey: string;
+    explanationRequired: boolean;
+  } | null;
+  /**
    * For a route that is not the primary venue route (Phase 4.3): "primary" or
    * "secondary". A secondary route is never presented as primary.
    */
@@ -187,10 +199,19 @@ export interface CapabilityInputs {
  * `matrixInconsistent` (level forced to `not_implemented`, reason recorded),
  * never smoothed over.
  */
+export const CAPABILITY_CONFIG_KEYS: Record<string, string> = {
+  quote: "harness.capability.quote",
+  history: "harness.capability.history",
+  fundamentals: "harness.capability.fundamentals",
+  filings: "harness.capability.filings",
+  web: "harness.capability.web",
+};
+
 function reconcileAxis(
   axis: CapabilityAxis, market: string, axisName: string,
 ): CapabilityAxis {
   const implemented = axis.level === "configured" || axis.level === "unconfigured";
+  const configKey = `${CAPABILITY_CONFIG_KEYS[axisName] ?? `harness.capability.${axisName}`}.${market}`;
   if (!implemented && axis.observed !== "unknown") {
     return {
       ...axis,
@@ -199,6 +220,24 @@ function reconcileAxis(
       inconsistencyReason:
         `${market} ${axisName}: observed "${axis.observed}" but the declared level is ` +
         `"${axis.level}" — a non-unknown observation requires an implemented route`,
+      mismatch: {
+        declared: axis.level,
+        observed: axis.observed,
+        configKey,
+        explanationRequired: true,
+      },
+    };
+  }
+  // The reverse contradiction: declared runnable but recorded as failing.
+  if (implemented && (axis.observed === "failing" || axis.observed === "degraded")) {
+    return {
+      ...axis,
+      mismatch: {
+        declared: axis.level,
+        observed: axis.observed,
+        configKey,
+        explanationRequired: true,
+      },
     };
   }
   return axis;

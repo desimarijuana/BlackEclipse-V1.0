@@ -1,0 +1,4 @@
+{
+  "_comment": "Known, dated, justified capability-matrix mismatches. A mismatch not listed here fails the CI check.",
+  "exceptions": []
+}

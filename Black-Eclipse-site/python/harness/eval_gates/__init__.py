@@ -55,7 +55,7 @@ def _run_capability_matrix_gate() -> GateResult:
     import sys
 
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-    script = os.path.join(root, "scripts", "eval-capability-matrix.ts")
+    script = os.path.join(root, "scripts", "capability-matrix-check.ts")
     # Prefer the local tsx binary (avoid a shell + npx shim lookup that fails on
     # some Windows setups); fall back to `npx tsx`.
     tsx = os.path.join(root, "node_modules", ".bin", "tsx.cmd")
