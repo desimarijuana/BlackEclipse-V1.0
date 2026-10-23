@@ -7,6 +7,28 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **fix(evaluation): the nightly report can no longer contradict its exit code.**
+  Moved the report write to the end of `run_nightly`, after the live comparison,
+  promotion and baseline write; a live regression used to set `ok=False` after
+  the PASS file was already on disk (and the file omitted those results).
+  `GET /evolution/corpus` now also exposes `oracleExemptCount`. Size ceilings
+  raised 5 lines (382,030 total; evaluation 11,603; routers 17,214). Files:
+  `python/harness/evaluation/nightly.py`,
+  `python/harness/routers/evolution_corpus.py`,
+  `python/tests/{test_evaluation_nightly,test_evolution_corpus_routes}.py`,
+  `scripts/size-budget.json`.
+  docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
+- **data(evaluation): the first live-tier baseline is pinned.**
+  Recorded `ollama` / `deepseek-v4.1-flash:cloud` on the validation split of the
+  338-task corpus (244 tasks, dataset checksum `d6375ca4…`, prompt hash
+  `f05e7c03…`): task_success 0.6901 (95% CI 0.6292..0.7450), 242 measured
+  trials. A same-identity rerun exited FAIL on the critical gates
+  (task_success −0.0083, financial_accuracy −0.0195, safety_score −0.0625); the
+  gates allow no drop on those dimensions, so the regression is reported, not
+  smoothed. Cost reads 0.0 because `ollama/*` is priced free/local. Files:
+  `python/harness/evaluation/baselines/live_v1.json`,
+  `docs/self-improvement/rsl-report-2026-10-23.md`.
+  docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
 - **data(evaluation): 338-task corpus with 263 real oracles and 75 documented
   exemptions.** Added `metadata.oracleExempt` + `oracleReason` (task or dataset
   level) and dataset-level contamination so `validate_tasks(strict=True)`

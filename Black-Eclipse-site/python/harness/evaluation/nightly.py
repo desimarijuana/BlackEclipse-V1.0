@@ -300,17 +300,6 @@ async def run_nightly(
         "ok": not critical,
     }
 
-    target = directory or report_dir()
-    os.makedirs(target, exist_ok=True)
-    stem = f"nightly-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
-    json_path = os.path.join(target, f"{stem}.json")
-    md_path = os.path.join(target, f"{stem}.md")
-    with open(json_path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, sort_keys=True, default=str)
-    with open(md_path, "w", encoding="utf-8") as handle:
-        handle.write(render_markdown(payload))
-    payload["report"] = {"json": json_path, "markdown": md_path}
-
     if live:
         from .live_baseline import (  # noqa: PLC0415 - live-only dependency
             build_live_baseline,
@@ -381,6 +370,20 @@ async def run_nightly(
         )
     if write_baseline:
         payload["writtenBaseline"] = write_baseline_file(write_baseline, payload)
+
+    # Write the report LAST: the live comparison, promotion and baseline write
+    # all mutate `payload` (notably `ok`), and a report that says PASS while the
+    # process exits 1 is a lie. The published live report is a separate file.
+    target = directory or report_dir()
+    os.makedirs(target, exist_ok=True)
+    stem = f"nightly-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+    json_path = os.path.join(target, f"{stem}.json")
+    md_path = os.path.join(target, f"{stem}.md")
+    with open(json_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True, default=str)
+    with open(md_path, "w", encoding="utf-8") as handle:
+        handle.write(render_markdown(payload))
+    payload["report"] = {"json": json_path, "markdown": md_path}
     return payload
 
 

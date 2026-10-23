@@ -55,6 +55,10 @@ async def test_a_planted_regression_fails_the_nightly_gate(store, tmp_path):
     assert first["ok"] is True
     assert first["hasBaseline"] is False  # there was nothing to compare with yet
     assert first["baselineId"]
+    # The report is written AFTER promotion, so it carries the promoted id.
+    with open(first["report"]["json"], encoding="utf-8") as handle:
+        first_body = json.load(handle)
+    assert first_body["baselineId"] == first["baselineId"]
 
     # 2. The same corpus, but one task now fails: the gate must catch it.
     second = await run_nightly(
@@ -92,6 +96,10 @@ async def test_a_committed_baseline_file_is_the_gate(store, tmp_path):
         directory=reports, write_baseline=baseline,
     )
     assert good["ok"] is True
+    # The report is written AFTER the baseline file, so it records the write.
+    with open(good["report"]["json"], encoding="utf-8") as handle:
+        good_body = json.load(handle)
+    assert good_body["writtenBaseline"] == baseline
     body = read_baseline_file(baseline)
     assert body["metrics"]["aggregates"]["task_success"] == 1.0
     # The volatile measures are NOT in a committed baseline: they move every run.
