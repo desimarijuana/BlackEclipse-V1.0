@@ -6,7 +6,7 @@
   "reviewer": "eclipse-eval",
   "reviewedAt": "2026-10-20",
   "notes": "Deterministic offline adversarial fixtures. Synthetic, clearly-labelled services only - no production data and no jdds.db content. Every task is scripted, so the tier-0 run is reproducible.",
-  "metadata": {"tiers": {"0": "deterministic", "1": "integration", "2": "live"}},
+  "metadata": {"tiers": {"0": "deterministic", "1": "integration", "2": "live"}, "oracleExempt": true, "oracleReason": "authored refusal/overclaim fixture; the correct answer is a refusal, not a number", "contamination": {"source": "authored", "authoredAt": "2026-10-20"}},
   "tasks": [
     {
       "id": "adversarial.unavailable.001",

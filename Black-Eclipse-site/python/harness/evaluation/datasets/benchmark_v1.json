@@ -6,7 +6,7 @@
   "reviewer": "eclipse-eval",
   "reviewedAt": "2026-10-08",
   "notes": "Deterministic offline fixture set. Synthetic, clearly-labelled tasks only \u2014 no production data and no jdds.db content. Tasks with `live_only` metadata are graded only in the live tier.",
-  "metadata": {"tiers": {"0": "deterministic", "1": "integration", "2": "live"}},
+  "metadata": {"tiers": {"0": "deterministic", "1": "integration", "2": "live"}, "oracleExempt": true, "oracleReason": "frozen legacy benchmark; many tasks grade behaviour or prose, not a recomputed value", "contamination": {"source": "authored", "authoredAt": "2026-10-08"}},
   "tasks": [
     {
       "id": "core.echo.001",

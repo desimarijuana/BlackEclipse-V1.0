@@ -50,6 +50,42 @@ def has_oracle(task: Any) -> bool:
     return bool(_meta(task).get("oracle") or _meta(task).get("recomputed"))
 
 
+def is_oracle_exempt(
+    task: Any, dataset_metadata: Optional[Mapping[str, Any]] = None,
+) -> bool:
+    """A task (or its whole dataset) deliberately predates the oracle rule.
+
+    Exemption is not a substitute for an oracle: it records that the task's
+    expected behaviour cannot be independently recomputed (a refusal, a route,
+    a frozen team comparison), so the strict audit must not call it a gap.
+    """
+    return bool(
+        _meta(task).get("oracleExempt")
+        or (dataset_metadata or {}).get("oracleExempt")
+    )
+
+
+def oracle_reason(
+    task: Any, dataset_metadata: Optional[Mapping[str, Any]] = None,
+) -> str:
+    """Why an exempt task has no recomputation oracle (empty if none declared)."""
+    return str(
+        _meta(task).get("oracleReason")
+        or (dataset_metadata or {}).get("oracleReason")
+        or ""
+    )
+
+
+def has_contamination(
+    task: Any, dataset_metadata: Optional[Mapping[str, Any]] = None,
+) -> bool:
+    """Task-level provenance, or the dataset-level provenance that covers it."""
+    return bool(
+        _meta(task).get("contamination")
+        or (dataset_metadata or {}).get("contamination")
+    )
+
+
 def is_canary(task: Any) -> bool:
     """A decoy task: passing it is evidence of answer-fitting, not capability."""
     return bool(_meta(task).get("canary") or _meta(task).get("decoy"))
@@ -174,7 +210,10 @@ __all__ = [
     "access_guard",
     "assert_no_canary_hack",
     "contamination_summary",
+    "has_contamination",
     "has_oracle",
     "is_canary",
+    "is_oracle_exempt",
+    "oracle_reason",
     "select_for_purpose",
 ]

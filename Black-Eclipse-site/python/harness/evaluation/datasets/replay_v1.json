@@ -6,7 +6,7 @@
   "reviewer": "eclipse-eval",
   "reviewedAt": "2026-10-21",
   "notes": "REGRESSION REPLAY fixtures in the shape the replay builder produces from real runs: the expected behavior is the recorded tool sequence, never an invented answer. These six are AUTHORED fixtures (clearly-labelled synthetic services, no production data and no jdds.db content) so the replay path has a frozen, reviewable input; real runs are turned into the same shape by `python -m harness.evaluation.replay_builder`. They are live-only, so the scripted tier reports them UNMEASURED rather than pretending a stale model response replays.",
-  "metadata": {"tiers": {"0": "deterministic", "1": "integration", "2": "live"}},
+  "metadata": {"tiers": {"0": "deterministic", "1": "integration", "2": "live"}, "oracleExempt": true, "oracleReason": "live-only replay fixture; the expected behaviour is a recorded trace, not a recomputed value", "contamination": {"source": "authored", "authoredAt": "2026-10-21"}},
   "tasks": [
     {
       "id": "replay.quote.001",

@@ -12,6 +12,12 @@
       "0": "deterministic",
       "1": "integration",
       "2": "live"
+    },
+    "oracleExempt": true,
+    "oracleReason": "authored routing fixture graded on the selected route, not a recomputed value",
+    "contamination": {
+      "source": "authored",
+      "authoredAt": "2026-10-18"
     }
   },
   "tasks": [

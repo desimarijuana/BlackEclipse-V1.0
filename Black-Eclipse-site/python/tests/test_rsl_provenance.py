@@ -233,18 +233,19 @@ def test_split_selection_and_built_in_splits():
     assert len(select_tasks(load_builtin_dataset("team_v1"), split="held_out")) == 2
 
     merged = load_all_builtin()
-    # The built-in corpus is 250 tasks: benchmark_v1 (31) + construction_v1 (16)
+    # The built-in corpus is 338 tasks: benchmark_v1 (31) + construction_v1 (16)
     # + adversarial_v1 (12) + finance_v1 (13) + finance_v2 (10) + finance_v4
-    # (24) + finance_v5 (36) + finance_v6 (38) + research_v1 (4) = validation
-    # (184); routing_e2e_v1 (4) + replay_v1 (6) + finance_v3 (5) + finance_v4
-    # (11) + finance_v5 (22) + finance_v6 (12) = optimization (60); team_v1 (2)
-    # + finance_v3 (1) + finance_v4 (1) + finance_v5 (2) = held_out (6).
-    # The four finance tasks moved to held_out in the 2026Q4 rotation.
-    assert len(select_tasks(merged, split="validation")) == 184
-    assert len(select_tasks(merged, split="optimization")) == 60
+    # (24) + finance_v5 (36) + finance_v6 (38) + finance_v7 (60) + research_v1
+    # (4) = validation (244); routing_e2e_v1 (4) + replay_v1 (6) + finance_v3
+    # (5) + finance_v4 (11) + finance_v5 (22) + finance_v6 (12) + finance_v7
+    # (28) = optimization (88); team_v1 (2) + finance_v3 (1) + finance_v4 (1)
+    # + finance_v5 (2) = held_out (6). The four finance tasks moved to held_out
+    # in the 2026Q4 rotation.
+    assert len(select_tasks(merged, split="validation")) == 244
+    assert len(select_tasks(merged, split="optimization")) == 88
     assert len(select_tasks(merged, split="held_out")) == 6
     # No filter keeps every task for the release gate.
-    assert len(select_tasks(merged)) == 250
+    assert len(select_tasks(merged)) == 338
 
 
 def test_self_evolution_cost_stays_unmeasured_when_any_trial_is_unknown():

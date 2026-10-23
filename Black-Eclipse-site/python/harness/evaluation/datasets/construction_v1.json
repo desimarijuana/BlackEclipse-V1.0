@@ -11,6 +11,12 @@
       "0": "deterministic",
       "1": "integration",
       "2": "live"
+    },
+    "oracleExempt": true,
+    "oracleReason": "authored construction fixture graded on scenario state, not a recomputed value",
+    "contamination": {
+      "source": "authored",
+      "authoredAt": "2026-10-13"
     }
   },
   "tasks": [

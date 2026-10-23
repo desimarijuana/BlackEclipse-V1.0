@@ -6,7 +6,7 @@
   "reviewer": "eclipse-eval",
   "reviewedAt": "2026-10-22",
   "notes": "SOURCE-DISCIPLINE fixtures. These are the tasks where the PROMPT decides the answer: cite the source you used, say when the data is not there, present a conflict instead of picking a side, and carry the as-of date. They are LIVE-ONLY on purpose - a scripted answer does not depend on the prompt, so the scripted tier reports them UNMEASURED rather than pretending. The services are synthetic and deterministic; no network, no market data.",
-  "metadata": {"tiers": {"0": "deterministic", "1": "integration", "2": "live"}},
+  "metadata": {"tiers": {"0": "deterministic", "1": "integration", "2": "live"}, "oracleExempt": true, "oracleReason": "authored source-discipline fixture graded by citation and provenance, not a recomputed value", "contamination": {"source": "authored", "authoredAt": "2026-10-22"}},
   "tasks": [
     {
       "id": "research.cite.001",

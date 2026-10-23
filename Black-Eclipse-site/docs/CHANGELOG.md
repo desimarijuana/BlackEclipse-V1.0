@@ -7,6 +7,22 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **data(evaluation): 338-task corpus with 263 real oracles and 75 documented
+  exemptions.** Added `metadata.oracleExempt` + `oracleReason` (task or dataset
+  level) and dataset-level contamination so `validate_tasks(strict=True)`
+  treats the seven legacy fixture sets (benchmark, construction, adversarial,
+  research, replay, routing_e2e, team — 75 tasks) as intentional rather than
+  gaps. `finance_v1`'s 13 tasks gained real oracles; new `finance_v7` adds 88
+  oracle-backed tasks (60 validation / 28 optimization). The manifest now
+  records `oracleExemptCount` (total and per dataset) and verifies it. Splits:
+  validation 244 / optimization 88 / held_out 6; corpus audit PASS. Size
+  ceilings raised 75 lines for `corpus.py` (382,025 total; evaluation 11,600).
+  Files: `python/harness/evaluation/{corpus,contamination}.py`,
+  `python/harness/evaluation/datasets/*`,
+  `python/harness/evaluation/baselines/corpus_manifest.json`,
+  `python/tests/{test_evaluation_corpus,test_rsl_provenance,
+  test_evolution_corpus_routes}.py`, `scripts/size-budget.json`.
+  docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
 - **data(evaluation): the 2026Q4 held_out rotation moved four finance tasks.**
   `finance.v5.percentage_change.004`, `finance.v5.operating_margin.005`,
   `finance.v4.eps.003` and `finance.v3.opt.cagr.001` moved

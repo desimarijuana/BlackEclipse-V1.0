@@ -1,0 +1,4250 @@
+{
+  "datasetName": "eclipse-finance-v7",
+  "datasetVersion": "1.0.0",
+  "schemaVersion": 1,
+  "reviewed": true,
+  "reviewer": "eclipse-eval",
+  "reviewedAt": "2026-10-23",
+  "notes": "Deterministic offline finance tranche 7: 88 synthetic fixtures (five validation and two optimization per metric, plus four extra optimization fixtures). Every answer is recomputed independently by the financial grader; no market data and no provider call.",
+  "metadata": {
+    "tiers": {
+      "0": "deterministic",
+      "1": "integration",
+      "2": "live"
+    },
+    "split": "validation"
+  },
+  "tasks": [
+    {
+      "id": "finance.v7.net_margin.001",
+      "version": 1,
+      "name": "net margin (validation 1)",
+      "description": "Compute net margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 500 and net income is 75. What is the net margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 15,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "net_margin",
+            "inputs": {
+              "revenue": 500,
+              "net_income": 75
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "net margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 15.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.net_margin.002",
+      "version": 1,
+      "name": "net margin (validation 2)",
+      "description": "Compute net margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 800 and net income is 120. What is the net margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 15,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "net_margin",
+            "inputs": {
+              "revenue": 800,
+              "net_income": 120
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "net margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 15.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.net_margin.003",
+      "version": 1,
+      "name": "net margin (validation 3)",
+      "description": "Compute net margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Revenue is 1000 and net income is 90. What is the net margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 9,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "net_margin",
+            "inputs": {
+              "revenue": 1000,
+              "net_income": 90
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "net margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 9.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.net_margin.004",
+      "version": 1,
+      "name": "net margin (validation 4)",
+      "description": "Compute net margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 640 and net income is 128. What is the net margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 20,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "net_margin",
+            "inputs": {
+              "revenue": 640,
+              "net_income": 128
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "net margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 20.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.net_margin.005",
+      "version": 1,
+      "name": "net margin (validation 5)",
+      "description": "Compute net margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 1250 and net income is 150. What is the net margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 12,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "net_margin",
+            "inputs": {
+              "revenue": 1250,
+              "net_income": 150
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "net margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 12.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.net_margin.006",
+      "version": 1,
+      "name": "net margin (optimization 6)",
+      "description": "Compute net margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Revenue is 400 and net income is 36. What is the net margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 9,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "net_margin",
+            "inputs": {
+              "revenue": 400,
+              "net_income": 36
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "net margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 9.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.net_margin.007",
+      "version": 1,
+      "name": "net margin (optimization 7)",
+      "description": "Compute net margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 900 and net income is 135. What is the net margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 15,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "net_margin",
+            "inputs": {
+              "revenue": 900,
+              "net_income": 135
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "net margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 15.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.net_margin.008",
+      "version": 1,
+      "name": "net margin (optimization 8)",
+      "description": "Compute net margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 700 and net income is 140. What is the net margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 20,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "net_margin",
+            "inputs": {
+              "revenue": 700,
+              "net_income": 140
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "net margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 20.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.operating_margin.001",
+      "version": 1,
+      "name": "operating margin (validation 1)",
+      "description": "Compute operating margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 500 and operating income is 100. What is the operating margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 20,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "operating_margin",
+            "inputs": {
+              "revenue": 500,
+              "operating_income": 100
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "operating margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 20.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.operating_margin.002",
+      "version": 1,
+      "name": "operating margin (validation 2)",
+      "description": "Compute operating margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 750 and operating income is 150. What is the operating margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 20,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "operating_margin",
+            "inputs": {
+              "revenue": 750,
+              "operating_income": 150
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "operating margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 20.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.operating_margin.003",
+      "version": 1,
+      "name": "operating margin (validation 3)",
+      "description": "Compute operating margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Revenue is 1000 and operating income is 80. What is the operating margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 8,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "operating_margin",
+            "inputs": {
+              "revenue": 1000,
+              "operating_income": 80
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "operating margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 8.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.operating_margin.004",
+      "version": 1,
+      "name": "operating margin (validation 4)",
+      "description": "Compute operating margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 640 and operating income is 160. What is the operating margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 25,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "operating_margin",
+            "inputs": {
+              "revenue": 640,
+              "operating_income": 160
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "operating margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 25.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.operating_margin.005",
+      "version": 1,
+      "name": "operating margin (validation 5)",
+      "description": "Compute operating margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 1200 and operating income is 150. What is the operating margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 12.5,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "operating_margin",
+            "inputs": {
+              "revenue": 1200,
+              "operating_income": 150
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "operating margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 12.50%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.operating_margin.006",
+      "version": 1,
+      "name": "operating margin (optimization 6)",
+      "description": "Compute operating margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Revenue is 450 and operating income is 90. What is the operating margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 20,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "operating_margin",
+            "inputs": {
+              "revenue": 450,
+              "operating_income": 90
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "operating margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 20.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.operating_margin.007",
+      "version": 1,
+      "name": "operating margin (optimization 7)",
+      "description": "Compute operating margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 900 and operating income is 45. What is the operating margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 5,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "operating_margin",
+            "inputs": {
+              "revenue": 900,
+              "operating_income": 45
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "operating margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 5.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.operating_margin.008",
+      "version": 1,
+      "name": "operating margin (optimization 8)",
+      "description": "Compute operating margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 1000 and operating income is 250. What is the operating margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 25,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "operating_margin",
+            "inputs": {
+              "revenue": 1000,
+              "operating_income": 250
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "operating margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 25.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.gross_margin.001",
+      "version": 1,
+      "name": "gross margin (validation 1)",
+      "description": "Compute gross margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 500 and gross profit is 150. What is the gross margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 30,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "gross_margin",
+            "inputs": {
+              "revenue": 500,
+              "gross_profit": 150
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "gross margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 30.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.gross_margin.002",
+      "version": 1,
+      "name": "gross margin (validation 2)",
+      "description": "Compute gross margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 800 and gross profit is 240. What is the gross margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 30,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "gross_margin",
+            "inputs": {
+              "revenue": 800,
+              "gross_profit": 240
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "gross margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 30.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.gross_margin.003",
+      "version": 1,
+      "name": "gross margin (validation 3)",
+      "description": "Compute gross margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Revenue is 1000 and gross profit is 350. What is the gross margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 35,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "gross_margin",
+            "inputs": {
+              "revenue": 1000,
+              "gross_profit": 350
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "gross margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 35.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.gross_margin.004",
+      "version": 1,
+      "name": "gross margin (validation 4)",
+      "description": "Compute gross margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 640 and gross profit is 160. What is the gross margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 25,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "gross_margin",
+            "inputs": {
+              "revenue": 640,
+              "gross_profit": 160
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "gross margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 25.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.gross_margin.005",
+      "version": 1,
+      "name": "gross margin (validation 5)",
+      "description": "Compute gross margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 1200 and gross profit is 300. What is the gross margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 25,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "gross_margin",
+            "inputs": {
+              "revenue": 1200,
+              "gross_profit": 300
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "gross margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 25.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.gross_margin.006",
+      "version": 1,
+      "name": "gross margin (optimization 6)",
+      "description": "Compute gross margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Revenue is 450 and gross profit is 90. What is the gross margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 20,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "gross_margin",
+            "inputs": {
+              "revenue": 450,
+              "gross_profit": 90
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "gross margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 20.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.gross_margin.007",
+      "version": 1,
+      "name": "gross margin (optimization 7)",
+      "description": "Compute gross margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 900 and gross profit is 360. What is the gross margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 40,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "gross_margin",
+            "inputs": {
+              "revenue": 900,
+              "gross_profit": 360
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "gross margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 40.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.gross_margin.008",
+      "version": 1,
+      "name": "gross margin (optimization 8)",
+      "description": "Compute gross margin from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Revenue is 600 and gross profit is 180. What is the gross margin?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 30,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "gross_margin",
+            "inputs": {
+              "revenue": 600,
+              "gross_profit": 180
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "gross margin recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 30.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.eps.001",
+      "version": 1,
+      "name": "eps (validation 1)",
+      "description": "Compute eps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Net income is 720 and there are 120 shares. What is EPS?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 6,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "eps",
+            "inputs": {
+              "net_income": 720,
+              "shares": 120
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "eps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 6."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.eps.002",
+      "version": 1,
+      "name": "eps (validation 2)",
+      "description": "Compute eps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Net income is 960 and there are 160 shares. What is EPS?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 6,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "eps",
+            "inputs": {
+              "net_income": 960,
+              "shares": 160
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "eps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 6."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.eps.003",
+      "version": 1,
+      "name": "eps (validation 3)",
+      "description": "Compute eps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Net income is 500 and there are 100 shares. What is EPS?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 5,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "eps",
+            "inputs": {
+              "net_income": 500,
+              "shares": 100
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "eps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 5."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.eps.004",
+      "version": 1,
+      "name": "eps (validation 4)",
+      "description": "Compute eps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Net income is 840 and there are 140 shares. What is EPS?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 6,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "eps",
+            "inputs": {
+              "net_income": 840,
+              "shares": 140
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "eps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 6."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.eps.005",
+      "version": 1,
+      "name": "eps (validation 5)",
+      "description": "Compute eps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Net income is 1200 and there are 150 shares. What is EPS?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 8,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "eps",
+            "inputs": {
+              "net_income": 1200,
+              "shares": 150
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "eps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 8."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.eps.006",
+      "version": 1,
+      "name": "eps (optimization 6)",
+      "description": "Compute eps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Net income is 450 and there are 90 shares. What is EPS?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 5,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "eps",
+            "inputs": {
+              "net_income": 450,
+              "shares": 90
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "eps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 5."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.eps.007",
+      "version": 1,
+      "name": "eps (optimization 7)",
+      "description": "Compute eps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Net income is 990 and there are 110 shares. What is EPS?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 9,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "eps",
+            "inputs": {
+              "net_income": 990,
+              "shares": 110
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "eps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 9."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.eps.008",
+      "version": 1,
+      "name": "eps (optimization 8)",
+      "description": "Compute eps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Net income is 770 and there are 110 shares. What is EPS?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 7,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "eps",
+            "inputs": {
+              "net_income": 770,
+              "shares": 110
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "eps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 7."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.pe.001",
+      "version": 1,
+      "name": "pe (validation 1)",
+      "description": "Compute pe from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The price is 120 and EPS is 6. What is the P/E ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 20,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "pe",
+            "inputs": {
+              "price": 120,
+              "eps": 6
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "pe recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 20."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.pe.002",
+      "version": 1,
+      "name": "pe (validation 2)",
+      "description": "Compute pe from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The price is 80 and EPS is 4. What is the P/E ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 20,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "pe",
+            "inputs": {
+              "price": 80,
+              "eps": 4
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "pe recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 20."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.pe.003",
+      "version": 1,
+      "name": "pe (validation 3)",
+      "description": "Compute pe from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "The price is 150 and EPS is 10. What is the P/E ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 15,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "pe",
+            "inputs": {
+              "price": 150,
+              "eps": 10
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "pe recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 15."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.pe.004",
+      "version": 1,
+      "name": "pe (validation 4)",
+      "description": "Compute pe from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The price is 96 and EPS is 8. What is the P/E ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 12,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "pe",
+            "inputs": {
+              "price": 96,
+              "eps": 8
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "pe recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 12."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.pe.005",
+      "version": 1,
+      "name": "pe (validation 5)",
+      "description": "Compute pe from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The price is 200 and EPS is 25. What is the P/E ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 8,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "pe",
+            "inputs": {
+              "price": 200,
+              "eps": 25
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "pe recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 8."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.pe.006",
+      "version": 1,
+      "name": "pe (optimization 6)",
+      "description": "Compute pe from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "The price is 60 and EPS is 5. What is the P/E ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 12,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "pe",
+            "inputs": {
+              "price": 60,
+              "eps": 5
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "pe recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 12."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.pe.007",
+      "version": 1,
+      "name": "pe (optimization 7)",
+      "description": "Compute pe from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The price is 140 and EPS is 7. What is the P/E ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 20,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "pe",
+            "inputs": {
+              "price": 140,
+              "eps": 7
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "pe recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 20."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ps.001",
+      "version": 1,
+      "name": "ps (validation 1)",
+      "description": "Compute ps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The price is 40 and sales per share is 5. What is the price-to-sales ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 8,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ps",
+            "inputs": {
+              "price": 40,
+              "sales_per_share": 5
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "ps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 8."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ps.002",
+      "version": 1,
+      "name": "ps (validation 2)",
+      "description": "Compute ps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The price is 72 and sales per share is 9. What is the price-to-sales ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 8,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ps",
+            "inputs": {
+              "price": 72,
+              "sales_per_share": 9
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "ps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 8."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ps.003",
+      "version": 1,
+      "name": "ps (validation 3)",
+      "description": "Compute ps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "The price is 150 and sales per share is 10. What is the price-to-sales ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 15,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ps",
+            "inputs": {
+              "price": 150,
+              "sales_per_share": 10
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "ps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 15."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ps.004",
+      "version": 1,
+      "name": "ps (validation 4)",
+      "description": "Compute ps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The price is 96 and sales per share is 8. What is the price-to-sales ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 12,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ps",
+            "inputs": {
+              "price": 96,
+              "sales_per_share": 8
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "ps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 12."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ps.005",
+      "version": 1,
+      "name": "ps (validation 5)",
+      "description": "Compute ps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The price is 60 and sales per share is 5. What is the price-to-sales ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 12,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ps",
+            "inputs": {
+              "price": 60,
+              "sales_per_share": 5
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "ps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 12."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ps.006",
+      "version": 1,
+      "name": "ps (optimization 6)",
+      "description": "Compute ps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "The price is 120 and sales per share is 8. What is the price-to-sales ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 15,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ps",
+            "inputs": {
+              "price": 120,
+              "sales_per_share": 8
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "ps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 15."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ps.007",
+      "version": 1,
+      "name": "ps (optimization 7)",
+      "description": "Compute ps from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The price is 90 and sales per share is 6. What is the price-to-sales ratio?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 15,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ps",
+            "inputs": {
+              "price": 90,
+              "sales_per_share": 6
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "ps recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 15."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ev_ebitda.001",
+      "version": 1,
+      "name": "ev ebitda (validation 1)",
+      "description": "Compute ev ebitda from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Enterprise value is 1000 and EBITDA is 250. What is EV/EBITDA?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 4,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ev_ebitda",
+            "inputs": {
+              "ev": 1000,
+              "ebitda": 250
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "ev ebitda recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 4."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ev_ebitda.002",
+      "version": 1,
+      "name": "ev ebitda (validation 2)",
+      "description": "Compute ev ebitda from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Enterprise value is 1200 and EBITDA is 300. What is EV/EBITDA?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 4,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ev_ebitda",
+            "inputs": {
+              "ev": 1200,
+              "ebitda": 300
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "ev ebitda recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 4."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ev_ebitda.003",
+      "version": 1,
+      "name": "ev ebitda (validation 3)",
+      "description": "Compute ev ebitda from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Enterprise value is 900 and EBITDA is 150. What is EV/EBITDA?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 6,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ev_ebitda",
+            "inputs": {
+              "ev": 900,
+              "ebitda": 150
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "ev ebitda recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 6."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ev_ebitda.004",
+      "version": 1,
+      "name": "ev ebitda (validation 4)",
+      "description": "Compute ev ebitda from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Enterprise value is 1500 and EBITDA is 250. What is EV/EBITDA?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 6,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ev_ebitda",
+            "inputs": {
+              "ev": 1500,
+              "ebitda": 250
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "ev ebitda recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 6."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ev_ebitda.005",
+      "version": 1,
+      "name": "ev ebitda (validation 5)",
+      "description": "Compute ev ebitda from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Enterprise value is 800 and EBITDA is 200. What is EV/EBITDA?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 4,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ev_ebitda",
+            "inputs": {
+              "ev": 800,
+              "ebitda": 200
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "ev ebitda recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 4."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ev_ebitda.006",
+      "version": 1,
+      "name": "ev ebitda (optimization 6)",
+      "description": "Compute ev ebitda from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Enterprise value is 2000 and EBITDA is 250. What is EV/EBITDA?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 8,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ev_ebitda",
+            "inputs": {
+              "ev": 2000,
+              "ebitda": 250
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "ev ebitda recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 8."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.ev_ebitda.007",
+      "version": 1,
+      "name": "ev ebitda (optimization 7)",
+      "description": "Compute ev ebitda from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Enterprise value is 600 and EBITDA is 120. What is EV/EBITDA?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 5,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "ev_ebitda",
+            "inputs": {
+              "ev": 600,
+              "ebitda": 120
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "ev ebitda recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 5."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.fcf.001",
+      "version": 1,
+      "name": "fcf (validation 1)",
+      "description": "Compute fcf from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Operating cash flow is 500 and capital spending is 120. What is free cash flow?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 380,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "fcf",
+            "inputs": {
+              "operating_cash_flow": 500,
+              "capex": 120
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "fcf recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 380."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.fcf.002",
+      "version": 1,
+      "name": "fcf (validation 2)",
+      "description": "Compute fcf from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Operating cash flow is 800 and capital spending is 200. What is free cash flow?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 600,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "fcf",
+            "inputs": {
+              "operating_cash_flow": 800,
+              "capex": 200
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "fcf recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 600."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.fcf.003",
+      "version": 1,
+      "name": "fcf (validation 3)",
+      "description": "Compute fcf from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Operating cash flow is 1000 and capital spending is 250. What is free cash flow?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 750,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "fcf",
+            "inputs": {
+              "operating_cash_flow": 1000,
+              "capex": 250
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "fcf recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 750."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.fcf.004",
+      "version": 1,
+      "name": "fcf (validation 4)",
+      "description": "Compute fcf from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Operating cash flow is 640 and capital spending is 160. What is free cash flow?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 480,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "fcf",
+            "inputs": {
+              "operating_cash_flow": 640,
+              "capex": 160
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "fcf recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 480."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.fcf.005",
+      "version": 1,
+      "name": "fcf (validation 5)",
+      "description": "Compute fcf from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Operating cash flow is 1200 and capital spending is 300. What is free cash flow?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 900,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "fcf",
+            "inputs": {
+              "operating_cash_flow": 1200,
+              "capex": 300
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "fcf recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 900."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.fcf.006",
+      "version": 1,
+      "name": "fcf (optimization 6)",
+      "description": "Compute fcf from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "Operating cash flow is 450 and capital spending is 90. What is free cash flow?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 360,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "fcf",
+            "inputs": {
+              "operating_cash_flow": 450,
+              "capex": 90
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "fcf recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 360."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.fcf.007",
+      "version": 1,
+      "name": "fcf (optimization 7)",
+      "description": "Compute fcf from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "Operating cash flow is 900 and capital spending is 150. What is free cash flow?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 750,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "fcf",
+            "inputs": {
+              "operating_cash_flow": 900,
+              "capex": 150
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "fcf recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 750."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.cagr.001",
+      "version": 1,
+      "name": "cagr (validation 1)",
+      "description": "Compute cagr from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "A value grew from 200 to 242 over 2 years. What is the compound annual growth rate?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 10,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "cagr",
+            "inputs": {
+              "start": 200,
+              "end": 242,
+              "years": 2
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "cagr recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 10.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.cagr.002",
+      "version": 1,
+      "name": "cagr (validation 2)",
+      "description": "Compute cagr from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "A value grew from 100 to 121 over 2 years. What is the compound annual growth rate?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 10,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "cagr",
+            "inputs": {
+              "start": 100,
+              "end": 121,
+              "years": 2
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "cagr recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 10.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.cagr.003",
+      "version": 1,
+      "name": "cagr (validation 3)",
+      "description": "Compute cagr from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "A value grew from 100 to 133.1 over 3 years. What is the compound annual growth rate?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 10,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "cagr",
+            "inputs": {
+              "start": 100,
+              "end": 133.1,
+              "years": 3
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "cagr recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 10.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.cagr.004",
+      "version": 1,
+      "name": "cagr (validation 4)",
+      "description": "Compute cagr from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "A value grew from 250 to 400 over 4 years. What is the compound annual growth rate?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 12.468265,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "cagr",
+            "inputs": {
+              "start": 250,
+              "end": 400,
+              "years": 4
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "cagr recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 12.47%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.cagr.005",
+      "version": 1,
+      "name": "cagr (validation 5)",
+      "description": "Compute cagr from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "A value grew from 500 to 605 over 2 years. What is the compound annual growth rate?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 10,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "cagr",
+            "inputs": {
+              "start": 500,
+              "end": 605,
+              "years": 2
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "cagr recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 10.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.cagr.006",
+      "version": 1,
+      "name": "cagr (optimization 6)",
+      "description": "Compute cagr from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "A value grew from 80 to 120 over 5 years. What is the compound annual growth rate?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 8.447177,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "cagr",
+            "inputs": {
+              "start": 80,
+              "end": 120,
+              "years": 5
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "cagr recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 8.45%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.cagr.007",
+      "version": 1,
+      "name": "cagr (optimization 7)",
+      "description": "Compute cagr from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "A value grew from 100 to 150 over 3 years. What is the compound annual growth rate?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 14.471424,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "cagr",
+            "inputs": {
+              "start": 100,
+              "end": 150,
+              "years": 3
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "cagr recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 14.47%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.percentage_change.001",
+      "version": 1,
+      "name": "percentage change (validation 1)",
+      "description": "Compute percentage change from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "A price moves from 80 to 92. What is the percentage change?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 15,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "percentage_change",
+            "inputs": {
+              "start": 80,
+              "end": 92
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "percentage change recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 15.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.percentage_change.002",
+      "version": 1,
+      "name": "percentage change (validation 2)",
+      "description": "Compute percentage change from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "A price moves from 50 to 75. What is the percentage change?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 50,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "percentage_change",
+            "inputs": {
+              "start": 50,
+              "end": 75
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "percentage change recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 50.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.percentage_change.003",
+      "version": 1,
+      "name": "percentage change (validation 3)",
+      "description": "Compute percentage change from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "A price moves from 120 to 96. What is the percentage change?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": -20,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "percentage_change",
+            "inputs": {
+              "start": 120,
+              "end": 96
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "percentage change recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is -20.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.percentage_change.004",
+      "version": 1,
+      "name": "percentage change (validation 4)",
+      "description": "Compute percentage change from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "A price moves from 200 to 250. What is the percentage change?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 25,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "percentage_change",
+            "inputs": {
+              "start": 200,
+              "end": 250
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "percentage change recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 25.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.percentage_change.005",
+      "version": 1,
+      "name": "percentage change (validation 5)",
+      "description": "Compute percentage change from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "A price moves from 40 to 30. What is the percentage change?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": -25,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "percentage_change",
+            "inputs": {
+              "start": 40,
+              "end": 30
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "percentage change recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is -25.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.percentage_change.006",
+      "version": 1,
+      "name": "percentage change (optimization 6)",
+      "description": "Compute percentage change from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "A price moves from 64 to 80. What is the percentage change?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 25,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "percentage_change",
+            "inputs": {
+              "start": 64,
+              "end": 80
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "percentage change recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 25.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.percentage_change.007",
+      "version": 1,
+      "name": "percentage change (optimization 7)",
+      "description": "Compute percentage change from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "A price moves from 90 to 99. What is the percentage change?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 10,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "percentage_change",
+            "inputs": {
+              "start": 90,
+              "end": 99
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "percentage change recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 10.00%."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.weight.001",
+      "version": 1,
+      "name": "portfolio weight (validation 1)",
+      "description": "Compute portfolio weight from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "One position is worth 250 and the whole portfolio is worth 1000. What is the position weight?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 0.25,
+          "tolerance": 0.001
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "weight",
+            "inputs": {
+              "value": 250,
+              "total": 1000
+            },
+            "tolerance": 0.001
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "weight recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 0.25."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.weight.002",
+      "version": 1,
+      "name": "portfolio weight (validation 2)",
+      "description": "Compute portfolio weight from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "One position is worth 300 and the whole portfolio is worth 1200. What is the position weight?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 0.25,
+          "tolerance": 0.001
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "weight",
+            "inputs": {
+              "value": 300,
+              "total": 1200
+            },
+            "tolerance": 0.001
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "weight recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 0.25."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.weight.003",
+      "version": 1,
+      "name": "portfolio weight (validation 3)",
+      "description": "Compute portfolio weight from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "One position is worth 150 and the whole portfolio is worth 600. What is the position weight?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 0.25,
+          "tolerance": 0.001
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "weight",
+            "inputs": {
+              "value": 150,
+              "total": 600
+            },
+            "tolerance": 0.001
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "weight recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 0.25."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.weight.004",
+      "version": 1,
+      "name": "portfolio weight (validation 4)",
+      "description": "Compute portfolio weight from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "One position is worth 400 and the whole portfolio is worth 1000. What is the position weight?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 0.4,
+          "tolerance": 0.001
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "weight",
+            "inputs": {
+              "value": 400,
+              "total": 1000
+            },
+            "tolerance": 0.001
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "weight recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 0.4."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.weight.005",
+      "version": 1,
+      "name": "portfolio weight (validation 5)",
+      "description": "Compute portfolio weight from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "One position is worth 200 and the whole portfolio is worth 800. What is the position weight?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 0.25,
+          "tolerance": 0.001
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "weight",
+            "inputs": {
+              "value": 200,
+              "total": 800
+            },
+            "tolerance": 0.001
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "weight recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 0.25."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.weight.006",
+      "version": 1,
+      "name": "portfolio weight (optimization 6)",
+      "description": "Compute portfolio weight from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "One position is worth 500 and the whole portfolio is worth 2000. What is the position weight?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 0.25,
+          "tolerance": 0.001
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "weight",
+            "inputs": {
+              "value": 500,
+              "total": 2000
+            },
+            "tolerance": 0.001
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "weight recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 0.25."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.weight.007",
+      "version": 1,
+      "name": "portfolio weight (optimization 7)",
+      "description": "Compute portfolio weight from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "One position is worth 90 and the whole portfolio is worth 450. What is the position weight?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 0.2,
+          "tolerance": 0.001
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "weight",
+            "inputs": {
+              "value": 90,
+              "total": 450
+            },
+            "tolerance": 0.001
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "weight recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 0.2."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.position_size.001",
+      "version": 1,
+      "name": "position size (validation 1)",
+      "description": "Compute position size from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The reward is 6 and the risk is 2. What is the position size?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 3,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "position_size",
+            "inputs": {
+              "reward": 6,
+              "risk": 2
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "position size recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 3."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.position_size.002",
+      "version": 1,
+      "name": "position size (validation 2)",
+      "description": "Compute position size from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The reward is 9 and the risk is 3. What is the position size?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 3,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "position_size",
+            "inputs": {
+              "reward": 9,
+              "risk": 3
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "position size recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 3."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.position_size.003",
+      "version": 1,
+      "name": "position size (validation 3)",
+      "description": "Compute position size from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "The reward is 10 and the risk is 4. What is the position size?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 2.5,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "position_size",
+            "inputs": {
+              "reward": 10,
+              "risk": 4
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "position size recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 2.5."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.position_size.004",
+      "version": 1,
+      "name": "position size (validation 4)",
+      "description": "Compute position size from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The reward is 15 and the risk is 5. What is the position size?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 3,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "position_size",
+            "inputs": {
+              "reward": 15,
+              "risk": 5
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "position size recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 3."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.position_size.005",
+      "version": 1,
+      "name": "position size (validation 5)",
+      "description": "Compute position size from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The reward is 8 and the risk is 2. What is the position size?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 4,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "position_size",
+            "inputs": {
+              "reward": 8,
+              "risk": 2
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "validation",
+        "oracle": "position size recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 4."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.position_size.006",
+      "version": 1,
+      "name": "position size (optimization 6)",
+      "description": "Compute position size from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {
+        "prompt": "The reward is 12 and the risk is 3. What is the position size?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 4,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "position_size",
+            "inputs": {
+              "reward": 12,
+              "risk": 3
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "position size recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 4."
+          }
+        ]
+      }
+    },
+    {
+      "id": "finance.v7.position_size.007",
+      "version": 1,
+      "name": "position size (optimization 7)",
+      "description": "Compute position size from the given inputs; graded by an independent recomputation.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {
+        "prompt": "The reward is 20 and the risk is 8. What is the position size?"
+      },
+      "expected_output": {
+        "numeric": {
+          "value": 2.5,
+          "tolerance": 0.01
+        }
+      },
+      "graders": [
+        {
+          "name": "financial",
+          "config": {
+            "metric": "position_size",
+            "inputs": {
+              "reward": 20,
+              "risk": 8
+            },
+            "tolerance": 0.01
+          }
+        }
+      ],
+      "metadata": {
+        "tier": 0,
+        "suites": [
+          "finance"
+        ],
+        "split": "optimization",
+        "oracle": "position size recomputed by evaluation/graders/financial.py",
+        "contamination": {
+          "source": "authored",
+          "authoredAt": "2026-10-23"
+        },
+        "agent_script": [
+          {
+            "type": "final",
+            "content": "The result is 2.5."
+          }
+        ]
+      }
+    }
+  ]
+}

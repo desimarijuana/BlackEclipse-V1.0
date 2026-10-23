@@ -17,7 +17,13 @@ import sys
 from typing import Any, Optional
 
 from ..persistence import now_iso
-from .contamination import has_oracle, is_canary
+from .contamination import (
+    has_contamination,
+    has_oracle,
+    is_canary,
+    is_oracle_exempt,
+    oracle_reason,
+)
 from .tasks import (
     SPLITS,
     available_datasets,
@@ -42,14 +48,17 @@ def build_manifest(*, recorded_at: Optional[str] = None) -> dict[str, Any]:
     totals_by_split: dict[str, int] = {}
     total_tasks = 0
     total_oracle = 0
+    total_exempt = 0
     total_canary = 0
     total_live = 0
 
     for name in available_datasets():
         dataset = load_builtin_dataset(name)
         dataset_split = _dataset_split(dataset)
+        dataset_meta = dataset.metadata or {}
         by_split: dict[str, int] = {}
         oracle = 0
+        exempt = 0
         canary = 0
         live = 0
         no_metadata: list[str] = []
@@ -59,11 +68,13 @@ def build_manifest(*, recorded_at: Optional[str] = None) -> dict[str, Any]:
             totals_by_split[split] = totals_by_split.get(split, 0) + 1
             if has_oracle(task):
                 oracle += 1
+            if is_oracle_exempt(task, dataset_meta):
+                exempt += 1
             if is_canary(task):
                 canary += 1
             if task.live_only:
                 live += 1
-            if not (task.metadata or {}).get("contamination"):
+            if not has_contamination(task, dataset_meta):
                 no_metadata.append(task.id)
         entries.append({
             "name": dataset.name,
@@ -72,6 +83,7 @@ def build_manifest(*, recorded_at: Optional[str] = None) -> dict[str, Any]:
             "taskCount": len(dataset.tasks),
             "bySplit": dict(sorted(by_split.items())),
             "oracleCount": oracle,
+            "oracleExemptCount": exempt,
             "canaryCount": canary,
             "liveOnly": live,
             "reviewed": bool(dataset.reviewed),
@@ -80,6 +92,7 @@ def build_manifest(*, recorded_at: Optional[str] = None) -> dict[str, Any]:
         })
         total_tasks += len(dataset.tasks)
         total_oracle += oracle
+        total_exempt += exempt
         total_canary += canary
         total_live += live
 
@@ -90,6 +103,7 @@ def build_manifest(*, recorded_at: Optional[str] = None) -> dict[str, Any]:
         "datasetCount": len(entries),
         "bySplit": dict(sorted(totals_by_split.items())),
         "oracleCount": total_oracle,
+        "oracleExemptCount": total_exempt,
         "oracleCoverage": (
             round(total_oracle / total_tasks, 6) if total_tasks else 0.0
         ),
@@ -141,7 +155,10 @@ def verify_manifest(path: Optional[str] = None) -> dict[str, Any]:
     for name in sorted(set(recorded_by_name) & set(current_by_name)):
         before = recorded_by_name[name]
         after = current_by_name[name]
-        for field in ("version", "checksum", "taskCount", "bySplit"):
+        for field in (
+            "version", "checksum", "taskCount", "bySplit",
+            "oracleCount", "oracleExemptCount", "missingContamination",
+        ):
             if before.get(field) != after.get(field):
                 mismatches.append({
                     "dataset": name,
@@ -150,7 +167,9 @@ def verify_manifest(path: Optional[str] = None) -> dict[str, Any]:
                     "current": after.get(field),
                 })
 
-    for field in ("taskCount", "bySplit", "oracleCount", "canaryCount"):
+    for field in (
+        "taskCount", "bySplit", "oracleCount", "oracleExemptCount", "canaryCount",
+    ):
         if recorded.get(field) != current.get(field):
             mismatches.append({
                 "dataset": "*",
@@ -175,23 +194,39 @@ def validate_tasks(*, strict: bool = False) -> dict[str, Any]:
 
     Legacy tasks are reported, not failed. `strict` makes the absence of an
     oracle or contamination metadata an error, which is the rule for NEW work.
+    A task (or dataset) marked `oracleExempt` with a reason is intentional, so
+    strict treats it as covered: the legacy fixtures that cannot be recomputed
+    are documented rather than quietly deleted.
     """
     issues: list[dict[str, Any]] = []
-    counts = {"tasks": 0, "withOracle": 0, "withContamination": 0, "canaries": 0}
+    counts = {
+        "tasks": 0, "withOracle": 0, "oracleExempt": 0,
+        "withContamination": 0, "canaries": 0,
+    }
     for name in available_datasets():
         dataset = load_builtin_dataset(name)
         dataset_split = _dataset_split(dataset)
+        dataset_meta = dataset.metadata or {}
         for task in dataset.tasks:
             counts["tasks"] += 1
+            exempt = is_oracle_exempt(task, dataset_meta)
+            if exempt:
+                counts["oracleExempt"] += 1
             if has_oracle(task):
                 counts["withOracle"] += 1
+            elif exempt:
+                if not oracle_reason(task, dataset_meta):
+                    issues.append({
+                        "dataset": name, "task": task.id,
+                        "issue": "missing_oracle_reason",
+                    })
             else:
                 issues.append({
                     "dataset": name, "task": task.id, "issue": "missing_oracle",
                 })
-            if (task.metadata or {}).get("contamination"):
+            if has_contamination(task, dataset_meta):
                 counts["withContamination"] += 1
-            else:
+            elif not exempt:
                 issues.append({
                     "dataset": name, "task": task.id,
                     "issue": "missing_contamination",
@@ -263,6 +298,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(
                 f"corpus audit: {'PASS' if report['ok'] else 'FAIL'} "
                 f"tasks={counts['tasks']} oracle={counts['withOracle']} "
+                f"exempt={counts['oracleExempt']} "
                 f"contamination={counts['withContamination']} "
                 f"canaries={counts['canaries']}"
             )

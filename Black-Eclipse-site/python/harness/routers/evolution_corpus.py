@@ -21,7 +21,8 @@ router = APIRouter(tags=["evolution"])
 def _compact_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     keys = (
         "manifestVersion", "recordedAt", "taskCount", "datasetCount",
-        "bySplit", "oracleCount", "oracleCoverage", "canaryCount", "liveOnly",
+        "bySplit", "oracleCount", "oracleExemptCount", "oracleCoverage",
+        "canaryCount", "liveOnly",
     )
     compact = {key: manifest.get(key) for key in keys}
     compact["datasets"] = [
@@ -31,6 +32,7 @@ def _compact_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
             "taskCount": item.get("taskCount"),
             "bySplit": item.get("bySplit"),
             "oracleCount": item.get("oracleCount"),
+            "oracleExemptCount": item.get("oracleExemptCount"),
             "canaryCount": item.get("canaryCount"),
             "liveOnly": item.get("liveOnly"),
         }
