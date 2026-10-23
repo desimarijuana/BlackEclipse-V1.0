@@ -1,0 +1,145 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { parseResponsePayload } from './contract';
+import { chartBlockToSpec } from './chart-spec';
+import { chartBlockWarning } from './chart-capabilities';
+import { hydrateChartBlock } from './chart-data';
+
+function chartBlock(value: unknown) {
+  const parsed = parseResponsePayload({ blocks: [value] });
+  const block = parsed.blocks[0];
+  if (!block || block.type !== 'chart') {
+    throw new Error(`block did not validate: ${JSON.stringify(parsed.diagnostics)}`);
+  }
+  return block;
+}
+
+function bars() {
+  return [
+    { date: '2026-01-02', open: 100, high: 105, low: 99, close: 104, volume: 10 },
+    { date: '2026-01-05', open: 104, high: 108, low: 102, close: 107, volume: 12 },
+  ];
+}
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ symbol: 'AAPL', series: bars(), source: 'yfinance' }),
+  })));
+});
+
+describe('candle row shapes never lose the chart', () => {
+  it('keeps a dated [date, o, h, l, c] tuple', () => {
+    const block = chartBlock({
+      type: 'chart',
+      chartType: 'candlestick',
+      series: [{ name: 'GLD', data: [
+        ['2026-01-02', 100, 105, 99, 104],
+        ['2026-01-05', 104, 108, 102, 107],
+      ] }],
+    });
+    expect(block.categories).toEqual(['2026-01-02', '2026-01-05']);
+    const plan = chartBlockToSpec(block);
+    expect(plan?.spec.candles).toHaveLength(2);
+    expect(plan?.spec.candles?.[0]).toEqual({ open: 100, high: 105, low: 99, close: 104 });
+  });
+
+  it('keeps object OHLC rows (instead of flattening to [open, high])', () => {
+    const block = chartBlock({
+      type: 'chart',
+      chartType: 'candlestick',
+      series: [{ name: 'GLD', data: [
+        { date: '2026-01-02', open: 100, high: 105, low: 99, close: 104 },
+        { date: '2026-01-05', open: 104, high: 108, low: 102, close: 107 },
+      ] }],
+    });
+    expect(block.categories).toEqual(['2026-01-02', '2026-01-05']);
+    expect(chartBlockToSpec(block)?.spec.candles).toHaveLength(2);
+  });
+});
+
+describe('a chart that names its series is resolved in the browser', () => {
+  it('fills a block-level dataSource', async () => {
+    const block = chartBlock({
+      type: 'chart',
+      chartType: 'line',
+      dataSource: { symbol: 'AAPL', interval: '1d' },
+    });
+    const hydrated = await hydrateChartBlock(block);
+    expect(hydrated.dataSource).toBeUndefined();
+    expect(hydrated.categories).toEqual(['2026-01-02', '2026-01-05']);
+    expect(hydrated.series?.[0].data).toEqual([104, 107]);
+    expect(chartBlockWarning(hydrated)).toBeNull();
+  });
+
+  it('fills a mark-level dataSource with OHLC rows for a candle', async () => {
+    const block = chartBlock({
+      type: 'chart',
+      chartType: 'scatter',
+      panels: [{ marks: [{ type: 'candlestick', dataSource: { symbol: 'AAPL' } }] }],
+    });
+    const hydrated = await hydrateChartBlock(block);
+    const mark = hydrated.panels?.[0].marks[0];
+    expect(mark?.dataSource).toBeUndefined();
+    expect(mark?.matrix).toHaveLength(2);
+  });
+});
+
+describe('the chart spec reads the fields each kind uses', () => {
+  it('maps a scatter to its points', () => {
+    const block = chartBlock({
+      type: 'chart',
+      chartType: 'scatter',
+      series: [{ name: 's', data: [[1, 2], [3, 4]] }],
+    });
+    expect(chartBlockToSpec(block)!.spec.points).toHaveLength(2);
+  });
+
+  it('maps a radar to its values', () => {
+    const block = chartBlock({
+      type: 'chart',
+      chartType: 'radar',
+      categories: ['a', 'b', 'c'],
+      series: [{ name: 's', data: [1, 2, 3] }],
+    });
+    expect(chartBlockToSpec(block)!.spec.values).toEqual([1, 2, 3]);
+  });
+
+  it('maps a gauge and a treemap to their native kinds', () => {
+    const gauge = chartBlockToSpec(chartBlock({
+      type: 'chart', chartType: 'gauge', series: [{ name: 's', data: [42] }],
+    }))!;
+    const treemap = chartBlockToSpec(chartBlock({
+      type: 'chart', chartType: 'treemap', categories: ['a'], series: [{ name: 's', data: [3] }],
+    }))!;
+    expect(gauge.spec.kind).toBe('gauge');
+    expect(treemap.spec.kind).toBe('treemap');
+  });
+
+  it('maps a scene mark to its panel', () => {
+    const block = chartBlock({
+      type: 'chart',
+      chartType: 'line',
+      panels: [{ marks: [{ type: 'line', name: 'NAV', y: [1, 2, 3] }] }],
+    });
+    const plan = chartBlockToSpec(block)!;
+    expect(plan.spec.panels?.[0].marks[0].type).toBe('line');
+    expect(plan.spec.panels?.[0].marks[0].y).toHaveLength(3);
+  });
+});
+
+describe('drawability is checked with the renderer, not just the schema', () => {
+  it('rejects a series chart with no drawable values', () => {
+    const block = chartBlock({
+      type: 'chart', chartType: 'line', series: [{ name: 's', data: [] }],
+    });
+    expect(chartBlockWarning(block)).toMatch(/no drawable data/i);
+  });
+
+  it('accepts a named source without fetching it', () => {
+    const block = chartBlock({
+      type: 'chart', chartType: 'line', dataSource: { symbol: 'AAPL' },
+    });
+    expect(chartBlockWarning(block)).toBeNull();
+  });
+});

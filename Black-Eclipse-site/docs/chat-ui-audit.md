@@ -797,11 +797,27 @@ the ONE attachment pipeline — the same extraction, the same run documents, the
 same truncation provenance — instead of adding a second way to get text to the
 agent.
 
-**A paste with nothing typed IS the message.** Pressing Enter after pasting
-sends the pasted text as the user turn: it is taken back out of the attachment
-list first, so the same text is never also injected as a document. With only a
-FILE attached and no text, a neutral "Read the attached document." is sent —
-a send that produces nothing is worse than a plain instruction.
+**A paste is always visible on the turn that used it.** Pressing Enter with only
+a paste attached sends a neutral "Read the attached document." turn; the pasted
+text **stays a context document** (it is no longer taken back out of the
+attachment list). The user bubble carries a compact `Pasted text` card — file
+name, character count, a short preview, and an Open action — so the document
+that went to the run is visible in the transcript and can be read again later.
+A paste sent alongside a typed prompt gets the same card on that prompt. The
+card is claimed for one turn only, so later messages do not re-list old pastes.
+
+**Why the document stays attached.** Removing it deleted the only durable copy
+once the text was folded into the message, and a multi-hundred-kilobyte message
+then had to survive the transcript cache (localStorage quota) and the per-turn
+bound. Keeping the document avoids a giant user bubble, keeps the text available
+as context on later turns, and means a paste over 100 000 characters is
+truncated by the document pipeline (with provenance) instead of rejected by the
+turn bound. The transcript stores only the preview, never a second full copy.
+
+**Long typed prompts collapse too.** Any user turn over 2 000 characters is
+shown as an 800-character excerpt with "Show full message · N characters"; the
+full text stays persisted and copyable. This keeps a long prompt (or a paste on
+a surface without the attachment hook) from painting an unscrollable wall.
 
 **Why the document caps moved.** They are now the turn bound (100 000 chars per
 document, 200 000 combined). A paste that becomes a document must arrive as

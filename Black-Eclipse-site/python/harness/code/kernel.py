@@ -145,17 +145,28 @@ def _write(response_path, payload):
         handle.write(text)
 
 
+_NOTEBOOK_GLOBALS = None
+
+
 def _run(command):
+    global _NOTEBOOK_GLOBALS
     for path in command.get("extra_paths") or []:
         if path and path not in sys.path:
             sys.path.insert(0, path)
-    g = {
-        "__name__": "__analysis__",
-        "__builtins__": _safe_builtins(),
-        "inputs": command["inputs"],
-        "write_artifact": _write_artifact,
-    }
+    if command.get("persist"):
+        # A notebook cell keeps its variables between rounds. `analysis_run`
+        # never sends `persist`, so an ordinary analysis still starts clean.
+        if _NOTEBOOK_GLOBALS is None:
+            _NOTEBOOK_GLOBALS = {"__name__": "__analysis__"}
+        g = _NOTEBOOK_GLOBALS
+        g.pop("result", None)
+    else:
+        g = {"__name__": "__analysis__"}
+    g["__builtins__"] = _safe_builtins()
+    g["inputs"] = command["inputs"]
+    g["write_artifact"] = _write_artifact
     sys.modules.pop("eclipse_tools", None)
+    g.pop("eclipse_tools", None)
     if command.get("tool_bindings"):
         memo = command.get("tool_memo") or {}
         pending_path = command.get("tool_pending_path")
@@ -407,6 +418,7 @@ class Kernel:
             command: dict[str, Any] = {
                 "source": request.source,
                 "inputs": prepared.inputs,
+                "persist": bool(getattr(request, "persist_namespace", False)),
                 "extra_paths": (
                     [str(prepared.managed_path)]
                     if prepared.managed_path is not None and prepared.managed_path.is_dir()

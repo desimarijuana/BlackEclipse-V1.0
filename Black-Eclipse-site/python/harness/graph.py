@@ -1293,6 +1293,20 @@ async def execute_run(
         except Exception:  # noqa: BLE001 - a digest must never break the run
             pass
 
+    # JIT design modules: the schema above gives exact FIELDS, not taste. A compact
+    # index tells the model to load ONE family's guide + worked examples on demand
+    # through `response_style_guide`, keeping the byte-stable head small while the
+    # design rules stay versionable in `response_style.py`.
+    if allowed and "response_style_guide" in allowed:
+        try:
+            from .response_style import response_style_index_prompt_block  # noqa: PLC0415
+
+            _style_index = response_style_index_prompt_block()
+            if _style_index:
+                system_prompt = f"{system_prompt}\n\n{_style_index}"
+        except Exception:  # noqa: BLE001 - an index must never break the run
+            pass
+
     # Intelligent Response Orchestrator: a deterministic, model-free plan of HOW
     # to present this turn's answer (text | explanation | visualization |
     # simulation | workflow | composite). It appends presentation guidance to the

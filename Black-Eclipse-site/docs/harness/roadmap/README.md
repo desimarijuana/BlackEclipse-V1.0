@@ -42,6 +42,7 @@ file, not here.
 | 18 — Visual output | [phase-18](./phase-18-visual-output.md) 🟡 In progress 2026-10-13 (first figure recipe shipped — ADR-H192; payload + inline renderer remain) | 15, 16 | 19, 20 | new |
 | 19 — Verifying what it produced | [phase-19](./phase-19-self-verification.md) ✅ Done 2026-10-13 (ADR-H191) | 14, 18 | 20 | new |
 | 20 — Measuring all of it | [phase-20](./phase-20-measuring-all-of-it.md) 🟡 In progress 2026-10-13 (registry + runner + statement + gate step shipped — ADR-H193; remaining fixtures named) | 13–19 | — | §15.3 **7F** extended |
+| 21 — Editable notebook cells in chat | [phase-21](./phase-21-notebook-cells.md) ✅ Done 2026-10-22 (cell document, sandbox run/restart, chart codegen, Monaco surface — ADR-H300) | 14, 18 | — | new |
 
 **Round 3 (2026-10-20) — competitive as a coding harness, shippable as a
 product.** Rounds 1 and 2 built the machinery and made it reachable. Round 3

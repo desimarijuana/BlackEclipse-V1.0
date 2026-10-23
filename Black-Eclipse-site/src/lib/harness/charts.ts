@@ -30,7 +30,10 @@ export interface ChartBand {
 
 export interface ChartSeries {
   name: string;
-  data: Array<number | null>;
+  /** Scalars, or points written as pairs/triples/OHLC (a scatter, a candle). */
+  data: Array<
+    number | null | [number, number] | [number, number, number] | [number, number, number, number]
+  >;
   color?: string;
   style?: "line" | "area" | "bar" | "step" | "scatter";
   /** An optional range drawn around the series (a forecast band). */
@@ -117,6 +120,14 @@ export interface ChartMark {
   labels?: string[];
   rowLabels?: string[];
   colLabels?: string[];
+  /** A hierarchy's parent labels (treemap/sunburst: "" is the root). */
+  parents?: string[];
+  /** Per-item colours (a treemap's tiles, a sunburst's branches). */
+  colors?: Array<string | null>;
+  /** A sankey's links: source index, target index, weight. */
+  sources?: number[];
+  targets?: number[];
+  weights?: number[];
   color?: string;
   alpha?: number;
   width?: number;

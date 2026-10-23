@@ -725,7 +725,14 @@ def _render_figure(spec: ChartSpec, theme: ChartTheme, plt: Any) -> tuple[bytes,
     kind = spec.kind
     with plt.rc_context(theme.rc):
         if spec.panels:
-            return _render_scene(spec, theme, plt), None
+            try:
+                return _render_scene(spec, theme, plt), None
+            except ChartRenderError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - a draw failure is named
+                raise ChartRenderError(
+                    CHART_RENDER_FAILED, f"the chart could not be drawn: {exc}",
+                ) from exc
         drawer = _DISPATCH.get(kind)
         if drawer is None:  # pragma: no cover - the spec's Literal already refuses it
             raise ChartRenderError(CHART_SPEC_INVALID, f"unknown chart kind {kind!r}")

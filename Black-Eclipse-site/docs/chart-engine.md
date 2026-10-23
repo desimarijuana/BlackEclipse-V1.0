@@ -1,6 +1,6 @@
 # The chart engine — Eclipse draws its charts with Python
 
-**Status:** Active. **Last verified:** 2026-10-20.
+**Status:** Active. **Last verified:** 2026-10-22.
 
 Eclipse renders every chart with the Python runtime's chart engine: a validated
 **chart spec** goes in, `matplotlib` draws a transparent PNG, and the picture is
@@ -206,6 +206,27 @@ the frost. The chart's ink, grid and hover label are the app's own tokens.
 
 If the library cannot load, the chat says so and falls back to the drawn
 picture — an honest degradation, never a broken chart.
+
+**Loading is staged so a chart is visible immediately.** The 4.7 MB library is
+never on the critical path of an answer:
+
+1. the drawn PNG (an artifact fetch) paints the chart as soon as it arrives;
+2. plotly.js is loaded only when the chart is about to be seen (an
+   `IntersectionObserver` with a 400 px margin) and on an idle frame
+   (`requestIdleCallback`), then cached for the rest of the session;
+3. the live chart cross-fades in over the PNG when it is ready.
+The rendered figure is also cached per spec (the `RENDER_CACHE` in
+`src/components/response/response-chart.tsx`), so scrolling chat history never
+asks the engine to draw the same chart twice. The chart registry is keyed by
+the block id and points at the artifact, which is what remains the export
+source.
+
+Every live chart carries its own view controls in the bottom-left corner:
+**zoom in**, **zoom out** and **reset**. Zoom scales the current 2-D axis
+ranges around their centre (or the 3-D camera eye) instead of jumping to a
+preset, and reset restores the figure the engine authored (axes or camera).
+Plotly's own modebar stays available for pan/box-zoom and PNG download;
+double-clicking the chart also resets it.
 
 ### 3.2 The picture is hoverable
 

@@ -26,7 +26,11 @@ from typing import Any, Optional
 # Reuse the ONE privacy pattern set rather than inventing a second one.
 from .eclipse_memory.decision import looks_like_secret
 
-_MAX_MESSAGE_CHARS = 4000
+#: A long assistant answer is where a chart's `eclipse-response` fence lives.
+#: Capping at 4,000 chars cut the fence mid-JSON, so `session_search` recalled
+#: broken blocks. Keep enough room for the structured answer while staying a
+#: bounded search index (the full transcript lives in HarnessRun/events).
+_MAX_MESSAGE_CHARS = 16000
 _MAX_SUMMARY_CHARS = 1200
 
 # Raw role markers / dumps are not indexed as-is (they are transcripts).

@@ -137,9 +137,13 @@ RATCHET_PY: dict[str, int] = {
     # module, and Round 3 / W7a (the harness shrink) is where that happens.
     "code/fs_tools.py": 1212,
     # Re-pinned 2297->2305 to the measured working tree: the run's tool-execution
-  # ledger (the executions the answer seam reads back). Pre-existing shared-tree
-  # growth, not this change. May only shrink from here.
-  "graph.py": 2305,
+    # ledger (the executions the answer seam reads back). Pre-existing shared-tree
+    # growth, not this change. May only shrink from here.
+    # Re-pinned 2305->2315 to the measured tree for the in-flight interactive
+    # response-style JIT index wiring (the `response_style_guide` discovery block
+    # at the run head). That work touches no part of the tool loop; the
+    # subsystem-wiring block remains the split candidate. May only shrink.
+    "graph.py": 2316,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.

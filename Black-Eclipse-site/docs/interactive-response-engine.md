@@ -1,7 +1,7 @@
 ---
 title: Interactive Response Engine
 status: Current
-last-verified: 2026-10-17
+last-verified: 2026-10-22
 ---
 
 # Interactive Response Engine
@@ -301,6 +301,37 @@ byte-stable system prompt (`response_schema_prompt_block` in
 `graph.execute_run`). It is generated LIVE from the same bridge `op: "schema"`
 reply, so it cannot drift from the renderer; a bridge miss degrades silently to
 the on-demand tool and never blocks the run.
+
+### Just-in-time design modules
+
+The schema digest carries exact FIELDS, not taste — when a family of blocks is
+the right answer, how they differ, and what a good document in that family looks
+like. Loading all of that into every prompt is expensive and goes stale.
+
+`python/harness/response_style.py` defines seven design modules — `data`,
+`chart`, `diagram`, `workflow`, `interactive`, `explanation`, `mechanical` — each
+with the family's block types, the choices a producer gets wrong, and one or two
+worked examples. The system prompt receives only a small module INDEX
+(`response_style_index_prompt_block`, composed in `graph.execute_run`); before the
+first block of a family the model calls the read-only `response_style_guide`
+tool for that module. The guide is generated with the live field map from the
+same bridge `op: "schema"` reply, so examples and fields cannot drift, and it
+still returns its guidance and examples when the bridge is unavailable. Only the
+families in use are loaded, so the byte-stable head stays small and the design
+rules are versionable in one file.
+
+> The `mechanical` examples are validated against the live contract in review;
+> the producer is told the numbers are placeholders, never real figures.
+
+### Follow-up state → prompt (one shared bridge)
+
+Interactive blocks keep their state locally. When an interaction needs the model,
+the state is serialized to plain text and re-enters the existing agent loop via
+`onFollowup` — as capable as the user typing it. `src/lib/response/followup.ts`
+is the ONE implementation of that serialization (`composeFollowupPrompt`,
+`renderFollowupTemplate`, `labelsById`); `controls-block.tsx` and
+`simulation-block.tsx` both use it instead of hand-rolling interpolation. A new
+interactive block gets the same safe `{{placeholder}}` substitution for free.
 
 ### Declarative calculators (`simulation`) — state + computed, no JS
 
@@ -630,9 +661,12 @@ untouched.
 
 Every block is wrapped in `BlockBoundary` (a React error boundary), so a chart
 failure cannot destroy the surrounding answer. The chart component
-(`response-chart.tsx`) draws the chart with the runtime's Python chart engine
-(`docs/chart-engine.md`, ADR-050): the picture comes back as an artifact. The
-chat has no ECharts path. A chart block may also arrive as a **SCENE** -
+(`response-chart.tsx`) maps the block to the shared `ChartSpec`, resolves a named
+`dataSource` through `/api/price-history`, asks the Python engine for the picture
+and the live figure, and renders it with **Plotly** (`plotly-chart.tsx`;
+`docs/chart-engine.md`, ADR-050 as amended 2026-10-22). The drawn PNG paints
+first and Plotly is loaded lazily, so a chart is visible immediately. A chart
+block may also arrive as a **SCENE** -
 `panels` of `marks` - so the model can draw ANY chart the user asks for, not
 just the kinds someone pre-loaded. `MermaidBlock` is imported **statically**: it
 lazy-loads
@@ -800,6 +834,12 @@ and it is testable independently of the run loop.
   event) and no fabricated data. The schema digest remains the source of EXACT
   field names — the plan only says WHICH structure fits and reminds the model of
   the data-honesty rules.
+- **When NOT to render.** Every plan also appends `RENDER_DISCIPLINE` (in
+  `response_mode.py`): a checklist that overrides the mode — one sentence answers
+  it → write the sentence; a lone fact/lookup/definition → prose; data you do not
+  hold → `UNAVAILABLE` in prose, never an empty figure; a requested file → write
+  the file; never replace the whole answer with a bare fence. It lives in the
+  dynamic per-run directive, so the static prompt ceiling does not grow.
 
 - **Routing benchmark (Phase 6).** `python/harness/response_mode_benchmark.py` holds
   a versioned, labelled set of real-shaped prompts (each with its expected mode,
@@ -884,7 +924,7 @@ mapping + `coerceResponsePlan`).
 | REND-002 | Per-block error isolation | `response-view.tsx` `BlockBoundary` | code review | Verified |
 | REND-003 | Markdown/content blocks | `components/response/blocks.tsx` | tsc | Verified |
 | REND-004 | Rich text reuses existing Markdown | `markdown.tsx` | existing suite | Verified |
-| CHART-001 | Chart blocks, drawn by the Python chart engine (simple form or a SCENE of marks) | `chart-spec.ts`, `response-chart.tsx` | chart-spec.test.ts, test_chart_scene.py | Verified |
+| CHART-001 | Chart blocks, drawn interactively by Plotly (simple form, named source, or a SCENE of marks) | `chart-spec.ts`, `chart-data.ts`, `chart-capabilities.ts`, `response-chart.tsx` | chart-spec.test.ts, chart-render.test.ts | Verified |
 | CHART-002 | Lazy chart loading | `response-view.tsx` dynamic | tsc/build | Verified |
 | DIAG-001 | Interactive diagrams (SVG) | `diagram-layout.ts`, `diagram-block.tsx` | diagram-layout.test.ts | Verified |
 | DATA-001 | Interactive data table | `data-table-block.tsx` | tsc | Verified |
@@ -933,6 +973,8 @@ mapping + `coerceResponsePlan`).
 | BLOCK-006 | `carousel` nests blocks (recursively validated like `tabs`/`report`) | `contract.ts` `parseResponsePayload`/`parseNestedBlocks` | contract-blocks.test.ts + render.test.tsx | Verified |
 | BLOCK-007 | Field leniency (`body`, `chart_type`, 500-char `key_value` values, bare-string badges) + block-level `unavailable` figures | `normalize.ts` + `visual-blocks.tsx` UNAVAILABLE state | contract-blocks.test.ts | Verified |
 | BLOCK-008 | Producer read-back: exact block schema + live icon vocabulary + pre-send validation (bridge capability `response_contract`) | `src/lib/harness/response-bridge.ts` + `python/harness/response_tools.py` | response-bridge.test.ts + test_response_tools.py | Verified |
+| BLOCK-011 | Just-in-time design modules: compact prompt index + `response_style_guide(module)` with family guidance and worked examples; field map comes from the live contract; usable without the bridge | `python/harness/response_style.py` + `response_tools.py` + `graph.execute_run` | test_response_tools.py | Verified |
+| FOLLOWUP-001 | One shared local-state → follow-up-prompt serializer (safe `{{id}}`/`{{id.from}}` substitution, stable label order) used by `controls` and `simulation` | `src/lib/response/followup.ts` + `controls-block.tsx` + `simulation-block.tsx` | followup.test.ts | Verified |
 | BLOCK-009 | Icon-key canonicalization (spellings, synonyms, emoji) + non-string icon leniency, in the prompt vocabulary | `icon-vocabulary.ts` `canonicalIconKey` + `normalize.ts` + `prompts.py` | contract-blocks.test.ts | Verified |
 | BLOCK-010 | Branching HTML/CSS `flow` block (parallel-path cards) + native-flow routing over Mermaid | `contract.ts` + `flow-block.tsx` + `response-view.tsx` + `normalize.ts` + `prompts.py` | contract-blocks.test.ts + render.test.tsx | Verified |
 | SEC-002 | Citation/artifact links restricted to http(s) | `contract.ts` `httpUrl` | contract-blocks.test.ts | Verified |

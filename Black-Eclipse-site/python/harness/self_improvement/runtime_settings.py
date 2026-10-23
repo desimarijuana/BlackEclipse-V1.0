@@ -56,11 +56,13 @@ class RuntimeSettingsStore:
                                             updatedAt = excluded.updatedAt""",
             (key, payload, now_iso()),
         )
+        self._db.commit()
 
     def delete(self, key: str) -> None:
         self._db.execute(
             "DELETE FROM HarnessRuntimeSetting WHERE key = ?", (key,),
         )
+        self._db.commit()
 
     def load_rsl_config(self, base: RSLConfig) -> RSLConfig:
         payload = self.get(RSL_CONFIG_KEY)

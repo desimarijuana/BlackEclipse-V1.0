@@ -1,6 +1,22 @@
 import type { ActivityItem, AssistantModel, PendingApproval, ResponsePlan, ResponseStatus, TurnChange, TurnError } from '@/lib/agent/response-model';
 
 /**
+ * A context document a user turn carried into the run. Persisted ON the message
+ * so the transcript can show WHAT was sent, not just the typed prompt — a
+ * pasted wall of text must not vanish into an invisible attachment.
+ */
+export interface MessageAttachment {
+  /** Session file name, e.g. `pasted-text.txt`. */
+  name: string;
+  /** Extracted characters, when known (pasted text always reports this). */
+  chars?: number;
+  /** A short excerpt so the content is recognizable in the transcript. */
+  preview?: string;
+  /** True when the user pasted the text into the composer. */
+  pasted?: boolean;
+}
+
+/**
  * One turn in a conversation transcript.
  *
  * `status`, `activities` and `error` are OPTIONAL so conversations persisted
@@ -12,6 +28,11 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  /**
+   * Context documents the user attached to THIS turn. Present on user turns
+   * only; absent on assistant turns, ordinary prompts and legacy rows.
+   */
+  attachments?: MessageAttachment[];
   /** Lifecycle of an assistant turn (absent on user turns and legacy rows). */
   status?: ResponseStatus;
   /** Tools/retrieval the agent used while producing this turn. */

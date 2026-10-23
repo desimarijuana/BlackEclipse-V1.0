@@ -128,22 +128,32 @@ export function MessageRail({
   }
   const visible = userTurns.slice(start, start + MAX_TICKS);
 
+  // Index of the tick under the pointer, for the wave. -1 when not hovering.
+  const hoveredIdx = hoverId ? visible.findIndex((m) => m.id === hoverId) : -1;
+
   return (
     <nav
       aria-label="Jump to message"
       className={cn(
-        "pointer-events-none absolute right-2 top-1/2 z-20 flex -translate-y-1/2 flex-col items-end gap-[3px] py-1",
+        "pointer-events-none absolute right-3 top-1/2 z-20 flex -translate-y-1/2 flex-col items-end gap-[2px] py-1",
         className,
       )}
     >
-      {visible.map((msg) => {
+      {visible.map((msg, i) => {
         const active = msg.id === activeId;
-        const hovering = msg.id === hoverId;
+        const distance = hoveredIdx < 0 ? null : Math.abs(i - hoveredIdx);
+        const hovering = distance === 0;
         const label = previewOf(msg.content);
+        // A calm wave: the hovered tick leads, neighbours follow at a decaying
+        // amplitude, each one starting a beat later so the pulse travels
+        // outward. Widths stay hairline-small — the wave reads through length
+        // and timing, never through bulk.
+        const wave = distance == null ? 0 : Math.max(0, 1 - distance / 4);
+        const width = Math.round(7 + wave * 4 + (active && !hovering ? 2 : 0));
         return (
           <div
             key={msg.id}
-            className="pointer-events-auto relative flex items-center justify-end py-[1px]"
+            className="pointer-events-auto relative flex items-center justify-end"
             onMouseEnter={(e) => {
               setHoverId(msg.id);
               const r = e.currentTarget.getBoundingClientRect();
@@ -159,17 +169,19 @@ export function MessageRail({
               onClick={() => jumpTo(msg.id)}
               aria-current={active ? "true" : undefined}
               aria-label={`Jump to: ${label || "message"}`}
+              style={{
+                width,
+                transitionDelay: distance == null ? undefined : `${distance * 28}ms`,
+              }}
               className={cn(
-                "relative block h-[2px] rounded-none transition-all duration-150 ease-out cursor-pointer",
+                // Hairline ticks with a 1px gap between rows: a quiet ruler,
+                // not a stack of pills. Neutral grey — no brand accent.
+                "relative block h-px rounded-full transition-[width,background-color] duration-200 ease-out cursor-pointer",
                 // Expand the tap target on touch without changing the visual
-                // footprint (the visible tick stays 2px tall).
-                "before:absolute before:-inset-x-2 before:-inset-y-[6px] before:content-['']",
-                // Neutral grey ticks — no brand accent. WIDTH grows only on
-                // HOVER; the active/reading tick stays its size and only
-                // brightens to the foreground grey.
-                "w-2.5 bg-muted-foreground/50",
-                hovering && "w-3.5 bg-foreground/80",
-                active && !hovering && "bg-foreground/70",
+                // footprint (the visible tick stays 1px tall).
+                "before:absolute before:-inset-x-2 before:-inset-y-[4px] before:content-['']",
+                active || hovering ? "bg-foreground/75" : "bg-muted-foreground/45",
+                hovering && "bg-foreground/85",
               )}
             />
           </div>

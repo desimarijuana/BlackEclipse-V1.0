@@ -122,6 +122,12 @@ const launcher = [
   "_capv = check_capability_floors(_cap)",
   "print('  capability-class gate:', 'PASS' if _capv['passed'] else 'FAIL', 'measured=' + str(_capv['measured']), 'unmeasured=' + str(_capv['unmeasured']), _capv['failures'] if not _capv['passed'] else '')",
   "failed += [] if _capv['passed'] else ['capability_classes']",
+  // v4 P3: the corpus manifest - one committed summary of the benchmark, with
+  // every checksum recomputed from the task files. A drifted corpus fails here.
+  "from harness.evaluation.corpus import verify_manifest",
+  "_cm = verify_manifest()",
+  "print('  corpus-manifest gate:', 'PASS' if _cm['ok'] else 'FAIL', 'tasks=' + str(_cm['taskCount']), 'oracleCoverage=' + str(_cm['oracleCoverage']), _cm['mismatches'] if not _cm['ok'] else '')",
+  "failed += [] if _cm['ok'] else ['corpus_manifest']",
   // R8: the RSL conductor's deterministic offline end-to-end. It exercises
   // propose_many -> per-candidate verification -> anonymous selection ->
   // composition -> one recorded EvaluationRun + the measured metric block. It

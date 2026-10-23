@@ -150,22 +150,11 @@ const KIND_BY_BLOCK_TYPE: Record<
   bubble: { kind: 'scatter' },
   histogram: { kind: 'histogram' },
   heatmap: { kind: 'heatmap' },
-  treemap: {
-    kind: 'bar',
-    note: 'Shown as a bar chart: the chart engine draws no treemap.',
-  },
-  sunburst: {
-    kind: 'pie',
-    note: 'Shown as a pie chart: the chart engine draws no sunburst.',
-  },
-  funnel: {
-    kind: 'bar',
-    note: 'Shown as a bar chart: the chart engine draws no funnel.',
-  },
-  gauge: {
-    kind: 'bar',
-    note: 'Shown as a bar chart: the chart engine draws no gauge.',
-  },
+  // The browser renderer draws these natively; nothing is downgraded.
+  treemap: { kind: 'treemap' },
+  sunburst: { kind: 'pie' }, // handled as a scene below
+  funnel: { kind: 'bar' }, // handled as a scene below
+  gauge: { kind: 'gauge' },
   radar: { kind: 'radar' },
   waterfall: { kind: 'waterfall' },
   candlestick: { kind: 'candlestick' },
@@ -404,6 +393,79 @@ export function chartBlockToSpec(
       kind: 'scene',
       notes: note ? [note] : [],
     };
+  }
+
+  // ── funnel / sunburst ───────────────────────────────────────────────────
+  // Both are a scene with one native mark: the browser renderer has them, so
+  // the simple kinds do not need to lie about the shape.
+  if (blockType === 'funnel' || blockType === 'sunburst') {
+    const first = (block.series ?? [])[0];
+    if (!first) return null;
+    const values = first.data.map(pointValue).map((v) => (v == null ? 0 : v));
+    return {
+      spec: {
+        kind: 'scene',
+        title: options.includeTitle ? (block.title ?? undefined) : undefined,
+        subtitle: options.includeTitle ? (block.description ?? undefined) : undefined,
+        source: block.source ?? undefined,
+        theme: options.theme ?? 'eclipse-dark',
+        width: options.width ?? 960,
+        height: options.height ?? 420,
+        panels: [{
+          marks: [{
+            type: blockType,
+            name: first.name || blockType,
+            labels: categoryNames(block, values.length),
+            values,
+          }],
+        }],
+      },
+      kind: 'scene',
+      notes: [],
+    };
+  }
+
+  // ── treemap ─────────────────────────────────────────────────────────────
+  if (blockType === 'treemap') {
+    const first = (block.series ?? [])[0];
+    if (!first) return null;
+    const values = first.data.map(pointValue);
+    const tiles = values.map((value, i) => ({
+      name: categoryNames(block, values.length)[i],
+      value: value ?? 0,
+    }));
+    if (tiles.length === 0) return null;
+    const spec: ChartSpec = {
+      kind: 'treemap',
+      title: options.includeTitle ? (block.title ?? undefined) : undefined,
+      subtitle: options.includeTitle ? (block.description ?? undefined) : undefined,
+      source: block.source ?? undefined,
+      theme: options.theme ?? 'eclipse-dark',
+      width: options.width ?? 960,
+      height: options.height ?? 420,
+      tiles,
+    };
+    return { spec, kind: 'treemap', notes: [] };
+  }
+
+  // ── gauge ───────────────────────────────────────────────────────────────
+  if (blockType === 'gauge') {
+    const first = (block.series ?? [])[0];
+    if (!first) return null;
+    const value = first.data.map(pointValue).find((v): v is number => v != null);
+    if (value == null) return null;
+    const spec: ChartSpec = {
+      kind: 'gauge',
+      title: options.includeTitle ? (block.title ?? undefined) : undefined,
+      subtitle: options.includeTitle ? (block.description ?? undefined) : undefined,
+      source: block.source ?? undefined,
+      theme: options.theme ?? 'eclipse-dark',
+      width: options.width ?? 960,
+      height: options.height ?? 420,
+      value,
+      gaugeMax: Math.max(100, value),
+    };
+    return { spec, kind: 'gauge', notes: [] };
   }
 
   const mapping = KIND_BY_BLOCK_TYPE[blockType] ?? { kind: 'line' as const };

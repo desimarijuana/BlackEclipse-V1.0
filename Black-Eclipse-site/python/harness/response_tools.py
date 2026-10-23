@@ -163,6 +163,35 @@ async def response_block_schema(args: dict[str, Any], ctx: ToolContext) -> str:
     return _fmt_schema(payload)
 
 
+async def response_style_guide(args: dict[str, Any], ctx: ToolContext) -> str:
+    """Load one design module: nuance, exact fields and worked examples.
+
+    The guide is useful even without the bridge (guidance + examples are static);
+    the exact field lines are simply omitted and the reply names the fallback.
+    """
+    from .response_style import format_style_guide, get_module, module_names  # noqa: PLC0415
+
+    key = str(args.get("module") or "").strip()
+    if not key:
+        return "Choose a design module: " + ", ".join(module_names()) + "."
+    module = get_module(key)
+    if module is None:
+        return (
+            f"Unknown design module {key!r}. Choose one of: "
+            + ", ".join(module_names())
+            + ". Field names still come from `response_block_schema`."
+        )
+    payload: dict[str, Any] = {}
+    if ctx.data_bridge is not None:
+        try:
+            fetched = await ctx.data_bridge.fetch("response_contract", {"op": "schema"})
+            if isinstance(fetched, dict) and fetched.get("status") == "OK":
+                payload = fetched
+        except Exception:  # noqa: BLE001 - examples must still load without the bridge
+            payload = {}
+    return format_style_guide(module, payload)
+
+
 async def response_validate(args: dict[str, Any], ctx: ToolContext) -> str:
     markdown = str(args.get("markdown") or "")
     if not markdown.strip():
@@ -201,6 +230,32 @@ def register_response_contract_tools(registry: ToolRegistry) -> None:
                 },
             },
             handler=response_block_schema,
+            permission="read",
+            risk="low",
+            timeout_ms=10_000,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="response_style_guide",
+            description=(
+                "Load a just-in-time design guide for ONE family of eclipse-response "
+                "blocks BEFORE authoring it: when to use which block, the exact fields "
+                "(live contract) and 1-2 worked examples. Call it once per family you "
+                "are about to use; do not load every module. Modules: "
+                "data, chart, diagram, workflow, interactive, explanation, mechanical."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "module": {
+                        "type": "string",
+                        "description": "One module key, e.g. chart, data, mechanical.",
+                    },
+                },
+                "required": ["module"],
+            },
+            handler=response_style_guide,
             permission="read",
             risk="low",
             timeout_ms=10_000,

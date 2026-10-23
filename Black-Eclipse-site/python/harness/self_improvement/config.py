@@ -46,7 +46,34 @@ _FIELD_ENV: dict[str, str] = {
     "canary": "HARNESS_RSL_CANARY",
     "canarySplit": "HARNESS_RSL_CANARY_SPLIT",
     "canaryTolerance": "HARNESS_RSL_CANARY_TOLERANCE",
+    # Archive sampling: the search may propose from a measured stepping stone,
+    # not only from the champion. It never changes what may be accepted.
+    "archive": "HARNESS_RSL_ARCHIVE",
+    "archiveMax": "HARNESS_RSL_ARCHIVE_MAX",
+    "archiveSample": "HARNESS_RSL_ARCHIVE_SAMPLE",
+    # Metaproductivity: rank exploration parents by what their descendants
+    # achieved. A sampling signal only; it never decides acceptance.
+    "cmp": "HARNESS_RSL_CMP",
+    "cmpHorizon": "HARNESS_RSL_CMP_HORIZON",
+    # Novelty veto + islands: reject near-duplicate proposals, and let a
+    # non-global scope's best measured state migrate into the global archive.
+    "noveltyMin": "HARNESS_RSL_NOVELTY_MIN",
+    "islands": "HARNESS_RSL_ISLANDS",
+    "islandMigration": "HARNESS_RSL_ISLAND_MIGRATION",
+    # Paired significance: a measured lift must clear the noise floor.
+    "significance": "HARNESS_RSL_SIGNIFICANCE",
+    "significanceMinTasks": "HARNESS_RSL_SIGNIFICANCE_MIN_TASKS",
+    # Supervised autonomy: what (if anything) may close without an operator.
+    "autonomy": "HARNESS_RSL_AUTONOMY",
+    "autoMinLift": "HARNESS_RSL_AUTO_MIN_LIFT",
+    "autoMaxPerDay": "HARNESS_RSL_AUTO_MAX_PER_DAY",
+    "autoRisk": "HARNESS_RSL_AUTO_RISK",
 }
+
+ARCHIVE_MODES: tuple[str, ...] = ("uniform", "weighted", "uct")
+AUTONOMY_LEVELS: tuple[str, ...] = (
+    "off", "observe", "propose", "verify", "supervised", "bounded",
+)
 
 
 def _as_env(value: Any) -> str:
@@ -134,6 +161,24 @@ class RSLConfig:
     canary: bool = False
     canary_split: str = 'held_out'
     canary_tolerance: float = 0.05
+    # Archive sampling (opt-in). The archive retains measured states that did
+    # not beat the champion as inert stepping stones; it never promotes them.
+    archive: bool = False
+    archive_max: int = 200
+    archive_sample: str = 'weighted'
+    cmp: bool = False
+    cmp_horizon: int = 3
+    novelty_min: float = 0.0
+    islands: bool = False
+    island_migration_every: int = 5
+    significance: bool = False
+    significance_min_tasks: int = 5
+    # Supervised autonomy. `auto_risk` is the ceiling: only L1 (bounded surface)
+    # changes are eligible, and the kill switch can stop every decision.
+    autonomy: str = "off"
+    auto_min_lift: float = 0.02
+    auto_max_per_day: int = 1
+    auto_risk: str = "low"
 
     @property
     def is_off(self) -> bool:
@@ -153,6 +198,18 @@ class RSLConfig:
         objective = raw_objective if raw_objective in ("single", "pareto") else "single"
         raw_strategy = str(env.get(_STRATEGY_ENV, DEFAULT_STRATEGY)).strip().lower()
         strategy = raw_strategy if raw_strategy in STRATEGIES else DEFAULT_STRATEGY
+        raw_archive_sample = str(
+            env.get("HARNESS_RSL_ARCHIVE_SAMPLE", "weighted")
+        ).strip().lower()
+        archive_sample = (
+            raw_archive_sample
+            if raw_archive_sample in ARCHIVE_MODES
+            else "weighted"
+        )
+        raw_autonomy = str(
+            env.get("HARNESS_RSL_AUTONOMY", "off")
+        ).strip().lower()
+        autonomy = raw_autonomy if raw_autonomy in AUTONOMY_LEVELS else "off"
         return cls(
             mode=mode,
             strategy=strategy,
@@ -188,6 +245,30 @@ class RSLConfig:
             canary_tolerance=_env_float(
                 env, "HARNESS_RSL_CANARY_TOLERANCE", 0.05, 0.0, 1.0,
             ),
+            archive=_env_bool(env, "HARNESS_RSL_ARCHIVE", False),
+            archive_max=_env_int(env, "HARNESS_RSL_ARCHIVE_MAX", 200, 2, 500),
+            archive_sample=archive_sample,
+            cmp=_env_bool(env, "HARNESS_RSL_CMP", False),
+            cmp_horizon=_env_int(env, "HARNESS_RSL_CMP_HORIZON", 3, 1, 6),
+            novelty_min=_env_float(
+                env, "HARNESS_RSL_NOVELTY_MIN", 0.0, 0.0, 1.0,
+            ),
+            islands=_env_bool(env, "HARNESS_RSL_ISLANDS", False),
+            island_migration_every=_env_int(
+                env, "HARNESS_RSL_ISLAND_MIGRATION", 5, 0, 100,
+            ),
+            significance=_env_bool(env, "HARNESS_RSL_SIGNIFICANCE", False),
+            significance_min_tasks=_env_int(
+                env, "HARNESS_RSL_SIGNIFICANCE_MIN_TASKS", 5, 2, 200,
+            ),
+            autonomy=autonomy,
+            auto_min_lift=_env_float(
+                env, "HARNESS_RSL_AUTO_MIN_LIFT", 0.02, 0.0, 1.0,
+            ),
+            auto_max_per_day=_env_int(
+                env, "HARNESS_RSL_AUTO_MAX_PER_DAY", 1, 0, 50,
+            ),
+            auto_risk="low",
         )
 
     @classmethod
@@ -249,10 +330,25 @@ class RSLConfig:
             "canary": self.canary,
             "canarySplit": self.canary_split,
             "canaryTolerance": self.canary_tolerance,
+            "archive": self.archive,
+            "archiveMax": self.archive_max,
+            "archiveSample": self.archive_sample,
+            "cmp": self.cmp,
+            "cmpHorizon": self.cmp_horizon,
+            "noveltyMin": self.novelty_min,
+            "islands": self.islands,
+            "islandMigration": self.island_migration_every,
+            "significance": self.significance,
+            "significanceMinTasks": self.significance_min_tasks,
+            "autonomy": self.autonomy,
+            "autoMinLift": self.auto_min_lift,
+            "autoMaxPerDay": self.auto_max_per_day,
+            "autoRisk": self.auto_risk,
         }
 
 
 __all__ = [
+    "AUTONOMY_LEVELS",
     "DEFAULT_MODE",
     "DEFAULT_STRATEGY",
     "MODES",

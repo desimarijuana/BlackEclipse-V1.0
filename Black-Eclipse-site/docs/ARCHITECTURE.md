@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-10-21
+last-verified: 2026-10-22
 ---
 
 # Architecture
@@ -149,7 +149,7 @@ src/components/
   chat/           chat-specific pieces
   ui/             reusable primitives (button, card, dialog, tab-bar, …)
   chart/          the ECharts/TradingView chart widget (being retired)
-  charts/         the chart surface — the picture drawn by the Python chart engine
+  charts/         the chat chart surface — the Plotly view and the drawn-picture shell
   journal/        trading journal UI
   market-workspace/  the multi-panel market grid UI
   workspace/      the customizable widget-grid UI
@@ -1959,42 +1959,34 @@ the client zustand `useSoundStore` (`be_sounds_v3`; the key was bumped from
 is **opt-in**: defaults are OFF, 12% volume (deliberately subtle), mode `all`,
 pack `eclipse`.
 
-## The chart engine (Python, not the browser)
+## The chart engine (Python-authored Plotly figures; ECharts elsewhere)
 
-Eclipse draws its charts with the **Python runtime**, not with a browser
-charting library. A chart is described by a validated **chart spec** — data
-only (a kind, some series, a title), never a callback, a URL or a path — and
-the runtime draws it with `matplotlib` into a **transparent** PNG, using the
-app's own palette, so the picture sits on the frosted glass card without
-hiding the frost. The picture is recorded in the Artifact Center and fetched
-back by the browser as an artifact, so a chart is downloadable, versioned and
-shareable.
+The **chat's** charts are authored in Python: a `chart` block is mapped to the
+shared `ChartSpec` (`src/lib/response/chart-spec.ts`), a named `dataSource` is
+resolved through the app's own `/api/price-history` route (`chart-data.ts`),
+and the engine returns both a transparent PNG and a live **Plotly** figure.
+`plotly-chart.tsx` paints the PNG immediately, then loads plotly.js lazily and
+cross-fades to the interactive chart. The rest of the app (journal, portfolio,
+dashboard, backtest, workspace widgets, the price chart and the Investor Eye
+map) stays on ECharts, where it draws from live data at interactive rates.
+
+The **Python** chart engine also records analysis pictures: the same spec is
+drawn with `matplotlib` into a transparent PNG and recorded in the Artifact
+Center (`python/harness/charts/`, `routers/charts.py`). An unsupported picture
+mark is a named refusal, never a blank picture.
 
 ```
-python/harness/charts/     spec.py · theme.py · render.py · service.py · tools.py
-python/harness/routers/charts.py   POST /charts/render (operator-gated)
-src/lib/harness/charts.ts          the browser client
-src/app/api/harness/charts/route.ts  the front-door proxy
-src/components/charts/python-chart.tsx  the chart surface
+src/lib/response/chart-spec.ts          block -> shared ChartSpec
+src/lib/response/chart-data.ts          named dataSource -> /api/price-history
+src/lib/response/chart-capabilities.ts  drawability allowlist (shared with validate)
+src/components/response/response-chart.tsx  the chart surface (PNG first, live chart lazily)
+src/components/charts/plotly-chart.tsx      the live-chart binding (lazy plotly.js)
+src/app/api/harness/charts/plotly/route.ts  the chart library route
+python/harness/charts/                  spec -> Plotly figure + matplotlib PNG artifact
 ```
 
-Three doors onto the one engine: the `python_chart` **agent tool** (a
-malformed spec is a refusal that names the missing part), the **operator
-route** the front door calls, and the **browser client**. A figure is always
-`computed` and never evidence; a missing `matplotlib` is a named refusal, not
-an empty picture. **The chat's charts have two engines.** A `chart` block in an answer can be
-drawn by the interactive ECharts chart (the default) or by the Python chart
-engine's picture, and the user picks with the toggle on the chart. **The rest of
-the app is not part of it**: the journal, portfolio, dashboard, backtest,
-economics, fundamentals and workspace widgets, the price chart, the Investor Eye
-map and the relationship graphs all stay on ECharts, because they draw from
-live data at interactive rates and a server-drawn picture cannot serve that.
-
-What a drawn picture cannot do is stated plainly in the chart engine's doc: no
-hover tooltip and no crosshair on the drawn path.
-
-Full contract and the two engines' trade-offs:
-[`docs/chart-engine.md`](chart-engine.md). Decision: **ADR-050**.
+Full contract: [`docs/chart-engine.md`](chart-engine.md). Decision: **ADR-050**
+(amended 2026-10-22).
 
 ## Module boundaries (terminal · shared · backend · harness)
 

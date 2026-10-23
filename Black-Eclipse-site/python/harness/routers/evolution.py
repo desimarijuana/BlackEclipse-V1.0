@@ -25,6 +25,7 @@ from ..code.evolution_store import EvolutionStore
 from ..deps import require_operator, service
 
 router = APIRouter(tags=["evolution"])
+from .evolution_autonomy import router as autonomy_router  # noqa: E402
 from .evolution_drift import router as drift_router  # noqa: E402
 from .evolution_models import router as model_router  # noqa: E402
 from .evolution_report import router as report_router  # noqa: E402
@@ -32,6 +33,7 @@ from .evolution_report import router as report_router  # noqa: E402
 router.include_router(drift_router)
 router.include_router(model_router)
 router.include_router(report_router)
+router.include_router(autonomy_router)
 
 
 def _store() -> EvolutionStore:
@@ -1291,6 +1293,9 @@ def resume_rsl_climb(_: bool = Depends(require_operator)) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="RSL loop unavailable")
     loop.resume_climb()
     return {"success": True, "climbPaused": False}
+
+
+
 
 
 @router.get("/evolution/states/pareto")

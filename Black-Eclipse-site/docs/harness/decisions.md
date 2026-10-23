@@ -9776,3 +9776,308 @@ and its CLI flags), `evaluation/candidate_invoker.py` (the live invoker already
 refuses to run without explicit settings). Tests: `test_surface_lab.py` (the
 live tier reaches the invoker with the explicit settings, and the run stays
 deterministic in the test). Docs: `docs/self-improvement/rsl-v3-plan.md`.
+## ADR-H293 - The search may propose from a measured stepping stone; only the champion can be replaced
+
+**Decision.** `self_improvement/archive.py` retains measured states that did not
+beat the champion as `stepping_stone` rows, and `self_improvement/sampler.py`
+chooses the exploration parent from that archive (`uniform` / `weighted` /
+`uct`). Two decisions are now separate:
+
+- **where to propose from** - the sampled archive state;
+- **what may replace the champion** - `utility.acceptance` against the
+  champion only.
+
+A candidate that beats a weak sampled parent but not the champion is retained,
+never accepted. A stepping stone is never promotable, activatable or current.
+
+**Why.** A climb that proposes only from the incumbent discards the measured
+states that make open-ended search work. The Darwin G�del Machine ablation is
+the clearest external evidence: archive sampling scored 50.0% where greedy
+selection scored 39.7% and no open-ended archive scored 23.0%. The archive is
+opt-in (`HARNESS_RSL_ARCHIVE=off` by default) because it adds stored states, and
+the safety floor must not move: acceptance still requires a measured win, no
+critical regression and a replay pass.
+
+**Consequences.** `self_improvement/{sampler,archive}.py` (new),
+`self_improvement/state.py` (additive `HarnessState` columns + `stepping_stone`
+status + `list_for_sampling`/`children`/`record_visit`/`set_scores`),
+`self_improvement/hillclimb.py` (`archive=`/`rng=`, per-generation
+`proposalParentId`, retention), `self_improvement/config.py`
+(`HARNESS_RSL_ARCHIVE*`, clamped; hot config accepts them),
+`self_improvement/loop.py` (constructs the archive only when enabled). Tests:
+`python/tests/test_rsl_archive.py`, an archive-on conductor test in
+`test_rsl_loop.py`; the archive-off suite is unchanged. Docs:
+`docs/self-improvement/rsl-v4-plan.md`.
+
+## ADR-H294 - Rank exploration parents by descendant lift, and keep it out of acceptance
+
+**Decision.** `self_improvement/cmp.py` estimates a state's metaproductivity as
+the depth-discounted mean of `utility(descendant) - utility(state)` over its
+measured descendants (bounded by `HARNESS_RSL_CMP_HORIZON`). The archive
+persists the estimate as `cmpScore` on the state and its ancestors after a new
+measured state is retained, and attaches a fresh estimate on the read path for
+older rows. `sampler.scores` blends `cmpScore` into the parent score. A state
+with too few measured descendants is `coldStart` with `lift: null`; it is never
+treated as a measured zero.
+
+**Why.** HGM showed that an agent's own benchmark score is a poor proxy for its
+potential to produce further improvement, and that ranking by estimated
+descendant performance beats ranking by the leaf's score. RSL already has the
+lineage needed to compute that estimate. It must remain a *sampling* signal,
+because a high-lift state is evidence about where to explore, not evidence that
+its child is better than the champion.
+
+**Consequences.** `self_improvement/cmp.py` (new),
+`self_improvement/archive.py` (`ArchiveConfig.cmp*`, `refresh_cmp`,
+read-path attachment, summary), `self_improvement/config.py`
+(`HARNESS_RSL_CMP`/`_HORIZON`, clamped; hot config accepts them),
+`self_improvement/loop.py` (passes the CMP settings). `utility.acceptance` is
+untouched. Tests: `python/tests/test_rsl_cmp.py`; the archive/hill-climb suites
+remain green. Docs: `docs/self-improvement/rsl-v4-plan.md`.
+
+## ADR-H295 - A proposal is typed, near-duplicates are vetoed, and islands migrate evidence not decisions
+
+**Decision.** A proposal carries a typed operator (`prompt`, `tool_guidance`,
+`tool_subset`, `ceilings`, `context_policy`, `guardrail`, `subagent_prompt`,
+`model_identity`, `skill_draft`, `code_patch`, `composition` or `unknown`).
+`operators.py` classifies op sets and snapshots, and defines novelty as the
+Jaccard distance over normalized tokens. `propose_many` accepts
+`novelty_min`/`exclude_signatures`; when enabled it drops near-duplicates and
+raises `PROPOSAL_ALL_DUPLICATES` if nothing new remains. A non-global `scope`
+is an island: every N measured states (`HARNESS_RSL_ISLAND_MIGRATION`),
+`StateArchive.migrate_best` copies the island's best measured state into
+`global` as a `stepping_stone` with the same snapshot digest and a new row.
+
+**Why.** The loop was proposing mutations with no name and no memory of what
+shape had already been tried, so near-identical variants could consume the
+daily budget as if they were independent evidence. Typing makes the experiment
+readable; the novelty veto protects the budget. Islands let a scoped climb
+(for example a finance agent) contribute evidence to the global archive without
+promoting its own state or widening its authority. Migration copies evidence,
+not a decision: it cannot activate, and acceptance still compares against the
+champion.
+
+**Consequences.** `self_improvement/operators.py` (new),
+`self_improvement/proposer.py` (`CandidateProposal.operator`,
+`novelty_min`/`exclude_signatures`), `self_improvement/archive.py`
+(`ArchiveConfig.islands`/`island_migration_every`, `migrate_best`, `islands`,
+island-restricted `parent_for`), `self_improvement/config.py`
+(`HARNESS_RSL_NOVELTY_MIN`/`_ISLANDS`/`_ISLAND_MIGRATION`, clamped; hot config
+accepts them), `self_improvement/{recursion,loop}.py` (passes the novelty
+floor). The per-scope lease and the global busy flag are unchanged. Tests:
+`python/tests/test_rsl_operators.py`, `python/tests/test_rsl_islands.py`.
+Docs: `docs/self-improvement/rsl-v4-plan.md`.
+
+## ADR-H296 - The corpus has a committed manifest, and a purpose reads exactly one split
+
+**Decision.** `evaluation/corpus.py` writes
+`baselines/corpus_manifest.json` (per-dataset checksum, task counts by split,
+oracle coverage, canary count) and `verify_manifest()` recomputes every
+checksum from the task files. The `corpus-manifest` gate in
+`scripts/test-evals.js` fails on drift. `evaluation/contamination.py` maps each
+purpose to exactly one split (`optimization`/`validation`/`canary`/`release`);
+`access_guard` refuses a cross-split read, `select_for_purpose` returns refused
+tasks with reasons, and a decoy canary (`metadata.canary`) turns a PASS into
+`CANARY_HACK`.
+
+**Why.** The corpus count had already drifted between documents (76 vs 88) and
+nothing checked a dataset change against a recorded summary. The manifest is a
+derived, committed summary - not a second task store - so a checksum, count or
+split change is visible in review. The split contract makes the distinction the
+loop depends on explicit: the search may read optimization, acceptance reads
+validation, the canary reads held_out, and the release gate reads release. A
+decoy canary that a candidate "passes" is evidence of answer-fitting, not
+capability, so it must fail rather than count as a win.
+
+**Consequences.** `evaluation/corpus.py` (new),
+`evaluation/contamination.py` (new),
+`evaluation/baselines/corpus_manifest.json` (committed),
+`scripts/rsl-manifest.js` + `npm run rsl:manifest`,
+`scripts/test-evals.js` (the manifest gate). The manifest is refreshed with
+`--build` after a deliberate corpus change; `--audit --strict` is the authoring
+rule for new tasks (oracle + contamination metadata). Tests:
+`python/tests/test_evaluation_corpus.py`,
+`python/tests/test_evaluation_contamination.py`. Docs:
+`docs/harness/agent-evaluation.md`, `docs/self-improvement/rsl-v4-plan.md`.
+
+## ADR-H297 - A lift must clear its paired noise floor, and the decision must know the sample size
+
+**Decision.** `evaluation/significance.py` adds a paired bootstrap over TASKS,
+an exact McNemar test for paired pass/fail tasks, a coarse `required_trials`
+planning estimate, and `paired_rates` (which reads a metrics dict OR a
+`SuiteResult`). `ablation.compare_arms` reports `deltaCi`, `pValue` and
+`pairedTasks`, and renders the CI. The RSL acceptance decision uses the paired
+CI only when `HARNESS_RSL_SIGNIFICANCE` is on: at least
+`HARNESS_RSL_SIGNIFICANCE_MIN_TASKS` paired tasks are required and the CI low
+bound must be above zero. A two-task win is refused.
+
+**Why.** A Wilson interval on one arm answers precision, not significance, and
+the loop was accepting a point-estimate improvement from a sample too small to
+distinguish from noise. The comparison is paired by construction (same tasks,
+same seeds), so resampling tasks is the correct null. The rule is opt-in
+because a small scripted corpus cannot support a significance claim and the
+default must not turn every honest flat result into a rejection. Significance is
+an acceptance rule, never a sampling signal: the archive/CMP ranks exploration
+parents, and it must not be confused with the evidence that a change is real.
+
+**Consequences.** `evaluation/significance.py` (new),
+`evaluation/ablation.py` (paired CI columns in `compare_arms` and the Markdown
+report), `self_improvement/utility.py` (`acceptance(..., require_significance=)`),
+`self_improvement/hillclimb.py` (`HillClimbConfig` significance fields),
+`self_improvement/config.py` (`HARNESS_RSL_SIGNIFICANCE`/`_MIN_TASKS`, clamped;
+hot config accepts them), `self_improvement/loop.py` (passes them). Tests:
+`python/tests/test_significance.py`, `python/tests/test_rsl_significance.py`,
+`python/tests/test_ablation.py`. Docs: `docs/harness/agent-evaluation.md`,
+`docs/self-improvement/rsl-v4-plan.md`.
+
+## ADR-H298 - Only the live tier may be pinned, and the key includes the prompt and the corpus
+
+**Decision.** `evaluation/live_baseline.py` pins a live-tier baseline keyed by
+provider + model + base URL + temperature + prompt hash + corpus checksum.
+`build_live_baseline` refuses the scripted tier and an empty provider/model, and
+stores the Wilson CI, per-category rates, task rates, cost/latency and
+provenance (never a key). `nightly.py` gained `--live-baseline`,
+`--write-live-baseline` and `--publish`, all requiring `--live`.
+`publish_report` writes a Markdown report that names the tier, identity, prompt
+hash, corpus checksum and verdict; no pinned baseline is `NOT COMPARED`, never
+`PASS`.
+
+**Why.** A scripted replay cannot see a prompt change, so pinning it as a model
+baseline would manufacture evidence. A baseline is only comparable to the
+experiment that produced it, so the prompt and corpus are part of its identity:
+a changed prompt is a new entry, not a silent rewrite of the old number. The
+report has to say which tier produced it and must never present an unpinned run
+as a pass. The gate ("one recorded live run") stays an operator action because
+it needs a real provider, model and key; the repository never fabricates it.
+
+**Consequences.** `evaluation/live_baseline.py` (new),
+`evaluation/nightly.py` (live-baseline flags + comparison + report),
+`scripts/rsl-nightly.js` (path flags), `baselines/live_v1.json` (created on
+first operator write). Tests: `python/tests/test_live_baseline.py`. Docs:
+`docs/harness/agent-evaluation.md` §7.4,
+`docs/self-improvement/rsl-v4-plan.md`.
+
+## ADR-H299 - Autonomy is risk-classed, evidence-gated and killable, and it never widens what an operator approved
+
+**Decision.** `self_improvement/autonomy.py` classifies a change as `L0`
+(code, tool widening, guardrail removal, model identity), `L2`
+(capability-widening: added tools, raised ceilings, removed guardrails) or `L1`
+(bounded surface: prompt wording, tool guidance, narrowed context policy, a
+delegated-child prompt, added guardrails). `decide(...)` allows only L1 under
+`supervised`/`bounded`, with no kill switch, a paired `deltaCiLow` above
+`HARNESS_RSL_AUTO_MIN_LIFT`, no critical regression, clean canary/replay, a
+matching predicted direction, and a daily budget. `AutonomyKillSwitch` persists
+under `rsl.autonomy.kill`; `/evolution/rsl/autonomy/pause|resume` stop/allow
+decisions without a restart. `POST /evolution/rsl/autonomy/decide` previews a
+decision and never activates.
+
+**Why.** The loop could verify a change but had no explicit answer to "may the
+runtime apply this by itself?", so the only safe state was "never". Making the
+answer explicit requires three properties: a conservative risk ceiling (a tool
+addition is capability, not wording), evidence stronger than a point estimate
+(the paired CI from ADR-H297), and a stop that does not depend on a process
+restart. The decision stays pure so it can be audited and replayed; activation
+stays on the existing single-use surface path, which is why this slice does not
+silently widen authority. Auto-applying an L1 winner is a supervised follow-up
+after a dry run (`HARNESS_RSL_AUTO_MAX_PER_DAY=0`).
+
+**Consequences.** `self_improvement/autonomy.py` (new),
+`self_improvement/config.py` (`HARNESS_RSL_AUTONOMY`/`_AUTO_*`, clamped; hot
+config accepts them), `self_improvement/runtime_settings.py` (writes commit),
+`self_improvement/loop.py` (status, pause/resume, pure decision helpers),
+`routers/evolution.py` (autonomy status/pause/resume/decide routes). Tests:
+`python/tests/test_autonomy.py`. Docs:
+`docs/self-improvement/rsl-v4-plan.md`, `docs/harness/architecture.md`.
+
+## ADR-H300 - A chat notebook is a sidecar document over the existing sandbox, and a chart's code is a linked alternate view
+
+**Decision.** Runnable cells live in a per-conversation document beside the
+transcript (`.black-eclipse/sessions/<chatId>/notebook.json`), not inside the
+response `chart` block and not as a new execution engine. A new operator-gated
+`notebook` route constructs the analysis request itself: the import widening is
+the named `("io", "matplotlib")` host constant, `allow_tools=False`, the output
+directory is cell-scoped, and the result is always `computed`. An "Edit code"
+action on a chart asks `POST /charts/code` for a matplotlib starting script
+generated from the chart's resolved data; the resulting cell is linked to the
+chart by `chartBlockId`, and the chart block remains the canonical answer. Notebook
+cells may share an **opt-in** kernel namespace; `analysis_run` keeps its
+fresh-namespace semantics.
+
+**Why.** A chart is already a validated spec, deliberately not code
+(`python/harness/charts/spec.py:179`), and `python_chart` accepts only that spec.
+Editing therefore needs a place for a program and a way to run it. The runtime
+already has both: the Phase 3 sandbox, the figure recipes' named import widening,
+artifact collection and verification. Reusing them keeps one execution path and
+one honesty rule. Turning chat messages into cells would couple the conversation
+record to a mutable working document, so the cell document is a sidecar: the
+transcript still says what was said, the notebook says what is being worked on.
+The kernel currently keeps a process per conversation but builds a fresh globals
+dict each round, which is why persistent state must be explicit rather than
+assumed. Storing the source verbatim closes the gap left by
+`AnalysisResult.source_digest` (a digest cannot be edited).
+
+**Consequences.** New `python/harness/routers/notebook.py`,
+`python/harness/charts/codegen.py`, an internal
+`AnalysisRequest.persist_namespace` (default `False`), and an opt-in persistent
+globals dict in `code/kernel.py`. Front door `src/lib/harness/notebook-client.ts`
+and `src/app/api/harness/notebook/**`; per-chat document
+`src/lib/chat/notebook-store.ts`; UI `src/components/chat/notebook-cell.tsx` plus
+an "Edit code" action in `src/components/response/response-chart.tsx`; i18n keys
+under `notebook.*`. The chart contract and the `python_chart` tool are unchanged.
+A cell output is never a research claim, and a chart edit never mutates the
+original chart block. Shipped 2026-10-22; plan and gate record:
+`docs/harness/roadmap/phase-21-notebook-cells.md`,
+`docs/harness/roadmap/progress/phase-21-progress.md`.
+
+## ADR-H301 - Auto-apply is one surface-only path, and its activation row is the rollback handle
+
+**Decision.** `RSLLoop.auto_apply_surface(state_id)` is the ONE automatic
+activation path. It accepts only a `candidate` state whose `EvolutionCandidate`
+is `subjectType == "surface"` with a valid `surfaceConfig` snapshot/base. It
+derives per-task rates from the recorded baseline and candidate `EvaluationRun`s,
+runs the paired bootstrap, computes the per-dimension regressions, classifies
+the risk, and calls the existing `decide(...)` policy (level, kill switch, L1
+risk, lift floor, canary/replay, daily budget). On success it calls the existing
+`HarnessStateStore.activate_surface` and returns the `HarnessActivation` row;
+`rollback_activation` is the undo. `POST
+/evolution/states/{state_id}/autonomy-apply` is the operator-triggered seam.
+
+**Why.** The P6 decision policy could say "allowed" but nothing could act on it,
+so supervised autonomy was a report rather than a capability. Auto-applying must
+not invent a second activation mechanism: it reuses the single-use surface
+activation and its rollback row, so the safety properties are the ones already
+reviewed. Restricting it to a *measured surface state* (not a lab result, not a
+code patch, not a raw candidate) means the evidence, snapshot and rollback all
+already exist. Missing paired evidence is a refusal, not a fallback to a point
+estimate. The daily counter is persisted, so a restart cannot reset the budget.
+
+**Consequences.** `self_improvement/autonomy.py` (activation counter),
+`self_improvement/loop.py` (`auto_apply_surface`, run-rate/aggregate helpers),
+`routers/evolution_autonomy.py` (`POST
+/evolution/states/{state_id}/autonomy-apply`). Tests:
+`python/tests/test_autonomy_apply.py` (apply + rollback, daily budget, kill
+switch, L2/non-surface refusals, missing evidence). Docs:
+`docs/self-improvement/rsl-v4-plan.md`, `docs/harness/architecture.md`.
+
+## ADR-H302 - Rotation is a deterministic, seeded plan, and applying it is a separate operator act
+
+**Decision.** `evaluation/rotation.py` plans a quarter's held_out rotation from
+the optimization split with a seed derived from the quarter label, so the same
+quarter always names the same tasks. `apply_rotation` is a separate call (the
+CLI defaults to a dry run and requires `--apply`) that writes the split, bumps
+the task version and records `metadata.rotation`; applying the same quarter
+twice is a no-op (`already_rotated`). Validation is never rotated. A dataset may
+set `metadata.rotationExempt` (the frozen team benchmark does) and is skipped.
+The manifest is refreshed after an apply.
+
+**Why.** A held_out task that a candidate has seen is no longer a clean canary,
+so the corpus needs a rotation path. Automating it would silently change what
+the canary measures; a seeded plan plus an explicit apply makes the change
+reviewable and reproducible. Exempting the team benchmark keeps its frozen
+multi-agent comparison intact. Validation is excluded because it is the
+acceptance set and the search must never train on it.
+
+**Consequences.** `evaluation/rotation.py` (new), `scripts/rsl-rotate.js`,
+`npm run rsl:rotate`, `datasets/team_v1.json` (`rotationExempt`), the refreshed
+manifest. Tests: `python/tests/test_evaluation_rotation.py`. Docs:
+`docs/harness/agent-evaluation.md`, `docs/self-improvement/rsl-v4-plan.md`.

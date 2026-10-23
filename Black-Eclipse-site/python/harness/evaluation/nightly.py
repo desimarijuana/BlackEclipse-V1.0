@@ -21,6 +21,7 @@ from typing import Any, Optional
 
 from .baseline import get_baseline, save_baseline, suite_metrics
 from .config import report_dir
+from .live_baseline import DEFAULT_LIVE_BASELINE
 from .regression import detect_regressions
 from .runner import EvaluationRunner
 from .store import EvaluationStore
@@ -144,6 +145,13 @@ async def run_nightly(
     write_baseline: Optional[str] = None,
     live: bool = False,
     model_settings: Any = None,
+    provider: str = "",
+    model: str = "",
+    base_url: str = "",
+    temperature: Optional[float] = None,
+    live_baseline: Optional[str] = None,
+    write_live_baseline: Optional[str] = None,
+    publish: Optional[str] = None,
 ) -> dict[str, Any]:
     """Run the corpus once and return the verdict (never raises for a failure)."""
     eval_store = EvaluationStore(store)
@@ -157,6 +165,7 @@ async def run_nightly(
             dataset_name = dataset
         tasks = select_tasks(loaded, split=split)
     runner = EvaluationRunner(store, eval_store=eval_store)
+    prompt_hash = ""
     if live:
         # The live tier answers the corpus with a REAL model: the only tier in
         # which a prompt change can move the result. The base is the production
@@ -176,6 +185,7 @@ async def run_nightly(
             maxSteps=min(int(agent.maxSteps or 8), 32),
             maxToolCalls=min(int(agent.maxToolCalls or 200), 200),
         )
+        prompt_hash = base_snapshot.sourceDigest
         runner = EvaluationRunner(
             store,
             invoker=CandidateAgentInvoker(
@@ -246,6 +256,70 @@ async def run_nightly(
         handle.write(render_markdown(payload))
     payload["report"] = {"json": json_path, "markdown": md_path}
 
+    if live:
+        from .live_baseline import (  # noqa: PLC0415 - live-only dependency
+            build_live_baseline,
+            compare_live_baseline,
+            find_live_baseline,
+            publish_report,
+            read_live_baselines,
+            write_live_baseline as write_live_registry,
+        )
+
+        resolved_provider = provider or str(
+            getattr(model_settings, "provider", "") or ""
+        )
+        resolved_model = model or str(getattr(model_settings, "model", "") or "")
+        resolved_base = base_url or str(
+            getattr(model_settings, "base_url", "") or ""
+        )
+        entry = build_live_baseline(
+            suite,
+            provider=resolved_provider,
+            model=resolved_model,
+            tier="live",
+            base_url=resolved_base,
+            temperature=temperature,
+            prompt_hash=prompt_hash,
+        )
+        payload["liveBaseline"] = {
+            "key": entry["key"],
+            "provider": entry["provider"],
+            "model": entry["model"],
+            "promptHash": entry["promptHash"],
+            "datasetChecksum": entry["datasetChecksum"],
+        }
+        if live_baseline:
+            registry = read_live_baselines(live_baseline)
+            prior = find_live_baseline(
+                registry,
+                provider=resolved_provider,
+                model=resolved_model,
+                base_url=resolved_base,
+                temperature=temperature,
+                prompt_hash=prompt_hash,
+                dataset_checksum=getattr(suite, "dataset_checksum", ""),
+            )
+            if prior is None:
+                payload["liveComparison"] = {
+                    "ok": None,
+                    "reason": "no_pinned_baseline",
+                }
+            else:
+                comparison = compare_live_baseline(prior, suite)
+                payload["liveComparison"] = comparison
+                if comparison.get("ok") is False:
+                    payload["ok"] = False
+        if write_live_baseline:
+            write_live_registry(entry, path=write_live_baseline)
+            payload["writtenLiveBaseline"] = write_live_baseline
+        if publish:
+            payload["published"] = publish_report(
+                entry,
+                comparison=payload.get("liveComparison"),
+                path=publish,
+            )
+
     if promote and not critical:
         payload["baselineId"] = save_baseline(
             eval_store, baseline_name, suite,
@@ -277,12 +351,28 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-url", default="")
     parser.add_argument("--promote", action="store_true",
                         help="move the baseline forward when the run is clean")
+    parser.add_argument("--live-baseline", nargs="?", const=DEFAULT_LIVE_BASELINE,
+                        default="",
+                        help="compare the live run against a pinned live baseline")
+    parser.add_argument("--write-live-baseline", nargs="?",
+                        const=DEFAULT_LIVE_BASELINE, default="",
+                        help="pin this live run as a baseline entry")
+    parser.add_argument("--publish", nargs="?", const="docs/self-improvement",
+                        default="",
+                        help="write the live-tier Markdown report here")
     parser.add_argument("--run-db", default="")
     return parser
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = _parser().parse_args(argv)
+    if (args.live_baseline or args.write_live_baseline or args.publish) and not args.live:
+        print(
+            "--live-baseline/--write-live-baseline/--publish require --live: "
+            "only the live tier is model evidence",
+            file=sys.stderr,
+        )
+        return 2
     from ..persistence import AgentMemoryStore  # noqa: PLC0415
 
     store = AgentMemoryStore(args.run_db or None)
@@ -318,6 +408,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             write_baseline=args.write_baseline or None,
             live=bool(args.live),
             model_settings=model_settings,
+            provider=args.provider,
+            model=args.model,
+            base_url=args.base_url,
+            live_baseline=args.live_baseline or None,
+            write_live_baseline=args.write_live_baseline or None,
+            publish=args.publish or None,
         ))
     finally:
         store.close()

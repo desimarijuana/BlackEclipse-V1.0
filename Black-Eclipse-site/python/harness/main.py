@@ -1,15 +1,15 @@
 """FastAPI application for the harness runtime.
 
 Endpoints (called by the thin TS front door):
-    GET  /health                 — readiness for the TS proxy
-    GET  /models                 — universal provider catalog
-    GET  /agents                 — agent presets
-    POST /runs                   — execute (or background) a run
-    POST /runs/{id}/cancel       — cooperative cancellation
-    GET  /runs                   — list runs
-    GET  /runs/{id}              — one run
-    GET  /runs/{id}/events       — persisted trace
-    GET  /usage                  — token-consumption analytics
+    GET  /health                 â€” readiness for the TS proxy
+    GET  /models                 â€” universal provider catalog
+    GET  /agents                 â€” agent presets
+    POST /runs                   â€” execute (or background) a run
+    POST /runs/{id}/cancel       â€” cooperative cancellation
+    GET  /runs                   â€” list runs
+    GET  /runs/{id}              â€” one run
+    GET  /runs/{id}/events       â€” persisted trace
+    GET  /usage                  â€” token-consumption analytics
 
 The service never trusts the caller: pydantic validates every body.
 """
@@ -49,7 +49,8 @@ from .routers.channels import router as channels_router
 from .routers.application import router as application_router
 from .routers.artifacts import router as artifacts_router
 from .routers.canvas import router as canvas_router                      
-from .routers.charts import router as charts_router                     
+from .routers.charts import router as charts_router
+from .routers.notebook import router as notebook_router
 from .routers.a2a import router as a2a_router
 from .routers.team import router as team_router
 from .routers.advisory import router as advisory_router
@@ -116,6 +117,7 @@ app.include_router(application_router)
 app.include_router(artifacts_router)
 app.include_router(canvas_router)
 app.include_router(charts_router)
+app.include_router(notebook_router)
 app.include_router(automation_router)
 app.include_router(code_router)
 app.include_router(channels_router)
@@ -256,7 +258,7 @@ def retrieval_metrics() -> dict[str, Any]:
 
 class ResearchRunRequest(BaseModel):
     """A research-mandate request (Phase 4). The front door proxies this; the
-    runtime owns the mandate → coverage flow. `query` is the objective."""
+    runtime owns the mandate â†’ coverage flow. `query` is the objective."""
     query: str
     ticker: Optional[str] = None
     market: Optional[str] = None
@@ -344,7 +346,7 @@ def models() -> dict[str, Any]:
     return {"success": True, "providers": list_providers()}
 
 
-# ── Model Runtime (provider-agnostic model layer) ───────────────────────────
+# â”€â”€ Model Runtime (provider-agnostic model layer) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Read-only inspection endpoints. They never call a provider and never expose
 # credentials; the routing debug endpoint is pure computation.
 @app.get("/model-runtime/providers")
@@ -384,7 +386,7 @@ async def model_runtime_discover(
     )
     try:
         # The raw served ids (the provider's own list) plus the merged registry
-        # view. `served` is what is genuinely installed/served — the registry
+        # view. `served` is what is genuinely installed/served â€” the registry
         # view also holds declared placeholders that may not exist.
         served = await runtime.discover_served(settings, provider_id=provider_id)
         discovered = runtime.models.discover_models(provider_id, served)
@@ -425,7 +427,7 @@ def model_runtime_decisions(limit: int = 20, _: bool = Depends(require_operator)
 
 @app.post("/model-runtime/route")
 def model_runtime_route(payload: dict[str, Any], _: bool = Depends(require_operator)) -> dict[str, Any]:
-    """Explain which model the router would pick for a task (debug view §43)."""
+    """Explain which model the router would pick for a task (debug view Â§43)."""
     runtime = get_runtime()
     decision = runtime.route(
         model=payload.get("model"),
@@ -560,7 +562,7 @@ async def resume_run(run_id: str, request: RunRequest, background: bool = False)
 
     The run id in the path is authoritative. A resume of a run with no checkpoint
     returns CHECKPOINT_NOT_FOUND; a resume of a terminal run returns
-    RESUME_CONFLICT — never a fresh run in its place. Already-executed tool calls
+    RESUME_CONFLICT â€” never a fresh run in its place. Already-executed tool calls
     are reused from the idempotency ledger, not re-run.
     """
     if request.runId != run_id:
@@ -589,9 +591,9 @@ def run_lineage_endpoint(run_id: str) -> dict[str, Any]:
     return {"success": True, **service.run_lineage().lineage(run_id)}
 
 
-# ── Workflows (Phase 5) ─────────────────────────────────────────────────────
+# â”€â”€ Workflows (Phase 5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Definitions are validated before storage. Every MUTATION route requires an
-# authorized operator (transport/token — never a body boolean). Execution is a
+# authorized operator (transport/token â€” never a body boolean). Execution is a
 # normal run and is not blanket operator-gated (an enabled read-only workflow).
 
 class WorkflowRunRequest(BaseModel):
@@ -672,7 +674,7 @@ async def execute_workflow(request: WorkflowRunRequest) -> JSONResponse:
     return JSONResponse({"success": True, **result})
 
 
-# ── Skills (Phase 3) ────────────────────────────────────────────────────────
+# â”€â”€ Skills (Phase 3) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # The front door proxies these; Python owns the registry, permissions and
 # lifecycle. Authorization is explicit: `operator=true` is only set by the front
 # door after it authenticated the runtime secret (or a direct caller presenting
@@ -781,7 +783,7 @@ async def execute_skill_endpoint(
     # Execution is a legitimate NON-operator action (an enabled read-only skill),
     # so this endpoint is not blanket operator-gated. But the body `operator`
     # flag widens the actor to the operator permission set, so it may only be
-    # honoured when authorization is PROVEN by transport/token — never by the
+    # honoured when authorization is PROVEN by transport/token â€” never by the
     # body alone. A remote caller that sends `{"operator": true}` without proof
     # is downgraded to the safe read-only actor.
     proven = _is_loopback(request) or _valid_operator_token(request)
@@ -871,7 +873,7 @@ def rollback_skill(skill_id: str, payload: dict[str, Any], _: bool = Depends(req
     return {"success": result.get("ok", False), **result}
 
 
-# ── Versioned skill patches (M2) ────────────────────────────────────────────
+# â”€â”€ Versioned skill patches (M2) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @app.get("/skills/{skill_id}/version-history")
@@ -944,7 +946,7 @@ def learning_journey(
     status: Optional[str] = None,
     since: Optional[str] = None,
 ) -> dict[str, Any]:
-    """The learning journey / provenance graph — DERIVED, read-only.
+    """The learning journey / provenance graph â€” DERIVED, read-only.
 
     Nodes and edges are projected from canonical rows; nothing is written and no
     secrets or raw sensitive content are exposed. `scope`/`scopeId` filter by
@@ -1026,7 +1028,7 @@ def learn_from_run(run_id: str, payload: Optional[dict[str, Any]] = None, _: boo
 
 @app.get("/learning/eligibility/{run_id}")
 def learning_eligibility(run_id: str) -> dict[str, Any]:
-    """Why a run is (or is not) a learning candidate — read-only, no creation.
+    """Why a run is (or is not) a learning candidate â€” read-only, no creation.
 
     Surfaces the same deterministic eligibility logic the runtime records on the
     run, so the chat UI can show the reason and link to the Learning Queue.
@@ -1073,7 +1075,7 @@ def submit_draft_review(skill_id: str, payload: dict[str, Any], _: bool = Depend
     return {"success": result.get("ok", False), **result}
 
 
-# ── Skill quality / usefulness evidence (Phase 7) ────────────────────────────
+# â”€â”€ Skill quality / usefulness evidence (Phase 7) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Measured from real execution records. Advisory only; promotion stays
 # evaluation- and operator-gated.
 

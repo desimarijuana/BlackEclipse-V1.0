@@ -1,0 +1,132 @@
+{
+  "datasetName": "eclipse-finance-v3",
+  "datasetVersion": "1.0.0",
+  "schemaVersion": 1,
+  "reviewed": true,
+  "reviewer": "eclipse-eval",
+  "reviewedAt": "2026-10-22",
+  "notes": "Deterministic offline finance fixtures reserved for the OPTIMIZATION split, so the RSL search has measured material it may train on while validation stays the acceptance set. Every task is synthetic and independently recomputed.",
+  "metadata": {"tiers": {"0": "deterministic", "1": "integration", "2": "live"}, "split": "optimization"},
+  "tasks": [
+    {
+      "id": "finance.v3.opt.eps.001",
+      "version": 1,
+      "name": "EPS (optimization)",
+      "description": "Compute EPS from net income and the share count.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "Net income is 720 and there are 120 shares outstanding. What is EPS?"},
+      "expected_output": {"numeric": {"value": 6.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "eps", "inputs": {"net_income": 720, "shares": 120}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0, "suites": ["finance"], "split": "optimization",
+        "oracle": "net_income / shares, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "EPS is 6.0."}]
+      }
+    },
+    {
+      "id": "finance.v3.opt.pe.001",
+      "version": 1,
+      "name": "P/E (optimization)",
+      "description": "Compute the P/E ratio from price and EPS.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "The price is 84 and EPS is 6. What is the P/E ratio?"},
+      "expected_output": {"numeric": {"value": 14.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "pe", "inputs": {"price": 84, "eps": 6}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0, "suites": ["finance"], "split": "optimization",
+        "oracle": "price / eps, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "The P/E ratio is 14.0."}]
+      }
+    },
+    {
+      "id": "finance.v3.opt.ps.001",
+      "version": 1,
+      "name": "P/S (optimization)",
+      "description": "Compute the P/S ratio from price and sales per share.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "The price is 45 and sales per share is 9. What is the P/S ratio?"},
+      "expected_output": {"numeric": {"value": 5.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "ps", "inputs": {"price": 45, "sales_per_share": 9}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0, "suites": ["finance"], "split": "optimization",
+        "oracle": "price / sales_per_share, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "The P/S ratio is 5.0."}]
+      }
+    },
+    {
+      "id": "finance.v3.opt.fcf.001",
+      "version": 1,
+      "name": "FCF (optimization)",
+      "description": "Compute free cash flow from operating cash flow and capex.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "Operating cash flow is 500 and capex is 125. What is free cash flow?"},
+      "expected_output": {"numeric": {"value": 375.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "fcf", "inputs": {"operating_cash_flow": 500, "capex": 125}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0, "suites": ["finance"], "split": "optimization",
+        "oracle": "operating_cash_flow - capex, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "Free cash flow is 375.0."}]
+      }
+    },
+    {
+      "id": "finance.v3.opt.cagr.001",
+      "version": 1,
+      "name": "CAGR (optimization)",
+      "description": "Compute the compound annual growth rate over two years.",
+      "category": "finance",
+      "difficulty": "medium",
+      "input": {"prompt": "Revenue grows from 200 to 242 over 2 years. What is the CAGR?"},
+      "expected_output": {"numeric": {"value": 10.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "cagr", "inputs": {"start": 200, "end": 242, "years": 2}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0, "suites": ["finance"], "split": "optimization",
+        "oracle": "(end / start) ^ (1 / years) - 1, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "The CAGR is 10.0%."}]
+      }
+    },
+    {
+      "id": "finance.v3.opt.gross_margin.001",
+      "version": 1,
+      "name": "Gross margin (optimization)",
+      "description": "Compute the gross margin from revenue and gross profit.",
+      "category": "finance",
+      "difficulty": "easy",
+      "input": {"prompt": "Revenue is 900 and gross profit is 270. What is the gross margin?"},
+      "expected_output": {"numeric": {"value": 30.0, "tolerance": 0.01}},
+      "graders": [
+        {"name": "financial", "config": {"metric": "gross_margin", "inputs": {"revenue": 900, "gross_profit": 270}, "tolerance": 0.01}},
+        {"name": "exact"}
+      ],
+      "metadata": {
+        "tier": 0, "suites": ["finance"], "split": "optimization",
+        "oracle": "gross_profit / revenue * 100, recomputed by evaluation/graders/financial.py",
+        "contamination": {"source": "authored", "authoredAt": "2026-10-22"},
+        "agent_script": [{"type": "final", "content": "Gross margin is 30.0%."}]
+      }
+    }
+  ]
+}

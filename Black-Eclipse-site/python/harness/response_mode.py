@@ -46,6 +46,19 @@ _MODE_ORDER: tuple[str, ...] = (
 # data-bearing mode co-occurs with another real mode.
 _DATA_MODES = frozenset({"workflow", "simulation", "visualization"})
 
+# The discipline that overrides every mode. A forced widget is a worse failure
+# than a plain answer, so this is stated as a checklist the model can apply even
+# when a mode is suggested.
+RENDER_DISCIPLINE = (
+    "When NOT to render (this overrides the mode): if one sentence answers it, "
+    "write the sentence; a single fact or lookup, a lone definition, or a "
+    "conversational/clarifying reply stays prose; do not draw a figure for data "
+    "you do not hold — say UNAVAILABLE in prose instead of rendering an empty "
+    "one; do not substitute a block for a requested FILE (write the file); and "
+    "never replace the whole answer with a bare fence — the prose carries the "
+    "answer when the UI cannot render."
+)
+
 # ── signal vocabularies (whole-word matched unless the term holds a space) ─────
 
 # Agent / plan / execution / debugging. A diagnostic turn ("why did my agent
@@ -280,6 +293,7 @@ def response_mode_prompt_block(plan: ResponsePlan) -> str:
         "the mode suggests, answer plainly. Never fabricate a block, number or "
         "source to satisfy it."
     )
+    lines.append(RENDER_DISCIPLINE)
     return "\n".join(lines)
 
 
@@ -474,6 +488,7 @@ def classify_response_mode(
 
 __all__ = [
     "MODE_CLASSIFIER_SYSTEM",
+    "RENDER_DISCIPLINE",
     "Confidence",
     "ResponseMode",
     "ResponsePlan",

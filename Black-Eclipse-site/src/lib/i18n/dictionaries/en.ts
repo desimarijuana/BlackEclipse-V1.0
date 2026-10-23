@@ -11,6 +11,7 @@
 // canonical file can SHRINK as domains move out (the size ratchet's intent).
 
 import { analysis } from './analysis';
+import { notebook } from './notebook';
 import { acquire } from './acquire';
 import { navigation } from './navigation';
 import { capabilityStudio } from './capability-studio';
@@ -1258,6 +1259,7 @@ export const en = {
   'modelRuntime.task.audio': 'Audio',
   'modelRuntime.task.default': 'General',
   ...analysis,
+  ...notebook,
   ...acquire,
   ...navigation,
   ...capabilityStudio,

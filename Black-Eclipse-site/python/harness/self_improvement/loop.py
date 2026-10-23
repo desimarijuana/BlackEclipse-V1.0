@@ -22,11 +22,22 @@ import time
 from typing import Any, Optional
 
 from ..code.evolution_store import EvolutionStore
+from ..evaluation.regression import detect_regressions
+from ..evaluation.significance import paired_bootstrap
 from ..evaluation.store import EvaluationStore
 from ..persistence import now_iso
 from ..skills.permissions import Actor
 from . import hillclimb, proposer, proposer_model, recorder, verifier
+from .archive import ArchiveConfig, StateArchive
+from .autonomy import (
+    AutonomyKillSwitch,
+    autonomy_status,
+    classify_ops_risk,
+    classify_snapshot_risk,
+    decide as autonomy_decide,
+)
 from .config import RSLConfig
+from .models import HarnessSnapshot
 from .runtime_settings import RuntimeSettingsStore
 from .state import HarnessStateStore
 
@@ -95,6 +106,10 @@ class RSLLoop:
         )
         self.state_store = state_store or (
             HarnessStateStore(self.run_store) if self.run_store is not None else None
+        )
+        self.autonomy_kill = (
+            AutonomyKillSwitch(self.run_store)
+            if self.run_store is not None else None
         )
         self.verify_fn = verify_fn
         self.propose_fn = propose_fn
@@ -199,6 +214,159 @@ class RSLLoop:
         if self._climb_enabled():
             self._next_climb_at = time.monotonic() + self.config.climb_seconds
 
+    # -- supervised autonomy ----------------------------------------------
+    def autonomy_status(self) -> dict[str, Any]:
+        kill = (
+            self.autonomy_kill.status() if self.autonomy_kill is not None
+            else {"paused": False, "at": None, "reason": ""}
+        )
+        return autonomy_status(self.config, kill)
+
+    def pause_autonomy(self, reason: str = "") -> dict[str, Any]:
+        if self.autonomy_kill is None:
+            return {"paused": False, "at": None, "reason": "no_store"}
+        return self.autonomy_kill.pause(reason)
+
+    def resume_autonomy(self) -> dict[str, Any]:
+        if self.autonomy_kill is None:
+            return {"paused": False, "at": None, "reason": "no_store"}
+        return self.autonomy_kill.resume()
+
+    def decide_autonomy(self, *, risk: str, **evidence: Any) -> dict[str, Any]:
+        """Pure admission decision; it never activates anything."""
+        kill = (
+            self.autonomy_kill.status()["paused"]
+            if self.autonomy_kill is not None else False
+        )
+        return autonomy_decide(
+            level=self.config.autonomy,
+            risk=risk,
+            kill=kill,
+            config=self.config,
+            **evidence,
+        )
+
+    def classify_surface_risk(self, base: Any, candidate: Any) -> dict[str, Any]:
+        return classify_snapshot_risk(base, candidate)
+
+    @staticmethod
+    def classify_operator_risk(operator: str) -> str:
+        return classify_ops_risk(operator)
+
+    def _run_task_rates(self, run_id: Optional[str]) -> dict[str, float]:
+        if not run_id or self.eval_store is None:
+            return {}
+        try:
+            trials = self.eval_store.list_trials(run_id)
+        except Exception:  # noqa: BLE001 - a missing run is no evidence
+            return {}
+        by_task: dict[str, list[float]] = {}
+        for trial in trials:
+            if trial.get("unmeasured"):
+                continue
+            task_id = str(trial.get("taskId") or "")
+            if not task_id:
+                continue
+            by_task.setdefault(task_id, []).append(
+                1.0 if trial.get("passed") else 0.0
+            )
+        return {
+            task_id: sum(values) / len(values)
+            for task_id, values in by_task.items()
+        }
+
+    def _run_aggregates(self, run_id: Optional[str]) -> dict[str, Any]:
+        rates = self._run_task_rates(run_id)
+        if not rates:
+            return {}
+        return {"task_success": sum(rates.values()) / len(rates)}
+
+    async def auto_apply_surface(self, state_id: str) -> dict[str, Any]:
+        """Apply ONE measured surface state when the supervised policy allows.
+
+        This is the only automatic activation path. It refuses anything that is
+        not a surface candidate, requires paired task evidence from the recorded
+        baseline/candidate runs, classifies the change risk, obeys the kill
+        switch and the daily budget, and records the activation counter. The
+        existing activation row is the rollback handle.
+        """
+        if self.state_store is None or self.eval_store is None:
+            return {"applied": False, "reason": "store_unavailable"}
+        state = self.state_store.get_state(state_id)
+        if state is None:
+            return {"applied": False, "reason": "unknown_state", "stateId": state_id}
+        if state.get("status") != "candidate":
+            return {
+                "applied": False, "reason": "not_a_candidate",
+                "status": state.get("status"), "stateId": state_id,
+            }
+        candidate = self.evolution.get_candidate(
+            str(state.get("candidateId") or "")
+        )
+        if candidate is None or candidate.get("subjectType") != "surface":
+            return {"applied": False, "reason": "not_a_surface_candidate"}
+        surface = candidate.get("surfaceConfig") or {}
+        try:
+            base = HarnessSnapshot(**dict(surface.get("base") or {}))
+            snapshot = HarnessSnapshot(**dict(surface.get("snapshot") or {}))
+        except Exception as exc:  # noqa: BLE001 - an invalid snapshot is a refusal
+            return {
+                "applied": False, "reason": "invalid_snapshot",
+                "detail": f"{type(exc).__name__}: {exc}",
+            }
+
+        risk = classify_snapshot_risk(base, snapshot)
+        baseline_run_id = str(surface.get("baselineRunId") or "")
+        candidate_run_id = str(state.get("acceptedRunId") or "")
+        base_rates = self._run_task_rates(baseline_run_id)
+        candidate_rates = self._run_task_rates(candidate_run_id)
+        paired = paired_bootstrap(base_rates, candidate_rates)
+        base_aggregates = self._run_aggregates(baseline_run_id)
+        candidate_aggregates = self._run_aggregates(candidate_run_id)
+        regressions = (
+            detect_regressions(
+                {"aggregates": base_aggregates},
+                {"aggregates": candidate_aggregates},
+            ).get("regressions") or []
+            if base_aggregates and candidate_aggregates else []
+        )
+        at_today = (
+            self.autonomy_kill.activations_today()
+            if self.autonomy_kill is not None else 0
+        )
+        decision = self.decide_autonomy(
+            risk=risk["riskClass"],
+            delta_ci_low=paired.get("ciLow"),
+            critical_regression=bool(regressions),
+            canary_ok=True,
+            replay_ok=True,
+            measured_delta=paired.get("delta"),
+            activations_today=at_today,
+            changed=risk["changed"],
+        )
+        result = {
+            "stateId": state_id,
+            "risk": risk,
+            "paired": paired,
+            "decision": decision,
+        }
+        if not decision["allowed"]:
+            return {"applied": False, "reason": "policy_refused", **result}
+
+        activation = self.state_store.activate_surface(
+            state_id,
+            snapshot=snapshot.to_dict(),
+            base=base.to_dict(),
+        )
+        if self.autonomy_kill is not None:
+            self.autonomy_kill.record_activation()
+        return {
+            "applied": True,
+            "activation": activation,
+            "state": self.state_store.get_state(state_id),
+            **result,
+        }
+
     def wake(self) -> None:
         self._wake.set()
 
@@ -217,6 +385,7 @@ class RSLLoop:
             "objective": self.config.objective,
             "modelProposer": self.config.model_proposer,
             "codeBenchmark": self.config.code_benchmark,
+            "autonomy": self.config.autonomy,
         }
 
     def status(self) -> dict[str, Any]:
@@ -254,6 +423,7 @@ class RSLLoop:
             ),
             "surfaceLab": self.config.surface_lab,
             "maxSurfaceExperimentsPerDay": self.config.max_surface_experiments_per_day,
+            "autonomyStatus": self.autonomy_status(),
         }
 
     async def set_config(
@@ -333,6 +503,7 @@ class RSLLoop:
                 actor=self._actor(),
                 measure=measure,
                 trajectories=trajectories,
+                novelty_min=self.config.novelty_min,
                 evidence_dir=evidence_dir,
                 started_today=self.evolution.experiments_started_since(_utc_day_start()),
                 max_per_day=self.config.max_experiments_per_day,
@@ -405,6 +576,25 @@ class RSLLoop:
             max_parallel=self.config.max_parallel,
             require_replay=True,
             max_evaluations=remaining,
+            archive_mode="off" if not self.config.archive else self.config.archive_sample,
+            archive_max=self.config.archive_max,
+            require_significance=self.config.significance,
+            significance_min_tasks=self.config.significance_min_tasks,
+        )
+        archive = (
+            StateArchive(
+                self.state_store,
+                ArchiveConfig(
+                    max_states=self.config.archive_max,
+                    sample=self.config.archive_sample,
+                    cmp=self.config.cmp,
+                    cmp_horizon=self.config.cmp_horizon,
+                    islands=self.config.islands,
+                    island_migration_every=self.config.island_migration_every,
+                ),
+            )
+            if self.config.archive
+            else None
         )
         self._busy_scopes.add(scope)
         try:
@@ -417,6 +607,7 @@ class RSLLoop:
                 config=settings,
                 scope=scope,
                 on_accept=self.state_store.save_state if persist else None,
+                archive=archive,
             )
             if persist:
                 self._record_hillclimb_attempts(result, state, scope)

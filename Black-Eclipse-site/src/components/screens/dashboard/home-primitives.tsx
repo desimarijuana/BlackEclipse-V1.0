@@ -60,7 +60,11 @@ export function formatAge(value: Date | number | string | null): string {
   if (value == null) return '—';
   const date = value instanceof Date ? value : new Date(value);
   const age = Date.now() - date.getTime();
-  if (!Number.isFinite(age) || age < 0) return 'now';
+  if (!Number.isFinite(age)) return '—';
+  if (age < 0) {
+    const days = Math.ceil(-age / 86_400_000);
+    return days <= 1 ? 'soon' : `in ${days}d`;
+  }
   if (age < 60_000) return 'now';
   if (age < 3_600_000) return `${Math.floor(age / 60_000)}m ago`;
   if (age < 86_400_000) return `${Math.floor(age / 3_600_000)}h ago`;
@@ -85,8 +89,7 @@ export function HomeCard({
   return (
     <section
       className={cn(
-        'relative flex min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 glass-card p-4 md:p-5',
-        accent && 'border-white/15',
+        'relative flex min-w-0 flex-col overflow-hidden rounded-3xl glass-card p-4 md:p-5',
         className,
       )}
     >
@@ -168,7 +171,7 @@ export function StatTile({
   className?: string;
 }) {
   return (
-    <div className={cn('rounded-xl border border-white/5 bg-white/[0.025] px-3 py-2.5', className)}>
+    <div className={cn('rounded-xl bg-white/[0.025] px-3 py-2.5', className)}>
       <p className="text-[9px] font-medium uppercase tracking-[0.16em] text-muted-foreground/70">{label}</p>
       <p className={cn('mt-1 truncate text-lg font-semibold tabular-nums text-foreground', tone && TONE_TEXT[tone])}>
         {value}
@@ -546,17 +549,52 @@ export function SymbolChip({
   onClick?: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <span
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
       onClick={onClick}
-      disabled={!onClick}
+      onKeyDown={(event) => {
+        if (onClick && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          onClick();
+        }
+      }}
       className={cn(
-        'rounded-md border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-foreground/80 transition-colors',
-        onClick && 'cursor-pointer hover:border-white/25 hover:text-foreground',
+        'inline-block rounded-md bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-foreground/80 transition-colors',
+        onClick && 'cursor-pointer hover:bg-white/[0.08] hover:text-foreground',
         tone && TONE_TEXT[tone],
       )}
     >
       {symbol}
-    </button>
+    </span>
+  );
+}
+
+export function DualSpark({
+  portfolio,
+  benchmark,
+  className,
+}: {
+  portfolio: number[];
+  benchmark: number[];
+  className?: string;
+}) {
+  const values = [...portfolio, ...benchmark].filter((value) => Number.isFinite(value));
+  if (portfolio.length < 2 || benchmark.length < 2 || values.length < 4) {
+    return <div className={cn('flex h-full w-full items-center justify-center text-[10px] text-muted-foreground/60', className)}>UNAVAILABLE</div>;
+  }
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const path = (series: number[]) => series.map((value, index) => {
+    const x = (index / (series.length - 1)) * 100;
+    const y = 36 - ((value - min) / span) * 32;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(' L');
+  return (
+    <svg viewBox="0 0 100 40" preserveAspectRatio="none" className={cn('h-full w-full overflow-visible', className)} aria-hidden>
+      <path d={`M${path(benchmark)}`} fill="none" stroke="rgba(255,255,255,0.38)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+      <path d={`M${path(portfolio)}`} fill="none" stroke="#34d399" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+    </svg>
   );
 }

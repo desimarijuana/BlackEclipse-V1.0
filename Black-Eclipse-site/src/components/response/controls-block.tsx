@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { Play } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { composeFollowupPrompt, labelsById, type FollowupState } from '@/lib/response/followup';
 import type { Control, ControlsBlock as ControlsBlockType } from '@/lib/response/contract';
 
 type Value = string | number | { from: string; to: string };
@@ -36,24 +37,15 @@ function initialValues(controls: Control[]): Values {
   return out;
 }
 
-function valueToString(value: Value): string {
-  if (typeof value === 'object') return `${value.from || '?'}..${value.to || '?'}`;
-  return String(value);
-}
-
 export function composePrompt(block: ControlsBlockType, values: Values): string {
-  if (block.promptTemplate) {
-    return block.promptTemplate.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, key: string) => {
-      const [id, field] = key.split('.');
-      const value = values[id];
-      if (field && typeof value === 'object' && (field === 'from' || field === 'to')) return value[field] || '';
-      if (value === undefined) return '';
-      return valueToString(value);
-    });
-  }
-  const parts = block.controls.map((c) => `${c.label}: ${valueToString(values[c.id])}`);
-  const lead = block.description ?? block.title ?? 'Continue with these parameters';
-  return `${lead} — ${parts.join('; ')}`;
+  return composeFollowupPrompt({
+    state: values as FollowupState,
+    order: block.controls.map((control) => control.id),
+    labels: labelsById(block.controls),
+    template: block.promptTemplate,
+    lead: block.description ?? block.title,
+    fallbackLead: 'Continue with these parameters',
+  });
 }
 
 export interface ControlsBlockProps {

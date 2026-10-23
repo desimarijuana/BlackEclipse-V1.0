@@ -149,6 +149,75 @@ def test_both_tools_are_registered():
 
 
 @pytest.mark.asyncio
+async def test_style_guide_loads_nuance_fields_and_examples():
+    reg = ToolRegistry()
+    register_response_contract_tools(reg)
+    bridge = _Bridge({
+        "status": "OK",
+        "blocks": [{
+            "type": "chart",
+            "fields": [
+                {"name": "chartType", "required": True, "kind": "enum(line|bar)"},
+                {"name": "series", "required": True, "kind": "object[]", "itemFields": ["name", "data"]},
+            ],
+        }],
+    })
+    result = await reg.execute("response_style_guide", "c1", {"module": "chart"}, _ctx(bridge))
+    assert result.ok
+    assert "Design guide" in result.text
+    assert "chartType" in result.text
+    assert "Example 1" in result.text
+    assert "```json" in result.text
+    assert bridge.calls == [("response_contract", {"op": "schema"})]
+
+
+@pytest.mark.asyncio
+async def test_style_guide_still_loads_without_a_bridge():
+    reg = ToolRegistry()
+    register_response_contract_tools(reg)
+    result = await reg.execute("response_style_guide", "c1", {"module": "mechanical"}, _ctx(None))
+    assert result.ok
+    assert "Example 1" in result.text
+    assert "not reachable" in result.text
+
+
+@pytest.mark.asyncio
+async def test_style_guide_names_the_modules_on_a_miss():
+    reg = ToolRegistry()
+    register_response_contract_tools(reg)
+    result = await reg.execute("response_style_guide", "c1", {"module": "nope"}, _ctx(None))
+    assert result.ok
+    assert "Unknown design module 'nope'" in result.text
+    assert "chart" in result.text and "mechanical" in result.text
+
+
+def test_style_index_lists_every_module():
+    from harness.response_style import response_style_index_prompt_block
+
+    index = response_style_index_prompt_block()
+    for key in ("data", "chart", "diagram", "workflow", "interactive", "explanation", "mechanical"):
+        assert f"`{key}`" in index
+    assert "response_style_guide" in index
+
+
+def test_style_guide_tool_is_registered():
+    reg = ToolRegistry()
+    register_response_contract_tools(reg)
+    assert "response_style_guide" in reg.names()
+
+
+def test_render_discipline_is_in_the_mode_prompt():
+    from harness.response_mode import (
+        RENDER_DISCIPLINE,
+        classify_response_mode,
+        response_mode_prompt_block,
+    )
+
+    plan = classify_response_mode("compare these two charts")
+    assert RENDER_DISCIPLINE in response_mode_prompt_block(plan)
+
+
+@pytest.mark.asyncio
 async def test_schema_prompt_block_carries_exact_names_and_enums():
     from harness.response_tools import response_schema_prompt_block
 
