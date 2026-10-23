@@ -987,6 +987,205 @@ export async function evolutionMetrics(windowDays = 90): Promise<EvolutionMetric
   );
 }
 
+export interface EvolutionCorpusDataset {
+  name: string;
+  version: string;
+  taskCount: number;
+  bySplit: Record<string, number>;
+  oracleCount: number;
+  oracleExemptCount: number;
+  canaryCount: number;
+  liveOnly: number;
+}
+
+export interface EvolutionCorpusManifest {
+  manifestVersion: string;
+  recordedAt: string;
+  taskCount: number;
+  datasetCount: number;
+  bySplit: Record<string, number>;
+  oracleCount: number;
+  oracleExemptCount: number;
+  oracleCoverage: number;
+  canaryCount: number;
+  liveOnly: number;
+  datasets: EvolutionCorpusDataset[];
+}
+
+export interface EvolutionCorpusVerification {
+  ok: boolean;
+  checked: number;
+  mismatches: Array<Record<string, unknown>>;
+}
+
+export interface EvolutionCorpusAudit {
+  ok: boolean;
+  counts: Record<string, number>;
+  errorCount: number;
+}
+
+export interface EvolutionCorpusStatus {
+  success: boolean;
+  manifest: EvolutionCorpusManifest;
+  verification: EvolutionCorpusVerification;
+  audit: EvolutionCorpusAudit;
+}
+
+export interface EvolutionRotationMove {
+  datasetFile: string;
+  taskId: string;
+  version: number;
+  from: string;
+  to: string;
+}
+
+export interface EvolutionRotationPlan {
+  ok: boolean;
+  quarter: string;
+  seed?: string;
+  count?: number;
+  returned?: number;
+  moves: EvolutionRotationMove[];
+  reason?: string;
+  datasetsDir?: string;
+}
+
+export interface EvolutionRotationPreview {
+  success: boolean;
+  quarter: string;
+  plan: EvolutionRotationPlan;
+  applied: false;
+}
+
+export interface EvolutionAutonomyKillSwitch {
+  paused: boolean;
+  at?: string | null;
+  reason?: string;
+}
+
+export interface EvolutionAutonomyStatus {
+  success: boolean;
+  level: string;
+  autoEligible: boolean;
+  riskCeiling: string;
+  autoMinLift: number;
+  autoMaxPerDay: number;
+  activationsToday: number;
+  killSwitch: EvolutionAutonomyKillSwitch;
+}
+
+export interface EvolutionAutonomyDecision {
+  allowed: boolean;
+  level: string;
+  riskClass: string;
+  reasons: string[];
+  requiresOperator: boolean;
+  autoMinLift: number;
+  autoMaxPerDay: number;
+  activationsToday: number;
+}
+
+export interface EvolutionAutonomyDecideInput {
+  risk: string;
+  deltaCiLow?: number | null;
+  criticalRegression?: boolean;
+  canaryOk?: boolean;
+  replayOk?: boolean;
+  predictedDelta?: number | null;
+  measuredDelta?: number | null;
+  activationsToday?: number;
+  changed?: boolean;
+}
+
+export interface EvolutionAutonomyDecideResult {
+  success: boolean;
+  decision: EvolutionAutonomyDecision;
+  activates: false;
+}
+
+export interface EvolutionAutonomyApplyResult {
+  success: boolean;
+  applied: boolean;
+  reason?: string;
+  stateId?: string;
+  risk?: {
+    riskClass: string;
+    changed: boolean;
+    reasons: string[];
+    fields: string[];
+    operators?: string[];
+  };
+  paired?: Record<string, unknown>;
+  decision?: EvolutionAutonomyDecision;
+  activation?: EvolutionSurfaceActivation;
+  state?: EvolutionHarnessState;
+}
+
+export function evolutionRotationPath(
+  input: { quarter?: string; count?: number } = {},
+): string {
+  const params = new URLSearchParams();
+  if (input.quarter) params.set("quarter", input.quarter);
+  if (input.count != null) params.set("count", String(input.count));
+  const query = params.toString();
+  return `/evolution/corpus/rotation${query ? `?${query}` : ""}`;
+}
+
+export async function getEvolutionCorpusStatus(): Promise<EvolutionCorpusStatus> {
+  return request<EvolutionCorpusStatus>("/evolution/corpus", { method: "GET" });
+}
+
+export async function getEvolutionRotationPreview(
+  input: { quarter?: string; count?: number } = {},
+): Promise<EvolutionRotationPreview> {
+  return request<EvolutionRotationPreview>(evolutionRotationPath(input), {
+    method: "GET",
+  });
+}
+
+export async function getEvolutionAutonomyStatus(): Promise<EvolutionAutonomyStatus> {
+  return request<EvolutionAutonomyStatus>("/evolution/rsl/autonomy", {
+    method: "GET",
+  });
+}
+
+export async function pauseEvolutionAutonomy(
+  reason = "",
+): Promise<{ success: boolean; killSwitch: EvolutionAutonomyKillSwitch }> {
+  return request<{ success: boolean; killSwitch: EvolutionAutonomyKillSwitch }>(
+    "/evolution/rsl/autonomy/pause",
+    { method: "POST", body: JSON.stringify({ reason }) },
+  );
+}
+
+export async function resumeEvolutionAutonomy(): Promise<{
+  success: boolean;
+  killSwitch: EvolutionAutonomyKillSwitch;
+}> {
+  return request<{ success: boolean; killSwitch: EvolutionAutonomyKillSwitch }>(
+    "/evolution/rsl/autonomy/resume",
+    { method: "POST", body: "{}" },
+  );
+}
+
+export async function decideEvolutionAutonomy(
+  input: EvolutionAutonomyDecideInput,
+): Promise<EvolutionAutonomyDecideResult> {
+  return request<EvolutionAutonomyDecideResult>(
+    "/evolution/rsl/autonomy/decide",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export async function applyEvolutionAutonomy(
+  stateId: string,
+): Promise<EvolutionAutonomyApplyResult> {
+  return request<EvolutionAutonomyApplyResult>(
+    `/evolution/states/${encodeURIComponent(stateId)}/autonomy-apply`,
+    { method: "POST", body: "{}" },
+  );
+}
+
 /** The plain state key for a candidate. The ONE place a state word is chosen. */
 export function evolutionStateKey(status: EvolutionStatus): string {
   return `evolution.state.${status}`;

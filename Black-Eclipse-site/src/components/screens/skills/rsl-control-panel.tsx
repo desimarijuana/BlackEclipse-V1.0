@@ -50,6 +50,8 @@ import {
 import { SurfaceActivationCard } from "./surface-activation-card";
 import { RslWeeklyCard } from "./rsl-weekly-card";
 import { RslLabCard } from "./rsl-lab-card";
+import { RslCorpusCard } from "./rsl-corpus-card";
+import { RslAutonomyCard } from "./rsl-autonomy-card";
 
 function announceVerified(result: EvolutionRslTickResult) {
   if (typeof window === "undefined" || !result.candidateId) return;
@@ -454,6 +456,8 @@ export function RslControlPanel({
     <section className="glass-card-subtle p-4">
       <RslWeeklyCard className="mb-3" />
       <RslLabCard className="mb-3" />
+      <RslCorpusCard className="mb-3" />
+      <RslAutonomyCard className="mb-3" />
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h4 className="text-xs font-semibold text-foreground">{t("evolution.rsl.title")}</h4>

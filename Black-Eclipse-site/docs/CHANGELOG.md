@@ -7,6 +7,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **feat(rsl-ui): corpus and autonomy cards on the RSL control panel.**
+  Added typed runtime calls and Next proxies for `GET /evolution/corpus`, the
+  rotation preview, autonomy status/pause/resume/decide and the state
+  autonomy-apply route. Two frosted cards show the 338-task splits, 263
+  oracle-backed + 75 documented exemptions, verification/audit, and the
+  autonomy level, kill switch and daily budget. Apply is disabled when the
+  level, kill switch or budget refuses; the runtime's evidence refusal reasons
+  are shown, never bypassed. Files: `src/lib/harness/{evolution-client,
+  evolution-browser}.ts`, `src/app/api/evolution/{corpus,corpus/rotation,
+  rsl/autonomy/**,states/[id]/autonomy-apply}/route.ts`,
+  `src/components/screens/skills/rsl-{corpus,autonomy}-card.tsx`,
+  `rsl-control-panel.tsx`, `src/lib/i18n/dictionaries/evolution.ts`, tests.
+  docs updated: `docs/harness/agent-evaluation.md`,
+  `docs/self-improvement/rsl-v4-plan.md`, `docs/CHANGELOG.md`.
 - **docs(rsl): auto-apply stays operator-triggered (Phase 4 decision).**
   Recorded ADR-H326: no scheduler tick and no `HARNESS_RSL_AUTO_APPLY` switch;
   the only activation path remains `POST

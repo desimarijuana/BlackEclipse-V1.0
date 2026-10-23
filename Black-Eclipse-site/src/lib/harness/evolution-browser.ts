@@ -3,8 +3,15 @@
 // the runtime operator secret.
 
 import type {
+  EvolutionAutonomyApplyResult,
+  EvolutionAutonomyDecideInput,
+  EvolutionAutonomyDecideResult,
+  EvolutionAutonomyKillSwitch,
+  EvolutionAutonomyStatus,
   EvolutionCandidateEvidence,
   EvolutionCandidateStateResult,
+  EvolutionCorpusStatus,
+  EvolutionRotationPreview,
   EvolutionDriftCandidateResult,
   EvolutionDriftHistory,
   EvolutionDriftScopes,
@@ -385,6 +392,54 @@ export async function modelProposeEvolutionCandidateBrowser(
   const query = k != null ? `?k=${encodeURIComponent(String(k))}` : "";
   return api<EvolutionModelProposeResult>(
     `/api/evolution/candidates/${encodeURIComponent(candidateId)}/model-propose${query}`,
+    { method: "POST", body: "{}" },
+  );
+}
+
+export async function getEvolutionCorpusStatusBrowser(): Promise<EvolutionCorpusStatus> {
+  return api<EvolutionCorpusStatus>("/api/evolution/corpus");
+}
+
+export async function getEvolutionRotationPreviewBrowser(
+  input: { quarter?: string; count?: number } = {},
+): Promise<EvolutionRotationPreview> {
+  const params = new URLSearchParams();
+  if (input.quarter) params.set("quarter", input.quarter);
+  if (input.count != null) params.set("count", String(input.count));
+  const query = params.toString();
+  return api<EvolutionRotationPreview>(
+    `/api/evolution/corpus/rotation${query ? `?${query}` : ""}`,
+  );
+}
+
+export async function getEvolutionAutonomyStatusBrowser(): Promise<EvolutionAutonomyStatus> {
+  return api<EvolutionAutonomyStatus>("/api/evolution/rsl/autonomy");
+}
+
+export async function setEvolutionAutonomyPausedBrowser(
+  paused: boolean,
+  reason = "",
+): Promise<{ success: boolean; killSwitch: EvolutionAutonomyKillSwitch }> {
+  return api<{ success: boolean; killSwitch: EvolutionAutonomyKillSwitch }>(
+    `/api/evolution/rsl/autonomy/${paused ? "pause" : "resume"}`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  );
+}
+
+export async function decideEvolutionAutonomyBrowser(
+  input: EvolutionAutonomyDecideInput,
+): Promise<EvolutionAutonomyDecideResult> {
+  return api<EvolutionAutonomyDecideResult>(
+    "/api/evolution/rsl/autonomy/decide",
+    { method: "POST", body: JSON.stringify(input) },
+  );
+}
+
+export async function applyEvolutionAutonomyBrowser(
+  stateId: string,
+): Promise<EvolutionAutonomyApplyResult> {
+  return api<EvolutionAutonomyApplyResult>(
+    `/api/evolution/states/${encodeURIComponent(stateId)}/autonomy-apply`,
     { method: "POST", body: "{}" },
   );
 }

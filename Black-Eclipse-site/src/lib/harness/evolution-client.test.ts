@@ -3,6 +3,7 @@ import { en } from '@/lib/i18n/dictionaries/en';
 import {
   evolutionDriftHistoryPath,
   evolutionDriftScopesPath,
+  evolutionRotationPath,
   evolutionStateKey,
   metricLabel,
 } from './evolution-client';
@@ -45,5 +46,13 @@ describe('evolution surface', () => {
     expect(metricLabel('UNKNOWN')).toBe('not measured yet');
     expect(metricLabel(0)).toBe('0');
     expect(metricLabel(0.5)).toBe('0.5');
+  });
+
+  it('the rotation preview path carries the quarter and count', () => {
+    expect(evolutionRotationPath({ quarter: '2026Q4', count: 4 }))
+      .toBe('/evolution/corpus/rotation?quarter=2026Q4&count=4');
+    expect(evolutionRotationPath({ quarter: '2026Q4' }))
+      .toBe('/evolution/corpus/rotation?quarter=2026Q4');
+    expect(evolutionRotationPath()).toBe('/evolution/corpus/rotation');
   });
 });
