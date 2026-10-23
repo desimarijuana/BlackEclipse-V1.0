@@ -29,6 +29,45 @@ from .tasks import load_all_builtin, select_tasks
 PROVIDER_ENV = "BLACK_ECLIPSE_PROVIDER"
 API_KEY_ENV = "BLACK_ECLIPSE_API_KEY"
 
+#: The cheapest capability that proves the front door answers.
+PREFLIGHT_CAPABILITY = "market_snapshot"
+
+
+def _bridge_base_url() -> str:
+    return os.environ.get("HARNESS_CALLBACK_URL") or (
+        f"http://127.0.0.1:{os.environ.get('PORT', '3000')}"
+    )
+
+
+async def preflight_bridge() -> str:
+    """Check the data bridge answers BEFORE spending a suite on it.
+
+    Returns "" when healthy, otherwise one plain sentence. Without this, a dead
+    front door produced 12 trial failures and 179 `ConnectError` lines, and the
+    result looked like the agent's fault. A measurement environment that is not
+    up is a REASON the lane did not run - never a score.
+    """
+    from ..bridge import HttpDataBridge  # noqa: PLC0415
+
+    base = _bridge_base_url()
+    bridge = HttpDataBridge(base, os.environ.get("CRON_SECRET"))
+    try:
+        result = await bridge.fetch(PREFLIGHT_CAPABILITY, {"symbol": "AAPL"})
+    except Exception as exc:  # noqa: BLE001 - a dead bridge is a reason
+        return (
+            f"the data bridge at {base} raised {type(exc).__name__}: {exc}. "
+            "The live lane needs a working front door - start the app first."
+        )
+    status = str((result or {}).get("status", "")).upper()
+    if status == "OK":
+        return ""
+    detail = (result or {}).get("error") or "no detail"
+    return (
+        f"the data bridge at {base} answered {status or 'nothing'} "
+        f"({detail}). The live lane needs a working front door - start the app "
+        "with `npm run up`."
+    )
+
 
 def provider_configured() -> bool:
     """Is there a live provider to measure with?"""
@@ -56,6 +95,12 @@ async def run_live_gate(
             "<provider>/<model>."
         )
     provider, _, model_name = (model or "openai/gpt-4o-mini").partition("/")
+
+    # Cheap, decisive: is the environment able to answer at all? A lane that runs
+    # against a dead front door measures the outage, not the agent.
+    unhealthy = await preflight_bridge()
+    if unhealthy:
+        return None, unhealthy
     try:
         from ..deps import service  # noqa: PLC0415
         from ..schemas import ModelSettings  # noqa: PLC0415

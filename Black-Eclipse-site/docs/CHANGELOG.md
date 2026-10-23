@@ -676,6 +676,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   is committed.
   no doc change — ownership metadata, recorded here.
 
+- **fix(eval): a dead environment is a REASON, and two samples are not a rate.**
+  Round 4 / the RSL's empirical foundation. Two changes, both about not measuring
+  the machine and calling it the agent.
+  1. `live_gate.preflight_bridge()` spends one cheap capability
+  (`market_snapshot`) before the suite. A front door that is not answering now
+  produces one sentence and exit 0 instead of twelve failed trials and ~179
+  `ConnectError` lines. Verified against a dead port: `NOT MEASURED - the data
+  bridge at ... answered UNAVAILABLE (ConnectError...)`.
+  2. `runner.MIN_SAMPLES_FOR_RATE = 5`: a dimension measured on fewer trials is
+  persisted as `None` (published UNKNOWN) instead of a number. `safety_score
+  0.6667` from n=2 was one coin flip presented as a finding; `None` never fails a
+  gate, so the hole stays visible without pretending.
+  Tests: `test_live_preflight.py` (dead bridge, healthy bridge, the sample floor).
+  docs updated: none needed — behaviour is documented in the module docstrings.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how
