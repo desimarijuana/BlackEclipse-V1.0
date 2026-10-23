@@ -1,7 +1,7 @@
 ---
 title: Agent Evaluation System
 status: Current
-last-verified: 2026-10-22
+last-verified: 2026-10-23
 ---
 
 # Agent Evaluation System
@@ -294,11 +294,12 @@ dataset's top-level `metadata.split` (preserved per task by
 `load_all_builtin`'s `splitById` map), then `validation`. The built-ins are:
 `benchmark_v1` + `construction_v1` + `adversarial_v1` (12) + `finance_v1` (13) +
 `finance_v2` (10) + `finance_v4` (24) + `finance_v5` (36) + `finance_v6` (38) +
-`research_v1` (4) = validation (184), `routing_e2e_v1` (4) + `replay_v1` (6) +
-`finance_v3` (6) + `finance_v4` (12) + `finance_v5` (24) + `finance_v6` (12) =
-optimization (64), `team_v1` = held_out (2). `select_tasks` without `split`
-still returns every task (250) for the release gate; an unknown split is
-refused.
+`finance_v7` (60) + `research_v1` (4) = validation (244), `routing_e2e_v1` (4) +
+`replay_v1` (6) + `finance_v3` (5) + `finance_v4` (11) + `finance_v5` (22) +
+`finance_v6` (12) + `finance_v7` (28) = optimization (88), `team_v1` (2) +
+`finance_v3` (1) + `finance_v4` (1) + `finance_v5` (2) = held_out (6) after the
+2026Q4 rotation. `select_tasks` without `split` still returns every task (338)
+for the release gate; an unknown split is refused.
 
 **Provenance.** A persisted run records `agentVersion`, `gitCommit` (or
 `gitCommitUnavailable`), the dataset checksum, and a config identity
@@ -323,8 +324,14 @@ derived data, never a second task store.
 **Oracle coverage.** A task names an independent oracle in `metadata.oracle`
 (a recomputation, never a model). `npm run rsl:manifest -- --audit` reports
 coverage; `--strict` makes a missing oracle or contamination entry an error for
-new work. The legacy corpus predates the rule and reports `0.0` coverage
-honestly rather than inventing labels.
+new work. Tasks that genuinely cannot be recomputed carry
+`metadata.oracleExempt: true` **and** `metadata.oracleReason` (per task or per
+dataset, as the legacy fixtures do); strict treats a reasoned exemption as
+intentional rather than a gap. The manifest exposes both `oracleCount` and
+`oracleExemptCount`, so an exempt task is never mistaken for an oracle-backed
+one. Today 263 of 338 tasks have a real oracle and 75 legacy fixtures are
+documented exemptions; `finance_v1`'s 13 tasks gained real oracles and
+`finance_v7` added 88, which is why the old "0.0 coverage" note is gone.
 
 **Contamination.** `contamination.py` maps each purpose to exactly one split:
 `optimization`→`optimization`, `validation`→`validation`,
@@ -378,6 +385,21 @@ only the first N tasks (hard bound 500). Both are recorded in the report as
 distinguishable from a full one. `--publish` with no value resolves to the app
 root's `docs/self-improvement` — never the Python child's `cwd` (`python/`).
 
+A pinned baseline covers the **validation** split of the whole corpus
+(`--dataset all --split validation`, 244 tasks today). `held_out` is never part
+of it: the canary is read only after validation. The first entry (2026-10-23)
+is `ollama` / `deepseek-v4.1-flash:cloud` in `baselines/live_v1.json`, with the
+dated report under `docs/self-improvement/`. A same-identity rerun is compared
+per task; a drop in a **critical** dimension (`task_success`,
+`financial_accuracy`, `safety_score`, hallucination/misroute) fails the session
+even when small, because those gates allow no regression. The standard nightly
+report is written **after** the comparison, so the file's verdict always
+matches the exit code.
+
+`ollama/*` models are priced as free/local by the runtime, so `costUsd` is `0`
+and `--max-cost` cannot meter Ollama Cloud usage. Treat the cap as a preflight
+guard, not a hard spend limit.
+
 **Held_out rotation.** A task a candidate has seen is no longer a clean canary.
 `evaluation/rotation.py` plans a quarter's rotation deterministically (the seed
 is the quarter label): it moves N optimization tasks to `held_out` and returns
@@ -392,20 +414,33 @@ npm run rsl:rotate -- --quarter 2026Q1          # plan only
 npm run rsl:rotate -- --quarter 2026Q1 --apply  # write it
 ```
 
+The quarterly reminder is `.github/workflows/rsl-rotation.yml`: on the first
+day of each quarter (and on dispatch) it resolves the quarter label, runs the
+`--json` dry run, writes the plan to the step summary and fails when the plan
+is not applicable. It never passes `--apply`, and a final check fails if the
+corpus tree changed, so CI cannot rewrite a dataset. `--json` keeps stdout pure
+JSON (the human "dry run" note goes to stderr) so the workflow can parse it.
+
 **Read-only operator surfaces.** `GET /evolution/corpus` returns the compact
 committed manifest, its verification and the authoring audit;
 `GET /evolution/corpus/rotation?quarter=...&count=...` returns a rotation
 PREVIEW. Neither writes a dataset; rotation apply stays a deliberate CLI
-action.
+action. The RSL control panel's **Corpus** card renders these numbers and the
+preview (with no apply control), alongside an **Autonomy** card for
+`GET /evolution/rsl/autonomy` and the pause/resume/apply proxies. The apply
+button is disabled when the level, kill switch or daily budget refuses an
+attempt; the runtime re-checks evidence and its refusal reasons are shown in
+the card, never bypassed.
 
 ## 8. Adding tasks
 
 1. Add a task object to `python/harness/evaluation/datasets/benchmark_v1.json`
    (or a new `datasets/<name>.json` — `construction_v1.json` is the R3-08
    construction benchmark, `adversarial_v1.json` the refusal/overclaim set,
-   `finance_v1.json` the recomputed-ratio set and `finance_v2.json` the
-   oracle-tagged tranche 2; `load_all_builtin` merges every dataset and rejects
-   duplicate ids).
+   `finance_v1.json` the recomputed-ratio set, `finance_v2.json` the
+   oracle-tagged tranche 2 and `finance_v7.json` the 88-task tranche that took
+   the corpus past 250 oracle-backed tasks; `load_all_builtin` merges every
+   dataset and rejects duplicate ids).
 2. Bump the dataset `datasetVersion` and, if you changed an existing task, its
    `version`. Never edit a task in place without bumping `version`.
 3. A construction task should declare `metadata.suites: ["construction"]`,
@@ -413,8 +448,10 @@ action.
    A task that is not part of the validation acceptance set declares
    `metadata.split` (`optimization`, `held_out` or `release`).
 4. New tasks declare `metadata.oracle` (how the expected value is independently
-   recomputed) and `metadata.contamination` (source + authored date). A decoy
-   canary also sets `metadata.canary: true`. `npm run rsl:manifest -- --audit
+   recomputed) and `metadata.contamination` (source + authored date). A task
+   that cannot be recomputed sets `metadata.oracleExempt: true` with
+   `metadata.oracleReason` (never invent an oracle). A decoy canary also sets
+   `metadata.canary: true`. `npm run rsl:manifest -- --audit
    --strict` enforces this for new work.
 5. Run `python -m harness.evaluation` — the gate must stay green — then refresh
    the manifest with `npm run rsl:manifest -- --build` and commit it with the
@@ -642,7 +679,9 @@ data.
 The session runs the corpus once (the deterministic tier), compares the result
 with the recorded baseline through the SAME per-dimension regression gates, and
 writes a dated JSON + Markdown report under
-`.black-eclipse/evaluation/reports/`.
+`.black-eclipse/evaluation/reports/`. The report is written **last**, after the
+live comparison, promotion and any baseline write, so it cannot say PASS while
+the process exits 1.
 
 ```bash
 npm run rsl:nightly                 # run, compare, report

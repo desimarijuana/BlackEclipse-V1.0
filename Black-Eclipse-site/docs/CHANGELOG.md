@@ -7,6 +7,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **docs(nav): NAVIGATION covers the corpus, rotation, live-baseline and
+  supervised-change surfaces.** Updated the evaluation row (338 tasks — 263
+  oracle-backed + 75 exemptions, plus `corpus.py` / `contamination.py` /
+  `rotation.py` / `significance.py` / `live_baseline.py`), the RSL row (v4
+  modules `archive` / `cmp` / `operators` / `sampler` / `autonomy` and the v4
+  plan), and added a task row for corpus audit / rotation / live baselines /
+  operator-triggered apply with the CLI, routes, UI cards and the quarterly
+  workflow. Files: `docs/NAVIGATION.md`.
+  docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 - **ci(rsl): a quarterly rotation reminder that cannot write a dataset.**
   Added `.github/workflows/rsl-rotation.yml`: quarterly schedule plus dispatch,
   resolves and validates the quarter label, runs

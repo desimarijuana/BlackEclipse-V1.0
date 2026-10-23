@@ -1,7 +1,7 @@
 ---
 title: "RSL v4 — archive-guided search, evaluation rigor, supervised autonomy"
 status: Current
-last-verified: 2026-10-22
+last-verified: 2026-10-23
 ---
 
 # RSL v4 — plan and P0 status
@@ -289,7 +289,11 @@ number is fabricated in the repository.
   `routers/evolution_autonomy.py` module owns `GET /evolution/rsl/autonomy`,
   `POST .../pause|resume`, and `POST .../decide` (a preview that NEVER
   activates). It is a separate router so `routers/evolution.py` stays inside its
-  size ratchet.
+  size ratchet. The control panel's **Autonomy** card renders this state, the
+  kill-switch toggle and the operator-triggered apply; its button is disabled
+  when the level, kill switch or daily budget refuses, and the runtime's
+  evidence refusal is displayed verbatim. The **Corpus** card renders the
+  manifest counts, oracle/exemption split, verification and a rotation preview.
 
 ### The one automatic activation path
 
@@ -307,10 +311,13 @@ the policy allows:
   rollback handle (`rollback_activation`).
 
 `POST /evolution/states/{state_id}/autonomy-apply` is the operator-triggered
-seam; a scheduler may call the same loop method. The policy and kill switch
-should still be exercised in a dry run (`HARNESS_RSL_AUTO_MAX_PER_DAY=0`) before
-an operator raises the budget. Nothing in this slice widens what an operator has
-already approved.
+seam. **No scheduler calls it** (ADR-H326): there is no timer/`tick()` wiring
+and no `HARNESS_RSL_AUTO_APPLY` switch. The Phase 4 review found no need for
+unattended activation, and a bad L1 change observed between ticks is a worse
+failure mode than a missed apply. The policy and kill switch should still be
+exercised in a dry run (`HARNESS_RSL_AUTO_MAX_PER_DAY=0`) before an operator
+raises the budget. Nothing in this slice widens what an operator has already
+approved.
 
 ### Config
 
@@ -327,10 +334,10 @@ already approved.
 |---|---|---|
 | ~~P1~~ | ~~`cmp.py` - descendant-lift metaproductivity guides sampling (never acceptance)~~ | done |
 | ~~P2~~ | ~~islands + typed operator registry + novelty veto~~ | done |
-| ~~P3 (growth)~~ | ~~corpus to 250+ oracle-backed tasks and the quarterly held_out rotation~~ | done: 250 tasks, 162 oracle-tagged (coverage 0.648); `npm run rsl:rotate` (dry run by default) |
+| ~~P3 (growth)~~ | ~~corpus to 250+ oracle-backed tasks and the quarterly held_out rotation~~ | done: 338 tasks, 263 oracle-tagged + 75 documented exemptions; `npm run rsl:rotate` (dry run by default) + the quarterly reminder workflow (dry run only) |
 | ~~P4~~ | ~~paired-bootstrap significance in acceptance~~ | done |
-| ~~P5~~ | ~~live-tier pinned baselines + published report~~ | machinery done; one operator live run remains |
-| ~~P6~~ | ~~risk-classed supervised autonomy with kill switch and auto-apply~~ | done; the operator raises `HARNESS_RSL_AUTO_MAX_PER_DAY` after a dry run |
+| ~~P5~~ | ~~live-tier pinned baselines + published report~~ | done: `baselines/live_v1.json` pinned on the 244-task validation split (2026-10-23) |
+| ~~P6~~ | ~~risk-classed supervised autonomy with kill switch and auto-apply~~ | done; operator-triggered only (ADR-H326 — no scheduler tick), budget raised after a dry run |
 
 ## Tests
 
