@@ -80,7 +80,12 @@ class HttpDataBridge(DataBridge):
                 if response.status_code >= 400:
                     return {"status": "UNAVAILABLE", "error": f"bridge HTTP {response.status_code}"}
                 return response.json()
-            except httpx.ConnectError as exc:
+            except (httpx.ConnectError, httpx.RemoteProtocolError) as exc:
+                # Both are "the connection was not usable": ConnectError is a
+                # refused/absent listener, RemoteProtocolError is a peer that
+                # accepted and then dropped the request. The second form carries
+                # no `str()`, which is why it used to log as an empty line. Both
+                # are safe to retry exactly once; a timeout never is.
                 last_exc = exc
                 if attempt == 0:
                     await asyncio.sleep(self._RETRY_DELAY_S)
@@ -88,8 +93,14 @@ class HttpDataBridge(DataBridge):
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
                 break
-        log.warning("data bridge failed (%s): %s", capability, last_exc)
-        return {"status": "UNAVAILABLE", "error": str(last_exc)}
+        # An exception whose `str()` is empty is undiagnosable - that is exactly
+        # how three load-time failures were logged as `data bridge failed (...):`
+        # with nothing after the colon. The TYPE is the only thing that separates
+        # a timeout from a dropped connection, so it is always logged and always
+        # returned.
+        detail = f"{type(last_exc).__name__}: {last_exc}" if last_exc else "unknown"
+        log.warning("data bridge failed (%s): %s", capability, detail)
+        return {"status": "UNAVAILABLE", "error": detail}
 
     async def post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         """POST a JSON body to a front-door route that WRITES.

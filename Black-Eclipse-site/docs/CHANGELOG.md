@@ -107,6 +107,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: docs/harness/decisions.md,
   docs/harness/roadmap/round-4-gap-closure.md.
 
+- **fix(bridge): a bridge failure now names its exception, and a dropped peer is
+  retried.** The three remaining live-suite failures logged as
+  `data bridge failed (market_snapshot):` with nothing after the colon, which made
+  them indistinguishable from a timeout. The logger now always prefixes the
+  exception type and the returned error carries the same text. That immediately
+  identified them: **`ConnectError: All connection attempts failed`** - the front
+  door was not listening, not a budget problem. `RemoteProtocolError` (a peer that
+  accepts then drops the request, and whose `str()` is empty) is now retried once
+  alongside `ConnectError`; a timeout still never is. The residual failures are
+  environmental: the local server is not surviving between runs in this
+  environment, so they are recorded as an operations issue rather than a harness
+  defect.
+  no doc change — diagnosability and retry class only, no contract change.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how
