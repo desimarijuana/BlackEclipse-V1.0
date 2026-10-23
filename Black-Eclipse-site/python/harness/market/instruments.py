@@ -149,6 +149,22 @@ class CanonicalInstrument:
         }
 
 
+def normalize_fx_pair(raw: str) -> Optional[tuple[str, str]]:
+    """Normalise every FX spelling to one (base, quote) pair.
+
+    Accepts ``USD/PKR``, ``USDPKR``, ``USDPKR=X``, ``USD-PKR`` (case/space
+    insensitive). Returns None when the text is not a 3+3 currency pair.
+    """
+    text = (raw or "").strip().upper().replace(" ", "")
+    if text.endswith(_FX_SUFFIX):
+        text = text[: -len(_FX_SUFFIX)]
+    for sep in ("/", "-", "_", ":"):
+        text = text.replace(sep, "")
+    if len(text) != 6 or not text.isalpha():
+        return None
+    return text[:3], text[3:]
+
+
 def split_crypto_pair(raw: str) -> Optional[tuple[str, str]]:
     """Split a concatenated crypto pair. `BTCUSDT` → ("BTC", "USDT")."""
     upper = raw.upper()
@@ -171,6 +187,17 @@ def classify_identifier(raw: str, market: Optional[str] = None) -> dict[str, Any
     """
     text = (raw or "").strip().upper()
     mkt = (market or "").strip().upper()
+
+    # D3: ONE canonical FX pair resolver. `USD/PKR`, `USDPKR`, `USDPKR=X` and
+    # `USD-PKR` are the same instrument. FX has NO venue, so a bare base+quote
+    # pair must never be rejected for lacking one.
+    if mkt == "FX":
+        pair = normalize_fx_pair(text)
+        if pair is None:
+            return {"kind": "fx", "base": None, "quote": None, "canonical": text}
+        base, quote = pair
+        return {"kind": "fx", "base": base, "quote": quote,
+                "canonical": f"{base}{quote}=X"}
 
     # A CRYPTO-qualified request is crypto before the generic slash rule, so
     # `BTC/USD` on the crypto market is not mistaken for an FX pair.
@@ -195,13 +222,22 @@ def classify_identifier(raw: str, market: Optional[str] = None) -> dict[str, Any
                     "canonical": f"{base}-{quote.upper()}"}
 
     if text.endswith(_FX_SUFFIX) or "/" in text:
-        body = text[:-2] if text.endswith(_FX_SUFFIX) else text
-        body = body.replace("/", "")
-        if len(body) >= 6:
-            return {"kind": "fx", "base": body[:3], "quote": body[3:6],
-                    "canonical": f"{body[:3]}{body[3:6]}=X"}
+        pair = normalize_fx_pair(text)
+        if pair is not None:
+            base, quote = pair
+            return {"kind": "fx", "base": base, "quote": quote,
+                    "canonical": f"{base}{quote}=X"}
+        body = text[:-2] if text.endswith(_FX_SUFFIX) else text.replace("/", "")
         return {"kind": "fx", "base": body[:3], "quote": body[3:6] or None,
                 "canonical": text}
+
+    # `USD-PKR`: a dashed 3+3 pair that is not a known crypto pair is FX.
+    if "-" in text and mkt != "CRYPTO":
+        pair = normalize_fx_pair(text)
+        if pair is not None and text.split("-")[0] not in _KNOWN_CRYPTO_BASES:
+            base, quote = pair
+            return {"kind": "fx", "base": base, "quote": quote,
+                    "canonical": f"{base}{quote}=X"}
 
     if mkt == "CRYPTO":
         if "-" in text:
@@ -387,6 +423,7 @@ __all__ = [
     "classify_identifier",
     "from_bridge_payload",
     "local_instrument",
+    "normalize_fx_pair",
     "provider_symbols_for",
     "split_crypto_pair",
     "split_exchange_suffix",

@@ -80,30 +80,45 @@ async def get_currency_conversion(args: dict[str, Any], ctx: Any) -> tuple[str, 
         return _unavailable("amount must be a number", code="INVALID_REQUEST")
     gateway = _gateway(ctx)
 
-    async def _rate(a: str, b: str) -> Optional[float]:
+    async def _rate(a: str, b: str):
         result = await gateway.get_fx_rate(base=a, quote=b, freshness="daily")
         if isinstance(result, MarketError):
-            return None
-        return result.mid or result.rate
+            return None, result
+        return (result.mid or result.rate), result
 
-    rate = await _rate(base, quote)
+    rate, direct = await _rate(base, quote)
     derived = False
     derivation = f"direct {base}/{quote}"
+    source = direct
     if rate is None and base != "USD" and quote != "USD":
-        r1 = await _rate(base, "USD")
-        r2 = await _rate("USD", quote)
+        r1, src1 = await _rate(base, "USD")
+        r2, src2 = await _rate("USD", quote)
         if r1 and r2:
             rate = r1 * r2
             derived = True
-            derivation = f"cross via USD: {base}/USD × USD/{quote}"
+            source = src1
+            derivation = f"cross via USD: {base}/USD x USD/{quote}"
     if rate is None:
-        return _unavailable(f"no FX rate for {base}/{quote}", code="DATA_NOT_AVAILABLE")
+        # D3: the SAME named refusal the other FX entry points return.
+        code = direct.code if isinstance(direct, MarketError) else "DATA_NOT_AVAILABLE"
+        return _unavailable(f"no FX rate for {base}/{quote}", code=code)
     converted = amount * rate
     return (
         f"{amount:.4f} {base} = {converted:.4f} {quote} (rate {rate:.6f}"
         + (", derived)" if derived else ")"),
         {"status": "OK", "base": base, "quote": quote, "amount": amount,
-         "rate": rate, "converted": converted, "derived": derived, "derivation": derivation},
+         "rate": rate, "converted": converted, "derived": derived, "derivation": derivation,
+         "timestamp": source.meta.event_time if source is not None else None,
+         "asOf": source.meta.event_time if source is not None else None,
+         "provider": source.meta.provider if source is not None else None,
+         "qualityVerdict": "VALID",
+         "envelope": {"value": rate, "unit": "rate", "currency": quote,
+                      "provider": source.meta.provider if source is not None else None,
+                      "observationTimestamp": source.meta.event_time if source is not None else None,
+                      "retrievalTimestamp": source.meta.retrieved_at if source is not None else None,
+                      "nativeCadence": "realtime", "qualityVerdict": "VALID",
+                      "conflicts": [], "routesSkipped": [], "stale": False,
+                      "reasonCode": None}},
     )
 
 
@@ -492,3 +507,4 @@ __all__ = [
     "get_universe",
     "refresh_dataset",
 ]
+
