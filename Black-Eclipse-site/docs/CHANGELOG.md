@@ -13,9 +13,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `code/sandbox.run` directly. The manager gained `shell_mode=False`, which
   tokenizes the command with `shlex.split(posix=True)` and executes the argv
   directly, preserving the no-shell contract. `code/terminal.py` is now the ONE
-  classifier; `build_run_spec` was removed. Tool names are unchanged. Ratcheted
-  the committed size budget DOWN to the measured tree (383,443 total; code
-  18,197). Files: `python/harness/terminal/manager.py`,
+  classifier; `build_run_spec` was removed. Tool names are unchanged. The
+  terminal slice measured 383,443 total / code 18,197; reconciling origin/main's
+  live-preflight and outage guards added 24 evaluation lines, so the final
+  committed ceiling is 383,467 / evaluation 11,741. Files:
+  `python/harness/terminal/manager.py`,
   `python/harness/code/{terminal,terminal_tools,tools}.py`,
   `python/tests/test_terminal_tools.py`,
   `python/tests/test_code_terminal.py`, `scripts/size-budget.json`.

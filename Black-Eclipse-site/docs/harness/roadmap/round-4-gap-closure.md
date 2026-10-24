@@ -197,9 +197,11 @@ formality. The named duplicates are still there.
 > **Progress 2026-10-24 — the terminal merge landed (ADR-H311).**
 > `terminal_run` and the `.black-eclipse/verify.json` auto-verify hook now run
 > through the ONE `TerminalManager` (`shell_mode=False`, argv/no-shell);
-> `code/terminal.py::build_run_spec` is gone. The committed ceiling is
-> **ratcheted down** to the measured tree: 383,443 total / `code` 18,197 (from
-> 383,450 / 18,345). The execution merge and the git-surface merge remain.
+> `code/terminal.py::build_run_spec` is gone. The terminal slice measured
+> **383,443 total / `code` 18,197**; reconciling `origin/main`'s live-preflight
+> and outage guards added 24 evaluation lines, so the final committed ceiling is
+> **383,467 / evaluation 11,741**. The execution merge and the git-surface merge
+> remain.
 
 ---
 
