@@ -138,3 +138,19 @@ def test_taxonomy_labels_from_graders_and_events():
 
     labels3 = classify_failure([], make_trajectory(status="timeout"), {"status": "timeout"})
     assert "timeout" in labels3
+
+
+def test_an_outage_is_not_an_agent_failure():
+    from types import SimpleNamespace
+
+    from harness.evaluation.scoring import score_trial
+
+    trajectory = SimpleNamespace(
+        outcome={"status": "failed", "error": {"code": "UNAVAILABLE"}},
+        metrics={}, tool_calls=lambda: [],
+    )
+    score = score_trial(SimpleNamespace(id="t", version=1, category="core"), trajectory, [])
+    # The environment was down, so the trial measured nothing about the agent:
+    # it is unmeasured, and it contributes no reliability sample either.
+    assert score.unmeasured is True
+    assert "reliability" not in score.dimensions

@@ -29,10 +29,33 @@ from .tasks import load_all_builtin, select_tasks
 PROVIDER_ENV = "BLACK_ECLIPSE_PROVIDER"
 API_KEY_ENV = "BLACK_ECLIPSE_API_KEY"
 
+#: The cheapest capability that proves the front door answers.
+PREFLIGHT_CAPABILITY = "market_snapshot"
 
-def provider_configured() -> bool:
-    """Is there a live provider to measure with?"""
-    return bool(os.environ.get(PROVIDER_ENV, "").strip())
+
+async def preflight_bridge() -> str:
+    """One sentence when the front door cannot answer, else "".
+
+    A dead front door used to produce 12 failed trials and ~179 ConnectError
+    lines that read as the agent's fault. `HttpDataBridge.fetch` never raises, so
+    no handler is needed here.
+    """
+    from ..bridge import HttpDataBridge  # noqa: PLC0415
+
+    base = os.environ.get("HARNESS_CALLBACK_URL") or (
+        f"http://127.0.0.1:{os.environ.get('PORT', '3000')}"
+    )
+    result = await HttpDataBridge(base, os.environ.get("CRON_SECRET")).fetch(
+        PREFLIGHT_CAPABILITY, {"symbol": "AAPL"},
+    )
+    status = str((result or {}).get("status", "")).upper()
+    if status == "OK":
+        return ""
+    detail = (result or {}).get("error") or "no detail"
+    return (
+        f"the data bridge at {base} answered {status or 'nothing'} ({detail}). "
+        "The live lane needs a working front door - start the app with `npm run up`."
+    )
 
 
 async def run_live_gate(
@@ -56,6 +79,12 @@ async def run_live_gate(
             "<provider>/<model>."
         )
     provider, _, model_name = (model or "openai/gpt-4o-mini").partition("/")
+
+    # Cheap, decisive: is the environment able to answer at all? A lane that runs
+    # against a dead front door measures the outage, not the agent.
+    unhealthy = await preflight_bridge()
+    if unhealthy:
+        return None, unhealthy
     try:
         from ..deps import service  # noqa: PLC0415
         from ..schemas import ModelSettings  # noqa: PLC0415

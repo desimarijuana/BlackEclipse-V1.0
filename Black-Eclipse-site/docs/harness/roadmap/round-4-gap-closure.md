@@ -135,6 +135,27 @@ is not a release, and a branch is not a product.
 
 > Closes **O3** · Moves **Ops +0.10** · ADR-H311
 > **Priority 2 — the structural fix, and the only one that is multi-release.**
+>
+> **RE-SCOPED 2026-10-22 after audit.** The three merges below were sized by
+> directory, and measuring them changed the answer:
+>
+> - **Terminal merge — ALREADY SATISFIED.** `terminal/tools.py:25` and
+>   `code/terminal.py:32` both import `code/policy.py`; there is one policy
+>   decision path, not two. Only the execution machinery differs, and that
+>   difference is real (bounded one-shot `Popen` vs persistent PTY sessions), so
+>   merging it would remove capability — the same trap this plan already flags
+>   for `browser/` vs `computer/`.
+> - **Execution merge — DEFERRED, not scheduled.** Same reason.
+> - **Git surface — ~65 lines, not 23,000.** The catalog is 126 entries and is
+>   already dense: the nine `diff_*` ops totalled 39 lines because they share a
+>   builder. They are now one builder plus a table (`75b7eeec`), which saved 4
+>   lines. The audit puts the whole recoverable duplication at roughly 65 lines
+>   out of 377,000.
+>
+> **Consequence for the score:** Ops cannot reach +0.10 through V2. The honest
+> path to it is V3 (ownership, reviews) and V4 (distribution), which change the
+> process sub-criteria rather than the line count. This plan's original sizing was
+> wrong and is recorded here rather than quietly rewritten.
 
 **Why.** The harness is 375,997 lines. The enforcement is real (a per-module
 ratchet and a committed total ceiling), and enforcement is not reduction: a

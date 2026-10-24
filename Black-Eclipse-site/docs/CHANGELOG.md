@@ -922,6 +922,93 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   measurement is published, not hidden - that is the point of recording it.
   docs updated: docs/harness/benchmarks.md.
 
+- **fix(eval): pin the published live run, because "latest" was not reproducible.**
+  Auto-selecting the newest completed live run made the published file depend on
+  mutable store state: running the test suite records more live runs, so
+  regeneration and the committed file disagreed by test ORDER and the
+  generated-not-hand-edited gate failed inside the full suite while passing alone.
+  The run is now a named constant, `PUBLISHED_LIVE_RUN`, reviewed with the
+  artifact. A published number that changes because a test ran is not
+  reproducible. Benchmarks regenerated after merging main (their new tasks moved
+  the offline counts).
+  no doc change — the generated artifact is updated in the same commit.
+
+- **revert(eval): do not embed a live run that exists on one machine.** Publishing
+  `evalrun-1792772393137` in the committed artifact made it unreproducible: the
+  run lives in this machine's `agent-memory.db`, while the test suite generates
+  against an isolated store, so the generated file and the committed one disagreed
+  inside the full suite while agreeing alone. The loader (`_load_live_suite`) stays
+  - it is correct and usable with `--live-run <id>` locally. `PUBLISHED_LIVE_RUN`
+  is empty and says why: publishing a live run needs a checked-in snapshot of that
+  run, which is the recorded next step. The file reports honestly that no
+  reproducible live measurement is committed instead of a number nobody else can
+  regenerate. docs updated: docs/harness/benchmarks.md.
+
+- **chore(ownership): CODEOWNERS names a real owner.** Round 4 / V3. The twelve
+  harness paths were assigned to `@harness-owner`/`@code-owner`/`@docs-owner` -
+  names that resolve to nobody. They are now `@desimarijuana`, so every path has
+  an owner who can be requested for review. The file states plainly what this does
+  NOT do: one person reviewing their own work is not a second pair of eyes, so the
+  external-review criterion stays open.
+  no doc change — ownership metadata, recorded here.
+
+- **chore(ownership): CODEOWNERS uses a role, not a personal account.** The paths
+  were assigned to `@desimarijuana`, which bakes a maintainer's personal GitHub
+  account into a public source tree. They now name `@BlackEclipse/maintainers` - a
+  role that resolves once the project has an org or team, and until then shows as
+  unresolved, which is honest. Ownership is still assigned; no individual identity
+  is committed.
+  no doc change — ownership metadata, recorded here.
+
+- **fix(eval): a dead environment is a REASON, and two samples are not a rate.**
+  Round 4 / the RSL's empirical foundation. Two changes, both about not measuring
+  the machine and calling it the agent.
+  1. `live_gate.preflight_bridge()` spends one cheap capability
+  (`market_snapshot`) before the suite. A front door that is not answering now
+  produces one sentence and exit 0 instead of twelve failed trials and ~179
+  `ConnectError` lines. Verified against a dead port: `NOT MEASURED - the data
+  bridge at ... answered UNAVAILABLE (ConnectError...)`.
+  2. `runner.MIN_SAMPLES_FOR_RATE = 5`: a dimension measured on fewer trials is
+  persisted as `None` (published UNKNOWN) instead of a number. `safety_score
+  0.6667` from n=2 was one coin flip presented as a finding; `None` never fails a
+  gate, so the hole stays visible without pretending.
+  Tests: `test_live_preflight.py` (dead bridge, healthy bridge, the sample floor).
+  docs updated: none needed — behaviour is documented in the module docstrings.
+
+- **chore(size): the ceiling moves 27 lines, on purpose, for the preflight.** The
+  preflight is real code with a real test, so it cannot fit inside a budget that
+  was pinned to the last line. Raising a ceiling is the thing this repo normally
+  refuses, so it is recorded rather than slipped in: `totalLines`
+  381,881 -> 381,908 and `evaluation` 11,456 -> 11,483, exactly the 27 lines the
+  preflight and its test add. The alternative - deleting the tests - would have
+  bought a lower number at the cost of the check that the number is honest.
+  no doc change — the budget file is the record.
+
+- **revert(eval): drop the minimum-sample rule; it collided with RSL baselines.**
+  `MIN_SAMPLES_FOR_RATE = 5` fixed `safety_score 0.6667` from n=2 by publishing
+  `None` instead - but a surface candidate's baseline is verified through the same
+  metrics, so any baseline with fewer than five measurable trials became
+  `SURFACE_BASELINE_UNMEASURED` and `test_surface_candidate_reuses_a_matching_
+  recorded_baseline` failed. The rule is right and the collision is real: a
+  baseline and a published rate have different sample requirements, and deciding
+  that needs design, not a constant. Reverted rather than special-cased. The
+  preflight stays (it is independent and verified). Budget re-pinned to the
+  actual tree: 381,900 total, 11,475 evaluation.
+  docs updated: none needed.
+
+- **fix(eval): an outage is not an agent failure.** Round 4 / the RSL's empirical
+  foundation, root cause. `score_trial` turned every non-completed trajectory into
+  a failed task and a `reliability 0.0` sample - including trials that failed
+  because the data bridge was down. The signal is the explicit `UNAVAILABLE`
+  error code on the trajectory outcome: a trial carrying it is now `unmeasured`,
+  excluded from `task_success` and from `reliability`, so `task_success 0.0` stops
+  counting an outage as the agent's inability. The taxonomy's `infrastructure`
+  label was tried first and rejected - it is the catch-all for ANY unlabeled
+  failure, so honouring it would have excused real agent failures too (it broke
+  `test_the_lab_never_invents_a_winner_on_the_scripted_tier`).
+  Tests: `test_an_outage_is_not_an_agent_failure`. Budget re-pinned to the tree.
+  docs updated: none needed.
+
 ## 2026-10-21
 - **feat(quant): the backfill says out loud that no subscription is needed.**
   The durable cache only holds what has been fetched, and the backfill is how

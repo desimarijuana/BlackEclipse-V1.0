@@ -320,15 +320,11 @@ def write_benchmarks(path: Optional[str] = None, *, live: Any = None,
     # live run must be selected here - not only in `main` - or the canonical
     # regeneration and the committed file disagree.
     if live is None and not live_reason:
-        run_id = _latest_live_run_id()
-        if run_id:
-            live, live_reason = _load_live_suite(run_id)
-            if live is not None and live.aggregates.get("task_success") is None:
-                # An infrastructure-failed run (provider 429/outage) measured no
-                # task success. It is not a model measurement, so fall through to
-                # the pinned baseline rather than publishing a fake 0.
-                live, live_reason = None, ""
-        if live is None:
+        if PUBLISHED_LIVE_RUN:
+            live, live_reason = _load_live_suite(PUBLISHED_LIVE_RUN)
+        else:
+            # No run snapshot is checked in: use the committed pinned baseline
+            # (provenance-stamped) instead of mutable local store state.
             live, live_reason = _latest_live_baseline()
 
     target = path or BENCHMARKS_PATH
@@ -388,28 +384,19 @@ def _load_live_suite(run_id: str) -> tuple[Optional[Any], str]:
     ), ""
 
 
-def _latest_live_run_id() -> str:
-    """The most recent COMPLETED live run, so the default generation is truthful.
-
-    The published file is regenerated with no arguments, so "no live run has been
-    recorded" must mean exactly that - not "nobody passed `--live-run`". A failing
-    live run is still published; hiding it was the bug.
-    """
-    from ..persistence import AgentMemoryStore  # noqa: PLC0415
-    from .store import EvaluationStore  # noqa: PLC0415
-
-    store = AgentMemoryStore()
-    try:
-        runs = EvaluationStore(store).list_runs(limit=100)
-    finally:
-        store.close()
-    live_runs = [
-        row for row in runs
-        if (row.get("tier") or 0) == 1 and row.get("status") == "completed"
-    ]
-    if not live_runs:
-        return ""
-    return max(live_runs, key=lambda row: row.get("startedAt") or "")["id"]
+#: The live run published in `docs/harness/benchmarks.md`.
+#:
+#: Pinned ON PURPOSE. Selecting "the latest completed live run" makes the
+#: published file depend on mutable store state: running the test suite adds live
+#: runs, so regeneration and the committed file disagree by test ORDER. A published
+#: number that changes because a test ran is not reproducible. Publishing a new
+#: live run is a one-line change here, reviewed with the artifact.
+#: Empty means "publish no live run". A live run lives in THIS machine's
+#: `agent-memory.db`, and the test suite generates against an isolated store, so
+#: embedding one makes the artifact unreproducible everywhere else. Publishing a
+#: live run requires a checked-in snapshot of that run (next step); until then the
+#: file honestly reports that no reproducible live measurement is committed.
+PUBLISHED_LIVE_RUN = ""
 
 
 def _latest_live_baseline() -> tuple[Optional[Any], str]:
@@ -486,7 +473,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     live = None
     live_reason = ""
-    run_id = args.live_run or _latest_live_run_id()
+    run_id = args.live_run or PUBLISHED_LIVE_RUN
     if run_id:
         live, live_reason = _load_live_suite(run_id)
     target = write_benchmarks(args.out or None, live=live, live_reason=live_reason)

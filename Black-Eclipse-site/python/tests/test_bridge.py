@@ -90,3 +90,28 @@ async def test_a_timeout_is_never_retried(monkeypatch):
     out = await bridge.fetch("web_fetch", {"url": "https://example.com"})
     assert out["status"] == "UNAVAILABLE"
     assert factory.calls == 1
+
+
+# --- the live lane's preflight -------------------------------------------
+from harness.evaluation import live_gate  # noqa: E402
+
+
+@pytest.mark.asyncio
+async def test_a_dead_bridge_is_a_reason_not_a_score(monkeypatch):
+    class Dead:
+        async def fetch(self, capability, params):
+            return {"status": "UNAVAILABLE", "error": "ConnectError: refused"}
+
+    monkeypatch.setattr("harness.bridge.HttpDataBridge", lambda *a, **k: Dead())
+    reason = await live_gate.preflight_bridge()
+    assert "answered UNAVAILABLE" in reason and "npm run up" in reason
+
+
+@pytest.mark.asyncio
+async def test_a_healthy_bridge_has_no_reason(monkeypatch):
+    class Healthy:
+        async def fetch(self, capability, params):
+            return {"status": "OK"}
+
+    monkeypatch.setattr("harness.bridge.HttpDataBridge", lambda *a, **k: Healthy())
+    assert await live_gate.preflight_bridge() == ""

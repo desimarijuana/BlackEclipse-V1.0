@@ -196,7 +196,15 @@ def score_trial(task: Any, trajectory: Any, grader_results: list[Any]) -> Evalua
 
     # Reliability: a completed run with no unhandled error.
     status = (getattr(trajectory, "outcome", {}) or {}).get("status")
-    if status is not None:
+    labels = classify_failure(grader_results, trajectory, getattr(trajectory, "outcome", {}) or {})
+    # A trial blocked by a DEAD ENVIRONMENT did not measure the agent. The signal
+    # is the explicit unavailability code, not the taxonomy's `infrastructure`
+    # label - that label is the catch-all for any unlabeled failure, so using it
+    # here would quietly excuse real agent failures too.
+    error = (getattr(trajectory, "outcome", {}) or {}).get("error") or {}
+    error_code = str(error.get("code") or "").upper()
+    blocked = status != "completed" and "UNAVAILABLE" in error_code
+    if status is not None and not blocked:
         dimensions["reliability"] = 1.0 if status == "completed" else 0.0
 
     passed = bool(measured_results) and all(getattr(r, "passed", False) for r in measured_results)
@@ -204,7 +212,6 @@ def score_trial(task: Any, trajectory: Any, grader_results: list[Any]) -> Evalua
     if not measured_results:
         passed = False
 
-    labels = classify_failure(grader_results, trajectory, getattr(trajectory, "outcome", {}) or {})
     return EvaluationScore(
         task_id=getattr(task, "id", ""),
         task_version=int(getattr(task, "version", 1)),
@@ -214,7 +221,7 @@ def score_trial(task: Any, trajectory: Any, grader_results: list[Any]) -> Evalua
         dimensions=dimensions,
         grader_results=payload,
         labels=labels,
-        unmeasured=any_unmeasured and not measured_results,
+        unmeasured=blocked or (any_unmeasured and not measured_results),
         cost=cost,
         latency_ms=metrics.get("latencyMs"),
         total_tokens=int(metrics.get("totalTokens") or 0),
