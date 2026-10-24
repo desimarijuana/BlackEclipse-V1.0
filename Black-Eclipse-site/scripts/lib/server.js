@@ -92,10 +92,11 @@ function sourceHash() {
         walk(full);
       } else {
         try {
-          const st = fs.statSync(full);
+          // Content, not mtime: editors that rewrite a file without changing it
+          // (save-all, formatters) must not invalidate an expensive production
+          // build.
           hash.update(path.relative(root, full));
-          hash.update(String(st.mtimeMs));
-          hash.update(String(st.size));
+          hash.update(fs.readFileSync(full));
         } catch {}
       }
     }
@@ -115,11 +116,16 @@ function needsBuild() {
   return true;
 }
 
+/** Record the current source as built (after any successful `next build`). */
+function markBuilt() {
+  fs.mkdirSync(nextDir, { recursive: true });
+  fs.writeFileSync(hashFile, sourceHash());
+}
+
 /** Run `next build` and record the source hash on success. */
 function build() {
   execSync("npx next build", { cwd: root, stdio: "inherit", env: process.env });
-  fs.mkdirSync(nextDir, { recursive: true });
-  fs.writeFileSync(hashFile, sourceHash());
+  markBuilt();
 }
 
 /** Path to Next.js's JS entrypoint (spawnable without a shell). */
@@ -138,6 +144,7 @@ function startServer(port) {
     cwd: root,
     stdio: "inherit",
     env: process.env,
+    windowsHide: true,
   });
   child.on("exit", (code) => process.exit(code ?? 0));
 }
@@ -150,6 +157,7 @@ function startDev(port) {
     cwd: root,
     stdio: "inherit",
     env: process.env,
+    windowsHide: true,
   });
   child.on("exit", (code) => process.exit(code ?? 0));
 }
@@ -177,6 +185,7 @@ module.exports = {
   killPort,
   sourceHash,
   needsBuild,
+  markBuilt,
   build,
   nextBin,
   startServer,

@@ -139,7 +139,7 @@ function killTrackedRuntime(): void {
   if (!proc || proc.exitCode !== null) return;
   try {
     if (process.platform === "win32" && proc.pid) {
-      execSync(`taskkill /F /T /PID ${proc.pid}`, { stdio: "ignore" });
+      execSync(`taskkill /F /T /PID ${proc.pid}`, { stdio: "ignore", windowsHide: true });
     } else {
       proc.kill("SIGKILL");
     }
@@ -233,7 +233,7 @@ function harnessSourceMtimeMs(): number {
 function listenerPidsOnPort(): string[] {
   try {
     if (process.platform === "win32") {
-      const out = execSync("netstat -ano", { encoding: "utf8" });
+      const out = execSync("netstat -ano", { encoding: "utf8", windowsHide: true });
       const pids = new Set<string>();
       for (const line of out.split("\n")) {
         if (line.includes(`:${HARNESS_PY_PORT}`) && line.includes("LISTENING")) {
@@ -256,7 +256,7 @@ function killListenerOnPort(): void {
   for (const pid of listenerPidsOnPort()) {
     try {
       if (process.platform === "win32") {
-        execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" });
+        execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore", windowsHide: true });
       } else {
         execSync(`kill -9 ${pid}`, { stdio: "ignore" });
       }
@@ -415,7 +415,7 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
     const proc = spawn(
       py.cmd,
       ["-m", "uvicorn", "harness.main:app", "--host", HARNESS_PY_HOST, "--port", String(HARNESS_PY_PORT), "--app-dir", appDir],
-      { cwd: projectRoot, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...extraEnv, PYTHONPATH: appDir } }
+      { cwd: projectRoot, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, env: { ...process.env, ...extraEnv, PYTHONPATH: appDir } }
     );
     g.__harnessPyProc = proc;
 

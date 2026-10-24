@@ -1,7 +1,7 @@
 ---
 title: Quickstart
 status: Current
-last-verified: 2026-10-19
+last-verified: 2026-10-23
 ---
 
 # Quickstart
@@ -32,6 +32,28 @@ Development and production are separate servers on separate ports and can run at
 the same time: `npm run dev` is `3000` with isolated runtime state, while
 `npm run up` builds and serves production on `3100` at `http://blackeclipse`.
 See [`environments.md`](./environments.md).
+
+### Desktop shortcut (Windows)
+
+`start-eclipse.vbs` starts the **production** site (built Next on `3100`
+behind the local proxy) in a visible console, waits until it answers, and opens
+`https://blackeclipse` (or `http://` when TLS is not configured). Create a
+shortcut to it (or run `wscript start-eclipse.vbs`) and the app behaves like a
+normal desktop app: when the tab is closed, `scripts/start-desktop.js` stops the
+server a few seconds later and the console closes with it. Closing the console
+by hand also stops the server. If an unmanaged production instance is already
+running, the launcher restarts it under its own lifecycle.
+
+The icon starts the existing build directly (`local-host`), never rebuilding:
+startup is about two seconds. The only slow launch is the first one on a fresh
+clone, when there is no build yet. If the source is newer than the build, the
+console says so and still starts instantly. To update the build, close the app
+and run `npm run build` (its `postbuild` records the source hash); the next icon
+click uses it. For day-to-day editing, use `npm run dev`; the icon is for running
+the built app. Setting `BE_DESKTOP_BUILD=1` forces a rebuild from the launcher.
+The page reports its lifecycle through `/api/desktop/session`, which is inert
+unless the launcher set `BE_DESKTOP_HEARTBEAT_FILE`. A console-launched server
+(`npm run dev`) is not affected.
 
 > `npm install` is not a plain install here. Its `postinstall` runs
 > `prisma generate`, `scripts/setup-python.js`, and `scripts/link-global.js`.

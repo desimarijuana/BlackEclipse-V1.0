@@ -139,7 +139,7 @@ export function HomeDashboardScreen({ active = true }: { active?: boolean }) {
   };
 
   return (
-    <div className="relative w-full px-2 pb-24 md:px-4">
+    <div className="relative w-full px-2 pb-6 md:px-4">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 -top-24 h-72 bg-[radial-gradient(60%_100%_at_50%_0%,rgba(255,255,255,0.05),transparent_70%)]"

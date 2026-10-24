@@ -14,7 +14,7 @@ function pidsListeningOn(port) {
   const pids = new Set();
   try {
     if (process.platform === 'win32') {
-      const output = execSync('netstat -ano', { encoding: 'utf8' });
+      const output = execSync('netstat -ano', { encoding: 'utf8', windowsHide: true });
       for (const line of output.split('\n')) {
         if (line.includes(`:${port}`) && line.includes('LISTENING')) {
           const parts = line.trim().split(/\s+/);
@@ -37,7 +37,7 @@ function killPort(port, label) {
   for (const pid of pidsListeningOn(port)) {
     console.log(`Killing process on port ${port} (${label}, PID: ${pid})...`);
     try {
-      execSync(process.platform === 'win32' ? `taskkill /F /PID ${pid}` : `kill -9 ${pid}`);
+      execSync(process.platform === 'win32' ? `taskkill /F /PID ${pid}` : `kill -9 ${pid}`, { windowsHide: true });
       killed = true;
     } catch {
       // Already gone.

@@ -13,7 +13,7 @@ function run(cmd, opts = {}) {
   // directory (the global npm link), so without an explicit cwd a repair such as
   // `npm install` / `npx prisma generate` would run in the caller's folder and
   // fail or write outside the project.
-  return spawnSync(cmd, { shell: true, cwd: root, stdio: "pipe", encoding: "utf8", ...opts });
+  return spawnSync(cmd, { shell: true, cwd: root, stdio: "pipe", encoding: "utf8", windowsHide: true, ...opts });
 }
 
 function fix(label, cmd) {
@@ -72,7 +72,7 @@ if (!fs.existsSync(path.join(root, "src", "generated", "prisma", "client.js")) &
       const prebuild = path.join(root, "node_modules", "prebuild-install", "bin.js");
       if (fs.existsSync(prebuild)) {
         console.log("[setup] Prisma adapter's better-sqlite3 binding missing — repairing...");
-        const r = spawnSync(process.execPath, [prebuild], { cwd: adapterNested, stdio: "pipe", encoding: "utf8" });
+        const r = spawnSync(process.execPath, [prebuild], { cwd: adapterNested, stdio: "pipe", encoding: "utf8", windowsHide: true });
         if (r.status === 0) {
           fixed++;
         } else {
@@ -130,7 +130,7 @@ if (!fs.existsSync(path.join(root, "jdds.db"))) {
 {
   const dbGuard = path.join(__dirname, "db-guard.js");
   if (fs.existsSync(dbGuard)) {
-    const r = spawnSync(process.execPath, [dbGuard, "check"], { stdio: "inherit" });
+    const r = spawnSync(process.execPath, [dbGuard, "check"], { stdio: "inherit", windowsHide: true });
     if (r.status !== 0) {
       console.error("[setup] Database integrity check FAILED — see db-guard output above.");
       process.exit(1);
@@ -138,6 +138,15 @@ if (!fs.existsSync(path.join(root, "jdds.db"))) {
   } else {
     console.warn("[setup] db-guard.js not found — skipping DB integrity check.");
   }
+}
+
+// Desktop launches ask for a fast boot: everything above repairs what the site
+// cannot start without. Optional runtime probes (Python packages, browser
+// binary, sandbox stack) are skipped here; `black doctor` / postinstall still
+// run the full check where the extra seconds do not delay opening the app.
+if (process.env.BE_DESKTOP_FAST === "1") {
+  console.log("[setup] fast desktop boot — skipping optional runtime probes");
+  process.exit(0);
 }
 
 // 5. Python yfinance bridge (optional — live prices)
@@ -149,7 +158,7 @@ const vendorReady =
   fs.existsSync(path.join(__dirname, "vendor", "python", "python.exe"));
 if (process.platform === "win32" && !vendorReady && fs.existsSync(vendorScript)) {
   console.log("[setup] No Python found — provisioning embedded Python for live prices...");
-  const v = spawnSync(process.execPath, [vendorScript], { stdio: "inherit" });
+  const v = spawnSync(process.execPath, [vendorScript], { stdio: "inherit", windowsHide: true });
   if (v.status !== 0) {
     console.error("[setup] Could not provision embedded Python (offline?). Live prices disabled.");
   }
@@ -304,6 +313,7 @@ if (py) {
               encoding: "utf8",
               stdio: ["ignore", "pipe", "ignore"],
               timeout: 20000,
+              windowsHide: true,
             });
             return `${mod}=${String(out).trim()}`;
           } catch {
@@ -339,7 +349,7 @@ if (py) {
   //     refusal for a job that needs one — never a reason not to start.
   const containerRuntime = process.env.HARNESS_SANDBOX_CONTAINER || null;
   const containerUsable =
-    containerRuntime && spawnSync(containerRuntime, ["--version"], { stdio: "ignore" }).status === 0;
+    containerRuntime && spawnSync(containerRuntime, ["--version"], { stdio: "ignore", windowsHide: true }).status === 0;
   console.log(
     containerUsable
       ? `[setup] container backend: available (${containerRuntime})`

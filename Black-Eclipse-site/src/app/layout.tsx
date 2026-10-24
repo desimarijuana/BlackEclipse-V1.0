@@ -12,6 +12,7 @@ import { TaskCompletionWatcher } from "@/lib/notifications/task-watcher";
 import { BotsRunWatcher } from "@/lib/notifications/bots-run-watcher";
 import { ChannelActivityWatcher } from "@/lib/notifications/channel-watcher";
 import { BrowserTabIndicator } from "@/lib/notifications/tab-indicator";
+import { DesktopSession } from "@/components/layout/desktop-session";
 import { SoundProvider } from "@/lib/sounds";
 import { TerminalKeybind } from "@/components/layout/terminal-keybind";
 import { WorkspaceKeybind } from "@/components/agent-workspace/workspace-keybind";
@@ -60,6 +61,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <BotsRunWatcher />
         <ChannelActivityWatcher />
         <BrowserTabIndicator />
+        <DesktopSession />
       </body>
     </html>
   );

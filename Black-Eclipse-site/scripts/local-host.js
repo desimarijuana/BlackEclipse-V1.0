@@ -73,6 +73,7 @@ function startProxy(appPort, { useTls, proxyPort }) {
       BE_PROXY_TARGET: `http://${APP_HOST}:${appPort}`,
     },
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
   });
   let ready = false;
   child.stdout.on("data", (d) => {
@@ -149,6 +150,7 @@ function runProfile({ mode = "start", port } = {}) {
     cwd: ROOT,
     stdio: ["inherit", "pipe", "pipe"],
     env,
+    windowsHide: true,
   });
   const rewrite = makeRewriter(appPort, shown);
   child.stdout.on("data", (d) => process.stdout.write(rewrite(d)));

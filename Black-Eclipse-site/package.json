@@ -23,6 +23,7 @@
     "prestart": "node scripts/doctor.js && node scripts/kill-port.js prod",
     "up": "node scripts/doctor.js && node scripts/up.js",
     "build": "next build",
+    "postbuild": "node scripts/mark-build.js",
     "start": "node scripts/local-host.js start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",

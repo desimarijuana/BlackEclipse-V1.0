@@ -25,7 +25,7 @@ const VENDOR_PYTHON =
 async function canRun(cmd: string, mod?: string): Promise<boolean> {
   try {
     const args = mod ? ["-c", `import ${mod}`] : ["--version"];
-    await execFileAsync(cmd, args, { timeout: 10_000 });
+    await execFileAsync(cmd, args, { timeout: 10_000, windowsHide: true });
     return true;
   } catch {
     return false;
@@ -81,5 +81,6 @@ export async function runPythonBridge(
   return execFileAsync(py.cmd, [scriptPath, ...args], {
     timeout: opts.timeout,
     maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024,
+    windowsHide: true,
   });
 }

@@ -60,10 +60,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   restarts an unmanaged instance so tab-close owns its lifecycle, and opens
   `https://blackeclipse` (http fallback). `start-eclipse.vbs` runs it with a
   visible console that closes when the tab closes; closing the console by hand
-  stops the server. Desktop launches set `BE_DESKTOP_FAST`, and `doctor.js`
-  skips the optional Python/browser/sandbox probes; the first launch still
-  rebuilds. Files: `scripts/start-desktop.js`, `start-eclipse.vbs`,
-  `scripts/doctor.js`.
+  stops the server. The launcher starts the existing build directly
+  (`local-host`, ~2s) and never rebuilds while the user waits: a stale source
+  shows a console note and still starts instantly, and the first launch on a
+  fresh clone is the only build. `BE_DESKTOP_BUILD=1` forces a rebuild. The
+  source hash is now content-based (a touch no longer invalidates the build),
+  and a `postbuild` hook marks a plain `npm run build` as current.
+  Files: `scripts/start-desktop.js`, `start-eclipse.vbs`, `scripts/mark-build.js`,
+  `scripts/lib/server.js`, `scripts/doctor.js`, `package.json`.
   docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
 - **ci(rsl): a quarterly rotation reminder that cannot write a dataset.**
   Added `.github/workflows/rsl-rotation.yml`: quarterly schedule plus dispatch,
