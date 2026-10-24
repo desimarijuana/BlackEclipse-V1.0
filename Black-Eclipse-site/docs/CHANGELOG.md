@@ -7,6 +7,23 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **style(branding): square, self-backing app icon.** Rebuilt
+  `public/branding/FAVICON.svg` as a 32×32 square (near-black rounded tile with
+  the white Eclipse mark scaled to a 2px safe area) so the mark stays visible on
+  both light and dark browser chrome; the old asset was 28×32 with white-only
+  fills. Regenerated `src/app/favicon.ico` (16/32/48 ICO), added
+  `src/app/apple-icon.png` (180×180) and `public/branding/icon-{192,512}.png` for
+  future PWA use. No manifest was added. Also generated a multi-size
+  `public/branding/black-eclipse.ico` and pointed the Windows "Black Eclipse"
+  desktop shortcut's **IconLocation** at it (it previously showed the generic
+  wscript/Node icon), then refreshed the shell icon cache. docs updated:
+  `docs/QUICKSTART.md`, `docs/CHANGELOG.md`; `docs/ARCHITECTURE.md` already
+  documents the `public/branding/` defaults.
+- **style(branding): flush-left mark in the app icon.** Moved the Eclipse glyph
+  from a 3.75px centred inset to the tile's left edge (no left gap), clipped it
+  to the rounded tile so the corner stays clean, and regenerated every derived
+  PNG/ICO plus the desktop shortcut's cached icon. docs updated:
+  `docs/CHANGELOG.md`.
 - **chore(stock detail): ship the intelligence + verification slice.** Committed
   the five-chart market-intelligence panel, JDdS listing-market resolution,
   Yahoo→Stooq price fallback, and the web-backed identity/listing/filing/quote

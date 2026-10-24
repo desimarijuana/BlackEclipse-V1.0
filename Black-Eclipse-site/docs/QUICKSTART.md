@@ -38,7 +38,9 @@ See [`environments.md`](./environments.md).
 `start-eclipse.vbs` starts the **production** site (built Next on `3100`
 behind the local proxy) in a visible console, waits until it answers, and opens
 `https://blackeclipse` (or `http://` when TLS is not configured). Create a
-shortcut to it (or run `wscript start-eclipse.vbs`) and the app behaves like a
+shortcut to it (or run `wscript start-eclipse.vbs`) and set the shortcut's
+**Icon** to `public/branding/black-eclipse.ico` — without it Windows shows the
+generic script/Node icon. The app behaves like a
 normal desktop app: when the tab is closed, `scripts/start-desktop.js` stops the
 server a few seconds later and the console closes with it. Closing the console
 by hand also stops the server. If an unmanaged production instance is already
