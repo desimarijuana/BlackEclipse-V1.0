@@ -36,20 +36,25 @@ See [`environments.md`](./environments.md).
 ### Desktop shortcut (Windows)
 
 `start-eclipse.vbs` starts the **production** site (built Next on `3100`
-behind the local proxy) in a visible console, waits until it answers, and opens
+behind the local proxy) in a **hidden** window (boot/stop output goes to
+`.black-eclipse/desktop-launch.log`), waits until it answers, and opens
 `https://blackeclipse` (or `http://` when TLS is not configured). Create a
 shortcut to it (or run `wscript start-eclipse.vbs`) and set the shortcut's
 **Icon** to `public/branding/black-eclipse.ico` — without it Windows shows the
 generic script/Node icon. The app behaves like a
 normal desktop app: when the tab is closed, `scripts/start-desktop.js` stops the
-server a few seconds later and the console closes with it. Closing the console
-by hand also stops the server. If an unmanaged production instance is already
-running, the launcher restarts it under its own lifecycle.
+server about 8 seconds later and the launcher exits. If the tab crashes or is
+force-closed without reporting `pagehide`, a stale-heartbeat watchdog stops it
+after ~2.5 minutes (kept above browser background-tab timer throttling so an
+ordinary hidden tab is not mistaken for a closed one). There is no window to
+close by hand; stop a stuck launcher with Task Manager. If an unmanaged
+production instance is already running, the launcher restarts it under its own
+lifecycle.
 
 The icon starts the existing build directly (`local-host`), never rebuilding:
 startup is about two seconds. The only slow launch is the first one on a fresh
 clone, when there is no build yet. If the source is newer than the build, the
-console says so and still starts instantly. To update the build, close the app
+log says so and still starts instantly. To update the build, close the app
 and run `npm run build` (its `postbuild` records the source hash); the next icon
 click uses it. For day-to-day editing, use `npm run dev`; the icon is for running
 the built app. Setting `BE_DESKTOP_BUILD=1` forces a rebuild from the launcher.

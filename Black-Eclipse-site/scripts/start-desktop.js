@@ -3,14 +3,17 @@
 // wait until it answers, open http(s)://blackeclipse, and stop the server again
 // when that tab closes.
 //
-// Started by ../start-eclipse.vbs with a VISIBLE console: the boot log (doctor,
-// build, Next + proxy) is useful while starting, and the window closes itself
-// when the app is stopped. Closing the window by hand also stops the server.
+// Started by ../start-eclipse.vbs with a HIDDEN console: no terminal window is
+// shown, and the boot/stop log is appended to .black-eclipse/desktop-launch.log.
+// The process exits on its own once the app is stopped.
 //
 // Tab lifecycle: the app's <DesktopSession /> beacon writes this file while the
 // desktop-opened tab is alive and writes `leave` on pagehide. We grant a short
 // grace window so a reload (which immediately sends `alive` again) doesn't stop
-// the server; otherwise the process tree is killed.
+// the server; otherwise the process tree is killed. If the tab dies without a
+// `pagehide` (crash, force-quit), a stale-heartbeat watchdog stops the server
+// once the beacon has been silent long enough to rule out normal background-tab
+// timer throttling.
 
 const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
@@ -28,7 +31,11 @@ const PROXY_STOP = path.join(__dirname, "local-proxy-stop.js");
 const SESSION_FILE = path.join(ROOT, ".black-eclipse", "desktop-session.json");
 const LOG_FILE = path.join(ROOT, ".black-eclipse", "desktop-launch.log");
 const POLL_MS = 1_000;
-const LEAVE_GRACE_MS = 20_000;
+const LEAVE_GRACE_MS = 8_000;
+// Chrome/Edge throttle timers in a background tab to ~1/min after a few
+// minutes, so the 10s heartbeat can legitimately go quiet. Stay well above that
+// before treating silence as "the tab is gone".
+const STALE_ALIVE_MS = 150_000;
 const FIRST_BEACON_MS = 60_000;
 const PROGRESS_EVERY_MS = 60_000;
 // A hidden tab can have its 10s heartbeat throttled, so a second icon click
@@ -240,8 +247,8 @@ async function main() {
   process.on("exit", () => stopAll(serverChild));
 
   // Wait for the server for as long as it takes: a cold production rebuild can
-  // run for many minutes and must not be mistaken for a failure. The visible
-  // console shows the build; closing it stops the work.
+  // run for many minutes and must not be mistaken for a failure. The launcher
+  // log shows the build progress.
   const bootedAt = Date.now();
   let lastProgress = bootedAt;
   let up = false;
@@ -260,7 +267,7 @@ async function main() {
 
   if (!up) {
     log(`server stopped during boot (exit ${exitCode})`);
-    // Keep the window briefly so the error is readable, then close.
+    // Keep the process briefly so the log flushes, then exit.
     await sleep(15_000);
     return;
   }
@@ -290,6 +297,15 @@ async function main() {
 
     if (lastEvent === "leave" && leaveSince && Date.now() - leaveSince >= LEAVE_GRACE_MS) {
       log("tab closed; stopping server");
+      stopAll(child);
+      return;
+    }
+
+    // Crash/force-quit fallback: the tab never sent `leave`, but its heartbeat
+    // stopped. Background-tab throttling is slower than this, so prolonged
+    // silence means the page is really gone rather than merely hidden.
+    if (lastEvent === "alive" && lastAt && Date.now() - lastAt >= STALE_ALIVE_MS) {
+      log("tab heartbeat stopped; stopping server");
       stopAll(child);
       return;
     }
