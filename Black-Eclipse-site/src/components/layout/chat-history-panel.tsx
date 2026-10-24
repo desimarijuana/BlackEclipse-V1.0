@@ -224,7 +224,7 @@ export function ChatHistoryPanel({
             ghost && dragRef.current?.id === c.id && dragRef.current?.active ? 'opacity-40' : ''
           } ${
             isActive ? 'bg-white/[0.04] border-border/20 text-foreground font-semibold'
-              : 'bg-transparent text-muted-foreground hover:bg-accent/25 hover:text-foreground'
+              : 'bg-transparent text-foreground/70 hover:bg-accent/25 hover:text-foreground'
           }`}
         >
           <span className="flex items-center gap-1.5 min-w-0 flex-1">
@@ -232,7 +232,7 @@ export function ChatHistoryPanel({
             {c.color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: c.color }} />}
             <span className="min-w-0 flex-1">
               {isRenaming ? renameInput(renaming, c.title) : <span className="block truncate">{c.title || t('sidebar.untitledSession')}</span>}
-              {snippet && !isRenaming && <span className="block truncate text-[10px] font-normal text-muted-foreground/70">{snippet}</span>}
+              {snippet && !isRenaming && <span className="block truncate text-[10px] font-normal text-muted-foreground">{snippet}</span>}
             </span>
           </span>
           {!isRenaming && (c.tags?.length ?? 0) > 0 && (
