@@ -7,6 +7,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **release: v0.2.1-rc.1 (release candidate, not production).** Lands the
+  data-integrity, live-measurement and terminal-merge work on `main` and tags the
+  merged tree. Offline gates are green (Python 8,283 passed / 27 skipped; Vitest
+  3,866 passed; eval gates and corpus gate PASS; tsc, eslint, security, size and
+  ADR checks PASS). The live tier is honestly **FAIL**: `task_success` 0.8520 on
+  live-eligible tasks against the 0.9 gate. External review, PyPI, ACP, the
+  SWE-bench suite, the remaining V2 merges and phases 15/18/20 are explicitly not
+  in this candidate. Release note: `docs/releases/v0.2.1-rc.1.md`.
+  docs updated: `docs/releases/v0.2.1-rc.1.md`, `docs/CHANGELOG.md`.
 - **refactor(harness): V2 terminal merge — one executor, two transports.** The
   code profile's `terminal_run` and the `.black-eclipse/verify.json` auto-verify
   hook now run through the ONE `TerminalManager` instead of calling
