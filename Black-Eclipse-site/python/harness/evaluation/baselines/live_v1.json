@@ -145,8 +145,13 @@
       "gitCommit": "2b6df30a65289d51e9a7c8a3bcf825fb0b109af0",
       "key": "live:f368f388bb662ce717c19da715f0bb44",
       "latencyMs": 4960.934,
+      "liveEligibleMeasuredTrials": 196,
+      "liveEligibleSuccesses": 167,
+      "liveEligibleTaskSuccess": 0.8520408163265306,
+      "liveEligibleTotalTrials": 198,
       "measuredTrials": 242,
       "model": "deepseek-v4.1-flash:cloud",
+      "note": "Live-eligible re-score from this same run: 167/196 = 0.8520. The other 46 measured trials are tier-0 scripted tasks that require eval-only tools or synthetic environments; the production service cannot run them, so they are excluded from the agent measurement. Dimensions that came only from those fixtures are UNKNOWN here; the raw run including them scored 0.6901.",
       "promptHash": "f05e7c03cf57f5997f58ab2b6087c7412f6eee77e9b5ae0d6403d2e9962ace3a",
       "provider": "ollama",
       "recordedAt": "2026-10-23T20:07:20.977Z",
@@ -402,5 +407,5 @@
       "totalTrials": 244
     }
   },
-  "updatedAt": "2026-10-23T20:07:20.977Z"
+  "updatedAt": "2026-10-24T04:34:07.697Z"
 }

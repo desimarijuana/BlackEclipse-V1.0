@@ -173,6 +173,13 @@ formality. The named duplicates are still there.
 - `npm run check:all` passes.
 - The deprecated names still resolve (a test asserts the shim).
 
+> **Progress 2026-10-24 — the terminal merge landed (ADR-H311).**
+> `terminal_run` and the `.black-eclipse/verify.json` auto-verify hook now run
+> through the ONE `TerminalManager` (`shell_mode=False`, argv/no-shell);
+> `code/terminal.py::build_run_spec` is gone. The committed ceiling is
+> **ratcheted down** to the measured tree: 383,443 total / `code` 18,197 (from
+> 383,450 / 18,345). The execution merge and the git-surface merge remain.
+
 ---
 
 ### V3 — A second pair of eyes

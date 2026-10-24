@@ -174,6 +174,22 @@ class EvaluationTask:
         return self.category in LIVE_CATEGORIES and not self.metadata.get("agent_script")
 
     @property
+    def live_eligible(self) -> bool:
+        """Can the PRODUCTION service run this task without the eval harness?
+
+        A task that needs an ``eval_*`` tool or a synthetic environment
+        (``mock_services`` / ``filesystem`` / ``database``) is graded only by
+        the offline tier, which supplies those tools and environments. Running
+        it against the live service would measure a missing tool, not the
+        agent - the bug that made the first live smoke score 0.0.
+        """
+        tools = (*self.required_tools, *self.expected_tools)
+        if any(str(name).startswith("eval_") for name in tools):
+            return False
+        env_type = str((self.environment or {}).get("type") or "").strip().lower()
+        return env_type not in {"mock_services", "filesystem", "database"}
+
+    @property
     def agent_script(self) -> list[dict[str, Any]]:
         """The deterministic model program, when the task ships one.
 

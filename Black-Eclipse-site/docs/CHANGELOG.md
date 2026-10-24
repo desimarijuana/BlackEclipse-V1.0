@@ -7,6 +7,47 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-23
+- **refactor(harness): V2 terminal merge — one executor, two transports.** The
+  code profile's `terminal_run` and the `.black-eclipse/verify.json` auto-verify
+  hook now run through the ONE `TerminalManager` instead of calling
+  `code/sandbox.run` directly. The manager gained `shell_mode=False`, which
+  tokenizes the command with `shlex.split(posix=True)` and executes the argv
+  directly, preserving the no-shell contract. `code/terminal.py` is now the ONE
+  classifier; `build_run_spec` was removed. Tool names are unchanged. Ratcheted
+  the committed size budget DOWN to the measured tree (383,443 total; code
+  18,197). Files: `python/harness/terminal/manager.py`,
+  `python/harness/code/{terminal,terminal_tools,tools}.py`,
+  `python/tests/test_terminal_tools.py`,
+  `python/tests/test_code_terminal.py`, `scripts/size-budget.json`.
+  docs updated: `docs/harness/terminal-architecture.md`,
+  `docs/harness/decisions.md` (ADR-H311), `docs/CHANGELOG.md`.
+- **fix(harness): restore the release gate by recording the size-budget raise.**
+  `npm run check:all` failed before tests ran because the harness tree had grown
+  to 383,293 lines against the committed 382,030 ceiling (the D1-D12
+  data-integrity work added ~1.4k Python lines). Raised the committed total to
+  383,400 and the `.`/`evaluation` directory ceilings to their measured values
+  (25,110 / 11,725) as an explicit, one-release decision (ADR-H327); Round 4 V2
+  remains the work that must lower it again. Files:
+  `scripts/size-budget.json`, `docs/harness/decisions.md`.
+  docs updated: `docs/harness/decisions.md`, `docs/CHANGELOG.md`.
+- **fix(evaluation): the live lane measures the agent, not missing eval tools.**
+  Three defects made the live tier publish a false zero: it ran every task
+  (including tier-0 scripted tasks that require `eval_*` tools or synthetic
+  environments) against the production service; a provider 429/timeout was
+  graded as a failed task; and the generated benchmark said `NOT MEASURED` even
+  when a pinned live baseline existed. The live gate now selects only
+  `live_eligible` tasks, provider failures are `UNMEASURED` with the provider
+  reason, and the benchmark falls back to the newest committed
+  `baselines/live_v1.json` entry when no valid local run is recorded. Also fixed
+  the financial/exact graders to accept `25%` for an expected fraction `0.25`
+  (all `weight` tasks were failing on this). Files:
+  `python/harness/evaluation/{tasks,live_gate,runner,report}.py`,
+  `python/harness/evaluation/graders/{exact,financial}.py`,
+  `python/harness/evaluation/baselines/live_v1.json` (adds the live-eligible
+  re-score note), `python/tests/test_evaluation_{tasks,live_gate,graders}.py`,
+  `python/tests/test_live_baseline.py`, `docs/harness/benchmarks.md` (generated).
+  docs updated: `docs/harness/agent-evaluation.md`, `docs/harness/benchmarks.md`,
+  `docs/CHANGELOG.md`.
 - **style(branding): square, self-backing app icon.** Rebuilt
   `public/branding/FAVICON.svg` as a 32×32 square (near-black rounded tile with
   the white Eclipse mark scaled to a 2px safe area) so the mark stays visible on
@@ -24,6 +65,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   to the rounded tile so the corner stays clean, and regenerated every derived
   PNG/ICO plus the desktop shortcut's cached icon. docs updated:
   `docs/CHANGELOG.md`.
+- **fix(desktop): hidden launcher and reliable stop on tab close.**
+  `start-eclipse.vbs` now starts the Node launcher with window style `0`, so no
+  CMD window appears; boot/stop output goes only to
+  `.black-eclipse/desktop-launch.log`. The tab-close stop delay dropped from 20s
+  to 8s, and `start-desktop.js` gained a stale-heartbeat watchdog (~150s) so a
+  tab that crashes or is force-closed without `pagehide` also tears the server
+  down. The watchdog threshold sits above browser background-tab timer
+  throttling, so an open-but-hidden tab is not mistaken for a closed one.
+  docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
 - **chore(stock detail): ship the intelligence + verification slice.** Committed
   the five-chart market-intelligence panel, JDdS listing-market resolution,
   Yahoo→Stooq price fallback, and the web-backed identity/listing/filing/quote

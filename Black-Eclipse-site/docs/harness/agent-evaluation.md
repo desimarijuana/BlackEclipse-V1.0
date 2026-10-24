@@ -68,6 +68,15 @@ Two invokers drive the SAME runtime:
 - **`ServiceAgentInvoker`** (live tier) — the production `AgenticService.run` with
   a real model.
 
+The live lane only selects tasks that are `live_eligible` (no `eval_*` required
+tool, no synthetic `mock_services` / `filesystem` / `database` environment).
+Those scripted fixtures belong to the offline tier; running them against the
+production service measures a missing tool, not the agent. A provider outage,
+rate limit or timeout is recorded as **UNMEASURED** with the provider reason,
+never as a failed task (a 429 is not a model regression). When no valid live run
+is recorded locally, the generated benchmark publishes the newest pinned live
+baseline from `baselines/live_v1.json` instead of `NOT MEASURED`.
+
 Isolation between concurrent trials is by `contextvars` (the model override and
 the bound environment), so independent trials run in parallel in one process.
 

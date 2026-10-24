@@ -1,7 +1,7 @@
 ---
 title: Terminal, Shell & Process Subsystem
 status: Current
-last-verified: 2026-10-05
+last-verified: 2026-10-24
 ---
 
 # Terminal, Shell & Process Subsystem
@@ -39,6 +39,8 @@ python/harness/terminal/
   recovery.py        reconcile persisted state on boot
   runtime.py         the process-wide singleton + EventBus bridge
   tools.py           the agent tool surface + effect authorizer
+python/harness/code/terminal.py         the ONE classifier (allow/ask/deny); no execution
+python/harness/code/terminal_tools.py   terminal_run — the manager in no-shell mode
 python/harness/routers/terminal.py    the operator-gated HTTP surface
 src/components/terminal/xterm-terminal.tsx   the real xterm.js terminal (UI)
 ```
@@ -67,6 +69,14 @@ to the REAL shell (not just tracked) and the resulting prompt is read back via t
 sentinel, then confined to the workspace; a command that moved the shell outside
 the root is refused and the shell is returned to the root. The agent-facing text
 has ANSI stripped; the UI reads the raw buffer so a real terminal can render.
+
+The code profile's `terminal_run` and the `.black-eclipse/verify.json` auto-verify
+hook are **not** a fourth primitive. Both call
+`TerminalManager.execute_command(..., shell_mode=False)`, which tokenizes the
+command with `shlex.split(posix=True)` and executes the argv directly (no shell),
+so the historical `code/sandbox.run` bypass and `code/terminal.py::build_run_spec`
+are gone. `code/terminal.py` is now the ONE classifier; the manager is the ONE
+executor.
 
 ## Process lifecycle
 

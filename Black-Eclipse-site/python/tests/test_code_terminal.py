@@ -8,9 +8,6 @@ inert text rather than an executed one.
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-
 from harness.code import terminal
 
 
@@ -60,25 +57,3 @@ def test_empty_command_denied():
 
 def test_too_long_command_denied():
     assert terminal.classify("python " + "a" * (terminal.MAX_COMMAND_CHARS + 10)).kind == "deny"
-
-
-def test_build_run_spec_sets_no_network_and_env(tmp_path):
-    spec = terminal.build_run_spec("python app.py", cwd=tmp_path, timeout_s=30)
-    assert spec.argv == ["python", "app.py"]
-    assert spec.network is False
-    assert spec.timeout_s == 30
-    assert "PATH" in spec.env or os.name != "nt"
-    # A scrubbed env: nothing outside the allowlist leaks.
-    assert all(k in terminal.policy.SECRET_ENV_ALLOWLIST for k in spec.env)
-
-
-def test_build_run_spec_rejects_a_denied_command(tmp_path):
-    import pytest
-
-    with pytest.raises(ValueError):
-        terminal.build_run_spec("rm -rf /", cwd=tmp_path)
-
-
-def test_timeout_is_clamped(tmp_path):
-    spec = terminal.build_run_spec("python x.py", cwd=tmp_path, timeout_s=99999)
-    assert spec.timeout_s == terminal.MAX_TIMEOUT_S

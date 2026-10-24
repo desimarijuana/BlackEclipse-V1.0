@@ -10619,3 +10619,53 @@ rollback, daily budget, kill switch, L2/non-surface refusals, missing evidence).
 Docs: `docs/self-improvement/rsl-v4-plan.md`, this ADR. A future scheduler needs
 its own ADR, an off-by-default flag, a per-tick limit of one, and a dry-run
 period.
+
+## ADR-H327 - The size ceiling is raised deliberately for the data-integrity release, and Round 4 V2 must lower it again
+
+**Decision.** `scripts/size-budget.json` is raised from 382,030 to 383,450 total
+lines, with the `.` and `evaluation` directory ceilings raised to their measured
+values (25,110 and 11,725). This is a one-release, recorded raise - not a silent
+relaxation. The twelve data-integrity fixes (D1-D12) added ~1.4k Python lines to
+`python/harness/` (new quality/freshness/gateway modules plus the retrieval and
+market wiring), so the committed ceiling no longer matched the shipped tree and
+`npm run check:all` failed at the size gate before any test ran. Round 4 V2 (the
+terminal / execution / git-surface merges) is still required to lower the total,
+one release per merge.
+
+**Why.** A ratchet that cannot be raised deliberately turns every real capability
+addition into a choice between deleting code and leaving the release gate red.
+The budget's own contract says raising is allowed when it is an explicit,
+reviewable edit; this ADR is that edit. The alternative - splitting the new
+modules purely to satisfy a line count - would add indirection without removing
+duplication. The direction that matters is that V2 then makes the next ceiling
+lower, and every subsequent release is measured against it.
+
+**Consequences.** `scripts/size-budget.json`; `npm run check:size` passes on the
+data-integrity branch. The V2 shrink remains open and is the next ceiling-lowering
+work. No runtime contract changes: the budget is a CI guard, not a capability
+limit. Docs: this ADR, `docs/harness/roadmap/round-4-gap-closure.md` (V2).
+
+## ADR-H311 - One terminal subsystem: the code profile runs through the TerminalManager in no-shell mode
+
+**Decision.** `terminal_run` and the `.black-eclipse/verify.json` auto-verify hook
+execute through the ONE `TerminalManager` (`terminal/manager.py`) instead of
+calling `code/sandbox.run` directly. The manager gained `shell_mode: bool = True`;
+the code profile passes `False`, which tokenizes the command with
+`shlex.split(posix=True)` and runs the argv directly, preserving the no-shell
+contract (`; rm -rf` and `$(...)` stay inert). `code/terminal.py` is now the ONE
+classifier only; `code/terminal.py::build_run_spec` was removed. Tool names
+(`terminal_run`, `execute_command`, `run_shell_command`, ...) are unchanged.
+
+**Why.** There were two execution primitives: the terminal manager (used by the
+UI and `execute_command`) and a direct `code/sandbox.run` call in the code
+profile. Both consulted the same classifier, but the second bypassed the
+manager's session/process/port/event bookkeeping, so the UI and the agent could
+disagree about what ran. Keeping the manager as the single execution surface
+means one place for bounds, redaction, recording and cancellation. No-shell mode
+is a transport detail, not a second subsystem.
+
+**Consequences.** `terminal/manager.py` (`shell_mode`), `code/terminal_tools.py`,
+`code/tools.py::_auto_verify`, `code/terminal.py` (classifier only),
+`python/tests/test_terminal_tools.py` (the manager-identity test),
+`python/tests/test_code_terminal.py` (removed the `build_run_spec` tests). Docs:
+`docs/harness/terminal-architecture.md`, this ADR.

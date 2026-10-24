@@ -275,6 +275,11 @@ def to_benchmarks(offline: Any = None, live: Any = None, *, live_reason: str = "
             *_provenance_lines(live),
             f"- gate: **{'PASS' if live.passed else 'FAIL'}**",
             "",
+        ]
+        note = str(getattr(live, "note", "") or "").strip()
+        if note:
+            lines += [note, ""]
+        lines += [
             "| dimension | value |",
             "|---|---|",
         ]
@@ -318,6 +323,13 @@ def write_benchmarks(path: Optional[str] = None, *, live: Any = None,
         run_id = _latest_live_run_id()
         if run_id:
             live, live_reason = _load_live_suite(run_id)
+            if live is not None and live.aggregates.get("task_success") is None:
+                # An infrastructure-failed run (provider 429/outage) measured no
+                # task success. It is not a model measurement, so fall through to
+                # the pinned baseline rather than publishing a fake 0.
+                live, live_reason = None, ""
+        if live is None:
+            live, live_reason = _latest_live_baseline()
 
     target = path or BENCHMARKS_PATH
     offline = run_offline_gate()
@@ -398,6 +410,69 @@ def _latest_live_run_id() -> str:
     if not live_runs:
         return ""
     return max(live_runs, key=lambda row: row.get("startedAt") or "")["id"]
+
+
+def _latest_live_baseline() -> tuple[Optional[Any], str]:
+    """Publish the newest PINNED live baseline when no valid run is recorded.
+
+    The pinned registry is a committed, provenance-stamped measurement (the
+    nightly `--live --write-live-baseline` path writes it). Without this, a
+    machine with no local `agent-memory.db` published `NOT MEASURED` even
+    though a real live number was committed - the stale-benchmark bug.
+    """
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from .live_baseline import read_live_baselines  # noqa: PLC0415
+    from .scoring import check_thresholds  # noqa: PLC0415
+
+    try:
+        registry = read_live_baselines()
+    except (OSError, ValueError):
+        return None, ""
+    entries = [
+        entry for entry in (registry.get("baselines") or {}).values()
+        if isinstance(entry, dict) and str(entry.get("tier") or "") == "live"
+    ]
+    if not entries:
+        return None, ""
+    entry = max(entries, key=lambda item: item.get("recordedAt") or "")
+    aggregates = dict(entry.get("dimensions") or {})
+    # Prefer the live-eligible re-score: the live tier measures the production
+    # service, and the tier-0 scripted fixtures it cannot run are not agent
+    # evidence. Older entries without the re-score fall back to the raw number.
+    sample_size = int(entry.get("measuredTrials") or 0)
+    if entry.get("liveEligibleTaskSuccess") is not None:
+        aggregates["task_success"] = entry["liveEligibleTaskSuccess"]
+        sample_size = int(entry.get("liveEligibleMeasuredTrials") or sample_size)
+        # These dimensions were produced by tier-0 scripted fixtures the live
+        # service cannot run. Publishing their contaminated value beside a
+        # live-eligible task_success would imply they were measured on the same
+        # set. UNKNOWN is the honest state until a live-eligible run re-measures.
+        for dimension in (
+            "tool_accuracy", "citation_accuracy", "code_correctness",
+            "memory_accuracy", "planning_quality", "provenance", "honesty",
+            "artifact_delivery", "visual_delivery", "safety_score",
+        ):
+            if dimension in aggregates:
+                aggregates[dimension] = None
+    elif aggregates.get("task_success") is None and entry.get("taskSuccess") is not None:
+        aggregates["task_success"] = entry["taskSuccess"]
+    thresholds = check_thresholds(aggregates, sample_size=sample_size)
+    task_count = entry.get("liveEligibleTotalTrials") or entry.get("taskCount")
+    return SimpleNamespace(
+        run_id=str(entry.get("key") or "live-baseline"),
+        dataset_name=entry.get("dataset") or "unknown",
+        dataset_version=entry.get("datasetVersion") or "unknown",
+        dataset_checksum=entry.get("datasetChecksum") or "unknown",
+        tier=1,
+        agent_version=entry.get("agentVersion") or "",
+        git_commit=entry.get("gitCommit") or "",
+        config={"tier": 1, "taskCount": task_count, "measuredTrials": sample_size},
+        aggregates=aggregates,
+        thresholds=thresholds,
+        passed=not thresholds.get("failures"),
+        note=str(entry.get("note") or ""),
+    ), ""
 
 
 def main(argv: Optional[list[str]] = None) -> int:

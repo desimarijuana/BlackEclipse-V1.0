@@ -422,11 +422,24 @@ class ServiceAgentInvoker:
                                     model_usage=_usage_for_run(run_id))
         finally:
             unsubscribe()
+        unmeasured_reason = None
+        error = result.error
+        if error is not None and str(getattr(error, "code", "")) in {
+            "PROVIDER_NOT_CONFIGURED", "PROVIDER_ERROR", "PROVIDER_TIMEOUT",
+        }:
+            # A provider outage / rate limit is an infrastructure failure, not an
+            # agent failure. Grading it as 0.0 turns a 429 into a fake regression;
+            # the honest state is UNMEASURED with the reason recorded.
+            unmeasured_reason = (
+                f"provider failure ({getattr(error, 'code', '')}): "
+                f"{getattr(error, 'message', '')}"
+            )
         return InvocationResult(
             run_id=run_id, status=result.status, output=result.output or "", events=collected,
             agent={"id": self.agent_id},
             model={"provider": settings.provider, "model": settings.model},
             error=result.error.model_dump() if getattr(result, "error", None) else None,
+            unmeasured_reason=unmeasured_reason,
             model_usage=_usage_for_run(run_id),
         )
 

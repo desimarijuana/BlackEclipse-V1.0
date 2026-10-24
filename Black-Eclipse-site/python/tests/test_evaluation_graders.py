@@ -27,6 +27,14 @@ def test_exact_numeric_tolerance():
     assert not grader.grade(make_ctx(task, make_trajectory(), output="21")).passed
 
 
+def test_exact_numeric_accepts_a_percentage_for_a_fraction():
+    task = make_task(expected_output={"numeric": {"value": 0.25, "tolerance": 0.001}})
+    grader = build_grader("exact")
+    assert grader.grade(make_ctx(task, make_trajectory(), output="The weight is 25%.")).passed
+    assert grader.grade(make_ctx(task, make_trajectory(), output="0.25")).passed
+    assert not grader.grade(make_ctx(task, make_trajectory(), output="25")).passed
+
+
 def test_exact_contains_and_equals():
     task = make_task(expected_output={"contains": ["alpha", "beta"]})
     ctx = make_ctx(task, make_trajectory(), output="alpha beta gamma")
@@ -136,6 +144,16 @@ def test_financial_cagr_and_margin():
     assert grader.grade(make_ctx(make_task(), make_trajectory(), output="10.0%")).passed
     margin = build_grader("financial", {"metric": "gross_margin", "inputs": {"revenue": 1000, "gross_profit": 400}, "tolerance": 0.01})
     assert margin.grade(make_ctx(make_task(), make_trajectory(), output="40.0%")).passed
+
+
+def test_financial_weight_accepts_a_percentage():
+    grader = build_grader(
+        "financial",
+        {"metric": "weight", "inputs": {"value": 250, "total": 1000}, "tolerance": 0.001},
+    )
+    assert grader.grade(make_ctx(make_task(), make_trajectory(), output="25%")).passed
+    assert grader.grade(make_ctx(make_task(), make_trajectory(), output="0.25")).passed
+    assert not grader.grade(make_ctx(make_task(), make_trajectory(), output="25")).passed
 
 
 # -- safety --------------------------------------------------------------

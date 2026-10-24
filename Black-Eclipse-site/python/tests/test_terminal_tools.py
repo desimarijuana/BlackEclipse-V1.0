@@ -167,6 +167,22 @@ def test_execute_command_refuses_a_cwd_outside_the_workspace(manager, project):
     assert result.data.get("code") == "WORKSPACE_ESCAPE"
 
 
+def test_terminal_run_uses_the_same_terminal_manager(manager, project):
+    """V2 terminal merge: the code profile's `terminal_run` must execute through
+    the shared TerminalManager, not a second sandbox primitive."""
+    import sys
+
+    from harness.code.terminal_tools import terminal_run
+
+    ctx = _context(project)
+    command = f'"{sys.executable}" -c "print(\'manager_ok\')"'
+    text, data = asyncio.run(terminal_run({"command": command, "timeoutS": 30}, ctx))
+    assert data["status"] == "ok", text
+    assert "manager_ok" in text
+    assert str(data.get("executionId", "")).startswith("exec_")
+    assert any(row.get("id") == data["executionId"] for row in manager._store.list_commands())
+
+
 def test_start_read_stop_a_background_process_through_the_registry(manager, project):
     registry = _registry()
     ctx = _context(project)

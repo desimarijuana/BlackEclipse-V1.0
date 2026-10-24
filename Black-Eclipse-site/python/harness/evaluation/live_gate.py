@@ -77,6 +77,11 @@ async def run_live_gate(
     try:
         dataset = load_all_builtin()
         tasks = select_tasks(dataset, suite=suite or None)
+        # The live lane runs the PRODUCTION service; it cannot supply the
+        # eval-only tools or synthetic environments the offline tier uses. A
+        # tier-0 adversarial task would therefore measure a missing tool and
+        # report 0.0 - which is exactly what the first live smoke did.
+        tasks = [task for task in tasks if task.live_eligible]
         if task_limit:
             tasks = tasks[:task_limit]
         if not tasks:

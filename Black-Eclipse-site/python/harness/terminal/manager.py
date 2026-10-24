@@ -17,6 +17,7 @@ can never disagree about a process's state.
 from __future__ import annotations
 
 import os
+import shlex
 import threading
 import uuid
 from pathlib import Path
@@ -128,6 +129,7 @@ class TerminalManager:
         cwd: str,
         shell: Optional[str] = None,
         runtime: str = "local",
+        shell_mode: bool = True,
         timeout_ms: int = DEFAULT_TIMEOUT_MS,
         env: Optional[dict[str, str]] = None,
         session_env: Optional[dict[str, str]] = None,
@@ -157,7 +159,13 @@ class TerminalManager:
             )
         try:
             exec_runtime = self._runtime(runtime, distro=distro)
-            argv = exec_runtime.build_argv(command, shell=shell, cwd=str(directory))
+            if shell_mode:
+                argv = exec_runtime.build_argv(command, shell=shell, cwd=str(directory))
+            else:
+                # No-shell mode: the code profile's `terminal_run` promise. The
+                # command is tokenized into an argv and executed directly, so a
+                # `; rm -rf` or `$(...)` is inert text, not a second command.
+                argv = shlex.split(command, posix=True)
             runtime_env = exec_runtime.extra_env()
         except RuntimeUnavailable as exc:
             category = (ErrorCategory.NOT_IMPLEMENTED.value if exc.code == "NOT_IMPLEMENTED" else ErrorCategory.RUNTIME_UNAVAILABLE.value)

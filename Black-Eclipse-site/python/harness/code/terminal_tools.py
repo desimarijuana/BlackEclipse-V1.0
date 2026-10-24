@@ -1,11 +1,11 @@
 """The `terminal_run` handler — generic command execution, gated (Phase D).
 
-`terminal.py` owns classification (allow / ask / deny) and builds the argv. This
-module owns the tool handler: it re-checks the classification, refuses a `deny`,
-requires the run's command-execute grant, requires a per-workspace SINGLE-USE
-approval for an `ask` command, then runs through `code/sandbox.py` and records the
-execution exactly like `command_run` (row + ledger), so a claim about it can be
-verified.
+`terminal.py` owns classification (allow / ask / deny). This module owns the
+tool handler: it re-checks the classification, refuses a `deny`, requires the
+run's command-execute grant, requires a per-workspace SINGLE-USE approval for an
+`ask` command, then runs through the ONE `TerminalManager` (the same subsystem
+the UI and `execute_command` use) and records the execution exactly like
+`command_run` (row + ledger), so a claim about it can be verified.
 
 The approval for an `ask` command is consumed by the EFFECT AUTHORIZER
 (`make_terminal_authorizer`) before the handler runs, keyed by kind
@@ -15,6 +15,7 @@ authorizer as approvable — it is refused in the handler AND at the authorizer.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from pathlib import Path
 from typing import Any, Optional
@@ -22,11 +23,10 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..tools import ToolContext
+from ..terminal import runtime as terminal_runtime
 from . import policy
-from . import sandbox as sandbox_mod
 from . import terminal as terminal_mod
 from .command_tools import _command_refusal, _record_command
-from .sandbox import SandboxUnavailable
 from .tools import _present, emit_code_event
 from .worktree import WorkspaceError
 from .tools import _ensure_code_workspace
@@ -74,6 +74,37 @@ def terminal_digest(workspace_id: str, command: str) -> str:
 def _autonomy_grants_command(ctx: ToolContext) -> bool:
     autonomy = getattr(ctx, "autonomy", None)
     return bool(autonomy and "command.execute" in policy.code_grants(str(autonomy)))
+
+
+def _terminal_manager(ctx: ToolContext) -> Optional[Any]:
+    """The ONE terminal manager, or a lazily-built one for a headless run.
+
+    The service installs the process-wide manager at boot. A direct
+    `execute_run` (an eval, a test, the CLI) has no service boot, so build one
+    over the run's own store rather than falling back to a second execution
+    primitive.
+    """
+    manager = terminal_runtime.get_terminal_manager()
+    if manager is not None:
+        return manager
+    store = getattr(ctx, "memory_store", None)
+    if store is None:
+        return None
+    from ..terminal.manager import TerminalManager  # noqa: PLC0415
+    from ..terminal.store import TerminalStore  # noqa: PLC0415
+
+    manager = TerminalManager(store=TerminalStore(store))
+    terminal_runtime.set_terminal_manager(manager)
+    return manager
+
+
+def _context_meta(ctx: ToolContext) -> dict[str, Any]:
+    ws = getattr(ctx, "workspace", None)
+    return {
+        "agentId": getattr(ctx, "agent_id", None),
+        "runId": getattr(ctx, "run_id", None),
+        "workspaceId": getattr(ws, "id", None) if ws is not None else None,
+    }
 
 
 def make_terminal_authorizer(inner: Any = None):
@@ -231,51 +262,64 @@ async def terminal_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
         return (str(cwd_now), {"status": "ok", "cwd": str(cwd_now)})
 
     session_cwd = _resolve_session_cwd(resolved.root, sess)
-    try:
-        spec = terminal_mod.build_run_spec(
-            model.command, cwd=session_cwd, timeout_s=model.timeoutS,
-            env_extra=sess["env"] or None,
+    manager = _terminal_manager(ctx)
+    if manager is None:
+        return _command_refusal(
+            "RUNTIME_UNAVAILABLE", "the terminal isn't available right now",
+            command_class="terminal",
         )
-    except ValueError as exc:
-        return _command_refusal("COMMAND_NOT_ALLOWLISTED", str(exc), command_class="terminal")
 
-    actor = policy.WorkspaceBinding(id=cw.id, root=resolved.root, base_revision=cw.base_revision, strategy=cw.strategy)
-    try:
-        sandbox_mod.select_backend()
-    except SandboxUnavailable:
-        return _command_refusal("SANDBOX_UNAVAILABLE", "commands can't be run safely here right now", command_class="terminal")
-
+    meta = _context_meta(ctx)
     await emit_code_event(ctx, "command.started", {
         "commandClass": "terminal", "program": verdict.program, "verdict": verdict.kind,
-        "timeoutS": spec.timeout_s,
+        "timeoutS": int(model.timeoutS or 120),
     })
-    raw = sandbox_mod.run(spec)
-    event = "command.killed" if (raw.timed_out or raw.cancelled) else "command.completed"
+    # V2 terminal merge: run through the SAME TerminalManager the UI and the
+    # `execute_command` tool use. The classifier above is still the single policy
+    # decision; this removes the second execution primitive (a direct
+    # `code/sandbox.run` call) from the code profile.
+    raw = await asyncio.to_thread(
+        manager.execute_command,
+        command=model.command, cwd=str(session_cwd), runtime="local",
+        timeout_ms=int((model.timeoutS or 120) * 1000),
+        shell_mode=False,
+        session_env=sess["env"] or None,
+        agent_id=meta["agentId"], run_id=meta["runId"], workspace_id=meta["workspaceId"],
+        purpose=model.note or None,
+    )
+    if raw.status == "unavailable":
+        reason = raw.error.message if raw.error else "the terminal isn't available right now"
+        return _command_refusal("RUNTIME_UNAVAILABLE", reason, command_class="terminal")
+
+    event = "command.killed" if (raw.timed_out or raw.status == "cancelled") else "command.completed"
     await emit_code_event(ctx, event, {
         "commandClass": "terminal", "program": verdict.program, "exitCode": raw.exit_code,
         "durationMs": raw.duration_ms, "timedOut": raw.timed_out, "truncated": raw.truncated,
-        "backend": raw.backend,
+        "backend": raw.runtime,
     })
     _record_command(
-        ctx, command_class="terminal", argv=spec.argv, cwd=str(resolved.root),
-        exit_code=raw.exit_code, duration_ms=raw.duration_ms, output=raw.output,
-        total_chars=raw.total_chars, backend=raw.backend,
+        ctx, command_class="terminal", argv=[model.command], cwd=str(session_cwd),
+        exit_code=raw.exit_code if raw.exit_code is not None else -1,
+        duration_ms=raw.duration_ms, output=raw.stdout,
+        total_chars=len(raw.stdout), backend=raw.runtime,
         decision={"allowed": True, "code": "OK", "verdict": verdict.kind},
         timed_out=raw.timed_out, truncated=raw.truncated,
     )
-    status = "timed_out" if raw.timed_out else ("cancelled" if raw.cancelled else "ok")
     header = (
         f"Ran `{verdict.program}`: exit={raw.exit_code} durationMs={raw.duration_ms} "
         f"truncated={'yes' if raw.truncated else 'no'}"
         f"{' TIMED OUT' if raw.timed_out else ''}"
     )
-    text = header + ("\n" + raw.output if raw.output else "")
+    text = header + ("\n" + raw.stdout if raw.stdout else "")
+    if raw.error:
+        text += f"\n[{raw.error.category}] {raw.error.message}"
     data = {
-        "status": status, "commandClass": "terminal", "program": verdict.program,
-        "argv": spec.argv, "cwd": str(resolved.root), "exitCode": raw.exit_code,
+        "status": raw.status, "commandClass": "terminal", "program": verdict.program,
+        "argv": [model.command], "cwd": str(session_cwd), "exitCode": raw.exit_code,
         "durationMs": raw.duration_ms, "timedOut": raw.timed_out,
-        "truncated": raw.truncated, "totalChars": raw.total_chars,
-        "backend": raw.backend, "output": raw.output,
+        "truncated": raw.truncated, "totalChars": len(raw.stdout),
+        "backend": raw.runtime, "output": raw.stdout,
+        "executionId": raw.execution_id,
     }
     return text, data
 

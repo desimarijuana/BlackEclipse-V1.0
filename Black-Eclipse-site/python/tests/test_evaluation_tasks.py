@@ -90,3 +90,18 @@ def test_live_only_detection():
     research = dataset.by_id("research.live.001")
     assert research.live_only is True
     assert dataset.by_id("finance.pe.001").live_only is False
+
+
+def test_live_eligible_excludes_eval_only_tools_and_synthetic_environments():
+    dataset = load_all_builtin()
+    assert dataset.by_id("adversarial.unavailable.001").live_eligible is False
+    assert dataset.by_id("tools.memory_roundtrip.001").live_eligible is False
+    assert dataset.by_id("finance.pe.001").live_eligible is True
+
+    eligible = [task for task in dataset.tasks if task.live_eligible]
+    assert eligible
+    for task in eligible:
+        names = (*task.required_tools, *task.expected_tools)
+        assert not any(str(name).startswith("eval_") for name in names)
+        env_type = str((task.environment or {}).get("type") or "").lower()
+        assert env_type not in {"mock_services", "filesystem", "database"}

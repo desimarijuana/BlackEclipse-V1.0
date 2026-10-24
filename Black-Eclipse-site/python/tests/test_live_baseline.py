@@ -179,3 +179,16 @@ def test_live_baseline_flags_require_the_live_tier():
     assert nightly.main(["--publish"]) == 2
     assert nightly.main(["--write-live-baseline"]) == 2
     assert nightly.main(["--live-baseline"]) == 2
+
+
+def test_the_published_report_uses_the_pinned_baseline_when_no_run_is_recorded():
+    from harness.evaluation.report import _latest_live_baseline, to_benchmarks
+
+    live, reason = _latest_live_baseline()
+    assert reason == ""
+    assert live is not None
+    assert live.aggregates["task_success"] == pytest.approx(0.8520, abs=0.001)
+    text = to_benchmarks(None, live)
+    live_section = text.split("## Live tier", 1)[1]
+    assert "NOT MEASURED" not in live_section
+    assert "task_success" in live_section

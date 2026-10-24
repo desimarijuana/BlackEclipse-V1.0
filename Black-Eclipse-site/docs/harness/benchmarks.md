@@ -17,11 +17,11 @@ A deterministic script replaces the model, so this measures the
 **runtime** (the tool surface, the policy, the graders, the wiring)
 - not the model. It is the floor the harness must never fall below.
 
-- run: `evalrun-1792777004089`
-- dataset: `eclipse-benchmark` @ `1` (checksum `c4882c928d698cead144896a380ea17d`)
+- run: `evalrun-1792858495910`
+- dataset: `eclipse-benchmark` @ `1` (checksum `7e4a3d9264445b9c4050b78d7abf05d1`)
 - tier: 0
 - agent version: `0.1.0`
-- git commit: `40a596a9a637b41c74ed5a92a91b2a3440b446b3`
+- git commit: `23d51113ae8bc827d2e581d1253d8134c573fe4d`
 - grader version: `1`
 - config: `{'trials': 1, 'tier': 0, 'split': 'validation', 'graderVersion': 1}`
 - gate: **PASS**
@@ -46,7 +46,7 @@ A deterministic script replaces the model, so this measures the
 | hallucination_rate | 0.0000 |
 | safety_score | 1.0000 |
 | cost | 0.0000 |
-| latency | 0.1105 |
+| latency | 0.1150 |
 | token_usage | 0.0000 |
 | reliability | 1.0000 |
 
@@ -59,7 +59,7 @@ A deterministic script replaces the model, so this measures the
 | citations | 1/1 | 1 | 100.0% |
 | coding | 4/4 | 0 | 100.0% |
 | core | 4/4 | 0 | 100.0% |
-| finance | 182/182 | 0 | 100.0% |
+| finance | 270/270 | 0 | 100.0% |
 | long_horizon | 2/2 | 0 | 100.0% |
 | memory | 2/2 | 0 | 100.0% |
 | parallel | 3/3 | 0 | 100.0% |
@@ -87,10 +87,44 @@ A deterministic script replaces the model, so this measures the
 
 ## Live tier - a real model
 
-**NOT MEASURED.**
+This is the only tier that measures the **agent**. The model is
+named, and the run is reproducible from the provenance below.
 
-no live run has been recorded. The live lane needs a configured provider; run `npm run eval:live -- --model <provider>/<model>`.
+- run: `live:f368f388bb662ce717c19da715f0bb44`
+- dataset: `eclipse-benchmark` @ `1` (checksum `d6375ca430594df65fc95daec98c2f1f`)
+- tier: 1
+- agent version: `0.1.0`
+- git commit: `2b6df30a65289d51e9a7c8a3bcf825fb0b109af0`
+- grader version: `unknown`
+- config: `{'tier': 1, 'taskCount': 198, 'measuredTrials': 196}`
+- gate: **FAIL**
 
-This is published as missing on purpose. A live number that nobody
-has run is a rumour, and a rumour in a benchmark table is worse
-than an empty row.
+Live-eligible re-score from this same run: 167/196 = 0.8520. The other 46 measured trials are tier-0 scripted tasks that require eval-only tools or synthetic environments; the production service cannot run them, so they are excluded from the agent measurement. Dimensions that came only from those fixtures are UNKNOWN here; the raw run including them scored 0.6901.
+
+| dimension | value |
+|---|---|
+| task_success | 0.8520 |
+| tool_accuracy | UNKNOWN |
+| research_accuracy | UNKNOWN |
+| citation_accuracy | UNKNOWN |
+| code_correctness | UNKNOWN |
+| financial_accuracy | 0.8706 |
+| memory_accuracy | UNKNOWN |
+| planning_quality | UNKNOWN |
+| recovery_success | UNKNOWN |
+| misroute_rate | UNKNOWN |
+| escalation_correct | UNKNOWN |
+| provenance | UNKNOWN |
+| honesty | UNKNOWN |
+| artifact_delivery | UNKNOWN |
+| visual_delivery | UNKNOWN |
+| hallucination_rate | 0.0000 |
+| safety_score | UNKNOWN |
+| cost | 0.0000 |
+| latency | 4.9609 |
+| token_usage | 28748.0041 |
+| reliability | 1.0000 |
+
+### Gate failures
+
+- task_success=0.8520 < 0.9

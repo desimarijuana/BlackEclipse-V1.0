@@ -21,17 +21,21 @@ from typing import Any, Optional
 from . import GradeContext, Grader, GraderResult
 
 
-def _extract_number(text: str) -> Optional[float]:
+def _extract_number(text: str, *, percent_as_fraction: bool = False) -> Optional[float]:
     if not text:
         return None
     match = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?%?", text)
     if not match:
         return None
-    raw = match.group(0).rstrip("%").replace(",", "")
+    token = match.group(0)
+    raw = token.rstrip("%").replace(",", "")
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError:
         return None
+    if percent_as_fraction and token.endswith("%"):
+        value /= 100.0
+    return value
 
 
 def _pct(value: Optional[float]) -> Optional[float]:
@@ -180,7 +184,9 @@ class FinancialGrader(Grader):
                 self.name, f"could not independently compute {metric} ({computed.get('source')})"
             )
 
-        actual = _extract_number(ctx.final_output or "")
+        actual = _extract_number(
+            ctx.final_output or "", percent_as_fraction=abs(float(expected)) < 1.0,
+        )
         details: dict[str, Any] = {
             "metric": metric,
             "expected": round(float(expected), 6),

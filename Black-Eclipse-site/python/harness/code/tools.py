@@ -787,7 +787,7 @@ async def _patch_apply(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any
 
 def _auto_verify(root: Path) -> Optional[dict[str, Any]]:
     import json as _json  # noqa: PLC0415
-    from . import sandbox as _sandbox  # noqa: PLC0415
+    from ..terminal import runtime as _terminal_runtime  # noqa: PLC0415
     from . import terminal as _terminal  # noqa: PLC0415
 
     config = root / ".black-eclipse" / "verify.json"
@@ -804,14 +804,24 @@ def _auto_verify(root: Path) -> Optional[dict[str, Any]]:
             "text": f"Auto-verify skipped: `{command}` is classified `{verdict.kind}`.",
             "data": {"status": "skipped", "command": command, "verdict": verdict.kind},
         }
+    manager = _terminal_runtime.get_terminal_manager()
+    if manager is None:
+        return {
+            "text": f"Auto-verify `{command}` could not run: the terminal isn't available.",
+            "data": {"status": "error", "error": "terminal unavailable"},
+        }
     try:
-        spec = _terminal.build_run_spec(command, cwd=root)
-        _sandbox.select_backend()
-        raw = _sandbox.run(spec)
+        raw = manager.execute_command(
+            command=command, cwd=str(root), runtime="local", shell_mode=False,
+            timeout_ms=120_000,
+        )
     except Exception as exc:  # noqa: BLE001 - verification must never crash the edit
         return {"text": f"Auto-verify `{command}` could not run: {exc}", "data": {"status": "error", "error": str(exc)}}
-    digest = (raw.output or "")[-2000:]
-    ok = raw.exit_code == 0 and not raw.timed_out
+    if raw.status == "unavailable":
+        reason = raw.error.message if raw.error else "the terminal isn't available"
+        return {"text": f"Auto-verify `{command}` could not run: {reason}", "data": {"status": "error", "error": reason}}
+    digest = (raw.stdout or "")[-2000:]
+    ok = raw.exit_code == 0 and not raw.timed_out and raw.status == "ok"
     return {
         "text": f"Auto-verify `{command}`: {'PASS' if ok else 'FAIL'} (exit={raw.exit_code})" + (f"\n{digest}" if digest else ""),
         "data": {"status": "ok" if ok else "failed", "command": command, "exitCode": raw.exit_code, "timedOut": raw.timed_out, "output": digest},

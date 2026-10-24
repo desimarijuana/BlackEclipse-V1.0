@@ -82,6 +82,23 @@ export function statementPeriodAge(periods: unknown[]): {
   return { periodEnd, periodAgeDays: ageDays, maxAgeDays, stale: ageDays > maxAgeDays };
 }
 
+/**
+ * The period-quality fields added to a statements payload. A provider can hand
+ * back an ancient period with a fresh fetch timestamp; judge the PERIOD, not
+ * the fetch, so an FY2018 payload is STALE and names its period end and age.
+ */
+export function statementPeriodFields(periods: unknown[]): Record<string, unknown> {
+  const period = statementPeriodAge(periods);
+  return {
+    periodEnd: period.periodEnd,
+    periodAgeDays: period.periodAgeDays,
+    maxAgeDays: period.maxAgeDays,
+    ...(period.stale
+      ? { stale: true, qualityVerdict: "STALE", reasonCode: "DATA_STALE" }
+      : {}),
+  };
+}
+
 /** Statements older than this are refreshed before being served. */
 export const STALE_STATEMENTS_MS = 7 * 24 * 3600 * 1000;
 

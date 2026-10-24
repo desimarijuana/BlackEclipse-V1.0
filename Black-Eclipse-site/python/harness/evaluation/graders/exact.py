@@ -28,17 +28,23 @@ def _normalize(value: Any) -> Any:
     return value
 
 
-def _extract_number(text: str) -> Optional[float]:
+def _extract_number(text: str, *, percent_as_fraction: bool = False) -> Optional[float]:
     if not text:
         return None
     match = re.search(r"[-+]?\d[\d,]*(?:\.\d+)?(?:[eE][-+]?\d+)?%?", text)
     if not match:
         return None
-    raw = match.group(0).rstrip("%").replace(",", "")
+    token = match.group(0)
+    raw = token.rstrip("%").replace(",", "")
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError:
         return None
+    # A fraction expected (0.25) and the model wrote "25%" are the same number.
+    # Without this, every weight/return task written as a percentage failed.
+    if percent_as_fraction and token.endswith("%"):
+        value /= 100.0
+    return value
 
 
 def _subset(expected: Any, actual: Any) -> bool:
@@ -73,7 +79,7 @@ class ExactGrader(Grader):
 
         # A bare scalar/list/dict: compare directly.
         if isinstance(expected, (int, float)) and not isinstance(expected, bool):
-            return self._numeric(float(expected), _extract_number(actual), tolerance)
+            return self._numeric(float(expected), actual, tolerance)
         if isinstance(expected, (dict, list)):
             return self._structured(expected, actual)
         return self._string(str(expected), actual, config)
@@ -85,7 +91,7 @@ class ExactGrader(Grader):
                 value, tol = float(node.get("value")), float(node.get("tolerance", tolerance))
             else:
                 value, tol = float(node), tolerance
-            return self._numeric(value, _extract_number(actual), tol)
+            return self._numeric(value, actual, tol)
         if "equals" in spec:
             want = spec["equals"]
             if spec.get("normalize", mode == "normalized"):
@@ -118,7 +124,8 @@ class ExactGrader(Grader):
                                 failures=[f"missing keyword {w!r}" for w in words if w not in hits])
         return GraderResult.unmeasured_result(self.name, "unrecognised exact spec")
 
-    def _numeric(self, expected: float, actual: Optional[float], tolerance: float) -> GraderResult:
+    def _numeric(self, expected: float, actual_text: str, tolerance: float) -> GraderResult:
+        actual = _extract_number(actual_text, percent_as_fraction=abs(expected) < 1.0)
         if actual is None:
             return GraderResult(self.name, 0.0, False, failures=["no numeric value found in output"])
         diff = abs(expected - actual)

@@ -16,9 +16,10 @@ Three classes, exactly as chosen:
     a download piped to a shell, ...). Hard-blocked, never approvable.
 
 Execution is argv-based with NO shell (`shlex.split`), so a `; rm -rf` or a
-`$(...)` in the command is inert text, not a second command. It runs through
-`code/sandbox.py`, so the wall-clock, output and process-tree bounds apply
-unchanged, in the bound workspace, with the scrubbed environment.
+`$(...)` in the command is inert text, not a second command. It runs through the
+shared `TerminalManager` in no-shell mode, so the wall-clock, output and
+process-tree bounds apply unchanged, in the bound workspace, with the scrubbed
+environment.
 """
 
 from __future__ import annotations
@@ -26,12 +27,7 @@ from __future__ import annotations
 import os
 import shlex
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Optional
-
-from . import policy
-from . import sandbox
-from .sandbox import RunSpec
+from typing import Any
 
 MAX_COMMAND_CHARS = 4_000
 DEFAULT_TIMEOUT_S = 120
@@ -142,35 +138,6 @@ def classify(command: str) -> CommandVerdict:
     return CommandVerdict("ask", program, "That command isn't one I run automatically, so it needs your go-ahead.")
 
 
-def build_run_spec(
-    command: str, *, cwd: Path, timeout_s: Optional[int] = None,
-    env_extra: Optional[dict[str, str]] = None,
-) -> RunSpec:
-    """Build a RunSpec for an allowed command. Raises ValueError on a bad one.
-
-    The cwd is the bound workspace root; the caller has already confirmed it.
-    """
-    verdict = classify(command)
-    if verdict.kind == "deny":
-        raise ValueError(verdict.reason)
-    tokens = shlex.split(command, posix=True)
-    if not tokens:
-        raise ValueError("There was no command to run.")
-    timeout = int(timeout_s or DEFAULT_TIMEOUT_S)
-    timeout = max(1, min(timeout, MAX_TIMEOUT_S))
-    base_env = {k: os.environ[k] for k in policy.SECRET_ENV_ALLOWLIST if k in os.environ}
-    if env_extra:
-        base_env.update({str(k): str(v) for k, v in env_extra.items()})
-    return RunSpec(
-        argv=list(tokens),
-        cwd=Path(cwd),
-        env=base_env,
-        timeout_s=timeout,
-        output_cap_bytes=sandbox.MAX_OUTPUT_CAP_BYTES,
-        network=False,
-    )
-
-
 __all__ = [
     "CommandVerdict",
     "DEFAULT_TIMEOUT_S",
@@ -178,6 +145,5 @@ __all__ = [
     "MAX_COMMAND_CHARS",
     "MAX_TIMEOUT_S",
     "SAFE_PROGRAMS",
-    "build_run_spec",
     "classify",
 ]
