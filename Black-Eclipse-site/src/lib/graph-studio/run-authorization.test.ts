@@ -71,6 +71,26 @@ describe('run authorization', () => {
     expect(refused.error).toContain('write-effect');
   });
 
+  it('treats web research nodes as network and local verification as a read', () => {
+    const research = graph('wf_research', [
+      { id: 'trig', type: 'trigger.manual' },
+      { id: 'search', type: 'research.web_search', config: { query: 'inflation' } },
+      { id: 'fetch', type: 'research.web_fetch', config: { url: 'https://example.com' } },
+      { id: 'verify', type: 'research.claim_verify', config: { researchId: 'r1' } },
+      { id: 'out', type: 'output.result' },
+    ]);
+    const summary = summarizeRunNeeds(research);
+    expect(summary.requiresNetwork).toBe(true);
+    expect(summary.networkNodes).toEqual(['Web search', 'Fetch page']);
+    expect(summary.requiredCapabilities).toContain('network.egress');
+    expect(summary.requiredCapabilities).toContain('research.read');
+
+    const missing = authorizeGraphRun(research, [], { operator: true });
+    expect(missing.ok).toBe(false);
+    expect(missing.error).toContain('Web search');
+    expect(authorizeGraphRun(research, [], { operator: true, allowNetwork: true }).ok).toBe(true);
+  });
+
   it('collects capabilities from the root graph and subworkflows', () => {
     const child = graph('wf_child', [
       { id: 't', type: 'trigger.manual' },

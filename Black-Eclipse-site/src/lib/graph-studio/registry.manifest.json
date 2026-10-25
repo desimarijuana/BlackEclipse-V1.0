@@ -1852,6 +1852,93 @@
       "terminal": false
     },
     {
+      "type": "research.claim_verify",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Verify claim",
+      "description": "Verifies one claim against stored evidence with the existing verifier.",
+      "inputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "claim",
+          "name": "Claim",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "evidenceIds",
+          "name": "Evidence ids",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "claim",
+          "name": "Claim",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "supported",
+          "name": "Supported",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "claim",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "evidenceIds",
+          "kind": "array",
+          "default": []
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "research.completeness",
       "version": "1.0.0",
       "category": "research",
@@ -2054,6 +2141,145 @@
         "research.read"
       ],
       "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.web_fetch",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Fetch page",
+      "description": "Fetches one page through the SSRF-hardened web bridge and returns its text.",
+      "inputs": [
+        {
+          "id": "url",
+          "name": "URL",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "text",
+          "name": "Text",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "page",
+          "name": "Page",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "maxChars",
+          "kind": "number",
+          "default": 8000
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "url",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "network.egress"
+      ],
+      "sideEffects": "network",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.web_search",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Web search",
+      "description": "Searches the web through the configured provider chain.",
+      "inputs": [
+        {
+          "id": "query",
+          "name": "Query",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "results",
+          "name": "Results",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "domains",
+          "kind": "array",
+          "default": []
+        },
+        {
+          "name": "excludeDomains",
+          "kind": "array",
+          "default": []
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 8
+        },
+        {
+          "name": "query",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "network.egress"
+      ],
+      "sideEffects": "network",
       "allowedModes": [
         "backtest",
         "live",

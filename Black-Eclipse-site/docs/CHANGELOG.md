@@ -345,6 +345,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `test_delegation_benchmark.py`. Full checks: `tsc` clean, 398 vitest files /
   3917 tests, 83 targeted Python tests.
 
+- **feat(graph): live web-research nodes (Phase 7).** Added
+  `research.web_search`, `research.web_fetch` and `research.claim_verify` to
+  both registries. Search and fetch reuse the existing web-research engine
+  (`web_providers`, `web_extract`) through the SSRF-hardened bridge capabilities
+  - no second egress path. Results are pointers, extracted text is untrusted,
+  and a fetch with a `researchId` saves the same `Evidence` the `web_extract`
+  tool saves so the local research nodes can read it. Both live nodes are
+  `network` side effects (test runs refuse them; an operator run must confirm
+  network). `claim_verify` is a local read over the verifier. The manifest is
+  now 45 types. Tests: `test_graph_research_nodes.py` (search/domain filter,
+  fetch+evidence save, unknown evidence id, compiler network denial/grant) and
+  `run-authorization.test.ts` (network vs local research nodes). docs updated:
+  `docs/graph-studio.md`, `docs/harness/security.md`.
+
 ## 2026-10-24
 - **ui(chat): roomier chat history rows.** Increased the vertical gap between
   conversation rows from 2px (`gap-0.5`) to 6px (`gap-1.5`) inside the pinned,

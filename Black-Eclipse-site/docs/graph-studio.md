@@ -172,7 +172,7 @@ If the stream disconnects, the UI falls back to bounded polling.
 | **4 — Control flow, scheduling & triggers** | Control-flow node pack, unattended schedules, webhook trigger, run recovery | **Implemented & verified** (distributed/Fabric-backed durability is the remaining piece) |
 | **5 — Finance & quant node library** | Market-data + indicator node executors | **Implemented & verified** (first pack: market data, indicator, returns, z-score, volatility) |
 | 6 — Backtest & simulation | Strategy graphs, metrics | **Backtest + walk-forward implemented** (reuse `quant/`); standalone optimizer/Monte Carlo/OOS node not started |
-| 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Research agent node implemented** (one bounded turn over the existing run plane); planner/delegate/NL→IR not started |
+| 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Research agent node and live web-research nodes implemented** (search, fetch, claim verification over the existing research engine); planner/delegate/NL→IR not started |
 | 8 — Paper trading & safety | Execution adapter, risk controls, modes | Not started (modes + trading side-effect class already enforced by the compiler) |
 | 9 — Advanced engineering | Subworkflows, debugging, diffing | **Subworkflows implemented**; debugging/diffing not started |
 | 10 — Hardening & verification | Tests, security, observability | Partial: Phase 3/4 add runtime safety tests; observability is next |
@@ -332,13 +332,23 @@ sends them in memory only; `GraphService` deliberately excludes them from the
 durable Fabric job payload. A restart before the agent node runs therefore makes
 that node fail honestly instead of persisting a key.
 
-**Local research & evidence.** `research.evidence`, `research.citations`,
-`research.conflicts`, `research.completeness` and `research.report` read the
-existing `EvidenceStore` from the web research engine: evidence, claims,
-citations, conflicts, coverage and a deterministic Markdown report. They are
-local reads (`research.read` is granted to test runs) — no web request and no
-model call. Web search/extraction and the agent node remain network/effectful
-work and need the operator-run envelope.
+**Research & evidence.** `research.evidence`, `research.citations`,
+`research.conflicts`, `research.completeness`, `research.claim_verify` and
+`research.report` read the existing `EvidenceStore` from the web research
+engine: evidence, claims, citations, conflicts, coverage, deterministic claim
+verification and a Markdown report. They are local reads (`research.read` is
+granted to test runs) - no web request and no model call.
+
+The live half reuses the same engine instead of inventing a second web path:
+`research.web_search` calls the configured search-provider chain (results are
+pointers, never evidence) and `research.web_fetch` fetches one page through the
+SSRF-hardened `web_fetch` bridge capability and returns its extracted text. When
+`web_fetch` has a `researchId`, it saves the same `Evidence` the `web_extract`
+tool saves, so a graph can search, fetch, then verify with the local nodes.
+Both are declared `network` side effects: a test run refuses them and an
+operator run must explicitly confirm network access. They depend on the app's
+data bridge (`context.callbackBaseUrl`), so a headless runtime with no front
+door fails honestly rather than fetching directly.
 
 **Tabular transforms.** `transform.select`, `transform.sort_limit`,
 `logic.aggregate`, `logic.deduplicate` and `transform.join` operate on arrays of
@@ -403,15 +413,16 @@ Phase 1:
 Phases 3–4:
 
 - `npx tsc --noEmit` — clean.
-- `npx vitest run src/lib/graph-studio` — **13 files / 71 tests pass**.
+- `npx vitest run src/lib/graph-studio` — **13 files / 72 tests pass**.
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **124 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **180 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward,
-  local research/evidence, agent node, operator-run/HTTP safety, registry
-  parity, datasets, subworkflows, durable dispatch/resume), including a real
+  local research/evidence + live web search/fetch/claim verification, agent
+  node, operator-run/HTTP safety, registry parity, datasets, subworkflows,
+  durable dispatch/resume), including a real
   Fabric manager + graph worker integration test and full-stack API tests on a
   temp database.
 
@@ -458,6 +469,11 @@ or HTTP errors.
   before an agent node executes makes that node fail; agent runs are not
   resumable across a restart. The node is one bounded turn (no planner/delegate
   loop yet), and a real-provider end-to-end test is still pending.
+- Web research nodes use the app's data bridge (a real operator run has one; a
+  headless runtime does not). `research.web_fetch` does not escalate a
+  client-rendered page to the browser and does not crawl or follow links; it
+  fetches exactly the URL it was given. `research.claim_verify` requires the
+  evidence ids explicitly and verifies against the local EvidenceStore only.
 - Datasets are not owner-scoped yet (single-user local surface). They are
   bounded local scratch, not a tenant-isolated store; add an owner column before
   exposing them in a multi-user deployment.

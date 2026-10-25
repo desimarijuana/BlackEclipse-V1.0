@@ -180,10 +180,13 @@ slip between the check and the connection. Private/loopback/link-local/metadata
 targets are always refused. Redirects are re-validated on every hop.
 
 **Graph operator runs** use the same SSRF guard from `graph_runtime/nodes.py`
-(no loopback, 1 MB response cap, hard timeout). The front door
-(`run-authorization.ts`) derives grants from the node registry, enables network
-only on an explicit operator request, and refuses trading and external write
-nodes. Test runs never perform network, write or trading effects.
+(no loopback, 1 MB response cap, hard timeout). The live research nodes
+(`research.web_search`, `research.web_fetch`) do not add a second egress path:
+they call the existing web-research engine, which goes through the SSRF-hardened
+`web_search`/`web_fetch` bridge capabilities and the engine's own URL validation.
+The front door (`run-authorization.ts`) derives grants from the node registry,
+enables network only on an explicit operator request, and refuses trading and
+external write nodes. Test runs never perform network, write or trading effects.
 
 ## Session isolation (`security/context.py`)
 
