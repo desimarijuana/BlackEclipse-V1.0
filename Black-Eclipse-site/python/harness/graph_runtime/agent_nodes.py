@@ -11,20 +11,62 @@ durable Fabric job payload.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Callable, Optional
 
 from .model import ExecutionMode, PortDef, PortType, SideEffect
 from .registry import ConfigField, NodeDef, NodeExecContext
 
 _ALL = tuple(ExecutionMode)
+MAX_DELEGATE_TASKS = 6
 
 AgentRunner = Callable[[NodeExecContext, dict[str, Any], str], dict[str, Any]]
+PlanRunner = Callable[[NodeExecContext, str], dict[str, Any]]
 _runner: Optional[AgentRunner] = None
+_plan_runner: Optional[PlanRunner] = None
 
 
 def set_agent_runner(runner: Optional[AgentRunner]) -> None:
     global _runner
     _runner = runner
+
+
+def set_plan_runner(runner: Optional[PlanRunner]) -> None:
+    global _plan_runner
+    _plan_runner = runner
+
+
+def _tasks(context: NodeExecContext) -> list[dict[str, str]]:
+    raw = context.inputs.get("tasks")
+    if raw is None:
+        text = str(context.config.get("tasksJson") or "").strip()
+        if not text:
+            raise ValueError("agent.delegate needs a tasks array or configured tasksJson")
+        try:
+            raw = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"tasksJson is not valid JSON: {exc}") from exc
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("tasks must be a non-empty array")
+    limit = max(1, min(int(context.config.get("maxTasks", 4)), MAX_DELEGATE_TASKS))
+    if len(raw) > limit:
+        raise ValueError(f"agent.delegate is bounded to {limit} task(s) (got {len(raw)})")
+    out: list[dict[str, str]] = []
+    for index, item in enumerate(raw):
+        if isinstance(item, str):
+            objective = item.strip()
+            title = f"Task {index + 1}"
+        elif isinstance(item, dict):
+            objective = str(item.get("objective") or item.get("query") or "").strip()
+            title = str(item.get("title") or f"Task {index + 1}").strip()
+        else:
+            raise ValueError(f"task {index + 1} must be a string or an object")
+        if not objective:
+            raise ValueError(f"task {index + 1} has no objective")
+        if len(objective) > 2_000:
+            raise ValueError(f"task {index + 1} exceeds 2 000 characters")
+        out.append({"title": title[:120], "objective": objective})
+    return out
 
 
 def exec_research_agent(context: NodeExecContext) -> dict[str, Any]:
@@ -44,6 +86,75 @@ def exec_research_agent(context: NodeExecContext) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise ValueError("the agent runner returned no structured result")
     return result
+
+
+def exec_plan_agent(context: NodeExecContext) -> dict[str, Any]:
+    objective = str(
+        context.inputs.get("objective") or context.config.get("objective") or ""
+    ).strip()
+    if not objective:
+        raise ValueError("agent.plan needs an objective input or a configured objective")
+    if _plan_runner is None:
+        raise ValueError("the step planner is not configured in this graph runtime")
+    plan = _plan_runner(context, objective)
+    if not isinstance(plan, dict) or not isinstance(plan.get("steps"), list):
+        raise ValueError("the step planner returned no structured plan")
+    context.emit(f"planned {len(plan['steps'])} step(s)")
+    return {
+        "plan": plan,
+        "steps": plan["steps"],
+        "summary": {
+            "stepCount": len(plan["steps"]),
+            "rationale": plan.get("rationale") or "",
+        },
+    }
+
+
+def exec_delegate_agent(context: NodeExecContext) -> dict[str, Any]:
+    tasks = _tasks(context)
+    if _runner is None:
+        raise ValueError("the agent runtime is not configured in this graph runtime")
+    agent = str(context.config.get("agent") or "eclipse-agent")
+    max_steps = int(context.config.get("maxSteps", 8))
+    findings: list[dict[str, Any]] = []
+    failed = 0
+    for index, task in enumerate(tasks):
+        context.emit(f"delegating {index + 1}/{len(tasks)}: {task['title']}")
+        try:
+            result = _runner(context, {
+                "agent": agent,
+                "objective": task["objective"],
+                "maxSteps": max_steps,
+            }, task["objective"])
+            if not isinstance(result, dict):
+                raise ValueError("the agent runner returned no structured result")
+            findings.append({
+                "title": task["title"],
+                "objective": task["objective"],
+                "status": "succeeded",
+                "finding": result.get("finding"),
+                "evidence": result.get("evidence"),
+            })
+        except Exception as exc:  # noqa: BLE001 - one failed part is a partial answer
+            failed += 1
+            findings.append({
+                "title": task["title"],
+                "objective": task["objective"],
+                "status": "failed",
+                "error": str(exc),
+            })
+    succeeded = len(findings) - failed
+    status = "OK" if failed == 0 else ("PARTIAL" if succeeded else "FAILED")
+    context.emit(f"delegated {succeeded}/{len(findings)} task(s), status {status}")
+    return {
+        "findings": findings,
+        "summary": {
+            "status": status,
+            "total": len(findings),
+            "succeeded": succeeded,
+            "failed": failed,
+        },
+    }
 
 
 def build_agent_nodes() -> list[NodeDef]:
@@ -74,7 +185,64 @@ def build_agent_nodes() -> list[NodeDef]:
                 ),
             },
         ),
+        NodeDef(
+            type="agent.plan", version="1.0.0", label="Plan steps",
+            category="agent",
+            inputs=(PortDef(id="objective", name="Objective", type=PortType.STRING),),
+            outputs=(
+                PortDef(id="plan", name="Plan", type=PortType.OBJECT),
+                PortDef(id="steps", name="Steps", type=PortType.ARRAY),
+                PortDef(id="summary", name="Summary", type=PortType.OBJECT),
+            ),
+            config_fields=(
+                ConfigField("objective", "string", "", max_length=2_000),
+            ),
+            capabilities=("agent.run",),
+            side_effects=SideEffect.NETWORK,
+            allowed_modes=_ALL,
+            timeout_ms=300_000,
+            executor=exec_plan_agent,
+            metadata={
+                "docs": (
+                    "One bounded model call that returns 1-8 independent steps. It does "
+                    "not execute them; wire the steps into agent.delegate or the graph."
+                ),
+            },
+        ),
+        NodeDef(
+            type="agent.delegate", version="1.0.0", label="Delegate tasks",
+            category="agent",
+            inputs=(PortDef(id="tasks", name="Tasks", type=PortType.ARRAY, optional=True),),
+            outputs=(
+                PortDef(id="findings", name="Findings", type=PortType.ARRAY),
+                PortDef(id="summary", name="Summary", type=PortType.OBJECT),
+            ),
+            config_fields=(
+                ConfigField("tasksJson", "string", "", max_length=20_000),
+                ConfigField("agent", "string", "eclipse-agent", max_length=80),
+                ConfigField("maxSteps", "integer", 8, minimum=1, maximum=32),
+                ConfigField("maxTasks", "integer", 4, minimum=1, maximum=MAX_DELEGATE_TASKS),
+            ),
+            capabilities=("agent.run",),
+            side_effects=SideEffect.NETWORK,
+            allowed_modes=_ALL,
+            timeout_ms=900_000,
+            executor=exec_delegate_agent,
+            metadata={
+                "docs": (
+                    "Runs each task as one bounded turn on the existing agent plane. "
+                    "A failed part is reported as failed; partial answers are explicit."
+                ),
+            },
+        ),
     ]
 
 
-__all__ = ["build_agent_nodes", "set_agent_runner", "exec_research_agent"]
+__all__ = [
+    "build_agent_nodes",
+    "set_agent_runner",
+    "set_plan_runner",
+    "exec_research_agent",
+    "exec_plan_agent",
+    "exec_delegate_agent",
+]

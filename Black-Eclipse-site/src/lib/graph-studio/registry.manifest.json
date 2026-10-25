@@ -3,6 +3,135 @@
   "source": "eclipse-workflow-ir",
   "nodes": [
     {
+      "type": "agent.delegate",
+      "version": "1.0.0",
+      "category": "agent",
+      "label": "Delegate tasks",
+      "description": "Runs up to six independent tasks as bounded agent turns.",
+      "inputs": [
+        {
+          "id": "tasks",
+          "name": "Tasks",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "findings",
+          "name": "Findings",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "agent",
+          "kind": "string",
+          "default": "eclipse-agent"
+        },
+        {
+          "name": "maxSteps",
+          "kind": "number",
+          "default": 8
+        },
+        {
+          "name": "maxTasks",
+          "kind": "number",
+          "default": 4
+        },
+        {
+          "name": "tasksJson",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "agent.run"
+      ],
+      "sideEffects": "network",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "agent.plan",
+      "version": "1.0.0",
+      "category": "agent",
+      "label": "Plan steps",
+      "description": "One bounded model call that proposes 1-8 independent steps.",
+      "inputs": [
+        {
+          "id": "objective",
+          "name": "Objective",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "plan",
+          "name": "Plan",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "steps",
+          "name": "Steps",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "objective",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "agent.run"
+      ],
+      "sideEffects": "network",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "agent.research",
       "version": "1.0.0",
       "category": "agent",

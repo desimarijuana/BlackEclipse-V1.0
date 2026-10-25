@@ -10,6 +10,7 @@
 // functions yet) so it is safe to import from client and server alike.
 
 import { z } from 'zod';
+import { AGENT_DEFINITIONS } from './registry-agents';
 import { TRADING_DEFINITIONS } from './registry-trading';
 import type { ExecutionMode, NodeDefinition, PortDef } from './types';
 
@@ -488,29 +489,7 @@ const DEFINITIONS: NodeDefinition[] = [
     allowedModes: ALL_MODES,
     docs: 'Indicator math lives in the quant engine and is independently tested.',
   },
-  {
-    type: 'agent.research',
-    version: '1.0.0',
-    category: 'agent',
-    label: 'Research agent',
-    description: 'Runs a bounded agent turn and returns a structured finding.',
-    icon: 'bot',
-    inputs: [port({ id: 'query', name: 'Query', type: 'string' })],
-    outputs: [
-      port({ id: 'finding', name: 'Finding', type: 'research_finding' }),
-      port({ id: 'evidence', name: 'Evidence', type: 'evidence' }),
-    ],
-    configSchema: z.object({
-      agent: z.string().max(80).default('eclipse-agent'),
-      objective: z.string().max(2_000).default(''),
-      maxSteps: z.number().int().min(1).max(32).default(8),
-    }),
-    defaultConfig: () => ({ agent: 'eclipse-agent', objective: '', maxSteps: 8 }),
-    capabilities: ['agent.run'],
-    sideEffects: 'network',
-    allowedModes: ALL_MODES,
-    docs: 'Invokes the existing Python agent runtime — not a second agent loop.',
-  },
+  ...AGENT_DEFINITIONS,
   // ── Control flow (Phase 4) ──────────────────────────────────────────────
   // Control ports gate EXECUTION, not values: a node that declares control
   // inputs runs only when an upstream fired one of them.

@@ -172,7 +172,7 @@ If the stream disconnects, the UI falls back to bounded polling.
 | **4 — Control flow, scheduling & triggers** | Control-flow node pack, unattended schedules, webhook trigger, run recovery | **Implemented & verified** (distributed/Fabric-backed durability is the remaining piece) |
 | **5 — Finance & quant node library** | Market-data + indicator node executors | **Implemented & verified** (first pack: market data, indicator, returns, z-score, volatility) |
 | 6 — Backtest & simulation | Strategy graphs, metrics | **Implemented & verified** (backtest, walk-forward, optimizer, Monte Carlo and out-of-sample holdout; all reuse `quant/`) |
-| 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Research agent, live web-research and chat→IR implemented** (validated proposals from the real node catalog); planner/delegate nodes not started |
+| 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Implemented** (research agent, structured step planner, bounded task delegation, live web research, validated chat→IR) |
 | 8 — Paper trading & safety | Execution adapter, risk controls, modes | **Implemented & verified** (`trading.risk_check` + `trading.paper_order`, PAPER-only; live and ungranted trading refused) |
 | 9 — Advanced engineering | Subworkflows, debugging, diffing | **Implemented** (subworkflows; post-run step inspector; structural version diff) |
 | 10 — Hardening & verification | Tests, security, observability | **Implemented** (operator health telemetry: run/node counts, durations, queue wait, failure codes, slowest nodes) |
@@ -377,6 +377,15 @@ paper fill. It never contacts a broker, never reads a live quote, and only runs
 in PAPER mode behind the operator's paper-trading confirmation. There is no
 live adapter; LIVE mode is refused.
 
+**Planner and delegate.** `agent.plan` makes ONE bounded model call with a strict
+step schema and returns 1–8 steps (stable ids, optional `dependsOn` on earlier
+steps). It never executes them. `agent.delegate` runs each task as one bounded
+turn on the existing agent plane (up to `maxTasks`, default 4) and returns every
+finding; a failed part is reported as `failed` with its error and the summary is
+`PARTIAL`, never a hidden success. Both are `agent.run` + network nodes, so a
+test run refuses them and an operator run needs the explicit grants. Neither
+re-implements the agent loop or tool registry.
+
 **Chat-to-graph.** `POST /api/graphs/plan` → Python `POST /graphs/plan` turns a
 natural-language objective into a candidate workflow. The model receives the
 runtime's ACTUAL node catalog (types, ports, config defaults, side effects) and
@@ -486,11 +495,11 @@ Phases 3–4:
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **202 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **209 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
   optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
-  chat-to-graph validation,
+  agent planning/delegation, chat-to-graph validation,
   local research/evidence + live web search/fetch/claim verification, agent
   node, operator-run/HTTP safety, registry parity, datasets, subworkflows,
   durable dispatch/resume), including a real

@@ -426,6 +426,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `plan-client.test.ts` (parsed IR, validation errors, refusal). docs updated:
   `docs/graph-studio.md` (Phase 7 + chat-to-graph contract).
 
+- **feat(graph): planner and delegate agent nodes (Phase 7 complete).** Added
+  `agent.plan` (one bounded structured-plan model call, 1–8 steps, stable ids
+  and earlier-step dependencies, never executes them) and `agent.delegate` (1–6
+  tasks, each one bounded turn on the existing agent plane, explicit per-task
+  failure with a `PARTIAL` summary). The plan call reuses the in-memory model
+  settings and a strict schema (`agent_plan.py`); delegation reuses the bound
+  agent runner, so neither adds an agent loop. The manifest is now 52 types.
+  Tests: `test_graph_agent_node.py` (plan/delegate, failed part, task cap,
+  bound planner) and `test_graph_agent_plan.py` (ids, dependencies, step cap).
+  docs updated: `docs/graph-studio.md` (Phase 7 complete).
+
 ## 2026-10-24
 - **ui(chat): roomier chat history rows.** Increased the vertical gap between
   conversation rows from 2px (`gap-0.5`) to 6px (`gap-1.5`) inside the pinned,

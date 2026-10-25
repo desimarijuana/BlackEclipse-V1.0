@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from harness.graph_runtime.agent_nodes import set_agent_runner
+from harness.graph_runtime.agent_nodes import (
+    set_agent_runner,
+    set_plan_runner,
+)
 from harness.graph_runtime.compiler import RunGrants, compile_workflow
 from harness.graph_runtime.model import ExecutionMode, WorkflowIR
 from harness.graph_runtime.nodes import build_default_registry
@@ -83,6 +86,71 @@ def test_agent_node_requires_a_bound_runtime():
     set_agent_runner(None)
     with pytest.raises(ValueError, match="agent runtime"):
         _exec({})
+
+
+def _exec_type(node_type: str, config: dict, inputs: dict):
+    definition = REGISTRY.get(node_type)
+    assert definition is not None and definition.executor is not None
+    return definition.executor(NodeExecContext(
+        node_id=node_type, run_id="run", mode=ExecutionMode.RESEARCH,
+        inputs=inputs, config=config,
+    ))
+
+
+def test_plan_node_returns_the_structured_steps():
+    set_plan_runner(lambda _context, objective: {
+        "rationale": "two independent checks",
+        "steps": [
+            {"id": "step_1", "title": "Check filings", "objective": "Read the 10-K", "dependsOn": []},
+            {"id": "step_2", "title": "Check prices", "objective": "Read the bars", "dependsOn": []},
+        ],
+    })
+    try:
+        result = _exec_type("agent.plan", {}, {"objective": "Review AAPL"})
+    finally:
+        set_plan_runner(None)
+    assert result["summary"]["stepCount"] == 2
+    assert result["steps"][0]["title"] == "Check filings"
+
+
+def test_plan_node_needs_a_bound_planner():
+    set_plan_runner(None)
+    with pytest.raises(ValueError, match="step planner"):
+        _exec_type("agent.plan", {"objective": "Review AAPL"}, {})
+
+
+def test_delegate_runs_each_task_and_reports_a_failed_part(fake_runner):
+    calls = []
+
+    def runner(_context, config, objective):
+        calls.append((config, objective))
+        if "fail" in objective:
+            raise ValueError("provider refused")
+        return {"finding": {"text": f"done: {objective}"}, "evidence": {}}
+
+    set_agent_runner(runner)
+    try:
+        result = _exec_type(
+            "agent.delegate",
+            {"agent": "eclipse-agent", "maxSteps": 3, "maxTasks": 3},
+            {"tasks": ["check one", "fail this one"]},
+        )
+    finally:
+        set_agent_runner(None)
+    assert result["summary"] == {"status": "PARTIAL", "total": 2, "succeeded": 1, "failed": 1}
+    assert result["findings"][0]["finding"]["text"] == "done: check one"
+    assert "provider refused" in result["findings"][1]["error"]
+    assert calls[0][0]["maxSteps"] == 3
+
+
+def test_delegate_bounds_the_task_list_and_config():
+    with pytest.raises(ValueError, match="bounded"):
+        _exec_type(
+            "agent.delegate", {"maxTasks": 1},
+            {"tasks": ["one", "two"]},
+        )
+    with pytest.raises(ValueError, match="tasksJson"):
+        _exec_type("agent.delegate", {"tasksJson": "{not json"}, {})
 
 
 def test_agent_node_is_gated_by_the_operator_envelope():
