@@ -60,6 +60,33 @@ def test_claim_is_atomic_exactly_once(store):
     assert claimed[0].attempts == 1
 
 
+def test_claim_is_atomic_across_two_connections(tmp_path):
+    """Two processes have separate stores/connections; only one may claim."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from harness.fabric import FabricStore
+
+    first_store = make_store(tmp_path)
+    second_store = make_store(tmp_path)
+    first = FabricStore(first_store)
+    second = FabricStore(second_store)
+    job = _job()
+    first.create_job(job)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(
+                lambda pair: pair[0].claim_job([QueueName.USER.value], worker_id=pair[1]),
+                [(first, "proc_a"), (second, "proc_b")],
+            ))
+        claimed = [item for item in results if item is not None]
+        assert len(claimed) == 1
+        assert claimed[0].id == job.id
+        assert claimed[0].attempts == 1
+    finally:
+        first_store.close()
+        second_store.close()
+
+
 def test_claim_respects_priority_then_fifo(store):
     low = _job(priority=100, type="low")
     high = _job(priority=900, type="high")
@@ -144,6 +171,30 @@ def test_queue_stats_and_counts(store):
     assert stats[QueueName.MARKET.value]["waiting"] == 1
     assert stats[QueueName.MARKET.value]["active"] == 1
     assert store.status_counts()[JobState.QUEUED.value] == 1
+
+
+def test_worker_filter_splits_a_process_pool():
+    from harness.fabric import FabricConfig
+
+    assert FabricConfig().runs_worker("agent", ["agent"]) is True
+    only_graph = FabricConfig(workers=frozenset({"graph"}))
+    assert only_graph.runs_worker("graph", ["graph"]) is True
+    assert only_graph.runs_worker("agent", ["agent"]) is False
+    none = FabricConfig(workers=frozenset({"none"}))
+    assert none.runs_worker("agent", ["agent"]) is False
+
+
+def test_worker_filter_is_read_from_the_environment(monkeypatch):
+    from harness.fabric import FabricConfig
+
+    monkeypatch.setenv("HARNESS_FABRIC_WORKERS", "graph, agent")
+    assert FabricConfig.from_env().workers == frozenset({"graph", "agent"})
+    monkeypatch.setenv("HARNESS_FABRIC_WORKERS", "none")
+    config = FabricConfig.from_env()
+    assert config.workers == frozenset({"none"})
+    assert config.runs_worker("graph", ["graph"]) is False
+    monkeypatch.delenv("HARNESS_FABRIC_WORKERS")
+    assert FabricConfig.from_env().workers is None
 
 
 def test_worker_registry_persistence(store):

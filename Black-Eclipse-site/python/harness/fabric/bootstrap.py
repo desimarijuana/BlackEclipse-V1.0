@@ -36,7 +36,8 @@ def install_fabric_layer(service: Any) -> Optional[ExecutionManager]:
         store = FabricStore(service.store)
         manager = ExecutionManager(store, config=config, service=service)
         for worker in build_default_workers(service, config):
-            manager.register_worker(worker)
+            if config.runs_worker(worker.kind, worker.queues):
+                manager.register_worker(worker)
         # Graph Studio runs on the same durable queue. The worker is registered
         # here because the fabric is installed after the graph layer and owns
         # the single worker pool. A graph-worker failure must not disable the
@@ -44,7 +45,9 @@ def install_fabric_layer(service: Any) -> Optional[ExecutionManager]:
         try:
             from ..graph_runtime.worker import GraphWorker  # noqa: PLC0415
 
-            manager.register_worker(GraphWorker(service))
+            graph_worker = GraphWorker(service)
+            if config.runs_worker(graph_worker.kind, graph_worker.queues):
+                manager.register_worker(graph_worker)
             graphs = getattr(service, "graphs", None)
             if graphs is not None:
                 graphs.set_fabric(manager)

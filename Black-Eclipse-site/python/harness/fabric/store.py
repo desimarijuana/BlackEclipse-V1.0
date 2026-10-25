@@ -381,28 +381,30 @@ class FabricStore:
         if not queues:
             return None
         placeholders = ",".join("?" for _ in queues)
+        # ONE atomic claim statement. A separate SELECT-then-UPDATE lets two
+        # worker PROCESSES (each with its own SQLite connection) claim the same
+        # job; `UPDATE ... RETURNING` makes the write lock the decision point.
         row = self._db.execute(
-            f"""SELECT * FROM FabricJob
-                WHERE queue IN ({placeholders}) AND status = 'QUEUED'
-                  AND (availableAt IS NULL OR availableAt <= ?)
-                  AND (? IS NULL OR workerKind IS NULL OR workerKind = ?)
-                ORDER BY priority DESC, availableAt ASC, createdAt ASC
-                LIMIT 1""",
-            [*queues, moment, worker_kind, worker_kind],
+            f"""UPDATE FabricJob
+                   SET status = 'RUNNING', workerId = ?, startedAt = ?,
+                       leaseExpiresAt = ?, attempts = attempts + 1, updatedAt = ?
+                 WHERE id = (
+                       SELECT id FROM FabricJob
+                        WHERE queue IN ({placeholders}) AND status = 'QUEUED'
+                          AND (availableAt IS NULL OR availableAt <= ?)
+                          AND (? IS NULL OR workerKind IS NULL OR workerKind = ?)
+                        ORDER BY priority DESC, availableAt ASC, createdAt ASC
+                        LIMIT 1
+                 )
+                   AND status = 'QUEUED'
+                 RETURNING *""",
+            [worker_id, moment, moment + max(5, lease_seconds), moment,
+             *queues, moment, worker_kind, worker_kind],
         ).fetchone()
         if row is None:
             return None
-        job_id = row["id"]
-        attempt = int(row["attempts"]) + 1
-        self._db.execute(
-            """UPDATE FabricJob
-               SET status = 'RUNNING', workerId = ?, startedAt = ?,
-                   leaseExpiresAt = ?, attempts = ?, updatedAt = ?
-               WHERE id = ? AND status = 'QUEUED'""",
-            (worker_id, moment, moment + max(5, lease_seconds), attempt, moment, job_id),
-        )
         self._db.commit()
-        return self.get_job(job_id)
+        return self._to_job(row)
 
     def renew_lease(self, job_id: str, *, worker_id: str, lease_seconds: int) -> bool:
         moment = now()

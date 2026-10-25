@@ -17,6 +17,9 @@ Environment (all optional):
   HARNESS_FABRIC_MAX_JOBS_PER_TICK      int            (default 16)
   HARNESS_FABRIC_<QUEUE>_CONCURRENCY    int            per-queue worker count
   HARNESS_FABRIC_RATE_<KEY>             rps,burst      token bucket per key
+  HARNESS_FABRIC_WORKERS                csv            worker kinds/queues this
+                                                       process runs; unset = all,
+                                                       `none` = producer-only
 """
 
 from __future__ import annotations
@@ -55,6 +58,14 @@ def _bool_env(name: str, default: bool) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on", "enabled")
 
 
+def _workers_env() -> Optional[frozenset[str]]:
+    raw = os.environ.get("HARNESS_FABRIC_WORKERS")
+    if raw is None or not raw.strip():
+        return None
+    names = {part.strip().lower() for part in raw.split(",") if part.strip()}
+    return frozenset(names)
+
+
 @dataclass
 class FabricConfig:
     enabled: bool = True
@@ -70,6 +81,10 @@ class FabricConfig:
     queue_concurrency: dict[str, int] = field(default_factory=dict)
     # provider/tool key -> (requests_per_second, burst)
     rate_limits: dict[str, tuple[float, float]] = field(default_factory=dict)
+    # Worker kinds/queues this process may run. None = every worker (the
+    # single-process default); an empty set = producer-only (another process
+    # owns the consumer loops).
+    workers: Optional[frozenset[str]] = None
 
     def __post_init__(self) -> None:
         if self.poll_seconds <= 0:
@@ -82,6 +97,16 @@ class FabricConfig:
             self.job_timeout_ms = 100
         if self.shutdown_timeout_s < 1:
             self.shutdown_timeout_s = 1
+
+    def runs_worker(self, kind: str, queues: Any) -> bool:
+        """Whether THIS process may run a worker (multi-process split)."""
+        if self.workers is None:
+            return True
+        if "none" in self.workers:
+            return False
+        names = {str(kind).strip().lower()}
+        names.update(str(queue).strip().lower() for queue in queues)
+        return bool(self.workers & names)
 
     def concurrency_for(self, queue: Any) -> int:
         name = QueueName.from_value(queue).value
@@ -124,6 +149,7 @@ class FabricConfig:
             max_jobs_per_tick=_int_env("HARNESS_FABRIC_MAX_JOBS_PER_TICK", 16, minimum=1),
             queue_concurrency=queue_concurrency,
             rate_limits=rate_limits,
+            workers=_workers_env(),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -139,6 +165,7 @@ class FabricConfig:
             "maxJobsPerTick": self.max_jobs_per_tick,
             "queueConcurrency": dict(self.queue_concurrency),
             "rateLimits": {k: list(v) for k, v in self.rate_limits.items()},
+            "workers": sorted(self.workers) if self.workers is not None else None,
         }
 
 

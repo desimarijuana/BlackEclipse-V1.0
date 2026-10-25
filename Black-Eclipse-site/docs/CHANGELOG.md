@@ -449,6 +449,22 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   headless host. Tests: `test_graph_health_watch.py` (thin data, thresholds,
   transition-only events). docs updated: `docs/graph-studio.md`.
 
+- **feat(fabric): same-host multi-process workers.** `FabricStore.claim_job` is
+  now ONE `UPDATE ... RETURNING` statement, so two processes sharing
+  `agent-memory.db` can never claim the same job; claim and lease renewal now use
+  the same worker id (the old `id:slot` claim meant heartbeats did not renew the
+  lease). Added `HARNESS_FABRIC_WORKERS` (kinds/queues, `none` =
+  producer-only) and `python -m harness.fabric.standalone` for a dedicated worker
+  process that starts only the Fabric consumers. Tests: two independent
+  stores/connections claim exactly once; worker filter parsing; standalone CLI.
+  A multi-machine fleet remains unsupported because the store is local SQLite.
+  docs updated: `docs/harness/execution-fabric.md`, `docs/graph-studio.md`.
+
+- **docs(graph): refresh the remaining-work list.** Known limitations now reflect
+  the shipped planner/delegate nodes, the documented external-cron path and the
+  health watch; "Next milestone" names multi-process Fabric workers as the main
+  remaining item. no doc beyond `docs/graph-studio.md`; no runtime change.
+
 ## 2026-10-24
 - **ui(chat): roomier chat history rows.** Increased the vertical gap between
   conversation rows from 2px (`gap-0.5`) to 6px (`gap-1.5`) inside the pinned,

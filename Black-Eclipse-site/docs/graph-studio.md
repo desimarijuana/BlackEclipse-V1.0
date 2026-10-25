@@ -544,19 +544,22 @@ mode list. Verified in a real browser: the mode switcher, the panel's
 open/create path and `?tab=graph-studio` all mount the workspace with no console
 or HTTP errors.
 
-## Known limitations (after Phase 5)
+## Known limitations
 
-- **Durable but single-process workers.** Runs are durable Fabric jobs and
-  resume from node checkpoints after a worker/process restart. The worker pool is
-  still in-process (one runtime process), not a multi-machine distributed fleet.
-  The legacy in-process fallback (Fabric disabled) has no automatic resume.
+- **Durable workers, one host.** Runs are durable Fabric jobs and resume from
+  node checkpoints after a worker/process restart. Several processes on the SAME
+  host may share `agent-memory.db` and split workers by
+  `HARNESS_FABRIC_WORKERS` / `python -m harness.fabric.standalone`; claims are
+  atomic. A multi-machine fleet is not supported by the local SQLite store. The
+  legacy in-process fallback (Fabric disabled) has no automatic resume.
 - **Checkpoint bound.** A successful node's full output is checkpointed up to
   2 MB. A larger output is still visible as a preview, but the run is marked
   non-resumable and will start fresh if retried (safe for test runs, not yet for
   effectful/trading runs).
-- Schedules tick while the app is up (a 60 s in-process timer); a fully
-  headless/unattended deployment needs the same tick driven by an external cron
-  (the operator route exists: `POST /api/workflow-schedules/tick`).
+- Schedules tick while the app is up (a 60 s in-process timer). A fully
+  headless/unattended deployment must drive `POST /api/workflow-schedules/tick`
+  from external cron (see "Headless schedules"); the app cannot tick while it is
+  stopped.
 - `logic.wait` blocks its thread; the 30 s cap and the 5 s test-run cap keep that
   bounded, but long waits belong in the Phase 4+ durable path.
 - Loop primitives operate on numeric arrays (documented); richer per-type
@@ -570,8 +573,8 @@ or HTTP errors.
   and it fills only at a supplied price - it never fetches a live quote.
 - Agent model credentials are held in memory for the run only. A process restart
   before an agent node executes makes that node fail; agent runs are not
-  resumable across a restart. The node is one bounded turn (no planner/delegate
-  loop yet), and a real-provider end-to-end test is still pending.
+  resumable across a restart. The nodes are bounded turns/plans (no autonomous
+  loop), and a real-provider end-to-end test is still pending.
 - Web research nodes use the app's data bridge (a real operator run has one; a
   headless runtime does not). `research.web_fetch` does not escalate a
   client-rendered page to the browser and does not crawl or follow links; it
@@ -599,9 +602,9 @@ or HTTP errors.
 
 ## Next milestone
 
-**Post-phase hardening**: the ten phases are implemented. The remaining work is
-operational, not new graph capability — drive the schedule tick from external
-cron for headless deployments, run the Fabric worker pool on more than one
-process/machine, and add alerting on the now-published health signal. See
-"Known limitations" for the exact bounds.
+**Post-phase hardening**: the ten phases are implemented, including external-cron
+guidance, health alerting and same-host multi-process Fabric workers. The
+remaining item is a genuinely multi-machine fleet, which would require replacing
+the local SQLite store with a shared database/queue; the rest are scoped bounds
+listed under "Known limitations".
 

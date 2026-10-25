@@ -19,8 +19,9 @@ the existing capabilities.
 
 It is implemented in `python/harness/fabric/`, on the ONE `agent-memory.db`
 connection. No Redis, BullMQ or PostgreSQL is introduced: the runtime is a
-single-process, zero-config, SQLite-backed Python service (AGENTS.md), and the
-durable queue is native.
+local-first, zero-config, SQLite-backed Python service (AGENTS.md), and the
+durable queue is native. More than one process on the SAME host may share the
+queue; a multi-machine fleet is not supported by the SQLite store.
 
 ## The one rule
 
@@ -126,6 +127,38 @@ run (the Fabric job succeeds; the queue must not retry a deterministic graph
 failure). A worker/process crash is different: the lease expires, the job is
 requeued, and `execute_job` resumes from the successful node checkpoints.
 
+## Multi-process workers (one host)
+
+The queue is safe to share between processes on the same machine. `claim_job`
+is ONE `UPDATE ... RETURNING` statement, so the SQLite write lock decides which
+process wins; two processes can never execute the same job. Claim and lease
+renewal use the same worker id, so a long job keeps its lease.
+
+Run the app and a dedicated worker process side by side:
+
+```bash
+# app: producer + UI only (no consumer loops)
+HARNESS_FABRIC_WORKERS=none npm run dev
+
+# worker process: graph + agent queues, same agent-memory.db
+HARNESS_FABRIC_WORKERS=graph,agent \
+HARNESS_CALLBACK_URL=http://127.0.0.1:3000 \
+python -m harness.fabric.standalone
+```
+
+`HARNESS_FABRIC_WORKERS` accepts worker kinds or queue names
+(`graph`, `agent`, `tool`, `video`, ...), `none` for producer-only, or is unset
+for the single-process default (all workers). Each process registers its own
+worker row with its `pid`, and the existing stale-worker/lease recovery applies.
+
+`python -m harness.fabric.standalone --workers graph,agent` is equivalent. The
+worker process constructs the service and starts ONLY the Fabric consumers; it
+does not start the HTTP API, schedulers or watchers.
+
+**Not supported:** multiple MACHINES. The store is a local SQLite file; a remote
+worker would need a shared database/queue, which this app intentionally does not
+provide.
+
 ## Idempotency & locks
 
 Durable jobs and idempotent policies derive a stable key from
@@ -158,7 +191,12 @@ HARNESS_FABRIC_DLQ_LIMIT            default 1000
 HARNESS_FABRIC_LOCK_TTL_MS          default 30000
 HARNESS_FABRIC_<QUEUE>_CONCURRENCY  per-queue worker count
 HARNESS_FABRIC_RATE_<KEY>           rps,burst token bucket per key
+HARNESS_FABRIC_WORKERS              worker kinds/queues this process runs;
+                                    unset = all, none = producer-only
 ```
+
+The dedicated process also reads `HARNESS_CALLBACK_URL` (the app's base URL) so
+agent/graph nodes can reach the data bridge and model vault.
 
 ## Surfaces
 
@@ -207,3 +245,6 @@ timeout/cancellation/concurrency/recovery/graceful-shutdown, the four execution
 modes, DAG-delegation unavailability, the event rules, the builtin workers
 against a stub runtime + the real sandbox, and the HTTP router round-trip.
 `src/lib/harness/fabric-types.test.ts` covers the console's pure helpers.
+`test_fabric_standalone.py` covers the dedicated-worker selection, and
+`test_fabric_store.py` proves a job is claimed exactly once across two
+independent stores/connections.

@@ -253,8 +253,10 @@ class WorkerManager:
     async def _consumer_loop(self, worker: BaseWorker, info: WorkerInfo, slot: int) -> None:
         try:
             while self._running:
+                # The claim and the heartbeat MUST use the same worker id, or
+                # the lease is never renewed and recovery requeues live work.
                 job = self._store.claim_job(
-                    list(worker.queues), worker_id=f"{info.id}:{slot}",
+                    list(worker.queues), worker_id=info.id,
                     worker_kind=worker.kind, lease_seconds=self._config.lease_seconds,
                 )
                 if job is None:
