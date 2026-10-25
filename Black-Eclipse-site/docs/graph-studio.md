@@ -173,7 +173,7 @@ If the stream disconnects, the UI falls back to bounded polling.
 | **5 — Finance & quant node library** | Market-data + indicator node executors | **Implemented & verified** (first pack: market data, indicator, returns, z-score, volatility) |
 | 6 — Backtest & simulation | Strategy graphs, metrics | **Implemented & verified** (backtest, walk-forward, optimizer, Monte Carlo and out-of-sample holdout; all reuse `quant/`) |
 | 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Research agent node and live web-research nodes implemented** (search, fetch, claim verification over the existing research engine); planner/delegate/NL→IR not started |
-| 8 — Paper trading & safety | Execution adapter, risk controls, modes | Not started (modes + trading side-effect class already enforced by the compiler) |
+| 8 — Paper trading & safety | Execution adapter, risk controls, modes | **Implemented & verified** (`trading.risk_check` + `trading.paper_order`, PAPER-only; live and ungranted trading refused) |
 | 9 — Advanced engineering | Subworkflows, debugging, diffing | **Subworkflows implemented**; debugging/diffing not started |
 | 10 — Hardening & verification | Tests, security, observability | Partial: Phase 3/4 add runtime safety tests; observability is next |
 
@@ -211,8 +211,12 @@ visibility is not authorization.
 and local scratch only. An **operator run** is an explicit UI action; the front
 door derives its grants from the registry and the persisted IR — never from the
 caller. It grants exactly the union of node capabilities, enables network only
-when the graph needs it and the user confirms, and always keeps trading and
-external write nodes refused. The Python compiler re-checks the same envelope.
+when the graph needs it and the user confirms, and keeps external write nodes
+refused. Trading is the one effect an operator may enable explicitly, and only
+as PAPER: `trading.paper_order` requires `executionMode: "paper"`, an explicit
+paper-trading confirmation and the `allowTrading` grant. LIVE mode and an
+ungranted trading node are refused by both the front door and the Python
+compiler. The Python compiler re-checks the same envelope.
 `integration.http` is the first network node: SSRF-checked, loopback refused,
 1 MB response cap, 60 s ceiling, and no custom headers/credentials yet.
 
@@ -363,6 +367,16 @@ operator run must explicitly confirm network access. They depend on the app's
 data bridge (`context.callbackBaseUrl`), so a headless runtime with no front
 door fails honestly rather than fetching directly.
 
+**Paper trading & safety.** `trading.risk_check` is a pure pre-trade gate over
+`harness/quant/risk.py` (position, gross exposure, leverage, open-position,
+daily-loss and risk-per-trade limits; `0` disables a limit). It may reduce an
+order's size or reject it, and a rejection is an outcome with reasons, not an
+exception. `trading.paper_order` is the execution adapter: it fills at a
+supplied reference price with explicit slippage and commission and returns a
+paper fill. It never contacts a broker, never reads a live quote, and only runs
+in PAPER mode behind the operator's paper-trading confirmation. There is no
+live adapter; LIVE mode is refused.
+
 **Tabular transforms.** `transform.select`, `transform.sort_limit`,
 `logic.aggregate`, `logic.deduplicate` and `transform.join` operate on arrays of
 JSON objects (bars, fundamentals, filings, screener rows) with dotted field
@@ -426,14 +440,14 @@ Phase 1:
 Phases 3–4:
 
 - `npx tsc --noEmit` — clean.
-- `npx vitest run src/lib/graph-studio` — **13 files / 72 tests pass**.
+- `npx vitest run src/lib/graph-studio` — **13 files / 73 tests pass**.
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **185 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **192 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
-  optimizer/Monte Carlo/OOS,
+  optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
   local research/evidence + live web search/fetch/claim verification, agent
   node, operator-run/HTTP safety, registry parity, datasets, subworkflows,
   durable dispatch/resume), including a real
@@ -476,9 +490,11 @@ or HTTP errors.
   iteration arrives with the finance/agent nodes.
 - Run history is browsable in the History panel; node runs and events are
   normalized tables, and successful nodes have resumable checkpoints.
-- Operator runs currently allow network only. External write nodes and all
-  trading nodes are refused; HTTP nodes do not support custom headers or
-  credential references yet.
+- Operator runs allow network and PAPER trading. External write nodes, live
+  trading and ungranted trading are refused; HTTP nodes do not support custom
+  headers or credential references yet. The paper adapter does not persist an
+  account across runs (a scheduled graph starts from its configured context),
+  and it fills only at a supplied price - it never fetches a live quote.
 - Agent model credentials are held in memory for the run only. A process restart
   before an agent node executes makes that node fail; agent runs are not
   resumable across a restart. The node is one bounded turn (no planner/delegate
@@ -495,8 +511,9 @@ or HTTP errors.
   `runId` and terminal output, but the child has no separate durable run row.
   The subworkflow inspector is also plain `workflowId`/`version` fields — there
   is no workflow picker yet.
-- `live` mode is settable in the IR but no executor honours it; the compiler
-  refuses trading nodes without an explicit (paper/live) grant.
+- `live` mode is settable in the IR but no executor honours it and the compiler
+  refuses a trading node in LIVE mode. Paper trading is the only trading effect
+  Graph Studio can authorize today.
 - **`video.render` is declared, not executable** (native-video integration,
   Phase 8 of that pipeline): the node type exists in both registries
   (`python/harness/graph_runtime/video_nodes.py` + the TS mirror, in lockstep)
@@ -509,9 +526,7 @@ or HTTP errors.
 
 ## Next milestone
 
-**Phase 8**: paper trading and safety — an execution adapter behind the existing
-trading side-effect class, risk controls, and paper/live mode separation. The
-compiler already refuses trading nodes without an explicit paper/live grant and
-refuses operator runs that include external writes; Phase 8 is the adapter and
-risk layer, not a new execution loop.
+**Phase 9**: debugging and diffing — step/breakpoint-style inspection on top of
+the persisted node runs and checkpoints, and a structural IR diff between two
+workflow versions. Subworkflows already land; no new execution loop is needed.
 

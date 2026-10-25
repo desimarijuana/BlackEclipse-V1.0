@@ -10,6 +10,7 @@
 // functions yet) so it is safe to import from client and server alike.
 
 import { z } from 'zod';
+import { TRADING_DEFINITIONS } from './registry-trading';
 import type { ExecutionMode, NodeDefinition, PortDef } from './types';
 
 /** All operating modes — the default allowance for a pure/read node. */
@@ -1110,6 +1111,7 @@ const DEFINITIONS: NodeDefinition[] = [
     capabilities: ['research.read'], sideEffects: 'read', allowedModes: ALL_MODES,
     docs: 'Local read over the EvidenceStore; uses the deterministic verifier, never a model.',
   },
+  ...TRADING_DEFINITIONS,
   {
     type: 'output.result',
     version: '1.0.0',

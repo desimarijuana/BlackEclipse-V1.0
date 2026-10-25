@@ -2823,6 +2823,246 @@
       "terminal": false
     },
     {
+      "type": "trading.paper_order",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Paper order",
+      "description": "PAPER-only execution adapter: simulates a fill at the supplied price.",
+      "inputs": [
+        {
+          "id": "intent",
+          "name": "Order intent",
+          "type": "order_intent",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "price",
+          "name": "Price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "decision",
+          "name": "Risk decision",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "fill",
+          "name": "Fill",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "intent",
+          "name": "Order intent",
+          "type": "order_intent",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "commissionPct",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "price",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "slippagePct",
+          "kind": "number",
+          "default": 0
+        }
+      ],
+      "capabilities": [
+        "trading.paper"
+      ],
+      "sideEffects": "trading",
+      "allowedModes": [
+        "paper"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.risk_check",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Risk check",
+      "description": "Pure pre-trade gate: reduces or rejects an order against the risk limits.",
+      "inputs": [
+        {
+          "id": "intent",
+          "name": "Order intent",
+          "type": "order_intent",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "price",
+          "name": "Price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "intent",
+          "name": "Order intent",
+          "type": "order_intent",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "decision",
+          "name": "Decision",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "approved",
+          "name": "Approved",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "allowLong",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "allowShort",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "currentSymbolValue",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "dailyPnl",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "dailyStartEquity",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "equity",
+          "kind": "number",
+          "default": 100000
+        },
+        {
+          "name": "grossExposure",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "hasStop",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "isOpening",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "maxDailyLossPct",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "maxGrossExposure",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "maxLeverage",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "maxOpenPositions",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "maxPositionPct",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "maxRiskPerTradePct",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "openPositions",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "price",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "requireStop",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "stopDistance",
+          "kind": "number",
+          "default": 0
+        }
+      ],
+      "capabilities": [
+        "trading.risk"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "paper"
+      ],
+      "terminal": false
+    },
+    {
       "type": "transform.formula",
       "version": "1.0.0",
       "category": "transform",

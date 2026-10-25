@@ -373,6 +373,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `docs/graph-studio.md` (Phase 6 status + next milestone), no other contract
   changed.
 
+- **feat(graph): paper trading and safety (Phase 8).** Added
+  `trading.risk_check` (pure pre-trade gate over `harness/quant/risk.py`) and
+  `trading.paper_order` (PAPER-only execution adapter) to both registries. The
+  front door gains an explicit `allowPaperTrading` confirmation and grants
+  `allowTrading` only for a `paper`-mode graph; the Python compiler refuses LIVE
+  mode outright, refuses an ungranted trading node, and still refuses every
+  trading node in a test run. Paper fills use the supplied reference price with
+  explicit slippage/commission and never contact a broker. The UI shows the
+  operator-run confirmation for paper-trading graphs. The manifest is now 50
+  types. Tests: `test_graph_trading_nodes.py` (risk cap/rejection, simulated
+  fill, rejected decision, price/intent validation, test-run/LIVE/ungranted
+  refusals), `run-authorization.test.ts` (paper confirmation, research-mode
+  refusal, LIVE refusal). docs updated: `docs/graph-studio.md`,
+  `docs/harness/security.md`.
+
 ## 2026-10-24
 - **ui(chat): roomier chat history rows.** Increased the vertical gap between
   conversation rows from 2px (`gap-0.5`) to 6px (`gap-1.5`) inside the pinned,

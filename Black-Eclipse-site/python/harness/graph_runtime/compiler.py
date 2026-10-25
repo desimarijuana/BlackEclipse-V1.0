@@ -201,12 +201,19 @@ def compile_workflow(
             ))
 
         # Permission envelope — the runtime's own decision.
-        if definition.side_effects == SideEffect.TRADING and not (grants.allow_trading and mode in (ExecutionMode.PAPER, ExecutionMode.LIVE)):
-            diagnostics.append(_error(
-                "permission_denied",
-                f'Node "{node.id}" can place trades; trading is not authorized for this run.',
-                node_id=node.id,
-            ))
+        if definition.side_effects == SideEffect.TRADING and not grants.test_run:
+            if mode == ExecutionMode.LIVE:
+                diagnostics.append(_error(
+                    "live_trading_unavailable",
+                    f'Node "{node.id}" is a trading node; live trading is not available in Graph Studio. Use paper mode.',
+                    node_id=node.id,
+                ))
+            elif not (grants.allow_trading and mode == ExecutionMode.PAPER):
+                diagnostics.append(_error(
+                    "permission_denied",
+                    f'Node "{node.id}" can place trades; paper trading is not authorized for this run.',
+                    node_id=node.id,
+                ))
         if grants.test_run and definition.side_effects in _ALWAYS_DENIED_IN_TEST:
             diagnostics.append(_error(
                 "permission_denied",

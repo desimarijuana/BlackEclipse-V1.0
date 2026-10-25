@@ -28,6 +28,7 @@ from .finance_nodes import build_finance_nodes
 from .quant_nodes import build_quant_nodes
 from .research_nodes import build_research_nodes
 from .table_nodes import build_table_nodes
+from .trading_nodes import build_trading_nodes
 from .registry import (
     ConfigField,
     NodeDef,
@@ -884,6 +885,9 @@ def build_default_registry() -> NodeRegistry:
         registry.register(definition)
     # Local research/evidence reads over the existing EvidenceStore.
     for definition in build_research_nodes():
+        registry.register(definition)
+    # Paper-trading safety: a pure risk gate + a PAPER-only execution adapter.
+    for definition in build_trading_nodes():
         registry.register(definition)
     # Video-production node declarations (Phase 8): executor-less ON PURPOSE —
     # a render is an async Fabric job behind an effectful-node policy the graph

@@ -12,6 +12,8 @@ import type { SubworkflowBundleEntry } from './subworkflow-bundle';
 export interface RunAuthorizationOptions {
   operator?: boolean;
   allowNetwork?: boolean;
+  /** Explicit confirmation of the PAPER execution adapter. Live is never granted. */
+  allowPaperTrading?: boolean;
 }
 
 export interface RunAuthorization {
@@ -102,12 +104,30 @@ export function authorizeGraphRun(
     };
   }
   if (summary.tradingNodes.length > 0) {
-    return {
-      ok: false,
-      authorization: base,
-      summary,
-      error: `Trading nodes are not enabled yet (${summary.tradingNodes.join(', ')}).`,
-    };
+    if (ir.settings.executionMode === 'live') {
+      return {
+        ok: false,
+        authorization: base,
+        summary,
+        error: 'Live trading is not available in Graph Studio. Set the workflow mode to paper.',
+      };
+    }
+    if (ir.settings.executionMode !== 'paper') {
+      return {
+        ok: false,
+        authorization: base,
+        summary,
+        error: `Paper-trading nodes require the workflow's execution mode to be paper (${summary.tradingNodes.join(', ')}).`,
+      };
+    }
+    if (!options.allowPaperTrading) {
+      return {
+        ok: false,
+        authorization: base,
+        summary,
+        error: `This workflow contains paper-trading nodes (${summary.tradingNodes.join(', ')}); confirm paper trading to run it.`,
+      };
+    }
   }
   if (summary.writeNodes.length > 0) {
     return {
@@ -132,7 +152,7 @@ export function authorizeGraphRun(
       testRun: false,
       grantedCapabilities: summary.requiredCapabilities,
       allowNetwork: summary.requiresNetwork && Boolean(options.allowNetwork),
-      allowTrading: false,
+      allowTrading: summary.tradingNodes.length > 0 && Boolean(options.allowPaperTrading),
     },
     summary,
   };

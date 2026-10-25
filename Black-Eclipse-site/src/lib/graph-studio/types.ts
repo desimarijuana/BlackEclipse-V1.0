@@ -147,6 +147,7 @@ export type NodeCategory =
   | 'quant'
   | 'agent'
   | 'research'
+  | 'trading'
   | 'output';
 
 /**

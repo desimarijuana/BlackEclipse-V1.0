@@ -63,6 +63,7 @@ export async function POST(request: Request, ctx: Ctx) {
     version?: number;
     operator?: boolean;
     allowNetwork?: boolean;
+    allowPaperTrading?: boolean;
   };
 
   // The persisted version is the ONLY authority for what runs (see run-server).
@@ -73,7 +74,11 @@ export async function POST(request: Request, ctx: Ctx) {
     version: typeof body.version === "number" ? body.version : undefined,
     request,
     authorization: body.operator
-      ? { operator: true, allowNetwork: Boolean(body.allowNetwork) }
+      ? {
+          operator: true,
+          allowNetwork: Boolean(body.allowNetwork),
+          allowPaperTrading: Boolean(body.allowPaperTrading),
+        }
       : undefined,
   });
   if (!result.ok) {

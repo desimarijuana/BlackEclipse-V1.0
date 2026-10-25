@@ -91,6 +91,44 @@ describe('run authorization', () => {
     expect(authorizeGraphRun(research, [], { operator: true, allowNetwork: true }).ok).toBe(true);
   });
 
+  it('requires an explicit paper-trading confirmation and never grants live', () => {
+    const paper = graph('wf_paper', [
+      { id: 'trig', type: 'trigger.manual' },
+      { id: 'risk', type: 'trading.risk_check' },
+      { id: 'order', type: 'trading.paper_order' },
+      { id: 'out', type: 'output.result' },
+    ]);
+    paper.settings.executionMode = 'paper';
+
+    const missing = authorizeGraphRun(paper, [], { operator: true });
+    expect(missing.ok).toBe(false);
+    expect(missing.error).toContain('confirm paper trading');
+
+    const allowed = authorizeGraphRun(paper, [], { operator: true, allowPaperTrading: true });
+    expect(allowed.ok).toBe(true);
+    expect(allowed.authorization.allowTrading).toBe(true);
+    expect(allowed.authorization.testRun).toBe(false);
+
+    const research = graph('wf_paper_research', [
+      { id: 'trig', type: 'trigger.manual' },
+      { id: 'order', type: 'trading.paper_order' },
+      { id: 'out', type: 'output.result' },
+    ]);
+    research.settings.executionMode = 'research';
+    expect(authorizeGraphRun(research, [], { operator: true, allowPaperTrading: true }).error)
+      .toContain('paper');
+
+    const live = graph('wf_live', [
+      { id: 'trig', type: 'trigger.manual' },
+      { id: 'order', type: 'trading.paper_order' },
+      { id: 'out', type: 'output.result' },
+    ]);
+    live.settings.executionMode = 'live';
+    const refused = authorizeGraphRun(live, [], { operator: true, allowPaperTrading: true });
+    expect(refused.ok).toBe(false);
+    expect(refused.error).toContain('Live trading is not available');
+  });
+
   it('collects capabilities from the root graph and subworkflows', () => {
     const child = graph('wf_child', [
       { id: 't', type: 'trigger.manual' },

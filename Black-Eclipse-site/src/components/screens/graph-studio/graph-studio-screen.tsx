@@ -177,16 +177,16 @@ export function GraphStudioScreen() {
     pollingRef.current = false;
   }, []);
 
-  const startRun = useCallback(async (operator = false) => {
+  const startRun = useCallback(async (options?: {
+    operator?: boolean;
+    allowNetwork?: boolean;
+    allowPaperTrading?: boolean;
+  }) => {
     if (!workflowId) return;
     setRunBusy(true);
     setError(null);
     try {
-      const record = await startWorkflowRun(
-        workflowId,
-        undefined,
-        operator ? { operator: true, allowNetwork: true } : undefined,
-      );
+      const record = await startWorkflowRun(workflowId, undefined, options);
       setRun(record);
       setRightTab('run');
       streamRun(record.id);
@@ -286,30 +286,48 @@ export function GraphStudioScreen() {
             >
               <Play size={12} /> Test run
             </button>
-            {runNeeds?.requiresNetwork && (
-              <button
-                type="button"
-                disabled={!canRun || runNeeds.writeNodes.length > 0 || runNeeds.tradingNodes.length > 0}
-                onClick={() => {
-                  const names = runNeeds.networkNodes.join(', ');
-                  if (window.confirm(
-                    `Allow outbound network access for this run?\n\n${names}\n\nOnly the capabilities this graph declares are granted; trading and external writes remain blocked.`,
-                  )) {
-                    void startRun(true);
-                  }
-                }}
-                title={
-                  runNeeds.writeNodes.length > 0
-                    ? `External write nodes are not enabled yet: ${runNeeds.writeNodes.join(', ')}`
-                    : runNeeds.tradingNodes.length > 0
-                      ? `Trading nodes are not enabled: ${runNeeds.tradingNodes.join(', ')}`
-                      : runBlockReason ?? 'Operator run with explicit network access'
-                }
-                className="flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-200 hover:bg-amber-500/20 disabled:opacity-40"
-              >
-                <Play size={12} /> Operator run
-              </button>
-            )}
+            {runNeeds && (runNeeds.requiresNetwork || runNeeds.tradingNodes.length > 0) && (() => {
+              const mode = ir?.settings.executionMode ?? 'research';
+              const tradingReady = runNeeds.tradingNodes.length === 0 || mode === 'paper';
+              const disabled = !canRun || runNeeds.writeNodes.length > 0 || !tradingReady;
+              const title = runNeeds.writeNodes.length > 0
+                ? `External write nodes are not enabled yet: ${runNeeds.writeNodes.join(', ')}`
+                : runNeeds.tradingNodes.length > 0 && mode === 'live'
+                  ? 'Live trading is not available; set the workflow mode to paper.'
+                  : runNeeds.tradingNodes.length > 0 && mode !== 'paper'
+                    ? `Paper-trading nodes require paper mode: ${runNeeds.tradingNodes.join(', ')}`
+                    : runBlockReason ?? 'Operator run with explicit effects';
+              return (
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => {
+                    const lines: string[] = [];
+                    if (runNeeds.requiresNetwork) {
+                      lines.push(`Network: ${runNeeds.networkNodes.join(', ')}`);
+                    }
+                    if (runNeeds.tradingNodes.length > 0) {
+                      lines.push(
+                        `Paper trading: ${runNeeds.tradingNodes.join(', ')} (simulated fills only; no broker is contacted).`,
+                      );
+                    }
+                    if (window.confirm(
+                      `Authorize this run?\n\n${lines.join('\n')}\n\nOnly the capabilities this graph declares are granted. Trading is PAPER only; live trading is never granted, and external writes remain blocked.`,
+                    )) {
+                      void startRun({
+                        operator: true,
+                        allowNetwork: runNeeds.requiresNetwork,
+                        allowPaperTrading: runNeeds.tradingNodes.length > 0,
+                      });
+                    }
+                  }}
+                  title={title}
+                  className="flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-200 hover:bg-amber-500/20 disabled:opacity-40"
+                >
+                  <Play size={12} /> Operator run
+                </button>
+              );
+            })()}
           </div>
         </div>
 

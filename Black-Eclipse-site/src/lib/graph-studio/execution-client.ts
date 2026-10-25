@@ -162,6 +162,7 @@ export interface StartRunOptions {
   /** Explicit operator run. The server still derives grants from the graph. */
   operator?: boolean;
   allowNetwork?: boolean;
+  allowPaperTrading?: boolean;
 }
 
 /** Start a TEST run (default) or an explicitly authorized operator run. */

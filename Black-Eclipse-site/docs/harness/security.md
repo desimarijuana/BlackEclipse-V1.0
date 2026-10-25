@@ -185,8 +185,13 @@ targets are always refused. Redirects are re-validated on every hop.
 they call the existing web-research engine, which goes through the SSRF-hardened
 `web_search`/`web_fetch` bridge capabilities and the engine's own URL validation.
 The front door (`run-authorization.ts`) derives grants from the node registry,
-enables network only on an explicit operator request, and refuses trading and
-external write nodes. Test runs never perform network, write or trading effects.
+enables network only on an explicit operator request, and refuses external write
+nodes. Trading has one narrow exception: an operator may confirm PAPER trading,
+and only when the workflow mode is `paper` and the graph contains
+`trading.paper_order`. The compiler refuses LIVE mode, refuses an ungranted
+trading node, and refuses every trading node in a test run. `trading.paper_order`
+never contacts a broker or fetches a quote; it simulates a fill at a supplied
+price. Test runs never perform network, write or trading effects.
 
 ## Session isolation (`security/context.py`)
 
