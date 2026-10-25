@@ -74,6 +74,14 @@ class CompileRequest(BaseModel):
     subworkflows: list[SubworkflowPayload] = Field(default_factory=list)
 
 
+class PlanRequest(BaseModel):
+    objective: str = Field(min_length=1, max_length=4_000)
+    modelSettings: Optional[dict[str, Any]] = None  # noqa: N815
+    workflowId: Optional[str] = None  # noqa: N815
+
+    model_config = {"populate_by_name": True}
+
+
 class RunRequest(BaseModel):
     ir: dict[str, Any]
     workflowVersion: Optional[int] = Field(default=None, alias="workflowVersion")  # noqa: N815
@@ -130,6 +138,23 @@ def start_run(body: RunRequest, request: Request, _: bool = Depends(require_oper
             },
         ) from exc
     return {"run": run}
+
+
+@router.post("/graphs/plan")
+async def plan_graph(body: PlanRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Chat-to-graph: propose a validated IR. Nothing is saved or executed."""
+    from ..graph_runtime.planner import plan_graph as _plan  # noqa: PLC0415
+
+    try:
+        result = await _plan(
+            body.objective,
+            model_settings=body.modelSettings,
+            registry=_graph_service()._registry,
+            workflow_id=body.workflowId,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return result
 
 
 @router.get("/graphs/health")

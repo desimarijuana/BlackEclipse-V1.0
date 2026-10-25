@@ -10,6 +10,7 @@ import {
   type WorkflowSummary,
 } from './persistence-client';
 import { buildTemplate } from './templates';
+import type { WorkflowIR } from './types';
 import { useGraphEditor } from './editor-store';
 
 export interface WorkflowCatalogState {
@@ -20,6 +21,7 @@ export interface WorkflowCatalogState {
   refresh: () => Promise<void>;
   open: (id: string) => Promise<void>;
   createFromTemplate: (templateId: string) => Promise<void>;
+  createFromIr: (name: string, description: string, ir: WorkflowIR) => Promise<void>;
   remove: (id: string) => Promise<void>;
   clearError: () => void;
 }
@@ -73,6 +75,25 @@ export const useWorkflowCatalog = create<WorkflowCatalogState>((set, get) => ({
       await get().refresh();
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to create workflow' });
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  createFromIr: async (name, description, ir) => {
+    set({ busy: true });
+    try {
+      const record = await createWorkflow({ name, description, ir });
+      useGraphEditor.getState().load(record.ir, {
+        workflowId: record.id,
+        baseVersion: record.version,
+        contentHash: record.contentHash,
+      });
+      set({ error: null });
+      await get().refresh();
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Failed to create workflow' });
+      throw err;
     } finally {
       set({ busy: false });
     }

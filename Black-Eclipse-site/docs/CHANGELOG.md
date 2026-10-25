@@ -411,6 +411,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   queue wait, bounded read). docs updated: `docs/graph-studio.md` (Phase 10
   status, telemetry contract, next milestone).
 
+- **feat(graph): chat-to-graph authoring (Phase 7).** Added
+  `python/harness/graph_runtime/planner.py`: the model receives the runtime's
+  real node catalog and returns a strict JSON proposal; the planner validates
+  every node type, port, edge and config against the same registry the compiler
+  uses, derives capabilities, selects `paper` when a trading node is present and
+  dry-runs the compiler. Only a zero-error proposal becomes a `WorkflowIR`;
+  nothing is saved or executed automatically. Added operator-gated
+  `POST /graphs/plan`, the Next proxy `/api/graphs/plan` (model settings resolved
+  from the vault, memory only), typed `plan-client.ts`, and a "Generate from
+  prompt" flow in the workflow list that saves through the normal create path.
+  Tests: `python/tests/test_graph_planner.py` (catalog, valid/trading plans,
+  unknown type/port/config refusal, missing model/objective) and
+  `plan-client.test.ts` (parsed IR, validation errors, refusal). docs updated:
+  `docs/graph-studio.md` (Phase 7 + chat-to-graph contract).
+
 ## 2026-10-24
 - **ui(chat): roomier chat history rows.** Increased the vertical gap between
   conversation rows from 2px (`gap-0.5`) to 6px (`gap-1.5`) inside the pinned,

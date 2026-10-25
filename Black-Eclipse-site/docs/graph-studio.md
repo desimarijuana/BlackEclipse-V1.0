@@ -172,7 +172,7 @@ If the stream disconnects, the UI falls back to bounded polling.
 | **4 — Control flow, scheduling & triggers** | Control-flow node pack, unattended schedules, webhook trigger, run recovery | **Implemented & verified** (distributed/Fabric-backed durability is the remaining piece) |
 | **5 — Finance & quant node library** | Market-data + indicator node executors | **Implemented & verified** (first pack: market data, indicator, returns, z-score, volatility) |
 | 6 — Backtest & simulation | Strategy graphs, metrics | **Implemented & verified** (backtest, walk-forward, optimizer, Monte Carlo and out-of-sample holdout; all reuse `quant/`) |
-| 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Research agent node and live web-research nodes implemented** (search, fetch, claim verification over the existing research engine); planner/delegate/NL→IR not started |
+| 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Research agent, live web-research and chat→IR implemented** (validated proposals from the real node catalog); planner/delegate nodes not started |
 | 8 — Paper trading & safety | Execution adapter, risk controls, modes | **Implemented & verified** (`trading.risk_check` + `trading.paper_order`, PAPER-only; live and ungranted trading refused) |
 | 9 — Advanced engineering | Subworkflows, debugging, diffing | **Implemented** (subworkflows; post-run step inspector; structural version diff) |
 | 10 — Hardening & verification | Tests, security, observability | **Implemented** (operator health telemetry: run/node counts, durations, queue wait, failure codes, slowest nodes) |
@@ -377,6 +377,18 @@ paper fill. It never contacts a broker, never reads a live quote, and only runs
 in PAPER mode behind the operator's paper-trading confirmation. There is no
 live adapter; LIVE mode is refused.
 
+**Chat-to-graph.** `POST /api/graphs/plan` → Python `POST /graphs/plan` turns a
+natural-language objective into a candidate workflow. The model receives the
+runtime's ACTUAL node catalog (types, ports, config defaults, side effects) and
+returns strict JSON; `graph_runtime/planner.py` then validates every node type,
+port compatibility, config and edge, derives `requiredCapabilities` and picks
+`research` mode - or `paper` when the proposal contains a trading node - and
+dry-runs the compiler. Only a plan with zero errors becomes a `WorkflowIR`
+(saved by the normal workflow create path, never automatically executed); a
+rejected plan returns its diagnostics. Model credentials are resolved by the
+front door and used in memory only. The planner is one bounded model call: no
+auto-repair loop, no subworkflows, and no live mode.
+
 **Tabular transforms.** `transform.select`, `transform.sort_limit`,
 `logic.aggregate`, `logic.deduplicate` and `transform.join` operate on arrays of
 JSON objects (bars, fundamentals, filings, screener rows) with dotted field
@@ -470,14 +482,15 @@ Phase 1:
 Phases 3–4:
 
 - `npx tsc --noEmit` — clean.
-- `npx vitest run src/lib/graph-studio` — **15 files / 81 tests pass**.
+- `npx vitest run src/lib/graph-studio` — **16 files / 84 tests pass**.
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **196 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **202 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
   optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
+  chat-to-graph validation,
   local research/evidence + live web search/fetch/claim verification, agent
   node, operator-run/HTTP safety, registry parity, datasets, subworkflows,
   durable dispatch/resume), including a real
