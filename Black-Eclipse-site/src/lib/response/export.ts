@@ -464,6 +464,15 @@ export async function responseToPdf(response: ParsedResponse): Promise<Blob> {
         block.stages.forEach((s, i) => paragraph(`${i + 1}. ${s.label}${s.readout ? ` — ${s.readout}` : ''}`));
         y += 4;
         break;
+      case 'interactive':
+        if (block.title) heading(block.title, 12);
+        paragraph(
+          block.dataset
+            ? `Interactive app driven by ${block.dataset.symbol.toUpperCase()} (${block.dataset.range ?? '6mo'}, ${block.dataset.interval ?? '1d'}). Open the app to use it.`
+            : 'Interactive app. Open the app to use it.',
+        );
+        y += 4;
+        break;
       default:
         missing.push(`block "${(block as { type: string }).type}" has no PDF representation`);
     }

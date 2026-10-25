@@ -43,6 +43,7 @@ import { FlowBlock } from './flow-block';
 import { SimulationBlock } from './simulation-block';
 import { AnatomyBlock } from './anatomy-block';
 import { Model3dBlock } from './model3d-block';
+import { InteractiveBlock } from './interactive-block';
 import { DividerBlock, LayoutBlock } from './layout-block';
 import { ActionGroupBlock, ArtifactBlock, InfographicBlock, ReportBlock, StepperBlock, WorkflowBlock } from './rich-blocks';
 import { GalleryBlockView } from './gallery-block';
@@ -180,6 +181,7 @@ const REGISTRY = {
   simulation: (b: BlockOf<'simulation'>, ctx: RenderContext) => <SimulationBlock block={b} onFollowup={ctx.onFollowup} />,
   anatomy: (b: BlockOf<'anatomy'>) => <AnatomyBlock block={b} />,
   model3d: (b: BlockOf<'model3d'>) => <Model3dBlock block={b} />,
+  interactive: (b: BlockOf<'interactive'>) => <InteractiveBlock block={b} />,
   layout: (b: BlockOf<'layout'>, ctx: RenderContext) => <LayoutBlock block={b} renderBlocks={ctx.renderBlocks} />,
   divider: (b: BlockOf<'divider'>) => <DividerBlock block={b} />,
   inputs: (b: BlockOf<'inputs'>) => <InputsBlock block={b} />,

@@ -327,6 +327,20 @@ function blockToMarkdown(block: ValidatedBlock): string {
         .filter(Boolean)
         .join('\n\n');
     }
+    case 'interactive': {
+      const dataset = block.dataset
+        ? `Live data: ${block.dataset.symbol.toUpperCase()} · ${block.dataset.range ?? '6mo'} · ${block.dataset.interval ?? '1d'}`
+        : '';
+      return [
+        block.title ? heading(block.title) : '**Interactive app**',
+        block.description ?? '',
+        dataset,
+        '_Interactive — open the app to use it._',
+        block.caption ?? '',
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+    }
     case 'unknown':
       return '';
     default:

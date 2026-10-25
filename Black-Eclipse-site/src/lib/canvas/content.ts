@@ -39,7 +39,7 @@ export interface CanvasContent {
 /** Block types that make a response read as a structured report, not prose. */
 const REPORT_BLOCKS = new Set([
   'report', 'chart', 'financial_chart', 'data_table', 'diagram', 'flow', 'mermaid',
-  'timeline', 'gauge', 'metric_grid', 'comparison_grid', 'node_graph', 'model3d',
+  'timeline', 'gauge', 'metric_grid', 'comparison_grid', 'node_graph', 'model3d', 'interactive',
   'anatomy', 'simulation', 'gallery', 'badge_row', 'ranked_list', 'stat_hero',
   'workflow', 'infographic', 'tabs', 'carousel', 'learning_map', 'layout', 'key_value',
 ]);

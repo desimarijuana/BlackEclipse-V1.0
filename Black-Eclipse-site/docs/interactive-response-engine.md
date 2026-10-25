@@ -653,6 +653,43 @@ block's identity — and its local React state, e.g. a slider position — survi
 later blocks arrive. The settled path (`decodeResponseFence`) stays authoritative;
 the scan is a fast heuristic for the streaming path only.
 
+### Interactive apps (`interactive`) — model-authored code in an opaque-origin sandbox
+
+The `interactive` block is the escape hatch for things the user should **operate**
+rather than read: a price knob, a VWAP explorer, a draggable doji figure. Unlike
+`anatomy`/`model3d`, the model supplies actual markup + code, so the block exists
+to be *isolated*, not trusted.
+
+- **The block** (`src/lib/response/blocks/interactive.ts`): `html` (required,
+  body markup, inline SVG expected), optional `css`/`js`, `height` (240–900),
+  optional `dataset` (`{ kind:'series', symbol, market?, range?, interval? }`),
+  static `data`, and `provenance` (`illustrative` | `user-provided`). Assembled
+  source is capped at 200 KB. It rides the ADR-043 pipeline unchanged
+  (validation, repair/degrade, registry, projection, export).
+- **The sandbox** (`src/lib/interactive/document.ts` +
+  `src/components/response/interactive-frame.tsx`). The composer wraps the source
+  in ONE document whose `<head>` carries an immutable meta CSP:
+  `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';
+  img-src data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none';
+  base-uri 'none'; form-action 'none'`. It also injects a tiny runtime
+  (`Eclipse.data()`, `Eclipse.onData(fn)`, `Eclipse.resize(h)`) and unwraps a
+  model-supplied full document so the model can never replace the policy. The
+  frame is `<iframe sandbox="allow-scripts">` with **no `allow-same-origin`**, so
+  it runs in an opaque origin: no app DOM, cookies or storage, and no network.
+  Message traffic is accepted only when `event.source === frame.contentWindow`
+  and the per-render nonce matches.
+- **Data comes from the host, never from the model.** When `dataset` is present,
+  `src/lib/interactive/dataset.ts` validates the symbol/range/interval and calls
+  the existing read-only `/api/price-history` route from the app origin,
+  normalizes the bars (caps at 5000) and posts a snapshot with `source`, `asOf`,
+  `freshness` and `stale`. An empty or failed series becomes an explicit
+  `status:'unavailable'` envelope — never a fabricated line. This is why the model
+  is told to declare `dataset` instead of typing prices: a widget cannot claim to
+  be live while showing invented numbers.
+- **Fallback.** The Markdown projection names the app and its data request, and
+  the PDF export says the app must be opened in the app — nothing vanishes on a
+  surface that cannot run it.
+
 ## 4. The renderer (`src/components/response/response-view.tsx`)
 
 An explicit **registry** (`REGISTRY`: block type → component), not a conditional

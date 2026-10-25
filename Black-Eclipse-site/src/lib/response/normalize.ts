@@ -53,6 +53,11 @@ const BLOCK_TYPE_ALIASES: Record<string, string> = {
   '3d': 'model3d',
   three_d: 'model3d',
   scene3d: 'model3d',
+  // A self-contained interactive app (HTML/CSS/JS/SVG) in a sandbox.
+  interactive_app: 'interactive',
+  html_app: 'interactive',
+  mini_app: 'interactive',
+  widget: 'interactive',
 };
 
 /**

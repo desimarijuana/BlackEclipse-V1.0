@@ -197,7 +197,10 @@ const RATCHET: Record<string, number> = {
   // [x, y] pairs - the way a model writes a point - so a chart block is not
   // refused over its data format) and the named data source (a chart that
   // NAMES its series instead of carrying it). May only shrink from here.
-  "src/lib/response/contract.ts": 1452,
+  // Re-pinned 1452->1455 for the `interactive` block (a model-authored mini-app
+  // in a sandboxed iframe): one schema import, one union member, one type
+  // export. The schema itself lives in blocks/interactive.ts. May only shrink.
+  "src/lib/response/contract.ts": 1455,
 };
 
 export interface SizeEntry {

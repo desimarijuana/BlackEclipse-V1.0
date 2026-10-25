@@ -18,6 +18,7 @@
 
 import { z } from 'zod';
 import { anatomyBlock } from './blocks/anatomy';
+import { interactiveBlock } from './blocks/interactive';
 import { model3dBlock } from './blocks/model3d';
 
 export const RESPONSE_SCHEMA_VERSION = '1.0';
@@ -1105,6 +1106,7 @@ export const ResponseBlockSchema = z.discriminatedUnion('type', [
   inputsBlock,
   anatomyBlock,
   model3dBlock,
+  interactiveBlock,
 ]);
 
 /**
@@ -1219,6 +1221,7 @@ export type CarouselBlock = z.infer<typeof carouselBlock>;
 export type SimulationBlock = z.infer<typeof simulationBlock>;
 export type AnatomyBlock = z.infer<typeof anatomyBlock>;
 export type Model3dBlock = z.infer<typeof model3dBlock>;
+export type InteractiveBlock = z.infer<typeof interactiveBlock>;
 export type LayoutBlock = z.infer<typeof layoutBlock>;
 export type DividerBlock = z.infer<typeof dividerBlock>;
 export type InputsBlock = z.infer<typeof inputsBlock>;

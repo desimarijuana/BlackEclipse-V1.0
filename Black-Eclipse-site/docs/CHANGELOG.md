@@ -7,6 +7,26 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-25
+- **feat(chat): Eclipse can build and run interactive mini-apps in the conversation.**
+  Added the `interactive` response block: the model authors self-contained
+  HTML/CSS/JS/SVG (a price knob, a VWAP explorer, a doji figure) and it renders
+  inline in a sandboxed iframe. The document is composed by
+  `src/lib/interactive/document.ts` with an immutable CSP
+  (`default-src 'none'; connect-src 'none'; ...`) plus a tiny
+  `Eclipse.data()/onData()/resize()` runtime; the frame is
+  `sandbox="allow-scripts"` with no `allow-same-origin`, so it has no access to
+  the app DOM, cookies or network. Widgets that need market data declare a
+  `dataset`; the HOST fetches the existing read-only `/api/price-history` route,
+  normalizes up to 5000 bars with source/as-of/freshness and injects the snapshot
+  over postMessage (validated by frame source + per-render nonce). The model never
+  types prices, and an empty series renders an explicit unavailable
+  state instead of a fabricated line. Wired through the contract union, registry,
+  Markdown projection, PDF export, Canvas `REPORT_BLOCKS`, prompt guidance, and
+  `contract-matrix` parity. New files: `src/lib/response/blocks/interactive.ts`,
+  `src/lib/interactive/{document,dataset}.ts` (+ tests),
+  `src/components/response/{interactive-block,interactive-frame}.tsx`.
+  Decision: ADR-052. docs updated: `docs/interactive-response-engine.md`,
+  `docs/DECISIONS.md`, `skills/ARCHITECT.md`.
 - **ui(layout): slim the app header.** Top bar and sidebar brand row now use a
   single `h-12` (48px) at all breakpoints instead of `h-14 md:h-16` (56/64px),
   reclaiming vertical space while keeping the 40px inner controls comfortable.

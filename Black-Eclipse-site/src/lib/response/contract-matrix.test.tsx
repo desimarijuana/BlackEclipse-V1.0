@@ -49,6 +49,7 @@ const SAMPLES: Record<string, unknown> = {
   inputs: { type: 'inputs' },
   anatomy: { type: 'anatomy', parts: [{ id: 'a', kind: 'slab' }] },
   model3d: { type: 'model3d', parts: [{ id: 'a', kind: 'box' }] },
+  interactive: { type: 'interactive', html: '<p>hello</p>' },
 };
 
 const contractTypes = [...responseBlockMeta().keys()].sort();
