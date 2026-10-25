@@ -1463,6 +1463,540 @@
       "terminal": false
     },
     {
+      "type": "quant.montecarlo",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Monte Carlo",
+      "description": "Stress-tests a strategy through the existing Monte Carlo engine.",
+      "inputs": [
+        {
+          "id": "series",
+          "name": "OHLCV",
+          "type": "ohlcv",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "name": "Result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "metrics",
+          "name": "Metrics",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "atrMult",
+          "kind": "number",
+          "default": 2
+        },
+        {
+          "name": "atrPeriod",
+          "kind": "number",
+          "default": 14
+        },
+        {
+          "name": "executionPerturbationJson",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "fast",
+          "kind": "number",
+          "default": 12
+        },
+        {
+          "name": "initialCapital",
+          "kind": "number",
+          "default": 100000
+        },
+        {
+          "name": "interval",
+          "kind": "string",
+          "default": "1d"
+        },
+        {
+          "name": "method",
+          "kind": "string",
+          "default": "trade_reshuffle"
+        },
+        {
+          "name": "overbought",
+          "kind": "number",
+          "default": 55
+        },
+        {
+          "name": "oversold",
+          "kind": "number",
+          "default": 30
+        },
+        {
+          "name": "perturbationJson",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "perturbationPct",
+          "kind": "number",
+          "default": 0.1
+        },
+        {
+          "name": "preset",
+          "kind": "string",
+          "default": "ema_cross"
+        },
+        {
+          "name": "randomSeed",
+          "kind": "number",
+          "default": 42
+        },
+        {
+          "name": "regimeBlockLength",
+          "kind": "number",
+          "default": 1
+        },
+        {
+          "name": "regimeMix",
+          "kind": "string",
+          "default": "resample"
+        },
+        {
+          "name": "reward",
+          "kind": "number",
+          "default": 2
+        },
+        {
+          "name": "riskFreeRate",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "rsiPeriod",
+          "kind": "number",
+          "default": 14
+        },
+        {
+          "name": "ruinThreshold",
+          "kind": "number",
+          "default": 0.5
+        },
+        {
+          "name": "simulations",
+          "kind": "number",
+          "default": 1000
+        },
+        {
+          "name": "sizePct",
+          "kind": "number",
+          "default": 90
+        },
+        {
+          "name": "slow",
+          "kind": "number",
+          "default": 50
+        },
+        {
+          "name": "stopPct",
+          "kind": "number",
+          "default": 5
+        },
+        {
+          "name": "strategyJson",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.oos",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Out-of-sample evaluation",
+      "description": "Splits the series chronologically and compares in-sample with out-of-sample.",
+      "inputs": [
+        {
+          "id": "series",
+          "name": "OHLCV",
+          "type": "ohlcv",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "name": "Result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "inSample",
+          "name": "In-sample",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "outOfSample",
+          "name": "Out-of-sample",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "divergence",
+          "name": "Divergence",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "atrMult",
+          "kind": "number",
+          "default": 2
+        },
+        {
+          "name": "atrPeriod",
+          "kind": "number",
+          "default": 14
+        },
+        {
+          "name": "bootstrapIterations",
+          "kind": "number",
+          "default": 1000
+        },
+        {
+          "name": "confidence",
+          "kind": "number",
+          "default": 0.95
+        },
+        {
+          "name": "fast",
+          "kind": "number",
+          "default": 12
+        },
+        {
+          "name": "initialCapital",
+          "kind": "number",
+          "default": 100000
+        },
+        {
+          "name": "interval",
+          "kind": "string",
+          "default": "1d"
+        },
+        {
+          "name": "objective",
+          "kind": "string",
+          "default": "sharpe"
+        },
+        {
+          "name": "oosFraction",
+          "kind": "number",
+          "default": 0.3
+        },
+        {
+          "name": "oosStartIndex",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "overbought",
+          "kind": "number",
+          "default": 55
+        },
+        {
+          "name": "oversold",
+          "kind": "number",
+          "default": 30
+        },
+        {
+          "name": "preset",
+          "kind": "string",
+          "default": "ema_cross"
+        },
+        {
+          "name": "randomSeed",
+          "kind": "number",
+          "default": 42
+        },
+        {
+          "name": "reward",
+          "kind": "number",
+          "default": 2
+        },
+        {
+          "name": "riskFreeRate",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "rsiPeriod",
+          "kind": "number",
+          "default": 14
+        },
+        {
+          "name": "sizePct",
+          "kind": "number",
+          "default": 90
+        },
+        {
+          "name": "slow",
+          "kind": "number",
+          "default": 50
+        },
+        {
+          "name": "stopPct",
+          "kind": "number",
+          "default": 5
+        },
+        {
+          "name": "strategyJson",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.optimize",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Optimize parameters",
+      "description": "Searches a parameter grid through the existing quant optimizer.",
+      "inputs": [
+        {
+          "id": "series",
+          "name": "OHLCV",
+          "type": "ohlcv",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "name": "Result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "best",
+          "name": "Best",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "leaderboard",
+          "name": "Leaderboard",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "metrics",
+          "name": "Metrics",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "atrMult",
+          "kind": "number",
+          "default": 2
+        },
+        {
+          "name": "atrPeriod",
+          "kind": "number",
+          "default": 14
+        },
+        {
+          "name": "fast",
+          "kind": "number",
+          "default": 12
+        },
+        {
+          "name": "initialCapital",
+          "kind": "number",
+          "default": 100000
+        },
+        {
+          "name": "interval",
+          "kind": "string",
+          "default": "1d"
+        },
+        {
+          "name": "leaderboardSize",
+          "kind": "number",
+          "default": 15
+        },
+        {
+          "name": "maxEvaluations",
+          "kind": "number",
+          "default": 60
+        },
+        {
+          "name": "method",
+          "kind": "string",
+          "default": "random"
+        },
+        {
+          "name": "objective",
+          "kind": "string",
+          "default": "sharpe"
+        },
+        {
+          "name": "objectivesJson",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "overbought",
+          "kind": "number",
+          "default": 55
+        },
+        {
+          "name": "oversold",
+          "kind": "number",
+          "default": 30
+        },
+        {
+          "name": "paramSpaceJson",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "preset",
+          "kind": "string",
+          "default": "ema_cross"
+        },
+        {
+          "name": "randomSeed",
+          "kind": "number",
+          "default": 42
+        },
+        {
+          "name": "reward",
+          "kind": "number",
+          "default": 2
+        },
+        {
+          "name": "riskFreeRate",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "rsiPeriod",
+          "kind": "number",
+          "default": 14
+        },
+        {
+          "name": "sizePct",
+          "kind": "number",
+          "default": 90
+        },
+        {
+          "name": "slow",
+          "kind": "number",
+          "default": 50
+        },
+        {
+          "name": "stopPct",
+          "kind": "number",
+          "default": 5
+        },
+        {
+          "name": "strategyJson",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "quant.returns",
       "version": "1.0.0",
       "category": "quant",

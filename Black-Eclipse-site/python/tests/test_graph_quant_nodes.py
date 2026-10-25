@@ -105,6 +105,83 @@ def test_walkforward_insufficient_history_is_honest():
     assert result["windows"] == []
 
 
+def _series(n: int = 300) -> dict:
+    return {"symbol": "TESTUSDT", "interval": "1d", "rows": F.bull_market("TESTUSDT", n=n)}
+
+
+def test_optimize_returns_a_leaderboard_and_best_trial():
+    result = _exec(
+        {
+            "preset": "ema_cross", "method": "grid", "maxEvaluations": 6,
+            "leaderboardSize": 5,
+        },
+        _series(),
+        "quant.optimize",
+    )
+    assert result["result"]["status"] == "OK"
+    assert result["result"]["kind"] == "optimization"
+    assert result["best"] is not None
+    assert result["best"]["params"]
+    assert 0 < len(result["leaderboard"]) <= 5
+    assert result["result"]["stability"]
+
+
+def test_optimize_without_an_axis_is_explicit():
+    with pytest.raises(ValueError, match="optimization failed"):
+        _exec(
+            {"preset": "ema_cross", "paramSpaceJson": "{}"},
+            _series(120),
+            "quant.optimize",
+        )
+
+
+def test_montecarlo_reports_the_stress_distribution():
+    result = _exec(
+        {"preset": "ema_cross", "method": "trade_reshuffle", "simulations": 40},
+        _series(200),
+        "quant.montecarlo",
+    )
+    assert result["result"]["status"] == "OK"
+    assert result["summary"]["method"] == "trade_reshuffle"
+    assert result["summary"]["simulations"] == 40
+    assert 0.0 <= result["result"]["probabilityOfRuin"] <= 100.0
+    assert "p5" in result["result"]["returnPercentiles"]
+
+
+def test_oos_splits_chronologically_and_reports_divergence():
+    result = _exec(
+        {
+            "preset": "ema_cross", "oosFraction": 0.3, "objective": "sharpe",
+            "bootstrapIterations": 40,
+        },
+        _series(300),
+        "quant.oos",
+    )
+    assert result["result"]["status"] == "OK"
+    assert result["result"]["split"]["inSampleBars"] == 210
+    assert result["result"]["split"]["outOfSampleBars"] == 90
+    assert result["divergence"]["objective"] == "sharpe"
+    assert "inSample" in result["divergence"] and "outOfSample" in result["divergence"]
+    assert result["result"]["bootstrap"]["available"] is True
+    assert result["result"]["bootstrap"]["ciLower"] <= result["result"]["bootstrap"]["ciUpper"]
+
+
+def test_oos_can_split_by_index_and_rejects_an_invalid_one():
+    result = _exec(
+        {"preset": "ema_cross", "oosStartIndex": 200, "bootstrapIterations": 0},
+        _series(300),
+        "quant.oos",
+    )
+    assert result["result"]["split"]["index"] == 200
+    assert result["result"]["bootstrap"] is None
+    with pytest.raises(ValueError, match="invalid split"):
+        _exec(
+            {"preset": "ema_cross", "oosStartIndex": 400},
+            _series(300),
+            "quant.oos",
+        )
+
+
 def test_empty_series_and_bad_strategy_are_explicit():
     with pytest.raises(ValueError, match="OHLCV series"):
         _exec({}, {"symbol": "X", "interval": "1d", "rows": []})

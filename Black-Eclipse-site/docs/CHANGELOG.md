@@ -359,6 +359,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `run-authorization.test.ts` (network vs local research nodes). docs updated:
   `docs/graph-studio.md`, `docs/harness/security.md`.
 
+- **feat(graph): optimizer, Monte Carlo and OOS holdout nodes (Phase 6 complete).**
+  Added `quant.optimize`, `quant.montecarlo` and `quant.oos` to both registries.
+  They reuse the tested quant engines instead of reimplementing research math:
+  the optimizer returns best/leaderboard/stability, Monte Carlo returns the
+  return distribution and loss/ruin probabilities, and the OOS node makes a
+  chronological split (fraction or index), backtests both sides with the same
+  deterministic engine, reports IS/OOS divergence and a block-bootstrap CI for
+  the OOS mean return. A materially weaker OOS objective raises
+  `IS_OOS_DIVERGENCE`. The manifest is now 48 types. Tests:
+  `test_graph_quant_nodes.py` (optimizer leaderboard/no-axis refusal, Monte
+  Carlo distribution, OOS split/index/invalid split). docs updated:
+  `docs/graph-studio.md` (Phase 6 status + next milestone), no other contract
+  changed.
+
 ## 2026-10-24
 - **ui(chat): roomier chat history rows.** Increased the vertical gap between
   conversation rows from 2px (`gap-0.5`) to 6px (`gap-1.5`) inside the pinned,

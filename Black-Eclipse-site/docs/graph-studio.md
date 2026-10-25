@@ -171,7 +171,7 @@ If the stream disconnects, the UI falls back to bounded polling.
 | **3 — Compiler & execution engine** | IR → plan, deterministic executor, inspection, isolation | **Implemented & verified** |
 | **4 — Control flow, scheduling & triggers** | Control-flow node pack, unattended schedules, webhook trigger, run recovery | **Implemented & verified** (distributed/Fabric-backed durability is the remaining piece) |
 | **5 — Finance & quant node library** | Market-data + indicator node executors | **Implemented & verified** (first pack: market data, indicator, returns, z-score, volatility) |
-| 6 — Backtest & simulation | Strategy graphs, metrics | **Backtest + walk-forward implemented** (reuse `quant/`); standalone optimizer/Monte Carlo/OOS node not started |
+| 6 — Backtest & simulation | Strategy graphs, metrics | **Implemented & verified** (backtest, walk-forward, optimizer, Monte Carlo and out-of-sample holdout; all reuse `quant/`) |
 | 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Research agent node and live web-research nodes implemented** (search, fetch, claim verification over the existing research engine); planner/delegate/NL→IR not started |
 | 8 — Paper trading & safety | Execution adapter, risk controls, modes | Not started (modes + trading side-effect class already enforced by the compiler) |
 | 9 — Advanced engineering | Subworkflows, debugging, diffing | **Subworkflows implemented**; debugging/diffing not started |
@@ -322,6 +322,19 @@ default parameter space is derived from the preset; a custom strategy needs
 `paramSpaceJson`. Insufficient history is returned as an honest
 `INSUFFICIENT_HISTORY` status, not an exception.
 
+**Optimizer, Monte Carlo and OOS holdout.** `quant.optimize` drives
+`harness/quant/optimize.py` over `paramSpaceJson` (grid/random/evolutionary/
+bayesian) and returns the best trial, leaderboard, stability and Pareto set -
+it reports a choice, it never auto-adopts one. `quant.montecarlo` drives
+`harness/quant/montecarlo.py` (trade reshuffle, return bootstrap, regime blocks,
+parameter/execution perturbation) and returns return percentiles, loss/ruin
+probability and drawdowns. `quant.oos` makes a chronological split (fraction or
+index), backtests both sides with the SAME deterministic engine, and reports
+in-sample vs out-of-sample metrics, their objective divergence and a
+block-bootstrap confidence interval for the OOS mean return. A materially
+weaker OOS objective is an explicit `IS_OOS_DIVERGENCE` warning, never a
+silently "validated" strategy.
+
 **Research agent.** `agent.research` is a thin adapter over the EXISTING agent
 run plane (`AgenticService.run`), not a second agent loop. It accepts a query or
 configured objective, resolves the named agent preset and its tools, caps the
@@ -417,9 +430,10 @@ Phases 3–4:
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **180 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **185 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
-  gateway quote/history, tabular transforms, quant backtest/walk-forward,
+  gateway quote/history, tabular transforms, quant backtest/walk-forward/
+  optimizer/Monte Carlo/OOS,
   local research/evidence + live web search/fetch/claim verification, agent
   node, operator-run/HTTP safety, registry parity, datasets, subworkflows,
   durable dispatch/resume), including a real
@@ -495,8 +509,9 @@ or HTTP errors.
 
 ## Next milestone
 
-**Phase 6**: quant research, backtesting and simulation — a strategy graph
-(init → signal → sizing → entry/exit → portfolio simulation) compiled onto the
-existing `harness/quant/` engine, with point-in-time data, costs/slippage,
-trade-level accounting that reconciles with portfolio results, and a results
-view whose metrics come only from the deterministic engine.
+**Phase 8**: paper trading and safety — an execution adapter behind the existing
+trading side-effect class, risk controls, and paper/live mode separation. The
+compiler already refuses trading nodes without an explicit paper/live grant and
+refuses operator runs that include external writes; Phase 8 is the adapter and
+risk layer, not a new execution loop.
+
