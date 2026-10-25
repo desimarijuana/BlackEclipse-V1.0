@@ -41,8 +41,65 @@ def install_graph_layer(service: Any) -> bool:
 
         from .datasets import GraphDatasetStore, set_dataset_store  # noqa: PLC0415
         from .finance_nodes import set_market_gateway, set_series_store  # noqa: PLC0415
+        from .research_nodes import set_evidence_store  # noqa: PLC0415
+        from .agent_nodes import set_agent_runner  # noqa: PLC0415
+        from ..research.web_store import EvidenceStore  # noqa: PLC0415
 
+        def _agent_runner(context, config, objective):
+            """Run ONE bounded turn on the existing agent run plane."""
+            import asyncio  # noqa: PLC0415
+            import os  # noqa: PLC0415
+
+            from ..agents import get_agent  # noqa: PLC0415
+            from ..schemas import ModelSettings, RunInput, RunRequest  # noqa: PLC0415
+
+            if not context.model_settings:
+                raise ValueError(
+                    "model settings are unavailable for this run; start it as an "
+                    "operator run with a configured model provider"
+                )
+            try:
+                base = get_agent(config["agent"])
+            except KeyError as exc:
+                raise ValueError(f"unknown agent {config['agent']!r}") from exc
+            agent = base.model_copy(update={
+                "maxSteps": max(1, min(int(config["maxSteps"]), base.maxSteps or 8)),
+            })
+            callback = context.callback_base_url or (
+                os.environ.get("HARNESS_CALLBACK_URL")
+                or f"http://127.0.0.1:{os.environ.get('PORT', '3000')}"
+            )
+            request = RunRequest(
+                runId=f"graph:{context.run_id}:{context.node_id}",
+                input=RunInput(query=objective),
+                agent=agent,
+                modelSettings=ModelSettings(**context.model_settings),
+                userId=context.user_id,
+                callbackBaseUrl=callback,
+                callbackToken=context.callback_token or os.environ.get("CRON_SECRET"),
+                analysisEnabled=False,
+            )
+            result = asyncio.run(service.run(request))
+            status = getattr(result.status, "value", str(result.status))
+            if status not in ("succeeded",):
+                error = getattr(result, "error", None)
+                message = getattr(error, "message", None) or getattr(result, "output", None) or status
+                raise ValueError(f"agent run {status}: {message}")
+            finding = {
+                "text": result.output or "",
+                "runId": result.runId,
+                "status": status,
+                "research": result.research,
+                "tokens": result.totalTokens,
+                "toolCalls": result.toolCalls,
+            }
+            return {"finding": finding, "evidence": result.research or {}}
+
+        set_agent_runner(_agent_runner)
         set_series_store(SeriesStore(service.store))
+        set_evidence_store(
+            getattr(service, "evidence_store", None) or EvidenceStore(service.store)
+        )
         gateway_factory = getattr(service, "server_market_gateway", None)
         if callable(gateway_factory):
             try:

@@ -22,6 +22,7 @@ const CATEGORY_LABELS: Record<NodeCategory, string> = {
   finance: 'Market data',
   quant: 'Quant',
   agent: 'Agents',
+  research: 'Research & Evidence',
   output: 'Output',
 };
 

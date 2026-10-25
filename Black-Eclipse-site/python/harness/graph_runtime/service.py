@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -64,6 +65,9 @@ class GraphService:
         self._live: dict[str, _LiveRun] = {}
         self._lock = threading.Lock()
         self._fabric: Any = None
+        # Front-door-resolved credentials live in memory only. They are never
+        # included in `_job_payload` (which Fabric persists on disk).
+        self._model_settings: dict[str, dict[str, Any]] = {}
 
     def set_fabric(self, fabric: Any) -> None:
         """Bind the Execution Fabric; runs then dispatch as durable jobs."""
@@ -169,6 +173,10 @@ class GraphService:
         grants: Optional[RunGrants] = None,
         subworkflows: Optional[dict[str, WorkflowIR]] = None,
         run_input: Any = None,
+        model_settings: Optional[dict[str, Any]] = None,
+        callback_base_url: str = "",
+        callback_token: Optional[str] = None,
+        user_id: str = "local",
     ) -> GraphRun:
         """Compile + execute + persist on the CALLING thread. Deterministic."""
         grants = grants or RunGrants()
@@ -189,6 +197,10 @@ class GraphService:
             subworkflows=subworkflows, run_input=run_input,
             on_event=self._event_callback(run_id),
             on_node_finished=self._node_callback(run_id),
+            model_settings=model_settings,
+            callback_base_url=callback_base_url,
+            callback_token=callback_token,
+            user_id=user_id,
         )
         try:
             run = executor.execute()
@@ -212,6 +224,10 @@ class GraphService:
         grants: Optional[RunGrants] = None,
         subworkflows: Optional[dict[str, WorkflowIR]] = None,
         run_input: Any = None,
+        model_settings: Optional[dict[str, Any]] = None,
+        callback_base_url: str = "",
+        callback_token: Optional[str] = None,
+        user_id: str = "local",
     ) -> dict[str, Any]:
         """Compile, persist a QUEUED row and dispatch.
 
@@ -238,6 +254,8 @@ class GraphService:
             plan=plan,
         )
         self._store.create_run(starting)
+        if model_settings:
+            self._model_settings[run_id] = model_settings
 
         if self._fabric is not None:
             payload = self._job_payload(
@@ -282,6 +300,10 @@ class GraphService:
                     owner_id=owner_id,
                     workflow_version=workflow_version,
                     subworkflows=subworkflows, run_input=run_input,
+                    model_settings=model_settings,
+                    callback_base_url=callback_base_url,
+                    callback_token=callback_token,
+                    user_id=user_id,
                 )
                 run = executor.execute()
                 self._store.finish_run(run)
@@ -294,6 +316,7 @@ class GraphService:
                 })
                 self._store.finish_run(failed)
             finally:
+                self._model_settings.pop(run_id, None)
                 with self._lock:
                     self._live.pop(run_id, None)
 
@@ -370,6 +393,11 @@ class GraphService:
                 log.warning("graph run %s has a non-resumable checkpoint; starting fresh", run_id)
 
         self._store.mark_running(run_id)
+        model_settings = self._model_settings.get(run_id)
+        callback_base_url = (
+            os.environ.get("HARNESS_CALLBACK_URL")
+            or f"http://127.0.0.1:{os.environ.get('PORT', '3000')}"
+        )
         executor = GraphExecutor(
             ir, plan, self._registry,
             run_id=run_id, grants=grants, cancel_event=cancel_event,
@@ -380,6 +408,10 @@ class GraphService:
             subworkflows=subworkflows,
             run_input=payload.get("runInput"),
             resume=resume,
+            model_settings=model_settings,
+            callback_base_url=callback_base_url,
+            callback_token=os.environ.get("CRON_SECRET"),
+            user_id=str(payload.get("ownerId") or "local"),
         )
         try:
             run = executor.execute()
@@ -393,8 +425,10 @@ class GraphService:
                 ownerId=str(payload.get("ownerId") or "local"), plan=plan,
             )
             self._store.finish_run(failed)
+            self._model_settings.pop(run_id, None)
             raise
         self._store.finish_run(run)
+        self._model_settings.pop(run_id, None)
         return run
 
     # ── inspection ─────────────────────────────────────────────────────────

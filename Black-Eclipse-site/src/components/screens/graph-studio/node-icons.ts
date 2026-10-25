@@ -35,6 +35,7 @@ const CATEGORY_FALLBACK: Record<NodeCategory, LucideIcon> = {
   finance: ChartLine,
   quant: Activity,
   agent: Bot,
+  research: Globe,
   output: Check,
 };
 

@@ -22,6 +22,7 @@ import {
   openGraphRunStream, startWorkflowRun, GraphRunApiError,
 } from '@/lib/graph-studio/execution-client';
 import type { ExecutionMode } from '@/lib/graph-studio/types';
+import { summarizeRunNeeds } from '@/lib/graph-studio/run-authorization';
 import { GraphCanvas } from './graph-canvas';
 import { NodeInspector } from './node-inspector';
 import { ValidationPanel } from './validation-panel';
@@ -69,6 +70,7 @@ export function GraphStudioScreen() {
   const pollingRef = useRef(false);
 
   const errorCount = useMemo(() => diagnostics.filter((d) => d.severity === 'error').length, [diagnostics]);
+  const runNeeds = useMemo(() => (ir ? summarizeRunNeeds(ir) : null), [ir]);
 
   useEffect(() => {
     void refreshCatalog();
@@ -175,12 +177,16 @@ export function GraphStudioScreen() {
     pollingRef.current = false;
   }, []);
 
-  const startRun = useCallback(async () => {
+  const startRun = useCallback(async (operator = false) => {
     if (!workflowId) return;
     setRunBusy(true);
     setError(null);
     try {
-      const record = await startWorkflowRun(workflowId);
+      const record = await startWorkflowRun(
+        workflowId,
+        undefined,
+        operator ? { operator: true, allowNetwork: true } : undefined,
+      );
       setRun(record);
       setRightTab('run');
       streamRun(record.id);
@@ -280,6 +286,30 @@ export function GraphStudioScreen() {
             >
               <Play size={12} /> Test run
             </button>
+            {runNeeds?.requiresNetwork && (
+              <button
+                type="button"
+                disabled={!canRun || runNeeds.writeNodes.length > 0 || runNeeds.tradingNodes.length > 0}
+                onClick={() => {
+                  const names = runNeeds.networkNodes.join(', ');
+                  if (window.confirm(
+                    `Allow outbound network access for this run?\n\n${names}\n\nOnly the capabilities this graph declares are granted; trading and external writes remain blocked.`,
+                  )) {
+                    void startRun(true);
+                  }
+                }}
+                title={
+                  runNeeds.writeNodes.length > 0
+                    ? `External write nodes are not enabled yet: ${runNeeds.writeNodes.join(', ')}`
+                    : runNeeds.tradingNodes.length > 0
+                      ? `Trading nodes are not enabled: ${runNeeds.tradingNodes.join(', ')}`
+                      : runBlockReason ?? 'Operator run with explicit network access'
+                }
+                className="flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-200 hover:bg-amber-500/20 disabled:opacity-40"
+              >
+                <Play size={12} /> Operator run
+              </button>
+            )}
           </div>
         </div>
 

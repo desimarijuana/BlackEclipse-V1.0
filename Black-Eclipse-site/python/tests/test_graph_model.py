@@ -100,11 +100,18 @@ def test_unavailable_nodes_are_registered_with_a_phase():
     """Nodes whose executor a later phase still owes must be REGISTERED and name
     that phase, so the compiler can refuse them with an actionable message."""
     registry = build_default_registry()
-    for node_type in ("agent.research", "integration.http"):
+    # The video render node is the remaining declared-only node; it names its
+    # phase so the compiler can refuse it with an actionable message.
+    video = registry.get("video.render")
+    assert video is not None
+    assert video.executor is None
+    assert video.since_phase
+    # The HTTP and agent nodes are executable now; they are gated by the
+    # operator-run network envelope.
+    for node_type in ("integration.http", "agent.research"):
         definition = registry.get(node_type)
-        assert definition is not None
-        assert definition.executor is None
-        assert definition.since_phase, f"{node_type} must name the phase that brings its executor"
+        assert definition is not None and definition.executor is not None
+        assert definition.side_effects.value == "network"
     # The finance/quant pack gained real executors in Phase 5.
     for node_type in ("finance.market_data", "finance.indicator", "quant.returns", "quant.zscore", "quant.volatility"):
         definition = registry.get(node_type)

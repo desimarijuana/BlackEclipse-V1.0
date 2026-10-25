@@ -59,14 +59,22 @@ export async function POST(request: Request, ctx: Ctx) {
   const blocked = guardMutation(request, "workflow-run");
   if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   const { id } = await ctx.params;
-  const body = (await request.json().catch(() => ({}))) as { version?: number };
+  const body = (await request.json().catch(() => ({}))) as {
+    version?: number;
+    operator?: boolean;
+    allowNetwork?: boolean;
+  };
 
   // The persisted version is the ONLY authority for what runs (see run-server).
+  // A test run is the default; an operator run is an explicit request and the
+  // server derives its grants from the registry, never from the client.
   const result = await startPersistedRun({
     workflowId: id,
     version: typeof body.version === "number" ? body.version : undefined,
     request,
-    testRun: true,
+    authorization: body.operator
+      ? { operator: true, allowNetwork: Boolean(body.allowNetwork) }
+      : undefined,
   });
   if (!result.ok) {
     return NextResponse.json(

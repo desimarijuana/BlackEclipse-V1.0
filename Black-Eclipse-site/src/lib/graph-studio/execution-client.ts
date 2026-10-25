@@ -158,11 +158,21 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-/** Start a TEST run of a workflow's persisted version. */
-export async function startWorkflowRun(workflowId: string, version?: number): Promise<GraphRunRecord> {
+export interface StartRunOptions {
+  /** Explicit operator run. The server still derives grants from the graph. */
+  operator?: boolean;
+  allowNetwork?: boolean;
+}
+
+/** Start a TEST run (default) or an explicitly authorized operator run. */
+export async function startWorkflowRun(
+  workflowId: string,
+  version?: number,
+  options: StartRunOptions = {},
+): Promise<GraphRunRecord> {
   const data = await request<{ run: GraphRunRecord }>(`/api/workflows/${workflowId}/runs`, {
     method: 'POST',
-    body: JSON.stringify({ version }),
+    body: JSON.stringify({ version, ...options }),
   });
   return data.run;
 }

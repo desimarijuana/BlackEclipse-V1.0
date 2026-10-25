@@ -61,6 +61,14 @@ class NodeExecContext:
     # The caller-supplied input for this run. A subworkflow receives its
     # parent node's input here; a top-level run normally leaves it None.
     run_input: Any = None
+    # Model credentials are resolved by the front door and held IN MEMORY for
+    # this run only. They are deliberately excluded from the durable Fabric job
+    # payload, so a restart makes agent nodes fail honestly rather than persist a
+    # key to disk.
+    model_settings: Optional[dict[str, Any]] = None
+    callback_base_url: str = ""
+    callback_token: Optional[str] = None
+    user_id: str = "local"
 
 
 @dataclass

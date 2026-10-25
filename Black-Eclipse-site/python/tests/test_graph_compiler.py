@@ -148,8 +148,10 @@ def test_test_run_denies_effects_and_names_the_phase():
     codes = _codes(plan)
     assert plan.executable is False
     assert "permission_denied" in codes          # both are effectful nodes
-    assert "executor_unavailable" in codes
-    assert "Phase 4" in messages and "Phase 7" in messages
+    # Both nodes are executable; the test-run envelope refuses them by effect,
+    # not because their executor is missing.
+    assert "executor_unavailable" not in codes
+    assert "network" in messages
 
 
 def test_capability_is_required_for_effectful_nodes():

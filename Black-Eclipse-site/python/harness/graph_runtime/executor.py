@@ -91,6 +91,10 @@ class GraphExecutor:
         on_node_finished: Optional[
             Callable[[NodeRun, dict[str, Any], list[str], bool, Any], None]
         ] = None,
+        model_settings: Optional[dict[str, Any]] = None,
+        callback_base_url: str = "",
+        callback_token: Optional[str] = None,
+        user_id: str = "local",
     ) -> None:
         self._ir = ir
         self._plan = plan
@@ -107,6 +111,10 @@ class GraphExecutor:
         self._subworkflow_stack = subworkflow_stack
         self._resume = resume or ResumeState()
         self._on_node_finished = on_node_finished
+        self._model_settings = model_settings
+        self._callback_base_url = callback_base_url
+        self._callback_token = callback_token
+        self._user_id = user_id
         self._terminal_outputs: dict[str, Any] = {}
 
         self._inputs_map = plan_inputs(ir)
@@ -337,6 +345,10 @@ class GraphExecutor:
             config=config,
             emit=lambda message: self._emit("node.log", message, node_id),
             run_input=self._run_input,
+            model_settings=self._model_settings,
+            callback_base_url=self._callback_base_url,
+            callback_token=self._callback_token,
+            user_id=self._user_id,
         )
 
         def call() -> dict[str, Any]:

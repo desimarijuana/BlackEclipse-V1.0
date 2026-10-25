@@ -52,6 +52,8 @@ TEST_RUN_CAPABILITIES = frozenset({
     # count and TTL limits, so a test run may use them.
     "dataset.read",
     "dataset.write",
+    # Local evidence reads cannot affect the world.
+    "research.read",
 })
 
 

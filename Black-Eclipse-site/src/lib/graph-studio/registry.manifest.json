@@ -720,9 +720,19 @@
       ],
       "configFields": [
         {
+          "name": "bodyJson",
+          "kind": "string",
+          "default": ""
+        },
+        {
           "name": "method",
           "kind": "string",
           "default": "GET"
+        },
+        {
+          "name": "timeoutMs",
+          "kind": "number",
+          "default": 10000
         },
         {
           "name": "url",
@@ -1775,6 +1785,275 @@
         "quant.compute"
       ],
       "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.citations",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Citations & claims",
+      "description": "Reads citations and claims for a research run.",
+      "inputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "citations",
+          "name": "Citations",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "claims",
+          "name": "Claims",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 100
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.completeness",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Completeness check",
+      "description": "Summarizes coverage, supported claims, citations and unresolved conflicts.",
+      "inputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.conflicts",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Conflicts",
+      "description": "Reads stored source conflicts for a research run.",
+      "inputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "conflicts",
+          "name": "Conflicts",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 100
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.evidence",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Retrieve evidence",
+      "description": "Reads stored evidence for a research run, with an optional text filter.",
+      "inputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "evidence",
+          "name": "Evidence",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 100
+        },
+        {
+          "name": "query",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.report",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Research report",
+      "description": "Builds a deterministic Markdown report from the stored research graph.",
+      "inputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "report",
+          "name": "Report",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
       "allowedModes": [
         "backtest",
         "live",

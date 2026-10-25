@@ -214,6 +214,50 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   StrategySpec, explicit failures) + registry parity. Targeted graph suites
   67 TS + 108 Python. docs updated: `docs/graph-studio.md`,
   `docs/NAVIGATION.md`.
+- **feat(graph): walk-forward validation node.** Added `quant.walkforward` in
+  both registries. It adapts the OHLCV payload and calls
+  `harness/quant/walkforward.py`, optimizing only on each training window and
+  reporting in-sample, out-of-sample and combined metrics plus IS/OOS
+  divergence. Preset-derived default parameter spaces are provided; custom
+  strategies supply `paramSpaceJson`. Insufficient history is an honest
+  `INSUFFICIENT_HISTORY` result. The manifest is now 37 types. Tests:
+  `test_graph_quant_nodes.py` (walk-forward windows + insufficient history) +
+  registry parity. Targeted graph suites 67 TS + 110 Python. docs updated:
+  `docs/graph-studio.md`, `docs/NAVIGATION.md`.
+- **feat(graph): local research & evidence nodes.** Added `research.evidence`,
+  `research.citations`, `research.conflicts`, `research.completeness` and
+  `research.report` in both registries. They read the EXISTING web-research
+  `EvidenceStore` (no web request, no model call): evidence with a text filter,
+  claims/citations, conflicts, a coverage summary, and a deterministic Markdown
+  report. `research.read` is granted to test runs because it is a local read.
+  The manifest is now 42 types. Tests: `test_graph_research_nodes.py`
+  (filter, citations/claims, conflicts, completeness, deterministic report,
+  missing id) + registry parity. Targeted graph suites 67 TS + 115 Python.
+  docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`.
+- **feat(graph): operator-run envelope + a real HTTP node.** The front door now
+  derives a run's grants from the persisted IR and the node registry
+  (`run-authorization.ts`): test run by default; an operator run grants exactly
+  the declared capabilities, enables network only on explicit confirmation, and
+  refuses trading and external write nodes. `integration.http` gained a real
+  executor: SSRF-checked, loopback refused, 1 MB response cap, 60 s ceiling,
+  JSON body support, no custom headers/credentials yet. The UI shows an
+  `Operator run` button only when the graph needs network and asks for
+  confirmation naming the network nodes. Tests: `run-authorization.test.ts` and
+  `test_graph_http_operator.py` (envelope denial/grant, GET/POST, blocked and
+  loopback URLs, size cap). Targeted graph suites 71 TS + 120 Python. docs
+  updated: `docs/graph-studio.md`, `docs/harness/security.md`,
+  `docs/NAVIGATION.md`.
+- **feat(graph): the research agent node runs on the existing agent plane.**
+  `agent.research` now has an executor: it resolves a named agent preset, caps
+  the turn at `maxSteps`, calls `AgenticService.run`, and returns a structured
+  `finding` plus the run's research evidence. It is gated by the operator-run
+  network envelope. The front door resolves model credentials from the vault
+  and sends them in memory; `GraphService` excludes them from the durable
+  Fabric job payload, so a restart before the node fails honestly instead of
+  persisting a key. Tests: `test_graph_agent_node.py` (structured finding,
+  objective required, bound-runtime required, envelope denial/grant) + registry
+  parity. Targeted graph suites 71 TS + 124 Python. docs updated:
+  `docs/graph-studio.md`, `docs/NAVIGATION.md`.
 
 - **feat(delegation): per-attempt approaches for `best_of`.** A best-of attempt
   may carry a short `approach` (tool `approaches[]`, e.g. "retry with backoff"

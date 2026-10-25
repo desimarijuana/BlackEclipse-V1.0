@@ -179,6 +179,12 @@ guard (`mcp/ssrf.py`) and DNS is resolved and pinned so a rebinding host cannot
 slip between the check and the connection. Private/loopback/link-local/metadata
 targets are always refused. Redirects are re-validated on every hop.
 
+**Graph operator runs** use the same SSRF guard from `graph_runtime/nodes.py`
+(no loopback, 1 MB response cap, hard timeout). The front door
+(`run-authorization.ts`) derives grants from the node registry, enables network
+only on an explicit operator request, and refuses trading and external write
+nodes. Test runs never perform network, write or trading effects.
+
 ## Session isolation (`security/context.py`)
 
 One `SecurityContext` per session. A request that presents a different session or

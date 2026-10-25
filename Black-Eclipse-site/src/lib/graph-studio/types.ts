@@ -146,6 +146,7 @@ export type NodeCategory =
   | 'finance'
   | 'quant'
   | 'agent'
+  | 'research'
   | 'output';
 
 /**

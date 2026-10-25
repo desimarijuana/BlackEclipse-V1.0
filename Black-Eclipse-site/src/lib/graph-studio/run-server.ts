@@ -9,8 +9,10 @@
 import { HARNESS_PY_URL, ensurePythonRuntime } from '@/lib/harness/python-runtime';
 import { runtimeCallbackToken } from '@/lib/harness/runtime-auth';
 import { runtimeIdentityHeaders } from '@/lib/harness/runtime-identity';
+import { getLLMConfig } from '@/lib/settings';
 import { getWorkflow } from './server-store';
 import { collectSubworkflows } from './subworkflow-bundle';
+import { authorizeGraphRun, type RunAuthorizationOptions } from './run-authorization';
 
 export interface StartRunResult {
   ok: boolean;
@@ -24,6 +26,9 @@ export async function startPersistedRun(options: {
   workflowId: string;
   version?: number | null;
   request?: Request;
+  /** Omitted = a TEST run. An operator run grants only what the graph needs. */
+  authorization?: RunAuthorizationOptions;
+  /** Kept for existing callers; a test run is the default. */
   testRun?: boolean;
 }): Promise<StartRunResult> {
   const healthy = await ensurePythonRuntime();
@@ -56,6 +61,33 @@ export async function startPersistedRun(options: {
     return { ok: false, status: 400, error: err instanceof Error ? err.message : 'subworkflow could not be loaded' };
   }
 
+  const authorized = authorizeGraphRun(workflow.ir, subworkflows, options.authorization ?? {});
+  if (!authorized.ok) {
+    return { ok: false, status: 400, error: authorized.error ?? 'Run is not authorized' };
+  }
+
+  // Only an agent node needs model credentials. They are resolved here from the
+  // vault and sent to the runtime IN MEMORY; the runtime excludes them from the
+  // durable Fabric job payload.
+  let modelSettings: Record<string, unknown> | undefined;
+  if (options.authorization?.operator && authorized.summary.requiredCapabilities.includes('agent.run')) {
+    const llm = await getLLMConfig();
+    if (!llm || llm.provider === 'mock') {
+      return {
+        ok: false,
+        status: 400,
+        error: 'This workflow uses an agent node, but no model provider is configured. Configure one in Settings.',
+      };
+    }
+    modelSettings = {
+      provider: llm.provider,
+      baseUrl: llm.baseUrl,
+      apiKey: llm.apiKey,
+      model: llm.model,
+      contextWindow: llm.contextWindow,
+    };
+  }
+
   const token = runtimeCallbackToken();
   const user = options.request?.headers.get('x-eclipse-user');
   const identity = options.request ? await runtimeIdentityHeaders(options.request) : {};
@@ -73,12 +105,9 @@ export async function startPersistedRun(options: {
         ir: workflow.ir,
         workflowVersion: workflow.version,
         subworkflows,
-        // Phase 3/4: only test runs are reachable from the app. The runtime
-        // enforces this independently of anything a caller sends.
-        testRun: options.testRun ?? true,
-        grantedCapabilities: [],
-        allowNetwork: false,
-        allowTrading: false,
+        // Computed from the registry + the persisted IR, never from a caller.
+        ...authorized.authorization,
+        ...(modelSettings ? { modelSettings } : {}),
       }),
     });
     const data = await res.json().catch(() => ({}));

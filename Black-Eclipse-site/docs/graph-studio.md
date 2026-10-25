@@ -125,7 +125,7 @@ contracts.
   stale; `python/tests/test_graph_registry_parity.py` fails when the Python
   registry disagrees with it. A node that exists in only one side is an error.
 
-The manifest covers **36 node types**. Three are declared-only in the runtime —
+The manifest covers **42 node types**. Three are declared-only in the runtime —
 `integration.http`, `agent.research`, `video.render` — and the compiler reports
 `executor_unavailable` for them. `data.set_variables` is the first new core
 node added through this pipeline: it merges configured named values over an
@@ -171,8 +171,8 @@ If the stream disconnects, the UI falls back to bounded polling.
 | **3 — Compiler & execution engine** | IR → plan, deterministic executor, inspection, isolation | **Implemented & verified** |
 | **4 — Control flow, scheduling & triggers** | Control-flow node pack, unattended schedules, webhook trigger, run recovery | **Implemented & verified** (distributed/Fabric-backed durability is the remaining piece) |
 | **5 — Finance & quant node library** | Market-data + indicator node executors | **Implemented & verified** (first pack: market data, indicator, returns, z-score, volatility) |
-| 6 — Backtest & simulation | Strategy graphs, metrics | **Backtest node implemented** (reuses `quant/`); walk-forward/OOS/optimizer not started |
-| 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | Not started (agent runtime exists) |
+| 6 — Backtest & simulation | Strategy graphs, metrics | **Backtest + walk-forward implemented** (reuse `quant/`); standalone optimizer/Monte Carlo/OOS node not started |
+| 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Research agent node implemented** (one bounded turn over the existing run plane); planner/delegate/NL→IR not started |
 | 8 — Paper trading & safety | Execution adapter, risk controls, modes | Not started (modes + trading side-effect class already enforced by the compiler) |
 | 9 — Advanced engineering | Subworkflows, debugging, diffing | **Subworkflows implemented**; debugging/diffing not started |
 | 10 — Hardening & verification | Tests, security, observability | Partial: Phase 3/4 add runtime safety tests; observability is next |
@@ -206,6 +206,15 @@ it with `testRun: true`. The runtime independently enforces the envelope: a
 node whose declared capabilities were not granted is refused. Local scratch
 writes (`local_write`, used by datasets) are allowed and bounded. Editor
 visibility is not authorization.
+
+**Run envelopes.** The default is a **test run**: no world effects, local reads
+and local scratch only. An **operator run** is an explicit UI action; the front
+door derives its grants from the registry and the persisted IR — never from the
+caller. It grants exactly the union of node capabilities, enables network only
+when the graph needs it and the user confirms, and always keeps trading and
+external write nodes refused. The Python compiler re-checks the same envelope.
+`integration.http` is the first network node: SSRF-checked, loopback refused,
+1 MB response cap, 60 s ceiling, and no custom headers/credentials yet.
 
 **Determinism.** Executors are pure; the scheduler orders each layer by node id;
 node inputs come from succeeded upstream writers only (a node whose required
@@ -305,6 +314,32 @@ cannot backtest a different symbol). It returns the full result object, the flat
 metrics, and the trade list; series curves are omitted unless `includeSeries` is
 on. Runs are deterministic (`randomSeed`) and bounded by `maxBars`.
 
+**Walk-forward.** `quant.walkforward` rolls train/test windows through
+`harness/quant/walkforward.py`; parameters are optimized on the training window
+only and the chosen configuration is evaluated out-of-sample. The report carries
+in-sample, out-of-sample and combined metrics plus the IS/OOS divergence. A
+default parameter space is derived from the preset; a custom strategy needs
+`paramSpaceJson`. Insufficient history is returned as an honest
+`INSUFFICIENT_HISTORY` status, not an exception.
+
+**Research agent.** `agent.research` is a thin adapter over the EXISTING agent
+run plane (`AgenticService.run`), not a second agent loop. It accepts a query or
+configured objective, resolves the named agent preset and its tools, caps the
+turn at `maxSteps`, and returns a structured `finding` plus the run's `research`
+evidence object. It requires an **operator run** with network access, so a test
+run refuses it. The front door resolves model credentials from the vault and
+sends them in memory only; `GraphService` deliberately excludes them from the
+durable Fabric job payload. A restart before the agent node runs therefore makes
+that node fail honestly instead of persisting a key.
+
+**Local research & evidence.** `research.evidence`, `research.citations`,
+`research.conflicts`, `research.completeness` and `research.report` read the
+existing `EvidenceStore` from the web research engine: evidence, claims,
+citations, conflicts, coverage and a deterministic Markdown report. They are
+local reads (`research.read` is granted to test runs) — no web request and no
+model call. Web search/extraction and the agent node remain network/effectful
+work and need the operator-run envelope.
+
 **Tabular transforms.** `transform.select`, `transform.sort_limit`,
 `logic.aggregate`, `logic.deduplicate` and `transform.join` operate on arrays of
 JSON objects (bars, fundamentals, filings, screener rows) with dotted field
@@ -368,16 +403,17 @@ Phase 1:
 Phases 3–4:
 
 - `npx tsc --noEmit` — clean.
-- `npx vitest run src/lib/graph-studio` — **12 files / 67 tests pass**.
+- `npx vitest run src/lib/graph-studio` — **13 files / 71 tests pass**.
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **108 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **124 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
-  gateway quote/history, tabular transforms, quant backtest, registry parity,
-  datasets, subworkflows, durable dispatch/resume), including a real Fabric
-  manager + graph worker integration test and full-stack API tests on a temp
-  database.
+  gateway quote/history, tabular transforms, quant backtest/walk-forward,
+  local research/evidence, agent node, operator-run/HTTP safety, registry
+  parity, datasets, subworkflows, durable dispatch/resume), including a real
+  Fabric manager + graph worker integration test and full-stack API tests on a
+  temp database.
 
 ### Navigation regressions fixed (post-Phase 4)
 
@@ -415,6 +451,13 @@ or HTTP errors.
   iteration arrives with the finance/agent nodes.
 - Run history is browsable in the History panel; node runs and events are
   normalized tables, and successful nodes have resumable checkpoints.
+- Operator runs currently allow network only. External write nodes and all
+  trading nodes are refused; HTTP nodes do not support custom headers or
+  credential references yet.
+- Agent model credentials are held in memory for the run only. A process restart
+  before an agent node executes makes that node fail; agent runs are not
+  resumable across a restart. The node is one bounded turn (no planner/delegate
+  loop yet), and a real-provider end-to-end test is still pending.
 - Datasets are not owner-scoped yet (single-user local surface). They are
   bounded local scratch, not a tenant-isolated store; add an owner column before
   exposing them in a multi-user deployment.

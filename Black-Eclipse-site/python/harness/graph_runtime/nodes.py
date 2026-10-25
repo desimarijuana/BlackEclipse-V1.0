@@ -17,11 +17,16 @@ import json
 import math
 import re
 import time
+import urllib.error
+import urllib.request
 from typing import Any
+from urllib.parse import urlparse
 
+from .agent_nodes import build_agent_nodes
 from .dataset_nodes import build_dataset_nodes
 from .finance_nodes import build_finance_nodes
 from .quant_nodes import build_quant_nodes
+from .research_nodes import build_research_nodes
 from .table_nodes import build_table_nodes
 from .registry import (
     ConfigField,
@@ -548,6 +553,80 @@ def _exec_gate(context: NodeExecContext) -> dict[str, Any]:
 # ── Definitions ──────────────────────────────────────────────────────────────
 
 
+MAX_HTTP_RESPONSE_BYTES = 1_000_000
+
+
+def _exec_http(context: NodeExecContext) -> dict[str, Any]:
+    """A bounded, SSRF-checked HTTP call.
+
+    The permission envelope already gates this node behind an explicit network
+    grant. The executor adds the second layer: HTTPS/HTTP only, no loopback,
+    no embedded credentials, a hard timeout and a response size cap.
+    """
+    from ..mcp.ssrf import check_outbound_url  # noqa: PLC0415
+
+    url = str(context.config.get("url") or "").strip()
+    if not url:
+        raise ValueError("url is required")
+    safe, reason = check_outbound_url(url)
+    if not safe:
+        raise ValueError(f"blocked URL: {reason}")
+    host = (urlparse(url).hostname or "").lower()
+    if host in ("localhost", "127.0.0.1", "::1", "[::1]"):
+        raise ValueError("loopback URLs are not allowed from a graph HTTP node")
+
+    method = str(context.config.get("method") or "GET").upper()
+    if method not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+        raise ValueError(f"unsupported HTTP method {method!r}")
+    try:
+        timeout_ms = int(context.config.get("timeoutMs", 10_000))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("timeoutMs must be a whole number") from exc
+    timeout_s = max(1.0, min(timeout_ms, 60_000) / 1000.0)
+
+    payload = context.inputs.get("body")
+    if payload is None:
+        raw_body = str(context.config.get("bodyJson") or "").strip()
+        if raw_body:
+            try:
+                payload = json.loads(raw_body)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"bodyJson is not valid JSON: {exc}") from exc
+    data = None
+    headers = {"Accept": "application/json, text/plain;q=0.9, */*;q=0.8"}
+    if payload is not None and method in ("POST", "PUT", "PATCH", "DELETE"):
+        data = json.dumps(payload, sort_keys=True).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    request = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_s) as response:
+            status = int(getattr(response, "status", 200))
+            raw = response.read(MAX_HTTP_RESPONSE_BYTES + 1)
+            content_type = response.headers.get_content_type() if response.headers else ""
+    except urllib.error.HTTPError as exc:
+        status = int(exc.code)
+        raw = exc.read(MAX_HTTP_RESPONSE_BYTES + 1)
+        content_type = exc.headers.get_content_type() if exc.headers else ""
+    except urllib.error.URLError as exc:
+        raise ValueError(f"network error: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise ValueError(f"HTTP request timed out after {timeout_ms} ms") from exc
+
+    if len(raw) > MAX_HTTP_RESPONSE_BYTES:
+        raise ValueError(f"response exceeds {MAX_HTTP_RESPONSE_BYTES} bytes")
+    text = raw.decode("utf-8", errors="replace")
+    if "json" in content_type or text.lstrip().startswith(("{", "[")):
+        try:
+            body: Any = json.loads(text) if text.strip() else None
+        except json.JSONDecodeError:
+            body = {"text": text, "contentType": content_type}
+    else:
+        body = {"text": text, "contentType": content_type}
+    context.emit(f"{method} {url} → {status}")
+    return {"status": status, "body": body}
+
+
 def _port(port_id: str, name: str, port_type: PortType, **kwargs: Any) -> PortDef:
     return PortDef(id=port_id, name=name, type=port_type, **kwargs)
 
@@ -780,10 +859,14 @@ def build_default_registry() -> NodeRegistry:
         config_fields=(
             ConfigField("url", "string", "", max_length=2_000),
             ConfigField("method", "enum", "GET", enum=("GET", "POST", "PUT", "PATCH", "DELETE")),
+            ConfigField("bodyJson", "string", "", max_length=20_000),
+            ConfigField("timeoutMs", "integer", 10_000, minimum=1_000, maximum=60_000),
         ),
         capabilities=("network.egress",),
         side_effects=SideEffect.NETWORK,
-        allowed_modes=_ALL, since_phase="Phase 4 (egress policy)",
+        allowed_modes=_ALL,
+        executor=_exec_http,
+        metadata={"docs": "SSRF-checked, no loopback, bounded response; requires an explicit network grant."},
     ))
     # Local dataset refs (large-payload seam). The store is bound at boot.
     for definition in build_dataset_nodes():
@@ -799,6 +882,9 @@ def build_default_registry() -> NodeRegistry:
     # Quant research nodes reuse the tested engine; no backtest math here.
     for definition in build_quant_nodes():
         registry.register(definition)
+    # Local research/evidence reads over the existing EvidenceStore.
+    for definition in build_research_nodes():
+        registry.register(definition)
     # Video-production node declarations (Phase 8): executor-less ON PURPOSE —
     # a render is an async Fabric job behind an effectful-node policy the graph
     # runtime does not have yet; the compiler names that honestly.
@@ -806,23 +892,9 @@ def build_default_registry() -> NodeRegistry:
 
     for definition in build_video_nodes():
         registry.register(definition)
-    registry.register(NodeDef(
-        type="agent.research", version="1.0.0", label="Research agent",
-        category="agent",
-        inputs=(_port("query", "Query", PortType.STRING),),
-        outputs=(
-            _port("finding", "Finding", PortType.RESEARCH_FINDING),
-            _port("evidence", "Evidence", PortType.EVIDENCE),
-        ),
-        config_fields=(
-            ConfigField("agent", "string", "eclipse-agent", max_length=80),
-            ConfigField("objective", "string", "", max_length=2_000),
-            ConfigField("maxSteps", "integer", 8, minimum=1, maximum=32),
-        ),
-        capabilities=("agent.run",),
-        side_effects=SideEffect.NETWORK,
-        allowed_modes=_ALL, since_phase="Phase 7 (agent nodes)",
-    ))
+    # The agent node is a thin adapter over the existing run plane.
+    for definition in build_agent_nodes():
+        registry.register(definition)
     return registry
 
 

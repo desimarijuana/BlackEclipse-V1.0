@@ -83,6 +83,9 @@ class RunRequest(BaseModel):
     allowTrading: bool = Field(default=False, alias="allowTrading")  # noqa: N815
     subworkflows: list[SubworkflowPayload] = Field(default_factory=list)
     input: Any = None
+    # Resolved by the front door from the settings vault. Held in memory by the
+    # service, never written into the durable Fabric job payload.
+    modelSettings: Optional[dict[str, Any]] = None  # noqa: N815
 
     model_config = {"populate_by_name": True}
 
@@ -115,6 +118,7 @@ def start_run(body: RunRequest, request: Request, _: bool = Depends(require_oper
             grants=_grants(body),
             subworkflows=_bundle(body.subworkflows),
             run_input=body.input,
+            model_settings=body.modelSettings,
         )
     except GraphCompileError as exc:
         raise HTTPException(

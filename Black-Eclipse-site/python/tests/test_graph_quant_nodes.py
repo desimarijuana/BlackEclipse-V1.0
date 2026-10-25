@@ -79,12 +79,12 @@ def test_full_strategy_json_is_supported():
 def test_walkforward_produces_oos_windows():
     series = {
         "symbol": "TESTUSDT", "interval": "1d",
-        "rows": F.bull_market("TESTUSDT", n=260),
+        "rows": F.bull_market("TESTUSDT", n=300),
     }
     result = _exec(
         {
-            "preset": "ema_cross", "trainBars": 80, "testBars": 40, "stepBars": 40,
-            "method": "grid", "maxEvaluations": 4, "objective": "sharpe",
+            "preset": "ema_cross", "trainBars": 120, "testBars": 40, "stepBars": 40,
+            "method": "grid", "maxEvaluations": 9, "objective": "sharpe",
         },
         series,
         "quant.walkforward",
