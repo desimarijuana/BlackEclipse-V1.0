@@ -33,13 +33,26 @@ def install_graph_layer(service: Any) -> bool:
     try:
         store = GraphRunStore(service.store)
         graph_service = GraphService(store)
+        if getattr(service, "fabric", None) is not None:
+            graph_service.set_fabric(service.fabric)
         # Finance nodes read the runtime's persistent bar series (the SAME vault
         # the research-data tools fill) — no second ingestion path.
         from ..market.series_store import SeriesStore  # noqa: PLC0415
 
-        from .finance_nodes import set_series_store  # noqa: PLC0415
+        from .datasets import GraphDatasetStore, set_dataset_store  # noqa: PLC0415
+        from .finance_nodes import set_market_gateway, set_series_store  # noqa: PLC0415
 
         set_series_store(SeriesStore(service.store))
+        gateway_factory = getattr(service, "server_market_gateway", None)
+        if callable(gateway_factory):
+            try:
+                set_market_gateway(gateway_factory())
+            except Exception:  # noqa: BLE001 - the gateway is optional
+                set_market_gateway(None)
+        dataset_store = GraphDatasetStore(service.store)
+        dataset_store.purge_expired()
+        set_dataset_store(dataset_store)
+        service.graphs_datasets = dataset_store
         service.graphs_store = store
         service.graphs = graph_service
         set_graph_service(graph_service)

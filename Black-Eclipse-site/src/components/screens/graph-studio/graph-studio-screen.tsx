@@ -18,7 +18,8 @@ import { useWorkflowCatalog } from '@/lib/graph-studio/catalog-store';
 import { WORKFLOW_TEMPLATES } from '@/lib/graph-studio/templates';
 import { createWorkflow, saveWorkflow, WorkflowApiError } from '@/lib/graph-studio/persistence-client';
 import {
-  cancelGraphRun, getGraphRun, isTerminal, startWorkflowRun, GraphRunApiError,
+  cancelGraphRun, getGraphRun, isTerminal, isRunTerminalEvent, nodeStatusFromEvent,
+  openGraphRunStream, startWorkflowRun, GraphRunApiError,
 } from '@/lib/graph-studio/execution-client';
 import type { ExecutionMode } from '@/lib/graph-studio/types';
 import { GraphCanvas } from './graph-canvas';
@@ -26,8 +27,9 @@ import { NodeInspector } from './node-inspector';
 import { ValidationPanel } from './validation-panel';
 import { RunPanel } from './run-panel';
 import { ScheduleList } from './schedule-list';
+import { HistoryPanel } from './history-panel';
 
-type RightTab = 'inspect' | 'issues' | 'run';
+type RightTab = 'inspect' | 'issues' | 'run' | 'history';
 const MODES: ExecutionMode[] = ['research', 'backtest', 'paper', 'live'];
 
 export function GraphStudioScreen() {
@@ -49,8 +51,14 @@ export function GraphStudioScreen() {
 
   const refreshCatalog = useWorkflowCatalog((s) => s.refresh);
   const createFromTemplate = useWorkflowCatalog((s) => s.createFromTemplate);
+  const summaries = useWorkflowCatalog((s) => s.summaries);
+  const currentVersion = useMemo(
+    () => summaries.find((summary) => summary.id === workflowId)?.currentVersion ?? baseVersion,
+    [summaries, workflowId, baseVersion],
+  );
 
   const fitRef = useRef<(() => void) | null>(null);
+  const streamRef = useRef<(() => void) | null>(null);
 
   const [rightTab, setRightTab] = useState<RightTab>('inspect');
   const [busy, setBusy] = useState(false);
@@ -92,8 +100,8 @@ export function GraphStudioScreen() {
     }
   }, [workflowId, load, markSaved, refreshCatalog]);
 
-  // Poll a running graph until it reaches a terminal state. The runtime owns
-  // the run; this only reflects what it reports.
+  // Fallback poll for environments where SSE is unavailable/disconnects. The
+  // runtime owns the run; this only reflects what it reports.
   const pollUntilDone = useCallback(
     async (runId: string) => {
       pollingRef.current = true;
@@ -114,6 +122,59 @@ export function GraphStudioScreen() {
     [setRun],
   );
 
+  const refreshRun = useCallback(
+    async (runId: string) => {
+      const close = streamRef.current;
+      streamRef.current = null;
+      close?.();
+      pollingRef.current = false;
+      try {
+        setRun(await getGraphRun(runId));
+      } catch (err) {
+        if (err instanceof GraphRunApiError) setError(err.message);
+      }
+    },
+    [setRun],
+  );
+
+  // Live run stream: replay + tail the runtime's persisted graph events. The
+  // run record is still fetched once at a terminal event so node outputs,
+  // durations and the final error are authoritative.
+  const streamRun = useCallback(
+    (runId: string) => {
+      streamRef.current?.();
+      pollingRef.current = false;
+      streamRef.current = openGraphRunStream(runId, {
+        onEvent: (event) => {
+          const current = useGraphEditor.getState().run;
+          if (!current || current.id !== runId) return;
+          const next = { ...current, events: [...(current.events ?? []), event] };
+          if (event.nodeId) {
+            const status = nodeStatusFromEvent(event.kind);
+            if (status) next.nodeStatus = { ...(current.nodeStatus ?? {}), [event.nodeId]: status };
+          }
+          if (event.kind === 'run.started' || event.kind === 'run.resumed') next.status = 'running';
+          setRun(next);
+          if (isRunTerminalEvent(event.kind)) void refreshRun(runId);
+        },
+        onEnd: () => { void refreshRun(runId); },
+        onError: () => {
+          streamRef.current?.();
+          streamRef.current = null;
+          setError('Live stream disconnected — falling back to polling.');
+          void pollUntilDone(runId);
+        },
+      });
+    },
+    [setRun, refreshRun, pollUntilDone],
+  );
+
+  useEffect(() => () => {
+    streamRef.current?.();
+    streamRef.current = null;
+    pollingRef.current = false;
+  }, []);
+
   const startRun = useCallback(async () => {
     if (!workflowId) return;
     setRunBusy(true);
@@ -122,7 +183,7 @@ export function GraphStudioScreen() {
       const record = await startWorkflowRun(workflowId);
       setRun(record);
       setRightTab('run');
-      void pollUntilDone(record.id);
+      streamRun(record.id);
     } catch (err) {
       if (err instanceof GraphRunApiError) setError(err.message);
       else setError(err instanceof Error ? err.message : 'Failed to start the run');
@@ -130,10 +191,13 @@ export function GraphStudioScreen() {
     } finally {
       setRunBusy(false);
     }
-  }, [workflowId, setRun, pollUntilDone]);
+  }, [workflowId, setRun, streamRun]);
 
   const stopRun = useCallback(async () => {
     if (!run) return;
+    const close = streamRef.current;
+    streamRef.current = null;
+    close?.();
     pollingRef.current = false;
     try {
       setRun(await cancelGraphRun(run.id));
@@ -275,6 +339,7 @@ export function GraphStudioScreen() {
             ['inspect', 'Inspect', null],
             ['issues', `Issues${errorCount > 0 ? ` (${errorCount})` : ''}`, null],
             ['run', 'Run', run?.status ?? null],
+            ['history', 'History', null],
           ] as [RightTab, string, string | null][]).map(([tab, label, hint]) => (
             <button
               key={tab}
@@ -321,6 +386,24 @@ export function GraphStudioScreen() {
               </div>
               <ScheduleList workflowId={workflowId && !dirty ? workflowId : null} />
             </div>
+          )}
+          {rightTab === 'history' && (
+            <HistoryPanel
+              workflowId={workflowId}
+              currentVersion={currentVersion}
+              onOpenRun={(record) => {
+                setRun(record);
+                setRightTab('run');
+              }}
+              onOpenVersion={(record) => {
+                load(record.ir, {
+                  workflowId: record.id,
+                  baseVersion: record.version,
+                  contentHash: record.contentHash,
+                });
+                setRightTab('inspect');
+              }}
+            />
           )}
         </div>
       </aside>

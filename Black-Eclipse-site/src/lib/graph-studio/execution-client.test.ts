@@ -3,7 +3,10 @@ import {
   cancelGraphRun,
   getGraphRun,
   GraphRunApiError,
+  isRunTerminalEvent,
   isTerminal,
+  listWorkflowRuns,
+  nodeStatusFromEvent,
   startWorkflowRun,
 } from './execution-client';
 
@@ -54,11 +57,39 @@ describe('execution client', () => {
     expect(fetchMock.mock.calls[1][1]?.method).toBe('POST');
   });
 
+  it("lists a workflow's runs through the workflow runs route", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ runs: [{ id: 'grun_1', status: 'succeeded' }] }));
+    const runs = await listWorkflowRuns('wf_1');
+    expect(runs).toHaveLength(1);
+    expect(runs[0].status).toBe('succeeded');
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/workflows/wf_1/runs');
+  });
+
   it('knows terminal states', () => {
+    expect(isTerminal('queued')).toBe(false);
     expect(isTerminal('running')).toBe(false);
     expect(isTerminal('pending')).toBe(false);
     for (const status of ['succeeded', 'failed', 'cancelled'] as const) {
       expect(isTerminal(status)).toBe(true);
     }
+  });
+
+  it('maps graph events to node statuses', () => {
+    expect(nodeStatusFromEvent('node.started')).toBe('running');
+    expect(nodeStatusFromEvent('node.retry')).toBe('running');
+    expect(nodeStatusFromEvent('node.succeeded')).toBe('succeeded');
+    expect(nodeStatusFromEvent('node.failed')).toBe('failed');
+    expect(nodeStatusFromEvent('node.skipped')).toBe('skipped');
+    expect(nodeStatusFromEvent('run.started')).toBeNull();
+  });
+
+  it('knows which run events end the live stream', () => {
+    for (const kind of ['run.succeeded', 'run.failed', 'run.cancelled', 'run.timeout', 'run.stopped']) {
+      expect(isRunTerminalEvent(kind)).toBe(true);
+    }
+    expect(isRunTerminalEvent('run.started')).toBe(false);
+    expect(isRunTerminalEvent('node.succeeded')).toBe(false);
   });
 });

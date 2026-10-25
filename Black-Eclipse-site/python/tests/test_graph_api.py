@@ -105,6 +105,27 @@ def test_run_lifecycle_and_listing():
     assert cancelled.json()["run"]["status"] == "succeeded"
 
 
+def test_run_event_stream_replays_and_ends():
+    started = client.post("/graphs/runs", json={"ir": GOOD_IR})
+    assert started.status_code == 201, started.text
+    run_id = started.json()["run"]["id"]
+
+    deadline = time.time() + 10
+    record = started.json()["run"]
+    while time.time() < deadline and record["status"] not in ("succeeded", "failed", "cancelled"):
+        time.sleep(0.02)
+        record = client.get(f"/graphs/runs/{run_id}").json()["run"]
+    assert record["status"] == "succeeded"
+
+    with client.stream("GET", f"/graphs/runs/{run_id}/stream") as response:
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+        body = "".join(response.iter_text())
+    assert "run.started" in body
+    assert "node.succeeded" in body
+    assert "stream.end" in body
+
+
 def test_run_refuses_a_broken_graph_with_its_plan():
     broken = _ir([_node("trig", "trigger.manual")], [])
     response = client.post("/graphs/runs", json={"ir": broken})

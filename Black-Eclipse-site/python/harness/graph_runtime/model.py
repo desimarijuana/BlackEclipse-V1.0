@@ -26,6 +26,9 @@ MAX_EDGES = 2_000
 MAX_RUN_TIMEOUT_MS = 3_600_000
 MAX_NODE_TIMEOUT_MS = 600_000
 MAX_PREVIEW_CHARS = 4_000
+# A subworkflow may nest, but never unboundedly. The front door also refuses a
+# larger/cyclic bundle before the runtime sees it.
+MAX_SUBWORKFLOW_DEPTH = 5
 
 
 class PortType(str, Enum):
@@ -66,10 +69,15 @@ class SideEffect(str, Enum):
     WRITE = "write"
     NETWORK = "network"
     TRADING = "trading"
+    # Local scratch (the runtime's own store). It survives the run but cannot
+    # affect the world, so a test run may perform it while external write,
+    # network and trading effects stay denied.
+    LOCAL_WRITE = "local_write"
 
 
 class RunStatus(str, Enum):
     PENDING = "pending"
+    QUEUED = "queued"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
@@ -232,6 +240,9 @@ class GraphRun(_Model):
     duration_ms: Optional[int] = Field(default=None, alias="durationMs")
     error: Optional[str] = None
     owner_id: str = Field(default="local", alias="ownerId")
+    # The terminal value(s) of the run. One terminal -> its value; multiple
+    # terminals -> {nodeId: value}. A subworkflow node returns this as its output.
+    output: Any = None
     node_runs: list[NodeRun] = Field(default_factory=list, alias="nodeRuns")
     events: list[RunEvent] = Field(default_factory=list)
     plan: Optional[ExecutionPlan] = None
@@ -244,6 +255,7 @@ __all__ = [
     "MAX_RUN_TIMEOUT_MS",
     "MAX_NODE_TIMEOUT_MS",
     "MAX_PREVIEW_CHARS",
+    "MAX_SUBWORKFLOW_DEPTH",
     "PortType",
     "PortKind",
     "ExecutionMode",

@@ -181,6 +181,7 @@ class QueueName(str, Enum):
     MAINTENANCE = "maintenance"
     ML = "ml"
     VIDEO = "video"
+    GRAPH = "graph"
 
     @classmethod
     def from_value(cls, value: Any) -> "QueueName":
@@ -208,9 +209,12 @@ QUEUE_DEFAULTS: dict[QueueName, tuple[str, int]] = {
     QueueName.NOTIFICATION: ("network", 8),
     QueueName.AUTOMATION: ("agent", 2),
     QueueName.EVENT: ("agent", 4),
-    QueueName.MAINTENANCE: ("database", 1),
+    QueueName.    MAINTENANCE: ("database", 1),
     QueueName.ML: ("code", 1),
     QueueName.VIDEO: ("code", 1),
+    # Graph workflows are long-running orchestration; keep the slot count low
+    # so a backtest graph cannot starve interactive LLM work.
+    QueueName.GRAPH: ("agent", 2),
 }
 
 
@@ -235,6 +239,7 @@ class WorkerKind(str, Enum):
     EVENT = "event"
     ML = "ml"
     VIDEO = "video"
+    GRAPH = "graph"
 
 
 class WorkerStatus(str, Enum):

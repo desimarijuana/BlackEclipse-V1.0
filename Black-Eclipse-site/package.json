@@ -50,6 +50,7 @@
     "test:anatomy": "node scripts/anatomy-smoke.cjs",
     "test:smoke": "node scripts/test-python.js smoke",
     "test:presets": "node scripts/test-presets.js",
+    "graph:manifest": "tsx scripts/graph-manifest.mts",
     "demo:btc": "tsx scripts/demo-btc.mts",
     "eclipse": "node scripts/eclipse.js",
     "security:preflight": "node scripts/security-preflight.js",

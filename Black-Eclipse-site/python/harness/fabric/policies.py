@@ -110,6 +110,12 @@ DEFAULT_POLICIES: dict[str, ExecutionPolicy] = {
                              worker_kind=WorkerKind.VIDEO.value, priority=JobPriority.RESEARCH.weight,
                              timeout_ms=1_800_000, max_attempts=2, backoff_ms=2000,
                              resources={"code": 1}),
+    # Graph workflows: durable, restart-surviving, resumable from node
+    # checkpoints. The run record (not the job) is the user-facing status.
+    "graph": ExecutionPolicy(mode=ExecutionMode.DURABLE, queue=QueueName.GRAPH.value,
+                             worker_kind=WorkerKind.GRAPH.value, priority=JobPriority.AGENT_INTERACTIVE.weight,
+                             timeout_ms=3_600_000, max_attempts=2, backoff_ms=1000,
+                             durable=True, idempotent=True),
 }
 
 

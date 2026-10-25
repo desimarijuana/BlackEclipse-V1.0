@@ -19,7 +19,10 @@ import re
 import time
 from typing import Any
 
+from .dataset_nodes import build_dataset_nodes
 from .finance_nodes import build_finance_nodes
+from .quant_nodes import build_quant_nodes
+from .table_nodes import build_table_nodes
 from .registry import (
     ConfigField,
     NodeDef,
@@ -243,6 +246,10 @@ def evaluate_formula(expression: str, variables: dict[str, float]) -> float:
 
 
 def _exec_trigger(context: NodeExecContext) -> dict[str, Any]:
+    # A subworkflow receives its parent's input here; a top-level run normally
+    # has no run input, so the configured seed remains the fallback.
+    if context.run_input is not None:
+        return {"start": context.run_input}
     seed = context.config.get("seed") or ""
     return {"start": seed if seed != "" else None}
 
@@ -292,6 +299,23 @@ def _exec_value(context: NodeExecContext) -> dict[str, Any]:
     override = context.inputs.get("in")
     raw = override if override is not None else context.config.get("value", "")
     return {"value": coerce_value(raw, context.config.get("dataType", "string"))}
+
+
+def _exec_set_variables(context: NodeExecContext) -> dict[str, Any]:
+    """Merge configured variables over an optional input object.
+
+    Configured keys WIN over the same keys on the input, so a node can set
+    defaults from an upstream context and then override them explicitly.
+    """
+    configured = context.config.get("variables", {})
+    if not isinstance(configured, dict):
+        raise ValueError("config 'variables' must be an object")
+    incoming = context.inputs.get("in")
+    if incoming is None:
+        incoming = {}
+    if not isinstance(incoming, dict):
+        raise ValueError("input 'in' must be an object")
+    return {"variables": {**incoming, **configured}}
 
 
 def _exec_json_parse(context: NodeExecContext) -> dict[str, Any]:
@@ -563,6 +587,20 @@ def build_default_registry() -> NodeRegistry:
         allowed_modes=_ALL, executor=_exec_value,
     ))
     registry.register(NodeDef(
+        type="data.set_variables", version="1.0.0", label="Set variables",
+        category="data",
+        inputs=(_port("in", "In", PortType.OBJECT, optional=True),),
+        outputs=(_port("variables", "Variables", PortType.OBJECT),),
+        config_fields=(ConfigField("variables", "object", {}),),
+        allowed_modes=_ALL, executor=_exec_set_variables,
+        metadata={
+            "docs": (
+                "Configured keys win over the same keys on the input object. Use it "
+                "to carry named settings across a branch."
+            ),
+        },
+    ))
+    registry.register(NodeDef(
         type="data.json.parse", version="1.0.0", label="Parse JSON",
         category="data",
         inputs=(_port("text", "Text", PortType.STRING),),
@@ -697,6 +735,27 @@ def build_default_registry() -> NodeRegistry:
         test_run_limits={"ms": TEST_RUN_MAX_WAIT_MS},
     ))
     registry.register(NodeDef(
+        type="flow.subworkflow", version="1.0.0", label="Subworkflow",
+        category="logic",
+        inputs=(_port("input", "Input", PortType.ANY, optional=True),),
+        outputs=(
+            _port("output", "Output", PortType.ANY),
+            _port("runId", "Run id", PortType.STRING),
+        ),
+        config_fields=(
+            ConfigField("workflowId", "string", "", max_length=80),
+            ConfigField("version", "integer", 1, minimum=1, maximum=1_000_000),
+        ),
+        allowed_modes=_ALL, orchestrated=True, timeout_ms=600_000,
+        metadata={
+            "docs": (
+                "Runs a PINNED saved workflow (id@version) as a nested run with the "
+                "parent's grants. The parent input is delivered to the child trigger; "
+                "the child's terminal output is returned. Cycles/depth are refused."
+            ),
+        },
+    ))
+    registry.register(NodeDef(
         type="logic.stop", version="1.0.0", label="Stop",
         category="logic",
         inputs=(_port("in", "In", PortType.ANY, kind=PortKind.CONTROL, optional=True),),
@@ -726,10 +785,19 @@ def build_default_registry() -> NodeRegistry:
         side_effects=SideEffect.NETWORK,
         allowed_modes=_ALL, since_phase="Phase 4 (egress policy)",
     ))
+    # Local dataset refs (large-payload seam). The store is bound at boot.
+    for definition in build_dataset_nodes():
+        registry.register(definition)
+    # Deterministic tabular transforms over arrays of objects.
+    for definition in build_table_nodes():
+        registry.register(definition)
     # Finance + quant nodes carry REAL executors (Phase 5). They live in
     # `finance_nodes.py` so this file stays the pure/deterministic core; the
     # same contracts are mirrored in the TS registry.
     for definition in build_finance_nodes():
+        registry.register(definition)
+    # Quant research nodes reuse the tested engine; no backtest math here.
+    for definition in build_quant_nodes():
         registry.register(definition)
     # Video-production node declarations (Phase 8): executor-less ON PURPOSE —
     # a render is an async Fabric job behind an effectful-node policy the graph

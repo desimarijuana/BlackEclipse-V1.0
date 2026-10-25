@@ -1,7 +1,7 @@
 ---
 title: Graph Studio — Visual Workflow Engineering
 status: Current
-last-verified: 2026-10-17
+last-verified: 2026-10-25
 ---
 
 # Graph Studio
@@ -103,12 +103,33 @@ Hard separations held by design:
 | `ir.ts` | zod schema + `createWorkflowIR`/`parseWorkflowIR`; the ONE document model. |
 | `migrations.ts` | Versioned migrations; `readWorkflowIR` = migrate → validate. |
 | `registry.ts` | Data-only node registry + SDK contract (ports, config schema, capabilities, side-effect class, allowed modes). |
+| `manifest.ts` / `registry.manifest.json` | Renders the TS registry to a deterministic cross-language manifest. Python asserts it matches its own registry node for node. |
 | `validation.ts` | Frontend-independent validator: types, config, required inputs, cycles, reachability, terminals, mode/capability checks. All diagnostics name a node/edge. |
 | `patches.ts` | Pure, individually-validated graph mutations; `canConnect` powers the canvas connection guard. |
 | `layout.ts` | Deterministic layered auto-layout (no heavy layout dependency). |
 | `editor-store.ts` | Transient editor state + undo/redo; every mutation via `dispatch(patch)`. |
 | `persistence-client.ts` / `server-store.ts` | `/api/workflows*` client and the Prisma/append-only-version store. |
 | `templates.ts` | Real, valid starter graphs. |
+
+### Cross-language node contract
+
+The editor registry (`registry.ts`) and the runtime registry
+(`python/harness/graph_runtime/nodes.py`) are separate code on purpose: one
+drives the palette, the other authorizes execution. They must describe the SAME
+contracts.
+
+- `manifest.ts` renders the TS registry into `registry.manifest.json` (ports,
+  config field names/types, capabilities, side effects, modes, terminal).
+- After changing ANY node contract run `npm run graph:manifest`.
+- `src/lib/graph-studio/manifest.test.ts` fails when the checked-in JSON is
+  stale; `python/tests/test_graph_registry_parity.py` fails when the Python
+  registry disagrees with it. A node that exists in only one side is an error.
+
+The manifest covers **36 node types**. Three are declared-only in the runtime —
+`integration.http`, `agent.research`, `video.render` — and the compiler reports
+`executor_unavailable` for them. `data.set_variables` is the first new core
+node added through this pipeline: it merges configured named values over an
+optional input object (configured keys win).
 
 ### Persistence
 
@@ -128,19 +149,32 @@ left sidebar becomes the mode panel (**Workflows** browser + **Nodes** library),
 and the workspace opens. The shell hides the top bar and the chat dock for this
 tab, so the canvas gets the whole page.
 
+The right rail has four tabs: **Inspect**, **Issues**, **Run** and **History**.
+History lists the saved workflow's past runs (click one to draw its node
+statuses on the canvas) and its immutable versions (click one to open it in the
+editor; saving then appends a new version rather than rewriting history).
+
+While a run is active the Run tab consumes its **SSE stream**
+(`GET /graphs/runs/{id}/stream` → Next proxy `/api/graph-runs/[runId]/stream`).
+The stream replays the persisted event log from a cursor (`Last-Event-ID`), tails
+new events from the `HarnessGraphEvent` table, updates node statuses in place,
+and ends with `stream.end` once the run is terminal. The browser only fetches
+the full run record at that point, so outputs/durations/errors are authoritative.
+If the stream disconnects, the UI falls back to bounded polling.
+
 ## Phase status
 
 | Phase | Scope | Status |
 | --- | --- | --- |
 | **1 — Foundation** | Workspace, canvas, custom nodes, editor state, persistence, dedicated mode | **Implemented & verified** |
-| 2 — Canonical IR & node system | IR, registry/SDK, typed ports, validation, patches | **Implemented in TS AND Python** (editor registry + runtime registry in lockstep); migrations seam live |
+| 2 — Canonical IR & node system | IR, registry/SDK, typed ports, validation, patches | **Implemented in TS AND Python** (editor + runtime registries in lockstep, now enforced by a generated cross-language manifest); migrations seam live |
 | **3 — Compiler & execution engine** | IR → plan, deterministic executor, inspection, isolation | **Implemented & verified** |
 | **4 — Control flow, scheduling & triggers** | Control-flow node pack, unattended schedules, webhook trigger, run recovery | **Implemented & verified** (distributed/Fabric-backed durability is the remaining piece) |
 | **5 — Finance & quant node library** | Market-data + indicator node executors | **Implemented & verified** (first pack: market data, indicator, returns, z-score, volatility) |
-| 6 — Backtest & simulation | Strategy graphs, metrics | Not started (engine exists: `quant/`) |
+| 6 — Backtest & simulation | Strategy graphs, metrics | **Backtest node implemented** (reuses `quant/`); walk-forward/OOS/optimizer not started |
 | 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | Not started (agent runtime exists) |
 | 8 — Paper trading & safety | Execution adapter, risk controls, modes | Not started (modes + trading side-effect class already enforced by the compiler) |
-| 9 — Advanced engineering | Subworkflows, debugging, diffing | Not started |
+| 9 — Advanced engineering | Subworkflows, debugging, diffing | **Subworkflows implemented**; debugging/diffing not started |
 | 10 — Hardening & verification | Tests, security, observability | Partial: Phase 3/4 add runtime safety tests; observability is next |
 
 ### Phase 3 — the runtime (`python/harness/graph_runtime/`)
@@ -160,21 +194,35 @@ JDDS and forwards it.
 | `nodes.py` | The built-in PURE executors (incl. a real safe formula language — never `eval`) and the registered-but-unavailable contracts for later phases. |
 | `compiler.py` | IR → `ExecutionPlan`: structural validation, longest-path **layers** (the parallelizable set) + deterministic topological order, mode checks and the **permission envelope**. |
 | `executor.py` | Deterministic layer scheduler: `pending → ready → running → succeeded \| failed \| cancelled` (+ `skipped`), per-node timeout, retries, cancellation, output-schema validation, bounded input/output previews, event log. |
-| `store.py` | Run rows on `agent-memory.db` (a `running` row at start, the full result at finish). |
-| `service.py` | Compile / run_sync / start-run-on-a-thread / poll / cancel. |
+| `store.py` | Runs, **normalized node runs**, events and per-node checkpoints on `agent-memory.db`. Large node outputs stay as previews but make the run non-resumable. |
+| `service.py` | Compile / run_sync / durable dispatch / execute_job / poll / cancel. |
+| `worker.py` | The Fabric graph worker: runs `execute_job` in the loop's thread pool and forwards cancellation into a threading event. |
 | `bootstrap.py` | Idempotent boot wiring; `routers/graphs.py` exposes `/graphs/*`. |
 
 **Trust boundary.** `POST /api/workflows/[id]/runs` (Next.js) loads the
 authoritative persisted version — the client never supplies the IR — and forwards
 it with `testRun: true`. The runtime independently enforces the envelope: a
-**test run never performs write, network or trading effects**, and a node whose
-declared capabilities were not granted is refused. Editor visibility is not
-authorization.
+**test run never performs external write, network or trading effects**, and a
+node whose declared capabilities were not granted is refused. Local scratch
+writes (`local_write`, used by datasets) are allowed and bounded. Editor
+visibility is not authorization.
 
 **Determinism.** Executors are pure; the scheduler orders each layer by node id;
 node inputs come from succeeded upstream writers only (a node whose required
 input never materialized is `skipped`, never run with a null placeholder). Two
 runs of the same graph with the same inputs produce identical outputs (tested).
+
+**Durability.** A run is a DURABLE **Execution Fabric** job: the Fabric owns the
+lease, retry/dead-letter and restart recovery, and the graph worker executes the
+synchronous scheduler in its thread pool. The run row is `queued → running →
+succeeded | failed | cancelled`; each node writes a normalized
+`HarnessGraphNodeRun` row and an event, and a successful node stores a bounded
+checkpoint. When the Fabric requeues a job after a crash, `execute_job` resumes:
+completed nodes are seeded from their checkpoints and never re-executed. A graph
+that fails a NODE is still a succeeded Fabric job (the run row is authoritative),
+so the queue never retries a deterministic graph failure. If the Fabric is
+disabled/unavailable the legacy in-process thread path still works, with the same
+persistence but no automatic resume.
 
 ### Phase 4 — control flow, schedules and triggers
 
@@ -194,6 +242,18 @@ New nodes (both registries, Python executors, `scripts`-free and bounded):
 | `logic.map` / `logic.filter` / `logic.reduce` | Bounded (`10 000` items) numeric loops over the safe formula language. |
 | `logic.wait` | Bounded pause; a TEST run allows at most 5 s (compiler-enforced `test_run_limit`). |
 | `logic.stop` | Ends the run here; downstream nodes become `skipped`. |
+| `flow.subworkflow` | Runs a **pinned** saved workflow (`workflowId@version`) as a nested run. |
+
+**Subworkflows are pinned and authority-preserving.** The node's parent input is
+delivered to the child's trigger as the run input; the child's terminal value
+becomes the node output (`{nodeId: value}` when the child has several terminals).
+The front door (`subworkflow-bundle.ts`) resolves every referenced workflow from
+JDDS and sends the IRs with the run, so the runtime never reaches into JDDS. The
+runtime compiles each child with the SAME grants, so a subworkflow can only
+narrow authority, never widen it. Cycles and nesting deeper than 5 are refused
+by both the bundle loader and the compiler. Nested runs are currently in-memory
+(the parent node returns the child `runId`, but the child run is not a separate
+durable row yet).
 
 **Loops are internal and bounded, never graph cycles.** The compiler still
 refuses a cyclic graph; iteration is a node with a declared bound, which is what
@@ -229,14 +289,48 @@ rules: **reuse the existing data path** and **reuse the tested math**.
 | `quant.zscore` | Rolling standard score. |
 | `quant.volatility` | Rolling std-dev of log returns, optional annualization. |
 
+**Gateway-backed data.** `finance.quote` and `finance.history` call the EXISTING
+`MarketDataGateway` (bound to the server bridge at boot), so live quotes and
+OHLCV use the same provider router, quality/freshness metadata and durable
+history cache as the agent tools. A gateway error is an explicit node failure
+(`DATA_NOT_AVAILABLE`, `SYMBOL_NOT_FOUND`, …), never a fabricated price.
+`finance.history` emits the standard OHLCV payload, so it feeds
+`finance.indicator` directly.
+
+**Quant backtest.** `quant.backtest` adapts the graph's OHLCV payload into a
+`BarSeries`/`MarketDataset` and calls `harness/quant/engine.py`. It accepts the
+documented `ema_cross` and `rsi_reversion` presets, or a full `StrategySpec` JSON
+(`strategyJson`). The input series symbol is authoritative (a JSON strategy
+cannot backtest a different symbol). It returns the full result object, the flat
+metrics, and the trade list; series curves are omitted unless `includeSeries` is
+on. Runs are deterministic (`randomSeed`) and bounded by `maxBars`.
+
+**Tabular transforms.** `transform.select`, `transform.sort_limit`,
+`logic.aggregate`, `logic.deduplicate` and `transform.join` operate on arrays of
+JSON objects (bars, fundamentals, filings, screener rows) with dotted field
+paths. They are bounded to 100 000 rows, deterministic, and refuse non-object
+rows. `logic.aggregate` supports sum/avg/min/max/count with optional `groupBy`;
+`transform.join` supports inner/left joins with a matched count.
+
+**Local datasets.** `data.dataset.save` writes a JSON payload to the runtime's
+own `HarnessGraphDataset` table on `agent-memory.db` and returns a small
+`gds:` ref plus metadata; `data.dataset.load` reads it back. This is the
+large-payload seam: a series can travel as a ref instead of being embedded in a
+node's config or the run document. It is deliberately **local scratch**, not a
+market-data source and not a second JDDS. Limits: 8 MB per dataset, 200
+datasets, optional TTL (max 8 760 h); expired refs are purged and fail
+explicitly. The `local_write` side-effect class exists so a test run can use
+datasets while external write/network/trading remain refused.
+
 **Honest data.** Every payload carries provenance (`provider`, `symbol`,
 `interval`, `adjusted`, `rows`, `asOf`, `retrievedAt`). An empty vault is a
 FAILURE with an actionable message ("fetch them first … the graph never
 fabricates a price") — never a synthetic series, never a silent zero.
 
 **Test-run policy.** A test run implicitly grants the read-only / local-compute
-capabilities (`market.read`, `quant.compute`, `compute.safe`) so a finance graph
-can be exercised from the UI, while write/network/trading nodes stay refused.
+capabilities (`market.read`, `quant.compute`, `compute.safe`, `dataset.read`,
+`dataset.write`) so a finance graph can be exercised from the UI, while external
+write/network/trading nodes stay refused.
 
 **Templates.** `Market scan (SMA z-score)` — stored bars → SMA(50) → z-score(20)
 → branch → result, plus a second output carrying the data provenance.
@@ -261,7 +355,8 @@ can be exercised from the UI, while write/network/trading nodes stay refused.
 - Execution status appears on the canvas (node status chips + border tint) and in
   the Run panel. ✓
 - Test execution cannot trigger live trading (no trading node is authorized; the
-  envelope refuses trading/network/write regardless of the request). ✓
+  envelope refuses trading/network/external-write regardless of the request).
+  Local dataset scratch is the one bounded write a test run may perform. ✓
 - The same workflow produces reproducible results for identical inputs. ✓
 
 ## Verification
@@ -273,13 +368,16 @@ Phase 1:
 Phases 3–4:
 
 - `npx tsc --noEmit` — clean.
-- `npx vitest run` — 332 files / 3469 tests pass (58 Graph Studio tests).
+- `npx vitest run src/lib/graph-studio` — **12 files / 67 tests pass**.
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python: `python -m pytest python/tests/test_graph_*.py` — **55 tests pass**
-  (model/registry/formula, compiler, executor, control flow, service, HTTP API),
-  including full-stack API tests that boot the real service on a temp database.
+- Python graph suites — **108 tests pass** (model/registry/formula, compiler,
+  executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
+  gateway quote/history, tabular transforms, quant backtest, registry parity,
+  datasets, subworkflows, durable dispatch/resume), including a real Fabric
+  manager + graph worker integration test and full-stack API tests on a temp
+  database.
 
 ### Navigation regressions fixed (post-Phase 4)
 
@@ -300,10 +398,14 @@ or HTTP errors.
 
 ## Known limitations (after Phase 5)
 
-- **In-process durability.** A run is recorded before it starts and finalized
-  after, and orphaned `running` rows are reconciled at boot — but a run does not
-  survive a restart mid-run and is not distributed. Wrapping the executor in the
-  Execution Fabric workers is the next durability step.
+- **Durable but single-process workers.** Runs are durable Fabric jobs and
+  resume from node checkpoints after a worker/process restart. The worker pool is
+  still in-process (one runtime process), not a multi-machine distributed fleet.
+  The legacy in-process fallback (Fabric disabled) has no automatic resume.
+- **Checkpoint bound.** A successful node's full output is checkpointed up to
+  2 MB. A larger output is still visible as a preview, but the run is marked
+  non-resumable and will start fresh if retried (safe for test runs, not yet for
+  effectful/trading runs).
 - Schedules tick while the app is up (a 60 s in-process timer); a fully
   headless/unattended deployment needs the same tick driven by an external cron
   (the operator route exists: `POST /api/workflow-schedules/tick`).
@@ -311,8 +413,15 @@ or HTTP errors.
   bounded, but long waits belong in the Phase 4+ durable path.
 - Loop primitives operate on numeric arrays (documented); richer per-type
   iteration arrives with the finance/agent nodes.
-- Execution history is still the run's result document; normalizing node
-  runs/events into queryable tables is part of the Fabric work.
+- Run history is browsable in the History panel; node runs and events are
+  normalized tables, and successful nodes have resumable checkpoints.
+- Datasets are not owner-scoped yet (single-user local surface). They are
+  bounded local scratch, not a tenant-isolated store; add an owner column before
+  exposing them in a multi-user deployment.
+- A nested subworkflow run is in-memory; the parent node records the child
+  `runId` and terminal output, but the child has no separate durable run row.
+  The subworkflow inspector is also plain `workflowId`/`version` fields — there
+  is no workflow picker yet.
 - `live` mode is settable in the IR but no executor honours it; the compiler
   refuses trading nodes without an explicit (paper/live) grant.
 - **`video.render` is declared, not executable** (native-video integration,

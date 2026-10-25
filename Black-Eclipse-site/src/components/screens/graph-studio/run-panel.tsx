@@ -13,6 +13,7 @@ import { isTerminal, type GraphRunStatus, type NodeRunRecord, type NodeRunStatus
 
 const STATUS_TONE: Record<GraphRunStatus, string> = {
   pending: 'text-slate-400',
+  queued: 'text-slate-300',
   running: 'text-sky-300',
   succeeded: 'text-emerald-300',
   failed: 'text-rose-300',
@@ -158,6 +159,16 @@ export function RunPanel({
             <p className="mb-2 rounded-md border border-rose-500/25 bg-rose-500/10 px-2 py-1.5 text-[10.5px] text-rose-200">
               {run.error}
             </p>
+          )}
+          {run.output !== undefined && run.output !== null && (
+            <details className="mb-2 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-2 py-1.5" open>
+              <summary className="cursor-pointer text-[10px] uppercase tracking-wide text-emerald-200">
+                Terminal output
+              </summary>
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-slate-300">
+                {preview(run.output)}
+              </pre>
+            </details>
           )}
           <ul className="space-y-1">
             {(run.nodeRuns ?? []).map((nodeRun) => (

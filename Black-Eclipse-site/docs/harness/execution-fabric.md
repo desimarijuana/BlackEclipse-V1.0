@@ -1,7 +1,7 @@
 ---
 title: Execution Fabric
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-10-25
 ---
 
 # Execution Fabric
@@ -91,7 +91,7 @@ holds exhausted retryable work for admin replay.
 
 Queues are named (`user`, `agent`, `research`, `browser`, `scraping`, `market`,
 `quant`, `python`, `code`, `plugin`, `notification`, `automation`, `event`,
-`maintenance`), each with a resource class and a default concurrency. Priority
+`maintenance`, `graph`), each with a resource class and a default concurrency. Priority
 weights: `USER_REQUEST` 1000 → `TRADING_ALERT` 900 → `AGENT_INTERACTIVE` 750 →
 `RESEARCH` 500 → `INGESTION` 250 → `MAINTENANCE` 100. A large ingestion backlog
 cannot starve an interactive request.
@@ -112,11 +112,19 @@ existing capability:
 | notification | the live bus + Event System (in-app/SSE) |
 | automation | the Automation Engine (`fire`) |
 | event | the Event System / bus `publish` |
+| graph | `GraphService.execute_job` — a durable Graph Studio run, resumed from node checkpoints |
 
 `WorkerManager` runs `concurrency` consumer slots per worker, claims jobs
 atomically, heartbeats leases, enforces timeouts, hard-cancels (propagating into
 the handler), retries with exponential backoff + jitter, dead-letters exhausted
 work, recovers orphaned jobs after a crash and drains on shutdown.
+
+Graph runs use the same manager: a `graph` DURABLE job carries the IR, grants
+and pinned subworkflow bundle. The worker runs the synchronous graph scheduler
+in a thread and forwards cancellation. A node failure is recorded on the graph
+run (the Fabric job succeeds; the queue must not retry a deterministic graph
+failure). A worker/process crash is different: the lease expires, the job is
+requeued, and `execute_job` resumes from the successful node checkpoints.
 
 ## Idempotency & locks
 

@@ -58,6 +58,9 @@ class NodeExecContext:
     inputs: dict[str, Any]
     config: dict[str, Any]
     emit: Callable[[str], None] = lambda _msg: None  # noqa: E731 - trivial default
+    # The caller-supplied input for this run. A subworkflow receives its
+    # parent node's input here; a top-level run normally leaves it None.
+    run_input: Any = None
 
 
 @dataclass
@@ -76,6 +79,9 @@ class NodeDef:
     timeout_ms: int = 30_000
     max_attempts: int = 1
     executor: Optional[Callable[[NodeExecContext], dict[str, Any]]] = None
+    # The executor handles this node itself (e.g. a subworkflow runs a nested
+    # plan). It is executable without a plain `executor` function.
+    orchestrated: bool = False
     # A node that, when it succeeds, ends the run early (its downstream nodes
     # become `skipped`). Used by `logic.stop`.
     stops_run: bool = False
@@ -89,7 +95,7 @@ class NodeDef:
 
     @property
     def available(self) -> bool:
-        return self.executor is not None
+        return self.executor is not None or self.orchestrated
 
     def input_port(self, handle: str) -> Optional[PortDef]:
         return next((p for p in self.inputs if p.id == handle), None)

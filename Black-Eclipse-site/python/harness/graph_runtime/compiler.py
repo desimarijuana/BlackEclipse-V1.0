@@ -19,6 +19,7 @@ from .model import (
     Diagnostic,
     ExecutionMode,
     ExecutionPlan,
+    MAX_SUBWORKFLOW_DEPTH,
     NodeStatus,  # noqa: F401 - re-exported for convenience by callers importing from compiler
     PlanNode,
     PortType,
@@ -43,7 +44,15 @@ _ALWAYS_DENIED_IN_TEST = (SideEffect.WRITE, SideEffect.NETWORK, SideEffect.TRADI
 # Capabilities a TEST run grants implicitly: reading market data and computing
 # locally cannot change anything, so they do not need an operator grant. Every
 # capability that implies an EFFECT still must be granted explicitly.
-TEST_RUN_CAPABILITIES = frozenset({"compute.safe", "quant.compute", "market.read"})
+TEST_RUN_CAPABILITIES = frozenset({
+    "compute.safe",
+    "quant.compute",
+    "market.read",
+    # Local scratch datasets are not world effects. The store enforces size,
+    # count and TTL limits, so a test run may use them.
+    "dataset.read",
+    "dataset.write",
+})
 
 
 @dataclass(frozen=True)
@@ -108,9 +117,19 @@ def compile_workflow(
     ir: WorkflowIR,
     registry: NodeRegistry,
     grants: Optional[RunGrants] = None,
+    subworkflows: Optional[dict[str, WorkflowIR]] = None,
+    *,
+    _depth: int = 0,
+    _stack: tuple[str, ...] = (),
 ) -> ExecutionPlan:
-    """Validate + analyze a workflow and produce its execution plan."""
+    """Validate + analyze a workflow and produce its execution plan.
+
+    ``subworkflows`` is the front-door bundle (``id@version`` -> IR). A
+    subworkflow node is compiled recursively with the SAME grants, so it can
+    never widen authority; cycles and excessive nesting are diagnostics.
+    """
     grants = grants or RunGrants()
+    subworkflows = subworkflows or {}
     diagnostics: list[Diagnostic] = []
     mode = ir.settings.execution_mode
 
@@ -217,6 +236,60 @@ def compile_workflow(
                 f'Node "{node.id}" requires the {", ".join(missing_caps)} capability, which this run was not granted.',
                 node_id=node.id,
             ))
+
+        if definition.type == "flow.subworkflow":
+            workflow_id = str(node.config.get("workflowId") or "").strip()
+            try:
+                version = int(node.config.get("version", 0))
+            except (TypeError, ValueError):
+                version = 0
+            if not workflow_id or version < 1:
+                diagnostics.append(_error(
+                    "invalid_subworkflow",
+                    f'Node "{node.id}" needs a pinned subworkflow (workflowId and version >= 1).',
+                    node_id=node.id,
+                ))
+            else:
+                key = f"{workflow_id}@{version}"
+                if key in _stack:
+                    diagnostics.append(_error(
+                        "subworkflow_cycle",
+                        f'Subworkflow cycle detected at "{key}" (node "{node.id}").',
+                        node_id=node.id,
+                    ))
+                elif _depth >= MAX_SUBWORKFLOW_DEPTH:
+                    diagnostics.append(_error(
+                        "subworkflow_depth",
+                        f'Subworkflow nesting exceeds the maximum depth ({MAX_SUBWORKFLOW_DEPTH}) at "{key}".',
+                        node_id=node.id,
+                    ))
+                elif key not in subworkflows:
+                    diagnostics.append(_error(
+                        "missing_subworkflow",
+                        f'Subworkflow "{key}" was not supplied to this run.',
+                        node_id=node.id,
+                    ))
+                else:
+                    sub_plan = compile_workflow(
+                        subworkflows[key], registry, grants, subworkflows,
+                        _depth=_depth + 1, _stack=(*_stack, key),
+                    )
+                    required_capabilities.update(sub_plan.required_capabilities)
+                    for diagnostic in sub_plan.diagnostics:
+                        if diagnostic.severity == Severity.ERROR:
+                            # Preserve the safety codes (cycle/depth) so a caller
+                            # can assert them; everything else is a nested-graph
+                            # failure reported against this node.
+                            code = (
+                                diagnostic.code
+                                if diagnostic.code in ("subworkflow_cycle", "subworkflow_depth")
+                                else "subworkflow_invalid"
+                            )
+                            diagnostics.append(_error(
+                                code,
+                                f'Subworkflow "{key}" (node "{node.id}"): {diagnostic.message}',
+                                node_id=node.id,
+                            ))
 
         if not definition.available:
             since = f" It arrives with {definition.since_phase}." if definition.since_phase else ""

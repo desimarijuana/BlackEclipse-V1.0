@@ -17,8 +17,10 @@ implying live data.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as _dt
 import math
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Optional
 
 from ..persistence import now_iso
@@ -48,6 +50,7 @@ SeriesProvider = Callable[[str, str, int], dict[str, Any]]
 
 _series_store: Any = None
 _provider: Optional[SeriesProvider] = None
+_market_gateway: Any = None
 
 
 def set_series_store(store: Any) -> None:
@@ -60,6 +63,51 @@ def set_series_provider(provider: Optional[SeriesProvider]) -> None:
     """Override the provider (tests, or a future broker-backed source)."""
     global _provider
     _provider = provider
+
+
+def set_market_gateway(gateway: Any) -> None:
+    """Bind the EXISTING market gateway for live quote/history nodes."""
+    global _market_gateway
+    _market_gateway = gateway
+
+
+def _run_gateway(factory: Callable[[], Any]) -> Any:
+    """Run an async gateway call from a sync node executor.
+
+    The graph scheduler executes nodes in its own thread, so there is normally no
+    running loop. If a caller invokes the executor inside a loop, run the
+    coroutine in a short-lived worker thread instead of raising.
+    """
+    try:
+        return asyncio.run(factory())
+    except RuntimeError:
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="graph-gateway") as pool:
+            return pool.submit(lambda: asyncio.run(factory())).result(timeout=30)
+
+
+def _gateway_result(result: Any) -> dict[str, Any]:
+    from ..market.errors import MarketError  # noqa: PLC0415
+
+    if isinstance(result, MarketError):
+        raise ValueError(f"{result.code}: {result.message}")
+    if hasattr(result, "to_dict"):
+        payload = result.to_dict()
+    elif isinstance(result, dict):
+        payload = result
+    else:
+        raise ValueError(f"market gateway returned {type(result).__name__}")
+    if not isinstance(payload, dict):
+        raise ValueError("market gateway returned a non-object payload")
+    return payload
+
+
+def _require_gateway() -> Any:
+    if _market_gateway is None:
+        raise ValueError(
+            "the market data gateway is not configured in this runtime; "
+            "configure a provider and try again"
+        )
+    return _market_gateway
 
 
 def _default_provider(symbol: str, interval: str, limit: int) -> dict[str, Any]:
@@ -188,6 +236,83 @@ def exec_market_data(context: NodeExecContext) -> dict[str, Any]:
         "series": {"symbol": symbol, "interval": interval, "rows": rows},
         "provenance": provenance,
     }
+
+
+def exec_quote(context: NodeExecContext) -> dict[str, Any]:
+    symbol = str(context.inputs.get("symbol") or context.config.get("symbol") or "").strip().upper()
+    if not symbol:
+        raise ValueError("no symbol: wire the symbol input or set the node's symbol")
+    market = str(context.config.get("market") or "").strip() or None
+    freshness = str(context.config.get("freshness") or "realtime")
+    gateway = _require_gateway()
+    try:
+        result = _run_gateway(lambda: gateway.get_quote(symbol, market, freshness=freshness))
+    except ValueError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - gateway failures are node data
+        raise ValueError(f"quote unavailable: {exc}") from exc
+    payload = _gateway_result(result)
+    meta = payload.get("meta") or {}
+    provenance = {
+        "kind": "quote",
+        "provider": meta.get("provider"),
+        "symbol": meta.get("symbol") or symbol,
+        "freshness": meta.get("freshness"),
+        "quality": meta.get("quality"),
+        "asOf": meta.get("event_time") or payload.get("timestamp"),
+        "retrievedAt": meta.get("retrieved_at") or now_iso(),
+    }
+    context.emit(f"{provenance['symbol']} quote from {provenance['provider'] or 'gateway'}")
+    return {"quote": payload, "provenance": provenance}
+
+
+def exec_history(context: NodeExecContext) -> dict[str, Any]:
+    symbol = str(context.inputs.get("symbol") or context.config.get("symbol") or "").strip().upper()
+    if not symbol:
+        raise ValueError("no symbol: wire the symbol input or set the node's symbol")
+    market = str(context.config.get("market") or "").strip() or None
+    interval = str(context.config.get("interval") or "1d")
+    adjusted = bool(context.config.get("adjusted", True))
+    try:
+        limit = int(context.config.get("limit", 0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("limit must be a whole number") from exc
+    gateway = _require_gateway()
+    try:
+        result = _run_gateway(lambda: gateway.get_historical_prices(
+            symbol, market,
+            start=str(context.config.get("start") or "") or None,
+            end=str(context.config.get("end") or "") or None,
+            interval=interval, adjusted=adjusted,
+            freshness=str(context.config.get("freshness") or "slow"),
+        ))
+    except ValueError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f"history unavailable: {exc}") from exc
+    payload = _gateway_result(result)
+    rows = payload.get("bars") or []
+    if limit and limit > 0:
+        rows = rows[-limit:]
+    meta = payload.get("meta") or {}
+    series = {
+        "symbol": meta.get("symbol") or symbol,
+        "interval": payload.get("interval") or interval,
+        "rows": rows,
+    }
+    provenance = {
+        "kind": "history",
+        "provider": meta.get("provider"),
+        "symbol": series["symbol"],
+        "interval": series["interval"],
+        "adjusted": payload.get("adjusted", adjusted),
+        "rows": len(rows),
+        "asOf": rows[-1].get("timestamp") if rows else None,
+        "retrievedAt": meta.get("retrieved_at") or now_iso(),
+        "gaps": payload.get("gaps") or [],
+    }
+    context.emit(f"{series['symbol']} {series['interval']}: {len(rows)} bars from {provenance['provider'] or 'gateway'}")
+    return {"series": series, "provenance": provenance}
 
 
 def _indicator_spec(kind: str, period: int, config: dict[str, Any]) -> Any:
@@ -337,6 +462,49 @@ def build_finance_nodes() -> list[NodeDef]:
     """The finance/quant node set, with REAL executors (Phase 5)."""
     return [
         NodeDef(
+            type="finance.quote", version="1.0.0", label="Live quote",
+            category="finance",
+            inputs=(_port("symbol", "Symbol", PortType.STRING, optional=True),),
+            outputs=(
+                _port("quote", "Quote", PortType.OBJECT),
+                _port("provenance", "Provenance", PortType.EVIDENCE),
+            ),
+            config_fields=(
+                ConfigField("symbol", "string", "", max_length=40),
+                ConfigField("market", "string", "", max_length=20),
+                ConfigField("freshness", "enum", "realtime", enum=("realtime", "intraday", "slow", "any")),
+            ),
+            capabilities=("market.read",),
+            side_effects=SideEffect.READ,
+            allowed_modes=_ALL,
+            executor=exec_quote,
+            metadata={"docs": "Live quote through the EXISTING market gateway; provenance on every payload."},
+        ),
+        NodeDef(
+            type="finance.history", version="1.0.0", label="Historical prices",
+            category="finance",
+            inputs=(_port("symbol", "Symbol", PortType.STRING, optional=True),),
+            outputs=(
+                _port("series", "OHLCV", PortType.OHLCV),
+                _port("provenance", "Provenance", PortType.EVIDENCE),
+            ),
+            config_fields=(
+                ConfigField("symbol", "string", "", max_length=40),
+                ConfigField("market", "string", "", max_length=20),
+                ConfigField("interval", "enum", "1d", enum=("1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w", "1mo")),
+                ConfigField("start", "string", "", max_length=40),
+                ConfigField("end", "string", "", max_length=40),
+                ConfigField("adjusted", "boolean", True),
+                ConfigField("limit", "integer", 0, minimum=0, maximum=MAX_LOOKBACK),
+                ConfigField("freshness", "enum", "slow", enum=("realtime", "intraday", "slow", "any")),
+            ),
+            capabilities=("market.read",),
+            side_effects=SideEffect.READ,
+            allowed_modes=_ALL,
+            executor=exec_history,
+            metadata={"docs": "Gateway-backed OHLCV with provider provenance; feeds the indicator nodes."},
+        ),
+        NodeDef(
             type="finance.market_data", version="1.0.0", label="Market data",
             category="finance",
             inputs=(_port("symbol", "Symbol", PortType.STRING, optional=True),),
@@ -417,7 +585,10 @@ __all__ = [
     "SeriesUnavailable",
     "set_series_store",
     "set_series_provider",
+    "set_market_gateway",
     "exec_market_data",
+    "exec_quote",
+    "exec_history",
     "exec_indicator",
     "series_rows",
     "ohlcv_arrays",

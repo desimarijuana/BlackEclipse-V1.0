@@ -37,6 +37,19 @@ def install_fabric_layer(service: Any) -> Optional[ExecutionManager]:
         manager = ExecutionManager(store, config=config, service=service)
         for worker in build_default_workers(service, config):
             manager.register_worker(worker)
+        # Graph Studio runs on the same durable queue. The worker is registered
+        # here because the fabric is installed after the graph layer and owns
+        # the single worker pool. A graph-worker failure must not disable the
+        # rest of the fabric.
+        try:
+            from ..graph_runtime.worker import GraphWorker  # noqa: PLC0415
+
+            manager.register_worker(GraphWorker(service))
+            graphs = getattr(service, "graphs", None)
+            if graphs is not None:
+                graphs.set_fabric(manager)
+        except Exception:  # noqa: BLE001 - graph dispatch is optional at boot
+            log.warning("graph fabric worker unavailable", exc_info=True)
         service.fabric = manager
         service.fabric_store = store
         service.fabric_config = config

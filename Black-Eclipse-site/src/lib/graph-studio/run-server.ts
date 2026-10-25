@@ -10,6 +10,7 @@ import { HARNESS_PY_URL, ensurePythonRuntime } from '@/lib/harness/python-runtim
 import { runtimeCallbackToken } from '@/lib/harness/runtime-auth';
 import { runtimeIdentityHeaders } from '@/lib/harness/runtime-identity';
 import { getWorkflow } from './server-store';
+import { collectSubworkflows } from './subworkflow-bundle';
 
 export interface StartRunResult {
   ok: boolean;
@@ -42,6 +43,19 @@ export async function startPersistedRun(options: {
   }
   if (!workflow) return { ok: false, status: 404, error: 'Workflow not found' };
 
+  // The Python runtime cannot read JDDS. Resolve every PINNED subworkflow the
+  // graph references (recursively, bounded) and send the IRs with the run.
+  let subworkflows;
+  try {
+    subworkflows = await collectSubworkflows(
+      workflow.ir,
+      async (subId, subVersion) => (await getWorkflow(subId, subVersion))?.ir ?? null,
+      { rootKey: `${workflow.id}@${workflow.version}` },
+    );
+  } catch (err) {
+    return { ok: false, status: 400, error: err instanceof Error ? err.message : 'subworkflow could not be loaded' };
+  }
+
   const token = runtimeCallbackToken();
   const user = options.request?.headers.get('x-eclipse-user');
   const identity = options.request ? await runtimeIdentityHeaders(options.request) : {};
@@ -58,6 +72,7 @@ export async function startPersistedRun(options: {
       body: JSON.stringify({
         ir: workflow.ir,
         workflowVersion: workflow.version,
+        subworkflows,
         // Phase 3/4: only test runs are reachable from the app. The runtime
         // enforces this independently of anything a caller sends.
         testRun: options.testRun ?? true,

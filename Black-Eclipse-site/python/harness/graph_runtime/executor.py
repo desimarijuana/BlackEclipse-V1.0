@@ -22,14 +22,16 @@ import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from ..persistence import now_iso
-from .compiler import RunGrants, plan_inputs
+from .compiler import RunGrants, compile_workflow, plan_inputs
 from .model import (
     ExecutionPlan,
     GraphRun,
     MAX_PREVIEW_CHARS,
+    MAX_SUBWORKFLOW_DEPTH,
     NodeRun,
     NodeStatus,
     PortKind,
@@ -39,6 +41,17 @@ from .model import (
     WorkflowIR,
 )
 from .registry import NodeDef, NodeExecContext, NodeRegistry, validate_port_value
+
+
+@dataclass
+class ResumeState:
+    """Successful node checkpoints for a run that should resume, not restart."""
+
+    nodes: dict[str, NodeRun] = field(default_factory=dict)
+    outputs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    fired: dict[str, list[str]] = field(default_factory=dict)
+    terminal: dict[str, Any] = field(default_factory=dict)
+    complete: bool = True
 
 
 def _preview(value: Any) -> Any:
@@ -70,6 +83,14 @@ class GraphExecutor:
         on_event: Optional[Callable[[RunEvent], None]] = None,
         owner_id: str = "local",
         workflow_version: Optional[int] = None,
+        subworkflows: Optional[dict[str, WorkflowIR]] = None,
+        run_input: Any = None,
+        depth: int = 0,
+        subworkflow_stack: tuple[str, ...] = (),
+        resume: Optional[ResumeState] = None,
+        on_node_finished: Optional[
+            Callable[[NodeRun, dict[str, Any], list[str], bool, Any], None]
+        ] = None,
     ) -> None:
         self._ir = ir
         self._plan = plan
@@ -80,6 +101,13 @@ class GraphExecutor:
         self._on_event = on_event
         self._owner_id = owner_id
         self._workflow_version = workflow_version
+        self._subworkflows = subworkflows or {}
+        self._run_input = run_input
+        self._depth = depth
+        self._subworkflow_stack = subworkflow_stack
+        self._resume = resume or ResumeState()
+        self._on_node_finished = on_node_finished
+        self._terminal_outputs: dict[str, Any] = {}
 
         self._inputs_map = plan_inputs(ir)
         self._outputs: dict[str, dict[str, Any]] = {}  # node_id → {handle: value}
@@ -102,6 +130,17 @@ class GraphExecutor:
                 status=NodeStatus.PENDING,
                 layer=plan_node.layer,
             )
+        # Resume: seed completed nodes, their full outputs and fired control
+        # names. The scheduler only runs PENDING nodes, so a completed node is
+        # never re-executed.
+        for node_id, record in self._resume.nodes.items():
+            if node_id not in self._node_runs:
+                continue
+            self._node_runs[node_id] = record
+            self._outputs[node_id] = self._resume.outputs.get(node_id, {})
+            self._fired[node_id] = set(self._resume.fired.get(node_id, []))
+            if node_id in self._resume.terminal:
+                self._terminal_outputs[node_id] = self._resume.terminal[node_id]
         self._events: list[RunEvent] = []
 
     # ── logging ────────────────────────────────────────────────────────────
@@ -114,6 +153,21 @@ class GraphExecutor:
                 self._on_event(event)
             except Exception:  # noqa: BLE001 - an observer must never break a run
                 pass
+
+    def _notify_node(
+        self,
+        record: NodeRun,
+        outputs: dict[str, Any],
+        fired: list[str],
+        terminal_done: bool,
+        terminal_value: Any,
+    ) -> None:
+        if self._on_node_finished is None:
+            return
+        try:
+            self._on_node_finished(record, outputs, fired, terminal_done, terminal_value)
+        except Exception:  # noqa: BLE001 - a persistence observer must never break a run
+            pass
 
     # ── input resolution ───────────────────────────────────────────────────
 
@@ -176,6 +230,7 @@ class GraphExecutor:
         if self._cancel.is_set():
             record.status = NodeStatus.CANCELLED
             self._emit("node.cancelled", "run cancelled before execution", node_id)
+            self._notify_node(record, {}, [], False, None)
             return
 
         if not self._control_satisfied(node_id):
@@ -184,6 +239,7 @@ class GraphExecutor:
             record.error_code = "control_not_fired"
             record.finished_at = now_iso()
             self._emit("node.skipped", record.error, node_id)
+            self._notify_node(record, {}, [], False, None)
             return
 
         try:
@@ -198,6 +254,7 @@ class GraphExecutor:
             record.error_code = "upstream_failed"
             record.finished_at = now_iso()
             self._emit("node.skipped", record.error, node_id)
+            self._notify_node(record, {}, [], False, None)
             return
 
         record.status = NodeStatus.READY
@@ -230,13 +287,20 @@ class GraphExecutor:
                 fired = result.pop("_control", []) if isinstance(result, dict) else []
                 problem = self._validate_outputs(node_id, definition, result)
                 if problem is None:
-                    self._fired[node_id] = {str(name) for name in fired} if isinstance(fired, list) else set()
+                    fired_names = [str(name) for name in fired] if isinstance(fired, list) else []
+                    self._fired[node_id] = set(fired_names)
                     self._outputs[node_id] = result
+                    terminal_done = bool(definition.terminal)
+                    terminal_value = None
+                    if terminal_done:
+                        terminal_value = inputs["value"] if "value" in inputs else (inputs or None)
+                        self._terminal_outputs[node_id] = terminal_value
                     record.outputs = {key: _preview(value) for key, value in result.items()}
                     record.status = NodeStatus.SUCCEEDED
                     record.finished_at = now_iso()
                     record.error = None
                     self._emit("node.succeeded", f"{definition.label} in {record.duration_ms} ms", node_id)
+                    self._notify_node(record, result, fired_names, terminal_done, terminal_value)
                     return
                 last_error = problem
                 record.error_code = "output_schema"
@@ -250,6 +314,7 @@ class GraphExecutor:
         record.status = NodeStatus.CANCELLED if self._cancel.is_set() else NodeStatus.FAILED
         record.finished_at = now_iso()
         self._emit("node.failed", record.error or "failed", node_id)
+        self._notify_node(record, {}, [], False, None)
 
     def _invoke(
         self,
@@ -264,8 +329,6 @@ class GraphExecutor:
         with the node timeout returns control even if a (buggy) executor never
         finishes, so a bad node cannot hang the whole run.
         """
-        if definition.executor is None:  # pragma: no cover - compile refuses these
-            raise RuntimeError(f"node type {definition.type} has no executor")
         context = NodeExecContext(
             node_id=node_id,
             run_id=self._run_id,
@@ -273,9 +336,18 @@ class GraphExecutor:
             inputs=inputs,
             config=config,
             emit=lambda message: self._emit("node.log", message, node_id),
+            run_input=self._run_input,
         )
+
+        def call() -> dict[str, Any]:
+            if definition.orchestrated:
+                return self._run_subworkflow(node_id, inputs, config, definition)
+            if definition.executor is None:  # pragma: no cover - compile refuses these
+                raise RuntimeError(f"node type {definition.type} has no executor")
+            return definition.executor(context)
+
         pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"graph-{node_id}")
-        future = pool.submit(definition.executor, context)
+        future = pool.submit(call)
         try:
             return future.result(timeout=definition.timeout_ms / 1000.0)
         except TimeoutError as exc:
@@ -285,6 +357,68 @@ class GraphExecutor:
             # `wait=False`: a timed-out thread is abandoned (documented); daemon
             # threads die with the process and pure executors hold no resources.
             pool.shutdown(wait=False, cancel_futures=True)
+
+    def _run_subworkflow(
+        self,
+        node_id: str,
+        inputs: dict[str, Any],
+        config: dict[str, Any],
+        definition: NodeDef,
+    ) -> dict[str, Any]:
+        """Execute a pinned subworkflow with the SAME grants and a bounded depth.
+
+        A nested run cannot widen authority: it receives the parent's grants,
+        so its own compiler enforces the same test-run/effect envelope. Cycles
+        are refused here AND by the front-door bundle loader.
+        """
+        workflow_id = str(config.get("workflowId") or "").strip()
+        try:
+            version = int(config.get("version", 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("subworkflow version must be a whole number") from exc
+        if not workflow_id:
+            raise ValueError("subworkflow workflowId is required")
+        if version < 1:
+            raise ValueError("subworkflow version must be pinned (>= 1)")
+        key = f"{workflow_id}@{version}"
+        if key in self._subworkflow_stack:
+            raise ValueError(f"subworkflow cycle detected: {' -> '.join((*self._subworkflow_stack, key))}")
+        if self._depth >= MAX_SUBWORKFLOW_DEPTH:
+            raise ValueError(f"subworkflow nesting exceeds the maximum depth ({MAX_SUBWORKFLOW_DEPTH})")
+        sub_ir = self._subworkflows.get(key)
+        if sub_ir is None:
+            raise ValueError(f"subworkflow {key} was not supplied to this run")
+
+        stack = (*self._subworkflow_stack, key)
+        plan = compile_workflow(
+            sub_ir, self._registry, self._grants, self._subworkflows,
+            _depth=self._depth + 1, _stack=stack,
+        )
+        if not plan.executable:
+            error = next((d.message for d in plan.diagnostics if d.severity.value == "error"), None)
+            raise ValueError(f"subworkflow {key} is not executable: {error or 'invalid graph'}")
+
+        def relay(event: RunEvent) -> None:
+            if event.kind.startswith("run."):
+                self._emit("subworkflow.event", f"{key}: {event.kind} {event.message}".strip(), node_id)
+
+        nested = GraphExecutor(
+            sub_ir, plan, self._registry,
+            run_id=f"{self._run_id}:{node_id}",
+            grants=self._grants,
+            cancel_event=self._cancel,
+            on_event=relay,
+            owner_id=self._owner_id,
+            workflow_version=version,
+            subworkflows=self._subworkflows,
+            run_input=inputs.get("input"),
+            depth=self._depth + 1,
+            subworkflow_stack=stack,
+        )
+        run = nested.execute()
+        if run.status != RunStatus.SUCCEEDED:
+            raise ValueError(f"subworkflow {key} {run.status.value}: {run.error or 'failed'}")
+        return {"output": run.output, "runId": run.id}
 
     def _validate_outputs(self, node_id: str, definition: NodeDef, result: Any) -> Optional[str]:
         if not isinstance(result, dict):
@@ -306,6 +440,7 @@ class GraphExecutor:
         record.error_code = code
         record.finished_at = now_iso()
         self._emit("node.failed", message, node_id)
+        self._notify_node(record, {}, [], False, None)
 
     # ── run ────────────────────────────────────────────────────────────────
 
@@ -313,6 +448,8 @@ class GraphExecutor:
         started_at = now_iso()
         started = time.monotonic()
         self._emit("run.started", f"{self._plan.workflow_id} in {self._plan.mode.value} mode")
+        if self._resume.nodes:
+            self._emit("run.resumed", f"resuming with {len(self._resume.nodes)} completed node(s)")
 
         deadline: Optional[float] = None
         if self._ir.settings.timeout_ms:
@@ -371,6 +508,13 @@ class GraphExecutor:
             first = next((r for r in self._node_runs.values() if r.status == NodeStatus.FAILED), None)
             self._emit("run.failed", first.error if first and first.error else "one or more nodes failed")
 
+        terminal_values = dict(self._terminal_outputs)
+        output: Any = None
+        if len(terminal_values) == 1:
+            output = next(iter(terminal_values.values()))
+        elif terminal_values:
+            output = terminal_values
+
         return GraphRun(
             id=self._run_id,
             workflowId=self._plan.workflow_id,
@@ -384,6 +528,7 @@ class GraphExecutor:
             durationMs=duration_ms,
             error=next((r.error for r in self._node_runs.values() if r.status == NodeStatus.FAILED), None),
             ownerId=self._owner_id,
+            output=output,
             nodeRuns=[self._node_runs[n.node_id] for n in sorted(self._plan.nodes, key=lambda p: (p.layer, p.node_id))],
             events=self._events,
             plan=self._plan,
@@ -419,4 +564,4 @@ def _effective_config(definition: NodeDef, ir: WorkflowIR, node_id: str) -> dict
     return coerce_config(definition, node.config if node else {})
 
 
-__all__ = ["GraphExecutor"]
+__all__ = ["GraphExecutor", "ResumeState"]

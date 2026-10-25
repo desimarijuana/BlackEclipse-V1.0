@@ -145,6 +145,18 @@ export function validateWorkflow(ir: WorkflowIR): Diagnostic[] {
         nodeId: node.id,
       });
     }
+    if (def.type === 'flow.subworkflow') {
+      const workflowId = typeof node.config.workflowId === 'string' ? node.config.workflowId.trim() : '';
+      const version = Number(node.config.version);
+      if (!workflowId || !Number.isInteger(version) || version < 1) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'invalid_subworkflow',
+          message: `Node "${node.id}" needs a pinned subworkflow (workflowId and version >= 1).`,
+          nodeId: node.id,
+        });
+      }
+    }
     if (def.sideEffects === 'trading' && !['paper', 'live'].includes(ir.settings.executionMode)) {
       diagnostics.push({
         severity: 'error',

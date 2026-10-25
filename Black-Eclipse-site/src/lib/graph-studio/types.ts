@@ -153,7 +153,15 @@ export type NodeCategory =
  * whether a given mode may run a node with a given class. `trading` nodes are
  * hard-gated to paper/live and can never run in research/backtest.
  */
-export type SideEffectClass = 'none' | 'read' | 'write' | 'network' | 'trading';
+export type SideEffectClass =
+  | 'none'
+  | 'read'
+  | 'write'
+  | 'network'
+  | 'trading'
+  /** Local scratch (the runtime's own store). Survives the run, cannot affect
+   *  the world, so a test run may perform it. */
+  | 'local_write';
 
 export interface NodeDefinition {
   type: string;

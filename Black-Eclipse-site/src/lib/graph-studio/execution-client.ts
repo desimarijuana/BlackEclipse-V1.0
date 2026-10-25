@@ -6,7 +6,7 @@
 export type NodeRunStatus =
   | 'pending' | 'ready' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
 
-export type GraphRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type GraphRunStatus = 'pending' | 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export interface NodeRunRecord {
   nodeId: string;
@@ -25,10 +25,82 @@ export interface NodeRunRecord {
 }
 
 export interface RunEventRecord {
+  /** Persisted event id (the SSE cursor). */
+  id?: number;
   at: string;
   kind: string;
   nodeId?: string | null;
   message: string;
+}
+
+export type GraphStreamEvent = RunEventRecord;
+
+export interface GraphRunStreamHandlers {
+  onEvent: (event: GraphStreamEvent) => void;
+  onEnd?: () => void;
+  onError?: (error: Error) => void;
+}
+
+/** Live node status for a graph event, or null when the event is not a
+ *  node-lifecycle transition. */
+export function nodeStatusFromEvent(kind: string): NodeRunStatus | null {
+  switch (kind) {
+    case 'node.started':
+    case 'node.retry':
+      return 'running';
+    case 'node.succeeded':
+      return 'succeeded';
+    case 'node.failed':
+      return 'failed';
+    case 'node.cancelled':
+      return 'cancelled';
+    case 'node.skipped':
+      return 'skipped';
+    default:
+      return null;
+  }
+}
+
+/** A run-level event that means the next read is authoritative. */
+export function isRunTerminalEvent(kind: string): boolean {
+  return (
+    kind === 'run.succeeded' ||
+    kind === 'run.failed' ||
+    kind === 'run.cancelled' ||
+    kind === 'run.timeout' ||
+    kind === 'run.stopped'
+  );
+}
+
+/** Open the run's SSE stream. Returns a close handle. The runtime owns the
+ *  event log; this only consumes its frames. */
+export function openGraphRunStream(
+  runId: string,
+  handlers: GraphRunStreamHandlers,
+): () => void {
+  if (typeof EventSource === 'undefined') {
+    handlers.onError?.(new Error('EventSource is unavailable in this environment'));
+    return () => {};
+  }
+  const source = new EventSource(`/api/graph-runs/${encodeURIComponent(runId)}/stream`);
+  source.onmessage = (message: MessageEvent<string>) => {
+    let event: GraphStreamEvent;
+    try {
+      event = JSON.parse(message.data) as GraphStreamEvent;
+    } catch {
+      return;
+    }
+    if (event.kind === 'stream.end') {
+      source.close();
+      handlers.onEnd?.();
+      return;
+    }
+    handlers.onEvent(event);
+  };
+  source.onerror = () => {
+    handlers.onError?.(new Error('live stream disconnected'));
+  };
+  return () => source.close();
 }
 
 export interface PlanDiagnostic {
@@ -52,6 +124,8 @@ export interface GraphRunRecord {
   durationMs?: number | null;
   error?: string | null;
   ownerId?: string;
+  /** Terminal value(s): one terminal -> its value, multiple -> {nodeId: value}. */
+  output?: unknown;
   nodeRuns?: NodeRunRecord[];
   events?: RunEventRecord[];
   nodeStatus?: Record<string, NodeRunStatus>;
