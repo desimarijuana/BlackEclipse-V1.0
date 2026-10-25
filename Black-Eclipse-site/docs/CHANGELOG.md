@@ -434,8 +434,20 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   settings and a strict schema (`agent_plan.py`); delegation reuses the bound
   agent runner, so neither adds an agent loop. The manifest is now 52 types.
   Tests: `test_graph_agent_node.py` (plan/delegate, failed part, task cap,
-  bound planner) and `test_graph_agent_plan.py` (ids, dependencies, step cap).
+  bound planner) and   `test_graph_agent_plan.py` (ids, dependencies, step cap).
   docs updated: `docs/graph-studio.md` (Phase 7 complete).
+
+- **feat(graph): health watch and headless schedule guidance.** Added
+  `graph_runtime/health_watch.py`: a bounded cadence reads the health telemetry,
+  persists `unmeasured`/`insufficient`/`healthy`/`degraded` in
+  `GraphHealthWatchState`, and publishes `graph.health_degraded` /
+  `graph.health_recovered` only on a transition. Thresholds are env-tunable
+  (`HARNESS_GRAPH_HEALTH_*`; `SECONDS=0` disables). `/graphs/health` now carries
+  `watch`, and the Health tab renders the verdict/reasons. Boot starts/stops the
+  watcher; it never creates or changes a run. Docs also document driving
+  `/api/workflow-schedules/tick` from external cron with `CRON_SECRET` for a
+  headless host. Tests: `test_graph_health_watch.py` (thin data, thresholds,
+  transition-only events). docs updated: `docs/graph-studio.md`.
 
 ## 2026-10-24
 - **ui(chat): roomier chat history rows.** Increased the vertical gap between

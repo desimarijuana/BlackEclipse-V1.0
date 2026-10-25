@@ -458,6 +458,27 @@ same figures for 1 h / 24 h / 7 d with an explicit refresh. Additive contract:
 `nodeRuns[].resumable` (Phase 9) and `/graphs/health` (this phase); no new store,
 queue or scheduler.
 
+**Health watch.** `graph_runtime/health_watch.py` reads the same telemetry on a
+cadence and persists one verdict (`unmeasured` / `insufficient` / `healthy` /
+`degraded`) in `GraphHealthWatchState`; the health response carries it as
+`watch`. It publishes `graph.health_degraded` / `graph.health_recovered` only on a
+transition, never every tick. Thin data is `insufficient`, not healthy. Tuning:
+`HARNESS_GRAPH_HEALTH_SECONDS` (default 300; `0` disables),
+`HARNESS_GRAPH_HEALTH_WINDOW_HOURS` (default 1),
+`HARNESS_GRAPH_HEALTH_MIN_RUNS` (default 5),
+`HARNESS_GRAPH_HEALTH_FAILURE_RATE` (default 0.5) and
+`HARNESS_GRAPH_HEALTH_QUEUE_MS` (default 60000). It never creates or changes a
+run.
+
+**Headless schedules.** The in-process 60 s timer is sufficient while the app is
+up. For an unattended host, drive the same tick from system cron (with
+`CRON_SECRET` set):
+
+`curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" http://127.0.0.1:3000/api/workflow-schedules/tick`
+
+The tick is idempotent per due schedule; missed fires still follow each
+schedule's `skip`/`coalesce` policy.
+
 ### Phase 1 — acceptance criteria (verified)
 
 - Graph Studio opens within Eclipse (new `graph-studio` AppTab + sidebar item). ✓
@@ -495,11 +516,11 @@ Phases 3–4:
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **209 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **213 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
   optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
-  agent planning/delegation, chat-to-graph validation,
+  agent planning/delegation, chat-to-graph validation, health telemetry/watch,
   local research/evidence + live web search/fetch/claim verification, agent
   node, operator-run/HTTP safety, registry parity, datasets, subworkflows,
   durable dispatch/resume), including a real

@@ -74,6 +74,25 @@ export function GraphHealthPanel() {
         )}
         {health && (
           <>
+            {health.watch.status === 'degraded' && (
+              <div className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1.5 text-[10px] text-rose-200">
+                <div className="font-medium">Graph health degraded</div>
+                {health.watch.reasons.map((reason) => (
+                  <div key={reason}>{reason}</div>
+                ))}
+              </div>
+            )}
+            {health.watch.status === 'insufficient' && (
+              <p className="rounded border border-white/10 px-2 py-1 text-[10px] text-muted-foreground">
+                Health watch has too little data: {health.watch.reasons[0] ?? 'no runs yet'}.
+              </p>
+            )}
+            {health.watch.status === 'healthy' && (
+              <p className="rounded border border-emerald-500/20 bg-emerald-500/5 px-2 py-1 text-[10px] text-emerald-200">
+                Health watch: healthy
+                {health.watch.checkedAt ? ` (checked ${formatTimestamp(health.watch.checkedAt)})` : ''}.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-1.5">
               <div className="rounded-md border border-white/10 bg-white/[0.02] px-2 py-1.5">
                 <div className="text-[9.5px] uppercase tracking-wide text-muted-foreground">Runs</div>

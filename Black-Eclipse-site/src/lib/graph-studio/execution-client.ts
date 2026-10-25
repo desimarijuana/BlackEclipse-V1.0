@@ -182,6 +182,7 @@ export interface GraphHealth {
   failures: { code: string; count: number }[];
   slowestNodes: { nodeType: string; runs: number; failures: number; avgMs: number; p95Ms: number }[];
   truncated: { runs: boolean; nodeRuns: boolean };
+  watch: { status: string; reasons: string[]; checkedAt: string | null };
 }
 
 export async function getGraphHealth(windowHours = 24): Promise<GraphHealth> {

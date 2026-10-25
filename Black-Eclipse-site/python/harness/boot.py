@@ -119,6 +119,14 @@ async def _boot() -> None:
 
     service._drift_watch = DriftWatcher(service)
     await service._drift_watch.start()
+    # Graph health watch: the bounded telemetry surface is read on a cadence and
+    # a status TRANSITION publishes graph.health_degraded/recovered. It never
+    # touches a run. Disabled with HARNESS_GRAPH_HEALTH_SECONDS=0.
+    if getattr(service, "graphs", None) is not None:
+        from .graph_runtime.health_watch import GraphHealthWatcher  # noqa: PLC0415
+
+        service._graph_health_watch = GraphHealthWatcher(service)
+        await service._graph_health_watch.start()
     # The unattended RSL session: on a cadence, ONE measured surface session
     # stages its winner as an inert candidate. Off by default
     # (HARNESS_RSL_SESSION_SECONDS=0); it never lands anything.
@@ -274,6 +282,9 @@ async def _shutdown() -> None:
     drift_watch = getattr(service, "_drift_watch", None)
     if drift_watch is not None:
         await drift_watch.stop()
+    graph_health_watch = getattr(service, "_graph_health_watch", None)
+    if graph_health_watch is not None:
+        await graph_health_watch.stop()
     session_watch = getattr(service, "_rsl_session_watch", None)
     if session_watch is not None:
         await session_watch.stop()

@@ -86,6 +86,13 @@ CREATE TABLE IF NOT EXISTS HarnessGraphEvent (
   message TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_graph_event_run ON HarnessGraphEvent(runId, id);
+
+CREATE TABLE IF NOT EXISTS GraphHealthWatchState (
+  scope     TEXT PRIMARY KEY,
+  status    TEXT NOT NULL,
+  reasons   TEXT NOT NULL DEFAULT '[]',
+  updatedAt TEXT NOT NULL
+);
 """
 
 
@@ -349,7 +356,29 @@ class GraphRunStore:
             ],
             "slowestNodes": slowest[:10],
             "truncated": {"runs": truncated_runs, "nodeRuns": truncated_nodes},
+            "watch": self.watch_state(),
         }
+
+    def watch_state(self) -> dict[str, Any]:
+        """The last health-watch verdict (persisted; survives a restart)."""
+        row = self._db.execute(
+            "SELECT * FROM GraphHealthWatchState WHERE scope='graph'"
+        ).fetchone()
+        if row is None:
+            return {"status": "unmeasured", "reasons": [], "checkedAt": None}
+        return {
+            "status": str(row["status"]),
+            "reasons": _loads(row["reasons"], []),
+            "checkedAt": row["updatedAt"],
+        }
+
+    def save_watch_state(self, status: str, reasons: list[str]) -> None:
+        self._db.execute(
+            "INSERT OR REPLACE INTO GraphHealthWatchState (scope, status, reasons, updatedAt) "
+            "VALUES ('graph', ?, ?, ?)",
+            (status, _json(reasons), now_iso()),
+        )
+        self._db.commit()
 
     def delete_run(self, run_id: str) -> int:
         cursor = self._db.execute("DELETE FROM HarnessGraphRun WHERE id=?", (run_id,))
