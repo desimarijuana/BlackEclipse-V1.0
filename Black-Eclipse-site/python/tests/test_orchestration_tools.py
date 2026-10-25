@@ -169,6 +169,15 @@ async def test_execution_cancel_handler_on_unknown_is_false(tmp_path):
     assert data["cancelled"] is False
 
 
+def test_boot_does_not_advertise_the_unreachable_tool_surface():
+    """No built-in allowlist names these tools, so boot must not register them."""
+    import inspect
+
+    from harness.orchestration.bootstrap import install_orchestration_layer
+
+    assert "register_orchestration_tools" not in inspect.getsource(install_orchestration_layer)
+
+
 def test_least_privilege_tool_narrowing():
     parent = {"echo", "slow", "other"}
     assert narrow_allowed(parent, ["echo"]) == {"echo"}

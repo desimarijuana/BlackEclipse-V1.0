@@ -445,7 +445,11 @@ def test_prompt_char_ceiling():
     # step's intent is unclear; an answer is not a permission). It is guidance
     # the runtime needs; it is re-pinned to the measured size and may only shrink
     # from here. Matches the same test in `test_memory_tools.py`.
-    assert len(prompt) <= 38884, f"prompt grew to {len(prompt)} chars"
+    # Re-pinned 38884->40067 for the delegation guidance (use `delegate` only for
+    # genuinely independent sub-questions; never for a single or dependent step)
+    # and the in-flight interactive-block clause. Both are guidance the runtime
+    # needs; re-pinned to the measured size, and it may only shrink from here.
+    assert len(prompt) <= 40067, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

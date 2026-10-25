@@ -76,4 +76,40 @@ def test_empty_input_is_honest():
     result = explain_run(run_id="r")
     assert result["memory"]["injected"] == []
     assert result["promptPlan"] is None
+    assert result["delegation"] is None
     assert result["note"]
+
+
+def test_a_persisted_fan_out_is_explained_without_its_prose():
+    run = {
+        "workflowId": "wf_1",
+        "delegation": {
+            "delegationId": "dlg_1",
+            "strategy": "best_of",
+            "winner": 0,
+            "budget": {"requestedTokens": 12000, "consumedTokens": 3400,
+                       "children": 2, "timedOut": 0, "wallMs": 1200},
+            "children": [
+                {
+                    "childIndex": 0, "runId": "run_child0", "status": "completed",
+                    "goal": "Fix checkout", "approach": "retry with backoff",
+                    "model": "phi3", "tokens": 2000,
+                    "claimed": ["All tests pass."], "dropped": [],
+                },
+                {
+                    "childIndex": 1, "runId": "run_child1", "status": "failed",
+                    "goal": "Fix checkout", "reason": "boom", "tokens": 1400,
+                },
+            ],
+        },
+    }
+    out = explain_run(run_id="run_1", run=run)["delegation"]
+    assert out["strategy"] == "best_of"
+    assert out["winner"] == 0
+    assert out["budget"]["consumedTokens"] == 3400
+    assert [c["childIndex"] for c in out["children"]] == [0, 1]
+    assert out["children"][0]["approach"] == "retry with backoff"
+    assert out["children"][0]["model"] == "phi3"
+    # The child's claimed/prose sentences are not re-rendered by this view.
+    assert "claimed" not in out["children"][0]
+    assert "All tests pass." not in str(out)

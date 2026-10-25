@@ -1,10 +1,10 @@
 ---
 title: "Phase 20 — Measuring All of It"
-status: In progress
+status: Done
 phase: 20
 depends_on: [13, 14, 15, 16, 17, 18, 19]
 unlocks: []
-last-verified: 2026-10-13
+last-verified: 2026-10-25
 ---
 
 # Phase 20 — Measuring All of It

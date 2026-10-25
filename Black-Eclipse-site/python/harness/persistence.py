@@ -1417,6 +1417,10 @@ def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         "workspaceId": row["workspaceId"] if _has_column(row, "workspaceId") else None,
         "parentRunId": row["parentRunId"] if _has_column(row, "parentRunId") else None,
         "workflowId": row["workflowId"] if _has_column(row, "workflowId") else None,
+        # Additive + old-row-safe (the column is created by `delegation_tools`):
+        # the bounded fan-out blob, so a reload can re-draw the parallel card.
+        "delegation": json.loads(row["delegation"])
+        if _has_column(row, "delegation") and row["delegation"] else None,
         "createdAt": row["createdAt"], "updatedAt": row["updatedAt"],
         "startedAt": row["startedAt"], "finishedAt": row["finishedAt"],
     }

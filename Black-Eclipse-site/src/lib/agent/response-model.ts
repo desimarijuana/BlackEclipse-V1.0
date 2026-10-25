@@ -192,6 +192,60 @@ export interface TurnChange {
   edits?: number;
 }
 
+/** One delegated part of a parallel fan-out, as the runtime reported it. */
+export type DelegationChildStatus =
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'refused'
+  | 'timed_out'
+  | 'cancelled';
+
+export interface DelegationChildView {
+  childIndex: number;
+  runId?: string;
+  /** The agent that ran this part (from the runtime; never inferred). */
+  agentId?: string;
+  /** The model this part ran on, when it differs from the turn's model. */
+  model?: string;
+  /** The user's own sub-question for this part (bounded by the runtime). */
+  goal: string;
+  /** A short angle for this attempt (e.g. "mock the API") — the row label. */
+  approach?: string;
+  status: DelegationChildStatus;
+  /** What the part is doing right now (the child's latest step). */
+  activity?: string;
+  /** The runtime's step counter — never a percentage we computed ourselves. */
+  step?: number;
+  /** The child run's own step ceiling, when it reported one. */
+  maxSteps?: number;
+  /** REAL tokens the part has used so far. */
+  tokens?: number;
+  /** REAL price for those tokens, or null when the model has no known price. */
+  costUsd?: number | null;
+  /** A plain sentence on failure/refusal, when the runtime sent one. */
+  reason?: string;
+}
+
+/** One fan-out: the parts it split into, their live state, and its result. */
+export type DelegationStrategy = 'split' | 'best_of';
+
+export interface DelegationView {
+  delegationId: string;
+  aggregate: 'list' | 'compare' | 'merge_claims';
+  /** `split` = different sub-questions; `best_of` = N tries at the same task. */
+  strategy: DelegationStrategy;
+  children: DelegationChildView[];
+  /** Claims the parent refused to repeat (unconfirmed) — a count, never text. */
+  droppedClaims?: number;
+  /** REAL tokens used across the parts. */
+  tokens?: number;
+  /** `best_of` only: the part the evidence selected, or null when none finished. */
+  winner?: number | null;
+  /** True once the runtime reported the fan-out aggregated. */
+  done: boolean;
+}
+
 /** The full state of one in-flight or finished assistant turn. */
 export interface AssistantTurn {
   status: ResponseStatus;
@@ -200,6 +254,13 @@ export interface AssistantTurn {
   /** Authoritative final text from `client.final` when it arrives. */
   finalText?: string;
   activities: ActivityItem[];
+  /**
+   * Parallel fan-outs this turn ran (`delegation.*` events), in arrival order.
+   * Each carries its parts' live activity, real step counters, real tokens and
+   * (when priced) real cost — never a fabricated percentage or price.
+   * Absent for turns that delegated nothing.
+   */
+  delegations?: DelegationView[];
   /**
    * The code changes this turn made, in arrival order: one entry per path, the
    * latest preview winning (`edits` counts repeat edits). Empty for a turn

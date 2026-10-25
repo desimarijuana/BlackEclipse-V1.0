@@ -1,7 +1,7 @@
 {
-  "digest": "822cd1244cf0c45c",
+  "digest": "b7803a155a312da3",
   "manifestVersion": "1",
-  "toolCount": 957,
+  "toolCount": 958,
   "tools": [
     {
       "deprecated": false,
@@ -5629,6 +5629,47 @@
     },
     {
       "deprecated": false,
+      "description": "Ask the user ONE short question when a request is genuinely ambiguous in a way that changes what you will produce, or before a consequential step whose intent is unclear. Provide 2-4 concise options and mark the one you recommend. The run pauses until the user picks an option or types an answer, then you continue with it. Do not ask about anything you can resolve with a tool or an obvious default; never use this to ask for permission.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "allow_custom": {
+            "description": "Whether the user may type a free-text answer (default true).",
+            "type": "boolean"
+          },
+          "context": {
+            "description": "Optional one-sentence reason the choice matters.",
+            "type": "string"
+          },
+          "options": {
+            "description": "2-4 short, concrete choices (optional).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "question": {
+            "description": "The one question to ask, in plain language.",
+            "type": "string"
+          },
+          "recommended": {
+            "description": "Optional label of the option you recommend.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "type": "object"
+      },
+      "name": "clarify",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Analyze the image currently on the OS clipboard.",
       "effect": null,
       "inputSchema": {
@@ -8985,8 +9026,15 @@
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
+          "agent_ids": {
+            "description": "best_of only: optional agents to use per attempt (they must be ones this task may use).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "aggregate": {
-            "description": "How to combine the results.",
+            "description": "split only: how to combine the results.",
             "enum": [
               "list",
               "compare",
@@ -8994,13 +9042,24 @@
             ],
             "type": "string"
           },
+          "approaches": {
+            "description": "best_of only: optional different angles per attempt (e.g. 'retry with backoff', 'mock the API'). Guidance, never a claimed result.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "children": {
-            "description": "The independent sub-questions to work on at once (1-4).",
+            "description": "split only: the independent sub-questions to work on at once (1-4).",
             "items": {
               "additionalProperties": false,
               "properties": {
                 "agent_id": {
-                  "description": "Reserved; defaults to this run's agent.",
+                  "description": "Run this part with a different agent (optional; defaults to this task's agent).",
+                  "type": "string"
+                },
+                "approach": {
+                  "description": "A short angle for this part (e.g. 'add a retry', 'mock the API'). Used as guidance and shown as the row label.",
                   "type": "string"
                 },
                 "context": {
@@ -9011,8 +9070,18 @@
                   "description": "The one independent sub-question for this part.",
                   "type": "string"
                 },
+                "model": {
+                  "description": "Run this part with a different model on the SAME provider (optional).",
+                  "type": "string"
+                },
+                "temperature": {
+                  "description": "Sampling temperature for this part (optional; the parent's setting otherwise).",
+                  "maximum": 2,
+                  "minimum": 0,
+                  "type": "number"
+                },
                 "tool_subset": {
-                  "description": "Reserved; a subset of this task's tools (narrowing only).",
+                  "description": "Limit this part to these tools (must be a subset of this task's tools).",
                   "items": {
                     "type": "string"
                   },
@@ -9029,11 +9098,49 @@
               "type": "object"
             },
             "type": "array"
+          },
+          "contexts": {
+            "description": "best_of only: optional background per attempt (bounded), for tries that should work from different evidence.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "count": {
+            "description": "best_of only: how many attempts (2-4). Defaults to 3.",
+            "maximum": 4,
+            "minimum": 2,
+            "type": "integer"
+          },
+          "goal": {
+            "description": "best_of only: the one task every attempt should try.",
+            "type": "string"
+          },
+          "models": {
+            "description": "best_of only: optional models to try per attempt. They must be on the SAME provider as this task; the provider and its credential do not change.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "strategy": {
+            "description": "split: independent sub-questions (use children). best_of: the SAME task tried several ways, then the strongest verified result is chosen (use goal + count).",
+            "enum": [
+              "split",
+              "best_of"
+            ],
+            "type": "string"
+          },
+          "temperatures": {
+            "description": "best_of only: optional temperature per attempt, so the samples differ. Providers that ignore temperature are unaffected.",
+            "items": {
+              "maximum": 2,
+              "minimum": 0,
+              "type": "number"
+            },
+            "type": "array"
           }
         },
-        "required": [
-          "children"
-        ],
         "type": "object"
       },
       "name": "delegate",

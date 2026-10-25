@@ -18,11 +18,15 @@ from harness.tools import ToolContext, ToolRegistry
 
 
 class _FakeResult:
-    def __init__(self, run_id: str) -> None:
+    def __init__(self, run_id: str, tokens: int = 0) -> None:
         self._run_id = run_id
+        self._tokens = tokens
 
     def model_dump(self) -> dict:
-        return {"runId": self._run_id, "status": "completed", "output": "done", "error": None}
+        return {
+            "runId": self._run_id, "status": "completed", "output": "done",
+            "error": None, "totalTokens": self._tokens,
+        }
 
 
 def _ctx(**overrides) -> ToolContext:
@@ -110,6 +114,100 @@ def test_delegate_narrowing_uses_the_parents_allowlist(monkeypatch):
     ))
     assert seen == []  # the child never ran
     assert result.data["outcomes"][0]["status"] == "refused"
+
+
+def test_child_token_usage_reaches_the_budget_report(monkeypatch):
+    async def fake_execute_run(request, *args, **kwargs):
+        return _FakeResult(request.runId, tokens=700)
+
+    monkeypatch.setattr(graph_mod, "execute_run", fake_execute_run)
+
+    reg = ToolRegistry()
+    register_code_tools(reg)
+    result = asyncio.run(reg.execute(
+        "delegate", "c1", {"children": [{"goal": "a"}, {"goal": "b"}]}, _ctx(),
+    ))
+    assert result.data["budget"]["consumedTokens"] == 1_400
+
+
+class _RecordingEmitter:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict]] = []
+
+    def emit_transient(self, event_type: str, data: dict) -> None:
+        self.events.append((event_type, data))
+
+    async def emit(self, event_type: str, data: dict) -> None:
+        self.events.append((event_type, data))
+
+
+def test_child_events_are_bridged_to_the_parent_stream(monkeypatch):
+    """A child runs on its own run id; the bridge still reaches the parent."""
+    from harness.events import EventBus
+
+    bus = EventBus()
+    emitter = _RecordingEmitter()
+
+    async def fake_execute_run(request, *args, **kwargs):
+        bus.publish({
+            "runId": request.runId, "type": "run.started",
+            "data": {"maxSteps": 4, "provider": "ollama"},
+        })
+        bus.publish({
+            "runId": request.runId, "type": "tool.requested",
+            "data": {"name": "workspace_read", "detail": "Reading the filing", "step": 1},
+        })
+        await asyncio.sleep(0.3)
+        return _FakeResult(request.runId)
+
+    monkeypatch.setattr(graph_mod, "execute_run", fake_execute_run)
+
+    reg = ToolRegistry()
+    register_code_tools(reg)
+    result = asyncio.run(reg.execute(
+        "delegate", "c1", {"children": [{"goal": "a"}]},
+        _ctx(bus=bus, emitter=emitter),
+    ))
+    assert result.ok is True
+    progress = [data for event, data in emitter.events if event == "delegation.progress"]
+    assert progress, "the child's events were not bridged"
+    assert progress[-1]["activity"] == "Reading the filing"
+    assert progress[-1]["step"] == 1 and progress[-1]["maxSteps"] == 4
+    assert progress[-1]["status"] == "completed"
+    # The row is keyed by the fan-out and its part, so the UI can place it.
+    assert progress[-1]["delegationId"].startswith("dlg_")
+    assert progress[-1]["childIndex"] == 0
+
+
+def test_a_failed_child_gets_a_stop_signal(monkeypatch):
+    """A child that dies tells its cooperating tools to stop (cancel_event)."""
+    captured: dict = {}
+
+    async def fake_execute_run(request, *args, **kwargs):
+        captured["event"] = kwargs.get("cancel_event")
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(graph_mod, "execute_run", fake_execute_run)
+
+    reg = ToolRegistry()
+    register_code_tools(reg)
+    result = asyncio.run(reg.execute(
+        "delegate", "c1", {"children": [{"goal": "a"}]}, _ctx(),
+    ))
+    assert result.data["outcomes"][0]["status"] == "failed"
+    event = captured.get("event")
+    assert event is not None and event.is_set()
+
+
+def test_parent_workflow_id_is_carried_onto_the_delegation():
+    from harness.delegation_tools import _parent_workflow_id
+
+    class _Store:
+        def get_run(self, _rid):
+            return {"workflowId": "wf_parent"}
+
+    assert _parent_workflow_id(_ctx(memory_store=_Store())) == "wf_parent"
+    assert _parent_workflow_id(_ctx(memory_store=None)) is None
 
 
 # -- the parent blob is additive + old-row-safe -------------------------------

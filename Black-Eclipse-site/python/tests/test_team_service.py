@@ -325,3 +325,19 @@ async def test_task_executor_records_budget_usage(tmp_path):
     snapshot = host.a2a.budgets.snapshot(run.root_run_id)
     assert snapshot["tokensUsed"] >= 321
     assert snapshot["toolCalls"] >= 4
+
+def test_member_fanout_is_opt_in_and_only_adds_the_tool(tmp_path):
+    """A team member can use delegate/best_of only when the policy opts in."""
+    from harness.team.model import TeamMember
+
+    host = make_host(tmp_path)
+    member = TeamMember(agentId="research-agent", tools=["workspace_read", "read_file"])
+    assert host.team._member_tools(member, False) == ["workspace_read", "read_file"]
+    assert host.team._member_tools(member, True) == [
+        "workspace_read", "read_file", "delegate",
+    ]
+    # A member with NO declared surface already inherits everything.
+    unrestricted = TeamMember(agentId="research-agent")
+    assert host.team._member_tools(unrestricted, True) is None
+    # The policy default is OFF, so a team run does not widen silently.
+    assert _team().policy.member_fanout is False

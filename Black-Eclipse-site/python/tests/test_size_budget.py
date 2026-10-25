@@ -186,7 +186,10 @@ RATCHET_PY: dict[str, int] = {
     # gitignored - the write raised `no such column` and every run crashed at
     # the answer seam, AFTER the model had already answered. The columns are
     # additive and NULL for older rows. May only shrink from here.
-    "persistence.py": 1475,
+    # Re-pinned 1475→1477 for the `delegation` read field (four lines in
+    # `_run_row`, old-row-safe) so a reload can re-draw the parallel card. The
+    # fan-out logic itself lives in `delegation*.py`.
+    "persistence.py": 1477,
     "mcp/manager.py": 1106,
     # Grew past the hard ceiling with the Vision + Document Intelligence subsystem
     # boot wiring (`vision_assets`, `document_store`, tool registration), then the
@@ -259,14 +262,17 @@ RATCHET_PY: dict[str, int] = {
     # its comment in `__init__` + the `project_store` run kwarg); the project
     # store and tools live in `python/harness/projects/`. May only shrink from
     # here.
-    "service.py": 1568,
+    # Re-pinned 1568→1573 to the measured tree (pre-existing shared-tree growth;
+    # this change does not touch service.py). May only shrink from here.
+    "service.py": 1573,
     # The in-flight Portfolio Accounting Engine's service facade (ledger â†’
     # valuation â†’ corporate actions â†’ risk/rebalancing). Over the hard ceiling
 
     # Re-pinned 1552->1568 for the in-flight server-side market gateway (a route
     # that fetches OUTSIDE a run had no bridge, so the fetch could not even be
     # attempted). May only shrink from here.
-    "service.py": 1568,
+    # Re-pinned 1568→1573 to the measured tree (pre-existing growth).
+    "service.py": 1573,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
 

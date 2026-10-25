@@ -11,6 +11,7 @@ import { buildFigureResolver } from '@/lib/response/refs';
 import { hasResponseFence } from '@/lib/response/fence-check';
 import { ResponseStatusLine } from './response-status';
 import { ActivityFeed } from './activity-feed';
+import { ParallelAgentsPanel } from './parallel-agents-panel';
 import { ChangeCards } from './change-cards';
 import { ResearchEvidencePanel } from './research-evidence-panel';
 import { VisionPanel } from './vision-panel';
@@ -374,10 +375,14 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
               {/* A settled error renders as the error card below (not the status
                   line), so the failure reads once, not as two "something went
                   wrong" lines stacked. */}
-              {msg.role === 'assistant' && msg.status != null && !msg.error && !(msg.activities && msg.activities.length > 0) && (
+              {msg.role === 'assistant' && msg.status != null && !msg.error && !(msg.activities && msg.activities.length > 0) && !(msg.delegations && msg.delegations.length > 0) && (
                 <div className={cn(msg.content ? 'mb-2' : '')}>
                   <ResponseStatusLine status={msg.status} activities={msg.activities} compact={compact} />
                 </div>
+              )}
+
+              {msg.role === 'assistant' && msg.delegations && msg.delegations.length > 0 && (
+                <ParallelAgentsPanel delegations={msg.delegations} compact={compact} />
               )}
 
               {msg.role === 'assistant' && ((msg.activities && msg.activities.length > 0) || Boolean(msg.autonomy) || Boolean(msg.codeVerification) || Boolean(msg.capability)) && (

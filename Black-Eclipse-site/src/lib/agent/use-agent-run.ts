@@ -19,6 +19,7 @@ import type { AssistantTurn, PendingApproval, PendingClarification } from './res
 import { emptyTurn } from './response-model';
 import { mergeCapabilityBuild, type CapabilityBuildView } from '@/lib/harness/capability-types';
 import { endActivity, initialActivityState, startActivity } from './activity-reducer';
+import { applyDelegationEvent } from './delegation-reducer';
 import { ALERT_NOTIFY_EVENT } from '@/lib/alerts/browser-notifier';
 import { useNotificationsStore } from '@/lib/notifications/store';
 import { getUiFocus } from '@/lib/ui-engineering/ui-focus';
@@ -344,6 +345,16 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           // The orchestrator's chosen presentation mode — display only, so the UI
           // can show how the turn was framed (it never changes the answer).
           t.responsePlan = event.plan;
+          publish(true);
+          break;
+        }
+        case 'delegation_start':
+        case 'delegation_progress':
+        case 'delegation_child':
+        case 'delegation_done': {
+          // Parallel fan-out state. The reducer owns the merge rules (one row per
+          // child, terminal states never downgraded, goals never erased).
+          t.delegations = applyDelegationEvent(t.delegations ?? [], event);
           publish(true);
           break;
         }

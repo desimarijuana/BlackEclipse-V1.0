@@ -164,8 +164,11 @@ needs a process-wide provider config.
 
 `parallel_execute`, `task_fork`, `task_join`, `task_race`, `task_quorum`,
 `task_map`, `task_batch`, `task_reduce`, `dependency_graph`, `execution_status`,
-`execution_cancel` are registered on the ONE tool registry (`orchestration/tools.py`)
-and exposed over `/orchestration/*`. A task spec is a plain mapping: `{id, kind,
+`execution_cancel` are defined in `orchestration/tools.py` and exposed over
+`/orchestration/*`. They are deliberately **not registered on the booted tool
+registry**: no built-in agent allowlist names them, so registering them only
+advertised a surface the model could never call. `register_orchestration_tools`
+still exists for an explicit future surface (and its own tests). A task spec is a plain mapping: `{id, kind,
 tool|function|query, args, input, priority, timeoutMs, retry, resources,
 dependsOn, join, dedupKey, dedupScope, shared, rateKey, batch, cacheable,
 cacheTtlMs}`.

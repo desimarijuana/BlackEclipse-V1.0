@@ -141,11 +141,17 @@ explicitly (`FAILED`/`PARTIAL`) rather than looping.
 
 ## Settings (on `TeamPolicy`)
 
-`delegationEnabled`, `maxDepth`, `maxChildren`, `maxConcurrency`,
+`delegationEnabled`, `memberFanout`, `maxDepth`, `maxChildren`, `maxConcurrency`,
 `perAgentConcurrency`, `maxTasks`, `maxCost`, `maxRuntimeMs`, `requireReview`,
 `reviewStrictness` (NONE/LENIENT/STANDARD/STRICT),
 `optionalFailurePolicy` (ALLOW_PARTIAL/REQUIRE_ALL), `allowedProviders`,
 `requireApproval`.
+
+`memberFanout` (default **off**) lets a team MEMBER use the `delegate` tool —
+split fan-out or `best_of` — inside its own subtask. Enabling it only adds the
+tool NAME to a member's declared surface; the delegation's own caps, number
+bounds, tool narrowing and permissions still apply, so it grants no authority.
+A member with no declared tool surface already inherits the tool.
 
 ## Security
 

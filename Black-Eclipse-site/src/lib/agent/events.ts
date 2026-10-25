@@ -1,4 +1,14 @@
-import type { ActivityItem, PendingApproval, PendingClarification, ResponsePlan, ResponseStatus, TurnChange } from './response-model';
+import type {
+  ActivityItem,
+  DelegationChildStatus,
+  DelegationChildView,
+  DelegationView,
+  PendingApproval,
+  PendingClarification,
+  ResponsePlan,
+  ResponseStatus,
+  TurnChange,
+} from './response-model';
 import { coerceResponsePlan, sourceLabel, toolLabel } from './response-model';
 import type { CapabilityEventPhase } from '@/lib/harness/capability-types';
 import { refusalKey } from '@/lib/i18n/refusal-copy';
@@ -93,7 +103,32 @@ export type HarnessUiEvent =
    * The Intelligent Response Orchestrator chose this turn's presentation mode
    * (runtime `response.plan`). Display-only �?" it never changes the answer.
    */
-  | { kind: 'response_plan'; plan: ResponsePlan };
+  | { kind: 'response_plan'; plan: ResponsePlan }
+  /**
+   * A parallel fan-out began (`delegation.started`): one row per part, with the
+   * user's own sub-question. The rows then update from `delegation.progress`.
+   */
+  | { kind: 'delegation_start'; delegation: DelegationView }
+  /** One part's live snapshot (`delegation.progress`) — bounded and content-free. */
+  | { kind: 'delegation_progress'; child: DelegationChildView & { delegationId: string } }
+  /** A part reached a terminal state (`delegation.child.*`). */
+  | {
+      kind: 'delegation_child';
+      delegationId: string;
+      childIndex: number;
+      status: DelegationChildStatus;
+      tokens?: number;
+      reason?: string;
+    }
+  /** The fan-out was aggregated (`delegation.aggregated`): done + real totals. */
+  | {
+      kind: 'delegation_done';
+      delegationId: string;
+      droppedClaims?: number;
+      tokens?: number;
+      /** `best_of` winner (a child index), or null when none finished. */
+      winner?: number | null;
+    };
 
 /**
  * Normalize a frame's payload.
@@ -117,6 +152,85 @@ function str(value: unknown): string | undefined {
 
 function num(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+const DELEGATION_CHILD_STATUSES: ReadonlySet<DelegationChildStatus> = new Set([
+  'running', 'completed', 'failed', 'refused', 'timed_out', 'cancelled',
+]);
+
+function childStatus(value: unknown): DelegationChildStatus {
+  return typeof value === 'string' && DELEGATION_CHILD_STATUSES.has(value as DelegationChildStatus)
+    ? (value as DelegationChildStatus)
+    : 'running';
+}
+
+function aggregateMode(value: unknown): DelegationView['aggregate'] {
+  return value === 'compare' || value === 'merge_claims' ? value : 'list';
+}
+
+/** `delegation.started` → the initial fan-out view, or null when malformed. */
+function delegationFromStart(payload: Record<string, unknown>): DelegationView | null {
+  const delegationId = str(payload.delegationId);
+  if (!delegationId) return null;
+  const agents = Array.isArray(payload.agents) ? payload.agents.filter(isRecord) : [];
+  const children: DelegationChildView[] = agents
+    .map((agent, index): DelegationChildView => {
+      const agentId = str(agent.agentId);
+      const model = str(agent.model);
+      const approach = str(agent.approach);
+      return {
+        childIndex: num(agent.childIndex) ?? index,
+        goal: str(agent.goal) ?? '',
+        status: 'running',
+        ...(agentId ? { agentId } : {}),
+        ...(model ? { model } : {}),
+        ...(approach ? { approach } : {}),
+      };
+    })
+    .sort((a, b) => a.childIndex - b.childIndex);
+  return {
+    delegationId,
+    aggregate: aggregateMode(payload.aggregate),
+    strategy: payload.strategy === 'best_of' ? 'best_of' : 'split',
+    children,
+    done: false,
+  };
+}
+
+/** `delegation.progress` → one child's live snapshot, or null when malformed. */
+function childFromProgress(
+  payload: Record<string, unknown>,
+): (DelegationChildView & { delegationId: string }) | null {
+  const delegationId = str(payload.delegationId);
+  const childIndex = num(payload.childIndex);
+  if (!delegationId || childIndex == null) return null;
+  const view: DelegationChildView = {
+    childIndex,
+    goal: str(payload.goal) ?? '',
+    status: childStatus(payload.status),
+  };
+  const runId = str(payload.runId);
+  const agentId = str(payload.agentId);
+  const model = str(payload.model);
+  const approach = str(payload.approach);
+  const activity = str(payload.activity);
+  const step = num(payload.step);
+  const maxSteps = num(payload.maxSteps);
+  const tokens = num(payload.tokens);
+  const reason = str(payload.reason);
+  if (runId) view.runId = runId;
+  if (agentId) view.agentId = agentId;
+  if (model) view.model = model;
+  if (approach) view.approach = approach;
+  if (activity) view.activity = activity;
+  if (step != null) view.step = step;
+  if (maxSteps != null) view.maxSteps = maxSteps;
+  if (tokens != null) view.tokens = tokens;
+  // Cost is REAL or explicitly unknown (null) — never defaulted to 0.
+  if (payload.costUsd === null) view.costUsd = null;
+  else if (num(payload.costUsd) != null) view.costUsd = num(payload.costUsd);
+  if (reason) view.reason = reason;
+  return { ...view, delegationId };
 }
 
 const STATUS_BY_EVENT: Record<string, ResponseStatus> = {
@@ -488,6 +602,54 @@ export function normalizeHarnessEvent(
       .map(turnChangeFrom)
       .filter((c): c is TurnChange => c !== null);
     return items.length > 0 ? { kind: 'changes', items } : null;
+  }
+
+  // Parallel fan-out: the rows, their live progress, their terminal states and
+  // the final honest totals. Every field is the runtime's own; nothing here
+  // computes a percentage or a price.
+  if (event === 'delegation.started') {
+    const delegation = delegationFromStart(payload);
+    return delegation ? { kind: 'delegation_start', delegation } : null;
+  }
+
+  if (event === 'delegation.progress') {
+    const child = childFromProgress(payload);
+    return child ? { kind: 'delegation_progress', child } : null;
+  }
+
+  if (
+    event === 'delegation.child.completed' ||
+    event === 'delegation.child.failed' ||
+    event === 'delegation.child.refused'
+  ) {
+    const delegationId = str(payload.delegationId);
+    const childIndex = num(payload.childIndex);
+    if (!delegationId || childIndex == null) return null;
+    const tokens = num(payload.tokens);
+    const reason = str(payload.reason);
+    return {
+      kind: 'delegation_child',
+      delegationId,
+      childIndex,
+      status: childStatus(payload.status),
+      ...(tokens != null ? { tokens } : {}),
+      ...(reason ? { reason } : {}),
+    };
+  }
+
+  if (event === 'delegation.aggregated') {
+    const delegationId = str(payload.delegationId);
+    if (!delegationId) return null;
+    const droppedClaims = num(payload.droppedClaims);
+    const tokens = num(payload.tokens);
+    const winner = payload.winner === null ? null : num(payload.winner);
+    return {
+      kind: 'delegation_done',
+      delegationId,
+      ...(droppedClaims != null ? { droppedClaims } : {}),
+      ...(tokens != null ? { tokens } : {}),
+      ...(winner !== undefined ? { winner } : {}),
+    };
   }
 
   const status = STATUS_BY_EVENT[event];

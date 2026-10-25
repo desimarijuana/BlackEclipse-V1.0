@@ -36,12 +36,12 @@ file, not here.
 | 12 — Evaluation harness and standing gate | [phase-12](./phase-12-evaluation-gate.md) ✅ Done | all | — | §15.3 **7F** |
 | 13 — Source authority and freshness arbitration | [phase-13](./phase-13-source-authority.md) ✅ Done | 0, 2 | 16, 20 | new |
 | 14 — The code capability, reachable from chat | [phase-14](./phase-14-reachable-code-capability.md) ✅ Done | 5, 12 | 15, 18 | new |
-| 15 — Documents in, files out, landing a change | [phase-15](./phase-15-attachments-and-artifacts.md) 🟡 In progress (promotion slice Done — ADR-H176; attachments/artifacts Not started) | 14 | 18, 20 | new |
+| 15 — Documents in, files out, landing a change | [phase-15](./phase-15-attachments-and-artifacts.md) ✅ Done (promotion + rollback ADR-H176; document extractors; artifact serving; inline `ArtifactView`) | 14 | 18, 20 | new |
 | 16 — Bounded bulk acquisition | [phase-16](./phase-16-bulk-acquisition.md) ✅ Done 2026-10-18 (ADR-H190; sources incl. the SEC filing index + operator datasets, across-call budget, runbook, live smoke, the chat manifest panel and `acquire.*` keys) | 13, 15 | 18, 20 | new |
 | 17 — Working on a cadence | [phase-17](./phase-17-working-on-a-cadence.md) ✅ Done 2026-10-13 (repo-mapped onto the Automation engine — ADR-H187) | 6, 14 | 20 | new |
-| 18 — Visual output | [phase-18](./phase-18-visual-output.md) 🟡 In progress 2026-10-13 (first figure recipe shipped — ADR-H192; payload + inline renderer remain) | 15, 16 | 19, 20 | new |
+| 18 — Visual output | [phase-18](./phase-18-visual-output.md) ✅ Done 2026-10-18 (figure payload + 10 recipes + inline renderer; ADR-H192) | 15, 16 | 19, 20 | new |
 | 19 — Verifying what it produced | [phase-19](./phase-19-self-verification.md) ✅ Done 2026-10-13 (ADR-H191) | 14, 18 | 20 | new |
-| 20 — Measuring all of it | [phase-20](./phase-20-measuring-all-of-it.md) 🟡 In progress 2026-10-13 (registry + runner + statement + gate step shipped — ADR-H193; remaining fixtures named) | 13–19 | — | §15.3 **7F** extended |
+| 20 — Measuring all of it | [phase-20](./phase-20-measuring-all-of-it.md) ✅ Done (every class graded; `test_capability_classes` asserts no unmeasured row; ADR-H193) | 13–19 | — | §15.3 **7F** extended |
 | 21 — Editable notebook cells in chat | [phase-21](./phase-21-notebook-cells.md) ✅ Done 2026-10-22 (cell document, sandbox run/restart, chart codegen, Monaco surface — ADR-H323) | 14, 18 | — | new |
 
 **Round 3 (2026-10-20) — competitive as a coding harness, shippable as a

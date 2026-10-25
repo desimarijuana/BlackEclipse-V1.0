@@ -1,4 +1,4 @@
-import type { ActivityItem, AssistantModel, PendingApproval, PendingClarification, ResponsePlan, ResponseStatus, TurnChange, TurnError } from '@/lib/agent/response-model';
+import type { ActivityItem, AssistantModel, DelegationView, PendingApproval, PendingClarification, ResponsePlan, ResponseStatus, TurnChange, TurnError } from '@/lib/agent/response-model';
 
 /**
  * A context document a user turn carried into the run. Persisted ON the message
@@ -37,6 +37,12 @@ export interface Message {
   status?: ResponseStatus;
   /** Tools/retrieval the agent used while producing this turn. */
   activities?: ActivityItem[];
+  /**
+   * Parallel fan-outs this turn ran, with each part's live activity, real step
+   * counter, real tokens and (when priced) real cost. Absent on user turns,
+   * non-delegating runs and legacy rows.
+   */
+  delegations?: DelegationView[];
   /**
    * Code changes the turn made, with the runtime's bounded diff previews.
    * Absent on user turns, change-free runs, and legacy rows.

@@ -1,7 +1,7 @@
 ---
 title: Chat & Agent Experience — Audit and Overhaul Plan
 status: Current
-last-verified: 2026-10-22
+last-verified: 2026-10-25
 ---
 
 # Chat & Agent Experience — Audit and Overhaul Plan
@@ -318,6 +318,10 @@ primitives cover Phases 1–5. Optional, only if a real gap appears:
   display is **blocked on a backend capability that does not exist**. Do not
   fabricate. Implement single-agent tool activity now; add delegation when the
   runtime emits `agent.*`.
+  *Resolved (2026-10-25):* the runtime now emits `delegation.*` and the child
+  bridge (`python/harness/delegation_progress.py`) streams per-part progress;
+  the chat renders `src/components/chat/parallel-agents-panel.tsx`. The
+  paragraphs below record the state at audit time, not today's build.
 - **R5 — Cancellation.** Current cancel does not abort the fetch reader; the UI
   waits for the stream to close. Phase 1 should abort the reader AND mark the
   turn `cancelled`, while still honoring a late `client.final`.

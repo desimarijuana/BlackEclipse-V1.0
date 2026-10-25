@@ -626,6 +626,31 @@ and a live run's provider-reported usage is summed. Opt-in live smoke:
 `test_live_team_comparison_through_a_real_provider` (`HARNESS_TEAM_LIVE_IT=1`,
 never in CI; `HARNESS_TEAM_LIVE_{PROVIDER,MODEL,BASE_URL,API_KEY}`).
 
+### 13.2 Fan-out (`delegate`) comparison
+
+`evaluation/delegate_benchmark.py` is the same adoption gate (ADR-H213) for the
+path a user actually triggers: the `delegate` tool, not a specialist team. It
+runs both variants for a frozen task through the REAL `execute_run` graph and the
+REAL `delegate` handler:
+
+- **single** — N sequential tool steps, then one answer;
+- **fan-out** — one `delegate` call with N independent parts, then one answer.
+
+The model is a deterministic SIMULATOR that charges a fixed latency per model
+call (`SIMULATED_CALL_MS`), so the comparison answers *does N independent parts
+overlap?* — not *is vendor X fast?*. The report always says `simulated: true`
+and never presents a simulated millisecond as provider latency. Both variants
+are scripted to cover every frozen fact, so quality is held equal by
+construction; a coverage miss is `unmeasured` and **vetoes** adoption. Adoption
+requires equal coverage AND a measured wall-clock gain of at least
+`ADOPTION_LATENCY_MARGIN` (15%).
+
+Run: `run_frozen_suite()` (or `run_delegate_benchmark(task, delay_ms=…)`).
+Tests: `test_delegation_benchmark.py`. The first frozen run shows the expected
+shape — three parts beat three sequential steps (~29% saved), while two parts do
+not (the parent+final overhead dominates) — which is exactly why this is a
+measured gate and not a default.
+
 ## 14. Production failure mining & self-improvement
 
 The self-improvement loop is in `improvement.py`:

@@ -181,6 +181,117 @@ async def test_timeout_marks_the_child_timed_out():
 # ── events on the existing emitter ───────────────────────────────────────────
 
 
+# ── the budget is REAL: usage is counted and the gate stops starting work ────
+
+
+async def test_consumed_tokens_are_reported_from_the_children():
+    async def run_child(child, run_id, allowed, actor):
+        return {"status": "completed", "runId": run_id, "summary": "ok", "handles": [], "tokens": 1_000}
+
+    result = await run_delegation(
+        DelegationRequest(children=[_child("a"), _child("b")], token_budget=10_000),
+        parent_run_id="p", parent_actor=_parent(), parent_allowed=None,
+        depth=0, run_child=run_child,
+    )
+    assert result.budget.consumedTokens == 2_000
+    assert result.budget.requestedTokens == 10_000
+
+
+async def test_a_starved_child_is_not_started_and_is_refused_truthfully():
+    async def run_child(child, run_id, allowed, actor):
+        return {"status": "completed", "runId": run_id, "summary": "ok", "handles": [], "tokens": 2_500}
+
+    result = await run_delegation(
+        DelegationRequest(
+            children=[_child("a"), _child("b"), _child("c")], token_budget=3_000,
+        ),
+        parent_run_id="p", parent_actor=_parent(), parent_allowed=None,
+        depth=0, run_child=run_child, max_in_flight=1,
+    )
+    statuses = {o.child_index: o.status for o in result.outcomes}
+    assert statuses[0] == "completed"
+    assert statuses[1] == "refused" and statuses[2] == "refused"
+    assert result.budget.consumedTokens == 2_500
+
+
+async def test_total_deadline_ends_the_whole_delegation():
+    async def run_child(child, run_id, allowed, actor):
+        await asyncio.sleep(5)
+        return {"status": "completed", "runId": run_id, "summary": "ok", "handles": []}
+
+    result = await run_delegation(
+        DelegationRequest(children=[_child("a"), _child("b")]),
+        parent_run_id="p", parent_actor=_parent(), parent_allowed=None,
+        depth=0, run_child=run_child, child_timeout_s=10, total_timeout_s=1,
+        max_in_flight=1,
+    )
+    assert len(result.outcomes) == 2
+    assert all(o.status in ("timed_out", "cancelled") for o in result.outcomes)
+
+
+# ── the requested aggregation mode is honored ────────────────────────────────
+
+
+def test_max_in_flight_is_operator_configurable_and_bounded(monkeypatch):
+    from harness.delegation import _max_in_flight
+
+    monkeypatch.setenv("HARNESS_DELEGATION_MAX_IN_FLIGHT", "2")
+    assert _max_in_flight() == 2
+    monkeypatch.setenv("HARNESS_DELEGATION_MAX_IN_FLIGHT", "99")
+    assert _max_in_flight() == 8  # clamped — a desktop is not a stampede
+    monkeypatch.setenv("HARNESS_DELEGATION_MAX_IN_FLIGHT", "0")
+    assert _max_in_flight() == 1
+    monkeypatch.setenv("HARNESS_DELEGATION_MAX_IN_FLIGHT", "not-a-number")
+    assert _max_in_flight() == 4
+
+
+def test_aggregate_modes_render_differently():
+    from harness.delegation import ChildOutcome, DelegationResult, aggregate
+
+    outcomes = [
+        ChildOutcome(child_index=0, run_id="r0", status="completed",
+                     summary="AAPL.", claimed=["Revenue rose."]),
+        ChildOutcome(child_index=1, run_id="r1", status="completed",
+                     summary="MSFT.", claimed=["Revenue rose.", "Margin fell."]),
+    ]
+    result = DelegationResult(delegationId="d", outcomes=outcomes)
+
+    assert "- Revenue rose." in aggregate(result, "list")
+    compared = aggregate(result, "compare")
+    assert "Item 1:" in compared and "Item 2:" in compared
+    merged = aggregate(result, "merge_claims")
+    assert merged.count("- Revenue rose.") == 1  # de-duplicated across parts
+    assert "- Margin fell." in merged
+
+
+async def test_run_delegation_honors_the_requested_mode():
+    result = await run_delegation(
+        DelegationRequest(children=[_child("a"), _child("b")], aggregate="compare"),
+        parent_run_id="p", parent_actor=_parent(), parent_allowed=None,
+        depth=0, run_child=await _ok_runner([]),
+    )
+    assert "Item 1:" in result.aggregate
+
+
+async def test_started_event_names_the_parts_so_the_ui_can_draw_rows():
+    seen: list[tuple[str, dict]] = []
+
+    async def on_event(event_type, data):
+        seen.append((event_type, data))
+
+    await run_delegation(
+        DelegationRequest(children=[_child("a"), _child("b")]),
+        parent_run_id="p", parent_actor=_parent(), parent_allowed=None,
+        depth=0, run_child=await _ok_runner([]), on_event=on_event,
+    )
+    started = next(data for event, data in seen if event == "delegation.started")
+    assert started["children"] == 2
+    assert [agent["goal"] for agent in started["agents"]] == ["a", "b"]
+    assert started["aggregate"] == "list"
+    aggregated = next(data for event, data in seen if event == "delegation.aggregated")
+    assert "tokens" in aggregated and "wallMs" in aggregated
+
+
 async def test_events_are_emitted_for_the_delegation_lifecycle():
     seen: list[str] = []
 

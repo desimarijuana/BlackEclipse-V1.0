@@ -118,12 +118,24 @@ class TeamService:
 
     # ── registration ────────────────────────────────────────────────────────────
 
-    def _ensure_member_agent(self, member: TeamMember) -> None:
+    def _member_tools(self, member: TeamMember, allow_fanout: bool) -> Optional[list[str]]:
+        """A member's declared surface, plus `delegate` when the team opted in.
+
+        Only the NAME is added: the delegation tool still enforces its own caps,
+        tool narrowing and permissions, so this widens no authority by itself.
+        A member with no declared surface already inherits everything.
+        """
+        if not allow_fanout or member.tools is None:
+            return member.tools
+        return member.tools if "delegate" in member.tools else [*member.tools, "delegate"]
+
+    def _ensure_member_agent(self, member: TeamMember, *, allow_fanout: bool = False) -> None:
         """Register a member agent (and its run preset) if it is not known yet."""
         a2a = self._ensure_a2a()
         from ..a2a.model import AgentDefinition, AgentStatus  # noqa: PLC0415
         from ..a2a.registry import RegistryError  # noqa: PLC0415
 
+        tools = self._member_tools(member, allow_fanout)
         try:
             a2a.registry.get_agent(member.agent_id)
             return
@@ -134,7 +146,7 @@ class TeamService:
                 id=member.agent_id, name=member.label or member.agent_id,
                 description=f"Team member ({member.role})",
                 role=member.role or "specialist", capabilities=list(member.capabilities),
-                tools=member.tools, can_delegate=False, status=AgentStatus.ACTIVE,
+                tools=tools, can_delegate=False, status=AgentStatus.ACTIVE,
                 system_instructions=(member.instructions or
                                      f"You are {member.label or member.agent_id}, a specialist on a team."),
             )
@@ -142,7 +154,7 @@ class TeamService:
             a2a._install_agent_configs([{  # noqa: SLF001 - the shared preset seam
                 "id": member.agent_id, "name": member.label or member.agent_id,
                 "systemPrompt": definition.system_instructions,
-                "tools": member.tools, "maxSteps": 8,
+                "tools": tools, "maxSteps": 8,
             }])
         except Exception:  # noqa: BLE001 - registration is best-effort; validation catches it
             log.warning("could not register team member %s", member.agent_id, exc_info=True)
@@ -246,7 +258,9 @@ class TeamService:
         root = root_run_id or ("team_" + uuid.uuid4().hex[:12])
 
         for member in team.members:
-            self._ensure_member_agent(member)
+            self._ensure_member_agent(
+                member, allow_fanout=team.policy.member_fanout,
+            )
 
         # One budget for the whole run: each subtask (and each bounded repair)
         # consumes one agent + one task, so the caps must cover the graph.
@@ -278,7 +292,10 @@ class TeamService:
                 sender_agent_id=team.agent_id, run_id=root, objective=subtask.objective,
                 target_agent_id=agent_id, capability=subtask.capability or None,
                 context=self._render_context(team, subtask),
-                tool_subset=member.tools if member else None,
+                tool_subset=(
+                    self._member_tools(member, team.policy.member_fanout)
+                    if member else None
+                ),
                 priority=subtask.priority, root_run_id=root,
                 dependencies=deps, autostart=False, plan_id=plan.id,
             )

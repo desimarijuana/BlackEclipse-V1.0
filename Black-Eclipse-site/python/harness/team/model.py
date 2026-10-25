@@ -208,6 +208,11 @@ class TeamPolicy(BaseModel):
     model_config = _CAMEL
 
     delegation_enabled: bool = True
+    # Opt-in: let a team MEMBER use the `delegate` tool (split or best_of) inside
+    # its own subtask. Off by default so a team's surface does not widen silently;
+    # enabling it only ADDS the tool name — the delegation's own caps, narrowing
+    # and permissions still apply.
+    member_fanout: bool = False
     max_depth: int = Field(4, ge=1, le=8)
     max_children: int = Field(16, ge=1, le=MAX_SUBTASKS)
     max_concurrency: int = Field(DEFAULT_MAX_CONCURRENCY, ge=1, le=32)

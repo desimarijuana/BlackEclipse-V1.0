@@ -37,10 +37,23 @@ _CAMEL = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forb
 MAX_CHILDREN: int = 4          # per delegation
 MAX_DEPTH: int = 2             # parent → child → grandchild; beyond this, refused
 DEFAULT_CHILD_TIMEOUT_S: int = 900
+# An overall cap so a delegation cannot outlive every child's own timeout.
+DEFAULT_TOTAL_TIMEOUT_S: int = 1_800
 DEFAULT_CHILD_TOKEN_BUDGET: int = 120_000
 MIN_TOKENS_PER_CHILD: int = 1_000
-# Bounded concurrency: a desktop app, not a server.
-MAX_IN_FLIGHT: int = 4
+# Bounded concurrency: a desktop app, not a server. The operator can lower or
+# raise it per machine (memory is the real constraint); it is clamped so a typo
+# cannot turn a desktop into a stampede.
+def _max_in_flight() -> int:
+    raw = os.environ.get("HARNESS_DELEGATION_MAX_IN_FLIGHT", "4")
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 4
+    return max(1, min(value, 8))
+
+
+MAX_IN_FLIGHT: int = _max_in_flight()
 
 # Structured refusal codes (§6.3).
 WIDTH_EXCEEDED = "DELEGATION_WIDTH_EXCEEDED"
@@ -68,12 +81,25 @@ class DelegationChild(BaseModel):
 
     goal: str = Field(..., max_length=2000)
     context: str = Field("", max_length=8000)     # background THIS child needs
+    # A short ANGLE for this attempt (e.g. "add a retry", "mock the API"). It is
+    # prompt evidence AND the row label a best-of card shows. Bounded and never
+    # raw retrieved content.
+    approach: Optional[str] = Field(default=None, max_length=300)
     agent_id: Optional[str] = None                # defaults to the parent's agent
+    # A model id on the PARENT'S provider (the parent holds that credential).
+    # None = the parent's model. A different provider is deliberately refused:
+    # this service does not hold another provider's key, and inventing one
+    # would be a credential surface it must not create.
+    model: Optional[str] = Field(default=None, max_length=128)
+    # Sampling diversity for a best-of attempt. None = the parent's setting. A
+    # provider that ignores temperature simply behaves as it always does.
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     tool_subset: Optional[list[str]] = None       # must be ⊆ the parent's allowlist
     workspace_id: Optional[str] = None            # writing children only
 
 
 Aggregate = Literal["list", "compare", "merge_claims"]
+Strategy = Literal["split", "best_of"]
 ChildStatus = Literal["completed", "failed", "timed_out", "refused", "cancelled"]
 
 
@@ -85,6 +111,9 @@ class DelegationRequest(BaseModel):
     # (a pydantic rejection would leave no code and no recorded reason).
     children: list[DelegationChild] = Field(..., min_length=1, max_length=8)
     aggregate: Aggregate = "list"
+    # `split` = independent sub-questions; `best_of` = every part attempts the
+    # SAME task and the verifier picks the strongest result.
+    strategy: Strategy = "split"
     token_budget: int = Field(DEFAULT_CHILD_TOKEN_BUDGET, ge=1_000, le=2_000_000)
 
 
@@ -104,6 +133,12 @@ class ChildOutcome(BaseModel):
     run_id: Optional[str] = None               # None when the child never started
     status: ChildStatus
     summary: str = ""                          # the child's own words — UNTRUSTED
+    tokens: int = 0                            # REAL usage the child reported
+    # What the UI needs to re-draw this row after a reload. Bounded; the same
+    # values the started/progress events carried.
+    goal: str = ""
+    approach: Optional[str] = None
+    model: Optional[str] = None
     handles: list[VerifiableHandle] = Field(default_factory=list)
     reason: Optional[str] = None               # plain sentence on failure/refusal
     claimed: list[str] = Field(default_factory=list)      # assertions with a handle
@@ -125,20 +160,29 @@ class DelegationResult(BaseModel):
     model_config = _CAMEL
 
     delegationId: str  # noqa: N815
+    strategy: Strategy = "split"
     outcomes: list[ChildOutcome] = Field(default_factory=list)
     aggregate: str = ""
     droppedClaims: list[str] = Field(default_factory=list)  # noqa: N815
     budget: BudgetReport = Field(default_factory=BudgetReport)
     workflowId: Optional[str] = None  # noqa: N815
+    # `best_of` only: the child index the evidence selected, or None when no
+    # attempt finished. Never a vote, never a guess.
+    winner: Optional[int] = None
 
     def to_blob(self) -> dict[str, Any]:
         """A bounded JSON blob for `HarnessRun.delegation`."""
         return {
             "delegationId": self.delegationId,
+            "strategy": self.strategy,
+            "winner": self.winner,
             "workflowId": self.workflowId,
             "children": [
                 {
                     "childIndex": o.child_index, "runId": o.run_id, "status": o.status,
+                    "goal": o.goal, "tokens": o.tokens,
+                    **({"approach": o.approach} if o.approach else {}),
+                    **({"model": o.model} if o.model else {}),
                     "handles": [{"kind": h.kind, "value": h.value} for h in o.handles],
                     "reason": o.reason, "claimed": o.claimed[:20], "dropped": o.dropped[:20],
                 }
@@ -284,23 +328,52 @@ def partition_claims(
     return [], claims
 
 
-def aggregate(result: DelegationResult) -> str:
+def _first_line(outcome: ChildOutcome) -> str:
+    return outcome.summary.strip().split("\n")[0][:80] or f"item {outcome.child_index + 1}"
+
+
+def aggregate(result: DelegationResult, mode: str = "list") -> str:
     """Render the handle-backed summary. Only admitted claims become facts.
 
     Reads like a plain list of the *things*, never the machinery. A partial
     answer is a normal answer: the children that worked are named, and the rest
-    get one sentence.
+    get one sentence. ``mode`` is the request's own aggregation rule:
+
+    * ``list`` - the default, one line per confirmed claim;
+    * ``compare`` - each item laid out side by side under its own heading;
+    * ``merge_claims`` - the same confirmed claims, de-duplicated across items.
     """
     done = [o for o in result.outcomes if o.status == "completed"]
     other = [o for o in result.outcomes if o.status != "completed"]
     lines: list[str] = []
     if done:
         lines.append(f"I looked at {len(done)} of {len(result.outcomes)}: "
-                     + ", ".join(o.summary.strip().split("\n")[0][:80] or f"item {o.child_index + 1}"
-                                 for o in done) + ".")
-        for outcome in done:
-            for claim in outcome.claimed:
-                lines.append(f"- {claim}")
+                     + ", ".join(_first_line(o) for o in done) + ".")
+        if mode == "compare":
+            for outcome in done:
+                lines.append(f"- Item {outcome.child_index + 1}: {_first_line(outcome)}")
+                for claim in outcome.claimed:
+                    lines.append(f"  - {claim}")
+        elif mode == "merge_claims":
+            seen: set[str] = set()
+            merged: list[str] = []
+            for outcome in done:
+                for claim in outcome.claimed:
+                    key = claim.strip().casefold()
+                    if key and key not in seen:
+                        seen.add(key)
+                        merged.append(claim)
+            if merged:
+                lines.append("Together:")
+                for claim in merged:
+                    lines.append(f"- {claim}")
+            else:
+                for outcome in done:
+                    lines.append(f"- {_first_line(outcome)}")
+        else:
+            for outcome in done:
+                for claim in outcome.claimed:
+                    lines.append(f"- {claim}")
     if other:
         names = ", ".join(f"item {o.child_index + 1}" for o in other)
         lines.append(f"I couldn't finish {names}.")
@@ -310,6 +383,73 @@ def aggregate(result: DelegationResult) -> str:
     if dropped:
         lines.append(
             f"{len(dropped)} statement(s) could not be confirmed, so I'm not repeating them as fact."
+        )
+    return "\n".join(lines)
+
+
+def select_best(outcomes: list[ChildOutcome]) -> Optional[int]:
+    """Pick the strongest FINISHED attempt by evidence, not by vote.
+
+    Ranking, highest first:
+      1. confirmed claims and verified handles, minus twice the unconfirmed ones
+         (a child that reports unbacked claims must not win by being loud);
+      2. a non-empty summary;
+      3. fewer tokens (a tie should not cost more);
+      4. the earliest part (deterministic).
+
+    Only a `completed` attempt can win. When none finished, the answer is
+    ``None`` — never a fabricated "best".
+    """
+    best_index: Optional[int] = None
+    best_score: Optional[tuple[int, int, int]] = None
+    for outcome in outcomes:
+        if outcome.status != "completed":
+            continue
+        score = (
+            len(outcome.claimed) * 2 + len(outcome.handles) - len(outcome.dropped) * 2
+            + (1 if outcome.summary.strip() else 0),
+            -outcome.tokens,
+            -outcome.child_index,
+        )
+        if best_score is None or score > best_score:
+            best_index, best_score = outcome.child_index, score
+    return best_index
+
+
+def aggregate_best_of(result: DelegationResult) -> str:
+    """Render the selected attempt as the answer; keep the rest out of the facts."""
+    total = len(result.outcomes)
+    if total == 0:
+        return "I didn't have anything to compare."
+    if result.winner is None:
+        lines = [f"None of the {total} attempts finished, so there's nothing to choose between."]
+        unfinished = ", ".join(f"item {o.child_index + 1}" for o in result.outcomes)
+        lines.append(f"I couldn't finish {unfinished}.")
+        if result.droppedClaims:
+            lines.append(
+                f"{len(result.droppedClaims)} statement(s) could not be confirmed, "
+                "so I'm not repeating them as fact."
+            )
+        return "\n".join(lines)
+
+    winner = next(o for o in result.outcomes if o.child_index == result.winner)
+    lines = [
+        f"Best of {total}: attempt {winner.child_index + 1} is the strongest finished result."
+    ]
+    summary = winner.summary.strip()
+    if summary:
+        lines.append(summary if len(summary) <= 600 else summary[:600].rsplit(" ", 1)[0] + "…")
+    for claim in winner.claimed:
+        lines.append(f"- {claim}")
+    others = [o for o in result.outcomes if o.child_index != result.winner]
+    if others:
+        also_finished = sum(1 for o in others if o.status == "completed")
+        tail = f" ({also_finished} also finished)." if also_finished else "."
+        lines.append(f"The other {len(others)} attempt(s) are not repeated as fact{tail}")
+    if result.droppedClaims:
+        lines.append(
+            f"{len(result.droppedClaims)} statement(s) could not be confirmed, "
+            "so I'm not repeating them as fact."
         )
     return "\n".join(lines)
 
@@ -328,8 +468,10 @@ async def run_delegation(
     verifier: Optional[HandleVerifier] = None,
     workflow_id: Optional[str] = None,
     child_timeout_s: int = DEFAULT_CHILD_TIMEOUT_S,
+    total_timeout_s: Optional[int] = DEFAULT_TOTAL_TIMEOUT_S,
     max_in_flight: int = MAX_IN_FLIGHT,
     on_event: Optional[Callable[[str, dict[str, Any]], Any]] = None,
+    delegation_id: Optional[str] = None,
 ) -> DelegationResult:
     """Fan out bounded child runs, then aggregate only what each proved.
 
@@ -357,11 +499,16 @@ async def run_delegation(
             "There isn't enough room to do all of these at once; try fewer at a time.",
         )
 
-    delegation_id = "dlg_" + uuid.uuid4().hex[:16]
+    # A caller may pre-allocate the id (the tool does, so its per-child progress
+    # bridge can name the fan-out before the run starts).
+    delegation_id = delegation_id or ("dlg_" + uuid.uuid4().hex[:16])
     started = time.monotonic()
     verifier = verifier or HandleVerifier()
     semaphore = asyncio.Semaphore(max(1, max_in_flight))
     outcomes: list[ChildOutcome] = [None] * len(request.children)  # type: ignore[list-item]
+    # Real usage accumulated from each part's terminal outcome. The budget is
+    # enforced against this, not merely reported from the request.
+    spent = 0
 
     async def _emit(event_type: str, data: dict[str, Any]) -> None:
         if on_event is None:
@@ -373,31 +520,64 @@ async def run_delegation(
         except Exception:  # noqa: BLE001 - an event must never break a delegation
             pass
 
-    await _emit("delegation.started", {"delegationId": delegation_id, "children": len(request.children)})
+    await _emit("delegation.started", {
+        "delegationId": delegation_id,
+        "children": len(request.children),
+        "aggregate": request.aggregate,
+        "strategy": request.strategy,
+        # The rows the UI can draw before the first progress snapshot arrives.
+        # A goal is the user's own sub-question, bounded; never a raw prompt.
+        "agents": [
+            {
+                "childIndex": i,
+                "goal": child.goal[:200],
+                **({"agentId": child.agent_id} if child.agent_id else {}),
+                **({"model": child.model} if child.model else {}),
+                **({"approach": child.approach} if child.approach else {}),
+            }
+            for i, child in enumerate(request.children)
+        ],
+    })
 
     async def _one(index: int, child: DelegationChild) -> None:
+        nonlocal spent
         try:
             actor = child_actor(parent_actor, child)
             allowed = narrow_tools(parent_allowed, child)
         except DelegationError as exc:
             outcomes[index] = ChildOutcome(
                 child_index=index, status="refused", reason=exc.reason, dropped=[],
+                **_row_fields(child),
             )
             await _emit("delegation.child.refused", {
                 "delegationId": delegation_id, "childIndex": index, "code": exc.code,
             })
             return
         child_run_id = f"{parent_run_id}_child{index}_{uuid.uuid4().hex[:8]}"
-        await _emit("delegation.child.started", {
-            "delegationId": delegation_id, "childIndex": index, "runId": child_run_id,
-        })
         async with semaphore:
+            # A real budget gate: stop STARTING work once the tokens spent so far
+            # leave less than one part's floor. This is enforced before the part
+            # is announced, so a starved request is never shown as started.
+            if request.token_budget - spent < MIN_TOKENS_PER_CHILD:
+                outcomes[index] = ChildOutcome(
+                    child_index=index, status="refused",
+                    reason="There isn't enough room left to start another part.",
+                    **_row_fields(child),
+                )
+                await _emit("delegation.child.refused", {
+                    "delegationId": delegation_id, "childIndex": index,
+                    "code": BUDGET_EXHAUSTED,
+                })
+                return
+            await _emit("delegation.child.started", {
+                "delegationId": delegation_id, "childIndex": index, "runId": child_run_id,
+            })
             try:
                 raw = await asyncio.wait_for(
                     run_child(child, child_run_id, allowed, actor),
                     timeout=child_timeout_s,
                 )
-                outcome = _coerce_outcome(index, child_run_id, raw, verifier)
+                outcome = _coerce_outcome(index, child_run_id, raw, verifier, child)
             except asyncio.TimeoutError:
                 outcome = ChildOutcome(
                     child_index=index, run_id=child_run_id, status="timed_out",
@@ -414,15 +594,32 @@ async def run_delegation(
                 outcome = ChildOutcome(
                     child_index=index, run_id=child_run_id, status="failed", reason=str(exc),
                 )
+            spent += max(0, int(getattr(outcome, "tokens", 0) or 0))
         outcomes[index] = outcome
         await _emit(f"delegation.child.{'completed' if outcome.status == 'completed' else 'failed'}", {
             "delegationId": delegation_id, "childIndex": index,
             "runId": child_run_id, "status": outcome.status,
+            "tokens": outcome.tokens,
+            **({"reason": outcome.reason} if outcome.reason else {}),
         })
 
     tasks = [asyncio.create_task(_one(i, child)) for i, child in enumerate(request.children)]
     try:
+        await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True), timeout=total_timeout_s,
+        )
+    except asyncio.TimeoutError:
+        # The whole delegation outlived its cap: stop the parts still running and
+        # give every unset outcome an honest terminal status (never a silent gap).
+        for task in tasks:
+            task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        for idx, outcome in enumerate(outcomes):
+            if outcome is None:
+                outcomes[idx] = ChildOutcome(
+                    child_index=idx, status="timed_out",
+                    reason="This part took too long and was stopped.",
+                )
     except asyncio.CancelledError:
         for task in tasks:
             task.cancel()
@@ -437,37 +634,66 @@ async def run_delegation(
 
     budget = BudgetReport(
         requestedTokens=request.token_budget,
+        consumedTokens=spent,
         children=len(final),
         timedOut=sum(1 for o in final if o.status == "timed_out"),
         wallMs=int((time.monotonic() - started) * 1000),
     )
     result = DelegationResult(
         delegationId=delegation_id,
+        strategy=request.strategy,
         outcomes=final,
         droppedClaims=dropped,
         budget=budget,
         workflowId=workflow_id,
     )
-    result.aggregate = aggregate(result)
+    if request.strategy == "best_of":
+        result.winner = select_best(final)
+        result.aggregate = aggregate_best_of(result)
+    else:
+        result.aggregate = aggregate(result, request.aggregate)
     await _emit("delegation.aggregated", {
         "delegationId": delegation_id,
+        "strategy": request.strategy,
+        "winner": result.winner,
         "completed": sum(1 for o in final if o.status == "completed"),
         "droppedClaims": len(dropped),
+        "tokens": spent,
+        "wallMs": budget.wallMs,
     })
     return result
 
 
+def _row_fields(child: Optional[DelegationChild]) -> dict[str, Any]:
+    """The bounded display fields a row needs after a reload."""
+    if child is None:
+        return {}
+    return {
+        "goal": child.goal[:200],
+        **({"approach": child.approach} if child.approach else {}),
+        **({"model": child.model} if child.model else {}),
+    }
+
+
 def _coerce_outcome(
-    index: int, run_id: str, raw: Any, verifier: HandleVerifier,
+    index: int,
+    run_id: str,
+    raw: Any,
+    verifier: HandleVerifier,
+    child: Optional[DelegationChild] = None,
 ) -> ChildOutcome:
     """Build a ChildOutcome from whatever the child runner returned.
 
     Accepts a `ChildOutcome` directly (tests / a caller that already computed it)
     or a mapping with `status`/`summary`/`handles`/`reason`.
     """
+    row = _row_fields(child)
     if isinstance(raw, ChildOutcome):
         claimed, dropped = partition_claims(raw.summary, raw.handles, verifier)
-        return raw.model_copy(update={"child_index": index, "claimed": claimed, "dropped": dropped})
+        return raw.model_copy(update={
+            "child_index": index, "claimed": claimed, "dropped": dropped,
+            **{k: v for k, v in row.items() if not getattr(raw, k, None)},
+        })
     if isinstance(raw, dict):
         handles = [
             VerifiableHandle(kind=str(h.get("kind")), value=str(h.get("value")))
@@ -482,14 +708,16 @@ def _coerce_outcome(
             run_id=raw.get("runId") or run_id,
             status=str(raw.get("status") or "failed"),  # type: ignore[arg-type]
             summary=summary,
+            tokens=max(0, int(raw.get("tokens") or raw.get("totalTokens") or 0)),
             handles=handles,
             reason=raw.get("reason"),
             claimed=claimed,
             dropped=dropped,
+            **row,
         )
     return ChildOutcome(
         child_index=index, run_id=run_id, status="failed",
-        reason="That part didn't return a result.",
+        reason="That part didn't return a result.", **row,
     )
 
 
@@ -497,6 +725,7 @@ __all__ = [
     "BUDGET_EXHAUSTED",
     "DEFAULT_CHILD_TIMEOUT_S",
     "DEFAULT_CHILD_TOKEN_BUDGET",
+    "DEFAULT_TOTAL_TIMEOUT_S",
     "DEPTH_EXCEEDED",
     "DelegationChild",
     "DelegationError",
@@ -515,6 +744,8 @@ __all__ = [
     "WIDTH_EXCEEDED",
     "VerifiableHandle",
     "aggregate",
+    "aggregate_best_of",
+    "select_best",
     "child_actor",
     "narrow_tools",
     "partition_claims",

@@ -587,4 +587,95 @@ describe('clarification.requested (human-in-the-loop question)', () => {
       type: 'clarification.answered', data: { clarificationId: 'clar_1' },
     })).toEqual({ kind: 'clarification_answered', id: 'clar_1' });
   });
+
+  // ── parallel fan-out ───────────────────────────────────────────────────────
+
+  it('maps delegation.started to rows with the user sub-questions', () => {
+    const e = normalizeHarnessEvent('delegation.started', {
+      type: 'delegation.started',
+      data: {
+        delegationId: 'dlg_1',
+        children: 2,
+        aggregate: 'compare',
+        agents: [
+          { childIndex: 1, goal: 'Review MSFT', agentId: 'eclipse-agent' },
+          { childIndex: 0, goal: 'Review AAPL' },
+        ],
+      },
+    });
+    expect(e).toEqual({
+      kind: 'delegation_start',
+      delegation: {
+        delegationId: 'dlg_1',
+        aggregate: 'compare',
+        strategy: 'split',
+        done: false,
+        children: [
+          { childIndex: 0, goal: 'Review AAPL', status: 'running' },
+          { childIndex: 1, goal: 'Review MSFT', status: 'running', agentId: 'eclipse-agent' },
+        ],
+      },
+    });
+  });
+
+  it('keeps a real cost, and an explicitly unknown one, distinct', () => {
+    const priced = normalizeHarnessEvent('delegation.progress', {
+      type: 'delegation.progress',
+      data: {
+        delegationId: 'dlg_1', childIndex: 0, goal: 'g', status: 'running',
+        step: 3, maxSteps: 10, tokens: 900, costUsd: 0.12,
+      },
+    });
+    expect(priced).toMatchObject({ kind: 'delegation_progress', child: { costUsd: 0.12, step: 3, maxSteps: 10 } });
+
+    const unpriced = normalizeHarnessEvent('delegation.progress', {
+      type: 'delegation.progress',
+      data: { delegationId: 'dlg_1', childIndex: 1, status: 'running', costUsd: null },
+    });
+    expect(unpriced).toMatchObject({ kind: 'delegation_progress' });
+    if (unpriced?.kind === 'delegation_progress') expect(unpriced.child.costUsd).toBeNull();
+  });
+
+  it('maps a child terminal state and the aggregated totals', () => {
+    expect(normalizeHarnessEvent('delegation.child.failed', {
+      type: 'delegation.child.failed',
+      data: {
+        delegationId: 'dlg_1', childIndex: 2, status: 'timed_out',
+        tokens: 40, reason: 'This part took too long and was stopped.',
+      },
+    })).toEqual({
+      kind: 'delegation_child', delegationId: 'dlg_1', childIndex: 2,
+      status: 'timed_out', tokens: 40, reason: 'This part took too long and was stopped.',
+    });
+
+    expect(normalizeHarnessEvent('delegation.aggregated', {
+      type: 'delegation.aggregated',
+      data: { delegationId: 'dlg_1', droppedClaims: 2, tokens: 5000, completed: 2 },
+    })).toEqual({ kind: 'delegation_done', delegationId: 'dlg_1', droppedClaims: 2, tokens: 5000 });
+  });
+
+  it('carries the best-of strategy and its selected part', () => {
+    const startEvent = normalizeHarnessEvent('delegation.started', {
+      type: 'delegation.started',
+      data: {
+        delegationId: 'dlg_best',
+        children: 3,
+        strategy: 'best_of',
+        agents: [{ childIndex: 0, goal: 'Fix checkout', approach: 'mock the API' }],
+      },
+    });
+    expect(startEvent).toMatchObject({
+      kind: 'delegation_start',
+      delegation: { strategy: 'best_of' },
+    });
+    if (startEvent?.kind === 'delegation_start') {
+      expect(startEvent.delegation.children[0].approach).toBe('mock the API');
+    }
+
+    const done = normalizeHarnessEvent('delegation.aggregated', {
+      type: 'delegation.aggregated',
+      data: { delegationId: 'dlg_best', strategy: 'best_of', winner: 0 },
+    });
+    expect(done).toEqual({ kind: 'delegation_done', delegationId: 'dlg_best', winner: 0 });
+  });
 });

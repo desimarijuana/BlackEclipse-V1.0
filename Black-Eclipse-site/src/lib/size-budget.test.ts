@@ -179,8 +179,11 @@ const RATCHET: Record<string, number> = {
   // into the main chat composer (one state read, one persisted field, one mount
   // beside the approval card). The card itself lives in
   // `components/chat/clarification-card.tsx`; no other stock-chat logic moved.
+  // Re-pinned 1554→1555 for the parallel fan-out: the turn sink forwards ONE
+  // extra persisted field (`delegations`); the card and reducer live in
+  // `components/chat/parallel-agents-panel.tsx` / `lib/agent/delegation-reducer.ts`.
   // May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1554,
+  "src/components/screens/stock-chat.tsx": 1555,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

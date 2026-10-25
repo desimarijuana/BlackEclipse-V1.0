@@ -4,7 +4,7 @@ status: Done
 phase: 7
 depends_on: [5]
 unlocks: [9, 10]
-last-verified: 2026-10-01
+last-verified: 2026-10-25
 ---
 
 # Phase 7 — Delegation and Child Runs
@@ -140,13 +140,16 @@ DEFAULT_CHILD_TOKEN_BUDGET: int = 120_000
 class DelegationChild(BaseModel):
     goal: str = Field(..., max_length=2000)
     context: str = Field("", max_length=8000)     # background THIS child needs
+    approach: Optional[str] = None                # short angle (best_of row label)
     agent_id: Optional[str] = None                # defaults to the parent's agent
+    model: Optional[str] = None                   # same provider as the parent
     tool_subset: Optional[list[str]] = None       # must be ⊆ the parent's allowlist
     workspace_id: Optional[str] = None            # writing children only
 
 class DelegationRequest(BaseModel):
     children: list[DelegationChild] = Field(..., min_length=1, max_length=MAX_CHILDREN)
     aggregate: Literal["list", "compare", "merge_claims"] = "list"
+    strategy: Literal["split", "best_of"] = "split"
     token_budget: int = DEFAULT_CHILD_TOKEN_BUDGET
 
 class ChildOutcome(BaseModel):
@@ -154,15 +157,22 @@ class ChildOutcome(BaseModel):
     run_id: Optional[str]                      # None when the child never started
     status: Literal["completed", "failed", "timed_out", "refused", "cancelled"]
     summary: str                               # the child's own words — UNTRUSTED
+    tokens: int = 0                            # REAL usage the child reported
     handles: list[VerifiableHandle] = []       # what the parent may safely repeat
     reason: Optional[str] = None               # plain sentence on failure/refusal
 
 class DelegationResult(BaseModel):
+    strategy: Literal["split", "best_of"] = "split"
     outcomes: list[ChildOutcome]
     aggregate: str                             # the rendered, handle-backed summary
     dropped_claims: list[str] = []             # child claims with NO handle
-    budget: BudgetReport                       # requested vs consumed
+    budget: BudgetReport                       # requested vs consumed (REAL usage)
+    winner: Optional[int] = None               # best_of only: the selected part
 ```
+
+`aggregate` is rendered according to the request's own mode: `list` (one line
+per confirmed claim), `compare` (each item under its own heading), or
+`merge_claims` (the same confirmed claims, de-duplicated across items).
 
 ### 6.2 The narrowing rule
 
@@ -202,6 +212,20 @@ It refuses, with a structured code, when: the child count exceeds `MAX_CHILDREN`
 writing child (`SANDBOX_UNAVAILABLE` — the child is refused, never run outside
 isolation).
 
+The budget is **enforced, not merely declared**: each part's real token usage is
+accumulated into `BudgetReport.consumedTokens`, and once the remaining room is
+below `MIN_TOKENS_PER_CHILD` a part is refused before it is started (and before
+its `started` event). The whole fan-out also carries an overall
+`DEFAULT_TOTAL_TIMEOUT_S` deadline; parts still running at that point are stopped
+and every outcome gets an honest terminal status.
+
+In-flight work is bounded by `MAX_IN_FLIGHT` (default 4), which the operator can
+set per machine with `HARNESS_DELEGATION_MAX_IN_FLIGHT` (clamped 1–8) because
+memory, not CPU, is the real constraint. Each part also gets its own
+`asyncio.Event` passed to `execute_run` as `cancel_event`; when the part times
+out, is cancelled, or fails, the event is set so cooperating tools (sandbox,
+browser, shell) stop instead of leaving work running.
+
 ### 6.4 Aggregation — verified handles only
 
 ```python
@@ -228,6 +252,11 @@ is surfaced, never silently discarded — the same discipline as
 `research/coverage.py`, where a successful retrieval is not the same thing as
 coverage.
 
+Verification is **fail-closed**: `run_id` and `check_record_id` are checked
+against the real run store and verification ledger; an `artifact_digest` is
+confirmed only when the Artifact Center holds it, and is refused (not admitted)
+when no artifact service is bound. A non-empty value is never treated as proof.
+
 ### 6.5 Workspace strategy for writing children
 
 - A **read-only** child (research, analysis) needs no workspace.
@@ -248,9 +277,77 @@ is explainable after the fact.
 Events on the existing `RunEmitter`: `delegation.started`,
 `delegation.child.started`, `delegation.child.completed`,
 `delegation.child.failed`, `delegation.child.refused`, `delegation.aggregated`
-(counts + dropped-claim count only). Each event names the child's `runId`, so the
-existing `explain_run` view and the session trace already cover it — no new
-observability surface.
+(counts + dropped-claim count only), plus the live `delegation.progress`
+snapshots described below. Each event names the child's `runId`, so the existing
+`explain_run` view and the session trace already cover it — no new observability
+surface.
+
+### 6.7 Live progress in the chat
+
+A child runs on its OWN run id, so its events are published there and never reach
+the parent's SSE stream. `python/harness/delegation_progress.py`
+(`ChildProgressBridge`) bridges that: it opens the child's bus stream, folds the
+events into one bounded, content-free snapshot, and re-emits it on the PARENT's
+emitter as `delegation.progress` (throttled, one row per `childIndex`).
+
+The snapshot carries the runtime's own `step` / `maxSteps`, the REAL tokens, the
+REAL price (or `null` when the model has no declared price), and the latest plain
+activity phrase. The UI (`src/components/chat/parallel-agents-panel.tsx`, fed by
+`src/lib/agent/delegation-reducer.ts`) draws one row per part: bot icon, agent +
+sub-question, live activity, a bar driven by `step / maxSteps` (indeterminate
+when the ceiling is unknown), and the cost. A percentage is never invented, and
+an unpriced model shows `—`, never `$0.00`.
+
+`delegation.started` therefore names the parts (`agents: [{childIndex, goal,
+agentId?, model?, approach?}]`) so the rows exist before the first snapshot
+arrives. The persisted blob (`HarnessRun.delegation` via `_run_row`) carries the
+same bounded row fields (`goal`, `approach`, `model`, `tokens`), and
+`/runs/{id}/explain` returns a bounded, redacted `delegation` view
+(`run_observability._bounded_delegation`) so the fan-out stays reviewable after
+a reload — without re-rendering the child's prose or claims.
+
+### 6.8 `best_of` — N tries at the same task
+
+`strategy="best_of"` runs the SAME goal several ways (2–4 attempts, optionally
+different `agent_ids`) and selects ONE result. The tool's input is `goal` +
+`count`, not `children`; mixing them is refused. Selection is deterministic and
+evidence-based (`select_best`):
+
+1. only a `completed` attempt can win;
+2. confirmed claims and verified handles score positively, unconfirmed claims
+   score negatively (a loud child cannot win by claiming more);
+3. a non-empty answer breaks a tie;
+4. fewer tokens breaks the next tie;
+5. the earliest part breaks the last tie.
+
+`aggregate_best_of` quotes ONLY the winner's prose and proven claims; the other
+attempts are named as "not repeated as fact" (and how many also finished). When
+none finished, `winner` is `None` and the answer says so — no fabricated "best".
+`delegation.aggregated` carries `strategy` and `winner`, and the chat header
+renders `Best of N` with a `Best` chip on the winning row.
+
+Attempts may also name a **model** (`DelegationChild.model` / the tool's
+`models[]`). This is deliberately limited to the parent's provider: the Python
+service holds only this run's credential, so a cross-provider attempt would need
+a key it must not invent. The provider (and its credential) stays fixed; only
+the model id changes, and the row shows that model's name.
+
+An attempt may also set its own **temperature** (`DelegationChild.temperature` /
+the tool's `temperatures[]`), so N attempts are genuinely different samples
+rather than near-duplicates. Temperature is only a sampling hint: a provider
+that ignores it behaves exactly as before, and nothing in the result is
+fabricated to compensate.
+
+Each attempt may name a short **approach** (`DelegationChild.approach` / the
+tool's `approaches[]`, e.g. "retry with backoff", "mock the API"). It is
+prepended to that child's prompt as guidance and is what the card shows as the
+row label; the full sub-question stays in the tooltip. It is never a claimed
+result.
+
+Each attempt may also carry its own bounded **context** (`contexts[]` in the
+tool, `DelegationChild.context`), so tries can work from different background
+evidence. Context is prompt input only: it is not put in the progress snapshot
+or shown in the card, so background material does not leak to the transcript.
 
 ## 7. Work items (ordered)
 

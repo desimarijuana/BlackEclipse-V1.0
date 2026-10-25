@@ -57,6 +57,50 @@ def _reason_category(reason: str) -> str:
     return "other"
 
 
+def _bounded_delegation(blob: Any) -> Optional[dict[str, Any]]:
+    """The persisted fan-out blob as a bounded, redacted read model.
+
+    Only the fields a row needs: identity, status, goal/approach/model, tokens
+    and the honest budget. The child's prose and claimed/dropped sentences are
+    intentionally NOT re-rendered here — the card's facts come from the runtime,
+    never from this diagnostic view.
+    """
+    if not isinstance(blob, dict):
+        return None
+    children: list[dict[str, Any]] = []
+    for child in (blob.get("children") or [])[:8]:
+        if not isinstance(child, dict):
+            continue
+        row: dict[str, Any] = {
+            "childIndex": child.get("childIndex"),
+            "runId": _redact(child.get("runId")),
+            "status": _redact(child.get("status")),
+            "goal": _redact(str(child.get("goal") or ""))[:200],
+            "tokens": child.get("tokens"),
+        }
+        if child.get("approach"):
+            row["approach"] = _redact(str(child.get("approach")))[:300]
+        if child.get("model"):
+            row["model"] = _redact(child.get("model"))
+        if child.get("reason"):
+            row["reason"] = _redact(child.get("reason"))
+        children.append(row)
+    budget = blob.get("budget") if isinstance(blob.get("budget"), dict) else {}
+    return {
+        "delegationId": _redact(blob.get("delegationId")),
+        "strategy": _redact(blob.get("strategy") or "split"),
+        "winner": blob.get("winner"),
+        "children": children,
+        "budget": {
+            "requestedTokens": budget.get("requestedTokens"),
+            "consumedTokens": budget.get("consumedTokens"),
+            "children": budget.get("children"),
+            "timedOut": budget.get("timedOut"),
+            "wallMs": budget.get("wallMs"),
+        },
+    }
+
+
 def explain_run(
     *,
     run_id: str,
@@ -82,6 +126,7 @@ def explain_run(
         "skills": None,
         "workflow": None,
         "lineage": None,
+        "delegation": None,
         "resumed": None,
         "note": (
             "Derived from canonical retrieval/run events. Exclusions are the "
@@ -96,6 +141,8 @@ def explain_run(
         if run.get("workflowId"):
             result["workflow"] = {"workflowId": _redact(run.get("workflowId")), "steps": []}
         result["lineage"] = {"parentRunId": _redact(run.get("parentRunId"))}
+    if run and run.get("delegation"):
+        result["delegation"] = _bounded_delegation(run.get("delegation"))
     if lineage is not None:
         merged = result.get("lineage") or {}
         merged.update({

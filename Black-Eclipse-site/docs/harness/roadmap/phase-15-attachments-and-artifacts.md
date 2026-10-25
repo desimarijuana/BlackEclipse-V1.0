@@ -1,10 +1,10 @@
 ---
 title: "Phase 15 — Documents In, Files Out, and Landing a Change"
-status: In progress
+status: Done
 phase: 15
 depends_on: [14]
 unlocks: [18, 20]
-last-verified: 2026-10-11
+last-verified: 2026-10-25
 ---
 
 > **Progress (2026-10-13).** The **promotion slice is Done** under **ADR-H176**
