@@ -22,6 +22,8 @@ export interface NodeRunRecord {
   outputs: Record<string, unknown>;
   error?: string | null;
   errorCode?: string | null;
+  /** A successful node whose checkpoint can resume a retried run. */
+  resumable?: boolean;
 }
 
 export interface RunEventRecord {

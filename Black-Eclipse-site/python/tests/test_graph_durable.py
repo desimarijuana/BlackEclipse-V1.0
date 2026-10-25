@@ -104,6 +104,8 @@ def test_run_sync_writes_normalized_rows_and_terminal_output(service):
     nodes = stored.list_node_runs(run.id)
     assert {node["nodeId"] for node in nodes} == {"trig", "v", "out"}
     assert all(node["status"] == "succeeded" for node in nodes)
+    assert all("resumable" in node for node in nodes)
+    assert any(node["resumable"] for node in nodes)
     events = stored.list_events(run.id)
     assert any(event["kind"] == "run.started" for event in events)
     assert any(event["kind"] == "node.succeeded" for event in events)

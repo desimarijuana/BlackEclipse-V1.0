@@ -388,6 +388,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   refusal, LIVE refusal). docs updated: `docs/graph-studio.md`,
   `docs/harness/security.md`.
 
+- **feat(graph): post-run step inspector and structural version diff (Phase 9).**
+  Added `src/lib/graph-studio/run-debug.ts` and a Run-panel step inspector:
+  ordered steps, status/attempts, bounded inputs/outputs, per-node events and
+  checkpoint availability. The runtime's node-run read now exposes
+  `resumable`, so the inspector never infers a checkpoint. Added
+  `src/lib/graph-studio/ir-diff.ts` plus a History > Versions `Diff` action:
+  added/removed/changed nodes and edges, changed settings and name, with a
+  key-order-insensitive config comparison. Tests: `run-debug.test.ts`,
+  `ir-diff.test.ts`, and a `resumable` assertion in `test_graph_durable.py`.
+  docs updated: `docs/graph-studio.md` (Phase 9 + next milestone).
+
 ## 2026-10-24
 - **ui(chat): roomier chat history rows.** Increased the vertical gap between
   conversation rows from 2px (`gap-0.5`) to 6px (`gap-1.5`) inside the pinned,

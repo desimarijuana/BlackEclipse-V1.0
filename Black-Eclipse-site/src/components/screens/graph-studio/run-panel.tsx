@@ -5,11 +5,18 @@
 // statuses, inspect inputs/outputs/errors per node, and cancel a running graph.
 // It renders ONLY what the runtime reported — there is no optimistic "success".
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Check, Play, SquareArrowOutUpRight, X } from '@/lib/icons';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
-import { isTerminal, type GraphRunStatus, type NodeRunRecord, type NodeRunStatus } from '@/lib/graph-studio/execution-client';
+import {
+  isTerminal,
+  type GraphRunRecord,
+  type GraphRunStatus,
+  type NodeRunRecord,
+  type NodeRunStatus,
+} from '@/lib/graph-studio/execution-client';
+import { buildRunSteps, summarizeRunSteps } from '@/lib/graph-studio/run-debug';
 
 const STATUS_TONE: Record<GraphRunStatus, string> = {
   pending: 'text-slate-400',
@@ -96,6 +103,120 @@ function NodeRow({ nodeRun }: { nodeRun: NodeRunRecord }) {
   );
 }
 
+function StepDebugger({ run }: { run: GraphRunRecord }) {
+  const steps = useMemo(() => buildRunSteps(run), [run]);
+  const summary = useMemo(() => summarizeRunSteps(steps), [steps]);
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    setIndex(0);
+  }, [run.id]);
+
+  if (steps.length === 0) return null;
+  const selected = steps[Math.min(index, steps.length - 1)];
+  const inputKeys = Object.keys(selected.inputs);
+  const outputKeys = Object.keys(selected.outputs);
+
+  return (
+    <details className="mb-2 rounded-md border border-white/10 bg-white/[0.02] px-2 py-1.5">
+      <summary className="cursor-pointer text-[10px] uppercase tracking-wide text-muted-foreground">
+        Step inspector · {summary.total} node(s)
+        {summary.failed > 0 ? ` · ${summary.failed} failed` : ''}
+        {summary.checkpointed > 0 ? ` · ${summary.checkpointed} checkpointed` : ''}
+      </summary>
+      <div className="mt-2 flex items-center gap-1.5">
+        <button
+          type="button"
+          disabled={index <= 0}
+          onClick={() => setIndex((value) => Math.max(0, value - 1))}
+          className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-30"
+        >
+          ‹ Prev
+        </button>
+        <button
+          type="button"
+          disabled={index >= steps.length - 1}
+          onClick={() => setIndex((value) => Math.min(steps.length - 1, value + 1))}
+          className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-30"
+        >
+          Next ›
+        </button>
+        <select
+          value={selected.nodeId}
+          onChange={(event) => {
+            const next = steps.findIndex((step) => step.nodeId === event.target.value);
+            if (next >= 0) setIndex(next);
+          }}
+          className="ml-auto min-w-0 max-w-[60%] rounded border border-white/10 bg-transparent px-1.5 py-0.5 text-[10px] text-foreground"
+        >
+          {steps.map((step) => (
+            <option key={step.nodeId} value={step.nodeId}>
+              {step.index + 1}. {step.label} ({step.status})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[9.5px] text-muted-foreground">
+        <span className={cn('uppercase tracking-wide', selected.status === 'failed' ? 'text-rose-300' : 'text-slate-300')}>
+          {selected.status}
+        </span>
+        <span>layer {selected.layer}</span>
+        {selected.attempt > 1 && <span className="text-amber-300">attempt {selected.attempt}</span>}
+        {typeof selected.durationMs === 'number' && <span>{selected.durationMs} ms</span>}
+        <span>{selected.checkpointed ? 'checkpoint saved' : 'no checkpoint'}</span>
+      </div>
+
+      {selected.error && (
+        <p className="mt-1 rounded bg-rose-500/10 px-1.5 py-1 text-[10.5px] text-rose-200">
+          {selected.errorCode ? `${selected.errorCode}: ` : ''}
+          {selected.error}
+        </p>
+      )}
+
+      <div className="mt-1.5 space-y-1">
+        {inputKeys.length > 0 && (
+          <div>
+            <div className="text-[9.5px] uppercase tracking-wide text-muted-foreground">In</div>
+            {inputKeys.map((key) => (
+              <div key={key} className="break-words font-mono text-[10px] text-slate-300">
+                {key}: {preview(selected.inputs[key])}
+              </div>
+            ))}
+          </div>
+        )}
+        {outputKeys.length > 0 && (
+          <div>
+            <div className="text-[9.5px] uppercase tracking-wide text-muted-foreground">Out</div>
+            {outputKeys.map((key) => (
+              <div key={key} className="break-words font-mono text-[10px] text-slate-300">
+                {key}: {preview(selected.outputs[key])}
+              </div>
+            ))}
+          </div>
+        )}
+        {inputKeys.length === 0 && outputKeys.length === 0 && !selected.error && (
+          <p className="text-[10px] text-muted-foreground">No values captured for this step.</p>
+        )}
+      </div>
+
+      {selected.events.length > 0 && (
+        <div className="mt-1.5">
+          <div className="text-[9.5px] uppercase tracking-wide text-muted-foreground">
+            Events ({selected.events.length})
+          </div>
+          {selected.events.map((event, eventIndex) => (
+            <div key={`${event.at}-${eventIndex}`} className="flex gap-1.5 font-mono text-[9.5px] text-muted-foreground">
+              <span className="shrink-0 text-slate-500">{event.kind}</span>
+              <span className="min-w-0 flex-1 break-words">{event.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </details>
+  );
+}
+
 export function RunPanel({
   onStart,
   onCancel,
@@ -170,6 +291,7 @@ export function RunPanel({
               </pre>
             </details>
           )}
+          <StepDebugger run={run} />
           <ul className="space-y-1">
             {(run.nodeRuns ?? []).map((nodeRun) => (
               <NodeRow key={nodeRun.nodeId} nodeRun={nodeRun} />

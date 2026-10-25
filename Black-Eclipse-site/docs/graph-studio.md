@@ -174,7 +174,7 @@ If the stream disconnects, the UI falls back to bounded polling.
 | 6 — Backtest & simulation | Strategy graphs, metrics | **Implemented & verified** (backtest, walk-forward, optimizer, Monte Carlo and out-of-sample holdout; all reuse `quant/`) |
 | 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Research agent node and live web-research nodes implemented** (search, fetch, claim verification over the existing research engine); planner/delegate/NL→IR not started |
 | 8 — Paper trading & safety | Execution adapter, risk controls, modes | **Implemented & verified** (`trading.risk_check` + `trading.paper_order`, PAPER-only; live and ungranted trading refused) |
-| 9 — Advanced engineering | Subworkflows, debugging, diffing | **Subworkflows implemented**; debugging/diffing not started |
+| 9 — Advanced engineering | Subworkflows, debugging, diffing | **Implemented** (subworkflows; post-run step inspector; structural version diff) |
 | 10 — Hardening & verification | Tests, security, observability | Partial: Phase 3/4 add runtime safety tests; observability is next |
 
 ### Phase 3 — the runtime (`python/harness/graph_runtime/`)
@@ -407,6 +407,24 @@ write/network/trading nodes stay refused.
 **Templates.** `Market scan (SMA z-score)` — stored bars → SMA(50) → z-score(20)
 → branch → result, plus a second output carrying the data provenance.
 
+### Phase 9 — inspection and diffing
+
+**Step inspector** (`src/lib/graph-studio/run-debug.ts` + the Run panel). A
+finished or partially failed run is walked step by step: node order, status
+(including attempts and skips), bounded inputs/outputs, the node's own events,
+and whether its checkpoint is resumable. It is a read-only inspector over the
+persisted run record — no re-execution, no synthetic success. The runtime now
+exposes `nodeRuns[].resumable` so the UI can say "checkpoint saved" truthfully
+instead of inferring it.
+
+**Structural diff** (`src/lib/graph-studio/ir-diff.ts` + History > Versions >
+Diff). Two immutable versions are compared without running either: added,
+removed and changed nodes (type, version, label, position, config), added/
+removed/changed edges, changed settings and a changed workflow name. Config
+comparison is key-order-insensitive. A removed node/edge is reported by id; a
+first version says there is nothing to compare rather than showing an empty
+diff.
+
 ### Phase 1 — acceptance criteria (verified)
 
 - Graph Studio opens within Eclipse (new `graph-studio` AppTab + sidebar item). ✓
@@ -440,7 +458,7 @@ Phase 1:
 Phases 3–4:
 
 - `npx tsc --noEmit` — clean.
-- `npx vitest run src/lib/graph-studio` — **13 files / 73 tests pass**.
+- `npx vitest run src/lib/graph-studio` — **15 files / 81 tests pass**.
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
@@ -526,7 +544,9 @@ or HTTP errors.
 
 ## Next milestone
 
-**Phase 9**: debugging and diffing — step/breakpoint-style inspection on top of
-the persisted node runs and checkpoints, and a structural IR diff between two
-workflow versions. Subworkflows already land; no new execution loop is needed.
+**Phase 10**: hardening and observability — run telemetry (node durations,
+failure codes, queue wait), a bounded operator view of graph health, and the
+remaining hardening tests. The runtime already persists normalized node runs
+and events; Phase 10 turns them into an observability surface, not a new
+execution loop.
 

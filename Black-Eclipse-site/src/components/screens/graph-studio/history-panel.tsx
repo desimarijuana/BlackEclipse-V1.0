@@ -12,6 +12,7 @@ import { History, RefreshCw } from '@/lib/icons';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
 import { getWorkflow, listVersions, type VersionSummary, type WorkflowRecord } from '@/lib/graph-studio/persistence-client';
 import { getGraphRun, listWorkflowRuns, type GraphRunRecord } from '@/lib/graph-studio/execution-client';
+import { diffWorkflowIr, type IrDiff } from '@/lib/graph-studio/ir-diff';
 import {
   formatDuration, formatTimestamp, shortHash, versionLabel,
 } from '@/lib/graph-studio/history-model';
@@ -52,6 +53,10 @@ export function HistoryPanel({
   const [loading, setLoading] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [diff, setDiff] = useState<IrDiff | null>(null);
+  const [diffVersion, setDiffVersion] = useState<number | null>(null);
+  const [diffing, setDiffing] = useState<number | null>(null);
+  const [diffNote, setDiffNote] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!workflowId) {
@@ -104,6 +109,33 @@ export function HistoryPanel({
       setOpening(null);
     }
   }, [workflowId, dirty, onOpenVersion]);
+
+  const compareVersion = useCallback(async (version: number) => {
+    if (!workflowId) return;
+    if (version <= 1) {
+      setDiff(null);
+      setDiffVersion(null);
+      setDiffNote('This is the first version; there is no previous version to compare.');
+      return;
+    }
+    setDiffing(version);
+    setDiffNote(null);
+    try {
+      const [previous, next] = await Promise.all([
+        getWorkflow(workflowId, version - 1),
+        getWorkflow(workflowId, version),
+      ]);
+      setDiff(diffWorkflowIr(previous.ir, next.ir));
+      setDiffVersion(version);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to compare versions');
+      setDiff(null);
+      setDiffVersion(null);
+    } finally {
+      setDiffing(null);
+    }
+  }, [workflowId]);
 
   if (!workflowId) {
     return (
@@ -195,12 +227,12 @@ export function HistoryPanel({
             </p>
             <ul className="space-y-1">
               {versions.map((version) => (
-                <li key={version.version}>
+                <li key={version.version} className="flex gap-1">
                   <button
                     type="button"
                     disabled={opening === `v${version.version}`}
                     onClick={() => void openVersion(version.version)}
-                    className="w-full rounded-md border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left hover:bg-white/5 disabled:opacity-50"
+                    className="min-w-0 flex-1 rounded-md border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left hover:bg-white/5 disabled:opacity-50"
                   >
                     <div className="flex items-center gap-1.5">
                       <History size={12} className="shrink-0 text-muted-foreground" />
@@ -214,9 +246,92 @@ export function HistoryPanel({
                       {version.note ? ` · ${version.note}` : ''}
                     </div>
                   </button>
+                  <button
+                    type="button"
+                    disabled={diffing !== null}
+                    onClick={() => void compareVersion(version.version)}
+                    title={`Diff v${version.version} against v${version.version - 1}`}
+                    className="shrink-0 rounded-md border border-white/10 px-1.5 text-[9.5px] text-muted-foreground hover:bg-white/5 hover:text-foreground disabled:opacity-40"
+                  >
+                    {diffing === version.version ? '…' : 'Diff'}
+                  </button>
                 </li>
               ))}
             </ul>
+            {diffNote && (
+              <p className="mt-2 rounded-md border border-white/10 px-2 py-1.5 text-[10px] text-muted-foreground">
+                {diffNote}
+              </p>
+            )}
+            {diff && diffVersion !== null && (
+              <div className="mt-2 rounded-md border border-white/10 bg-white/[0.02] px-2 py-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    v{diffVersion - 1} → v{diffVersion}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => { setDiff(null); setDiffVersion(null); }}
+                    className="text-[9.5px] text-muted-foreground hover:text-foreground"
+                  >
+                    Close
+                  </button>
+                </div>
+                {diff.identical ? (
+                  <p className="mt-1 text-[10px] text-muted-foreground">The two versions are structurally identical.</p>
+                ) : (
+                  <>
+                    <p className="mt-1 text-[10px] text-slate-300">
+                      {diff.summary.addedNodes} added · {diff.summary.removedNodes} removed ·{' '}
+                      {diff.summary.changedNodes} changed node(s) · {diff.summary.addedEdges} edge(s) added ·{' '}
+                      {diff.summary.removedEdges} edge(s) removed
+                    </p>
+                    {diff.nameChanged && (
+                      <p className="mt-1 text-[10px] text-amber-200">name: {diff.beforeName} → {diff.afterName}</p>
+                    )}
+                    {diff.settings.length > 0 && (
+                      <p className="mt-1 text-[10px] text-amber-200">settings: {diff.settings.join(', ')}</p>
+                    )}
+                    <ul className="mt-1 space-y-0.5">
+                      {diff.nodes.map((node) => (
+                        <li key={`n-${node.nodeId}`} className="text-[10px]">
+                          <span
+                            className={cn(
+                              'mr-1 font-mono uppercase',
+                              node.kind === 'added' ? 'text-emerald-300'
+                                : node.kind === 'removed' ? 'text-rose-300' : 'text-amber-300',
+                            )}
+                          >
+                            {node.kind[0].toUpperCase()}
+                          </span>
+                          <span className="text-slate-300">{node.label}</span>
+                          {node.fields.length > 0 && (
+                            <span className="text-muted-foreground"> — {node.fields.join(', ')}</span>
+                          )}
+                        </li>
+                      ))}
+                      {diff.edges.map((edge) => (
+                        <li key={`e-${edge.edgeId}`} className="text-[10px]">
+                          <span
+                            className={cn(
+                              'mr-1 font-mono uppercase',
+                              edge.kind === 'added' ? 'text-emerald-300'
+                                : edge.kind === 'removed' ? 'text-rose-300' : 'text-amber-300',
+                            )}
+                          >
+                            {edge.kind[0].toUpperCase()}
+                          </span>
+                          <span className="text-slate-300">edge {edge.edgeId}</span>
+                          {edge.fields.length > 0 && (
+                            <span className="text-muted-foreground"> — {edge.fields.join(', ')}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
             {!loading && versions.length === 0 && (
               <p className="px-1 py-3 text-[11px] text-muted-foreground">No saved versions yet.</p>
             )}

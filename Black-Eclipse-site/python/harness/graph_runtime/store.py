@@ -345,6 +345,7 @@ class GraphRunStore:
                 "outputs": _loads(row["outputs"], {}),
                 "error": row["error"],
                 "errorCode": row["errorCode"],
+                "resumable": bool(row["resumable"]),
             }
             for row in rows
         ]
