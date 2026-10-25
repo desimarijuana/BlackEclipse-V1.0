@@ -10669,3 +10669,28 @@ is a transport detail, not a second subsystem.
 `python/tests/test_terminal_tools.py` (the manager-identity test),
 `python/tests/test_code_terminal.py` (removed the `build_run_spec` tests). Docs:
 `docs/harness/terminal-architecture.md`, this ADR.
+
+## ADR-H328 - A clarification is a question, not an authorization
+
+**Decision.** The `clarify` tool reuses the approval store's physical table and
+in-process pause gate under a distinct `kind="clarification"`, with its own
+additive `answer` column and a separate `POST /mcp/approvals/{id}/answer` route.
+It is a `read` tool. `answer_clarification` refuses any row that is not a
+clarification, and no effect authorizer ever consults an answer. When there is no
+interactive client (a bot or scheduled/background run), the tool returns
+`answered: false` immediately rather than blocking, and it never invents an
+answer.
+
+**Why.** The pause-and-resume machinery is exactly what a question needs, but
+authority must not leak through the shared path: answering "5 years" must never
+be one typo away from approving a write. Sharing the gate while keeping
+authorization single-use and digest-bound lets the two flows share plumbing
+without sharing power. A non-interactive fallback is mandatory because a run with
+no card to resolve cannot wait forever, and a fabricated answer would violate the
+no-invention rule.
+
+**Consequences.** `python/harness/clarify_tools.py`;
+`ApprovalStore.request_clarification`/`answer_clarification`; the
+`clarification.requested`/`clarification.answered` events; the
+`clarification-card.tsx` surface; the `run_watchdog.py` exemption. Docs:
+`docs/harness/architecture.md`, `docs/NAVIGATION.md`, this ADR.

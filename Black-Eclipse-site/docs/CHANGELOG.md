@@ -25,8 +25,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `routers/mcp.py` (`POST /mcp/approvals/{id}/answer`), the Next proxy, the event
   parser/hook, a new `clarification-card.tsx` in both chat surfaces, prompt
   guidance, and a watchdog exemption. Tests: `python/tests/test_clarify.py`,
-  `src/lib/agent/events.test.ts`.
-  docs updated: `docs/harness/architecture.md`, `docs/NAVIGATION.md`.
+  `src/lib/agent/events.test.ts`. Decision: ADR-H328.
+  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`,
+  `docs/NAVIGATION.md`.
 
 ## 2026-10-24
 - **ui(chat): roomier chat history rows.** Increased the vertical gap between

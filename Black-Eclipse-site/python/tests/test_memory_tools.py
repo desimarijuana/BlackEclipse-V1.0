@@ -440,7 +440,12 @@ def test_prompt_char_ceiling():
     # lost chart). It is guidance the runtime needs; it is re-pinned to the
     # measured size and may only shrink from here. Matches the same test in
     # `test_memory_tools.py`.
-    assert len(prompt) <= 38241, f"prompt grew to {len(prompt)} chars"
+    # Re-pinned 38241->38884 for the clarification guidance (ask ONE question
+    # with concrete options when a turn is genuinely ambiguous or a consequential
+    # step's intent is unclear; an answer is not a permission). It is guidance
+    # the runtime needs; it is re-pinned to the measured size and may only shrink
+    # from here. Matches the same test in `test_memory_tools.py`.
+    assert len(prompt) <= 38884, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

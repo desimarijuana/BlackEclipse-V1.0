@@ -111,6 +111,24 @@ def test_no_interactive_client_never_blocks_or_invents(approvals):
     assert approvals.list_kind("clarification", PENDING) == []
 
 
+def test_clarify_is_registered_read_only_and_allowlisted():
+    from harness.agents import ECLIPSE_AGENT
+    from harness.clarify_tools import CLARIFY_TOOLS
+    from harness.tools import ToolRegistry
+
+    registry = ToolRegistry()
+    from harness.clarify_tools import register_clarify_tools
+
+    register_clarify_tools(registry)
+    tool = registry.get("clarify")
+    assert tool is not None
+    assert tool.permission == "read"
+    assert tool.risk == "none"
+    assert set(CLARIFY_TOOLS) <= set(ECLIPSE_AGENT.tools)
+    # A clarification must never be offered as an effect approval target.
+    assert tool.effect is None
+
+
 def test_empty_answer_means_decide_for_me(approvals):
     ctx = _ctx(approvals, pause=True)
 
