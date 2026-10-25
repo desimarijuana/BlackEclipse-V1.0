@@ -17,6 +17,7 @@ import { EmptyState } from '@/components/chat/empty-state';
 import { ChatHistory } from '@/components/chat/chat-history';
 import { ChatInput } from '@/components/chat/chat-input';
 import { ApprovalCard } from '@/components/chat/approval-card';
+import { ClarificationCard } from '@/components/chat/clarification-card';
 import { SessionBar } from '@/components/chat/session-bar';
 import { CheckpointBar } from '@/components/chat/checkpoint-bar';
 import { NotebookButton, NotebookProvider } from '@/components/chat/notebook-provider';
@@ -271,6 +272,13 @@ function StockChatContent() {
     () => agentRun.turn.pendingApproval
       ?? [...messages].reverse().find((m) => m.role === 'assistant' && m.pendingApproval)?.pendingApproval,
     [agentRun.turn.pendingApproval, messages],
+  );
+  // A paused `clarify` question (not a permission decision). Same live-then-
+  // persisted sourcing as the approval card.
+  const pendingClarification = useMemo(
+    () => agentRun.turn.pendingClarification
+      ?? [...messages].reverse().find((m) => m.role === 'assistant' && m.pendingClarification)?.pendingClarification,
+    [agentRun.turn.pendingClarification, messages],
   );
 
   // Refs mirror the two pieces of state an async send handler reads AFTER an
@@ -735,6 +743,7 @@ function StockChatContent() {
         model: turn.model,
         error: turn.error,
         pendingApproval: turn.pendingApproval,
+        pendingClarification: turn.pendingClarification,
         // Elapsed turn time; finalised on the terminal frame.
         durationMs: Math.max(0, Date.now() - startedAt),
       }, turn.done);    };
@@ -1228,6 +1237,13 @@ function StockChatContent() {
                               ? agentRun.decide(approve, remember)
                               : decideDelegation(approve, remember));
                           }}
+                        />
+                      )}
+                      {pendingClarification && (
+                        <ClarificationCard
+                          clarification={pendingClarification}
+                          anchor={composerEl}
+                          onAnswer={(value) => agentRun.answer(value)}
                         />
                       )}
                       <AttachmentPreview preview={sessionController.preview} onClose={sessionController.closePreview} />

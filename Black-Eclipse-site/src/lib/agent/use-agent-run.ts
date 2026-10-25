@@ -15,7 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAgentProvider, ChatRequestError } from './registry';
 import type { ChatMessage } from './types';
 import type { HarnessUiEvent } from './events';
-import type { AssistantTurn, PendingApproval } from './response-model';
+import type { AssistantTurn, PendingApproval, PendingClarification } from './response-model';
 import { emptyTurn } from './response-model';
 import { mergeCapabilityBuild, type CapabilityBuildView } from '@/lib/harness/capability-types';
 import { endActivity, initialActivityState, startActivity } from './activity-reducer';
@@ -63,6 +63,12 @@ export interface UseAgentRun {
    * `remember` additionally creates a standing grant ("Always allow").
    */
   decide: (approve: boolean, remember?: boolean) => Promise<void>;
+  /**
+   * Answer the current `clarify` question. Resolves the paused run in place; an
+   * empty string means "decide for me". A failed POST restores the card so the
+   * user can retry.
+   */
+  answer: (answer: string) => Promise<void>;
   reset: () => void;
 }
 
@@ -206,6 +212,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           if (event.images) t.images = event.images;
           if (event.video) t.video = event.video;
           t.pendingApproval = undefined;
+          t.pendingClarification = undefined;
           if (event.error) {
             t.error = { code: event.errorCode, message: event.error };
             t.status = 'error';
@@ -221,6 +228,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           t.error = { code: event.code, message: event.message };
           t.status = 'error';
           t.pendingApproval = undefined;
+          t.pendingClarification = undefined;
           t.done = true;
           publish(true);
           break;
@@ -256,6 +264,33 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           // Clear only the card this event refers to (or any card when the
           // runtime did not name one), so a late event cannot drop a newer card.
           if (!event.id || t.pendingApproval?.id === event.id) t.pendingApproval = undefined;
+          publish(true);
+          break;
+        }
+        case 'clarification_request': {
+          // A `clarify` question: the run is paused on the human-decision gate,
+          // not finished. The stream stays open and resumes with the answer.
+          t.pendingClarification = event.clarification;
+          t.status = 'awaiting_approval';
+          publish(true);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent(ALERT_NOTIFY_EVENT, {
+                detail: {
+                  id: `clarification:${event.clarification.id}`,
+                  title: 'Eclipse has a question',
+                  body: event.clarification.question,
+                  tab: 'chat',
+                  kind: 'approval',
+                  sound: 'notification',
+                },
+              }),
+            );
+          }
+          break;
+        }
+        case 'clarification_answered': {
+          if (!event.id || t.pendingClarification?.id === event.id) t.pendingClarification = undefined;
           publish(true);
           break;
         }
@@ -442,6 +477,37 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
     [publish],
   );
 
+  const answer = useCallback(
+    async (value: string) => {
+      const pending: PendingClarification | undefined = turnRef.current.pendingClarification;
+      if (!pending) return;
+      // Clear optimistically so the buttons cannot double-submit; the runtime's
+      // `clarification.answered` event is the authoritative clear. Restore it if
+      // the POST fails so the operator can retry.
+      turnRef.current.pendingClarification = undefined;
+      if (turnRef.current.status === 'awaiting_approval') turnRef.current.status = 'tool_running';
+      publish(true);
+      try {
+        const res = await fetch(
+          `/api/harness/mcp/approvals/${encodeURIComponent(pending.id)}/answer`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ answer: value }),
+          },
+        );
+        if (!res.ok) throw new Error(`answer failed (${res.status})`);
+      } catch {
+        if (!turnRef.current.done) {
+          turnRef.current.pendingClarification = pending;
+          turnRef.current.status = 'awaiting_approval';
+          publish(true);
+        }
+      }
+    },
+    [publish],
+  );
+
   const reset = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -452,5 +518,5 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
     setRunId(null);
   }, []);
 
-  return { turn, active, runId, start, cancel, decide, reset };
+  return { turn, active, runId, start, cancel, decide, answer, reset };
 }

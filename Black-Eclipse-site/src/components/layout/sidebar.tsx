@@ -216,7 +216,7 @@ export function Sidebar({
       }`}
     >
       {/* Brand logo header */}
-      <div className={`flex h-14 md:h-16 items-center shrink-0 relative w-full ${
+      <div className={`flex h-12 items-center shrink-0 relative w-full ${
         isCollapsed ? 'justify-center' : 'justify-between gap-2 px-1'
       }`}>
         <div className="flex items-center gap-2.5 overflow-hidden">

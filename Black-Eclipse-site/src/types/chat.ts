@@ -1,4 +1,4 @@
-import type { ActivityItem, AssistantModel, PendingApproval, ResponsePlan, ResponseStatus, TurnChange, TurnError } from '@/lib/agent/response-model';
+import type { ActivityItem, AssistantModel, PendingApproval, PendingClarification, ResponsePlan, ResponseStatus, TurnChange, TurnError } from '@/lib/agent/response-model';
 
 /**
  * A context document a user turn carried into the run. Persisted ON the message
@@ -124,6 +124,11 @@ export interface Message {
    * `approval.requested` event and cleared when it resolves.
    */
   pendingApproval?: PendingApproval;
+  /**
+   * A question the agent is paused on (`clarify`). Present only while the run
+   * waits for the operator's answer; cleared when it resolves.
+   */
+  pendingClarification?: PendingClarification;
   /**
    * The Intelligent Response Orchestrator's presentation plan for this turn
    * (runtime `response.plan`). Absent for ordinary/legacy turns. Display only.

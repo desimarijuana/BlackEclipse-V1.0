@@ -1420,6 +1420,29 @@ the composer in both chat surfaces, driven by `HarnessUiEvent.approval_request` 
 plays the `notification` cue and raises the shared toast/OS notice
 (`ALERT_NOTIFY_EVENT`), so a paused run is never missed.
 
+**Clarifying questions (human-in-the-loop `clarify`).** A turn that is genuinely
+ambiguous, or reaches a consequential step whose intent is unclear, can ask the
+operator ONE question instead of guessing. The `clarify` tool
+(`python/harness/clarify_tools.py`, read permission, registered on the same
+registry and allowlisted for the finance chat) takes `question`, an optional
+`context`, 2–4 `options`, and a `recommended` option. It creates a
+`clarification` row in the SAME `McpApproval` table (`kind="clarification"`, the
+new additive `answer` column) and reuses the same in-process gate as approvals,
+emitting `clarification.requested` before it `await`s `wait_for_decision`. The
+answer is a choice label or free text (`""` means "decide for me"); it is returned
+to the model as the tool result, so the run resumes IN PLACE with the answer.
+This is deliberately NOT an authorization: the tool is `read`, an answer never
+approves an effect, and `answer_clarification` refuses any row that is not a
+clarification. The answer route is `POST /mcp/approvals/{id}/answer` (NOT
+`/decide`), fronted by `src/app/api/harness/mcp/approvals/[id]/answer`; the card
+is `src/components/chat/clarification-card.tsx`, driven by
+`HarnessUiEvent.clarification_request` / `clarification_answered`. When there is
+no interactive client (a bot or background/scheduled run), the tool never blocks
+and never invents an answer: it returns `answered: false`, and the model must
+proceed with a stated assumption. The wait is bounded by the tool's own 115s
+ceiling (below the registry's 120s cap), and `run_watchdog.py` treats
+`clarification.requested` as a legitimate user-decision wait.
+
 **Standing grants — "always allow" (ADR-H144).** Repeatedly re-asking for the same
 program is stopped by a separate, revocable permission, NOT by making an approval
 repeatable. `python/harness/grants.py` (`GrantStore`, table `StandingGrant` on

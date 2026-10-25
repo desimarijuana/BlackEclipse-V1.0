@@ -82,6 +82,11 @@ class AgenticService:
         from .app_api_tools import register_app_api_tools  # noqa: PLC0415
 
         register_app_api_tools(self.registry)
+        # A human-in-the-loop question tool. Read-permission: an answer is not an
+        # authorization, and an effectful step still needs the approval card.
+        from .clarify_tools import register_clarify_tools  # noqa: PLC0415
+
+        register_clarify_tools(self.registry)
         # The acquire loop: install skills from a GitHub repo (approval-gated),
         # uninstall them, and list installed sources. Handlers in
         # `skills/install_tools.py`; the effect authorizer is composed in

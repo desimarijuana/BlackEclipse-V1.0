@@ -366,7 +366,7 @@ export function ChatHistoryPanel({
       {/* List */}
       <div className={`flex flex-col gap-2.5 max-h-[45vh] overflow-y-auto pr-1 ${dragging ? 'cursor-grabbing' : ''}`}>
         {view.pinned.length > 0 && (
-          <div data-droppable data-drop-key="pinned" className={`flex flex-col gap-0.5 rounded-lg ${dropKey === 'pinned' && dragging ? 'bg-primary/10 ring-1 ring-primary/40' : ''}`}>
+          <div data-droppable data-drop-key="pinned" className={`flex flex-col gap-1.5 rounded-lg ${dropKey === 'pinned' && dragging ? 'bg-primary/10 ring-1 ring-primary/40' : ''}`}>
             <div className="flex items-center gap-1.5 px-1">
               <Pin size={11} className="text-amber-400" weight="fill" />
               <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{t('sidebar.pinned')}</span>
@@ -378,7 +378,7 @@ export function ChatHistoryPanel({
         {view.groups.map((g) => {
           if (g.bucket) {
             return (
-              <div key={`bucket:${g.bucket}`} className="flex flex-col gap-0.5 rounded-lg">
+              <div key={`bucket:${g.bucket}`} className="flex flex-col gap-1.5 rounded-lg">
                 {renderDateHeader(g.bucket, g.conversations.length)}
                 {g.conversations.map((c) => renderRow(c))}
               </div>
@@ -391,7 +391,7 @@ export function ChatHistoryPanel({
               key={key}
               data-droppable
               data-drop-key={key}
-              className={`flex flex-col gap-0.5 rounded-lg transition-colors ${isDropTarget ? 'bg-primary/10 ring-1 ring-primary/40' : ''}`}
+              className={`flex flex-col gap-1.5 rounded-lg transition-colors ${isDropTarget ? 'bg-primary/10 ring-1 ring-primary/40' : ''}`}
             >
               {(g.folder || !query.trim()) && renderGroupHeader(g.folder, g.conversations.length, g.depth)}
               {!(g.folder?.collapsed) && g.conversations.map((c) => renderRow(c, g.depth + (g.folder ? 1 : 0)))}

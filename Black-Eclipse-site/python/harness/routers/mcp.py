@@ -194,6 +194,28 @@ async def decide_mcp_approval(
     return JSONResponse({"success": True, "approval": result, "grant": grant})
 
 
+@router.post("/mcp/approvals/{approval_id}/answer")
+async def answer_clarification(
+    approval_id: str, payload: dict[str, Any], _: None = Depends(require_mcp_operator)
+) -> JSONResponse:
+    """Answer a paused `clarify` question with a choice or free text.
+
+    Separate from `/decide`: an answer is NOT an approval and can never authorize
+    an effect. `answer_clarification` refuses any row that is not a
+    `clarification`.
+    """
+    answer = payload.get("answer")
+    if not isinstance(answer, str):
+        raise HTTPException(status_code=400, detail="answer must be a string")
+    result = service.approvals.answer_clarification(
+        approval_id, answer=answer,
+        decided_by=str(payload.get("decidedBy") or "operator"),
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Clarification not found")
+    return JSONResponse({"success": True, "clarification": result})
+
+
 @router.get("/mcp/integrations")
 def list_mcp_integrations(_: None = Depends(require_mcp_operator)) -> dict[str, Any]:
     from ..mcp.presets import list_integrations

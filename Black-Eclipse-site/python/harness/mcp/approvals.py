@@ -227,6 +227,11 @@ class ApprovalStore:
             )
         if "workspaceId" not in existing:
             self._db.execute("ALTER TABLE McpApproval ADD COLUMN workspaceId TEXT")
+        # A `clarification` row is a QUESTION, not an authorization: the operator's
+        # typed/selected answer lands here so the paused tool can return it to the
+        # model. Additive; every other kind leaves it NULL.
+        if "answer" not in existing:
+            self._db.execute("ALTER TABLE McpApproval ADD COLUMN answer TEXT")
         self._db.commit()
 
     # -- creation ------------------------------------------------------------
@@ -465,6 +470,87 @@ class ApprovalStore:
         if workspace_id is not None:
             keys["workspaceId"] = workspace_id
         return claim_guarded(self._db, table="McpApproval", kind=kind, key_columns=keys)
+
+    # -- clarifications (a question, not an authorization) -------------------
+    #
+    # A `clarify` tool call needs the operator's input before it can continue.
+    # It reuses this store's physical table and the SAME in-process gate as an
+    # approval, but it is deliberately NOT approvable: no effect is authorized by
+    # an answer, and `answer_clarification` refuses any row that is not a
+    # `clarification`. The answer is a plain string (a chosen option label or the
+    # operator's own words); an empty answer means "decide for me".
+
+    CLARIFICATION_KIND = "clarification"
+
+    def request_clarification(
+        self,
+        *,
+        question: str,
+        options: list[str],
+        run_id: Optional[str] = None,
+        context: str = "",
+        ttl_seconds: int = DEFAULT_TTL_SECONDS,
+    ) -> dict[str, Any]:
+        """Create (or reuse) a pending question for this run.
+
+        Reuses a PENDING row for the identical (question, options) so a model
+        that repeats the same question does not stack cards. A prior answered
+        row is NOT reused: the next question needs its own answer.
+        """
+        question = str(question or "").strip()
+        if not question:
+            raise ValueError("a clarification needs a question")
+        digest = args_digest({"question": question, "options": list(options or [])})
+        request_key = f"clarify:{run_id or 'chat'}"
+        pending = self._find_one_kind(self.CLARIFICATION_KIND, request_key, digest, PENDING)
+        if pending is not None:
+            return pending
+        import uuid
+
+        ttl = max(30, min(int(ttl_seconds), MAX_TTL_SECONDS))
+        now = _now()
+        clarification_id = f"clar_{uuid.uuid4().hex[:16]}"
+        payload = {"context": context or "", "options": list(options or [])}
+        self._db.execute(
+            """INSERT INTO McpApproval
+               (id, serverId, tool, eclipseTool, effect, argsDigest, argsPreview, status,
+                createdAt, expiresAt, decidedAt, decidedBy, reason, requestedByRunId,
+                actionSummary, affectedData, risk, kind)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                clarification_id, request_key, "clarify", "clarify", "clarification",
+                digest, "", PENDING, _iso(now), _iso(now + timedelta(seconds=ttl)),
+                None, None, None, run_id, question,
+                json.dumps(payload, sort_keys=True, default=str), "none",
+                self.CLARIFICATION_KIND,
+            ),
+        )
+        self._db.commit()
+        return self.get(clarification_id) or {}
+
+    def answer_clarification(
+        self, clarification_id: str, *, answer: str, decided_by: str = "operator",
+    ) -> Optional[dict[str, Any]]:
+        """Record the operator's answer and wake a paused run.
+
+        Returns None when the id is unknown or is not a clarification; returns the
+        row unchanged when it was already decided (a late/duplicate POST must
+        never overwrite the first answer).
+        """
+        current = self.get(clarification_id)
+        if current is None or current.get("kind") != self.CLARIFICATION_KIND:
+            return None
+        if current.get("status") != PENDING:
+            return current
+        self._db.execute(
+            "UPDATE McpApproval SET status=?, decidedAt=?, decidedBy=?, answer=? "
+            "WHERE id=? AND status=?",
+            (APPROVED, _iso(_now()), decided_by, str(answer or "")[:4000],
+             clarification_id, PENDING),
+        )
+        self._db.commit()
+        notify_decision(clarification_id)
+        return self.get(clarification_id)
 
     def list_kind(self, kind: str, status: Optional[str] = None, limit: int = 100) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 500))

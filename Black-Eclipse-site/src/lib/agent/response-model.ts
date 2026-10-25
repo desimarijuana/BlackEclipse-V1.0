@@ -46,6 +46,24 @@ export interface PendingApproval {
   grantLabel?: string;
 }
 
+/**
+ * A question the agent paused on (`clarify`). This is not an approval: the
+ * answer is a choice label or free text, and it can never authorize an effect.
+ */
+export interface PendingClarification {
+  id: string;
+  /** The one question, in plain language. */
+  question: string;
+  /** Optional reason the choice matters (one sentence). */
+  context?: string;
+  /** Concrete choices the operator can pick. */
+  options: string[];
+  /** The option the agent recommends, when it named one. */
+  recommended?: string;
+  /** Whether the operator may type a free-text answer instead of choosing. */
+  allowCustom: boolean;
+}
+
 /** One thing the agent did (a tool call, a retrieval source, or a context note). */
 export interface ActivityItem {
   /** Stable id — the tool's `toolCallId` when the runtime provides one. */
@@ -279,6 +297,12 @@ export interface AssistantTurn {
    * by `approval.resolved` or the decision POST.
    */
   pendingApproval?: PendingApproval;
+  /**
+   * A question the agent is paused on (`clarify`), or undefined when it is not
+   * waiting. Set from `clarification.requested`, cleared by
+   * `clarification.answered` or the answer POST.
+   */
+  pendingClarification?: PendingClarification;
   /**
    * The Intelligent Response Orchestrator's presentation plan for this turn
    * (runtime `response.plan`). Absent for runs that did not emit one.

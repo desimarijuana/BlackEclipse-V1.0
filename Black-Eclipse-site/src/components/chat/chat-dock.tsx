@@ -51,6 +51,7 @@ import { ModelSelector } from './chat-input';
 import { EffortControl } from './effort-control';
 import { CheckpointBar } from './checkpoint-bar';
 import { ApprovalCard } from './approval-card';
+import { ClarificationCard } from './clarification-card';
 
 const STORAGE_KEY = 'be_chat_dock_v1';
 /** Stable workspace-folder id for the dock, so its runs also persist output. */
@@ -213,6 +214,8 @@ export function ChatDock({
   const [composerEl, setComposerEl] = useState<HTMLDivElement | null>(null);
   const pendingApproval = agentRun.turn.pendingApproval
     ?? [...messages].reverse().find(m => m.role === 'assistant' && m.pendingApproval)?.pendingApproval;
+  const pendingClarification = agentRun.turn.pendingClarification
+    ?? [...messages].reverse().find(m => m.role === 'assistant' && m.pendingClarification)?.pendingClarification;
 
   // The Command Center is a KEEP-ALIVE tab: once visited it stays mounted and is
   // hidden with `display:none`. A portal to <body> is NOT hidden by an ancestor
@@ -452,6 +455,7 @@ export function ChatDock({
               runId: turn.runId,
               model: turn.model,
               pendingApproval: turn.pendingApproval,
+              pendingClarification: turn.pendingClarification,
               durationMs: Math.max(0, Date.now() - startedAt),
             }
           : m,
@@ -815,6 +819,13 @@ export function ChatDock({
         </div>
         {pendingApproval && (
           <ApprovalCard approval={pendingApproval} anchor={composerEl} onDecide={agentRun.decide} />
+        )}
+        {pendingClarification && (
+          <ClarificationCard
+            clarification={pendingClarification}
+            anchor={composerEl}
+            onAnswer={agentRun.answer}
+          />
         )}
           </>
         )}

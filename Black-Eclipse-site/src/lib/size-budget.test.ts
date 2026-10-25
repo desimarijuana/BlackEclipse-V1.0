@@ -175,7 +175,12 @@ const RATCHET: Record<string, number> = {
   // the deferred canvas-content import here. May only shrink from here.
   // Re-pinned 1522→1534: the new Dashboard tab (a lazy dynamic import + one
   // keep-alive block above Command Center). May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1541,
+  // Re-pinned 1541→1554: the `clarify` human-in-the-loop question card is wired
+  // into the main chat composer (one state read, one persisted field, one mount
+  // beside the approval card). The card itself lives in
+  // `components/chat/clarification-card.tsx`; no other stock-chat logic moved.
+  // May only shrink from here.
+  "src/components/screens/stock-chat.tsx": 1554,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

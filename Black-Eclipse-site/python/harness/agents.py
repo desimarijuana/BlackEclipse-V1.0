@@ -445,6 +445,10 @@ ECLIPSE_AGENT = AgentConfig(
         # Bounded read-only GET over the app's OWN loopback API (QA Round 1):
         # the sanctioned alternative to the hard-denied `curl` dead-end.
         "app_api_get",
+        # Human-in-the-loop: ask ONE short question with options / free text when
+        # a request is genuinely ambiguous or a consequential step's intent is
+        # unclear. An answer is clarification, never an authorization.
+        "clarify",
         # Phase 7: bounded fan-out of independent sub-questions (e.g. "review
         # these five companies"). A research capability, not only a code one.
         "delegate",

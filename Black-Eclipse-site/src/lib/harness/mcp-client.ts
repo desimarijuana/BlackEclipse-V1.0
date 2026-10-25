@@ -213,3 +213,18 @@ export async function decideMCPApproval(
   );
   return body.approval;
 }
+
+/**
+ * Answer a paused `clarify` question (a choice label or free text). Separate
+ * from approval: an answer never authorizes an effect and cannot decide one.
+ */
+export async function answerClarification(
+  clarificationId: string,
+  answer: string
+): Promise<MCPApprovalView> {
+  const body = await request<{ clarification: MCPApprovalView }>(
+    `/mcp/approvals/${encodeURIComponent(clarificationId)}/answer`,
+    { method: "POST", body: JSON.stringify({ answer }) }
+  );
+  return body.clarification;
+}

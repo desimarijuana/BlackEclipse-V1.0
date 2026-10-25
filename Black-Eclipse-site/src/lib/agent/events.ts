@@ -1,4 +1,4 @@
-import type { ActivityItem, PendingApproval, ResponsePlan, ResponseStatus, TurnChange } from './response-model';
+import type { ActivityItem, PendingApproval, PendingClarification, ResponsePlan, ResponseStatus, TurnChange } from './response-model';
 import { coerceResponsePlan, sourceLabel, toolLabel } from './response-model';
 import type { CapabilityEventPhase } from '@/lib/harness/capability-types';
 import { refusalKey } from '@/lib/i18n/refusal-copy';
@@ -66,6 +66,10 @@ export type HarnessUiEvent =
   | { kind: 'approval_request'; approval: PendingApproval }
   /** A previously requested approval was decided (or expired/timed out). */
   | { kind: 'approval_resolved'; id?: string; approved?: boolean }
+  /** The run paused on a `clarify` question (a question card, not an approval). */
+  | { kind: 'clarification_request'; clarification: PendingClarification }
+  /** The question was answered (or timed out and the run resumed). */
+  | { kind: 'clarification_answered'; id?: string }
   /**
    * A completed computation (runtime `analysis.completed`): the bounded result
    * blob (outputs, artifacts, provenance) the chat renders as "worked out by
@@ -346,6 +350,35 @@ export function normalizeHarnessEvent(
 
   if (event === 'approval.resolved') {
     return { kind: 'approval_resolved', id: str(payload.approvalId), approved: payload.approved === true };
+  }
+
+  // A human-in-the-loop question (runtime `clarification.requested`). The run
+  // stays open on the gate until the operator answers, so this is a blocking
+  // card, not a terminal state. A malformed frame is dropped rather than shown
+  // as an empty question.
+  if (event === 'clarification.requested') {
+    const id = str(payload.clarificationId);
+    const question = str(payload.question);
+    if (!id || !question) return null;
+    const rawOptions = Array.isArray(payload.options) ? payload.options : [];
+    const options = rawOptions
+      .map((option) => str(option))
+      .filter((option): option is string => Boolean(option));
+    return {
+      kind: 'clarification_request',
+      clarification: {
+        id,
+        question,
+        context: str(payload.context),
+        options,
+        recommended: str(payload.recommended),
+        allowCustom: payload.allowCustom !== false,
+      },
+    };
+  }
+
+  if (event === 'clarification.answered') {
+    return { kind: 'clarification_answered', id: str(payload.clarificationId) };
   }
 
   // A completed computation (runtime `analysis.completed`). The payload carries

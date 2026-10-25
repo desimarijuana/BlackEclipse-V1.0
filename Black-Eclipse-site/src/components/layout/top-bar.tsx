@@ -61,7 +61,7 @@ export function TopBar({ onToggleMenu, activeTab, hidden = false }: TopBarProps)
   if (hidden) return null;
 
   return (
-    <div className={cn('w-full h-14 md:h-16 flex items-center justify-between px-3 md:px-6 gap-2 md:gap-4 z-20 shrink-0', activeTab === 'bots' && 'md:hidden')}>
+    <div className={cn('w-full h-12 flex items-center justify-between px-3 md:px-6 gap-2 md:gap-4 z-20 shrink-0', activeTab === 'bots' && 'md:hidden')}>
        {/* Mobile menu toggle. The brand already lives in the sidebar drawer, so
            the header shows ONLY this icon on small screens — no duplicate
            wordmark competing with the search field. */}

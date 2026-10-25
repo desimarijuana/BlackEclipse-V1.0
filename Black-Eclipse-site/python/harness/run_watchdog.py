@@ -32,7 +32,11 @@ log = logging.getLogger("harness.watchdog")
 DEFAULT_MODEL_BUDGET_S = 120.0
 STALL_GRACE_S = 60.0
 SWEEP_INTERVAL_S = 30.0
-APPROVAL_EVENTS = frozenset({"approval.requested", "user.approval.required"})
+APPROVAL_EVENTS = frozenset({
+    "approval.requested", "user.approval.required",
+    # A `clarify` tool call parks the run on the same human-decision gate.
+    "clarification.requested",
+})
 
 _STALLED_SQL = """
 SELECT r.id, r.status, r.agentId,

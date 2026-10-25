@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { normalizeHarnessEvent, unwrapEventPayload } from './events';
 import { coerceResponsePlan, toolLabel, sourceLabel, turnText, emptyTurn } from './response-model';
 
@@ -537,5 +537,54 @@ describe('capability lifecycle events', () => {
     expect(normalizeHarnessEvent('capability.built', {
       type: 'capability.built', data: {},
     })).toBeNull();
+  });
+});
+
+describe('clarification.requested (human-in-the-loop question)', () => {
+  it('maps a question with options to a blocking clarification card', () => {
+    const e = normalizeHarnessEvent('clarification.requested', {
+      type: 'clarification.requested',
+      data: {
+        clarificationId: 'clar_1',
+        question: 'Which horizon?',
+        context: 'The result differs.',
+        options: ['1 year', '5 years'],
+        recommended: '5 years',
+      },
+    });
+    expect(e).toEqual({
+      kind: 'clarification_request',
+      clarification: {
+        id: 'clar_1',
+        question: 'Which horizon?',
+        context: 'The result differs.',
+        options: ['1 year', '5 years'],
+        recommended: '5 years',
+        allowCustom: true,
+      },
+    });
+  });
+
+  it('honours allowCustom=false and drops non-string options', () => {
+    const e = normalizeHarnessEvent('clarification.requested', {
+      type: 'clarification.requested',
+      data: { clarificationId: 'c', question: 'Q', options: ['A', 7, null], allowCustom: false },
+    });
+    expect(e).toMatchObject({
+      kind: 'clarification_request',
+      clarification: { options: ['A'], allowCustom: false },
+    });
+  });
+
+  it('drops a malformed question instead of rendering an empty card', () => {
+    expect(normalizeHarnessEvent('clarification.requested', {
+      type: 'clarification.requested', data: { clarificationId: 'c' },
+    })).toBeNull();
+  });
+
+  it('maps clarification.answered to a clear event', () => {
+    expect(normalizeHarnessEvent('clarification.answered', {
+      type: 'clarification.answered', data: { clarificationId: 'clar_1' },
+    })).toEqual({ kind: 'clarification_answered', id: 'clar_1' });
   });
 });
