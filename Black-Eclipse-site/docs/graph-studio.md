@@ -175,7 +175,7 @@ If the stream disconnects, the UI falls back to bounded polling.
 | 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Research agent node and live web-research nodes implemented** (search, fetch, claim verification over the existing research engine); planner/delegate/NL→IR not started |
 | 8 — Paper trading & safety | Execution adapter, risk controls, modes | **Implemented & verified** (`trading.risk_check` + `trading.paper_order`, PAPER-only; live and ungranted trading refused) |
 | 9 — Advanced engineering | Subworkflows, debugging, diffing | **Implemented** (subworkflows; post-run step inspector; structural version diff) |
-| 10 — Hardening & verification | Tests, security, observability | Partial: Phase 3/4 add runtime safety tests; observability is next |
+| 10 — Hardening & verification | Tests, security, observability | **Implemented** (operator health telemetry: run/node counts, durations, queue wait, failure codes, slowest nodes) |
 
 ### Phase 3 — the runtime (`python/harness/graph_runtime/`)
 
@@ -425,6 +425,18 @@ comparison is key-order-insensitive. A removed node/edge is reported by id; a
 first version says there is nothing to compare rather than showing an empty
 diff.
 
+### Phase 10 — run telemetry and hardening
+
+`GET /graphs/health?windowHours=N` (operator-gated) is a BOUNDED read over the
+persisted run tables: run counts by status, success/failure rate, duration
+p50/p95, queue wait (created → started), throughput, failed-node codes, the
+slowest node types, and checkpoint coverage. Reads are capped (1 000 runs /
+5 000 node rows, 1–168 h) and the response says `truncated` when a cap was hit.
+Missing values are `null`, never zero. The Graph Studio **Health** tab shows the
+same figures for 1 h / 24 h / 7 d with an explicit refresh. Additive contract:
+`nodeRuns[].resumable` (Phase 9) and `/graphs/health` (this phase); no new store,
+queue or scheduler.
+
 ### Phase 1 — acceptance criteria (verified)
 
 - Graph Studio opens within Eclipse (new `graph-studio` AppTab + sidebar item). ✓
@@ -462,7 +474,7 @@ Phases 3–4:
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **192 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **196 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
   optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
@@ -544,9 +556,9 @@ or HTTP errors.
 
 ## Next milestone
 
-**Phase 10**: hardening and observability — run telemetry (node durations,
-failure codes, queue wait), a bounded operator view of graph health, and the
-remaining hardening tests. The runtime already persists normalized node runs
-and events; Phase 10 turns them into an observability surface, not a new
-execution loop.
+**Post-phase hardening**: the ten phases are implemented. The remaining work is
+operational, not new graph capability — drive the schedule tick from external
+cron for headless deployments, run the Fabric worker pool on more than one
+process/machine, and add alerting on the now-published health signal. See
+"Known limitations" for the exact bounds.
 

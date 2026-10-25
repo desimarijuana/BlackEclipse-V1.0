@@ -160,6 +160,37 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+export interface GraphHealth {
+  windowHours: number;
+  generatedAt: string;
+  runs: {
+    total: number;
+    terminal: number;
+    byStatus: Record<string, number>;
+    successRate: number | null;
+    failureRate: number | null;
+    throughputPerHour: number;
+  };
+  durationMs: { avg: number | null; p50: number | null; p95: number | null };
+  queueWaitMs: { avg: number | null; p95: number | null };
+  nodeRuns: {
+    total: number;
+    failed: number;
+    skipped: number;
+    checkpointRate: number | null;
+  };
+  failures: { code: string; count: number }[];
+  slowestNodes: { nodeType: string; runs: number; failures: number; avgMs: number; p95Ms: number }[];
+  truncated: { runs: boolean; nodeRuns: boolean };
+}
+
+export async function getGraphHealth(windowHours = 24): Promise<GraphHealth> {
+  const data = await request<{ health: GraphHealth }>(
+    `/api/graph-runs/health?windowHours=${encodeURIComponent(String(windowHours))}`,
+  );
+  return data.health;
+}
+
 export interface StartRunOptions {
   /** Explicit operator run. The server still derives grants from the graph. */
   operator?: boolean;

@@ -399,6 +399,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `ir-diff.test.ts`, and a `resumable` assertion in `test_graph_durable.py`.
   docs updated: `docs/graph-studio.md` (Phase 9 + next milestone).
 
+- **feat(graph): bounded run telemetry and a Health tab (Phase 10).** Added
+  `GraphRunStore.health` / `GraphService.health` and operator-gated
+  `GET /graphs/health?windowHours=N`: run counts by status, success/failure
+  rate, duration p50/p95, queue wait (created → started), throughput,
+  failed-node codes, slowest node types and checkpoint coverage. Reads are
+  capped (1 000 runs / 5 000 node rows, 1–168 h) and report `truncated`; missing
+  values stay `null`. Added the Next proxy, typed `getGraphHealth` and the Graph
+  Studio **Health** tab (1 h / 24 h / 7 d). Tests:
+  `python/tests/test_graph_health.py` (counts/percentiles/failure codes, window,
+  queue wait, bounded read). docs updated: `docs/graph-studio.md` (Phase 10
+  status, telemetry contract, next milestone).
+
 ## 2026-10-24
 - **ui(chat): roomier chat history rows.** Increased the vertical gap between
   conversation rows from 2px (`gap-0.5`) to 6px (`gap-1.5`) inside the pinned,

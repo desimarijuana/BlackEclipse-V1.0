@@ -17,6 +17,7 @@ is reconciled to `failed` at boot (it can never finish).
 
 from __future__ import annotations
 
+import datetime as _dt
 import json
 from typing import Any, Optional
 
@@ -99,6 +100,24 @@ def _loads(value: Optional[str], fallback: Any) -> Any:
         return json.loads(value)
     except json.JSONDecodeError:
         return fallback
+
+
+def _percentile(values: list[float], fraction: float) -> Optional[float]:
+    if not values:
+        return None
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, int(round((len(ordered) - 1) * fraction))))
+    return ordered[index]
+
+
+def _utc(value: Optional[str]) -> Optional[_dt.datetime]:
+    if not value:
+        return None
+    try:
+        parsed = _dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=_dt.timezone.utc)
 
 
 class GraphRunStore:
@@ -210,6 +229,127 @@ class GraphRunStore:
                 "SELECT * FROM HarnessGraphRun ORDER BY startedAt DESC LIMIT ?", (limit,),
             ).fetchall()
         return [self._row_to_dict(row, summary=True) for row in rows]
+
+    def health(
+        self,
+        *,
+        window_hours: int = 24,
+        run_limit: int = 1_000,
+        node_limit: int = 5_000,
+    ) -> dict[str, Any]:
+        """Bounded operator telemetry from the persisted run tables.
+
+        Honest by construction: counts and percentiles are computed only from
+        rows inside the window, `truncated` is true when a hard read cap was hit,
+        and a missing duration is excluded rather than counted as zero.
+        """
+        hours = max(1, min(int(window_hours), 168))
+        limit = max(1, min(int(run_limit), 2_000))
+        node_cap = max(1, min(int(node_limit), 20_000))
+        cutoff_dt = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=hours)
+        cutoff = cutoff_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+        run_rows = self._db.execute(
+            "SELECT * FROM HarnessGraphRun WHERE startedAt>=? ORDER BY startedAt DESC LIMIT ?",
+            (cutoff, limit + 1),
+        ).fetchall()
+        truncated_runs = len(run_rows) > limit
+        run_rows = run_rows[:limit]
+
+        node_rows = self._db.execute(
+            """SELECT n.nodeType, n.status, n.durationMs, n.errorCode, n.resumable
+                 FROM HarnessGraphNodeRun n
+                 JOIN HarnessGraphRun r ON r.id = n.runId
+                WHERE r.startedAt>=? LIMIT ?""",
+            (cutoff, node_cap + 1),
+        ).fetchall()
+        truncated_nodes = len(node_rows) > node_cap
+        node_rows = node_rows[:node_cap]
+
+        by_status: dict[str, int] = {}
+        durations: list[float] = []
+        queue_waits: list[float] = []
+        for row in run_rows:
+            status = str(row["status"])
+            by_status[status] = by_status.get(status, 0) + 1
+            if isinstance(row["durationMs"], (int, float)):
+                durations.append(float(row["durationMs"]))
+            started = _utc(row["startedAt"])
+            created = _utc(row["createdAt"])
+            if started is not None and created is not None:
+                queue_waits.append(max(0.0, (started - created).total_seconds() * 1000.0))
+
+        terminal = sum(by_status.get(name, 0) for name in ("succeeded", "failed", "cancelled"))
+        succeeded = by_status.get("succeeded", 0)
+        failure_codes: dict[str, int] = {}
+        node_by_type: dict[str, dict[str, Any]] = {}
+        failed_nodes = 0
+        skipped_nodes = 0
+        resumable_nodes = 0
+        for row in node_rows:
+            status = str(row["status"])
+            failed_nodes += int(status == "failed")
+            skipped_nodes += int(status == "skipped")
+            resumable_nodes += int(status == "succeeded" and bool(row["resumable"]))
+            if status == "failed":
+                code = str(row["errorCode"] or "UNKNOWN")
+                failure_codes[code] = failure_codes.get(code, 0) + 1
+            stats = node_by_type.setdefault(
+                str(row["nodeType"]),
+                {"nodeType": str(row["nodeType"]), "runs": 0, "failures": 0, "durations": []},
+            )
+            stats["runs"] += 1
+            stats["failures"] += int(status == "failed")
+            if isinstance(row["durationMs"], (int, float)):
+                stats["durations"].append(float(row["durationMs"]))
+
+        slowest = []
+        for stats in node_by_type.values():
+            values = stats.pop("durations")
+            if not values:
+                continue
+            slowest.append({
+                **stats,
+                "avgMs": round(sum(values) / len(values), 2),
+                "p95Ms": round(_percentile(values, 0.95) or 0.0, 2),
+            })
+        slowest.sort(key=lambda item: (item["avgMs"], item["runs"]), reverse=True)
+
+        return {
+            "windowHours": hours,
+            "generatedAt": now_iso(),
+            "runs": {
+                "total": len(run_rows),
+                "terminal": terminal,
+                "byStatus": by_status,
+                "successRate": round(succeeded / terminal, 4) if terminal else None,
+                "failureRate": round(by_status.get("failed", 0) / terminal, 4) if terminal else None,
+                "throughputPerHour": round(len(run_rows) / hours, 3),
+            },
+            "durationMs": {
+                "avg": round(sum(durations) / len(durations), 2) if durations else None,
+                "p50": _percentile(durations, 0.50),
+                "p95": _percentile(durations, 0.95),
+            },
+            "queueWaitMs": {
+                "avg": round(sum(queue_waits) / len(queue_waits), 2) if queue_waits else None,
+                "p95": _percentile(queue_waits, 0.95),
+            },
+            "nodeRuns": {
+                "total": len(node_rows),
+                "failed": failed_nodes,
+                "skipped": skipped_nodes,
+                "checkpointRate": (
+                    round(resumable_nodes / len(node_rows), 4) if node_rows else None
+                ),
+            },
+            "failures": [
+                {"code": code, "count": count}
+                for code, count in sorted(failure_codes.items(), key=lambda item: (-item[1], item[0]))[:10]
+            ],
+            "slowestNodes": slowest[:10],
+            "truncated": {"runs": truncated_runs, "nodeRuns": truncated_nodes},
+        }
 
     def delete_run(self, run_id: str) -> int:
         cursor = self._db.execute("DELETE FROM HarnessGraphRun WHERE id=?", (run_id,))

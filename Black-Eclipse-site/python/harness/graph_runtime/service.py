@@ -446,6 +446,9 @@ class GraphService:
     def list_runs(self, workflow_id: Optional[str] = None, limit: int = 50) -> list[dict[str, Any]]:
         return self._store.list_runs(workflow_id, limit)
 
+    def health(self, *, window_hours: int = 24) -> dict[str, Any]:
+        return self._store.health(window_hours=window_hours)
+
     def events_since(self, run_id: str, after_id: int = 0, limit: int = 1_000) -> list[dict[str, Any]]:
         return self._store.events_since(run_id, after_id, limit)
 

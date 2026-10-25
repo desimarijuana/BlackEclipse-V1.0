@@ -29,8 +29,9 @@ import { ValidationPanel } from './validation-panel';
 import { RunPanel } from './run-panel';
 import { ScheduleList } from './schedule-list';
 import { HistoryPanel } from './history-panel';
+import { GraphHealthPanel } from './graph-health-panel';
 
-type RightTab = 'inspect' | 'issues' | 'run' | 'history';
+type RightTab = 'inspect' | 'issues' | 'run' | 'history' | 'health';
 const MODES: ExecutionMode[] = ['research', 'backtest', 'paper', 'live'];
 
 export function GraphStudioScreen() {
@@ -388,6 +389,7 @@ export function GraphStudioScreen() {
             ['issues', `Issues${errorCount > 0 ? ` (${errorCount})` : ''}`, null],
             ['run', 'Run', run?.status ?? null],
             ['history', 'History', null],
+            ['health', 'Health', null],
           ] as [RightTab, string, string | null][]).map(([tab, label, hint]) => (
             <button
               key={tab}
@@ -435,6 +437,7 @@ export function GraphStudioScreen() {
               <ScheduleList workflowId={workflowId && !dirty ? workflowId : null} />
             </div>
           )}
+          {rightTab === 'health' && <GraphHealthPanel />}
           {rightTab === 'history' && (
             <HistoryPanel
               workflowId={workflowId}

@@ -132,6 +132,15 @@ def start_run(body: RunRequest, request: Request, _: bool = Depends(require_oper
     return {"run": run}
 
 
+@router.get("/graphs/health")
+def graph_health(
+    windowHours: int = 24,  # noqa: N803
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Bounded run/node telemetry for the operator surface."""
+    return {"health": _graph_service().health(window_hours=windowHours)}
+
+
 @router.get("/graphs/runs")
 def list_runs(
     workflowId: Optional[str] = None,  # noqa: N803
