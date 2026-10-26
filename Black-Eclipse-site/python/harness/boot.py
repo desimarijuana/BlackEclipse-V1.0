@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import threading
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
@@ -41,6 +43,33 @@ async def lifespan(_app: "FastAPI") -> AsyncIterator[None]:
         _lifespan_refs -= 1
         if _lifespan_refs == 0:
             await _shutdown()
+
+
+def _warm_code_index(service: Any) -> None:
+    """Open the default workspace's code index OFF the boot/event path.
+
+    Opening a large index is seconds (hundreds of MB here); doing it lazily
+    inside a run put that cost in the run's pre-model phase, on the event loop.
+    The initial SCAN stays lazy: `warm` opens the state without indexing it.
+    Best-effort; disabled with `BLACK_ECLIPSE_CODE_INTEL_WARM=0`.
+    """
+    if os.environ.get("BLACK_ECLIPSE_CODE_INTEL_WARM", "1") == "0":
+        return
+    runtime = getattr(service, "code_intel", None)
+    if runtime is None:
+        return
+
+    def _run() -> None:
+        try:
+            from .code.workspace import resolve_workspace  # noqa: PLC0415
+
+            workspace = resolve_workspace(None)
+            if workspace is not None:
+                runtime.warm(workspace)
+        except Exception:  # noqa: BLE001 - warm-up is best-effort
+            log.warning("CIUE index warm-up failed", exc_info=True)
+
+    threading.Thread(target=_run, name="eclipse-intel-warm", daemon=True).start()
 
 
 async def _boot() -> None:
@@ -95,6 +124,7 @@ async def _boot() -> None:
     # Code Intelligence & Understanding Engine (CIUE): warm the code index in the
     # background. Language servers start lazily on first use.
     service.start_code_intel()
+    _warm_code_index(service)
     # Browser + Computer-Use runtimes: wire resolvers, start idle sweepers. No
     # browser/desktop is launched until a tool asks.
     service.start_browser()

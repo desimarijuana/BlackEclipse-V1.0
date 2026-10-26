@@ -51,7 +51,11 @@ def test_find_stalled_flags_only_silent_runs_and_exempts_approval_waits():
     ]
     stalled = find_stalled(rows, now)
     assert set(stalled) == {"old", "never_started"}
-    assert APPROVAL_EVENTS == {"approval.requested", "user.approval.required"}
+    # A `clarify` question parks the run on the same human-decision gate as an
+    # approval, so both are exempt.
+    assert APPROVAL_EVENTS == {
+        "approval.requested", "user.approval.required", "clarification.requested",
+    }
 
 
 # ── DB sweep ─────────────────────────────────────────────────────────────────

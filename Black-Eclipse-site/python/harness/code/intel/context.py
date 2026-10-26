@@ -16,7 +16,9 @@ ranges — never the whole repository and never a raw dump. Every entry is bound
 
 from __future__ import annotations
 
+import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -26,6 +28,23 @@ MAX_CONTEXT_FILES = 12
 MAX_CONTEXT_SYMBOLS = 40
 MAX_CONTEXT_RANGES = 30
 MAX_LINES_PER_RANGE = 40
+
+# A hard wall-clock budget for selecting the code slice. This runs synchronously
+# inside the run's pre-model phase (on the runtime's event loop), so an
+# unbounded scan freezes EVERY route and delays the first model call — exactly
+# the failure a real repo exposed (94 s, then a silent run). Selection is a
+# convenience: when the budget is spent it returns what it has and says so.
+DEFAULT_CONTEXT_BUDGET_S = 5.0
+
+
+def context_budget_s() -> float:
+    """The selection budget (env-overridable; a typo falls back to the default)."""
+    try:
+        value = float(os.environ.get("BLACK_ECLIPSE_CODE_CONTEXT_BUDGET_S", ""))
+    except ValueError:
+        return DEFAULT_CONTEXT_BUDGET_S
+    return value if value > 0 else DEFAULT_CONTEXT_BUDGET_S
+
 
 _STOPWORDS = frozenset({
     "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "with", "is",
@@ -102,24 +121,44 @@ class CodeContextEngine:
         self.manager = manager
 
     def select(self, query: str, *, max_files: int = MAX_CONTEXT_FILES,
-               max_symbols: int = MAX_CONTEXT_SYMBOLS) -> dict[str, Any]:
+               max_symbols: int = MAX_CONTEXT_SYMBOLS,
+               budget_s: Optional[float] = None) -> dict[str, Any]:
+        budget = context_budget_s() if budget_s is None else float(budget_s)
+        deadline = time.monotonic() + max(0.0, budget)
+        truncated = False
+
+        def expired() -> bool:
+            return time.monotonic() >= deadline
+
         terms = extract_terms(query)
         variants: list[str] = []
         for term in terms:
             variants.extend(_expand_term(term))
         matched: dict[str, dict[str, Any]] = {}
         for term in terms:
+            if expired():
+                truncated = True
+                break
             # Search each term AND its sub-tokens so an identifier like `AuthService`
             # is reachable from the word "authentication".
             for probe in _expand_term(term):
+                if expired():
+                    truncated = True
+                    break
                 for symbol in self.manager.index.find_symbols(probe, limit=30):
                     if _matches([probe, *variants], symbol["name"]):
                         matched.setdefault(symbol["id"], symbol)
+            if expired():
+                truncated = True
+                break
             for symbol in self.manager.index.find_symbols(term, limit=30):
                 matched.setdefault(symbol["id"], symbol)
         matched = {k: v for k, v in matched.items() if _matches(variants, v["name"])}
         # Also allow a file-path match to seed symbol selection for a term.
         for row in self.manager.index.file_rows(limit=10_000):
+            if expired():
+                truncated = True
+                break
             if any(v in row["rel"].lower() for v in variants if len(v) >= _MIN_PREFIX):
                 for symbol in self.manager.index.find_symbols("", file=row["rel"], limit=40):
                     matched.setdefault(symbol["id"], symbol)
@@ -133,6 +172,9 @@ class CodeContextEngine:
         # Also score files whose path relates to a term (prefix-aware), and score
         # symbol files by the relevance of the matched name.
         for row in self.manager.index.file_rows(limit=5_000):
+            if expired():
+                truncated = True
+                break
             if any(v in row["rel"].lower() for v in variants if len(v) >= _MIN_PREFIX):
                 file_scores[row["rel"]] = file_scores.get(row["rel"], 0) + 2
         for symbol in symbols:
@@ -141,7 +183,10 @@ class CodeContextEngine:
 
         tests: set[str] = set()
         for symbol in symbols[:10]:
-            related = find_related_tests(self.manager, symbol=symbol["name"])
+            if expired():
+                truncated = True
+                break
+            related = find_related_tests(self.manager, symbol=symbol["name"], deadline=deadline)
             for test in related.get("tests", []):
                 tests.add(test["file"])
                 file_scores[test["file"]] = file_scores.get(test["file"], 0) + 1
@@ -151,7 +196,9 @@ class CodeContextEngine:
 
         ranges: list[dict[str, Any]] = []
         for symbol in selected_symbols:
-            if len(ranges) >= MAX_CONTEXT_RANGES:
+            if len(ranges) >= MAX_CONTEXT_RANGES or expired():
+                if expired():
+                    truncated = True
                 break
             ranges.append({
                 "file": symbol["file"], "line": symbol["line"],
@@ -166,11 +213,16 @@ class CodeContextEngine:
                 cached = []
             diagnostics.extend({"file": rel, **d.to_dict()} for d in cached[:10])
 
+        if expired():
+            truncated = True
+
         return {
             "status": "ok",
             "engine": "context",
             "query": query,
             "terms": terms,
+            "truncated": truncated,
+            "budgetSeconds": budget,
             "files": ranked_files,
             "fileCount": len(ranked_files),
             "symbols": [
@@ -182,12 +234,15 @@ class CodeContextEngine:
             "ranges": ranges,
             "diagnostics": diagnostics[:40],
             "tests": sorted(tests)[:12],
-            "callPaths": self._call_paths(selected_symbols[:8]),
+            "callPaths": self._call_paths(selected_symbols[:8], deadline),
         }
 
-    def _call_paths(self, symbols: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _call_paths(self, symbols: list[dict[str, Any]],
+                    deadline: Optional[float] = None) -> list[dict[str, Any]]:
         paths: list[dict[str, Any]] = []
         for symbol in symbols:
+            if deadline is not None and time.monotonic() >= deadline:
+                break
             callers = self.manager.index.callers_of(symbol["name"])[:3]
             callees = self.manager.index.callees_of(symbol["name"])[:3]
             if callers or callees:
@@ -199,7 +254,8 @@ class CodeContextEngine:
         return paths[:10]
 
 
-def find_related_tests(manager: Any, *, symbol: Optional[str] = None, file: Optional[str] = None) -> dict[str, Any]:
+def find_related_tests(manager: Any, *, symbol: Optional[str] = None, file: Optional[str] = None,
+                       deadline: Optional[float] = None) -> dict[str, Any]:
     """Deterministic related-test discovery: a test imports or names the symbol/file.
 
     Not a test runner — it identifies WHICH tests are relevant so the agent can run
@@ -233,6 +289,8 @@ def find_related_tests(manager: Any, *, symbol: Optional[str] = None, file: Opti
 
     tests: dict[str, dict[str, Any]] = {}
     for row in manager.index.file_rows(limit=10_000):
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         rel = row["rel"]
         if not _looks_like_test(rel):
             continue

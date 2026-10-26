@@ -15,6 +15,7 @@ only promotion gates).
 
 from __future__ import annotations
 
+import time
 from typing import Any, Optional
 
 from .events import RunEmitter
@@ -495,9 +496,17 @@ async def _repo_map_context(
     if root is None:
         return "", None
     try:
+        from .code.intel.context import context_budget_s  # noqa: PLC0415
         from .code.intel.repo_map import build_repo_map, render_repo_map  # noqa: PLC0415
 
-        repo_map = build_repo_map(root)
+        # ONE wall-clock budget for the whole pre-model context step. It runs
+        # synchronously on the event loop, so an overrun freezes every route and
+        # delays (or silently loses) the turn's first model call. The budget is
+        # split: the map gets at most half, the seed the remainder.
+        budget = context_budget_s()
+        started = time.monotonic()
+        deadline = started + budget
+        repo_map = build_repo_map(root, deadline=started + budget / 2)
         block = render_repo_map(repo_map)
     except Exception as exc:  # noqa: BLE001 - a map must never break a run
         try:
@@ -506,13 +515,16 @@ async def _repo_map_context(
             pass
         return "", None
     seeded = ""
-    if code_intel_runtime is not None:
+    seed_truncated = False
+    if code_intel_runtime is not None and time.monotonic() < deadline:
         try:
             manager = code_intel_runtime.manager_for(workspace)
             slice_ = manager.get_relevant_context(
                 request.input.query, max_files=6, max_symbols=20,
+                budget_s=max(0.0, deadline - time.monotonic()),
             )
             seeded = _render_seeded_slice(slice_)
+            seed_truncated = bool(slice_.get("truncated")) if isinstance(slice_, dict) else False
         except Exception as exc:  # noqa: BLE001 - a seeded slice is a convenience
             try:
                 await emitter.emit("code.repo_map_seed_failed", {"error": str(exc)[:200]})
@@ -525,8 +537,10 @@ async def _repo_map_context(
             "outlined": repo_map.outlined_files,
             "engine": repo_map.engine,
             "digest": repo_map.digest,
-            "truncated": repo_map.truncated,
+            "truncated": repo_map.truncated or seed_truncated,
             "seeded": bool(seeded),
+            "budgetSeconds": budget,
+            "elapsedMs": round((time.monotonic() - started) * 1000.0, 1),
         })
     except Exception:  # noqa: BLE001
         pass

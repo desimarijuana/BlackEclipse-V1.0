@@ -3314,6 +3314,16 @@ disabled (`agent_id="code-agent"`, `autonomy="edit_verify"`).
 Tests: `test_code_request_intent.py`, `test_chat_code_profile.py`,
 `test_code_reachability.py`, `chat-capability-panel.test.ts`.
 
+**Amendment (2026-10-25) — inline response blocks are content, not code.** A
+turn that asks for the product's own inline block ("build … return it as one
+interactive block", ADR-052) is a `data_task`, decided BEFORE the
+directive + software-object rule. Otherwise the word `file` in "single-file"
+supplied a software object and the turn was narrowed to `edit_verify`, paying
+the repo-map/code-index pre-work before its first model call. Merely NAMING a
+block type ("add a new interactive block type to the response component") is
+still `code_change` — the rule requires a delivery verb (return/output/render/
+deliver/give/show/display/put) next to the block phrase.
+
 ## ADR-H118 — The folder a person chooses is a trusted root; approval is the one widening act
 
 **Decision.** OpenCode-style general software work is enabled without repealing
@@ -9673,6 +9683,19 @@ arguments). Tests `python/tests/test_repo_map.py` (14 cases) plus the updated
 `test_graph.py` (the run's event sequence now includes
 `code.repo_map_built`). Docs: `docs/harness/architecture.md`,
 `docs/NAVIGATION.md`, `docs/harness/roadmap/round-3-parity-plan.md`.
+
+**Amendment (2026-10-25) - the eager map gets a WALL-CLOCK budget.** The map
+and the seeded slice are built synchronously in the pre-model phase. "Bounded"
+meant counts and bytes, not time: a real repo's `find_related_tests` re-ran one
+SQL query per test file (32 500 queries, 94 s) on the event loop, freezing every
+route and the stall watchdog, and a run sat silent after `response.plan`. The
+bounds are now wall-clock as well: `CodeContextEngine.select(budget_s=...)`
+(`BLACK_ECLIPSE_CODE_CONTEXT_BUDGET_S`, default 5 s) and
+`build_repo_map(deadline=...)` cut off and report `truncated`; the reference set
+is resolved once per NAME; `call_edges(caller_name|callee_name)` are indexed.
+Opening the workspace index (seconds, hundreds of MB) moved to BOOT on a worker
+thread (`CodeIntelRuntime.warm`); the scan stays lazy. This is an invariant, not
+a tuning knob: no pre-model step may hold the event loop unbounded.
 
 ## ADR-H295 - The decision record is unambiguous, the harness has a TOTAL ceiling, and the release is real
 

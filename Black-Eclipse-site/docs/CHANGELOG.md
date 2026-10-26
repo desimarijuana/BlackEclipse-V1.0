@@ -35,7 +35,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (`graph_context._repo_map_context` emits `elapsedMs`/`truncated`);
   `find_related_tests` accepts the deadline. Opening a large workspace index
   (seconds; 682 MB here) moved out of the run: `CodeIntelRuntime.warm` opens it
-  at boot on a worker thread, while the scan stays lazy
+  at boot on a worker thread (`boot.py::_warm_code_index`;
+  `BLACK_ECLIPSE_CODE_INTEL_WARM=0` disables), while the scan stays lazy
   (`start_watch(initial_index=False)`, `manager_for` still kicks the first
   incremental index). Tests: `test_intel.py` (budget cuts a slow index off),
   `test_repo_map.py` (deadline truncates the walk). Docs updated:

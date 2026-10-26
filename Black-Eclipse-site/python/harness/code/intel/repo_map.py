@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
@@ -145,11 +146,17 @@ def build_repo_map(
     max_files: int = MAX_MAP_FILES,
     max_symbols: int = MAX_SYMBOLS_PER_FILE,
     max_bytes: int = MAX_MAP_BYTES,
+    deadline: Optional[float] = None,
 ) -> RepoMap:
     """Build the deterministic, bounded map of a project.
 
     Never raises: a project that cannot be walked yields an EMPTY map, not an
     exception. An empty map is a fact, and the caller renders nothing.
+
+    `deadline` (a `time.monotonic()` value) bounds the WALL CLOCK, not just the
+    counts: this runs synchronously in a run's pre-model phase, so a slow disk
+    or a cold cache must never be able to hold the event loop past the caller's
+    budget. A map cut short by the deadline reports `truncated=True`.
     """
     if root is None:
         return RepoMap(root="", digest=_digest(""))
@@ -162,11 +169,17 @@ def build_repo_map(
     folders: set[str] = set()
     total = 0
     visited = 0
+    timed_out = False
+
+    def out_of_time() -> bool:
+        return deadline is not None and time.monotonic() >= deadline
+
     try:
         for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
             current = Path(dirpath)
             visited += 1
-            if visited > MAX_MAP_DIRS:
+            if visited > MAX_MAP_DIRS or out_of_time():
+                timed_out = True
                 break
             # `IGNORED_DIRS` holds BARE names (`node_modules`) and RELATIVE
             # paths (`scripts/vendor`), so both have to be checked - a
@@ -207,9 +220,9 @@ def build_repo_map(
     ordered = sorted(files, key=_rank)
     outlined: list[tuple[str, tuple[tuple[str, str], ...]]] = []
     budget = max_bytes
-    truncated = False
+    truncated = timed_out
     for rel in ordered:
-        if len(outlined) >= max_files:
+        if len(outlined) >= max_files or out_of_time():
             truncated = True
             break
         if not _worth_outlining(rel):

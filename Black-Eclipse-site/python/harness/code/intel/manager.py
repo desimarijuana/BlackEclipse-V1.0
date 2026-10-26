@@ -552,9 +552,10 @@ class CodeIntelligenceManager:
                     "error": str(exc)[:200]}
 
     # ── context engine ───────────────────────────────────────────────────────────
-    def get_relevant_context(self, query: str, *, max_files: int = 12, max_symbols: int = 40) -> dict[str, Any]:
+    def get_relevant_context(self, query: str, *, max_files: int = 12, max_symbols: int = 40,
+                             budget_s: Optional[float] = None) -> dict[str, Any]:
         engine = CodeContextEngine(self)
-        return engine.select(query, max_files=max_files, max_symbols=max_symbols)
+        return engine.select(query, max_files=max_files, max_symbols=max_symbols, budget_s=budget_s)
 
     # ── git ─────────────────────────────────────────────────────────────────────
     def changed_files(self) -> dict[str, Any]:

@@ -56,6 +56,9 @@ const childEnv = {
   // service instead of racing it with their own temp path.
   AGENT_MEMORY_DB_PATH: path.join(isolatedMemoryDir, "agent-memory.db"),
   ECLIPSE_MEMORY_DB_PATH: path.join(isolatedMemoryDir, "eclipse-memory.db"),
+  // Do not open/warm the developer's real code index during the test suite: the
+  // boot warm-up is an operational affordance, not part of what is under test.
+  BLACK_ECLIPSE_CODE_INTEL_WARM: "0",
   PYTHONPATH: pythonDir + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : ""),
 };
 

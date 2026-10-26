@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from pathlib import Path
 
 import pytest
 
 from harness.code.intel.ast import ASTEngine
-from harness.code.intel.context import extract_terms, find_related_tests
+from harness.code.intel.context import CodeContextEngine, extract_terms, find_related_tests
 from harness.code.intel.diagnostics import structural_diagnostics
 from harness.code.intel.manager import CodeIntelligenceManager, rebase_edits
 from harness.code.intel.persistence.index import CodeIndex
@@ -266,6 +267,32 @@ def test_find_related_tests_resolves_references_once_per_name(tmp_path, monkeypa
     find_related_tests(manager, symbol="create_user")
     assert calls.count("create_user") == 1
     assert len(calls) == len(set(calls))
+
+
+def test_context_select_respects_its_time_budget(tmp_path, monkeypatch):
+    """Selection runs synchronously in the run's pre-model phase.
+
+    A slow index must be CUT OFF at the budget and reported as truncated, never
+    allowed to hold the event loop (and with it every other route) past it.
+    """
+    ws = _project(tmp_path, "python-project")
+    manager = _manager(ws, tmp_path)
+    manager.index_workspace(force=True)
+
+    original = manager.index.find_symbols
+
+    def slow(*args, **kwargs):
+        time.sleep(0.05)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(manager.index, "find_symbols", slow)
+    started = time.monotonic()
+    result = CodeContextEngine(manager).select(
+        "create user service controller", budget_s=0.2
+    )
+    assert result["status"] == "ok"
+    assert result["truncated"] is True
+    assert time.monotonic() - started < 1.5
 
 
 # ── index recovery / incremental ────────────────────────────────────────────────

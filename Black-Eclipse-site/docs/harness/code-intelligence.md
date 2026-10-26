@@ -185,7 +185,31 @@ paths and tests. Everything is bounded.
 
 `find_related_tests` identifies which tests are relevant (conventional test paths +
 reference match) so the agent can run them through the existing terminal
-subsystem — it is not a test runner.
+subsystem — it is not a test runner. Its reference set is resolved ONCE PER
+NAME: doing it per candidate test file re-ran the same SQL query tens of
+thousands of times on a real repo (94 s of blocked event loop).
+
+### The pre-model wall-clock budget (invariant)
+
+The repo map and the seeded slice are assembled SYNCHRONOUSLY in a run's
+pre-model phase, before the first model call. Nothing there may hold the
+runtime's event loop unbounded — while it is blocked, every other route, the
+stall watchdog and the user's turn are frozen.
+
+- `CodeContextEngine.select(..., budget_s=…)` checks a `time.monotonic()`
+  deadline throughout its loops and returns what it has with `truncated: true`.
+  Default `5 s`, env `BLACK_ECLIPSE_CODE_CONTEXT_BUDGET_S`.
+- `build_repo_map(..., deadline=…)` applies the same wall-clock cap to its walk;
+  the map gets at most half the budget, the seed the remainder
+  (`graph_context._repo_map_context`).
+- Opening a large workspace index (seconds; hundreds of MB on disk) happens at
+  BOOT on a worker thread (`CodeIntelRuntime.warm`, called from
+  `boot.py::_warm_code_index`) and NEVER inside a run. Indexing itself stays
+  lazy: `warm` opens the state without scanning; the first real use starts the
+  asynchronous incremental index.
+
+A code turn that runs out of budget still proceeds — the slice is a
+convenience, and `code.repo_map_built` reports `truncated`/`elapsedMs`.
 
 ## The agent tools
 

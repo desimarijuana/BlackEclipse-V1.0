@@ -46,7 +46,7 @@ class _WorkspaceState:
         self.on_event = on_event
         self._indexing = threading.Event()
 
-    def start_watch(self) -> None:
+    def start_watch(self, *, initial_index: bool = True) -> None:
         try:
             from ..fs.watch import WorkspaceWatcher  # noqa: PLC0415
 
@@ -57,7 +57,9 @@ class _WorkspaceState:
             self.watcher = None
         # Kick the INITIAL index asynchronously so the first query never blocks on a
         # full repository walk (the contract: initial indexing is asynchronous).
-        self._index_async()
+        # Boot warm-up opens the state WITHOUT this: it must not scan the repo.
+        if initial_index:
+            self._index_async()
 
     def _index_async(self) -> None:
         if self._indexing.is_set():
@@ -132,7 +134,7 @@ class CodeIntelRuntime:
     def enabled(self) -> bool:
         return self._enabled
 
-    def _state_for(self, workspace: ResolvedWorkspace) -> _WorkspaceState:
+    def _state_for(self, workspace: ResolvedWorkspace, *, initial_index: bool = True) -> _WorkspaceState:
         root = Path(workspace.root)
         key = getattr(workspace, "id", "") or str(root)
         with self._lock:
@@ -142,7 +144,7 @@ class CodeIntelRuntime:
             project_id = project_instance_id(root, key)
             index = open_code_index(project_id)
             state = _WorkspaceState(root, project_id, index, on_event=self._on_event)
-            state.start_watch()
+            state.start_watch(initial_index=initial_index)
             self._states[key] = state
             return state
 
@@ -151,9 +153,25 @@ class CodeIntelRuntime:
             # Still return a manager; it simply has no shared watcher.
             return CodeIntelligenceManager(workspace, lsp_manager=self.lsp, on_event=self._on_event)
         state = self._state_for(workspace)
+        # Lazy initial indexing: a state opened by boot warm-up skipped the scan;
+        # the FIRST real use starts it (idempotent, on a worker thread). The query
+        # itself still reads the existing index and never waits for the scan.
+        state._index_async()
         return CodeIntelligenceManager(
             workspace, lsp_manager=self.lsp, ast=state.ast, index=state.index, on_event=self._on_event,
         )
+
+    def warm(self, workspace: ResolvedWorkspace) -> None:
+        """Open the shared index for a workspace WITHOUT indexing it.
+
+        Opening a real repository's index is seconds (hundreds of MB on disk).
+        Doing it lazily inside a run put that cost on the event loop, in the
+        pre-model phase — the same stall class a live turn exposed. Boot calls
+        this on a worker thread; the scan itself stays lazy (first real use).
+        """
+        if not self._enabled:
+            return
+        self._state_for(workspace, initial_index=False)
 
     def is_fresh(self, workspace: ResolvedWorkspace, *, max_age_s: float = 30.0) -> bool:
         """Is the shared index CURRENT for this workspace?

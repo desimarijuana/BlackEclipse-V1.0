@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
+import time
 
 import pytest
 
@@ -74,8 +75,6 @@ def test_a_changed_tree_changes_the_digest() -> None:
 
 
 # ── the rule: BOUNDED ──────────────────────────────────────────────────────
-
-
 def test_the_map_is_bounded() -> None:
     root = tempfile.mkdtemp(prefix="map-")
     for index in range(400):
@@ -85,6 +84,19 @@ def test_the_map_is_bounded() -> None:
     assert len(m.outlines) <= 20
     assert m.total_files >= 400
     assert m.truncated is True
+
+
+def test_the_map_respects_a_wall_clock_deadline() -> None:
+    """The map is built synchronously on the run's event loop.
+
+    A cold disk must not be able to hold it past the caller's budget: the walk
+    stops at the deadline and says the map is truncated instead of finishing late.
+    """
+    root = _project(tempfile.mkdtemp(prefix="map-"))
+    started = time.monotonic()
+    m = build_repo_map(root, deadline=started)
+    assert m.truncated is True
+    assert time.monotonic() - started < 2.0
 
 
 def test_the_outline_is_bounded_per_file() -> None:
