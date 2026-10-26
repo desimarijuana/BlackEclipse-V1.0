@@ -77,6 +77,26 @@ def test_subworkflow_delivers_input_and_returns_terminal_output():
     assert any(event.kind == "subworkflow.event" for event in run.events)
 
 
+def test_a_nested_run_gets_its_own_durable_row(tmp_path):
+    from harness.graph_runtime.service import GraphService
+    from harness.graph_runtime.store import GraphRunStore
+    from harness.persistence import AgentMemoryStore
+
+    memory = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
+    service = GraphService(GraphRunStore(memory))
+    try:
+        run = service.run_sync(_main("wf_main"), subworkflows={"wf_child@1": _child()})
+        assert run.status == RunStatus.SUCCEEDED
+        child = service.get_run(f"{run.id}:sub")
+        assert child is not None
+        assert child["workflowId"] == "wf_child"
+        assert child["status"] == "succeeded"
+        assert any(node["nodeId"] == "out" for node in child["nodeRuns"])
+        assert any(event["kind"] == "run.succeeded" for event in child["events"])
+    finally:
+        memory.close()
+
+
 def test_missing_subworkflow_is_a_compile_error():
     plan = compile_workflow(_main("wf_main"), REGISTRY, RunGrants(test_run=True), {})
     assert plan.executable is False

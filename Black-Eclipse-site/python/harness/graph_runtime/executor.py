@@ -95,6 +95,7 @@ class GraphExecutor:
         callback_base_url: str = "",
         callback_token: Optional[str] = None,
         user_id: str = "local",
+        on_subworkflow: Optional[Callable[[GraphRun], None]] = None,
     ) -> None:
         self._ir = ir
         self._plan = plan
@@ -115,6 +116,7 @@ class GraphExecutor:
         self._callback_base_url = callback_base_url
         self._callback_token = callback_token
         self._user_id = user_id
+        self._on_subworkflow = on_subworkflow
         self._terminal_outputs: dict[str, Any] = {}
 
         self._inputs_map = plan_inputs(ir)
@@ -426,8 +428,14 @@ class GraphExecutor:
             run_input=inputs.get("input"),
             depth=self._depth + 1,
             subworkflow_stack=stack,
+            on_subworkflow=self._on_subworkflow,
         )
         run = nested.execute()
+        if self._on_subworkflow is not None:
+            try:
+                self._on_subworkflow(run)
+            except Exception:  # noqa: BLE001 - persistence must never break the parent
+                pass
         if run.status != RunStatus.SUCCEEDED:
             raise ValueError(f"subworkflow {key} {run.status.value}: {run.error or 'failed'}")
         return {"output": run.output, "runId": run.id}

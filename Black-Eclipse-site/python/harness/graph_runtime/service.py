@@ -122,6 +122,18 @@ class GraphService:
                 log.debug("graph node checkpoint failed", exc_info=True)
         return on_node
 
+    def _persist_subworkflow(self, run: GraphRun) -> None:
+        """Give a nested subworkflow run its own durable, inspectable row."""
+        try:
+            self._store.create_run(run)
+            for record in run.node_runs:
+                self._store.save_node_run(run.id, record)
+            for event in run.events:
+                self._store.save_event(run.id, event)
+            self._store.finish_run(run)
+        except Exception:  # noqa: BLE001 - child persistence must never break the parent
+            log.debug("subworkflow persistence failed", exc_info=True)
+
     @staticmethod
     def _grants_payload(grants: RunGrants) -> dict[str, Any]:
         return {
@@ -201,6 +213,7 @@ class GraphService:
             callback_base_url=callback_base_url,
             callback_token=callback_token,
             user_id=user_id,
+            on_subworkflow=self._persist_subworkflow,
         )
         try:
             run = executor.execute()
@@ -304,6 +317,7 @@ class GraphService:
                     callback_base_url=callback_base_url,
                     callback_token=callback_token,
                     user_id=user_id,
+                    on_subworkflow=self._persist_subworkflow,
                 )
                 run = executor.execute()
                 self._store.finish_run(run)
@@ -412,6 +426,7 @@ class GraphService:
             callback_base_url=callback_base_url,
             callback_token=os.environ.get("CRON_SECRET"),
             user_id=str(payload.get("ownerId") or "local"),
+            on_subworkflow=self._persist_subworkflow,
         )
         try:
             run = executor.execute()

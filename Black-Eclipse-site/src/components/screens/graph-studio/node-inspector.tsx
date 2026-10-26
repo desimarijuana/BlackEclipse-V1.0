@@ -6,12 +6,14 @@
 // object); every edit is dispatched as a validated patch, so an invalid value
 // is rejected and reported rather than silently stored.
 
+import { useEffect } from 'react';
 import { Trash2 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { getNodeDefinition } from '@/lib/graph-studio/registry';
 import { validateConfig } from '@/lib/graph-studio/validation';
 import { portColor, sideEffectColor } from '@/lib/graph-studio/port-style';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
+import { useWorkflowCatalog } from '@/lib/graph-studio/catalog-store';
 import type { PortDef } from '@/lib/graph-studio/types';
 
 function fieldType(value: unknown): 'boolean' | 'number' | 'array' | 'object' | 'string' {
@@ -40,6 +42,13 @@ export function NodeInspector() {
   const selection = useGraphEditor((s) => s.selection);
   const dispatch = useGraphEditor((s) => s.dispatch);
   const lastError = useGraphEditor((s) => s.lastError);
+  const workflows = useWorkflowCatalog((s) => s.summaries);
+  const refreshWorkflows = useWorkflowCatalog((s) => s.refresh);
+  const currentWorkflowId = useGraphEditor((s) => s.workflowId);
+
+  useEffect(() => {
+    if (workflows.length === 0) void refreshWorkflows();
+  }, [workflows.length, refreshWorkflows]);
 
   const node = ir && selection.nodeIds.length === 1 ? ir.nodes.find((n) => n.id === selection.nodeIds[0]) : undefined;
 
@@ -57,6 +66,11 @@ export function NodeInspector() {
 
   const configError = validateConfig(def, node.config);
   const defaults = def.defaultConfig();
+  const isSubworkflow = node.type === 'flow.subworkflow';
+  const configKeys = Object.keys(defaults).filter(
+    (key) => !(isSubworkflow && (key === 'workflowId' || key === 'version')),
+  );
+  const selectedWorkflow = workflows.find((item) => item.id === node.config.workflowId);
 
   const setConfigValue = (key: string, value: unknown) => {
     dispatch({ op: 'update_node_config', nodeId: node.id, config: { ...node.config, [key]: value } });
@@ -85,11 +99,61 @@ export function NodeInspector() {
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         <p className="mb-3 text-[11px] leading-relaxed text-muted-foreground">{def.description}</p>
 
+        {isSubworkflow && (
+          <div className="mb-3 rounded-md border border-white/10 bg-white/[0.02] p-2">
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Pinned subworkflow</div>
+            <select
+              value={String(node.config.workflowId ?? '')}
+              onChange={(e) => {
+                const chosen = workflows.find((item) => item.id === e.target.value);
+                dispatch({
+                  op: 'update_node_config',
+                  nodeId: node.id,
+                  config: {
+                    ...node.config,
+                    workflowId: e.target.value,
+                    version: chosen?.currentVersion ?? 1,
+                  },
+                });
+              }}
+              className="w-full rounded-md border border-white/10 bg-background/60 px-2 py-1 text-[12px] outline-none focus:border-sky-400/50"
+            >
+              <option value="">Select a saved workflow…</option>
+              {workflows.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name} (v{item.currentVersion})
+                </option>
+              ))}
+            </select>
+            <label className="mt-1.5 block">
+              <span className="mb-0.5 block text-[11px] text-muted-foreground">Pinned version</span>
+              <input
+                type="number"
+                min={1}
+                max={selectedWorkflow?.currentVersion ?? 1_000_000}
+                value={Number(node.config.version ?? 1)}
+                onChange={(e) => setConfigValue('version', Math.max(1, Number(e.target.value) || 1))}
+                className="w-full rounded-md border border-white/10 bg-background/60 px-2 py-1 text-[12px] outline-none focus:border-sky-400/50"
+              />
+            </label>
+            {workflows.length === 0 && (
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                No saved workflows yet. Save a child workflow, then pin it here.
+              </p>
+            )}
+            {selectedWorkflow && selectedWorkflow.id === currentWorkflowId && (
+              <p className="mt-1 text-[10px] text-amber-300">
+                A workflow cannot call itself; the compiler will refuse this cycle.
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="mb-3">
           <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Configuration</div>
-          {Object.keys(defaults).length === 0 && <p className="text-[11px] text-muted-foreground">This node has no configuration.</p>}
+          {configKeys.length === 0 && !isSubworkflow && <p className="text-[11px] text-muted-foreground">This node has no configuration.</p>}
           <div className="space-y-2">
-            {Object.keys(defaults).map((key) => {
+            {configKeys.map((key) => {
               const current = node.config[key] ?? defaults[key];
               const kind = fieldType(defaults[key]);
               return (

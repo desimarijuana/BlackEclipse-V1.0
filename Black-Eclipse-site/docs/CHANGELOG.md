@@ -470,6 +470,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Tests: `test_graph_trading_nodes.py` (persisted buy/sell + realized PnL,
   stateless fill, missing store). docs updated: `docs/graph-studio.md`.
 
+- **feat(graph): durable subworkflow child runs and a workflow picker.**
+  `GraphExecutor` now reports a finished nested run to the service, which stores
+  it as its own durable row (`<parentRunId>:<nodeId>`) with node runs and events;
+  the parent node returns that child `runId`. The inspector's subworkflow node
+  now selects a saved workflow from the catalog and pins its version from a
+  dropdown (with a self-reference warning), instead of typing ids. Tests:
+  `test_graph_subworkflows.py` (child run row + nodes + events). docs updated:
+  `docs/graph-studio.md`.
+
 - **docs(graph): refresh the remaining-work list.** Known limitations now reflect
   the shipped planner/delegate nodes, the documented external-cron path and the
   health watch; "Next milestone" names multi-process Fabric workers as the main

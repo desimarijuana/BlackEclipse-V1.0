@@ -264,9 +264,11 @@ The front door (`subworkflow-bundle.ts`) resolves every referenced workflow from
 JDDS and sends the IRs with the run, so the runtime never reaches into JDDS. The
 runtime compiles each child with the SAME grants, so a subworkflow can only
 narrow authority, never widen it. Cycles and nesting deeper than 5 are refused
-by both the bundle loader and the compiler. Nested runs are currently in-memory
-(the parent node returns the child `runId`, but the child run is not a separate
-durable row yet).
+by both the bundle loader and the compiler. After a nested run finishes, the
+service gives it its OWN durable run row (`<parentRunId>:<nodeId>`) with its node
+runs and events, so it is inspectable from the child workflow's History; the
+parent node returns that child `runId`. The inspector picks a saved workflow and
+pins its version from a dropdown instead of typing ids.
 
 **Loops are internal and bounded, never graph cycles.** The compiler still
 refuses a cyclic graph; iteration is a node with a declared bound, which is what
@@ -521,7 +523,7 @@ Phases 3–4:
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **216 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **217 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
   optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
@@ -589,10 +591,9 @@ or HTTP errors.
 - Datasets are not owner-scoped yet (single-user local surface). They are
   bounded local scratch, not a tenant-isolated store; add an owner column before
   exposing them in a multi-user deployment.
-- A nested subworkflow run is in-memory; the parent node records the child
-  `runId` and terminal output, but the child has no separate durable run row.
-  The subworkflow inspector is also plain `workflowId`/`version` fields — there
-  is no workflow picker yet.
+- A nested subworkflow gets its own durable run row AFTER it finishes; a child
+  interrupted by a process crash has no partial row (the parent resumes from its
+  node checkpoint). The child row is keyed by `<parentRunId>:<nodeId>`.
 - `live` mode is settable in the IR but no executor honours it and the compiler
   refuses a trading node in LIVE mode. Paper trading is the only trading effect
   Graph Studio can authorize today.
