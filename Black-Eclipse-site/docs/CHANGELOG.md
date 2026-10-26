@@ -26,6 +26,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (circuit survives re-configure), `test_code_request_intent.py`
   (response-block vs renderer change). Docs updated:
   `docs/harness/decisions.md` (ADR-H117 amendment).
+- **fix(chat): a pre-model step can no longer freeze a turn (invariant, not a
+  one-off).** The stall above happened because the repo-map/context seed ran
+  synchronously on the event loop with only COUNT bounds. `CodeContextEngine.select`
+  and `build_repo_map` now also take a wall-clock deadline (default 5 s,
+  `BLACK_ECLIPSE_CODE_CONTEXT_BUDGET_S`) and return partial results with
+  `truncated: true`; the map gets half the budget and the seed the rest
+  (`graph_context._repo_map_context` emits `elapsedMs`/`truncated`);
+  `find_related_tests` accepts the deadline. Opening a large workspace index
+  (seconds; 682 MB here) moved out of the run: `CodeIntelRuntime.warm` opens it
+  at boot on a worker thread, while the scan stays lazy
+  (`start_watch(initial_index=False)`, `manager_for` still kicks the first
+  incremental index). Tests: `test_intel.py` (budget cuts a slow index off),
+  `test_repo_map.py` (deadline truncates the walk). Docs updated:
+  `docs/harness/code-intelligence.md` (the budget invariant),
+  `docs/harness/decisions.md` (ADR-H287 amendment), `docs/NAVIGATION.md`.
 - **feat(chat): Eclipse can build and run interactive mini-apps in the conversation.**
   Added the `interactive` response block: the model authors self-contained
   HTML/CSS/JS/SVG (a price knob, a VWAP explorer, a doji figure) and it renders
@@ -556,6 +571,15 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   24 h; non-durable `run_sync` keeps the 30 s cap and test runs the 5 s cap.
   Tests: `test_graph_control_flow.py` (deferral), `test_graph_durable.py`
   (defer + resume), `test_fabric_workers.py` (deferred requeue). docs updated:
+  `docs/graph-studio.md`.
+
+- **feat(graph): spill oversized checkpoints to confined files.** Above the
+  DB checkpoint limit (default 2 MB, tunable to 16 MB), a node's output and
+  terminal value now spill to
+  `<db-dir>/graph-checkpoints/<runId>/<node>.{checkpoint,terminal}.json` with a
+  path-confined `{"$file": ...}` marker, so the run stays resumable (up to a
+  256 MB file cap). `load_resume` follows the marker; `delete_run` removes the
+  files. Tests: `test_graph_durable.py` (spill, resume, cleanup). docs updated:
   `docs/graph-studio.md`.
 
 - **docs(graph): refresh the remaining-work list.** Known limitations now reflect

@@ -577,11 +577,12 @@ or HTTP errors.
   `HARNESS_FABRIC_WORKERS` / `python -m harness.fabric.standalone`; claims are
   atomic. A multi-machine fleet is not supported by the local SQLite store. The
   legacy in-process fallback (Fabric disabled) has no automatic resume.
-- **Checkpoint bound.** A successful node's full output is checkpointed up to
-  2 MB by default. `HARNESS_GRAPH_CHECKPOINT_MAX_BYTES` raises it (bounded to
-  16 MB). A larger output is still visible as a preview, but the run is marked
-  non-resumable and will start fresh if retried (safe for test runs, not yet for
-  effectful/trading runs). Large checkpoints cost memory.
+- **Checkpoint storage.** A successful node's output is stored in the DB up to
+  2 MB by default (`HARNESS_GRAPH_CHECKPOINT_MAX_BYTES`, bounded to 16 MB).
+  Above that it spills to a confined JSON file under
+  `<db-dir>/graph-checkpoints/<runId>/` (up to 256 MB) and the run stays
+  resumable. Above the file cap the run is non-resumable and starts fresh on a
+  retry. Spilled files are deleted with the run.
 - Schedules tick while the app is up (a 60 s in-process timer). A fully
   headless/unattended deployment must drive `POST /api/workflow-schedules/tick`
   from external cron (see "Headless schedules"); the app cannot tick while it is

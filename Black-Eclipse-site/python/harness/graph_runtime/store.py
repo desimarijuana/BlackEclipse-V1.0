@@ -20,6 +20,9 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import os
+import re
+import shutil
+from pathlib import Path
 from typing import Any, Optional
 
 from ..persistence import new_id, now_iso
@@ -29,6 +32,10 @@ from .model import GraphRun, NodeRun, NodeStatus, RunEvent
 # Larger outputs stay visible as previews but make the run non-resumable.
 MAX_CHECKPOINT_BYTES = 2_000_000
 HARD_CHECKPOINT_BYTES = 16_000_000
+# Above the DB checkpoint limit, a payload spills to a confined file instead of
+# making the run non-resumable. The file cap is deliberately generous but finite.
+CHECKPOINT_FILE_LIMIT_BYTES = 256_000_000
+_SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
 def _checkpoint_limit() -> int:
@@ -162,6 +169,48 @@ class GraphRunStore:
         self._db.executescript(_SCHEMA)
         self._ensure_columns("HarnessGraphRun", [("jobId", "TEXT"), ("irHash", "TEXT")])
         self._db.commit()
+
+    # ── checkpoint spill ───────────────────────────────────────────────────
+    def _checkpoint_root(self) -> Path:
+        path = str(getattr(self._store, "path", "") or "")
+        base = Path(path).resolve().parent if path and path != ":memory:" else Path.cwd()
+        return base / "graph-checkpoints"
+
+    @staticmethod
+    def _safe(value: str) -> str:
+        return _SAFE.sub("_", str(value))[:120] or "_"
+
+    def _spill_checkpoint(self, run_id: str, node_id: str, kind: str, text: str) -> str:
+        """Write one oversized payload to a confined file; return its relative path."""
+        root = self._checkpoint_root()
+        target = root / self._safe(run_id) / f"{self._safe(node_id)}.{kind}.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp = target.with_suffix(target.suffix + ".tmp")
+        temp.write_text(text, encoding="utf-8")
+        temp.replace(target)
+        return str(target.relative_to(root)).replace("\\", "/")
+
+    def _read_checkpoint(self, value: Optional[str]) -> tuple[bool, Any]:
+        """Read a checkpoint value, following a spilled-file reference safely."""
+        if not value:
+            return True, None
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return False, None
+        if not (isinstance(parsed, dict) and set(parsed) == {"$file"}):
+            return True, parsed
+        root = self._checkpoint_root().resolve()
+        try:
+            path = (root / str(parsed["$file"])).resolve()
+        except Exception:  # noqa: BLE001 - a malformed ref is unreadable
+            return False, None
+        if not path.is_relative_to(root):
+            return False, None
+        try:
+            return True, json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False, None
 
     def _ensure_columns(self, table: str, columns: list[tuple[str, str]]) -> None:
         existing = {row["name"] for row in self._db.execute(f"PRAGMA table_info({table})").fetchall()}
@@ -429,6 +478,7 @@ class GraphRunStore:
         self._db.execute("DELETE FROM HarnessGraphNodeRun WHERE runId=?", (run_id,))
         self._db.execute("DELETE FROM HarnessGraphEvent WHERE runId=?", (run_id,))
         self._db.commit()
+        shutil.rmtree(self._checkpoint_root() / self._safe(run_id), ignore_errors=True)
         return cursor.rowcount
 
     def reconcile_orphans(self, note: str = "interrupted by a restart") -> int:
@@ -457,16 +507,30 @@ class GraphRunStore:
     ) -> None:
         checkpoint = _json(outputs or {}) if record.status == NodeStatus.SUCCEEDED else None
         limit = _checkpoint_limit()
-        resumable = bool(checkpoint is not None and len(checkpoint.encode("utf-8")) <= limit)
-        if checkpoint is not None and not resumable:
-            checkpoint = None
+        resumable = False
+        if checkpoint is not None:
+            size = len(checkpoint.encode("utf-8"))
+            if size <= limit:
+                resumable = True
+            elif size <= CHECKPOINT_FILE_LIMIT_BYTES:
+                ref = self._spill_checkpoint(run_id, record.node_id, "checkpoint", checkpoint)
+                checkpoint = _json({"$file": ref})
+                resumable = True
+            else:
+                checkpoint = None
         terminal_json = _json(terminal_value) if terminal_done else None
-        if terminal_json is not None and len(terminal_json.encode("utf-8")) > limit:
-            # A huge terminal value is preview-only; do not pretend the run can
-            # resume from a truncated value.
-            terminal_json = None
-            terminal_done = False
-            resumable = False
+        if terminal_json is not None:
+            term_size = len(terminal_json.encode("utf-8"))
+            if term_size > limit:
+                if term_size <= CHECKPOINT_FILE_LIMIT_BYTES:
+                    ref = self._spill_checkpoint(run_id, record.node_id, "terminal", terminal_json)
+                    terminal_json = _json({"$file": ref})
+                else:
+                    # A huge terminal value is preview-only; do not pretend the run
+                    # can resume from a truncated value.
+                    terminal_json = None
+                    terminal_done = False
+                    resumable = False
         self._db.execute(
             """INSERT INTO HarnessGraphNodeRun
                (runId, nodeId, nodeType, label, status, layer, attempt, startedAt,
@@ -527,10 +591,18 @@ class GraphRunStore:
                 error=row["error"],
                 errorCode=row["errorCode"],
             )
-            outputs[node_id] = _loads(row["checkpoint"], {})
+            ok, data = self._read_checkpoint(row["checkpoint"])
+            if not ok:
+                complete = False
+                continue
+            outputs[node_id] = data if isinstance(data, dict) else {}
             fired[node_id] = _loads(row["fired"], [])
             if row["terminalDone"]:
-                terminal[node_id] = _loads(row["terminalValue"], None)
+                term_ok, term = self._read_checkpoint(row["terminalValue"])
+                if not term_ok:
+                    complete = False
+                    continue
+                terminal[node_id] = term
         return {
             "complete": complete,
             "nodes": nodes,

@@ -128,6 +128,44 @@ def test_checkpoint_limit_is_operator_configurable_and_bounded(monkeypatch):
     assert _checkpoint_limit() == MAX_CHECKPOINT_BYTES
 
 
+def test_oversized_checkpoints_spill_to_a_confined_file(monkeypatch, tmp_path):
+    from harness.graph_runtime.model import ExecutionMode
+
+    monkeypatch.setenv("HARNESS_GRAPH_CHECKPOINT_MAX_BYTES", "1000")
+    memory = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
+    store = GraphRunStore(memory)
+    run_id = "grun_spill"
+    try:
+        store.create_run(GraphRun(
+            id=run_id, workflowId="wf_spill", irVersion=1,
+            mode=ExecutionMode.RESEARCH, testRun=True,
+            status=RunStatus.RUNNING, startedAt=now_iso(),
+        ))
+        large = {"blob": "x" * 5_000}
+        terminal = {"blob": "y" * 5_000}
+        store.save_node_run(
+            run_id,
+            NodeRun(
+                nodeId="big", nodeType="test.big", label="Big",
+                status=NodeStatus.SUCCEEDED, layer=0, attempt=1,
+                startedAt=now_iso(), finishedAt=now_iso(), durationMs=1,
+                inputs={}, outputs={},
+            ),
+            outputs=large, fired=[], terminal_done=True, terminal_value=terminal,
+        )
+        resume = store.load_resume(run_id)
+        assert resume["complete"] is True
+        assert resume["outputs"]["big"] == large
+        assert resume["terminal"]["big"] == terminal
+        root = store._checkpoint_root()
+        assert list(root.rglob("*.checkpoint.json"))
+        assert list(root.rglob("*.terminal.json"))
+        assert store.delete_run(run_id) == 1
+        assert not (root / run_id).exists()
+    finally:
+        memory.close()
+
+
 def test_execute_job_resumes_completed_nodes(service):
     calls: list[str] = []
     registry, ir = _counter_graph(calls)
