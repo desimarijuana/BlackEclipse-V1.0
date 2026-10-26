@@ -3007,13 +3007,36 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "account",
+          "name": "Paper account",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
+          "name": "accountId",
+          "kind": "string",
+          "default": "paper"
+        },
+        {
           "name": "commissionPct",
           "kind": "number",
           "default": 0
+        },
+        {
+          "name": "initialCash",
+          "kind": "number",
+          "default": 100000
+        },
+        {
+          "name": "persist",
+          "kind": "boolean",
+          "default": true
         },
         {
           "name": "price",

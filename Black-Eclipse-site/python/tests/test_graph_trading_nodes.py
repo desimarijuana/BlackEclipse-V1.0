@@ -8,9 +8,24 @@ import pytest
 from harness.graph_runtime.compiler import RunGrants, compile_workflow
 from harness.graph_runtime.model import ExecutionMode, WorkflowIR
 from harness.graph_runtime.nodes import build_default_registry
+from harness.graph_runtime.paper_store import PaperAccountStore
 from harness.graph_runtime.registry import NodeExecContext
+from harness.graph_runtime.trading_nodes import set_paper_store
+from harness.persistence import AgentMemoryStore
 
 REGISTRY = build_default_registry()
+
+
+@pytest.fixture(autouse=True)
+def paper_account(tmp_path):
+    memory = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
+    store = PaperAccountStore(memory)
+    set_paper_store(store)
+    try:
+        yield store
+    finally:
+        set_paper_store(None)
+        memory.close()
 
 
 def _node(node_id, node_type, config=None):
@@ -91,6 +106,43 @@ def test_paper_order_fills_with_slippage_and_commission():
     assert fill["commission"] == pytest.approx(1.005)
     assert fill["cashDelta"] == pytest.approx(-1006.005)
     assert "no broker" in fill["note"]
+
+
+def test_paper_orders_persist_cash_positions_and_realized_pnl(paper_account):
+    bought = _exec(
+        "trading.paper_order",
+        {"price": 100.0, "accountId": "main"},
+        {"intent": _intent(quantity=10.0)},
+    )
+    assert bought["account"]["cash"] == pytest.approx(99_000.0)
+    assert bought["account"]["positions"]["TESTUSDT"]["quantity"] == pytest.approx(10.0)
+
+    sold = _exec(
+        "trading.paper_order",
+        {"price": 120.0, "accountId": "main"},
+        {"intent": _intent(side="sell", quantity=4.0)},
+    )
+    assert sold["account"]["realizedPnl"] == pytest.approx(80.0)
+    assert sold["account"]["cash"] == pytest.approx(99_480.0)
+    assert sold["account"]["positions"]["TESTUSDT"]["quantity"] == pytest.approx(6.0)
+    assert paper_account.snapshot("main")["positions"]["TESTUSDT"]["averagePrice"] == pytest.approx(100.0)
+
+
+def test_a_stateless_paper_fill_is_possible_without_a_store():
+    set_paper_store(None)
+    result = _exec(
+        "trading.paper_order",
+        {"price": 100.0, "persist": False},
+        {"intent": _intent(quantity=2.0)},
+    )
+    assert result["fill"]["persisted"] is False
+    assert result["account"] is None
+
+
+def test_a_persisted_fill_needs_the_account_store():
+    set_paper_store(None)
+    with pytest.raises(ValueError, match="paper account store"):
+        _exec("trading.paper_order", {"price": 100.0}, {"intent": _intent()})
 
 
 def test_paper_order_refuses_a_rejected_decision():

@@ -173,7 +173,7 @@ If the stream disconnects, the UI falls back to bounded polling.
 | **5 — Finance & quant node library** | Market-data + indicator node executors | **Implemented & verified** (first pack: market data, indicator, returns, z-score, volatility) |
 | 6 — Backtest & simulation | Strategy graphs, metrics | **Implemented & verified** (backtest, walk-forward, optimizer, Monte Carlo and out-of-sample holdout; all reuse `quant/`) |
 | 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Implemented** (research agent, structured step planner, bounded task delegation, live web research, validated chat→IR) |
-| 8 — Paper trading & safety | Execution adapter, risk controls, modes | **Implemented & verified** (`trading.risk_check` + `trading.paper_order`, PAPER-only; live and ungranted trading refused) |
+| 8 — Paper trading & safety | Execution adapter, risk controls, modes | **Implemented & verified** (`trading.risk_check` + `trading.paper_order` with a durable paper account, PAPER-only; live and ungranted trading refused) |
 | 9 — Advanced engineering | Subworkflows, debugging, diffing | **Implemented** (subworkflows; post-run step inspector; structural version diff) |
 | 10 — Hardening & verification | Tests, security, observability | **Implemented** (operator health telemetry: run/node counts, durations, queue wait, failure codes, slowest nodes) |
 
@@ -373,7 +373,12 @@ daily-loss and risk-per-trade limits; `0` disables a limit). It may reduce an
 order's size or reject it, and a rejection is an outcome with reasons, not an
 exception. `trading.paper_order` is the execution adapter: it fills at a
 supplied reference price with explicit slippage and commission and returns a
-paper fill. It never contacts a broker, never reads a live quote, and only runs
+paper fill. By default it also records the fill in a durable PAPER account
+(`GraphPaperAccount` / `GraphPaperFill` on `agent-memory.db`): cash, signed
+position, average cost and realized PnL survive across runs, so a scheduled
+paper graph keeps its book. Accounting is cash + cost basis, not a
+mark-to-market valuation, and the fill price is always the one the graph
+supplied. It never contacts a broker, never reads a live quote, and only runs
 in PAPER mode behind the operator's paper-trading confirmation. There is no
 live adapter; LIVE mode is refused.
 
@@ -516,7 +521,7 @@ Phases 3–4:
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **213 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **216 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
   optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
@@ -568,9 +573,10 @@ or HTTP errors.
   normalized tables, and successful nodes have resumable checkpoints.
 - Operator runs allow network and PAPER trading. External write nodes, live
   trading and ungranted trading are refused; HTTP nodes do not support custom
-  headers or credential references yet. The paper adapter does not persist an
-  account across runs (a scheduled graph starts from its configured context),
-  and it fills only at a supplied price - it never fetches a live quote.
+  headers or credential references yet. The paper account persists cash,
+  positions and realized PnL, but it is cost-basis accounting (no mark-to-market)
+  and fills only at a supplied price - it never fetches a live quote.
+  `persist: false` keeps a single-node fill stateless.
 - Agent model credentials are held in memory for the run only. A process restart
   before an agent node executes makes that node fail; agent runs are not
   resumable across a restart. The nodes are bounded turns/plans (no autonomous

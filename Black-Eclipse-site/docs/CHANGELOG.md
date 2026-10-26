@@ -460,6 +460,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   A multi-machine fleet remains unsupported because the store is local SQLite.
   docs updated: `docs/harness/execution-fabric.md`, `docs/graph-studio.md`.
 
+- **feat(graph): durable paper-trading accounts.** `trading.paper_order` now
+  records each fill in `GraphPaperAccount`/`GraphPaperFill` on `agent-memory.db`
+  by default: cash, signed position, average cost and realized PnL persist across
+  runs, so a scheduled paper graph keeps its book. The write is one
+  `BEGIN IMMEDIATE` transaction, safe alongside the multi-process workers.
+  `accountId`, `initialCash` and `persist` are node settings; `persist: false`
+  keeps a fill stateless. This is cost-basis accounting, not mark-to-market.
+  Tests: `test_graph_trading_nodes.py` (persisted buy/sell + realized PnL,
+  stateless fill, missing store). docs updated: `docs/graph-studio.md`.
+
 - **docs(graph): refresh the remaining-work list.** Known limitations now reflect
   the shipped planner/delegate nodes, the documented external-cron path and the
   health watch; "Next milestone" names multi-process Fabric workers as the main

@@ -41,7 +41,9 @@ def install_graph_layer(service: Any) -> bool:
 
         from .datasets import GraphDatasetStore, set_dataset_store  # noqa: PLC0415
         from .finance_nodes import set_market_gateway, set_series_store  # noqa: PLC0415
+        from .paper_store import PaperAccountStore  # noqa: PLC0415
         from .research_nodes import set_evidence_store  # noqa: PLC0415
+        from .trading_nodes import set_paper_store  # noqa: PLC0415
         from .agent_nodes import set_agent_runner, set_plan_runner  # noqa: PLC0415
         from ..research.web_store import EvidenceStore  # noqa: PLC0415
 
@@ -107,6 +109,7 @@ def install_graph_layer(service: Any) -> bool:
 
         set_agent_runner(_agent_runner)
         set_plan_runner(_plan_runner)
+        set_paper_store(PaperAccountStore(service.store))
         set_series_store(SeriesStore(service.store))
         set_evidence_store(
             getattr(service, "evidence_store", None) or EvidenceStore(service.store)

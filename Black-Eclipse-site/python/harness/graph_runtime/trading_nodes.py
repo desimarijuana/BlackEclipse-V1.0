@@ -26,6 +26,19 @@ from .registry import ConfigField, NodeDef, NodeExecContext
 _PAPER = (ExecutionMode.PAPER,)
 MAX_QUANTITY = 1_000_000_000.0
 
+_paper_store: Any = None
+
+
+def set_paper_store(store: Any) -> None:
+    global _paper_store
+    _paper_store = store
+
+
+def _require_paper_store() -> Any:
+    if _paper_store is None:
+        raise ValueError("the paper account store is not configured in this runtime")
+    return _paper_store
+
 
 def _intent(context: NodeExecContext) -> dict[str, Any]:
     raw = context.inputs.get("intent")
@@ -130,6 +143,7 @@ def exec_paper_order(context: NodeExecContext) -> dict[str, Any]:
             "fill": None,
             "status": "REJECTED",
             "intent": intent,
+            "account": None,
             "reasons": list(decision.get("reasons") or []),
         }
 
@@ -143,6 +157,21 @@ def exec_paper_order(context: NodeExecContext) -> dict[str, Any]:
     fill_price = price * (1.0 + direction * slippage_pct / 100.0)
     notional = fill_price * float(intent["quantity"])
     commission = abs(notional) * commission_pct / 100.0
+    account_id = str(context.config.get("accountId") or "paper").strip()[:80] or "paper"
+    persist = bool(context.config.get("persist", True))
+    account = None
+    if persist:
+        account = _require_paper_store().apply_fill(
+            account_id,
+            symbol=intent["symbol"],
+            side=intent["side"],
+            quantity=float(intent["quantity"]),
+            price=fill_price,
+            commission=commission,
+            initial_cash=float(context.config.get("initialCash", 100_000.0)),
+            run_id=context.run_id,
+            node_id=context.node_id,
+        )
     fill = {
         "status": "FILLED",
         "mode": "paper",
@@ -156,12 +185,20 @@ def exec_paper_order(context: NodeExecContext) -> dict[str, Any]:
         "slippagePct": slippage_pct,
         "cashDelta": round(-direction * (notional + commission), 6),
         "positionDelta": round(direction * float(intent["quantity"]), 8),
+        "accountId": account_id if persist else None,
+        "persisted": persist,
         "note": "Simulated paper fill; no broker was contacted and no live order was placed.",
     }
     context.emit(
         f"paper {intent['side']} {intent['quantity']:g} {intent['symbol']} @ {fill['price']}"
     )
-    return {"fill": fill, "status": "FILLED", "intent": intent, "reasons": []}
+    return {
+        "fill": fill,
+        "status": "FILLED",
+        "intent": intent,
+        "account": account,
+        "reasons": [],
+    }
 
 
 def build_trading_nodes() -> list[NodeDef]:
@@ -223,11 +260,15 @@ def build_trading_nodes() -> list[NodeDef]:
                 PortDef(id="fill", name="Fill", type=PortType.OBJECT),
                 PortDef(id="status", name="Status", type=PortType.STRING),
                 PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
+                PortDef(id="account", name="Paper account", type=PortType.OBJECT),
             ),
             config_fields=(
                 ConfigField("price", "number", 0.0, minimum=0.0, maximum=1_000_000_000),
                 ConfigField("commissionPct", "number", 0.0, minimum=0.0, maximum=10.0),
                 ConfigField("slippagePct", "number", 0.0, minimum=0.0, maximum=10.0),
+                ConfigField("accountId", "string", "paper", max_length=80),
+                ConfigField("persist", "boolean", True),
+                ConfigField("initialCash", "number", 100_000.0, minimum=0.0, maximum=1_000_000_000_000),
             ),
             capabilities=("trading.paper",),
             side_effects=SideEffect.TRADING,
@@ -236,12 +277,18 @@ def build_trading_nodes() -> list[NodeDef]:
             metadata={
                 "docs": (
                     "PAPER-only execution adapter: fills at the supplied price with "
-                    "slippage/commission. No broker is contacted and no live order is "
-                    "placed. Requires an explicit operator paper-trading grant."
+                    "slippage/commission and (by default) records the fill in the durable "
+                    "paper account. No broker is contacted and no live order is placed. "
+                    "Requires an explicit operator paper-trading grant."
                 ),
             },
         ),
     ]
 
 
-__all__ = ["build_trading_nodes", "exec_risk_check", "exec_paper_order"]
+__all__ = [
+    "build_trading_nodes",
+    "set_paper_store",
+    "exec_risk_check",
+    "exec_paper_order",
+]
