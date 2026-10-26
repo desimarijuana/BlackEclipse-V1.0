@@ -517,6 +517,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   health watch; "Next milestone" names multi-process Fabric workers as the main
   remaining item. no doc beyond `docs/graph-studio.md`; no runtime change.
 
+- **fix(harness): code-context lookup, response-block routing and embedding
+  circuit cooldown.** These pre-existing working-tree fixes landed with the
+  crawl commit: `code/intel/context.py` resolves `find_references` ONCE per name
+  (the old loop re-ran the same SQL per test file), `persistence/index.py` adds
+  caller/callee-name indexes, `request_intent.py` routes "return it as an inline
+  block" to a response deliverable (not a code-workspace edit), and
+  `search/embeddings/service.py` keeps a tripped circuit open for 30 s instead of
+  re-arming it on every `configure()`. Tests: `test_intel.py`,
+  `test_code_request_intent.py`, `test_search_embeddings.py`. no doc change —
+  internal performance/routing fixes; contracts unchanged.
+
 ## 2026-10-24
 - **ui(chat): roomier chat history rows.** Increased the vertical gap between
   conversation rows from 2px (`gap-0.5`) to 6px (`gap-1.5`) inside the pinned,
