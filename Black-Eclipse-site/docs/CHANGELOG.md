@@ -502,6 +502,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `test_graph_control_flow.py` (object-row loop), `test_graph_durable.py`
   (checkpoint limit bounds). docs updated: `docs/graph-studio.md`.
 
+- **feat(graph): bounded crawl and an opt-in real-provider e2e.** Added
+  `research.web_crawl`: one start URL, 1–10 same-site pages, using the existing
+  SSRF-hardened fetch plus the bridge's deterministic `web_collect` link pass.
+  It is not a general crawler; each page is untrusted and failures are reported
+  per page (`PARTIAL`). Added `test_graph_agent_e2e.py`, skipped unless
+  `HARNESS_E2E=1` and provider/model/API-key env vars are set, covering
+  chat-to-graph, step planning and an agent node against a REAL provider. Tests:
+  `test_graph_research_nodes.py` (same-domain bound/dedupe). docs updated:
+  `docs/graph-studio.md`.
+
 - **docs(graph): refresh the remaining-work list.** Known limitations now reflect
   the shipped planner/delegate nodes, the documented external-cron path and the
   health watch; "Next milestone" names multi-process Fabric workers as the main

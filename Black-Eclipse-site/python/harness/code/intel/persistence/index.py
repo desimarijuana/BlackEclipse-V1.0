@@ -138,6 +138,11 @@ CREATE INDEX IF NOT EXISTS idx_deps_source ON dependencies(source);
 CREATE INDEX IF NOT EXISTS idx_deps_target ON dependencies(target);
 CREATE INDEX IF NOT EXISTS idx_calls_caller ON call_edges(caller);
 CREATE INDEX IF NOT EXISTS idx_calls_callee ON call_edges(callee);
+-- `callers_of`/`callees_of` match the resolved-name column too (`caller_name` /
+-- `callee_name`). Without these, the `col=? OR name=?` predicate falls back to a
+-- full scan of call_edges — one such query per context symbol, seconds of block.
+CREATE INDEX IF NOT EXISTS idx_calls_caller_name ON call_edges(caller_name);
+CREATE INDEX IF NOT EXISTS idx_calls_callee_name ON call_edges(callee_name);
 CREATE INDEX IF NOT EXISTS idx_diag_rel ON diagnostics(rel);
 """
 

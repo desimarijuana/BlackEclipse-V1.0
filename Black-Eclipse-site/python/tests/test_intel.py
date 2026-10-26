@@ -244,6 +244,30 @@ def test_find_related_tests_by_reference(tmp_path):
     assert related["status"] == "ok"
 
 
+def test_find_related_tests_resolves_references_once_per_name(tmp_path, monkeypatch):
+    """The reference set belongs to the NAME, not to every candidate test file.
+
+    Regressing this re-runs the same SQL query per test-like file — tens of
+    thousands of queries on a real repo, which blocked a code turn's first model
+    call for over a minute. One call per name is the contract.
+    """
+    ws = _project(tmp_path, "python-project")
+    manager = _manager(ws, tmp_path)
+    manager.index_workspace(force=True)
+
+    calls: list[str] = []
+    original = manager.index.find_references
+
+    def counted(name, *, limit=200):
+        calls.append(name)
+        return original(name, limit=limit)
+
+    monkeypatch.setattr(manager.index, "find_references", counted)
+    find_related_tests(manager, symbol="create_user")
+    assert calls.count("create_user") == 1
+    assert len(calls) == len(set(calls))
+
+
 # ── index recovery / incremental ────────────────────────────────────────────────
 
 

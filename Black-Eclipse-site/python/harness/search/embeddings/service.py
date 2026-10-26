@@ -9,6 +9,7 @@ caller degrades to keyword/FTS search — semantic search is never faked.
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -24,6 +25,11 @@ from .providers import (
     VoyageEmbeddingProvider,
 )
 from .registry import EmbeddingModelRegistry
+
+# How long a tripped circuit stays open before a resolution may re-probe the
+# provider. `configure()` runs on every search/ingest, so an un-cooled reset
+# re-armed a permanently broken endpoint once per query.
+CIRCUIT_COOLDOWN_S = 30.0
 
 _PROVIDER_CLASSES: dict[str, type[EmbeddingProvider]] = {
     "openai": OpenAICompatibleEmbeddingProvider,
@@ -70,6 +76,7 @@ class EmbeddingService:
         # `configure()` resolves the provider again.
         self._circuit_open = False
         self._circuit_reason = ""
+        self._circuit_opened_at = 0.0
         self.last_stats: dict[str, Any] = {}
 
     # ── resolution ──────────────────────────────────────────────────────────
@@ -114,6 +121,15 @@ class EmbeddingService:
         cached_key = self._provider_model
         if self._provider is not None and cached_key == f"{provider_id}/{model}@{version}":
             self._available = True
+            # `configure()` is called on EVERY search/ingest. Resetting the
+            # circuit here re-armed a provider that rejected every input (wrong
+            # endpoint, missing model) once per query, producing thousands of
+            # doomed HTTP calls. Keep it open for a bounded cooldown; only then
+            # allow one more probe.
+            if self._circuit_open and (
+                time.monotonic() - self._circuit_opened_at
+            ) < CIRCUIT_COOLDOWN_S:
+                return
             self._reset_circuit()
             return
 
@@ -181,6 +197,7 @@ class EmbeddingService:
     def _reset_circuit(self) -> None:
         self._circuit_open = False
         self._circuit_reason = ""
+        self._circuit_opened_at = 0.0
 
     @property
     def available(self) -> bool:
@@ -268,6 +285,7 @@ class EmbeddingService:
             # the index stays honestly keyword-only for the rest of this pass.
             if pending and failures >= len(pending) and not any(v is not None for v in vectors):
                 self._circuit_open = True
+                self._circuit_opened_at = time.monotonic()
                 self._circuit_reason = (
                     f"embedding provider rejected all {len(pending)} input(s); "
                     "semantic indexing disabled until reconfigured"

@@ -216,6 +216,21 @@ def find_related_tests(manager: Any, *, symbol: Optional[str] = None, file: Opti
     if file:
         names.append(Path(file).stem)
 
+    # The reference set belongs to the NAME, not to each candidate test file.
+    # Resolve it ONCE per name: the previous loop re-ran the same SQL query for
+    # every test-like file (twice), which on a real repository is tens of
+    # thousands of queries — the code-context seed took over a minute and
+    # blocked the run's first model call.
+    referenced_files: dict[str, set[str]] = {}
+    for name in names:
+        if not name:
+            continue
+        try:
+            references = manager.index.find_references(name, limit=200)
+        except Exception:  # noqa: BLE001 - related tests are a convenience, never fatal
+            references = []
+        referenced_files[name] = {ref["file"] for ref in references if ref.get("file")}
+
     tests: dict[str, dict[str, Any]] = {}
     for row in manager.index.file_rows(limit=10_000):
         rel = row["rel"]
@@ -225,11 +240,7 @@ def find_related_tests(manager: Any, *, symbol: Optional[str] = None, file: Opti
             tests[rel] = {"file": rel, "reason": "same area"}
             continue
         for name in names:
-            if not name:
-                continue
-            if manager.index.find_references(name, limit=5) and any(
-                ref["file"] == rel for ref in manager.index.find_references(name, limit=200)
-            ):
+            if name and rel in referenced_files.get(name, ()):
                 tests[rel] = {"file": rel, "reason": f"references {name}"}
                 break
     return {"status": "ok", "engine": "index", "symbol": symbol, "file": file,

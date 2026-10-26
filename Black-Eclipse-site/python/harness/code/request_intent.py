@@ -201,8 +201,20 @@ _APP_CONTROL_DASHBOARD_RE = re.compile(
     r"\b(my|the|this|active|current)\s+(command center|dashboard)\b", re.IGNORECASE,
 )
 _APP_CONTROL_FOLLOW_UP_RE = re.compile(
-    r"^(save|keep|store|name|call)\s+(this|it|that)(\s+as\s+.+)?[.!]?$", re.IGNORECASE,
+    r"^(save|keep|store|name|call)\s+(this|it|that)(\s+as\s+.+)?[.!]?$", re.IGNORECASE
 )
+# The product's OWN inline-block vocabulary names a RESPONSE deliverable, not a
+# workspace edit. "Build … return it as one interactive block" authors HTML
+# inside the answer (ADR-052). Without this, the word "file" in "single-file"
+# matched a software object and the turn was routed down the code-workspace path
+# it never needed (repo map + code-index slice before the first model call).
+_RESPONSE_BLOCK_RE = re.compile(
+    r"\b(?:return|output|render|deliver|give|show|display|put)\b[^.\n]{0,80}"
+    r"\b(?:interactive|response|inline)\s+block\b"
+    r"|\b(?:return|output|deliver)\b[^.\n]{0,40}\bas\s+(?:an?|one)\s+(?:[\w-]+\s+){0,2}block\b",
+    re.IGNORECASE,
+)
+
 
 
 @dataclass(frozen=True)
@@ -382,6 +394,17 @@ def classify_code_request(
                     "This continues an earlier request to control an Eclipse app surface.",
                     ("follow_up", "app_control"),
                 )
+
+    # An inline RESPONSE block ("build … return it as one interactive block") is
+    # authored inside the answer, not written into the workspace. This must be
+    # decided before the directive+software-object rule: "single-file" otherwise
+    # supplies the object `file` and the turn is narrowed to the code profile.
+    if _RESPONSE_BLOCK_RE.search(text):
+        return _verdict(
+            "data_task", "likely",
+            "The turn asks for an inline response block, a content deliverable.",
+            ("response_block",),
+        )
 
     # A directive + software object in the SAME clause.
     clauses = [c for c in _CLAUSE_SPLIT_RE.split(text) if c.strip()]

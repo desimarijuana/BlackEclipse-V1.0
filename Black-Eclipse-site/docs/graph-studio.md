@@ -528,16 +528,18 @@ Phases 3–4:
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **225 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **226 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
   optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
   agent planning/delegation, chat-to-graph validation, health telemetry/watch,
+  bounded crawl,
   local research/evidence + live web search/fetch/claim verification, agent
   node, operator-run/HTTP safety, registry parity, datasets, subworkflows,
   durable dispatch/resume), including a real
   Fabric manager + graph worker integration test and full-stack API tests on a
-  temp database.
+  temp database. `test_graph_agent_e2e.py` is an OPT-IN real-provider check:
+  skipped unless `HARNESS_E2E=1` plus provider/model/API-key env vars.
 
 ### Navigation regressions fixed (post-Phase 4)
 
@@ -592,9 +594,10 @@ or HTTP errors.
 - Web research nodes use the app's data bridge (a real operator run has one; a
   headless runtime does not). With `allowBrowser`, `research.web_fetch` escalates
   a thin/failed page to the existing Browser Runtime; without it (the default) it
-  fetches exactly the URL it was given. It never crawls or follows links.
-  `research.claim_verify` requires the evidence ids explicitly and verifies
-  against the local EvidenceStore only.
+  fetches exactly the URL it was given. `research.web_crawl` walks a BOUNDED
+  same-site graph (1–10 pages) using the bridge's deterministic link collector,
+  never a general crawler. `research.claim_verify` requires the evidence ids
+  explicitly and verifies against the local EvidenceStore only.
 - A nested subworkflow gets its own durable run row AFTER it finishes; a child
   interrupted by a process crash has no partial row (the parent resumes from its
   node checkpoint). The child row is keyed by `<parentRunId>:<nodeId>`.

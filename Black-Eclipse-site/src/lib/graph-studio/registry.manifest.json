@@ -2823,6 +2823,74 @@
       "terminal": false
     },
     {
+      "type": "research.web_crawl",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Crawl site",
+      "description": "Crawls a bounded set of same-site pages from one start URL.",
+      "inputs": [
+        {
+          "id": "url",
+          "name": "URL",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "pages",
+          "name": "Pages",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "maxChars",
+          "kind": "number",
+          "default": 4000
+        },
+        {
+          "name": "maxPages",
+          "kind": "number",
+          "default": 5
+        },
+        {
+          "name": "sameDomain",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "url",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "network.egress"
+      ],
+      "sideEffects": "network",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "research.web_fetch",
       "version": "1.0.0",
       "category": "research",

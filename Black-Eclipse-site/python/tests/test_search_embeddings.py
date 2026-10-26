@@ -164,3 +164,43 @@ def test_embedding_service_opens_circuit_after_provider_wide_rejection(tmp_path)
     with pytest.raises(EmbeddingUnavailable):
         asyncio.run(service.embed_texts(["c"]))
     assert provider.calls == 1
+
+
+def test_configure_does_not_rearm_an_open_circuit_within_cooldown(tmp_path, monkeypatch):
+    """`configure()` runs on every search; it must not re-arm a broken provider.
+
+    Without the cooldown, each search resolved the (unchanged) provider and
+    cleared the circuit, so a permanently 404ing endpoint was retried once per
+    query — thousands of doomed calls, and multi-second API latency.
+    """
+    from harness.search.config import SearchConfig
+    from harness.search.embeddings.providers import OpenAICompatibleEmbeddingProvider
+
+    calls: list[list[str]] = []
+
+    async def reject(self, texts):  # noqa: ANN001 - bound like the real method
+        calls.append(list(texts))
+        raise EmbeddingProviderError("embedding endpoint returned 404", retryable=False)
+
+    monkeypatch.setattr(OpenAICompatibleEmbeddingProvider, "embed_batch", reject)
+    service = EmbeddingService(
+        SearchConfig(
+            db_path=str(tmp_path / "s.db"),
+            embedding_provider="openai",
+            embedding_model="text-embedding-3-small",
+        )
+    )
+    service.configure(None)
+    assert service.available
+
+    first = asyncio.run(service.embed_texts(["a"]))
+    assert first.failures == 1
+    assert not service.available
+    asked = len(calls)
+
+    # A later, unchanged resolution keeps the circuit open.
+    service.configure(None)
+    assert not service.available
+    with pytest.raises(Exception):
+        asyncio.run(service.embed_texts(["b"]))
+    assert len(calls) == asked

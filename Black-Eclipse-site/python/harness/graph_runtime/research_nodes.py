@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, Optional
+from urllib.parse import urljoin, urlsplit
 
 from .model import ExecutionMode, PortDef, PortType, SideEffect
 from .registry import ConfigField, NodeDef, NodeExecContext
@@ -375,6 +376,112 @@ def exec_web_fetch(context: NodeExecContext) -> dict[str, Any]:
     return {"text": text, "page": page}
 
 
+def _page_links(context: NodeExecContext, url: str) -> list[str]:
+    """Links from ONE page through the bridge's deterministic collector."""
+    try:
+        payload = _run_async(_bridge_for(context).fetch("web_collect", {
+            "url": url, "selector": "a", "attribute": "href", "maxRows": 50,
+        }))
+    except Exception:  # noqa: BLE001 - link discovery is best-effort
+        return []
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return []
+    links: list[str] = []
+    for row in rows:
+        value = row.get("href") if isinstance(row, dict) else row
+        if not isinstance(value, str) or not value.strip():
+            continue
+        absolute = urljoin(url, value.strip())
+        parts = urlsplit(absolute)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            continue
+        links.append(absolute.split("#", 1)[0])
+    return links
+
+
+def exec_web_crawl(context: NodeExecContext) -> dict[str, Any]:
+    """A BOUNDED same-site crawl: one start page, at most `maxPages` fetches.
+
+    It reuses the existing SSRF-hardened fetch and the deterministic link
+    collector; it is not a general crawler. Every page is untrusted data.
+    """
+    from ..research.web_extract import fetch  # noqa: PLC0415
+
+    start = str(context.inputs.get("url") or context.config.get("url") or "").strip()
+    if not start:
+        raise ValueError("url is required: wire it in or set the node's url")
+    max_pages = _bounded_int(
+        context.config.get("maxPages"), name="maxPages",
+        default=5, low=1, high=10,
+    )
+    max_chars = _bounded_int(
+        context.config.get("maxChars"), name="maxChars",
+        default=4_000, low=500, high=MAX_FETCH_CHARS,
+    )
+    same_domain = bool(context.config.get("sameDomain", True))
+    start_host = (urlsplit(start).hostname or "").lower()
+    if not start_host:
+        raise ValueError("url must be an absolute http(s) URL")
+    bridge = _bridge_for(context)
+    queue: list[str] = [start]
+    seen: set[str] = {start}
+    pages: list[dict[str, Any]] = []
+    failures = 0
+
+    while queue and len(pages) < max_pages:
+        current = queue.pop(0)
+        result = _run_async(fetch(current, bridge=bridge))
+        if not result.ok or not result.text:
+            failures += 1
+            pages.append({
+                "url": current, "status": result.status,
+                "error": result.error or "empty content", "title": result.title,
+            })
+            continue
+        links = _page_links(context, result.url)
+        allowed: list[str] = []
+        for link in links:
+            host = (urlsplit(link).hostname or "").lower()
+            if not host or (same_domain and host != start_host):
+                continue
+            if link in seen:
+                continue
+            seen.add(link)
+            allowed.append(link)
+            if len(seen) >= max_pages * 5:
+                break
+        queue.extend(allowed[: max_pages * 2])
+        pages.append({
+            "url": result.url,
+            "title": result.title,
+            "status": "OK",
+            "text": result.text[:max_chars],
+            "truncated": len(result.text) > max_chars,
+            "contentHash": result.contentHash,
+            "links": allowed[:20],
+        })
+
+    fetched = [page for page in pages if page.get("status") == "OK"]
+    if not fetched:
+        raise ValueError(
+            f"crawl from {start} fetched no page; this is an unavailable site, "
+            "not evidence that the content is absent"
+        )
+    context.emit(f"crawled {len(fetched)}/{len(pages)} page(s) from {start}")
+    return {
+        "pages": pages,
+        "summary": {
+            "startUrl": start,
+            "sameDomain": same_domain,
+            "requestedPages": max_pages,
+            "fetched": len(fetched),
+            "failed": failures,
+            "status": "OK" if failures == 0 else "PARTIAL",
+        },
+    }
+
+
 def exec_claim_verify(context: NodeExecContext) -> dict[str, Any]:
     """Verify ONE claim against stored evidence with the existing verifier."""
     from ..research.web_contracts import Claim, Evidence  # noqa: PLC0415
@@ -550,6 +657,32 @@ def build_research_nodes() -> list[NodeDef]:
             },
         ),
         NodeDef(
+            type="research.web_crawl", version="1.0.0", label="Crawl site",
+            category="research",
+            inputs=(PortDef(id="url", name="URL", type=PortType.STRING, optional=True),),
+            outputs=(
+                PortDef(id="pages", name="Pages", type=PortType.ARRAY),
+                PortDef(id="summary", name="Summary", type=PortType.OBJECT),
+            ),
+            config_fields=(
+                ConfigField("url", "string", "", max_length=2_000),
+                ConfigField("maxPages", "integer", 5, minimum=1, maximum=10),
+                ConfigField("maxChars", "integer", 4_000, minimum=500, maximum=MAX_FETCH_CHARS),
+                ConfigField("sameDomain", "boolean", True),
+            ),
+            capabilities=("network.egress",),
+            side_effects=SideEffect.NETWORK,
+            allowed_modes=_ALL,
+            timeout_ms=240_000,
+            executor=exec_web_crawl,
+            metadata={
+                "docs": (
+                    "Bounded same-site crawl through the SSRF-hardened bridge and its "
+                    "deterministic link collector. Not a general crawler; text is untrusted."
+                ),
+            },
+        ),
+        NodeDef(
             type="research.claim_verify", version="1.0.0", label="Verify claim",
             category="research",
             inputs=(
@@ -587,5 +720,6 @@ __all__ = [
     "exec_report",
     "exec_web_search",
     "exec_web_fetch",
+    "exec_web_crawl",
     "exec_claim_verify",
 ]

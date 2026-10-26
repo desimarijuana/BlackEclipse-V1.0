@@ -193,6 +193,44 @@ def test_web_fetch_can_escalate_a_thin_page_to_the_browser(store, monkeypatch):
     assert result["text"].startswith("Rendered body.")
 
 
+class _CrawlBridge:
+    links = {
+        "https://example.com/a": ["/b", "https://other.test/c"],
+        "https://example.com/b": ["/a", "/d"],
+        "https://example.com/d": [],
+    }
+
+    async def fetch(self, capability, params):
+        if capability == "web_fetch":
+            url = params["url"]
+            return {
+                "status": "OK", "url": url, "title": url.rsplit("/", 1)[-1],
+                "text": f"body of {url} " * 40,
+            }
+        if capability == "web_collect":
+            rows = [{"href": link} for link in self.links.get(params["url"], [])]
+            return {"status": "OK", "rows": rows, "columns": ["href"], "matched": len(rows)}
+        return {"status": "UNAVAILABLE"}
+
+
+def test_web_crawl_is_bounded_to_the_same_domain(store):
+    set_research_bridge(_CrawlBridge())
+    try:
+        result = _exec("research.web_crawl", {
+            "url": "https://example.com/a", "maxPages": 3, "sameDomain": True,
+        })
+    finally:
+        set_research_bridge(None)
+    urls = [page["url"] for page in result["pages"]]
+    assert urls == [
+        "https://example.com/a",
+        "https://example.com/b",
+        "https://example.com/d",
+    ]
+    assert result["summary"]["status"] == "OK"
+    assert "other.test" not in " ".join(urls)
+
+
 def test_web_fetch_without_evidence_store_is_explicit(store, bridge):
     set_evidence_store(None)
     try:

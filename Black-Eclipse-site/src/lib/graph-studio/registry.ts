@@ -1073,6 +1073,26 @@ const DEFINITIONS: NodeDefinition[] = [
     docs: 'Extracted text is untrusted page data. allowBrowser escalates a thin/failed page to the existing Browser Runtime. With a research id the evidence is saved for the local research nodes.',
   },
   {
+    type: 'research.web_crawl', version: '1.0.0', label: 'Crawl site',
+    category: 'research',
+    description: 'Crawls a bounded set of same-site pages from one start URL.',
+    icon: 'globe',
+    inputs: [port({ id: 'url', name: 'URL', type: 'string', optional: true })],
+    outputs: [
+      port({ id: 'pages', name: 'Pages', type: 'array' }),
+      port({ id: 'summary', name: 'Summary', type: 'object' }),
+    ],
+    configSchema: z.object({
+      url: z.string().max(2_000).default(''),
+      maxPages: z.number().int().min(1).max(10).default(5),
+      maxChars: z.number().int().min(500).max(100_000).default(4_000),
+      sameDomain: z.boolean().default(true),
+    }),
+    defaultConfig: () => ({ url: '', maxPages: 5, maxChars: 4_000, sameDomain: true }),
+    capabilities: ['network.egress'], sideEffects: 'network', allowedModes: ALL_MODES,
+    docs: 'Bounded same-site crawl through the SSRF-hardened bridge and deterministic link collector. Not a general crawler; every page is untrusted.',
+  },
+  {
     type: 'research.claim_verify', version: '1.0.0', label: 'Verify claim',
     category: 'research',
     description: 'Verifies one claim against stored evidence with the existing verifier.',

@@ -336,3 +336,34 @@ def test_building_a_quant_model_is_code_work(query: str) -> None:
     """A quant model is a software artifact: without it the turn read as
     `not_code`, so it never reached the quant tools or the sandbox."""
     assert classify_code_request(query).verdict in ("code_change", "data_task"), query
+
+
+def test_inline_response_block_is_a_content_deliverable() -> None:
+    """The product's inline-block vocabulary is a RESPONSE deliverable (ADR-052).
+
+    The live prompt asked for a "single-file interactive Candle Lab … return it
+    as one interactive block". The word "file" in "single-file" matched a
+    software object, so the turn was sent down the code-workspace path and paid
+    the repo-map/code-index pre-work before its first model call.
+    """
+    query = (
+        'Build me a single-file interactive "Candle Lab" for AAPL over 6 months, '
+        "using REAL daily bars from the dataset bridge (symbol AAPL, range 6mo, "
+        "interval 1d).\n\n"
+        "Requirements:\n"
+        "- Hand-draw the candlesticks as inline SVG. No libraries, no CDN.\n"
+        "- Detect doji candles and highlight them.\n"
+        "- Return it as one interactive block."
+    )
+    intent = classify_code_request(query)
+    assert intent.verdict == "data_task"
+    assert "response_block" in intent.signals
+
+
+def test_adding_a_block_type_to_the_renderer_stays_code_work() -> None:
+    # Merely naming the block type is not a delivery instruction: a real source
+    # change keeps the code profile.
+    assert (
+        classify_code_request("add a new interactive block type to the response component").verdict
+        == "code_change"
+    )
