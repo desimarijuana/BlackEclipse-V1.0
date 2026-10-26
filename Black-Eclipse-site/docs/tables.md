@@ -56,4 +56,4 @@ table's `updatedAt` so the list reflects recent changes.
 | Types / client | `src/lib/tables/types.ts`, `src/lib/tables/client.ts` |
 | Server store | `src/lib/tables/store.ts` |
 | API | `src/app/api/tables/route.ts` (list/create), `src/app/api/tables/[id]/route.ts` (read, `update_meta` / `update_columns` / `add_row` / `update_row` / `delete_row`, delete) |
-| Nav | `tables` AppTab + `src/lib/sidebar/config.ts` (group `both`, standard nav list) |
+| Nav | `tables` AppTab + `src/lib/sidebar/config.ts` (group `graph`, standard nav list; Graph mode only) |

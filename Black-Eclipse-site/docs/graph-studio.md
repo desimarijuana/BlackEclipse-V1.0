@@ -146,8 +146,7 @@ version; the IR is re-validated server-side before it is stored. Routes:
 Graph Studio is its **own top-level mode** (`NavGroup 'graph'`, opened with
 `Alt+G` or the mode switcher). Unlike Bots, it does **not** replace the sidebar
 with a custom workflow panel: the left sidebar uses the **standard nav list
-filtered to graph sections** (Graph Studio, plus the shared ChatBot/Tables
-items), so the shell looks and behaves like every other page. A fresh shell
+filtered to graph sections** (Graph Studio, Overview, Tables, plus the shared ChatBot item), so the shell looks and behaves like every other page. A fresh shell
 still boots in **Terminal**; a tab that chose Graph keeps it for that session.
 
 While the Graph Studio tab is active the app shell hides the top bar and the

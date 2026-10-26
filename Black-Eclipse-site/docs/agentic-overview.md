@@ -27,7 +27,7 @@ last-verified: 2026-10-26
 | --- | --- |
 | Page | `src/components/screens/overview/overview-screen.tsx` (thin wrapper over `graph-studio/graph-home.tsx`) |
 | Workflow store | `src/lib/graph-studio/catalog-store.ts` |
-| Nav | `overview` AppTab + `src/lib/sidebar/config.ts` (group `agentic`, first agent item) |
+| Nav | `overview` AppTab + `src/lib/sidebar/config.ts` (group `graph`, Graph mode only) |
 | Shell mount | `src/components/screens/stock-chat.tsx` (`onOpenWorkflow` switches to `graph-studio`) |
 
 The page is a keep-alive SPA tab like the other Screens; it owns no server state

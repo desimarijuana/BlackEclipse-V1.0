@@ -199,7 +199,7 @@ describe('nav groups (Terminal / Agentic)', () => {
 
   it('keeps ChatBot, Skills, Eclipse SDK, Eclipse Memory and Artifacts in the Agentic menu', () => {
     const agentic = DEFAULT_SIDEBAR_SECTIONS.filter((s) => navGroupsFor(s).includes('agentic')).map((s) => s.id);
-    expect(agentic.sort()).toEqual(['artifacts', 'chat', 'memory', 'overview', 'sdk', 'skills', 'tables']);
+    expect(agentic.sort()).toEqual(['artifacts', 'chat', 'memory', 'sdk', 'skills']);
   });
 
   it('graph studio is its own mode, using the standard nav list', () => {
@@ -208,6 +208,8 @@ describe('nav groups (Terminal / Agentic)', () => {
     expect(modeForTab('graph-studio')).toBe('graph');
     const agentic = DEFAULT_SIDEBAR_SECTIONS.filter((s) => navGroupsFor(s).includes('agentic')).map((s) => s.id);
     expect(agentic).not.toContain('graph-studio');
+    const graphMode = DEFAULT_SIDEBAR_SECTIONS.filter((s) => navGroupsFor(s).includes('graph')).map((s) => s.id);
+    expect(graphMode.sort()).toEqual(['graph-studio', 'overview', 'tables']);
   });
 
   it('NAV_GROUPS is the ONE mode list (persistence + panels read it)', () => {

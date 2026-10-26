@@ -94,6 +94,19 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   unread seed. Docs updated: `docs/NAVIGATION.md`,
   `docs/harness/automation-engine.md`.
 
+- **fix(nav): final navigation shape.** Graph Studio is its own top-level mode
+  again (mode switcher + `Alt+G` + mobile) but renders the STANDARD nav list, not
+  a custom Workflows panel. A fresh shell boots Terminal; a tab that chose a mode
+  keeps it for that session. Tables is Agentic-only (not shown in Terminal or
+  Graph mode). The collapsed sidebar does not show a mode-icon rail. This
+  supersedes the earlier same-day navigation notes above. Docs:
+  `docs/graph-studio.md`, `docs/tables.md`, `docs/NAVIGATION.md`.
+
+- **fix(nav): Overview and Tables are Graph-mode pages only.** Removed them
+  from the Agentic and Terminal menus; each mode now shows only its own pages
+  (plus the shared ChatBot). Docs: `docs/graph-studio.md`, `docs/tables.md`,
+  `docs/agentic-overview.md`, `docs/NAVIGATION.md`.
+
 ## 2026-10-25
 - **feat(models): OpenCode Zen provider in AI / LLM.** Added `opencode` to the
   provider presets (Settings → AI/LLM and the composer), the Python catalog

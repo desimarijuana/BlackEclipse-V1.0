@@ -56,13 +56,13 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'heatmap', label: 'Market Bubbles', icon: Orbit, group: 'terminal' },
   { id: 'economics', label: 'Economics', icon: Globe, group: 'terminal' },
   { id: 'alerts', label: 'Price Alerts', icon: Bell, group: 'terminal' },
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard, group: 'agentic' },
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard, group: 'graph' },
   { id: 'skills', label: 'Skills', icon: Blocks, group: 'agentic' },
   { id: 'sdk', label: 'Eclipse SDK', icon: Wrench, group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', icon: Brain, group: 'agentic' },
   { id: 'artifacts', label: 'Artifacts', icon: FolderOpen, group: 'agentic' },
   { id: 'graph-studio', label: 'Graph Studio', icon: GitBranch, group: 'graph' },
-  { id: 'tables', label: 'Tables', icon: Database, group: 'both' },
+  { id: 'tables', label: 'Tables', icon: Database, group: 'graph' },
 ];
 
 /** The modes a section is listed under. */
