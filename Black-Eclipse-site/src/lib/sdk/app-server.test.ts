@@ -55,13 +55,13 @@ describe('app shell routes', () => {
 
   it('persists a nav patch', async () => {
     const res = await appRoute(
-      request('PUT', { nav: { mode: 'graph', sections: [{ id: 'chat', enabled: false }] } }),
+      request('PUT', { nav: { mode: 'agentic', sections: [{ id: 'chat', enabled: false }] } }),
       'PUT',
       ['app'],
     );
     expect(res.status).toBe(200);
     expect(mocks.update).toHaveBeenCalledWith({
-      mode: 'graph',
+      mode: 'agentic',
       sections: [{ id: 'chat', enabled: false }],
     });
     const body = await res.json();

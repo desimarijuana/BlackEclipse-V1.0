@@ -148,6 +148,14 @@ const GraphStudioScreen = dynamic(
   () => import('@/components/screens/graph-studio/graph-studio-screen').then((m) => m.GraphStudioScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const OverviewScreen = dynamic(
+  () => import('@/components/screens/overview/overview-screen').then((m) => m.OverviewScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
+const TablesScreen = dynamic(
+  () => import('@/components/screens/tables/tables-screen').then((m) => m.TablesScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 import { Newspaper, ArrowLeft } from '@/lib/icons';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AttachmentPreview } from '@/components/chat/attachment-preview';
@@ -316,7 +324,7 @@ function StockChatContent() {
 
   useEffect(() => { setMounted(true); }, []);
   // User-assigned F1–F12 shortcuts open their sidebar tab anywhere in the app.
-  useSidebarKeybinds(setActiveTab);
+  useSidebarKeybinds(setActiveTab, activeTab);
 
   // Keep-alive tabs: a tab mounts on first visit and stays mounted (hidden
   // with display:none) after that. Boot mounts ONLY the initial tab, so we
@@ -1236,7 +1244,7 @@ function StockChatContent() {
                           onDecide={(approve, remember) => {
                             void (agentRun.turn.pendingApproval
                               ? agentRun.decide(approve, remember)
-                              : decideDelegation(approve, remember));
+                              : decideDelegation(approve, remember, pendingApproval.id));
                           }}
                         />
                       )}
@@ -1446,7 +1454,24 @@ function StockChatContent() {
 
           {visited.has('graph-studio') && (
             <div className={cn('w-full h-full', activeTab === 'graph-studio' ? '' : 'hidden')}>
-              <GraphStudioScreen />
+              <GraphStudioScreen onExit={() => setActiveTab('overview')} />
+            </div>
+          )}
+
+          {visited.has('overview') && (
+            <div className={cn('w-full h-full', activeTab === 'overview' ? '' : 'hidden')}>
+              <OverviewScreen onOpenWorkflow={() => setActiveTab('graph-studio')} />
+            </div>
+          )}
+
+          {visited.has('tables') && (
+            <div className={cn('w-full h-full', activeTab === 'tables' ? '' : 'hidden')}>
+              <TablesScreen
+                onOpenDataSources={() => {
+                  setSettingsSection('market');
+                  setSettingsOpen(true);
+                }}
+              />
             </div>
           )}
 
@@ -1486,7 +1511,7 @@ function StockChatContent() {
               is open. Mounted once here rather than per-screen; the dock gates
               on this panel's own display so it never floats over an inactive
               keep-alive tab. */}
-          {activeTab !== 'chat' && activeTab !== 'bots' && activeTab !== 'graph-studio' && !settingsOpen && (
+          {activeTab !== 'chat' && activeTab !== 'bots' && activeTab !== 'graph-studio' && activeTab !== 'tables' && activeTab !== 'overview' && !settingsOpen && (
             <ChatDock visible />
           )}
         </div>
@@ -1501,9 +1526,13 @@ function StockChatContent() {
             ? <MobileDockHost activeTab={activeTab} />
             : (activeTab === 'bots'
               ? <BotSchedulerDock />
-              : activeTab === 'graph-studio'
-                ? null // Graph Studio's inspector/run console own the right rail.
-                : <AgentWorkspace showExplain={activeTab === 'chat'} />))}
+                : activeTab === 'graph-studio'
+                  ? null // Graph Studio's inspector/run console own the right rail.
+                  : activeTab === 'tables'
+                    ? null // Tables is a full-width data surface.
+                    : activeTab === 'overview'
+                      ? null // Overview is a full-width workflow dashboard.
+                      : <AgentWorkspace showExplain={activeTab === 'chat'} />))}
         {terminalOpen && <TerminalDock slot="right" />}
       </div>
 

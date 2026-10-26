@@ -1,21 +1,20 @@
 'use client';
 
 // ── Graph Studio — workspace ─────────────────────────────────────────────────
-// The canvas surface of the dedicated Graph Studio mode. The workflow browser
-// and node library live in the MODE PANEL (the left sidebar, where Bots lists
-// bots) so this screen is just the graph, its inspector and its run console.
-//
-// The shell hides the top bar in this tab (no header), matching the mode's
-// full-bleed engineering workspace.
+// Two internal views, no router:
+//   • home   — the workflow gallery (n8n's "Workflows" landing page)
+//   • editor — a full-bleed canvas with a slim header, a node inspector dock and
+//              a collapsible execution dock.
+// The left app sidebar stays as the quick workflow switcher; the node library now
+// lives on the canvas (Tab / "+"), where it belongs.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Check, GitBranch, LayoutGrid, Play, Plus, Redo2, Save, ScanSearch, Undo2, X,
+  Check, ChevronLeft, GitBranch, Home, MoreHorizontal, Play, Redo2, Save, Undo2, WarningCircle, X,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
 import { useWorkflowCatalog } from '@/lib/graph-studio/catalog-store';
-import { WORKFLOW_TEMPLATES } from '@/lib/graph-studio/templates';
 import { createWorkflow, saveWorkflow, WorkflowApiError } from '@/lib/graph-studio/persistence-client';
 import {
   cancelGraphRun, getGraphRun, isTerminal, isRunTerminalEvent, nodeStatusFromEvent,
@@ -23,23 +22,30 @@ import {
 } from '@/lib/graph-studio/execution-client';
 import type { ExecutionMode } from '@/lib/graph-studio/types';
 import { summarizeRunNeeds } from '@/lib/graph-studio/run-authorization';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
 import { GraphCanvas } from './graph-canvas';
 import { NodeInspector } from './node-inspector';
 import { ValidationPanel } from './validation-panel';
-import { RunPanel } from './run-panel';
-import { ScheduleList } from './schedule-list';
+import { ExecutionDock } from './execution-dock';
 import { HistoryPanel } from './history-panel';
 import { GraphHealthPanel } from './graph-health-panel';
+import { GraphHome } from './graph-home';
+import { RunAuthorizationDialog } from './run-authorization-dialog';
 
-type RightTab = 'inspect' | 'issues' | 'run' | 'history' | 'health';
+type WorkspaceView = 'home' | 'editor';
+type RightPanel = 'node' | 'issues' | 'history' | 'health' | null;
 const MODES: ExecutionMode[] = ['research', 'backtest', 'paper', 'live'];
 
-export function GraphStudioScreen() {
+export function GraphStudioScreen({ onExit }: { onExit?: () => void }) {
   const ir = useGraphEditor((s) => s.ir);
   const workflowId = useGraphEditor((s) => s.workflowId);
   const baseVersion = useGraphEditor((s) => s.baseVersion);
   const dirty = useGraphEditor((s) => s.dirty);
   const diagnostics = useGraphEditor((s) => s.diagnostics);
+  const selection = useGraphEditor((s) => s.selection);
   const load = useGraphEditor((s) => s.load);
   const dispatch = useGraphEditor((s) => s.dispatch);
   const undo = useGraphEditor((s) => s.undo);
@@ -48,27 +54,27 @@ export function GraphStudioScreen() {
   const markSaved = useGraphEditor((s) => s.markSaved);
   const setRun = useGraphEditor((s) => s.setRun);
   const run = useGraphEditor((s) => s.run);
+  const loadNonce = useGraphEditor((s) => s.loadNonce);
   const past = useGraphEditor((s) => s.past.length);
   const future = useGraphEditor((s) => s.future.length);
 
   const refreshCatalog = useWorkflowCatalog((s) => s.refresh);
-  const createFromTemplate = useWorkflowCatalog((s) => s.createFromTemplate);
   const summaries = useWorkflowCatalog((s) => s.summaries);
   const currentVersion = useMemo(
     () => summaries.find((summary) => summary.id === workflowId)?.currentVersion ?? baseVersion,
     [summaries, workflowId, baseVersion],
   );
 
-  const fitRef = useRef<(() => void) | null>(null);
   const streamRef = useRef<(() => void) | null>(null);
+  const pollingRef = useRef(false);
 
-  const [rightTab, setRightTab] = useState<RightTab>('inspect');
+  const [view, setView] = useState<WorkspaceView>('home');
+  const [rightPanel, setRightPanel] = useState<RightPanel>(null);
   const [busy, setBusy] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
-  const pollingRef = useRef(false);
+  const [authorizeOpen, setAuthorizeOpen] = useState(false);
 
   const errorCount = useMemo(() => diagnostics.filter((d) => d.severity === 'error').length, [diagnostics]);
   const runNeeds = useMemo(() => (ir ? summarizeRunNeeds(ir) : null), [ir]);
@@ -76,6 +82,20 @@ export function GraphStudioScreen() {
   useEffect(() => {
     void refreshCatalog();
   }, [refreshCatalog]);
+
+  // Opening a workflow (home card, sidebar browser, template, generated plan)
+  // increments `loadNonce`; that is the ONE signal that switches to the editor.
+  useEffect(() => {
+    if (loadNonce > 0) setView('editor');
+  }, [loadNonce]);
+
+  // A selected node opens the inspector; clearing the selection closes it unless
+  // another panel (issues/history/health) is pinned open.
+  useEffect(() => {
+    if (rightPanel === 'issues' || rightPanel === 'history' || rightPanel === 'health') return;
+    if (selection.nodeIds.length === 1) setRightPanel('node');
+    else if (selection.nodeIds.length === 0) setRightPanel(null);
+  }, [selection.nodeIds.length, rightPanel]);
 
   const save = useCallback(async () => {
     const current = useGraphEditor.getState().ir;
@@ -190,12 +210,10 @@ export function GraphStudioScreen() {
     try {
       const record = await startWorkflowRun(workflowId, undefined, options);
       setRun(record);
-      setRightTab('run');
       streamRun(record.id);
     } catch (err) {
       if (err instanceof GraphRunApiError) setError(err.message);
       else setError(err instanceof Error ? err.message : 'Failed to start the run');
-      setRightTab('run');
     } finally {
       setRunBusy(false);
     }
@@ -222,254 +240,231 @@ export function GraphStudioScreen() {
   }, [workflowId, dirty, errorCount]);
   const canRun = runBlockReason === null && !runBusy;
 
-  return (
-    <div className="flex h-full w-full overflow-hidden">
-      {/* Canvas column */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
-          <GitBranch size={15} className="shrink-0 text-sky-400" />
-          <input
-            value={ir?.name ?? ''}
-            disabled={!ir}
-            placeholder={ir ? 'Workflow name' : 'Graph Studio'}
-            onChange={(e) => dispatch({ op: 'set_meta', name: e.target.value })}
-            className="min-w-0 flex-1 rounded-md border border-white/10 bg-background/60 px-2 py-1 text-[13px] font-medium outline-none focus:border-sky-400/50 disabled:opacity-50"
-          />
-          {ir && (
-            <span className="shrink-0 rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-muted-foreground">
-              v{baseVersion}
-            </span>
-          )}
-          <span className={cn('shrink-0 text-[10px]', dirty ? 'text-amber-400' : 'text-emerald-400')}>
-            {ir ? (dirty ? 'Unsaved changes' : 'Saved') : ''}
-          </span>
-          {notice && <span className="shrink-0 text-[10px] text-sky-300">{notice}</span>}
+  const operatorReady = useMemo(() => {
+    if (!runNeeds || !ir) return false;
+    const mode = ir.settings.executionMode;
+    const tradingReady = runNeeds.tradingNodes.length === 0 || mode === 'paper';
+    const unsupported = runNeeds.writeNodeTypes.filter((type) => type !== 'video.render');
+    return runNeeds.requiresNetwork || runNeeds.tradingNodes.length > 0 || runNeeds.writeNodes.length > 0
+      ? canRun && unsupported.length === 0 && tradingReady
+      : false;
+  }, [runNeeds, ir, canRun]);
 
+  const operatorBlockReason = useMemo(() => {
+    if (!runNeeds || !ir) return null;
+    const mode = ir.settings.executionMode;
+    const unsupported = runNeeds.writeNodeTypes.filter((type) => type !== 'video.render');
+    if (unsupported.length > 0) return `External write nodes are not enabled yet: ${runNeeds.writeNodes.join(', ')}`;
+    if (runNeeds.tradingNodes.length > 0 && mode === 'live') return 'Live trading is not available; set the workflow mode to paper.';
+    if (runNeeds.tradingNodes.length > 0 && mode !== 'paper') return `Paper-trading nodes require paper mode: ${runNeeds.tradingNodes.join(', ')}`;
+    return runBlockReason;
+  }, [runNeeds, ir, runBlockReason]);
+
+  const backHome = () => {
+    if (dirty && !window.confirm('You have unsaved changes. Leave the editor and keep them unsaved?')) return;
+    setView('home');
+    setRightPanel(null);
+    void refreshCatalog();
+  };
+
+  if (view === 'home' || !ir) {
+    return <GraphHome onOpen={() => setView('editor')} onExit={onExit} />;
+  }
+
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+      {/* Slim editor header — name, state, and only the primary actions. */}
+      <header className="flex h-11 shrink-0 items-center gap-1.5 border-b border-white/10 px-2.5">
+        {onExit && (
+          <>
+            <Button type="button" variant="ghost" size="icon-sm" onClick={onExit} title="Back to Overview">
+              <Home size={14} />
+            </Button>
+            <span className="h-4 w-px bg-white/10" />
+          </>
+        )}
+        <Button type="button" variant="ghost" size="sm" onClick={backHome} title="Back to workflows">
+          <ChevronLeft size={14} /> Workflows
+        </Button>
+        <span className="mx-0.5 h-4 w-px bg-white/10" />
+        <GitBranch size={14} className="shrink-0 text-sky-400" />
+        <input
+          value={ir.name}
+          onChange={(event) => dispatch({ op: 'set_meta', name: event.target.value })}
+          placeholder="Workflow name"
+          className="min-w-0 max-w-[320px] flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[13px] font-semibold text-foreground outline-none hover:border-white/10 focus:border-sky-400/50"
+        />
+        <span className="shrink-0 rounded-full border border-white/10 px-1.5 py-0.5 text-[9.5px] text-muted-foreground">
+          v{currentVersion}
+        </span>
+        <span className={cn('shrink-0 text-[10px]', dirty ? 'text-amber-400' : 'text-emerald-400')}>
+          {dirty ? 'Unsaved' : 'Saved'}
+        </span>
+        {notice && <span className="shrink-0 text-[10px] text-sky-300">{notice}</span>}
+
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <select
-            value={ir?.settings.executionMode ?? 'research'}
-            disabled={!ir}
-            onChange={(e) => dispatch({ op: 'set_settings', settings: { executionMode: e.target.value as ExecutionMode } })}
-            className="shrink-0 rounded-md border border-white/10 bg-background/60 px-1.5 py-1 text-[11px] outline-none disabled:opacity-50"
+            value={ir.settings.executionMode}
+            onChange={(event) => dispatch({ op: 'set_settings', settings: { executionMode: event.target.value as ExecutionMode } })}
+            className="rounded-md border border-white/10 bg-background/60 px-1.5 py-1 text-[10.5px] text-muted-foreground outline-none focus:border-sky-400/50"
             title="Execution mode"
           >
-            {MODES.map((m) => (
-              <option key={m} value={m}>{m}</option>
+            {MODES.map((mode) => (
+              <option key={mode} value={mode}>{mode}</option>
             ))}
           </select>
+          <Button type="button" variant="ghost" size="icon-sm" disabled={past === 0} onClick={undo} title="Undo (Ctrl+Z)">
+            <Undo2 size={13} />
+          </Button>
+          <Button type="button" variant="ghost" size="icon-sm" disabled={future === 0} onClick={redo} title="Redo (Ctrl+Shift+Z)">
+            <Redo2 size={13} />
+          </Button>
+          <Button
+            type="button"
+            variant={rightPanel === 'issues' ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => setRightPanel((panel) => (panel === 'issues' ? (selection.nodeIds.length === 1 ? 'node' : null) : 'issues'))}
+            title="Validation issues"
+            className={cn(errorCount > 0 && 'text-rose-300 hover:text-rose-200')}
+          >
+            <WarningCircle size={12} />
+            {errorCount > 0 ? errorCount : 'Issues'}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!ir || busy || errorCount > 0}
+            onClick={() => void save()}
+            title={errorCount > 0 ? 'Fix validation errors before saving' : 'Save (Ctrl+S)'}
+          >
+            {dirty ? <Save size={12} /> : <Check size={12} />} Save
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={!canRun}
+            onClick={() => void startRun()}
+            title={runBlockReason ?? 'Run a test execution of the saved version'}
+          >
+            <Play size={11} /> Test
+          </Button>
 
-          <div className="ml-1 flex shrink-0 items-center gap-1">
-            <button type="button" disabled={!ir || past === 0} onClick={undo} title="Undo (Ctrl+Z)" className="rounded-md border border-white/10 p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30">
-              <Undo2 size={13} />
-            </button>
-            <button type="button" disabled={!ir || future === 0} onClick={redo} title="Redo (Ctrl+Shift+Z)" className="rounded-md border border-white/10 p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30">
-              <Redo2 size={13} />
-            </button>
-            <button type="button" disabled={!ir} onClick={applyAutoLayout} title="Auto-layout" className="rounded-md border border-white/10 p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30">
-              <LayoutGrid size={13} />
-            </button>
-            <button type="button" disabled={!ir} onClick={() => fitRef.current?.()} title="Fit view" className="rounded-md border border-white/10 p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30">
-              <ScanSearch size={13} />
-            </button>
-            <button
-              type="button"
-              disabled={!ir || busy || errorCount > 0}
-              onClick={() => void save()}
-              title={errorCount > 0 ? 'Fix validation errors before saving' : 'Save (Ctrl+S)'}
-              className="flex items-center gap-1.5 rounded-md border border-sky-400/30 bg-sky-500/10 px-2.5 py-1.5 text-[11px] text-sky-200 hover:bg-sky-500/20 disabled:opacity-40"
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button type="button" variant="ghost" size="icon-sm" title="More actions" />
+              }
             >
-              {dirty ? <Save size={13} /> : <Check size={13} />} Save
-            </button>
-            <button
-              type="button"
-              disabled={!canRun}
-              onClick={() => void startRun()}
-              title={runBlockReason ?? 'Run a test execution of the saved version'}
-              className="flex items-center gap-1.5 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-40"
-            >
-              <Play size={12} /> Test run
-            </button>
-            {runNeeds && (
-              runNeeds.requiresNetwork ||
-              runNeeds.tradingNodes.length > 0 ||
-              runNeeds.writeNodes.length > 0
-            ) && (() => {
-              const mode = ir?.settings.executionMode ?? 'research';
-              const tradingReady = runNeeds.tradingNodes.length === 0 || mode === 'paper';
-              const unsupportedWrites = runNeeds.writeNodeTypes.filter((type) => type !== 'video.render');
-              const disabled = !canRun || unsupportedWrites.length > 0 || !tradingReady;
-              const title = unsupportedWrites.length > 0
-                ? `External write nodes are not enabled yet: ${runNeeds.writeNodes.join(', ')}`
-                : runNeeds.tradingNodes.length > 0 && mode === 'live'
-                  ? 'Live trading is not available; set the workflow mode to paper.'
-                  : runNeeds.tradingNodes.length > 0 && mode !== 'paper'
-                    ? `Paper-trading nodes require paper mode: ${runNeeds.tradingNodes.join(', ')}`
-                    : runBlockReason ?? 'Operator run with explicit effects';
-              return (
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => {
-                    const lines: string[] = [];
-                    if (runNeeds.requiresNetwork) {
-                      lines.push(`Network: ${runNeeds.networkNodes.join(', ')}`);
-                    }
-                    if (runNeeds.tradingNodes.length > 0) {
-                      lines.push(
-                        `Paper trading: ${runNeeds.tradingNodes.join(', ')} (simulated fills only; no broker is contacted).`,
-                      );
-                    }
-                    if (runNeeds.writeNodes.length > 0) {
-                      lines.push(
-                        `Local render: ${runNeeds.writeNodes.join(', ')} (writes project files and an artifact; no external write).`,
-                      );
-                    }
-                    if (window.confirm(
-                      `Authorize this run?\n\n${lines.join('\n')}\n\nOnly the capabilities this graph declares are granted. Trading is PAPER only; live trading is never granted, and external writes remain blocked.`,
-                    )) {
-                      void startRun({
-                        operator: true,
-                        allowNetwork: runNeeds.requiresNetwork,
-                        allowPaperTrading: runNeeds.tradingNodes.length > 0,
-                        allowLocalWrite: runNeeds.writeNodes.length > 0,
-                      });
-                    }
-                  }}
-                  title={title}
-                  className="flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-200 hover:bg-amber-500/20 disabled:opacity-40"
-                >
-                  <Play size={12} /> Operator run
-                </button>
-              );
-            })()}
+              <MoreHorizontal size={15} />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuItem onClick={() => setRightPanel('history')}>History</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setRightPanel('health')}>Health</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={applyAutoLayout}>Tidy up layout</DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!operatorReady}
+                onClick={() => setAuthorizeOpen(true)}
+                title={operatorBlockReason ?? 'Run with explicit effects'}
+              >
+                Operator run…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </header>
+
+      {error && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-200">
+          <span className="flex-1">{error}</span>
+          <button type="button" onClick={() => setError(null)}><X size={12} /></button>
+        </div>
+      )}
+
+      <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="relative min-h-0 flex-1">
+            <GraphCanvas onSave={save} />
           </div>
+          <ExecutionDock
+            onStart={() => void startRun()}
+            onCancel={() => void stopRun()}
+            busy={runBusy}
+            canRun={canRun}
+            blockReason={runBlockReason}
+            workflowId={workflowId && !dirty ? workflowId : null}
+          />
         </div>
 
-        {error && (
-          <div className="flex items-center gap-2 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[11px] text-rose-200">
-            <span className="flex-1">{error}</span>
-            <button type="button" onClick={() => setError(null)}><X size={12} /></button>
-          </div>
-        )}
-
-        <div className="relative min-h-0 flex-1">
-          {ir ? (
-            <GraphCanvas onSave={save} fitViewRef={fitRef} />
-          ) : (
-            <div className="flex h-full items-center justify-center">
-              <div className="glass-card max-w-sm rounded-2xl border border-white/10 p-6 text-center">
-                <GitBranch size={28} className="mx-auto mb-3 text-sky-400" />
-                <h2 className="text-[15px] font-medium text-foreground">Graph Studio</h2>
-                <p className="mt-1 text-[12px] text-muted-foreground">
-                  Create a workflow or open one from the panel on the left to start building.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setTemplatesOpen(true)}
-                  className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-sky-400/30 bg-sky-500/10 px-3 py-1.5 text-[12px] text-sky-200 hover:bg-sky-500/20"
-                >
-                  <Plus size={13} /> New workflow
-                </button>
-                {templatesOpen && (
-                  <div className="mt-3 space-y-1 text-left">
-                    {WORKFLOW_TEMPLATES.map((template) => (
-                      <button
-                        key={template.id}
-                        type="button"
-                        onClick={() => {
-                          setTemplatesOpen(false);
-                          void createFromTemplate(template.id);
-                        }}
-                        className="block w-full rounded-md border border-white/10 px-2 py-1.5 text-left hover:bg-white/5"
-                      >
-                        <span className="block text-[12px] text-foreground">{template.name}</span>
-                        <span className="block text-[10px] text-muted-foreground">{template.description}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+        {rightPanel && (
+          <aside className="flex w-[380px] max-w-[85vw] shrink-0 flex-col border-l border-white/10 bg-background/40">
+            {rightPanel === 'node' && <NodeInspector onClose={() => setRightPanel(null)} />}
+            {rightPanel === 'issues' && (
+              <div className="flex h-full flex-col">
+                <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/10 px-3">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Issues</span>
+                  <button type="button" onClick={() => setRightPanel(selection.nodeIds.length === 1 ? 'node' : null)} className="rounded p-1 text-muted-foreground hover:text-foreground">
+                    <X size={12} />
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1"><ValidationPanel /></div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+            {rightPanel === 'history' && (
+              <div className="flex h-full flex-col">
+                <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/10 px-3">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">History</span>
+                  <button type="button" onClick={() => setRightPanel(null)} className="rounded p-1 text-muted-foreground hover:text-foreground"><X size={12} /></button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <HistoryPanel
+                    workflowId={workflowId}
+                    currentVersion={currentVersion}
+                    onOpenRun={(record) => {
+                      setRun(record);
+                      setRightPanel(null);
+                    }}
+                    onOpenVersion={(record) => {
+                      load(record.ir, {
+                        workflowId: record.id,
+                        baseVersion: record.version,
+                        contentHash: record.contentHash,
+                      });
+                      setRightPanel(null);
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+            {rightPanel === 'health' && (
+              <div className="flex h-full flex-col">
+                <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/10 px-3">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Health</span>
+                  <button type="button" onClick={() => setRightPanel(null)} className="rounded p-1 text-muted-foreground hover:text-foreground"><X size={12} /></button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto"><GraphHealthPanel /></div>
+              </div>
+            )}
+          </aside>
+        )}
       </div>
 
-      {/* Right rail: inspector / validation / run console */}
-      <aside className="hidden w-[320px] shrink-0 flex-col border-l border-white/10 bg-background/40 xl:flex">
-        <div className="flex shrink-0 gap-1 border-b border-white/10 p-2">
-          {([
-            ['inspect', 'Inspect', null],
-            ['issues', `Issues${errorCount > 0 ? ` (${errorCount})` : ''}`, null],
-            ['run', 'Run', run?.status ?? null],
-            ['history', 'History', null],
-            ['health', 'Health', null],
-          ] as [RightTab, string, string | null][]).map(([tab, label, hint]) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setRightTab(tab)}
-              className={cn(
-                'flex-1 rounded-md px-2 py-1 text-[11px]',
-                rightTab === tab ? 'bg-white/10 text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <span className="flex items-center justify-center gap-1">
-                {label}
-                {hint && (
-                  <span
-                    className={cn(
-                      'h-1.5 w-1.5 rounded-full',
-                      hint === 'running'
-                        ? 'bg-sky-400 animate-pulse'
-                        : hint === 'succeeded'
-                          ? 'bg-emerald-400'
-                          : hint === 'failed'
-                            ? 'bg-rose-400'
-                            : 'bg-slate-500',
-                    )}
-                  />
-                )}
-              </span>
-            </button>
-          ))}
-        </div>
-        <div className="min-h-0 flex-1">
-          {rightTab === 'inspect' && <NodeInspector />}
-          {rightTab === 'issues' && <ValidationPanel />}
-          {rightTab === 'run' && (
-            <div className="flex h-full flex-col">
-              <div className="min-h-0 flex-1">
-                <RunPanel
-                  onStart={() => void startRun()}
-                  onCancel={() => void stopRun()}
-                  busy={runBusy}
-                  canRun={canRun}
-                  blockReason={runBlockReason}
-                />
-              </div>
-              <ScheduleList workflowId={workflowId && !dirty ? workflowId : null} />
-            </div>
-          )}
-          {rightTab === 'health' && <GraphHealthPanel />}
-          {rightTab === 'history' && (
-            <HistoryPanel
-              workflowId={workflowId}
-              currentVersion={currentVersion}
-              onOpenRun={(record) => {
-                setRun(record);
-                setRightTab('run');
-              }}
-              onOpenVersion={(record) => {
-                load(record.ir, {
-                  workflowId: record.id,
-                  baseVersion: record.version,
-                  contentHash: record.contentHash,
-                });
-                setRightTab('inspect');
-              }}
-            />
-          )}
-        </div>
-      </aside>
+      {authorizeOpen && runNeeds && (
+        <RunAuthorizationDialog
+          needs={runNeeds}
+          onCancel={() => setAuthorizeOpen(false)}
+          onConfirm={() => {
+            setAuthorizeOpen(false);
+            void startRun({
+              operator: true,
+              allowNetwork: runNeeds.requiresNetwork,
+              allowPaperTrading: runNeeds.tradingNodes.length > 0,
+              allowLocalWrite: runNeeds.writeNodes.length > 0,
+            });
+          }}
+        />
+      )}
     </div>
   );
 }

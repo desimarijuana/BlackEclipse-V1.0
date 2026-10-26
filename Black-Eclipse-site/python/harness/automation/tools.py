@@ -5,9 +5,11 @@ validation, permission and effect authorization apply unchanged. They are thin
 wrappers over the ONE `AutomationService`, so the chat agent and the Bots UI can
 never disagree about what a bot is or what it is doing.
 
-A "bot" is an automation whose action is `run_agent`: a durable, scheduled agent
-that keeps running in the background. Creation persists through the same
-validated service the UI uses; nothing is claimed until the store confirms it.
+A "bot" is a `run_agent` automation tagged `bot` (monitors are tagged `bot` +
+`monitor` too): a durable, scheduled agent that keeps running in the background.
+Unrelated automations (jobs, event rules) share the engine but are NOT bots.
+Creation persists through the same validated service the UI uses; nothing is
+claimed until the store confirms it.
 """
 
 from __future__ import annotations
@@ -53,6 +55,13 @@ def _require_service() -> Any:
 
 def _dumps(value: Any) -> str:
     return json.dumps(value, default=str)
+
+
+def _is_bot(definition: Any) -> bool:
+    """A bot is tagged `bot` (or is a monitor); jobs/event rules share the engine
+    but must never surface as bots in `bot_list`."""
+    tags = list(getattr(definition, "tags", None) or [])
+    return "bot" in tags or "monitor" in tags or str(getattr(definition, "id", "")).startswith("mon_")
 
 
 def _obj(properties: dict[str, Any], required: Optional[list[str]] = None) -> dict[str, Any]:
@@ -177,11 +186,11 @@ async def _create(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
 
 async def _list(args: dict[str, Any], _ctx: ToolContext) -> tuple[str, Any]:
     service = _require_service()
-    bots = service.list(
+    bots = [b for b in service.list(
         limit=int(args.get("limit") or 100),
         scope_id=args.get("scopeId"),
         state=args.get("state"),
-    )
+    ) if _is_bot(b)]
     views = [b.public() for b in bots]
     return _dumps({"count": len(views), "bots": views}), {"bots": views}
 

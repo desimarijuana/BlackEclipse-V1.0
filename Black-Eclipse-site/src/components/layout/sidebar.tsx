@@ -39,19 +39,14 @@ const SidebarGatewayDialog = dynamic(
   () => import('@/components/layout/sidebar-gateway-dialog').then((m) => m.SidebarGatewayDialog),
   { ssr: false },
 );
-const GraphModePanel = dynamic(
-  () => import('@/components/screens/graph-studio/graph-mode-panel').then((m) => m.GraphModePanel),
-  { ssr: false },
-);
 
 
 const NAV_DEF = new Map(DEFAULT_SIDEBAR_SECTIONS.map((s) => [s.id, s]));
 
-/** The top-level menu switcher. Terminal and Agentic choose a nav MODE; Bots
- *  and Graph Studio are DEDICATED modes — each renders its own left panel (bots
- *  / workflows + node library) and opens its workspace tab on selection, so the
- *  panel and the page never disagree. */
-type NavSwitcherId = NavGroup | 'bots';
+/** The top-level menu switcher. Terminal and Agentic choose a nav MODE; Bots is
+ *  the one DEDICATED panel mode. Graph Studio is its own mode too, but renders
+ *  the standard nav list (workflows/tables) instead of a custom panel. */
+type NavSwitcherId = NavGroup;
 const NAV_MODES: Array<{
   id: NavSwitcherId;
   labelKey: 'sidebar.terminal' | 'sidebar.agentic' | 'nav.bots' | 'sidebar.graphStudio';
@@ -265,10 +260,9 @@ export function Sidebar({
       }`}>
 
         {/* Top-level mode switcher: Terminal (market tools), Agentic (chat,
-            skills, memory) or Bots. A glass dropdown keeps the three top-level
-            menus in one place without crowding the sidebar with a tab strip.
-            Hidden while the sidebar is collapsed — there is no room for labels
-            and the menu already collapses to icons only. */}
+            skills, memory), Graph Studio or Bots. A glass dropdown keeps the
+            top-level menus in one place without crowding the sidebar. Hidden
+            while collapsed — the switcher itself is not shown in the icon rail. */}
         {!isCollapsed && (
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -305,10 +299,19 @@ export function Sidebar({
                     key={id}
                     onClick={() => {
                       // Bots / Graph Studio are dedicated modes; also open their
-                      // workspace so the panel and the page never disagree.
+                      // workspace so the panel and the page never disagree. For
+                      // Terminal/Agentic, only navigate when the current screen
+                      // does not belong to the chosen mode (leaving Bots used to
+                      // keep the Bots page under a Terminal sidebar).
                       setNavMode(id);
                       const opens = NAV_MODES.find((m) => m.id === id)?.opens;
-                      if (opens) onChangeTab(opens);
+                      if (opens) {
+                        onChangeTab(opens);
+                        return;
+                      }
+                      const def = NAV_DEF.get(activeTab);
+                      const stays = Boolean(def && (def.group === 'both' || def.group === id));
+                      if (!stays) onChangeTab(id === 'agentic' ? 'chat' : 'home');
                     }}
                     className="gap-2"
                   >
@@ -365,22 +368,14 @@ export function Sidebar({
           />
         )}
 
-        {/* Bots and Graph Studio are DEDICATED modes: the sidebar lists the
-            mode's own objects (bots; workflows + node library) instead of a
-            generic nav list. Every other mode shows the nav list. */}
+        {/* Bots is the one DEDICATED mode: the sidebar lists the user's bots
+            instead of the generic nav list. Every other mode — including Graph
+            Studio — shows the SAME standard navigation. */}
         {navMode === 'bots' ? (
           <BotsSidebarPanel
             collapsed={isCollapsed}
             onActivate={() => {
               onChangeTab('bots');
-              onCloseMobile?.();
-            }}
-          />
-        ) : navMode === 'graph' ? (
-          <GraphModePanel
-            collapsed={isCollapsed}
-            onActivate={() => {
-              onChangeTab('graph-studio');
               onCloseMobile?.();
             }}
           />

@@ -36,6 +36,10 @@ export interface GroupMessage {
   feedback?: 'up' | 'down';
   /** Parallel fan-outs this member ran, for the live agent card. */
   delegations?: import('@/lib/agent/response-model').DelegationView[];
+  /** True when this turn came from an autonomous run (schedule / Run now). */
+  scheduled?: boolean;
+  /** Execution id of the autonomous run — the idempotency key. */
+  runId?: string;
 }
 
 interface Persisted {
@@ -53,12 +57,17 @@ interface BotGroupsStore {
   setGroupImage: (id: string, dataUrl: string | null) => void;
   /** Replace the member set (clamped to 2–6). */
   setMembers: (id: string, memberIds: string[]) => void;
+  /** Remove a deleted bot from every room (and drop rooms left with no members). */
+  removeMember: (botId: string) => void;
   deleteGroup: (id: string) => void;
   appendMessage: (groupId: string, message: GroupMessage) => void;
+  /** Append an autonomous run's answer once (deduped by execution id). */
+  appendScheduled: (groupId: string, message: GroupMessage & { runId: string }) => boolean;
   /** Replace a room's whole message list (used to truncate on edit/regenerate). */
   setMessages: (groupId: string, messages: GroupMessage[]) => void;
-  /** Patch one message in place — used to fill the live streaming reply. */
-  updateMessage: (groupId: string, id: string, patch: Partial<GroupMessage>) => void;
+  /** Patch one message in place — used to fill the live streaming reply. A
+   *  streaming caller passes `persist=false`; the terminal patch persists. */
+  updateMessage: (groupId: string, id: string, patch: Partial<GroupMessage>, persist?: boolean) => void;
   clearMessages: (groupId: string) => void;
 }
 
@@ -97,8 +106,8 @@ function newGroupId(): string {
 }
 
 export const useBotGroupsStore = create<BotGroupsStore>((set, get) => {
-  const commit = (groups: BotGroup[], byGroup: Record<string, GroupMessage[]>) => {
-    persist(groups, byGroup);
+  const commit = (groups: BotGroup[], byGroup: Record<string, GroupMessage[]>, persistNow = true) => {
+    if (persistNow) persist(groups, byGroup);
     set({ groups, byGroup });
   };
 
@@ -165,6 +174,16 @@ export const useBotGroupsStore = create<BotGroupsStore>((set, get) => {
       commit(get().groups.map((g) => (g.id === id ? { ...g, memberIds: unique } : g)), get().byGroup);
     },
 
+    removeMember: (botId) => {
+      const all = get().groups;
+      const groups = all
+        .map((g) => (g.memberIds.includes(botId) ? { ...g, memberIds: g.memberIds.filter((id) => id !== botId) } : g))
+        .filter((g) => g.memberIds.length > 0);
+      const byGroup = { ...get().byGroup };
+      for (const g of all) if (!groups.some((next) => next.id === g.id)) delete byGroup[g.id];
+      commit(groups, byGroup);
+    },
+
     deleteGroup: (id) => {
       const byGroup = { ...get().byGroup };
       delete byGroup[id];
@@ -176,18 +195,25 @@ export const useBotGroupsStore = create<BotGroupsStore>((set, get) => {
       commit(get().groups, byGroup);
     },
 
+    appendScheduled: (groupId, message) => {
+      const list = get().byGroup[groupId] ?? [];
+      if (list.some((m) => m.runId === message.runId)) return false;
+      commit(get().groups, { ...get().byGroup, [groupId]: [...list, message] });
+      return true;
+    },
+
     setMessages: (groupId, messages) => {
       commit(get().groups, { ...get().byGroup, [groupId]: messages });
     },
 
-    updateMessage: (groupId, id, patch) => {
+    updateMessage: (groupId, id, patch, persistNow = true) => {
       const list = get().byGroup[groupId];
       if (!list) return;
       const byGroup = {
         ...get().byGroup,
         [groupId]: list.map((m) => (m.id === id ? { ...m, ...patch } : m)),
       };
-      commit(get().groups, byGroup);
+      commit(get().groups, byGroup, persistNow);
     },
 
     clearMessages: (groupId) => {

@@ -18,6 +18,7 @@ import {
   formatRelative,
   isLiveExecution,
   isTerminalExecution,
+  isBotAutomation,
   needsAttention,
   scheduleSummary,
   summarizeDraft,
@@ -312,6 +313,47 @@ describe('per-bot model override', () => {
     expect(draft.model).toBe('gpt-4o');
     expect(draft.modelProvider).toBe('openai');
     expect(buildModelConfig(draft)).toEqual({ modelSettings: { model: 'gpt-4o', provider: 'openai' } });
+  });
+});
+
+describe('event / condition trigger preservation', () => {
+  const condition = { expression: 'drawdown > 0.1', edge: true, variables: ['drawdown'] };
+
+  it('round-trips an event trigger instead of downgrading it to manual', () => {
+    const b = bot({
+      trigger: {
+        ...bot().trigger,
+        type: 'event',
+        eventType: 'filing.created',
+        eventFilter: { symbol: 'AAPL' },
+      },
+    });
+    const draft = draftFromBot(b);
+    expect(draft.schedule).toBe('event');
+    expect(buildTrigger(draft)).toMatchObject({
+      type: 'event',
+      eventType: 'filing.created',
+      eventFilter: { symbol: 'AAPL' },
+    });
+  });
+
+  it('round-trips a condition trigger (e.g. a portfolio monitor)', () => {
+    const b = bot({
+      condition,
+      trigger: { ...bot().trigger, type: 'condition', condition },
+    });
+    const draft = draftFromBot(b);
+    expect(draft.schedule).toBe('condition');
+    expect(buildTrigger(draft)).toMatchObject({ type: 'condition', condition });
+  });
+});
+
+describe('isBotAutomation', () => {
+  it('accepts tagged bots and monitors but rejects jobs / event rules', () => {
+    expect(isBotAutomation({ id: 'a1', tags: ['bot'] })).toBe(true);
+    expect(isBotAutomation({ id: 'mon_123', tags: [] })).toBe(true);
+    expect(isBotAutomation({ id: 'job_1', tags: [] })).toBe(false);
+    expect(isBotAutomation({ id: 'rule_1', tags: ['event-rule'] })).toBe(false);
   });
 });
 

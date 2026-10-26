@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
-import { Copy, MoreHorizontal, Pencil, Pin, PinOff, Plus, RefreshCw, Trash2, Users } from '@/lib/icons';
+import { CalendarDays, Copy, MoreHorizontal, Pencil, Pin, PinOff, Plus, RefreshCw, Trash2, Users } from '@/lib/icons';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { Button } from '@/components/ui/button';
@@ -24,7 +24,9 @@ import { useBotsStore } from '@/lib/bots/bots-store';
 import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { useBotChatStore } from '@/lib/bots/chat-store';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
+import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { duplicateBot } from '@/lib/bots/duplicate';
+import { forgetBotLocally, forgetBotMemory } from '@/lib/bots/purge';
 import { ghostSpecFromId } from '@/lib/bots/ghost';
 import { executionLabel, isTerminalExecution } from '@/lib/bots/state';
 import { deleteAutomation, updateAutomation } from '@/lib/harness/automation-browser';
@@ -63,7 +65,6 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
   const selectedGroupId = useBotsStore((s) => s.selectedGroupId);
   const statusById = useBotsStore((s) => s.statusById);
   const seenRuns = useBotsStore((s) => s.seenRuns);
-  const markSeen = useBotsStore((s) => s.markSeen);
   const select = useBotsStore((s) => s.select);
   const selectGroup = useBotsStore((s) => s.selectGroup);
   const hydrate = useBotsStore((s) => s.hydrate);
@@ -76,6 +77,9 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
   const avatars = useBotAvatarStore((s) => s.avatars);
   const groups = useBotGroupsStore((s) => s.groups);
   const byGroup = useBotGroupsStore((s) => s.byGroup);
+  const schedulerOpen = useWorkspaceStore((s) => s.open);
+  const toggleScheduler = useWorkspaceStore((s) => s.toggle);
+  const statusLoaded = useBotsStore((s) => s.statusLoaded);
   const byBot = useBotChatStore((s) => s.byBot);
   const [deleteTarget, setDeleteTarget] = useState<AutomationView | null>(null);
   const [renameTarget, setRenameTarget] = useState<AutomationView | null>(null);
@@ -96,21 +100,15 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
   const isUnread = useCallback(
     (botId: string) => {
       const last = statusById[botId]?.lastExecution;
-      if (!last) return false;
+      if (!last || !isTerminalExecution(last.state)) return false;
       const seen = seenRuns[botId];
-      return seen !== undefined && seen !== last.id && isTerminalExecution(last.state);
+      // No seen entry means this bot had no history at the first status sweep
+      // (created later, or never run) — its first completed run is unread.
+      if (seen === undefined) return statusLoaded;
+      return seen !== last.id;
     },
-    [statusById, seenRuns],
+    [statusById, seenRuns, statusLoaded],
   );
-
-  // Seed the seen ledger for bots we have never opened, so existing history is
-  // never mistaken for a brand-new message.
-  useEffect(() => {
-    for (const bot of bots) {
-      const last = statusById[bot.id]?.lastExecution;
-      if (last && seenRuns[bot.id] === undefined) markSeen(bot.id, last.id);
-    }
-  }, [bots, statusById, seenRuns, markSeen]);
 
   // Pinned bots first (newest pin first), then most-recent activity.
   const sortedBots = useMemo(() => {
@@ -211,6 +209,8 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
     try {
       await deleteAutomation(id);
       // Reconcile in the background; `forget` keeps it out of any hydrate.
+      void forgetBotMemory(id);
+      forgetBotLocally(id);
       await hydrate();
     } catch (err) {
       // The delete failed — bring the bot back from the server's list.
@@ -231,6 +231,19 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
           aria-label={t('bots.dialog.title')}
         >
           <Plus size={16} />
+        </button>
+        <button
+          type="button"
+          onClick={toggleScheduler}
+          className={cn(
+            'flex h-9 w-9 items-center justify-center rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground',
+            schedulerOpen && 'bg-white/[0.08] text-foreground',
+          )}
+          title={t('bots.jobsPanel.open')}
+          aria-label={t('bots.jobsPanel.open')}
+          aria-pressed={schedulerOpen}
+        >
+          <CalendarDays size={16} />
         </button>
         {sortedBots.slice(0, 12).map((bot) => {
           const active = bot.id === selectedId;
@@ -285,6 +298,19 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
         <div className="flex items-center gap-0.5">
           <button
             type="button"
+            onClick={toggleScheduler}
+            className={cn(
+              'rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground',
+              schedulerOpen && 'bg-white/[0.08] text-foreground',
+            )}
+            title={t('bots.jobsPanel.open')}
+            aria-label={t('bots.jobsPanel.open')}
+            aria-pressed={schedulerOpen}
+          >
+            <CalendarDays size={13} />
+          </button>
+          <button
+            type="button"
             onClick={startCreate}
             className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             title={t('bots.dialog.title')}
@@ -296,8 +322,8 @@ export function BotsSidebarPanel({ collapsed, onActivate }: BotsSidebarPanelProp
             type="button"
             onClick={() => void hydrate()}
             className="rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-            title={t('common.reset')}
-            aria-label={t('common.reset')}
+            title={t('common.refresh')}
+            aria-label={t('common.refresh')}
           >
             <RefreshCw size={13} />
           </button>

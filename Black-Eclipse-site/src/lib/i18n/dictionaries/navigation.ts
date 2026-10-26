@@ -31,5 +31,7 @@ export const navigation = {
   'nav.backtest': 'Quant Research',
   'nav.researchData': 'Research Data',
   'nav.graphStudio': 'Graph Studio',
+  'nav.tables': 'Tables',
+  'nav.overview': 'Overview',
   'nav.bots': 'Bots',
 } as const;

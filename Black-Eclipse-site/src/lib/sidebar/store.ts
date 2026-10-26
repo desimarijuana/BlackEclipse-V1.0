@@ -4,8 +4,8 @@
 // app-wide (JDDS `SystemConfig` via the SDK app-shell routes, with
 // `localStorage` as the instant cache). The ACTIVE MODE is deliberately
 // per-shell: each browser tab/window keeps its own mode in `sessionStorage`, so
-// switching to Bots in one tab never drags another tab out of its mode. The
-// shared `localStorage` mode is only the seed for a newly opened shell.
+// switching to Bots in one tab never drags another tab out of its mode. A fresh
+// shell always starts in Terminal; a tab that already chose a mode keeps it.
 
 'use client';
 
@@ -142,9 +142,8 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set, get) => ({
   hydrate: () => {
     const config = loadSidebarConfig();
     saveSidebarConfig(config);
-    // This tab's own mode wins; a tab that has never chosen one starts from the
-    // last mode used in the app (then owns it independently).
-    const mode = readStoredMode('session') ?? readStoredMode('local') ?? 'terminal';
+    // This tab's own mode wins; a fresh shell always starts in Terminal.
+    const mode = readStoredMode('session') ?? 'terminal';
     writeStoredMode('session', mode);
     set({ config, hydrated: true, mode });
     void loadRemoteNav(config, mode);
@@ -160,7 +159,7 @@ export const useSidebarConfigStore = create<SidebarConfigStore>((set, get) => ({
       shortcut: shortcuts.get(section.id) ?? '',
     }));
     // Sections are app-wide; the mode is not. Keep this shell's mode and only
-    // refresh the shared seed a newly opened shell would read.
+    // refresh the shared seed a newly opened shell could inspect.
     const remoteMode: NavGroup = isNavGroup(nav.mode) ? nav.mode : current.mode;
     const mode = current.mode;
     const config: SidebarConfig = { sections };

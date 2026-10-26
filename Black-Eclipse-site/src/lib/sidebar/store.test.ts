@@ -62,6 +62,14 @@ describe('per-tab nav mode', () => {
 
   it('hydrates from this tab mode before the shared seed', () => {
     shared.set(SIDEBAR_MODE_KEY, 'bots');
+    perTab.set(SIDEBAR_TAB_MODE_KEY, 'agentic');
+
+    useSidebarConfigStore.getState().hydrate();
+
+    expect(useSidebarConfigStore.getState().mode).toBe('agentic');
+  });
+
+  it('keeps Graph mode for a tab that already chose it', () => {
     perTab.set(SIDEBAR_TAB_MODE_KEY, 'graph');
 
     useSidebarConfigStore.getState().hydrate();
@@ -69,13 +77,13 @@ describe('per-tab nav mode', () => {
     expect(useSidebarConfigStore.getState().mode).toBe('graph');
   });
 
-  it('seeds a fresh tab from the shared mode', () => {
+  it('a fresh tab defaults to Terminal even when the shared seed is another mode', () => {
     shared.set(SIDEBAR_MODE_KEY, 'bots');
 
     useSidebarConfigStore.getState().hydrate();
 
-    expect(useSidebarConfigStore.getState().mode).toBe('bots');
-    expect(perTab.get(SIDEBAR_TAB_MODE_KEY)).toBe('bots');
+    expect(useSidebarConfigStore.getState().mode).toBe('terminal');
+    expect(perTab.get(SIDEBAR_TAB_MODE_KEY)).toBe('terminal');
   });
 
   it('persists a local mode change for this tab and as the shared seed', () => {

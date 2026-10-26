@@ -27,6 +27,7 @@ import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store'
 import { useBotChatStore } from '@/lib/bots/chat-store';
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { buildMentionTargets, type MentionTarget } from '@/lib/bots/mentions';
+import { botModelOverride } from '@/lib/bots/state';
 import {
   runBotTurn, runGroupMemberTurn,
   type PriorBotTurn, type PriorGroupTurn,
@@ -62,7 +63,7 @@ export interface BotDelegation {
   /** Abort every in-flight delegated turn. Returns true when something was aborted. */
   abort: () => boolean;
   /** Answer a pending approval raised by a delegated run. Resolves true on success. */
-  decide: (approve: boolean, remember?: boolean) => Promise<boolean>;
+  decide: (approve: boolean, remember?: boolean, approvalId?: string) => Promise<boolean>;
 }
 
 /** Where a delegated run's blocking approval lives, so it can be decided. */
@@ -76,7 +77,9 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
   const hostRef = useRef(host);
   hostRef.current = host;
   const controllersRef = useRef<AbortController[]>([]);
-  const pendingRef = useRef<PendingRef | null>(null);
+  // Keyed by approval id: parallel delegated runs can each block on their own
+  // approval, so a single slot would strand every card but the last.
+  const pendingRef = useRef<Map<string, PendingRef>>(new Map());
 
   // The mentionable list: the live bots + group rooms. Hydrated once so the `@`
   // palette has real data everywhere the composer is reachable.
@@ -100,27 +103,44 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
     const liveGroups: readonly BotGroup[] = useBotGroupsStore.getState().groups;
 
     // Context: the recent turns of THIS main conversation, so a delegation can
-    // build on what the user and Eclipse just discussed. Bots additionally keep
-    // their own private memory via the run's `bot-<id>` conversation scope.
-    const prior = h.getMessages(chatId).filter((m) => m.role === 'user' || m.role === 'assistant');
+    // build on what the user and Eclipse just discussed. The caller has usually
+    // already appended the current prompt, so drop that trailing copy — it is
+    // passed again as the final user turn by the invoker.
+    const all = h.getMessages(chatId).filter((m) => m.role === 'user' || m.role === 'assistant');
+    const prior =
+      all.length > 0 &&
+      all[all.length - 1].role === 'user' &&
+      all[all.length - 1].content.trim() === userText.trim()
+        ? all.slice(0, -1)
+        : all;
     const priorBot: PriorBotTurn[] = prior.map((m) => ({ role: m.role, content: m.content, error: Boolean(m.error) }));
     const priorGroup: PriorGroupTurn[] = prior.map((m) => ({
       role: m.role, content: m.content, error: Boolean(m.error), authorName: m.author?.name,
     }));
 
     // Expand: a bot target is one turn; a room target is one turn per member.
+    // Explicit bot mentions win over room expansion, and a bot mentioned twice
+    // (directly and via its room) runs ONCE.
     type Task = { bot: AutomationView; group?: BotGroup };
     const tasks: Task[] = [];
+    const scheduledBots = new Set<string>();
     for (const target of targets) {
-      if (target.kind === 'bot') {
-        const bot = liveBots.find((b) => b.id === target.id);
-        if (bot) tasks.push({ bot });
-      } else {
-        const group = liveGroups.find((g) => g.id === target.id);
-        if (!group) continue;
-        for (const id of group.memberIds) {
-          const bot = liveBots.find((b) => b.id === id);
-          if (bot) tasks.push({ bot, group });
+      if (target.kind !== 'bot') continue;
+      const bot = liveBots.find((b) => b.id === target.id);
+      if (bot && !scheduledBots.has(bot.id)) {
+        scheduledBots.add(bot.id);
+        tasks.push({ bot });
+      }
+    }
+    for (const target of targets) {
+      if (target.kind !== 'group') continue;
+      const group = liveGroups.find((g) => g.id === target.id);
+      if (!group) continue;
+      for (const id of group.memberIds) {
+        const bot = liveBots.find((b) => b.id === id);
+        if (bot && !scheduledBots.has(bot.id)) {
+          scheduledBots.add(bot.id);
+          tasks.push({ bot, group });
         }
       }
     }
@@ -161,12 +181,12 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
       // remembers where it lives so `decide()` can answer it.
       const onEvent = (ev: HarnessUiEvent) => {
         if (ev.kind === 'approval_request') {
-          pendingRef.current = { chatId, messageId: placeholderId };
+          pendingRef.current.set(ev.approval.id, { chatId, messageId: placeholderId });
           h.replaceAssistantReply(chatId, placeholderId, {
             ...base, content: streamed, status: 'awaiting_approval', pendingApproval: ev.approval,
           }, false);
         } else if (ev.kind === 'approval_resolved') {
-          if (pendingRef.current?.messageId === placeholderId) pendingRef.current = null;
+          if (ev.id) pendingRef.current.delete(ev.id);
           h.replaceAssistantReply(chatId, placeholderId, {
             ...base, content: streamed, status: 'streaming', pendingApproval: undefined,
           }, false);
@@ -179,8 +199,8 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
           h.replaceAssistantReply(chatId, placeholderId, { ...base, content: streamed, status: 'streaming' }, false);
         };
         const reply = task.group
-          ? await runGroupMemberTurn({ group: task.group, bot, text: userText, prior: priorGroup, signal: controller.signal, onDelta, onEvent })
-          : await runBotTurn({ bot, text: userText, prior: priorBot, model: h.model || undefined, signal: controller.signal, onDelta, onEvent });
+          ? await runGroupMemberTurn({ group: task.group, bot, text: userText, prior: priorGroup, model: h.model || botModelOverride(bot), signal: controller.signal, onDelta, onEvent })
+          : await runBotTurn({ bot, text: userText, prior: priorBot, model: h.model || botModelOverride(bot), signal: controller.signal, onDelta, onEvent });
         const final = reply || streamed;
         const durationMs = Math.max(0, Date.now() - startedAt);
         if (final) {
@@ -217,7 +237,7 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
       sound.message();
     } finally {
       controllersRef.current = [];
-      pendingRef.current = null;
+      pendingRef.current.clear();
       h.setInFlight(false);
       h.setBusy(false);
       h.persist();
@@ -227,13 +247,20 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
   const abort = useCallback(() => {
     if (controllersRef.current.length === 0) return false;
     controllersRef.current.forEach((c) => c.abort());
-    pendingRef.current = null;
+    pendingRef.current.clear();
     return true;
   }, []);
 
-  const decide = useCallback(async (approve: boolean, remember = false): Promise<boolean> => {
-    const p = pendingRef.current;
-    if (!p) return false;
+  const decide = useCallback(async (
+    approve: boolean,
+    remember = false,
+    approvalId?: string,
+  ): Promise<boolean> => {
+    const pending = approvalId
+      ? pendingRef.current.get(approvalId)
+      : pendingRef.current.values().next().value;
+    if (!pending) return false;
+    const p = pending;
     const h = hostRef.current;
     const msg = h.getMessages(p.chatId).find((m) => m.id === p.messageId);
     const approval = msg?.pendingApproval;
@@ -241,7 +268,7 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
     // Clear the card optimistically; restore it if the decision POST fails so the
     // operator can retry (mirrors the main `useAgentRun.decide` contract).
     h.replaceAssistantReply(p.chatId, p.messageId, { ...(msg as Message), pendingApproval: undefined, status: 'streaming' }, true);
-    pendingRef.current = null;
+    pendingRef.current.delete(approval.id);
     try {
       const res = await fetch(
         `/api/harness/mcp/approvals/${encodeURIComponent(approval.id)}/decide`,
@@ -255,7 +282,7 @@ export function useBotDelegation(host: BotDelegationHost): BotDelegation {
       return true;
     } catch {
       h.replaceAssistantReply(p.chatId, p.messageId, { ...(msg as Message) }, true);
-      pendingRef.current = p;
+      pendingRef.current.set(approval.id, p);
       return false;
     }
   }, []);

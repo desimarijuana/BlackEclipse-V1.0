@@ -144,6 +144,7 @@ def build_definition(
         condition=ConditionSpec(expression=condition, edge=True),
         action=Action(type="run_agent", objective=text),
         delivery={"adapter": delivery or spec.delivery},
+        tags=["bot", "monitor"],
         created_at=now,
         updated_at=now,
     )

@@ -42,8 +42,9 @@ interface BotChatStore {
   /** Append an autonomous run's answer ONCE. Returns false when that execution
    *  is already in the thread (deduped by `runId`), true when it was added. */
   appendScheduled: (botId: string, message: BotMessage & { runId: string }) => boolean;
-  /** Patch one message in place — used to fill the live streaming reply. */
-  update: (botId: string, id: string, patch: Partial<BotMessage>) => void;
+  /** Patch one message in place — used to fill the live streaming reply. A
+   *  streaming caller passes `persist=false`; the terminal patch persists. */
+  update: (botId: string, id: string, patch: Partial<BotMessage>, persist?: boolean) => void;
   clear: (botId: string) => void;
 }
 
@@ -113,11 +114,11 @@ export const useBotChatStore = create<BotChatStore>((set, get) => ({
     return true;
   },
 
-  update: (botId, id, patch) => {
+  update: (botId, id, patch, persistNow = true) => {
     const list = get().byBot[botId];
     if (!list) return;
     const byBot = { ...get().byBot, [botId]: list.map((m) => (m.id === id ? { ...m, ...patch } : m)) };
-    persist(byBot);
+    if (persistNow) persist(byBot);
     set({ byBot });
   },
 

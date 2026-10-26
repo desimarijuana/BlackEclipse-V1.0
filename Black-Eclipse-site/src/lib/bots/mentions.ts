@@ -147,24 +147,31 @@ export function parseMentions(
     }
     const rest = src.slice(at + 1);
     const lowerRest = rest.toLowerCase();
-    let matched: MentionTarget | null = null;
+    // Longest matching name wins. If several targets share that name, resolve
+    // them ALL (the palette may list two bots called "Desk", and silently
+    // routing to whichever sorted first would be wrong).
     let matchedLen = 0;
+    let matched: MentionTarget[] = [];
     for (const target of ordered) {
       const name = target.name.toLowerCase();
       if (!name || !lowerRest.startsWith(name)) continue;
       const after = rest[name.length];
       // Require a word boundary after the name; allow punctuation, whitespace, end.
-      if (after === undefined || !/[\w-]/.test(after)) {
-        matched = target;
+      if (after !== undefined && /[\w-]/.test(after)) continue;
+      if (name.length > matchedLen) {
         matchedLen = name.length;
-        break;
+        matched = [target];
+      } else if (name.length === matchedLen) {
+        matched.push(target);
       }
     }
-    if (matched) {
-      const key = `${matched.kind}:${matched.id}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        out.push({ target: matched, start: at, end: at + 1 + matchedLen });
+    if (matchedLen > 0) {
+      for (const target of matched) {
+        const key = `${target.kind}:${target.id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          out.push({ target, start: at, end: at + 1 + matchedLen });
+        }
       }
       i = at + 1 + matchedLen;
     } else {

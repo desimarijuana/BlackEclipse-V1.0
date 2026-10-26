@@ -49,6 +49,11 @@ class AutomationService:
         self._store = store
         self._engine = engine
 
+    @property
+    def memory(self) -> Any:
+        """The owner's memory service (for bot-private conversation purges)."""
+        return getattr(self._service, "memory", None)
+
     # ── Validation ───────────────────────────────────────────────────────────
     def validate(self, definition: AutomationDefinition) -> list[ValidationIssue]:
         return validate_automation(

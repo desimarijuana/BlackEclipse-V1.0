@@ -1150,3 +1150,33 @@ model WorkflowVersion {
   @@unique([workflowId, version])
   @@index([workflowId, createdAt])
 }
+
+// -- User data tables (spreadsheet-style, n8n Data Tables equivalent) -------
+// Operator-authored rows live here, separate from CustomDataset (connector-fed
+// data) and from the canonical market tables. Both structured fields are JSON
+// strings because Prisma + SQLite has no Json column in this project.
+model DataTable {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  columns     String // JSON: TableColumn[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rows DataTableRow[]
+
+  @@index([updatedAt])
+}
+
+model DataTableRow {
+  id        String   @id @default(cuid())
+  tableId   String
+  values    String // JSON: Record<columnId, unknown>
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  table DataTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@index([tableId, position])
+}

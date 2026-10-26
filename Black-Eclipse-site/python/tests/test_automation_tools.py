@@ -118,3 +118,59 @@ def test_update_missing_bot_is_honest(ctx):
 
     _, data = run(tools._update({"botId": "does-not-exist", "name": "x"}, ctx))
     assert data["updated"] is False
+
+
+def test_bot_list_excludes_jobs_and_event_rules(ctx):
+    from harness.automation import tools
+
+    svc = tools._require_service()
+    bot = svc.create(
+        {
+            "name": "Real bot",
+            "state": "active",
+            "trigger": {"type": "manual"},
+            "action": {"type": "run_agent", "objective": "do bot work"},
+            "tags": ["bot"],
+        },
+        created_by="test",
+    )
+    job = svc.create(
+        {
+            "name": "Agent job",
+            "state": "active",
+            "trigger": {"type": "manual"},
+            "action": {"type": "run_agent", "objective": "do job work"},
+        },
+        created_by="test",
+    )
+    _, listed = run(tools._list({"limit": 500}, ctx))
+    ids = {b["id"] for b in listed["bots"]}
+    assert bot.id in ids
+    assert job.id not in ids
+    svc.delete(bot.id)
+    svc.delete(job.id)
+
+
+def test_bot_delete_purges_private_memory(ctx, monkeypatch):
+    from harness.automation import tools
+
+    svc = tools._require_service()
+    bot = svc.create(
+        {
+            "name": "Memory bot",
+            "state": "active",
+            "trigger": {"type": "manual"},
+            "action": {"type": "run_agent", "objective": "remember"},
+            "tags": ["bot"],
+        },
+        created_by="test",
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(
+        svc.memory,
+        "forget_conversation",
+        lambda conversation_id: (calls.append(conversation_id) or {"archived": []}),
+    )
+    _, deleted = run(tools._delete({"botId": bot.id}, ctx))
+    assert deleted["deleted"] is True
+    assert calls == [f"bot-{bot.id}"]

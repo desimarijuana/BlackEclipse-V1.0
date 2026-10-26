@@ -1,7 +1,7 @@
 ---
 title: Graph Studio — Visual Workflow Engineering
 status: Current
-last-verified: 2026-10-25
+last-verified: 2026-10-26
 ---
 
 # Graph Studio
@@ -141,20 +141,76 @@ version; the IR is re-validated server-side before it is stored. Routes:
 
 ---
 
-## The dedicated mode
+## Navigation and workspace
 
-Graph Studio is a **dedicated sidebar mode** (like Bots), not a nav item inside
-Agentic: `Alt+G` (or the mode switcher) switches the menu to Graph Studio, the
-left sidebar becomes the mode panel (**Workflows** browser + **Nodes** library),
-and the workspace opens. The shell hides the top bar and the chat dock for this
-tab, so the canvas gets the whole page.
+Graph Studio is its **own top-level mode** (`NavGroup 'graph'`, opened with
+`Alt+G` or the mode switcher). Unlike Bots, it does **not** replace the sidebar
+with a custom workflow panel: the left sidebar uses the **standard nav list
+filtered to graph sections** (Graph Studio, plus the shared ChatBot/Tables
+items), so the shell looks and behaves like every other page. A fresh shell
+still boots in **Terminal**; a tab that chose Graph keeps it for that session.
 
-The right rail has four tabs: **Inspect**, **Issues**, **Run** and **History**.
-History lists the saved workflow's past runs (click one to draw its node
-statuses on the canvas) and its immutable versions (click one to open it in the
-editor; saving then appends a new version rather than rewriting history).
+While the Graph Studio tab is active the app shell hides the top bar and the
+chat dock, but the left sidebar stays visible. A **Back** action returns to the
+workflow gallery / Overview.
 
-While a run is active the Run tab consumes its **SSE stream**
+The screen has two internal views (no router):
+
+- **Workflows home** (`graph-home.tsx`) — a full-width, searchable **card
+  gallery** of saved workflows (name, description, version, tags, updated time),
+  the template starter set, prompt-to-graph generation, and a "continue editing"
+  card when the editor still holds unsaved work. Data tables live on their own
+  top-level **Tables** page (`docs/tables.md`), not inside Graph Studio. Agentic
+  mode also exposes the same gallery as **Overview** (`docs/agentic-overview.md`), a
+  workflow dashboard that opens the editor only when you choose a workflow.
+- **Editor** (`graph-studio-screen.tsx` → `graph-canvas.tsx`) — a slim header,
+  the canvas, an optional right inspector dock and a collapsible execution dock.
+  The canvas is **transparent** over the shell's frosted background, and node
+  bodies use the shared `.glass-card` surface (not an opaque fill); floating
+  palettes/menus stay on the glass overlay tiers.
+
+### Visual language
+
+The editor deliberately keeps the app's frosted-glass theme rather than painting
+an opaque canvas: the dot grid sits directly on the shell background, nodes are
+translucent glass cards, and the small hover toolbars/edge controls use a
+semi-transparent `bg-background/90` so they blend with both light and dark
+themes. A solid canvas fill was removed because it flattened the rest of the
+workspace and made the editor look like a separate product.
+
+The left sidebar no longer hosts the node library. Adding a step happens **on
+the canvas**, where the insertion point is known:
+
+| Gesture | Result |
+| --- | --- |
+| `Tab` (canvas focused) / empty-state "Add first step" | Search panel inserts a node under the pointer / view centre |
+| `+` on a node output | Search panel appends a node and wires that output |
+| `+` on a hovered edge | Search panel inserts a node *into* the edge (splits it) |
+| Right-click pane / node | Context menu: add/paste/select-all/tidy/fit, or duplicate/copy/delete |
+| `Ctrl/Cmd+D` / `C` / `V` / `A` | Duplicate / copy / paste / select all |
+| `Delete` / `Backspace` | Delete selected nodes and edges |
+
+The search panel filters the registry to nodes that can actually be wired at
+the chosen point (typed ports and acyclicity are checked by the same
+`canConnect`/`portsCompatible` rules). Compound edits are expressed as ordinary
+validated patches in `edit-ops.ts`, so undo/redo and the server-side revalidation
+seam are unchanged.
+
+**Node details.** Selecting a node opens a ~380px inspector dock with three
+tabs: **Parameters** (registry-derived fields, friendly labels, JSON only for
+object/array fields), **Settings** (description, ports, capabilities, allowed
+modes, node id) and **Output** (the last run's bounded inputs/outputs for that
+node, read from the persisted run record). Issues, History and Health are
+reachable from the header instead of sharing five cramped tabs.
+
+**Execution.** The primary **Test** action runs the saved version. The bottom
+**execution dock** collapses to a status strip and expands into the existing
+run console; node statuses also render on the canvas (border tint, status badge,
+animated edges while running). Operator runs open an explicit authorization
+dialog listing only the effects this graph declared. History and Health open in
+the same right dock.
+
+While a run is active the dock consumes the run's **SSE stream**
 (`GET /graphs/runs/{id}/stream` → Next proxy `/api/graph-runs/[runId]/stream`).
 The stream replays the persisted event log from a cursor (`Last-Event-ID`), tails
 new events from the `HarnessGraphEvent` table, updates node statuses in place,

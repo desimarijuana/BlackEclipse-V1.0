@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { GhostAvatar } from '@/components/bots/ghost-avatar';
+import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostCustomizer } from '@/components/bots/ghost-customizer';
 import { ScheduleEditor } from '@/components/bots/schedule-editor';
 import { RunBehaviourEditor } from '@/components/bots/run-behaviour-editor';
@@ -127,7 +127,7 @@ export function BotDetail({ bot, busy, refreshKey = 0, onClose, onChanged, onRun
           title={t('bots.customize')}
           className="rounded-2xl transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <GhostAvatar spec={spec} size={56} title={bot.name} />
+          <BotAvatar botId={bot.id} spec={spec} size={56} title={bot.name} />
         </button>
 
         <div className="min-w-0 flex-1">
@@ -408,13 +408,19 @@ function InstructionsSection({ bot, onChanged }: { bot: AutomationView; onChange
 function ScheduleSection({ bot, onChanged }: { bot: AutomationView; onChanged: () => void }) {
   const t = useT();
   const [draft, setDraft] = useState<BotDraft>(() => draftFromBot(bot));
+  const [scheduleDirty, setScheduleDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
+  // Re-seed only when the SAVED automation changes (id or version), not on every
+  // background list refresh — a 20 s hydrate returns a new object with the same
+  // version and must not wipe edits the operator has not saved yet.
   useEffect(() => {
     setDraft(draftFromBot(bot));
-  }, [bot]);
+    setScheduleDirty(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bot.id, bot.version]);
 
   const save = async () => {
     const issues = validateDraft(draft);
@@ -427,11 +433,19 @@ function ScheduleSection({ bot, onChanged }: { bot: AutomationView; onChanged: (
     try {
       const nextConfig: Record<string, unknown> = { ...(bot.action.config ?? {}), ...buildModelConfig(draft) };
       if (!draft.model) delete nextConfig.modelSettings;
+      // Leave an event/condition trigger untouched unless the operator actually
+      // changed the schedule; saving a model or run-behaviour edit must never
+      // silently downgrade a monitor/rule to an on-demand bot.
+      const trigger = scheduleDirty ? buildTrigger(draft) : bot.trigger;
       const updated = await updateAutomation(bot.id, {
-        trigger: buildTrigger(draft),
+        trigger,
         ...buildPolicies(draft),
         action: { ...bot.action, config: nextConfig },
+        ...(scheduleDirty && draft.schedule === 'condition'
+          ? { condition: draft.condition ?? bot.condition }
+          : {}),
       });
+      setScheduleDirty(false);
       setFlash(updated.nextRunAt ? t('bots.scheduleUpdated', { next: formatDateTime(updated.nextRunAt) }) : t('bots.instructionsSaved'));
       onChanged();
     } catch (err) {
@@ -443,7 +457,10 @@ function ScheduleSection({ bot, onChanged }: { bot: AutomationView; onChanged: (
 
   return (
     <div className="space-y-3">
-      <ScheduleEditor draft={draft} onChange={(p) => setDraft((d) => ({ ...d, ...p }))} />
+      <ScheduleEditor
+        draft={draft}
+        onChange={(p) => { setDraft((d) => ({ ...d, ...p })); setScheduleDirty(true); }}
+      />
       <BotModelPicker
         provider={draft.modelProvider}
         model={draft.model}
@@ -461,7 +478,12 @@ function ScheduleSection({ bot, onChanged }: { bot: AutomationView; onChanged: (
         <Button size="sm" onClick={save} disabled={saving}>
           {saving ? t('bots.saving') : t('bots.save')}
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => setDraft(draftFromBot(bot))} disabled={saving}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => { setDraft(draftFromBot(bot)); setScheduleDirty(false); }}
+          disabled={saving}
+        >
           {t('bots.cancelEdit')}
         </Button>
         {flash && <span className="text-xs text-emerald-300">{flash}</span>}
@@ -492,6 +514,26 @@ function CapabilitiesSection({ bot }: { bot: AutomationView }) {
               <div className="mt-1 flex flex-wrap gap-1">
                 {perms.allowed.map((p) => (
                   <span key={p} className="rounded-md border border-border/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">{p}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {perms.denied.length > 0 && (
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{t('bots.deniedTools')}</div>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {perms.denied.map((p) => (
+                  <span key={p} className="rounded-md border border-rose-500/30 px-1.5 py-0.5 text-[10px] text-rose-300/80">{p}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {bot.tags.length > 0 && (
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{t('bots.tags')}</div>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {bot.tags.map((tag) => (
+                  <span key={tag} className="rounded-md border border-border/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">{tag}</span>
                 ))}
               </div>
             </div>

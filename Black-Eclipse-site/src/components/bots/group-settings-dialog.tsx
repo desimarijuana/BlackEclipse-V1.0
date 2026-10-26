@@ -46,15 +46,32 @@ export function GroupSettingsDialog({ open, onOpenChange, group, bots }: GroupSe
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const botsRef = useRef(bots);
+  botsRef.current = bots;
 
   useEffect(() => {
     if (!open) return;
     setName(group.name);
     setImage(group.image ?? null);
-    setSelected(group.memberIds);
+    setSelected(
+      botsRef.current.length > 0
+        ? group.memberIds.filter((id) => botsRef.current.some((b) => b.id === id))
+        : group.memberIds,
+    );
     setQuery('');
     setError(null);
   }, [open, group.name, group.image, group.memberIds]);
+
+  // Once the live bot list arrives, drop any stale member id without resetting
+  // the operator's valid selections (this runs on every hydrate, so it must be
+  // a narrowing filter only).
+  useEffect(() => {
+    if (!open || bots.length === 0) return;
+    setSelected((prev) => {
+      const next = prev.filter((id) => bots.some((b) => b.id === id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [open, bots]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -82,10 +99,11 @@ export function GroupSettingsDialog({ open, onOpenChange, group, bots }: GroupSe
 
   const save = () => {
     if (!name.trim()) { setError(t('bots.groups.nameRequired')); return; }
-    if (selected.length < MIN_MEMBERS) { setError(t('bots.groups.minMembers')); return; }
+    const valid = selected.filter((id) => bots.some((b) => b.id === id));
+    if (valid.length < MIN_MEMBERS) { setError(t('bots.groups.minMembers')); return; }
     renameGroup(group.id, name.trim());
     setGroupImage(group.id, image);
-    setMembers(group.id, selected);
+    setMembers(group.id, valid);
     onOpenChange(false);
   };
 

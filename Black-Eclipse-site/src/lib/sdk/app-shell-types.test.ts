@@ -68,12 +68,12 @@ describe('app shell nav contracts', () => {
     const state = parseAppShellState(JSON.stringify({
       revision: 7,
       updatedAt: '2026-10-19T00:00:00.000Z',
-      nav: { mode: 'graph', sections: [{ id: 'chat', enabled: false }] },
+      nav: { mode: 'agentic', sections: [{ id: 'chat', enabled: false }] },
     }));
     expect(state.initialized).toBe(true);
     expect(state.revision).toBe(7);
     expect(state.updatedAt).toBe('2026-10-19T00:00:00.000Z');
-    expect(state.nav.mode).toBe('graph');
+    expect(state.nav.mode).toBe('agentic');
     expect(state.nav.sections[0]).toEqual({ id: 'chat', enabled: false });
     expect(state.nav.sections).toHaveLength(APP_NAV_IDS.length);
   });

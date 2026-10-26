@@ -20,6 +20,7 @@ export function BotSchedulerDock() {
   const setOpen = useWorkspaceStore((s) => s.setOpen);
   const openCreate = useBotsStore((s) => s.openCreate);
   const select = useBotsStore((s) => s.select);
+  const hydrate = useBotsStore((s) => s.hydrate);
 
   if (!open) return null;
 
@@ -46,7 +47,7 @@ export function BotSchedulerDock() {
       </header>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 pt-1">
-        <MonitorPanel />
+        <MonitorPanel onArmed={() => void hydrate()} />
         <ScheduledJobsPanel
           bare
           onCreate={openCreate}

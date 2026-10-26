@@ -30,6 +30,8 @@ interface TabMeta { icon: LucideIcon; label?: string }
 // a missing one used to render `undefined.icon` and blank the whole shell.
 export const TAB_META: Partial<Record<AppTab, TabMeta>> = {
   chat: { icon: Bot },
+  tables: { icon: Database },
+  overview: { icon: LayoutDashboard },
   home: { icon: Home },
   dashboard: { icon: LayoutDashboard },
   discovery: { icon: GlobeStand },
@@ -58,10 +60,10 @@ export const TAB_META: Partial<Record<AppTab, TabMeta>> = {
 /** Tab order per menu mode. `bots` lists no sidebar sections, so its entries are
  *  declared here (bots first, then the shared agent surface). */
 export const MODE_TABS: Record<NavGroup, AppTab[]> = {
-  terminal: ['chat', 'home', 'dashboard', 'discovery', 'portfolio', 'investor-eye', 'market-workspace', 'journal', 'news', 'heatmap', 'economics', 'alerts'],
-  agentic: ['chat', 'skills', 'memory', 'artifacts', 'tasks', 'pages'],
+  terminal: ['chat', 'tables', 'home', 'dashboard', 'discovery', 'portfolio', 'investor-eye', 'market-workspace', 'journal', 'news', 'heatmap', 'economics', 'alerts'],
+  agentic: ['chat', 'overview', 'tables', 'skills', 'memory', 'artifacts', 'tasks', 'pages'],
   bots: ['bots', 'chat', 'tasks', 'artifacts', 'memory', 'skills'],
-  graph: ['graph-studio', 'chat', 'tasks', 'artifacts'],
+  graph: ['graph-studio', 'chat', 'tables', 'artifacts'],
 };
 
 const MODES: { id: NavGroup; icon: LucideIcon }[] = [

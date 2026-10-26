@@ -182,8 +182,13 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1554→1555 for the parallel fan-out: the turn sink forwards ONE
   // extra persisted field (`delegations`); the card and reducer live in
   // `components/chat/parallel-agents-panel.tsx` / `lib/agent/delegation-reducer.ts`.
+  // Re-pinned 1555→1572 for the Tables keep-alive tab mount (dynamic import,
+  // mount block, right-dock/ChatDock exclusions); the page itself lives in
+  // `components/screens/tables/tables-screen.tsx`.
+  // Re-pinned 1572→1584 for the Agentic Overview tab (same small mount pattern;
+  // the gallery lives in `components/screens/overview/overview-screen.tsx`).
   // May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1555,
+  "src/components/screens/stock-chat.tsx": 1584,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

@@ -13,6 +13,7 @@ import {
   type AutomationStatusSummaryView,
   type AutomationView,
 } from '@/lib/harness/automation-browser';
+import { isBotAutomation } from '@/lib/bots/state';
 
 /** botId → the last execution id whose output the operator has actually seen
  *  in that bot's chat. The sidebar's unread dot is driven by this: a bot has an
@@ -49,7 +50,7 @@ function loadBotsCache(): BotsCache {
     const raw = localStorage.getItem(CACHE_KEY);
     if (!raw) return EMPTY_CACHE;
     const parsed = JSON.parse(raw) as { bots?: unknown; statusById?: unknown };
-    const bots = Array.isArray(parsed?.bots) ? parsed.bots.filter(isCachedBot) : [];
+    const bots = Array.isArray(parsed?.bots) ? parsed.bots.filter(isCachedBot).filter(isBotAutomation) : [];
     const statusById: Record<string, AutomationStatusSummaryView> = {};
     if (parsed?.statusById && typeof parsed.statusById === 'object') {
       for (const [id, status] of Object.entries(parsed.statusById as Record<string, unknown>)) {
@@ -101,6 +102,15 @@ function loadSeenRuns(): Record<string, string> {
 
 let seenLoaded = false;
 
+function persistSeenRuns(seenRuns: Record<string, string>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(SEEN_KEY, JSON.stringify(seenRuns));
+  } catch {
+    /* quota / private mode — in-memory only */
+  }
+}
+
 function loadPinnedIds(): string[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -145,6 +155,10 @@ interface BotsStore {
   release: (botId: string) => void;
   loading: boolean;
   error: string | null;
+  /** True once at least one batched status sweep has succeeded. The sidebar
+   *  seeds its unread ledger only after this, so a bot created during this
+   *  session still raises a dot for its first run. */
+  statusLoaded: boolean;
   /** The selected bot, or null. Mutual exclusive with `selectedGroupId`. */
   selectedId: string | null;
   /** The selected group chat room, or null. */
@@ -186,6 +200,7 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
   pinnedIds: [],
   loading: initialCache.bots.length === 0,
   error: null,
+  statusLoaded: false,
   selectedId: null,
   selectedGroupId: null,
   createOpen: false,
@@ -194,13 +209,7 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
   markSeen: (botId, runId) => {
     if (!runId || get().seenRuns[botId] === runId) return;
     const seenRuns = { ...get().seenRuns, [botId]: runId };
-    if (typeof window !== 'undefined') {
-      try {
-        localStorage.setItem(SEEN_KEY, JSON.stringify(seenRuns));
-      } catch {
-        /* quota / private mode — in-memory only */
-      }
-    }
+    persistSeenRuns(seenRuns);
     set({ seenRuns });
   },
 
@@ -261,7 +270,7 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
     const task = (async () => {
       let bots: AutomationView[];
       try {
-        bots = (await listAutomations()).filter((b) => !deletedIds.has(b.id));
+        bots = (await listAutomations()).filter((b) => isBotAutomation(b) && !deletedIds.has(b.id));
       } catch (err) {
         if (seq !== hydrateSeq) return;
         set({ loading: false, error: err instanceof Error ? err.message : 'failed to load bots' });
@@ -284,7 +293,21 @@ export const useBotsStore = create<BotsStore>((set, get) => ({
       try {
         const statusById = await getAutomationStatuses();
         if (seq !== hydrateSeq) return;
-        set({ statusById });
+        // The FIRST successful status sweep seeds the unread ledger: a bot that
+        // already had history when the app opened is not "unread", but a bot
+        // created later (or one with no run yet) still raises a dot for its
+        // first completed run.
+        const firstSweep = !get().statusLoaded;
+        let seenRuns = get().seenRuns;
+        if (firstSweep) {
+          seenRuns = { ...seenRuns };
+          for (const bot of get().bots) {
+            const last = statusById[bot.id]?.lastExecution;
+            if (last && seenRuns[bot.id] === undefined) seenRuns[bot.id] = last.id;
+          }
+          persistSeenRuns(seenRuns);
+        }
+        set({ statusById, statusLoaded: true, seenRuns });
         persistBotsCache(get().bots, statusById);
       } catch {
         /* keep the previous statuses; the next hydrate retries */

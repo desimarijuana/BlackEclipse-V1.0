@@ -105,9 +105,23 @@ def update_automation(
 
 @router.delete("/automations/{automation_id}")
 def delete_automation(automation_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
-    if not _svc().delete(automation_id):
+    svc = _svc()
+    definition = svc.get(automation_id)
+    if not svc.delete(automation_id):
         raise HTTPException(status_code=404, detail="Automation not found")
-    return {"success": True, "deleted": automation_id}
+    # Privacy: deleting a bot also forgets its private conversation bucket
+    # (`bot-<id>`), archived rather than hard-deleted. Best-effort — a purge
+    # failure never blocks the delete. Non-bot automations have no such bucket.
+    purged = 0
+    tags = list(getattr(definition, "tags", None) or [])
+    is_bot = "bot" in tags or "monitor" in tags or automation_id.startswith("mon_")
+    memory = getattr(svc, "memory", None)
+    if is_bot and memory is not None:
+        try:
+            purged = len(memory.forget_conversation(f"bot-{automation_id}").get("archived") or [])
+        except Exception:  # noqa: BLE001
+            purged = 0
+    return {"success": True, "deleted": automation_id, "memoryPurged": purged}
 
 
 @router.post("/automations/{automation_id}/validate")

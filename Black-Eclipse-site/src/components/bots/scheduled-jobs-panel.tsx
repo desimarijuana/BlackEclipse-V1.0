@@ -32,6 +32,7 @@ export function ScheduledJobsPanel({ onCreate, onSelectBot, onCollapse, bare = f
   const hydrate = useBotsStore((s) => s.hydrate);
   const avatars = useBotAvatarStore((s) => s.avatars);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const scheduled = useMemo(
     () => bots.filter((b) => triggerClass(b.trigger.type) !== 'manual' || Boolean(b.nextRunAt)),
@@ -48,12 +49,13 @@ export function ScheduledJobsPanel({ onCreate, onSelectBot, onCollapse, bare = f
   const toggle = useCallback(
     async (bot: AutomationView) => {
       setBusyId(bot.id);
+      setActionError(null);
       try {
         if (bot.state === 'active') await pauseAutomation(bot.id);
         else await resumeAutomation(bot.id);
         await hydrate();
-      } catch {
-        /* best-effort; the workspace surfaces action errors */
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : 'action failed');
       } finally {
         setBusyId(null);
       }
@@ -89,6 +91,12 @@ export function ScheduledJobsPanel({ onCreate, onSelectBot, onCollapse, bare = f
           </button>
         )}
       </div>
+
+      {actionError && (
+        <p className="mb-2 rounded-lg border border-rose-500/30 bg-rose-500/5 px-2 py-1.5 text-[10px] text-rose-300">
+          {actionError}
+        </p>
+      )}
 
       {ordered.length === 0 ? (
         <button

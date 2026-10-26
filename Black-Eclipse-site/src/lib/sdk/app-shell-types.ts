@@ -46,11 +46,13 @@ export const APP_NAV_SECTIONS: readonly AppNavManifestSection[] = [
   { id: 'heatmap', label: 'Market Bubbles', group: 'terminal' },
   { id: 'economics', label: 'Economics', group: 'terminal' },
   { id: 'alerts', label: 'Price Alerts', group: 'terminal' },
+  { id: 'overview', label: 'Overview', group: 'agentic' },
   { id: 'skills', label: 'Skills', group: 'agentic' },
   { id: 'sdk', label: 'Eclipse SDK', group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', group: 'agentic' },
   { id: 'artifacts', label: 'Artifacts', group: 'agentic' },
   { id: 'graph-studio', label: 'Graph Studio', group: 'graph' },
+  { id: 'tables', label: 'Tables', group: 'both' },
 ];
 
 export const APP_NAV_IDS: readonly AppTab[] = APP_NAV_SECTIONS.map((section) => section.id);

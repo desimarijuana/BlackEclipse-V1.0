@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useT } from '@/lib/i18n';
-import { Ghost, Plus, Users } from '@/lib/icons';
+import { Ghost, Loader2, Plus, Sparkles, Users } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
@@ -23,6 +23,8 @@ import {
   type AutomationView,
 } from '@/lib/harness/automation-browser';
 import { duplicateBot } from '@/lib/bots/duplicate';
+import { useSeedFinancePack } from '@/lib/bots/finance-bots';
+import { forgetBotLocally, forgetBotMemory } from '@/lib/bots/purge';
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { useHydrateBotAvatars } from '@/lib/bots/avatar-store';
 import { useBotGroupsStore, useHydrateBotGroups } from '@/lib/bots/groups-store';
@@ -41,6 +43,8 @@ export function BotsScreen({ active = true }: { active?: boolean }) {
   const hydrate = useBotsStore((s) => s.hydrate);
   const select = useBotsStore((s) => s.select);
   const selectGroup = useBotsStore((s) => s.selectGroup);
+  const forget = useBotsStore((s) => s.forget);
+  const release = useBotsStore((s) => s.release);
   const createOpen = useBotsStore((s) => s.createOpen);
   const openCreate = useBotsStore((s) => s.openCreate);
   const setCreateOpen = useBotsStore((s) => s.setCreateOpen);
@@ -118,14 +122,16 @@ export function BotsScreen({ active = true }: { active?: boolean }) {
   }, [selectedId, selectedGroupId, select, selectGroup]);
 
   const runAction = useCallback(
-    async (id: string, fn: () => Promise<unknown>) => {
+    async (id: string, fn: () => Promise<unknown>): Promise<boolean> => {
       setBusyId(id);
       setActionError(null);
       try {
         await fn();
         await hydrate();
+        return true;
       } catch (err) {
         setActionError(err instanceof Error ? err.message : 'action failed');
+        return false;
       } finally {
         setBusyId(null);
       }
@@ -146,8 +152,20 @@ export function BotsScreen({ active = true }: { active?: boolean }) {
     const id = deleteTarget.id;
     setDeleteTarget(null);
     if (selectedId === id) select(null);
-    await runAction(id, () => deleteAutomation(id));
-  }, [deleteTarget, selectedId, runAction, select]);
+    // Drop the row immediately and keep any in-flight hydrate from resurrecting
+    // it; a failed delete restores it from the server's list.
+    forget(id);
+    const ok = await runAction(id, () => deleteAutomation(id));
+    if (ok) {
+      // The durable definition is gone; clear the client-side thread/face/room
+      // membership now and purge the private memory buckets best-effort.
+      forgetBotLocally(id);
+      void forgetBotMemory(id);
+    } else {
+      release(id);
+      await hydrate();
+    }
+  }, [deleteTarget, selectedId, runAction, select, forget, release, hydrate]);
 
   const handleGroupCreate = useCallback(
     (input: { name: string; memberIds: string[]; image?: string }) => {
@@ -173,7 +191,7 @@ export function BotsScreen({ active = true }: { active?: boolean }) {
         <div className="glass-card-subtle mx-2 mt-2 flex items-center gap-2 rounded-lg border border-rose-500/30 px-3 py-2 text-sm text-rose-300 md:mx-3">
           <span className="flex-1">{actionError || error}</span>
           <button type="button" onClick={() => { setActionError(null); void hydrate(); }} className="text-xs underline">
-            {t('common.reset')}
+            {t('common.refresh')}
           </button>
         </div>
       )}
@@ -182,13 +200,16 @@ export function BotsScreen({ active = true }: { active?: boolean }) {
       <div className="min-h-0 flex-1 p-2 md:p-3">
         {selectedGroup ? (
           <GroupChatRoom
+            key={selectedGroup.id}
             group={selectedGroup}
             bots={bots}
+            active={active}
             onDeleted={() => selectGroup(null)}
             onChanged={() => void hydrate()}
           />
         ) : selectedBot ? (
           <BotChat
+            key={selectedBot.id}
             bot={selectedBot}
             active={active}
             busy={busyId === selectedBot.id}
@@ -253,6 +274,7 @@ function CenterEmpty({
   onCreateGroup: () => void;
 }) {
   const t = useT();
+  const { seed, busy, error } = useSeedFinancePack();
   return (
     <div className="glass-card flex h-full min-h-[20rem] flex-col items-center justify-center rounded-2xl px-6 text-center">
       <div className="glass-card-subtle flex h-14 w-14 items-center justify-center rounded-2xl text-muted-foreground">
@@ -266,7 +288,13 @@ function CenterEmpty({
         <Button variant="outline" onClick={onCreateGroup}>
           <Users size={14} /> {t('bots.groups.new')}
         </Button>
+        <Button variant="outline" onClick={() => void seed()} disabled={busy}>
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+          {busy ? t('bots.finance.seeding') : t('bots.finance.seed')}
+        </Button>
       </div>
+      <p className="mt-3 max-w-sm text-[11px] text-muted-foreground">{t('bots.finance.hint')}</p>
+      {error && <p className="mt-2 max-w-sm text-[11px] text-rose-300">{error}</p>}
     </div>
   );
 }

@@ -31,7 +31,15 @@ export async function duplicateBot(bot: AutomationView): Promise<AutomationView>
       type: bot.action.type,
       objective: bot.action.objective,
       agentId: bot.action.agentId,
+      // Keep the model/engine settings that are part of the bot's behaviour.
+      config: { ...(bot.action.config ?? {}) },
     },
+    execution: { ...bot.execution },
+    retry: { ...bot.retry },
+    concurrency: { ...bot.concurrency },
+    limits: { ...bot.limits },
+    permissions: { ...bot.permissions },
+    delivery: { ...bot.delivery },
     tags: [...bot.tags.filter((x) => x !== 'bot'), 'bot'],
   });
 }

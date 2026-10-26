@@ -1770,3 +1770,30 @@ html:not(.dark) [data-aurora-glow] {
 .be-boot-overlay {
   animation: beBootOverlayDismiss 1.1s ease forwards;
 }
+
+/* Graph Studio — running edges march so a live run is legible on the canvas. */
+@keyframes graphEdgeDash {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+.graph-edge-running path,
+.graph-edge-running {
+  stroke-dasharray: 6 6;
+  animation: graphEdgeDash 0.8s linear infinite;
+}
+
+/* React Flow selection chrome: match the editor, not the library default. */
+.graph-canvas .react-flow__selection {
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+}
+.graph-canvas .react-flow__node.selected {
+  outline: none;
+}
+.graph-canvas .react-flow__handle {
+  cursor: crosshair;
+}
+.graph-canvas .react-flow__attribution {
+  display: none;
+}

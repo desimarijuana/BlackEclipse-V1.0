@@ -99,6 +99,12 @@ describe('parseMentions', () => {
     expect(found).toHaveLength(1);
   });
 
+  it('resolves every target that shares the longest name', () => {
+    const same = [BOT('b1', 'Desk'), BOT('b2', 'Desk'), BOT('b3', 'Desk Bot')];
+    expect(parseMentions('@Desk run it', same).map((m) => m.target.id)).toEqual(['b1', 'b2']);
+    expect(parseMentions('@Desk Bot run it', same).map((m) => m.target.id)).toEqual(['b3']);
+  });
+
   it('returns nothing without targets', () => {
     expect(parseMentions('@Anything', [])).toEqual([]);
   });

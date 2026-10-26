@@ -70,4 +70,26 @@ describe('graph editor store', () => {
     expect(store().baseVersion).toBe(5);
     expect(store().serverContentHash).toBe('wf_abc');
   });
+
+  it('duplicates and pastes selections through the same patch chokepoint', () => {
+    const ir = buildTemplate('blank')!;
+    store().load(ir, { workflowId: 'w1' });
+    store().selectAll();
+    expect(store().duplicateSelection()).toBe(true);
+    expect(store().ir?.nodes).toHaveLength(4);
+    expect(store().selection.nodeIds).toHaveLength(2);
+
+    store().selectAll();
+    expect(store().copySelection()).toBe(true);
+    expect(store().pasteClipboard()).toBe(true);
+    expect(store().ir?.nodes).toHaveLength(8);
+    expect(store().past.length).toBe(2);
+  });
+
+  it('increments loadNonce so the workspace can open the editor', () => {
+    const ir = buildTemplate('blank')!;
+    const before = store().loadNonce;
+    store().load(ir, { workflowId: 'w1' });
+    expect(store().loadNonce).toBe(before + 1);
+  });
 });

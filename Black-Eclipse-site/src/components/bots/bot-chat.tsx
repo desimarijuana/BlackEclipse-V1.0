@@ -29,10 +29,8 @@ import {
   dropProvisionalDelegation,
   startProvisionalDelegation,
 } from '@/lib/agent/delegation-reducer';
-import { ModelSelector } from '@/components/chat/chat-input';
 import { runBotTurn } from '@/lib/bots/invoke';
 import { listAutomationHistory, type ExecutionView } from '@/lib/harness/automation-browser';
-import { useChatModel } from '@/lib/agent/use-chat-model';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { BotDetail } from '@/components/bots/bot-detail';
 import { BreakerPill, LifecyclePill } from '@/components/bots/status-pill';
@@ -46,7 +44,7 @@ import { useBotChatStore, useHydrateBotChat, type BotMessage } from '@/lib/bots/
 import { useBotsStore } from '@/lib/bots/bots-store';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import {
-  buildTrigger, detectSchedule, emptyBotDraft, formatDateTime, formatRelative, scheduleSummary,
+  buildTrigger, botModelOverride, detectSchedule, emptyBotDraft, formatDateTime, formatRelative, scheduleSummary,
 } from '@/lib/bots/state';
 
 export interface BotChatProps {
@@ -57,7 +55,7 @@ export interface BotChatProps {
   refreshKey?: number;
   onClose: () => void;
   onChanged: () => void;
-  onRunNow: (bot: AutomationView) => void | Promise<void>;
+  onRunNow: (bot: AutomationView) => Promise<boolean> | boolean | void;
   onDuplicate: (bot: AutomationView) => void;
   onDelete: (bot: AutomationView) => void;
 }
@@ -92,8 +90,10 @@ export function BotChat({
   // top-bar toggle and Ctrl/Cmd+Shift+E keybind keeps them in sync.
   const schedulerOpen = useWorkspaceStore((s) => s.open);
   const toggleScheduler = useWorkspaceStore((s) => s.toggle);
-  // The composer's real model selector/serialized state (never a fabricated list).
-  const modelState = useChatModel();
+  // Interactive turns use the bot's own pinned model (Details → Schedule), never
+  // the app-wide composer default. There is no inline global selector here: a
+  // bot's model must not change every other chat.
+  const botModel = botModelOverride(bot);
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -139,17 +139,19 @@ export function BotChat({
     return detectSchedule(instructions);
   }, [bot.trigger.type, instructions]);
 
-  // The thread is newest-first, so the newest message lives at the TOP.
-  const scrollToTop = useCallback(() => {
+  // The thread reads top-to-bottom, so the newest message lives at the BOTTOM.
+  const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
       const el = scrollRef.current;
-      if (el) el.scrollTop = 0;
+      if (el) el.scrollTop = el.scrollHeight;
     });
   }, []);
 
+  // Follow the newest message, including the streamed content of the live reply.
+  const lastContent = messages.length > 0 ? messages[messages.length - 1].content : '';
   useEffect(() => {
-    scrollToTop();
-  }, [messages.length, sending, scrollToTop]);
+    scrollToBottom();
+  }, [messages.length, sending, lastContent, scrollToBottom]);
 
   const saveIdentity = useCallback(async () => {
     if (savingIdentity) return;
@@ -197,8 +199,8 @@ export function BotChat({
     setRunBusy(true);
     setRunNote(null);
     try {
-      await onRunNow(bot);
-      setRunNote(t('bots.runQueued'));
+      const ok = await onRunNow(bot);
+      setRunNote(ok === false ? t('bots.runFailed') : t('bots.runQueued'));
     } catch (err) {
       setRunNote(err instanceof Error ? err.message : 'run failed');
     } finally {
@@ -341,7 +343,7 @@ export function BotChat({
       } else {
         return;
       }
-      updateMessage(bot.id, replyId, { delegations });
+      updateMessage(bot.id, replyId, { delegations }, false);
     };
     try {
       // The streaming agent provider (background run + SSE), NOT the one-shot
@@ -354,7 +356,7 @@ export function BotChat({
         bot,
         text,
         prior,
-        model: modelState.selectedModel || undefined,
+        model: botModel,
         signal: controller.signal,
         onEvent: (event) => {
           applyDelegation(event);
@@ -364,7 +366,9 @@ export function BotChat({
         onDelta: (chunk) => {
           streamed += chunk;
           setMood('speaking');
-          updateMessage(bot.id, replyId, { content: streamed });
+          // Streaming frames update memory only; the terminal update below
+          // persists the finished thread once instead of on every token.
+          updateMessage(bot.id, replyId, { content: streamed }, false);
         },
       });
       const final = reply || streamed;
@@ -389,7 +393,7 @@ export function BotChat({
       abortRef.current = null;
       setSending(false);
     }
-  }, [sending, append, updateMessage, bot, modelState.selectedModel]);
+  }, [sending, append, updateMessage, bot, botModel]);
 
   const send = useCallback(() => {
     void runTurn(input);
@@ -575,16 +579,8 @@ export function BotChat({
           </div>
         )}
 
-        {sending && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 size={14} className="animate-spin" />
-            {bot.name} is thinking…
-          </div>
-        )}
-
-        {/* Newest message first: the thread is rendered in reverse. */}
-        {[...messages].reverse().map((m, ri) => {
-          const i = messages.length - 1 - ri;
+        {/* Oldest first: the question is on top, its answer below it. */}
+        {messages.map((m, i) => {
           return !m.error && m.role === 'assistant' && !m.content ? null : (
             <ChatBubble
               key={m.id}
@@ -599,10 +595,21 @@ export function BotChat({
                   ? regenerate
                   : undefined
               }
-              onRetry={m.role === 'assistant' && m.error && !m.scheduled ? regenerate : undefined}
+              onRetry={
+                i === messages.length - 1 && m.role === 'assistant' && m.error && !m.scheduled
+                  ? regenerate
+                  : undefined
+              }
             />
           );
         })}
+
+        {sending && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 size={14} className="animate-spin" />
+            {bot.name} is thinking…
+          </div>
+        )}
       </div>
 
       {/* Composer */}
@@ -641,7 +648,6 @@ export function BotChat({
             className="chat-composer-scroll min-w-0 flex-1 resize-none self-center overflow-x-hidden overflow-y-auto border-0 bg-transparent px-3 py-2 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground focus:outline-none focus:ring-0"
           />
           <div className="mb-0.5 flex shrink-0 items-center gap-1 sm:gap-2">
-            {!sending && <ModelSelector state={modelState} />}
             {sending ? (
               <Button
                 size="icon"

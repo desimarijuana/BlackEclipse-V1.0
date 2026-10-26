@@ -120,7 +120,7 @@ export function GreetingHeader({ data }: { data: HomeData }) {
               className="h-9 min-w-[10.5rem] cursor-pointer appearance-none rounded-xl bg-white/[0.03] pl-3 pr-8 text-[11px] font-medium text-foreground outline-none transition-colors hover:bg-white/[0.06] focus-visible:bg-white/[0.06]"
             >
               {data.marketOptions.map((option) => (
-                <option key={option.id} value={option.id}>{option.label}</option>
+                <option key={option.id} value={option.id} className="bg-[#121212] text-foreground">{option.label}</option>
               ))}
             </select>
             <ChevronDown size={13} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />

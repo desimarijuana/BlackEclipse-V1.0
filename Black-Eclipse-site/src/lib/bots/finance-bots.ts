@@ -148,8 +148,16 @@ export async function seedFinancePack(existing: AutomationView[]): Promise<SeedR
   const existingGroup = groupStore.groups.find(
     (g) => g.name.trim().toLowerCase() === FINANCE_GROUP_NAME.toLowerCase(),
   );
-  const group = existingGroup ?? groupStore.createGroup({ name: FINANCE_GROUP_NAME, memberIds });
-  return { groupId: group.id, created, reused };
+  if (!existingGroup) {
+    const group = groupStore.createGroup({ name: FINANCE_GROUP_NAME, memberIds });
+    return { groupId: group.id, created, reused };
+  }
+  // Repair an existing room rather than silently leaving new pack members out
+  // (and drop ids whose bot no longer exists).
+  const known = new Set([...existing.map((b) => b.id), ...memberIds]);
+  const merged = [...new Set([...existingGroup.memberIds.filter((id) => known.has(id)), ...memberIds])].slice(0, 6);
+  groupStore.setMembers(existingGroup.id, merged);
+  return { groupId: existingGroup.id, created, reused };
 }
 
 /** UI hook: seed the pack, refresh the bot list and open the group room. */

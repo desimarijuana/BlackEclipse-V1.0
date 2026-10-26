@@ -35,6 +35,12 @@ export interface ScheduleEditorProps {
 export function ScheduleEditor({ draft, onChange, className }: ScheduleEditorProps) {
   const t = useT();
   const choices: ScheduleChoice[] = ['manual', 'once', 'daily', 'weekdays', 'weekly', 'monthly', 'interval', 'cron'];
+  // An event/condition bot keeps its original trigger type visible (and can
+  // switch away from it), but this builder never pretends to edit the event
+  // filter or condition expression — those are preserved verbatim on save.
+  if (draft.schedule === 'event' || draft.schedule === 'condition') {
+    choices.unshift(draft.schedule);
+  }
   // Every IANA zone the engine accepts. `supportedValuesOf` is widely available;
   // the current draft's zone is always included so the select can never show an
   // empty value.
@@ -161,6 +167,9 @@ export function ScheduleEditor({ draft, onChange, className }: ScheduleEditorPro
           />
         )}
       </div>
+      {(draft.schedule === 'event' || draft.schedule === 'condition') && (
+        <p className="text-xs text-muted-foreground">{t('bots.sched.preservedNote')}</p>
+      )}
       {draft.schedule !== 'manual' && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">{t('bots.timezone')}</span>

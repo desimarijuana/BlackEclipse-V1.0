@@ -178,8 +178,31 @@ def test_a_monitor_is_created_switched_off(client):
     assert res.status_code == 200
     automation = res.json()["automation"]
     assert automation["state"] == "disabled"
+    assert "bot" in automation["tags"]
     assert automation["trigger"]["condition"]["expression"] == "pf.pf_1.cash_pct < 0.05"
     client.delete(f"/automations/{automation['id']}")
+
+
+def test_deleting_a_bot_purges_its_private_memory(client, monkeypatch):
+    from harness.deps import service
+
+    created = client.post("/automations", json={
+        "name": "Memory purge bot",
+        "state": "active",
+        "trigger": {"type": "manual"},
+        "action": {"type": "run_agent", "objective": "remember"},
+        "tags": ["bot"],
+    }).json()["automation"]
+    calls: list[str] = []
+    monkeypatch.setattr(
+        service.memory,
+        "forget_conversation",
+        lambda conversation_id: (calls.append(conversation_id) or {"archived": []}),
+    )
+    res = client.delete(f"/automations/{created['id']}")
+    assert res.status_code == 200
+    assert calls == [f"bot-{created['id']}"]
+
 
 
 def test_a_monitor_missing_a_parameter_is_refused(client):

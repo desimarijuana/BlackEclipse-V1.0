@@ -106,6 +106,32 @@ export function needsAttention(bot: AutomationView): boolean {
   return bot.breaker === 'open' || bot.consecutiveFailures > 0;
 }
 
+/** The automation tag every bot carries. Monitors are bots too (tagged at
+ *  creation); jobs and event rules are not, even though some of them also run
+ *  an agent. The Bots workspace, @mention palette and run watcher all use this
+ *  one predicate so an unrelated automation can never masquerade as a bot. */
+export const BOT_TAG = 'bot';
+
+export function isBotAutomation(
+  automation: Pick<AutomationView, 'id' | 'tags'>,
+): boolean {
+  const tags = automation.tags ?? [];
+  return (
+    tags.includes(BOT_TAG) ||
+    tags.includes('monitor') ||
+    // Monitors created before they were tagged are still bots.
+    automation.id.startsWith('mon_')
+  );
+}
+
+/** A bot's pinned run model, or undefined for the app default. */
+export function botModelOverride(bot: AutomationView): string | undefined {
+  const settings = bot.action.config?.modelSettings;
+  if (!settings || typeof settings !== 'object') return undefined;
+  const model = (settings as { model?: unknown }).model;
+  return typeof model === 'string' && model ? model : undefined;
+}
+
 // ── Filters ──────────────────────────────────────────────────────────────────
 
 export type BotFilter = 'all' | 'active' | 'paused' | 'running' | 'attention';
@@ -326,13 +352,19 @@ export const BOT_AGENTS: ReadonlyArray<{ id: string; label: string }> = [
 ];
 
 export type ScheduleChoice =
-  | 'manual' | 'once' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'interval' | 'cron';
+  | 'manual' | 'once' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'interval' | 'cron'
+  | 'event' | 'condition';
 
 export interface BotDraft {
   name: string;
   objective: string;
   agentId: string;
   schedule: ScheduleChoice;
+  /** Event trigger preserved verbatim while an event-driven bot is edited. */
+  eventType: string | null;
+  eventFilter: Record<string, unknown>;
+  /** Condition trigger preserved verbatim while a condition-driven bot is edited. */
+  condition: TriggerView['condition'];
   /** "HH:MM" for daily/weekdays/weekly/monthly. */
   time: string;
   /** 0=Sunday..6=Saturday for weekly. */
@@ -346,6 +378,9 @@ export interface BotDraft {
   /** IANA zone the schedule is interpreted in. Preserved on edit so re-saving a
    *  bot created in another zone does not silently shift its fire times. */
   timezone: string;
+  /** Optional active window carried through an event/condition edit. */
+  startAt: string | null;
+  endAt: string | null;
   // ── Run behaviour (engine knobs, exposed in Advanced) ──────────────────────
   /** What to do when a fire was missed while the app was closed. */
   misfire: MisfireChoice;
@@ -376,6 +411,9 @@ export function emptyBotDraft(): BotDraft {
     objective: '',
     agentId: 'eclipse-agent',
     schedule: 'manual',
+    eventType: null,
+    eventFilter: {},
+    condition: null,
     time: '08:00',
     weekday: 1,
     dom: 1,
@@ -384,6 +422,8 @@ export function emptyBotDraft(): BotDraft {
     cron: '0 8 * * *',
     runAt: '',
     timezone: localTimezone(),
+    startAt: null,
+    endAt: null,
     // A fire missed while the app was closed runs once when the app returns, so
     // a scheduled bot is never silently dropped (matches the backend default).
     misfire: 'run_once',
@@ -471,6 +511,23 @@ export function buildTrigger(draft: BotDraft): CreateAutomationInput['trigger'] 
       return { type: 'interval', intervalSeconds: Math.max(MIN_INTERVAL_SECONDS, intervalSecondsOf(draft)), timezone };
     case 'cron':
       return { type: 'cron', cron: draft.cron.trim(), timezone };
+    case 'event':
+      return {
+        type: 'event',
+        eventType: draft.eventType,
+        eventFilter: draft.eventFilter,
+        startAt: draft.startAt,
+        endAt: draft.endAt,
+        timezone,
+      };
+    case 'condition':
+      return {
+        type: 'condition',
+        condition: draft.condition,
+        startAt: draft.startAt,
+        endAt: draft.endAt,
+        timezone,
+      };
     default:
       return { type: 'manual', timezone };
   }
@@ -672,10 +729,10 @@ export function draftFromBot(bot: AutomationView): BotDraft {
   draft.onConflict = bot.concurrency.onConflict;
   draft.maxRuns = bot.concurrency.maxConcurrentRuns;
   draft.maxAttempts = bot.retry.maxAttempts;
-  const ms = bot.action.config?.modelSettings;
-  if (ms && typeof ms === 'object' && typeof (ms as { model?: unknown }).model === 'string') {
-    draft.model = (ms as { model: string }).model;
-    const p = (ms as { provider?: unknown }).provider;
+  const pinned = botModelOverride(bot);
+  if (pinned) {
+    draft.model = pinned;
+    const p = (bot.action.config?.modelSettings as { provider?: unknown } | undefined)?.provider;
     draft.modelProvider = typeof p === 'string' ? p : '';
   }
   if (trig.type === 'interval') {
@@ -707,6 +764,17 @@ export function draftFromBot(bot: AutomationView): BotDraft {
         draft.runAt = local.toISOString().slice(0, 16);
       }
     }
+  } else if (trig.type === 'event') {
+    draft.schedule = 'event';
+    draft.eventType = trig.eventType;
+    draft.eventFilter = { ...(trig.eventFilter ?? {}) };
+    draft.startAt = trig.startAt;
+    draft.endAt = trig.endAt;
+  } else if (trig.type === 'condition') {
+    draft.schedule = 'condition';
+    draft.condition = trig.condition ?? bot.condition ?? { expression: '', edge: true, variables: [] };
+    draft.startAt = trig.startAt;
+    draft.endAt = trig.endAt;
   } else {
     draft.schedule = 'manual';
   }

@@ -11,14 +11,15 @@
 import {
   LayoutDashboard, ChartCandlestick, GlobeStand, ChartPie, Bot, Home,
   BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain, FolderOpen,
-  GitBranch, Wrench,
+  GitBranch, Wrench, Database,
   type LucideIcon,
 } from '@/lib/icons';
 import type { AppTab } from '@/components/layout/sidebar';
 
-/** The top-level sidebar modes. A section belongs to one, or to both. `bots`
- *  and `graph` are modes with no nav SECTIONS — they render their own panel
- *  (the bot list; the workflow + node library) instead of a generic nav list. */
+/** The top-level sidebar modes. A section belongs to one, or to both. `bots` is
+ *  a mode with no nav SECTIONS — it renders its own panel (the bot list) instead
+ *  of a generic nav list. Graph Studio is its own mode but uses the standard nav
+ *  list filtered to graph sections (plus the shared ChatBot/Tables items). */
 export type NavGroup = 'terminal' | 'agentic' | 'bots' | 'graph';
 
 export interface SidebarSectionDef {
@@ -55,11 +56,13 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'heatmap', label: 'Market Bubbles', icon: Orbit, group: 'terminal' },
   { id: 'economics', label: 'Economics', icon: Globe, group: 'terminal' },
   { id: 'alerts', label: 'Price Alerts', icon: Bell, group: 'terminal' },
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard, group: 'agentic' },
   { id: 'skills', label: 'Skills', icon: Blocks, group: 'agentic' },
   { id: 'sdk', label: 'Eclipse SDK', icon: Wrench, group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', icon: Brain, group: 'agentic' },
   { id: 'artifacts', label: 'Artifacts', icon: FolderOpen, group: 'agentic' },
   { id: 'graph-studio', label: 'Graph Studio', icon: GitBranch, group: 'graph' },
+  { id: 'tables', label: 'Tables', icon: Database, group: 'both' },
 ];
 
 /** The modes a section is listed under. */
@@ -77,11 +80,11 @@ export function modeForTab(id: AppTab): NavGroup | null {
 }
 
 /** Modes that own their left panel and have no generic nav list. */
-export const PANEL_MODES: NavGroup[] = ['bots', 'graph'];
+export const PANEL_MODES: NavGroup[] = ['bots'];
 
 /** The ONE list of top-level modes. Anything that validates a persisted or
- *  incoming mode value reads THIS, so adding a `NavGroup` cannot silently drop
- *  the user's saved mode (as `'graph'` was dropped before this list existed). */
+ *  incoming mode value reads THIS, so adding a mode cannot silently drop the
+ *  user's saved value. */
 export const NAV_GROUPS: NavGroup[] = ['terminal', 'agentic', 'bots', 'graph'];
 
 export function isNavGroup(value: unknown): value is NavGroup {

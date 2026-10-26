@@ -10,6 +10,7 @@
 import { create } from 'zustand';
 import type { Diagnostic, NodePosition, WorkflowIR, WorkflowSettings } from './types';
 import { applyPatch, applyPatches, type Patch, type PatchResult } from './patches';
+import { buildClipboard, buildDuplicateNodes, buildPaste, type EditClipboard } from './edit-ops';
 import { validateWorkflow } from './validation';
 import { autoLayout } from './layout';
 import type { GraphRunRecord } from './execution-client';
@@ -32,12 +33,18 @@ export interface GraphEditorState {
   workflowId: string | null;
   baseVersion: number;
   serverContentHash: string | null;
+  /** Increments on every `load`; the workspace uses it to open the editor. */
+  loadNonce: number;
+  /** Live canvas zoom, used only to render the zoom readout. */
+  canvasZoom: number;
   dirty: boolean;
   past: WorkflowIR[];
   future: WorkflowIR[];
   selection: EditorSelection;
   diagnostics: Diagnostic[];
   lastError: string | null;
+  /** Internal copy buffer for canvas copy/paste. Never persisted. */
+  clipboard: EditClipboard | null;
   /** The run currently displayed on the canvas. Transient: never persisted. */
   run: GraphRunRecord | null;
   /**
@@ -56,6 +63,12 @@ export interface GraphEditorState {
   undo: () => void;
   redo: () => void;
   setSelection: (selection: Partial<EditorSelection>) => void;
+  setCanvasZoom: (zoom: number) => void;
+  selectAll: () => void;
+  clearSelection: () => void;
+  duplicateSelection: () => boolean;
+  copySelection: () => boolean;
+  pasteClipboard: () => boolean;
   recomputeDiagnostics: () => Diagnostic[];
   applyAutoLayout: () => void;
   markSaved: (version: number, contentHash: string) => void;
@@ -69,12 +82,15 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
   workflowId: null,
   baseVersion: 0,
   serverContentHash: null,
+  loadNonce: 0,
+  canvasZoom: 1,
   dirty: false,
   past: [],
   future: [],
   selection: EMPTY_SELECTION,
   diagnostics: [],
   lastError: null,
+  clipboard: null,
   run: null,
   pendingInsert: null,
 
@@ -84,6 +100,7 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
       workflowId: opts.workflowId,
       baseVersion: opts.baseVersion ?? 0,
       serverContentHash: opts.contentHash ?? null,
+      loadNonce: get().loadNonce + 1,
       dirty: false,
       past: [],
       future: [],
@@ -166,12 +183,53 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
   },
 
   setSelection: (selection) => {
-    set({
-      selection: {
-        nodeIds: selection.nodeIds ?? get().selection.nodeIds,
-        edgeIds: selection.edgeIds ?? get().selection.edgeIds,
-      },
-    });
+    const current = get().selection;
+    const nodeIds = selection.nodeIds ?? current.nodeIds;
+    const edgeIds = selection.edgeIds ?? current.edgeIds;
+    const same =
+      nodeIds.length === current.nodeIds.length &&
+      edgeIds.length === current.edgeIds.length &&
+      nodeIds.every((id, index) => id === current.nodeIds[index]) &&
+      edgeIds.every((id, index) => id === current.edgeIds[index]);
+    if (same) return;
+    set({ selection: { nodeIds, edgeIds } });
+  },
+
+  selectAll: () => {
+    const { ir } = get();
+    if (!ir) return;
+    set({ selection: { nodeIds: ir.nodes.map((node) => node.id), edgeIds: [] } });
+  },
+
+  setCanvasZoom: (zoom) => set({ canvasZoom: zoom }),
+
+  clearSelection: () => set({ selection: EMPTY_SELECTION }),
+
+  duplicateSelection: () => {
+    const { ir, selection } = get();
+    if (!ir || selection.nodeIds.length === 0) return false;
+    const { patches, nodeIds } = buildDuplicateNodes(ir, selection.nodeIds);
+    if (patches.length === 0) return false;
+    const ok = get().dispatchMany(patches);
+    if (ok) set({ selection: { nodeIds, edgeIds: [] } });
+    return ok;
+  },
+
+  copySelection: () => {
+    const { ir, selection } = get();
+    if (!ir || selection.nodeIds.length === 0) return false;
+    set({ clipboard: buildClipboard(ir, selection.nodeIds) });
+    return true;
+  },
+
+  pasteClipboard: () => {
+    const { ir, clipboard } = get();
+    if (!ir || !clipboard) return false;
+    const { patches, nodeIds } = buildPaste(ir, clipboard);
+    if (patches.length === 0) return false;
+    const ok = get().dispatchMany(patches);
+    if (ok) set({ selection: { nodeIds, edgeIds: [] } });
+    return ok;
   },
 
   recomputeDiagnostics: () => {
@@ -206,6 +264,7 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
       workflowId: null,
       baseVersion: 0,
       serverContentHash: null,
+      canvasZoom: 1,
       dirty: false,
       past: [],
       future: [],

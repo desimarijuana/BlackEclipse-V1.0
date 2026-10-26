@@ -27,6 +27,9 @@ import {
 } from '@/lib/agent/delegation-reducer';
 import { runGroupMemberTurn } from '@/lib/bots/invoke';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
+import { listAutomationHistory, type ExecutionView } from '@/lib/harness/automation-browser';
+import { mentionedTargets } from '@/lib/bots/mentions';
+import { forgetGroupMemory } from '@/lib/bots/purge';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { LiveGhostAvatar } from '@/components/bots/live-ghost-avatar';
@@ -37,7 +40,7 @@ import {
   useBotGroupsStore, useHydrateBotGroups, type BotGroup, type GroupMessage,
 } from '@/lib/bots/groups-store';
 import { ghostSpecFromId } from '@/lib/bots/ghost';
-import { formatDateTime, scheduleSummary } from '@/lib/bots/state';
+import { botModelOverride, formatDateTime } from '@/lib/bots/state';
 import {
   pauseAutomation, resumeAutomation, runAutomationNow,
   type AutomationView,
@@ -46,6 +49,8 @@ import {
 export interface GroupChatRoomProps {
   group: BotGroup;
   bots: AutomationView[];
+  /** False while the Bots tab is hidden behind the keep-alive mount. */
+  active?: boolean;
   onDeleted: (id: string) => void;
   /** Refresh the bot list after a group-wide run/pause/resume. */
   onChanged?: () => void;
@@ -55,19 +60,16 @@ function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 const NO_MESSAGES: GroupMessage[] = [];
 
-export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRoomProps) {
+export function GroupChatRoom({ group, bots, active = true, onDeleted, onChanged }: GroupChatRoomProps) {
   const t = useT();
   useHydrateBotAvatars();
   useHydrateBotGroups();
   const avatars = useBotAvatarStore((s) => s.avatars);
   const messages = useBotGroupsStore((s) => s.byGroup[group.id] ?? NO_MESSAGES);
   const append = useBotGroupsStore((s) => s.appendMessage);
+  const appendScheduled = useBotGroupsStore((s) => s.appendScheduled);
   const setMessages = useBotGroupsStore((s) => s.setMessages);
   const updateMessage = useBotGroupsStore((s) => s.updateMessage);
   const clearMessages = useBotGroupsStore((s) => s.clearMessages);
@@ -92,6 +94,10 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const controllersRef = useRef<AbortController[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Execution ids already reflected in the room (`botId:executionId`).
+  const seenRunsRef = useRef<Set<string> | null>(null);
+  const botsRef = useRef(bots);
+  botsRef.current = bots;
 
   // Stop any in-flight runs if the room unmounts so streams are not orphaned.
   useEffect(
@@ -141,6 +147,86 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
   }, [memberMoods]);
 
   const allActive = members.length > 0 && members.every((b) => b.state === 'active');
+
+  // Surface each member's AUTONOMOUS runs (schedule / "Run now") into the room.
+  // Only the latest answer per member is replayed on the first sweep; every run
+  // finished afterwards is appended once, keyed by its execution id.
+  useEffect(() => {
+    if (!active) return;
+    seenRunsRef.current = null;
+    let cancelled = false;
+
+    const finishedRuns = (executions: ExecutionView[]) =>
+      executions
+        .filter((e) => (e.state === 'completed' || e.state === 'failed') && (e.output ?? '').trim())
+        .sort((a, b) => Date.parse(a.finishedAt ?? a.startedAt) - Date.parse(b.finishedAt ?? b.startedAt));
+
+    const postRun = (bot: AutomationView, execution: ExecutionView) => {
+      const text = (execution.output ?? '').trim();
+      if (!text) return;
+      appendScheduled(group.id, {
+        id: `run-${execution.id}`,
+        role: 'assistant',
+        content: text,
+        at: execution.finishedAt ?? execution.startedAt,
+        authorId: bot.id,
+        authorName: bot.name,
+        scheduled: true,
+        runId: execution.id,
+        ...(execution.state === 'failed' ? { error: true } : {}),
+      });
+    };
+
+    const sync = async () => {
+      const liveMembers = group.memberIds
+        .map((id) => botsRef.current.find((b) => b.id === id))
+        .filter((b): b is AutomationView => Boolean(b));
+      const histories = await Promise.all(
+        liveMembers.map(async (bot) => {
+          try {
+            return [bot, finishedRuns(await listAutomationHistory(bot.id))] as const;
+          } catch {
+            return [bot, [] as ExecutionView[]] as const;
+          }
+        }),
+      );
+      if (cancelled) return;
+
+      if (seenRunsRef.current === null) {
+        const seen = new Set<string>();
+        const latest: Array<{ bot: AutomationView; execution: ExecutionView }> = [];
+        for (const [bot, runs] of histories) {
+          let last: ExecutionView | null = null;
+          for (const run of runs) {
+            seen.add(`${bot.id}:${run.id}`);
+            last = run;
+          }
+          if (last) latest.push({ bot, execution: last });
+        }
+        seenRunsRef.current = seen;
+        for (const { bot, execution } of latest) postRun(bot, execution);
+        return;
+      }
+
+      const seen = seenRunsRef.current;
+      for (const [bot, runs] of histories) {
+        for (const run of runs) {
+          const key = `${bot.id}:${run.id}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          postRun(bot, run);
+        }
+      }
+    };
+
+    void sync();
+    const timer = setInterval(() => void sync(), 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [group, active, appendScheduled]);
+
   useEffect(() => {
     if (!groupNote) return;
     const timer = setTimeout(() => setGroupNote(null), 6000);
@@ -179,15 +265,16 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
     }
   }, [busyAll, members, onChanged, t]);
 
-  // The thread is newest-first, so the newest message lives at the TOP.
-  const scrollToTop = useCallback(() => {
+  // The thread reads top-to-bottom, so the newest message lives at the BOTTOM.
+  const scrollToBottom = useCallback(() => {
     requestAnimationFrame(() => {
       const el = scrollRef.current;
-      if (el) el.scrollTop = 0;
+      if (el) el.scrollTop = el.scrollHeight;
     });
   }, []);
 
-  useEffect(() => { scrollToTop(); }, [messages.length, sending, scrollToTop]);
+  const lastContent = messages.length > 0 ? messages[messages.length - 1].content : '';
+  useEffect(() => { scrollToBottom(); }, [messages.length, sending, lastContent, scrollToBottom]);
 
   // Auto-grow the composer with its content, up to a cap, then scroll.
   const resizeComposer = useCallback(() => {
@@ -237,7 +324,7 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
         } else {
           return;
         }
-        updateMessage(group.id, replyId, { delegations });
+        updateMessage(group.id, replyId, { delegations }, false);
       };
       try {
         const reply = await runGroupMemberTurn({
@@ -245,6 +332,7 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
           bot,
           text,
           prior,
+          model: botModelOverride(bot),
           signal: controller.signal,
           onEvent: (event) => {
             applyDelegation(event);
@@ -254,7 +342,7 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
           onDelta: (chunk) => {
             streamed += chunk;
             setMemberMood(bot.id, 'speaking');
-            updateMessage(group.id, replyId, { content: streamed });
+            updateMessage(group.id, replyId, { content: streamed }, false);
           },
         });
         const final = reply || streamed;
@@ -289,10 +377,14 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
     setMentionQuery(null);
     setSending(true);
     // @mentions win over the audience selector: naming bots routes the turn to
-    // exactly those members.
-    const mentioned = members.filter((b) => new RegExp(`@${escapeRegExp(b.name)}\\b`, 'i').test(text));
-    const targets = mentioned.length
-      ? mentioned
+    // exactly those members. Uses the SAME parser as the main composer (word
+    // boundaries, longest-name-first) instead of a per-name regex.
+    const memberTargets = members.map((b) => ({
+      kind: 'bot' as const, id: b.id, name: b.name, description: '', memberIds: [],
+    }));
+    const mentionedIds = new Set(mentionedTargets(text, memberTargets).map((m) => m.id));
+    const targets = mentionedIds.size
+      ? members.filter((b) => mentionedIds.has(b.id))
       : audience === 'all'
         ? members
         : members.filter((b) => b.id === audience);
@@ -449,7 +541,16 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
           </Button>
           {confirmDelete ? (
             <>
-              <Button size="sm" variant="destructive" onClick={() => { deleteGroup(group.id); onDeleted(group.id); }}>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => {
+                  const memberIds = [...group.memberIds];
+                  deleteGroup(group.id);
+                  onDeleted(group.id);
+                  void forgetGroupMemory(group.id, memberIds);
+                }}
+              >
                 {t('bots.groups.delete')}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
@@ -492,16 +593,8 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
           </div>
         )}
 
-        {sending && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 size={14} className="animate-spin" />
-            {t('bots.groups.answering')}
-          </div>
-        )}
-
-        {/* Newest message first: the thread is rendered in reverse. */}
-        {[...messages].reverse().map((m, ri) => {
-          const i = messages.length - 1 - ri;
+        {/* Oldest first: the question is on top, its answer below it. */}
+        {messages.map((m, i) => {
           return !m.error && m.role === 'assistant' && !m.content ? null : (
             <GroupBubble
               key={m.id}
@@ -511,13 +604,26 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
               groupImage={group.image}
               onEdit={editGroupMessage}
               onRegenerate={
-                i === messages.length - 1 && m.role === 'assistant' && !m.error ? regenerateGroup : undefined
+                i === messages.length - 1 && m.role === 'assistant' && !m.error && !m.scheduled
+                  ? regenerateGroup
+                  : undefined
               }
-              onRetry={m.role === 'assistant' && m.error ? regenerateGroup : undefined}
+              onRetry={
+                i === messages.length - 1 && m.role === 'assistant' && m.error && !m.scheduled
+                  ? regenerateGroup
+                  : undefined
+              }
               onFeedback={setGroupFeedback}
             />
           );
         })}
+
+        {sending && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 size={14} className="animate-spin" />
+            {t('bots.groups.answering')}
+          </div>
+        )}
       </div>
 
       {/* Composer */}
@@ -703,7 +809,14 @@ function GroupBubble({
       <div className="group flex gap-2.5">
         {avatar}
         <div className="min-w-0 flex-1">
-          <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{message.authorName ?? groupName}</div>
+          <div className="mb-0.5 flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
+            <span>{message.authorName ?? groupName}</span>
+            {message.scheduled && (
+              <span className="rounded-full border border-border/40 px-1.5 py-px text-[9px] font-normal uppercase tracking-wide text-muted-foreground/70">
+                {t('bots.chat.autoRun')}
+              </span>
+            )}
+          </div>
           {message.delegations && message.delegations.length > 0 && (
             <ParallelAgentsPanel delegations={message.delegations} compact />
           )}
@@ -725,7 +838,16 @@ function GroupBubble({
               : 'border border-rose-500/30 bg-rose-500/5 text-rose-200',
           )}
         >
-          {!isUser && <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{message.authorName ?? groupName}</div>}
+          {!isUser && (
+            <div className="mb-0.5 flex items-center gap-1.5 text-[10px] font-semibold text-muted-foreground">
+              <span>{message.authorName ?? groupName}</span>
+              {message.scheduled && (
+                <span className="rounded-full border border-border/40 px-1.5 py-px text-[9px] font-normal uppercase tracking-wide text-muted-foreground/70">
+                  {t('bots.chat.autoRun')}
+                </span>
+              )}
+            </div>
+          )}
           <div className="whitespace-pre-wrap break-words">{message.content}</div>
         </div>
         {timeRow}
