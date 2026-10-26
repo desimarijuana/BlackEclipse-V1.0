@@ -367,3 +367,37 @@ def test_adding_a_block_type_to_the_renderer_stays_code_work() -> None:
         classify_code_request("add a new interactive block type to the response component").verdict
         == "code_change"
     )
+
+
+def test_html_code_fence_app_is_an_inline_deliverable() -> None:
+    """A self-contained HTML/SVG app is authored in the ANSWER (ADR-052).
+
+    The live master prompt said "one self-contained HTML document … return it as
+    a single ```html code fence". Without this rule, "single-file HTML" supplied
+    the software object `file` and the code workspace edited the repo instead of
+    rendering the app in chat.
+    """
+    query = (
+        'Build me "Candle Lab" — one self-contained HTML document with inline SVG '
+        "and vanilla JS. Return it as a single ```html code fence (no prose, no "
+        "other blocks).\n\n"
+        "DATA: request AAPL daily bars for 6 months through the dataset bridge.\n"
+        "- Hand-draw the candlesticks in SVG. No libraries, no CDN, no network."
+    )
+    intent = classify_code_request(query)
+    assert intent.verdict == "data_task", intent
+    assert "inline_app" in intent.signals or "response_block" in intent.signals
+
+
+def test_inline_svg_support_work_stays_code_work() -> None:
+    assert (
+        classify_code_request("add inline SVG support to the chart component").verdict
+        == "code_change"
+    )
+
+
+def test_installing_a_desktop_app_stays_code_work() -> None:
+    assert (
+        classify_code_request("build me a self-contained desktop app and install it").verdict
+        == "code_change"
+    )

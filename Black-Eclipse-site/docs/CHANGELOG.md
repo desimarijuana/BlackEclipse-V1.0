@@ -7,6 +7,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-25
+- **fix(chat): an app-build request stays in chat instead of the code workspace.**
+  The classifier recognized the block vocabulary ("return it as one interactive
+  block") but not the same deliverable phrased as code: "one self-contained HTML
+  document … return it as a single html code fence" was still `code_change`, so
+  the code agent edited the repository (repo map, diff, "put this change into my
+  project") instead of answering. `_INLINE_APP_RE` now recognizes
+  self-contained/single-file HTML, SVG, mini-app and html/svg code-fence
+  deliverables as inline content (before the directive+software-object rule),
+  with a guard (renderer/component/codebase/desktop/install/deploy) that keeps a
+  real source change on the code profile. Tests:
+  `python/tests/test_code_request_intent.py`.
+  no doc change — classifier bug fix; ADR-052 already documents the block.
 - **perf(chat): a code-classified turn no longer stalls for minutes before its
   first model call.** A live "build me an interactive Candle Lab" turn recorded
   only `run.created` → `response.plan` and then sat silent; on the same repo the

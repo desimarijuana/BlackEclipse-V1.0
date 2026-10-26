@@ -214,6 +214,28 @@ _RESPONSE_BLOCK_RE = re.compile(
     r"|\b(?:return|output|deliver)\b[^.\n]{0,40}\bas\s+(?:an?|one)\s+(?:[\w-]+\s+){0,2}block\b",
     re.IGNORECASE,
 )
+# The same deliverable named without the block vocabulary: "a self-contained
+# HTML document", "return it as a single ```html code fence", "inline SVG",
+# "mini-app". Without this, "single-file HTML" supplied the software object
+# `file` and the turn went down the code-workspace path (repo map + code-index
+# slice, then a diff) instead of authoring the app in the answer (ADR-052).
+_INLINE_APP_RE = re.compile(
+    r"\b(?:self-contained|standalone)\b[^.\n]{0,50}"
+    r"\b(?:html|document|web\s?page|app|widget|visuali[sz]ation)\b"
+    r"|\b(?:single[- ]file|one[- ]file)\b[^.\n]{0,40}"
+    r"\b(?:html|document|web\s?page|app|widget|visuali[sz]ation)\b"
+    r"|\b(?:single|one|a)\b[^.\n]{0,30}\b(?:html|svg)\b[^.\n]{0,30}\b(?:code\s+)?fence\b"
+    r"|\bmini[- ]?app\b",
+    re.IGNORECASE,
+)
+# A turn that is really about the PRODUCT's code keeps the code profile even if
+# it mentions HTML/SVG: "add inline SVG support to the chart component".
+_INLINE_APP_GUARD = (
+    "renderer", "component", "implementation", "source code", "codebase",
+    "dependency", "unit test", "unit tests", "block type", "the source",
+    "desktop", "install", "installer", "binary", "executable", "repo",
+    "repository", "deploy", "compile",
+)
 
 
 
@@ -404,6 +426,17 @@ def classify_code_request(
             "data_task", "likely",
             "The turn asks for an inline response block, a content deliverable.",
             ("response_block",),
+        )
+
+    # The same inline deliverable named as a document/fence/app. Decided BEFORE
+    # the directive+software-object rule so "single-file HTML" does not supply
+    # the software object `file`. A turn that names the product's own code
+    # (renderer/component/codebase) is excluded and keeps the code profile.
+    if _INLINE_APP_RE.search(text) and not _has_word(text, _INLINE_APP_GUARD):
+        return _verdict(
+            "data_task", "likely",
+            "The turn asks for a self-contained inline app/visual, a content deliverable.",
+            ("inline_app",),
         )
 
     # A directive + software object in the SAME clause.
