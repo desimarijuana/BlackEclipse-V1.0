@@ -186,7 +186,9 @@ they call the existing web-research engine, which goes through the SSRF-hardened
 `web_search`/`web_fetch` bridge capabilities and the engine's own URL validation.
 The front door (`run-authorization.ts`) derives grants from the node registry,
 enables network only on an explicit operator request, and refuses external write
-nodes. Trading has one narrow exception: an operator may confirm PAPER trading,
+nodes. The only local write it can grant is the whitelisted `video.render`
+(explicit local-render confirmation, `allowWrite`). Trading has one narrow
+exception: an operator may confirm PAPER trading,
 and only when the workflow mode is `paper` and the graph contains
 `trading.paper_order`. The compiler refuses LIVE mode, refuses an ungranted
 trading node, and refuses every trading node in a test run. `trading.paper_order`

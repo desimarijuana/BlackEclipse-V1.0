@@ -182,6 +182,7 @@ export function GraphStudioScreen() {
     operator?: boolean;
     allowNetwork?: boolean;
     allowPaperTrading?: boolean;
+    allowLocalWrite?: boolean;
   }) => {
     if (!workflowId) return;
     setRunBusy(true);
@@ -287,11 +288,16 @@ export function GraphStudioScreen() {
             >
               <Play size={12} /> Test run
             </button>
-            {runNeeds && (runNeeds.requiresNetwork || runNeeds.tradingNodes.length > 0) && (() => {
+            {runNeeds && (
+              runNeeds.requiresNetwork ||
+              runNeeds.tradingNodes.length > 0 ||
+              runNeeds.writeNodes.length > 0
+            ) && (() => {
               const mode = ir?.settings.executionMode ?? 'research';
               const tradingReady = runNeeds.tradingNodes.length === 0 || mode === 'paper';
-              const disabled = !canRun || runNeeds.writeNodes.length > 0 || !tradingReady;
-              const title = runNeeds.writeNodes.length > 0
+              const unsupportedWrites = runNeeds.writeNodeTypes.filter((type) => type !== 'video.render');
+              const disabled = !canRun || unsupportedWrites.length > 0 || !tradingReady;
+              const title = unsupportedWrites.length > 0
                 ? `External write nodes are not enabled yet: ${runNeeds.writeNodes.join(', ')}`
                 : runNeeds.tradingNodes.length > 0 && mode === 'live'
                   ? 'Live trading is not available; set the workflow mode to paper.'
@@ -312,6 +318,11 @@ export function GraphStudioScreen() {
                         `Paper trading: ${runNeeds.tradingNodes.join(', ')} (simulated fills only; no broker is contacted).`,
                       );
                     }
+                    if (runNeeds.writeNodes.length > 0) {
+                      lines.push(
+                        `Local render: ${runNeeds.writeNodes.join(', ')} (writes project files and an artifact; no external write).`,
+                      );
+                    }
                     if (window.confirm(
                       `Authorize this run?\n\n${lines.join('\n')}\n\nOnly the capabilities this graph declares are granted. Trading is PAPER only; live trading is never granted, and external writes remain blocked.`,
                     )) {
@@ -319,6 +330,7 @@ export function GraphStudioScreen() {
                         operator: true,
                         allowNetwork: runNeeds.requiresNetwork,
                         allowPaperTrading: runNeeds.tradingNodes.length > 0,
+                        allowLocalWrite: runNeeds.writeNodes.length > 0,
                       });
                     }
                   }}

@@ -89,6 +89,7 @@ class RunRequest(BaseModel):
     grantedCapabilities: list[str] = Field(default_factory=list, alias="grantedCapabilities")  # noqa: N815
     allowNetwork: bool = Field(default=False, alias="allowNetwork")  # noqa: N815
     allowTrading: bool = Field(default=False, alias="allowTrading")  # noqa: N815
+    allowWrite: bool = Field(default=False, alias="allowWrite")  # noqa: N815
     subworkflows: list[SubworkflowPayload] = Field(default_factory=list)
     input: Any = None
     # Resolved by the front door from the settings vault. Held in memory by the
@@ -104,6 +105,7 @@ def _grants(body: RunRequest) -> GraphRunGrants:
         granted_capabilities=frozenset(body.grantedCapabilities),
         allow_network=body.allowNetwork,
         allow_trading=body.allowTrading,
+        allow_write=body.allowWrite,
     )
 
 

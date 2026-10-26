@@ -66,6 +66,9 @@ class RunGrants:
     granted_capabilities: frozenset[str] = field(default_factory=frozenset)
     allow_network: bool = False
     allow_trading: bool = False
+    # A LOCAL write (video render → files + artifact). The front door only grants
+    # it for the whitelisted local render node, never for an external write.
+    allow_write: bool = False
 
 
 def _error(code: str, message: str, node_id: Optional[str] = None, edge_id: Optional[str] = None) -> Diagnostic:
@@ -220,10 +223,16 @@ def compile_workflow(
                 f'Node "{node.id}" has the "{definition.side_effects.value}" side effect, which a test run never performs.',
                 node_id=node.id,
             ))
-        elif definition.side_effects in (SideEffect.WRITE, SideEffect.NETWORK) and not grants.allow_network:
+        elif definition.side_effects == SideEffect.NETWORK and not grants.allow_network:
             diagnostics.append(_error(
                 "permission_denied",
-                f'Node "{node.id}" requires network/write access, which this run was not granted.',
+                f'Node "{node.id}" requires network access, which this run was not granted.',
+                node_id=node.id,
+            ))
+        elif definition.side_effects == SideEffect.WRITE and not grants.allow_write:
+            diagnostics.append(_error(
+                "permission_denied",
+                f'Node "{node.id}" writes locally, which this run was not granted.',
                 node_id=node.id,
             ))
         # Capabilities gate EFFECTS: a pure node (side_effects "none") cannot

@@ -45,6 +45,7 @@ def install_graph_layer(service: Any) -> bool:
         from .research_nodes import set_evidence_store  # noqa: PLC0415
         from .trading_nodes import set_paper_store  # noqa: PLC0415
         from .agent_nodes import set_agent_runner, set_plan_runner  # noqa: PLC0415
+        from .video_nodes import set_video_runner  # noqa: PLC0415
         from ..research.web_store import EvidenceStore  # noqa: PLC0415
 
         def _agent_runner(context, config, objective):
@@ -110,6 +111,29 @@ def install_graph_layer(service: Any) -> bool:
         set_agent_runner(_agent_runner)
         set_plan_runner(_plan_runner)
         set_paper_store(PaperAccountStore(service.store))
+
+        def _video_runner(context, symbols, title, mode):
+            """Build a recap storyboard and run the EXISTING video pipeline."""
+            import asyncio  # noqa: PLC0415
+            import uuid  # noqa: PLC0415
+
+            from ..video.recaps import create_recap_project  # noqa: PLC0415
+
+            video = getattr(service, "video", None)
+            if video is None:
+                raise ValueError(
+                    "the video pipeline is unavailable; enable it and install the "
+                    "fframes worker"
+                )
+            project = create_recap_project(video, symbols=symbols, title=title)
+            job = asyncio.run(video.run_render_job({
+                "projectId": project["id"],
+                "jobId": f"graph_{uuid.uuid4().hex[:12]}",
+                "mode": mode,
+            }))
+            return {"project": project, "job": job}
+
+        set_video_runner(_video_runner)
         set_series_store(SeriesStore(service.store))
         set_evidence_store(
             getattr(service, "evidence_store", None) or EvidenceStore(service.store)

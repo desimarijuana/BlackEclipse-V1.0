@@ -537,6 +537,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `test_graph_health.py` (order + reasons). docs updated:
   `docs/graph-studio.md`.
 
+- **feat(graph): executable `video.render` behind a local-write grant.** The
+  node now builds a bound recap storyboard and runs the existing
+  `VideoService.run_render_job` in the graph worker (project files + Artifact
+  Center entry), with honest failure when the fframes worker is absent. The
+  front door adds a whitelisted `allowLocalWrite` confirmation (only
+  `video.render`; any other write node is still refused) and the compiler gains
+  `RunGrants.allow_write`. Test runs still refuse it. Tests:
+  `test_graph_video_nodes.py` (executor, symbols, compile grants) and
+  `run-authorization.test.ts` (local-render confirmation). docs updated:
+  `docs/graph-studio.md`, `docs/harness/security.md`.
+
 - **docs(graph): refresh the remaining-work list.** Known limitations now reflect
   the shipped planner/delegate nodes, the documented external-cron path and the
   health watch; "Next milestone" names multi-process Fabric workers as the main

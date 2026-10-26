@@ -212,11 +212,12 @@ and local scratch only. An **operator run** is an explicit UI action; the front
 door derives its grants from the registry and the persisted IR — never from the
 caller. It grants exactly the union of node capabilities, enables network only
 when the graph needs it and the user confirms, and keeps external write nodes
-refused. Trading is the one effect an operator may enable explicitly, and only
-as PAPER: `trading.paper_order` requires `executionMode: "paper"`, an explicit
-paper-trading confirmation and the `allowTrading` grant. LIVE mode and an
-ungranted trading node are refused by both the front door and the Python
-compiler. The Python compiler re-checks the same envelope.
+refused. Two effects may be enabled explicitly: PAPER trading
+(`trading.paper_order` requires `executionMode: "paper"`, an explicit
+confirmation and `allowTrading`; LIVE and ungranted trading are refused) and the
+whitelisted LOCAL video render (`video.render` requires an explicit local-render
+confirmation and `allowWrite`; any other write node is refused). The Python
+compiler re-checks the same envelope.
 `integration.http` is the first network node: SSRF-checked, loopback refused,
 1 MB response cap, 60 s ceiling, plain custom headers (`headersJson`) and
 credential REFERENCES (`credentialEnvJson`: header → env-var name, resolved by
@@ -526,11 +527,11 @@ Phase 1:
 Phases 3–4:
 
 - `npx tsc --noEmit` — clean.
-- `npx vitest run src/lib/graph-studio` — **16 files / 84 tests pass**.
+- `npx vitest run src/lib/graph-studio` — **16 files / 85 tests pass**.
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **227 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **229 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
   optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
@@ -584,15 +585,17 @@ or HTTP errors.
   nested object/array field is not flattened; project it first.
 - Run history is browsable in the History panel; node runs and events are
   normalized tables, and successful nodes have resumable checkpoints.
-- Operator runs allow network and PAPER trading. External write nodes, live
-  trading and ungranted trading are refused. The paper account persists cash,
+- Operator runs allow network, PAPER trading and the whitelisted local
+  `video.render`. Other external write nodes, live trading and ungranted trading
+  are refused. The paper account persists cash,
   positions and realized PnL, but it is cost-basis accounting (no mark-to-market)
   and fills only at a supplied price - it never fetches a live quote.
   `persist: false` keeps a single-node fill stateless.
 - Agent model credentials are held in memory for the run only. A process restart
   before an agent node executes makes that node fail; agent runs are not
   resumable across a restart. The nodes are bounded turns/plans (no autonomous
-  loop), and a real-provider end-to-end test is still pending.
+  loop). A real-provider e2e harness exists (`test_graph_agent_e2e.py`) but is
+  opt-in and needs credentials.
 - Web research nodes use the app's data bridge (a real operator run has one; a
   headless runtime does not). With `allowBrowser`, `research.web_fetch` escalates
   a thin/failed page to the existing Browser Runtime; without it (the default) it
@@ -606,15 +609,12 @@ or HTTP errors.
 - `live` mode is settable in the IR but no executor honours it and the compiler
   refuses a trading node in LIVE mode. Paper trading is the only trading effect
   Graph Studio can authorize today.
-- **`video.render` is declared, not executable** (native-video integration,
-  Phase 8 of that pipeline): the node type exists in both registries
-  (`python/harness/graph_runtime/video_nodes.py` + the TS mirror, in lockstep)
-  with `executor=None` and a `since_phase`, because the graph runtime executes
-  SYNCHRONOUSLY while a render is an async queued Fabric job, and every
-  UI/schedule-reachable run uses the test-run envelope that refuses effectful
-  nodes. The compiler reports `executor_unavailable` with that sentence. Until
-  the executor lands, video work runs through the `video_*` tools,
-  `POST /video/*`, or an automation `call_tool` action.
+- **`video.render` runs the existing pipeline inline in the graph worker.** It
+  builds a bound recap storyboard and calls `VideoService.run_render_job`, so it
+  writes project files and an Artifact Center entry; it is not queued as a
+  separate Fabric job. It requires an operator run with the explicit local-render
+  grant and the fframes Rust worker installed (a missing worker is an honest
+  failure).
 
 ## Next milestone
 

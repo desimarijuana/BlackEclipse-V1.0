@@ -198,6 +198,7 @@ export interface StartRunOptions {
   operator?: boolean;
   allowNetwork?: boolean;
   allowPaperTrading?: boolean;
+  allowLocalWrite?: boolean;
 }
 
 /** Start a TEST run (default) or an explicitly authorized operator run. */

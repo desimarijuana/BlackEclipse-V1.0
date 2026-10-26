@@ -64,6 +64,7 @@ export async function POST(request: Request, ctx: Ctx) {
     operator?: boolean;
     allowNetwork?: boolean;
     allowPaperTrading?: boolean;
+    allowLocalWrite?: boolean;
   };
 
   // The persisted version is the ONLY authority for what runs (see run-server).
@@ -78,6 +79,7 @@ export async function POST(request: Request, ctx: Ctx) {
           operator: true,
           allowNetwork: Boolean(body.allowNetwork),
           allowPaperTrading: Boolean(body.allowPaperTrading),
+          allowLocalWrite: Boolean(body.allowLocalWrite),
         }
       : undefined,
   });

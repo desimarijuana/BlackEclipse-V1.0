@@ -96,16 +96,14 @@ def test_config_validation_reports_real_problems():
     assert validate_config(indicator, {"kind": "sma", "period": 20}) == []
 
 
-def test_unavailable_nodes_are_registered_with_a_phase():
-    """Nodes whose executor a later phase still owes must be REGISTERED and name
-    that phase, so the compiler can refuse them with an actionable message."""
+def test_every_registered_node_is_executable():
+    """No node is left as a declaration-only stub; effects are gated by grants."""
     registry = build_default_registry()
-    # The video render node is the remaining declared-only node; it names its
-    # phase so the compiler can refuse it with an actionable message.
+    for definition in registry.definitions():
+        assert definition.available, f"{definition.type} has no executor"
     video = registry.get("video.render")
-    assert video is not None
-    assert video.executor is None
-    assert video.since_phase
+    assert video is not None and video.executor is not None
+    assert video.side_effects.value == "write"
     # The HTTP and agent nodes are executable now; they are gated by the
     # operator-run network envelope.
     for node_type in ("integration.http", "agent.research"):

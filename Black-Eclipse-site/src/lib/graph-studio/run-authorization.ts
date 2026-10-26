@@ -14,6 +14,8 @@ export interface RunAuthorizationOptions {
   allowNetwork?: boolean;
   /** Explicit confirmation of the PAPER execution adapter. Live is never granted. */
   allowPaperTrading?: boolean;
+  /** Explicit confirmation of a whitelisted LOCAL write (video render). */
+  allowLocalWrite?: boolean;
 }
 
 export interface RunAuthorization {
@@ -21,12 +23,14 @@ export interface RunAuthorization {
   grantedCapabilities: string[];
   allowNetwork: boolean;
   allowTrading: boolean;
+  allowWrite: boolean;
 }
 
 export interface RunAuthorizationSummary {
   requiredCapabilities: string[];
   networkNodes: string[];
   writeNodes: string[];
+  writeNodeTypes: string[];
   tradingNodes: string[];
   requiresNetwork: boolean;
 }
@@ -43,6 +47,7 @@ const SAFE: RunAuthorization = {
   grantedCapabilities: [],
   allowNetwork: false,
   allowTrading: false,
+  allowWrite: false,
 };
 
 /** Inspect the graph + its subworkflow bundle and derive what it actually
@@ -54,6 +59,7 @@ export function summarizeRunNeeds(
   const capabilities = new Set<string>();
   const networkNodes: string[] = [];
   const writeNodes: string[] = [];
+  const writeNodeTypes: string[] = [];
   const tradingNodes: string[] = [];
   const unknownNodes: string[] = [];
 
@@ -68,7 +74,10 @@ export function summarizeRunNeeds(
       for (const cap of def.capabilities) capabilities.add(cap);
       const effects: SideEffectClass = def.sideEffects;
       if (effects === 'network') networkNodes.push(node.label ?? def.label);
-      if (effects === 'write') writeNodes.push(node.label ?? def.label);
+      if (effects === 'write') {
+        writeNodes.push(node.label ?? def.label);
+        writeNodeTypes.push(def.type);
+      }
       if (effects === 'trading') tradingNodes.push(node.label ?? def.label);
     }
   }
@@ -78,6 +87,7 @@ export function summarizeRunNeeds(
     requiredCapabilities,
     networkNodes,
     writeNodes,
+    writeNodeTypes,
     tradingNodes,
     requiresNetwork: networkNodes.length > 0,
     unknownNodes,
@@ -130,12 +140,23 @@ export function authorizeGraphRun(
     }
   }
   if (summary.writeNodes.length > 0) {
-    return {
-      ok: false,
-      authorization: base,
-      summary,
-      error: `External write-effect nodes are not enabled in operator runs yet (${summary.writeNodes.join(', ')}).`,
-    };
+    const unsupported = summary.writeNodeTypes.filter((type) => type !== 'video.render');
+    if (unsupported.length > 0) {
+      return {
+        ok: false,
+        authorization: base,
+        summary,
+        error: `External write-effect nodes are not enabled in operator runs yet (${summary.writeNodes.join(', ')}).`,
+      };
+    }
+    if (!options.allowLocalWrite) {
+      return {
+        ok: false,
+        authorization: base,
+        summary,
+        error: `This workflow writes local render files (${summary.writeNodes.join(', ')}); confirm the local render to run it.`,
+      };
+    }
   }
   if (summary.requiresNetwork && !options.allowNetwork) {
     return {
@@ -153,6 +174,7 @@ export function authorizeGraphRun(
       grantedCapabilities: summary.requiredCapabilities,
       allowNetwork: summary.requiresNetwork && Boolean(options.allowNetwork),
       allowTrading: summary.tradingNodes.length > 0 && Boolean(options.allowPaperTrading),
+      allowWrite: summary.writeNodes.length > 0 && Boolean(options.allowLocalWrite),
     },
     summary,
   };

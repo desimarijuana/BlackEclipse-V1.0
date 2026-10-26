@@ -32,6 +32,7 @@ describe('run authorization', () => {
       grantedCapabilities: [],
       allowNetwork: false,
       allowTrading: false,
+      allowWrite: false,
     });
   });
 
@@ -47,7 +48,7 @@ describe('run authorization', () => {
     expect(allowed.authorization.allowTrading).toBe(false);
   });
 
-  it('refuses trading and external write nodes in an operator run', () => {
+  it('refuses unknown trading nodes and ungranted local writes', () => {
     const trading = graph('wf_trade', [
       { id: 'trig', type: 'trigger.manual' },
       { id: 'out', type: 'output.result' },
@@ -68,7 +69,7 @@ describe('run authorization', () => {
     ]);
     const refused = authorizeGraphRun(write, [], { operator: true, allowNetwork: true });
     expect(refused.ok).toBe(false);
-    expect(refused.error).toContain('write-effect');
+    expect(refused.error).toContain('confirm the local render');
   });
 
   it('treats web research nodes as network and local verification as a read', () => {
@@ -127,6 +128,23 @@ describe('run authorization', () => {
     const refused = authorizeGraphRun(live, [], { operator: true, allowPaperTrading: true });
     expect(refused.ok).toBe(false);
     expect(refused.error).toContain('Live trading is not available');
+  });
+
+  it('allows only a whitelisted local video render write', () => {
+    const video = graph('wf_video', [
+      { id: 'trig', type: 'trigger.manual' },
+      { id: 'render', type: 'video.render', config: { title: 'Recap' } },
+      { id: 'out', type: 'output.result' },
+    ]);
+    const missing = authorizeGraphRun(video, [], { operator: true });
+    expect(missing.ok).toBe(false);
+    expect(missing.error).toContain('confirm the local render');
+
+    const allowed = authorizeGraphRun(video, [], { operator: true, allowLocalWrite: true });
+    expect(allowed.ok).toBe(true);
+    expect(allowed.authorization.allowWrite).toBe(true);
+    expect(allowed.authorization.allowNetwork).toBe(false);
+    expect(allowed.summary.writeNodeTypes).toEqual(['video.render']);
   });
 
   it('collects capabilities from the root graph and subworkflows', () => {

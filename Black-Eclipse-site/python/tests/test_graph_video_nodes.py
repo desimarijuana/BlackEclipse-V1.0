@@ -1,18 +1,18 @@
-"""Graph Studio's video node declaration (Phase 8).
-
-The node is deliberately executor-less: the graph runtime cannot yet execute an
-async queued Fabric render, and its UI/schedule envelope refuses effectful
-nodes. These tests pin the declaration, its honest compile diagnostic, and the
-TS↔Python registry lockstep.
-"""
+"""Graph Studio's video render node: local write, operator-granted."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from harness.graph_runtime.compiler import compile_workflow
-from harness.graph_runtime.model import SideEffect, WorkflowIR
+import pytest
+
+from harness.graph_runtime.compiler import RunGrants, compile_workflow
+from harness.graph_runtime.model import ExecutionMode, SideEffect, WorkflowIR
 from harness.graph_runtime.nodes import build_default_registry
+from harness.graph_runtime.registry import NodeExecContext
+from harness.graph_runtime.video_nodes import set_video_runner
+
+REGISTRY = build_default_registry()
 
 
 def _node(node_id: str, node_type: str, config: dict | None = None) -> dict:
@@ -31,32 +31,91 @@ def _ir(nodes: list[dict], edges: list[dict] | None = None) -> WorkflowIR:
             "executionMode": "research", "failFast": False,
             "maxConcurrency": 1, "timeoutMs": 0,
         },
-        "requiredCapabilities": [],
+        "requiredCapabilities": ["video.render"],
     })
 
 
-def test_video_node_is_registered_and_declared_only():
-    definition = build_default_registry().get("video.render")
+def _graph():
+    return _ir(
+        [
+            _node("trig", "trigger.manual"),
+            _node("v1", "video.render", {"title": "Recap"}),
+            _node("out", "output.result"),
+        ],
+        [
+            {"id": "e1", "source": "trig", "sourceHandle": "start", "target": "v1", "targetHandle": "symbols"},
+            {"id": "e2", "source": "v1", "sourceHandle": "job", "target": "out", "targetHandle": "value"},
+        ],
+    )
+
+
+def test_video_node_is_registered_with_an_executor():
+    definition = REGISTRY.get("video.render")
     assert definition is not None
-    assert definition.executor is None and definition.available is False
+    assert definition.executor is not None and definition.available is True
     assert definition.capabilities == ("video.render",)
     assert definition.side_effects == SideEffect.WRITE
-    assert definition.since_phase  # the diagnostic names what it waits for
     assert [port.id for port in definition.inputs] == ["symbols"]
     assert {port.id for port in definition.outputs} == {"project", "job"}
 
 
-def test_compile_refuses_the_node_with_an_actionable_diagnostic():
-    plan = compile_workflow(_ir([_node("v1", "video.render")]), build_default_registry())
-    assert plan.executable is False
-    unavailable = [d for d in plan.diagnostics if d.code == "executor_unavailable"]
-    assert unavailable, [d.message for d in plan.diagnostics]
-    assert "async graph execution" in unavailable[0].message
+def test_test_runs_never_render_and_operator_runs_need_a_write_grant():
+    denied = compile_workflow(_graph(), REGISTRY, RunGrants(test_run=True))
+    assert denied.executable is False
+    assert any(d.code == "permission_denied" for d in denied.diagnostics)
+
+    ungranted = compile_workflow(_graph(), REGISTRY, RunGrants(
+        test_run=False, granted_capabilities=frozenset({"video.render"}),
+    ))
+    assert ungranted.executable is False
+    assert any("writes locally" in d.message for d in ungranted.diagnostics)
+
+    allowed = compile_workflow(_graph(), REGISTRY, RunGrants(
+        test_run=False, granted_capabilities=frozenset({"video.render"}),
+        allow_write=True,
+    ))
+    assert allowed.executable is True, [d.message for d in allowed.diagnostics]
+
+
+def test_executor_builds_the_project_through_the_bound_pipeline():
+    captured = {}
+
+    def runner(context, symbols, title, mode):
+        captured.update({"symbols": symbols, "title": title, "mode": mode})
+        return {
+            "project": {"id": "proj_1", "kind": "storyboard"},
+            "job": {"status": "succeeded", "artifactId": "art_1"},
+        }
+
+    set_video_runner(runner)
+    try:
+        result = REGISTRY.get("video.render").executor(NodeExecContext(
+            node_id="v1", run_id="run", mode=ExecutionMode.RESEARCH,
+            inputs={"symbols": ["aapl", "MSFT"]},
+            config={"title": "Daily", "mode": "draft"},
+        ))
+    finally:
+        set_video_runner(None)
+    assert result["project"]["id"] == "proj_1"
+    assert result["job"]["status"] == "succeeded"
+    assert captured == {"symbols": ["AAPL", "MSFT"], "title": "Daily", "mode": "draft"}
+
+
+def test_executor_validates_symbols_and_the_bound_pipeline():
+    set_video_runner(None)
+    with pytest.raises(ValueError, match="video pipeline"):
+        REGISTRY.get("video.render").executor(NodeExecContext(
+            node_id="v1", run_id="run", mode=ExecutionMode.RESEARCH,
+            inputs={"symbols": ["AAPL"]}, config={},
+        ))
+    with pytest.raises(ValueError, match="bounded"):
+        REGISTRY.get("video.render").executor(NodeExecContext(
+            node_id="v1", run_id="run", mode=ExecutionMode.RESEARCH,
+            inputs={"symbols": ["A", "B", "C", "D", "E", "F"]}, config={},
+        ))
 
 
 def test_ts_registry_mirrors_the_video_node():
-    """The two registries are hand-maintained mirrors; a new Python node that is
-    missing from the TS palette would fail validation in the editor."""
     registry_ts = (
         Path(__file__).resolve().parents[2]
         / "src" / "lib" / "graph-studio" / "registry.ts"
