@@ -57,6 +57,7 @@ class DelegateInput(BaseModel):
     aggregate: str = Field("list", max_length=16)
     strategy: str = Field("split", max_length=16)
     goal: Optional[str] = Field(default=None, max_length=2000)
+    title: Optional[str] = Field(default=None, max_length=200)
     count: Optional[int] = Field(default=None, ge=1, le=8)
     agent_ids: Optional[list[str]] = Field(default=None, max_length=8)  # noqa: N815
     models: Optional[list[str]] = Field(default=None, max_length=8)
@@ -91,6 +92,7 @@ def delegate_schema() -> dict[str, Any]:
             },
             "children": {"type": "array", "description": "split only: the independent sub-questions to work on at once (1-4).", "items": child},
             "goal": {"type": "string", "description": "best_of only: the one task every attempt should try."},
+            "title": {"type": "string", "description": "A short label for the whole fan-out (optional; best_of defaults to the goal)."},
             "count": {"type": "integer", "minimum": 2, "maximum": 4, "description": "best_of only: how many attempts (2-4). Defaults to 3."},
             "agent_ids": {"type": "array", "items": {"type": "string"}, "description": "best_of only: optional agents to use per attempt (they must be ones this task may use)."},
             "models": {"type": "array", "items": {"type": "string"}, "description": "best_of only: optional models to try per attempt. They must be on the SAME provider as this task; the provider and its credential do not change."},
@@ -260,6 +262,7 @@ async def delegate_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
             children=parts,
             aggregate=model.aggregate,  # type: ignore[arg-type]
             strategy=model.strategy,  # type: ignore[arg-type]
+            title=model.title or ((model.goal or "").strip() if model.strategy == "best_of" else None),
         )
     except Exception as exc:  # noqa: BLE001
         return _refusal("DELEGATION_INVALID", str(exc))

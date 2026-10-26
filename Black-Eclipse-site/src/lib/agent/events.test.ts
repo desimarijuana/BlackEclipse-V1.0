@@ -597,6 +597,7 @@ describe('clarification.requested (human-in-the-loop question)', () => {
         delegationId: 'dlg_1',
         children: 2,
         aggregate: 'compare',
+        title: 'Review two notes',
         agents: [
           { childIndex: 1, goal: 'Review MSFT', agentId: 'eclipse-agent' },
           { childIndex: 0, goal: 'Review AAPL' },
@@ -609,6 +610,7 @@ describe('clarification.requested (human-in-the-loop question)', () => {
         delegationId: 'dlg_1',
         aggregate: 'compare',
         strategy: 'split',
+        title: 'Review two notes',
         done: false,
         children: [
           { childIndex: 0, goal: 'Review AAPL', status: 'running' },
@@ -624,9 +626,13 @@ describe('clarification.requested (human-in-the-loop question)', () => {
       data: {
         delegationId: 'dlg_1', childIndex: 0, goal: 'g', status: 'running',
         step: 3, maxSteps: 10, tokens: 900, costUsd: 0.12,
+        recent: ['Starting', 'Reading the filing'],
       },
     });
-    expect(priced).toMatchObject({ kind: 'delegation_progress', child: { costUsd: 0.12, step: 3, maxSteps: 10 } });
+    expect(priced).toMatchObject({
+      kind: 'delegation_progress',
+      child: { costUsd: 0.12, step: 3, maxSteps: 10, recent: ['Starting', 'Reading the filing'] },
+    });
 
     const unpriced = normalizeHarnessEvent('delegation.progress', {
       type: 'delegation.progress',

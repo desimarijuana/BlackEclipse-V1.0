@@ -21,6 +21,14 @@ import {
 } from '@/components/ui/dialog';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Markdown } from '@/components/chat/markdown';
+import { ParallelAgentsPanel } from '@/components/chat/parallel-agents-panel';
+import type { DelegationView } from '@/lib/agent/response-model';
+import type { HarnessUiEvent } from '@/lib/agent/events';
+import {
+  applyDelegationEvent,
+  dropProvisionalDelegation,
+  startProvisionalDelegation,
+} from '@/lib/agent/delegation-reducer';
 import { ModelSelector } from '@/components/chat/chat-input';
 import { runBotTurn } from '@/lib/bots/invoke';
 import { listAutomationHistory, type ExecutionView } from '@/lib/harness/automation-browser';
@@ -313,6 +321,28 @@ export function BotChat({
     const controller = new AbortController();
     abortRef.current = controller;
     let streamed = '';
+    // The same fan-out state the main chat keeps, captured from the turn's
+    // events so the bot thread can render the live agent card.
+    let delegations: DelegationView[] = [];
+    const applyDelegation = (event: HarnessUiEvent) => {
+      if (event.kind === 'activity_start' && event.item.name === 'delegate') {
+        delegations = startProvisionalDelegation(delegations, event.item.id);
+      } else if (event.kind === 'activity_end' && event.name === 'delegate') {
+        delegations = dropProvisionalDelegation(delegations);
+      } else if (
+        event.kind === 'delegation_start' ||
+        event.kind === 'delegation_progress' ||
+        event.kind === 'delegation_child' ||
+        event.kind === 'delegation_done'
+      ) {
+        delegations = applyDelegationEvent(delegations, event);
+      } else if (event.kind === 'final' || event.kind === 'error') {
+        delegations = dropProvisionalDelegation(delegations);
+      } else {
+        return;
+      }
+      updateMessage(bot.id, replyId, { delegations });
+    };
     try {
       // The streaming agent provider (background run + SSE), NOT the one-shot
       // `/api/harness/chat`: that path aborts every run at the front door's
@@ -327,6 +357,7 @@ export function BotChat({
         model: modelState.selectedModel || undefined,
         signal: controller.signal,
         onEvent: (event) => {
+          applyDelegation(event);
           const next = moodFromEvent(event);
           if (next) setMood(next);
         },
@@ -775,6 +806,9 @@ function ChatBubble({
             <span>{botName}</span>
             {message.scheduled && <ScheduledTag />}
           </div>
+          {message.delegations && message.delegations.length > 0 && (
+            <ParallelAgentsPanel delegations={message.delegations} compact />
+          )}
           <Markdown content={message.content} compact className="w-full" />
           <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
             <span>{formatDateTime(message.at)}</span>

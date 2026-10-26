@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { applyDelegationEvent, delegationCost, mergeChild } from './delegation-reducer';
+import {
+  applyDelegationEvent,
+  delegationCost,
+  dropProvisionalDelegation,
+  mergeChild,
+  startProvisionalDelegation,
+} from './delegation-reducer';
 import type { DelegationChildView, DelegationView } from './response-model';
 
 const start: DelegationView = {
@@ -33,11 +39,13 @@ describe('applyDelegationEvent', () => {
         maxSteps: 10,
         tokens: 1_200,
         costUsd: 0.12,
+        recent: ['Starting', 'Reading the filing'],
       },
     });
     expect(state[0].children).toHaveLength(2);
     expect(state[0].children[0]).toMatchObject({
       activity: 'Reading the filing',
+      recent: ['Starting', 'Reading the filing'],
       step: 3,
       maxSteps: 10,
       costUsd: 0.12,
@@ -98,6 +106,26 @@ describe('applyDelegationEvent', () => {
     });
     expect(state).toHaveLength(1);
     expect(state[0].children[0].goal).toBe('Late part');
+  });
+});
+
+describe('provisional card', () => {
+  it('shows a placeholder, then the real fan-out replaces it', () => {
+    let state = startProvisionalDelegation([], 'call_1');
+    expect(state).toHaveLength(1);
+    expect(state[0]).toMatchObject({ title: 'Agents starting', children: [] });
+
+    state = applyDelegationEvent(state, { kind: 'delegation_start', delegation: start });
+    expect(state).toHaveLength(1);
+    expect(state[0].delegationId).toBe('dlg_1');
+    expect(state[0].children).toHaveLength(2);
+  });
+
+  it('drops the placeholder when the call is refused or the turn ends', () => {
+    const pending = startProvisionalDelegation([], 'call_1');
+    expect(dropProvisionalDelegation(pending)).toEqual([]);
+    // A real card is left alone.
+    expect(dropProvisionalDelegation([start])).toEqual([start]);
   });
 });
 

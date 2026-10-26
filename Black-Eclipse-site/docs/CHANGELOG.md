@@ -625,6 +625,22 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `test_code_request_intent.py`, `test_search_embeddings.py`. no doc change —
   internal performance/routing fixes; contracts unchanged.
 
+- **feat(chat): the fan-out card now looks like a "best of N" panel and opens a
+  live agent view.** Each part renders a deterministic **bot face** (from the
+  agent id, never a vendor logo), the agent/model + its approach, the live
+  activity and the runtime's `step/maxSteps` bar/percent. The card shows a short
+  fan-out `title` (best_of defaults to its goal), `X of N done`, and **no cost**.
+  Clicking the card opens a portaled frosted dialog
+  (`parallel-agents-dialog.tsx`) with each agent's full sub-question, status,
+  step counter, tokens and a `recent[]` activity timeline. A
+  `tool.requested(delegate)` now paints a provisional "Agents starting" card
+  until the real `delegation.started` arrives (and it is dropped if the call is
+  refused). The same card is wired into the main chat, the floating dock, bot
+  chats and group rooms. Tests: `parallel-agents-panel.test.tsx`,
+  `delegation-reducer.test.ts`, `events.test.ts`, `test_delegation_progress.py`.
+  docs updated: `docs/harness/roadmap/phase-07-delegation.md`, `docs/NAVIGATION.md`;
+  regenerated `docs/harness/tool-registry.json`.
+
 ## 2026-10-24
 - **ui(chat): roomier chat history rows.** Increased the vertical gap between
   conversation rows from 2px (`gap-0.5`) to 6px (`gap-1.5`) inside the pinned,

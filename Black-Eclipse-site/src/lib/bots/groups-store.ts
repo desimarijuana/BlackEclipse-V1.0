@@ -34,6 +34,8 @@ export interface GroupMessage {
   error?: boolean;
   /** Optional thumbs feedback on an assistant turn. */
   feedback?: 'up' | 'down';
+  /** Parallel fan-outs this member ran, for the live agent card. */
+  delegations?: import('@/lib/agent/response-model').DelegationView[];
 }
 
 interface Persisted {

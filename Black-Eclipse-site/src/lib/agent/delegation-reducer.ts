@@ -23,6 +23,42 @@ type DelegationEvent = Extract<
   }
 >;
 
+/** Prefix for the optimistic card shown while the delegate tool is starting. */
+export const PROVISIONAL_PREFIX = 'pending:';
+
+/**
+ * A delegate call started but no `delegation.started` has arrived yet. Showing a
+ * placeholder makes the fan-out visible immediately instead of only a generic
+ * "Using delegate" row; the real event replaces it.
+ */
+export function startProvisionalDelegation(
+  state: DelegationView[],
+  key: string,
+): DelegationView[] {
+  const delegationId = `${PROVISIONAL_PREFIX}${key}`;
+  if (state.some((d) => d.delegationId === delegationId)) return state;
+  const withoutProvisional = state.filter(
+    (d) => !d.delegationId.startsWith(PROVISIONAL_PREFIX),
+  );
+  return [
+    ...withoutProvisional,
+    {
+      delegationId,
+      aggregate: 'list',
+      strategy: 'split',
+      title: 'Agents starting',
+      children: [],
+      done: false,
+    },
+  ];
+}
+
+/** Remove an optimistic card (a real delegation replaced it, or it was refused). */
+export function dropProvisionalDelegation(state: DelegationView[]): DelegationView[] {
+  const next = state.filter((d) => !d.delegationId.startsWith(PROVISIONAL_PREFIX));
+  return next.length === state.length ? state : next;
+}
+
 const TERMINAL_STATUSES = new Set<DelegationChildView['status']>([
   'completed', 'failed', 'refused', 'timed_out', 'cancelled',
 ]);
@@ -81,17 +117,19 @@ export function applyDelegationEvent(
   event: DelegationEvent,
 ): DelegationView[] {
   if (event.kind === 'delegation_start') {
+    // The real event supersedes the optimistic "starting" card.
+    const base = dropProvisionalDelegation(state);
     const incoming = event.delegation;
-    const existing = state.find((d) => d.delegationId === incoming.delegationId);
-    if (!existing) return [...state, incoming];
+    const existing = base.find((d) => d.delegationId === incoming.delegationId);
+    if (!existing) return [...base, incoming];
     // A second start for the same id (resume) keeps known rows and their state.
     const children = incoming.children.reduce(
       (acc, child) => updateChild({ ...existing, children: acc }, child).children,
       existing.children,
     );
-    return state.map((d) =>
+    return base.map((d) =>
       d.delegationId === incoming.delegationId
-        ? { ...d, aggregate: incoming.aggregate, children }
+        ? { ...d, ...incoming, children }
         : d,
     );
   }

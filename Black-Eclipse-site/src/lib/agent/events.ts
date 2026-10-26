@@ -188,10 +188,12 @@ function delegationFromStart(payload: Record<string, unknown>): DelegationView |
       };
     })
     .sort((a, b) => a.childIndex - b.childIndex);
+  const title = str(payload.title);
   return {
     delegationId,
     aggregate: aggregateMode(payload.aggregate),
     strategy: payload.strategy === 'best_of' ? 'best_of' : 'split',
+    ...(title ? { title } : {}),
     children,
     done: false,
   };
@@ -223,6 +225,10 @@ function childFromProgress(
   if (model) view.model = model;
   if (approach) view.approach = approach;
   if (activity) view.activity = activity;
+  if (Array.isArray(payload.recent)) {
+    const recent = payload.recent.filter((item): item is string => typeof item === 'string');
+    if (recent.length > 0) view.recent = recent.slice(-12);
+  }
   if (step != null) view.step = step;
   if (maxSteps != null) view.maxSteps = maxSteps;
   if (tokens != null) view.tokens = tokens;

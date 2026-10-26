@@ -9,6 +9,7 @@
 
 import { useEffect } from 'react';
 import { create } from 'zustand';
+import type { DelegationView } from '@/lib/agent/response-model';
 
 export const BOT_CHAT_KEY = 'be_bot_chat_v1';
 
@@ -28,6 +29,8 @@ export interface BotMessage {
   /** The execution id that produced this turn — the idempotency key so an
    *  autonomous answer is appended exactly once (across polls and reloads). */
   runId?: string;
+  /** Parallel fan-outs this bot ran, so the thread can show the live agent card. */
+  delegations?: DelegationView[];
 }
 
 interface BotChatStore {

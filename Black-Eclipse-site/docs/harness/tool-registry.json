@@ -1,5 +1,5 @@
 {
-  "digest": "b7803a155a312da3",
+  "digest": "3d8fc934b3706186",
   "manifestVersion": "1",
   "toolCount": 958,
   "tools": [
@@ -9139,6 +9139,10 @@
               "type": "number"
             },
             "type": "array"
+          },
+          "title": {
+            "description": "A short label for the whole fan-out (optional; best_of defaults to the goal).",
+            "type": "string"
           }
         },
         "type": "object"

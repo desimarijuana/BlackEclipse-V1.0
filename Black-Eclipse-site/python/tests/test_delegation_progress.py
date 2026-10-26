@@ -75,6 +75,9 @@ async def test_the_bridge_emits_a_content_free_terminal_snapshot():
     assert last["childIndex"] == 0
     assert last["goal"] == "Review AAPL"
     assert last["activity"] == "Reading AAPL"
+    # The timeline is bounded, ordered and distinct — what the popup shows.
+    assert last["recent"][-1] == "Reading AAPL"
+    assert last["recent"][0] == "Starting"
     assert last["step"] == 2 and last["maxSteps"] == 8
     assert last["tokens"] >= 140
     assert last["status"] == "completed"

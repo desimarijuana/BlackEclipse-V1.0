@@ -1,22 +1,24 @@
 'use client';
 
 // ── ParallelAgentsPanel — the live fan-out card ─────────────────────────────
-// One row per delegated part: which agent is on it, what it is doing right now,
-// how far it is (the RUNTIME's step counter), and what it has really cost so
-// far. Sits above the activity feed so a fan-out reads as parallel work instead
-// of a single stream of tools.
+// One row per delegated part: which bot is on it, the approach it is taking,
+// what it is doing right now, and how far it is (the runtime's own step
+// counter). Clicking the card opens a detail dialog with each agent's activity
+// timeline.
 //
 // Honesty rules:
 //  - progress is `step / maxSteps` from the runtime; with no known ceiling the
 //    bar is indeterminate and no percentage is printed;
-//  - cost is the declared price of the real tokens; an unpriced model shows "—",
-//    never "$0.00";
+//  - an agent face is derived from the agent id (bot art), never a model logo;
 //  - a failed/refused part keeps its plain reason visible.
 
+import { useMemo, useState } from 'react';
 import { Activity, AlertCircle, Bot, Check, Clock, Layers, Loader2, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { DelegationChildView, DelegationView } from '@/lib/agent/response-model';
-import { delegationCost } from '@/lib/agent/delegation-reducer';
+import { GhostAvatar } from '@/components/bots/ghost-avatar';
+import { ghostSpecFromId } from '@/lib/bots/ghost';
+import { ParallelAgentsDialog } from './parallel-agents-dialog';
 
 function humanizeAgent(agentId?: string): string {
   if (!agentId) return 'Eclipse Agent';
@@ -28,63 +30,54 @@ function humanizeAgent(agentId?: string): string {
     .join(' ');
 }
 
-function formatCost(value: number | null | undefined): string {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
-  if (value > 0 && value < 0.01) return '<$0.01';
-  return `$${value.toFixed(2)}`;
-}
-
 function percentOf(child: DelegationChildView): number | null {
-  if (!child.maxSteps || child.maxSteps <= 0) return null;
-  if (child.step == null) return null;
+  if (!child.maxSteps || child.maxSteps <= 0 || child.step == null) return null;
   return Math.max(0, Math.min(100, Math.round((child.step / child.maxSteps) * 100)));
 }
 
 function statusLine(child: DelegationChildView): string {
-  switch (child.status) {
-    case 'completed':
-      return 'Done';
-    case 'failed':
-      return child.reason ? child.reason : "Couldn't finish";
-    case 'refused':
-      return child.reason ? child.reason : 'Skipped';
-    case 'timed_out':
-      return child.reason ? child.reason : 'Ran out of time';
-    case 'cancelled':
-      return child.reason ? child.reason : 'Stopped';
-    default:
-      return child.activity || 'Starting';
+  const base = (() => {
+    switch (child.status) {
+      case 'completed': return 'Done';
+      case 'failed': return child.reason || "Couldn't finish";
+      case 'refused': return child.reason || 'Skipped';
+      case 'timed_out': return child.reason || 'Ran out of time';
+      case 'cancelled': return child.reason || 'Stopped';
+      default: return child.activity || 'Starting';
+    }
+  })();
+  if (child.status === 'running' && child.maxSteps != null) {
+    return `${base} ${child.step ?? 0}/${child.maxSteps}`;
   }
+  return base;
+}
+
+function AgentFace({ child, size = 32 }: { child: DelegationChildView; size?: number }) {
+  const spec = useMemo(
+    () => ghostSpecFromId(child.agentId || child.model || `part-${child.childIndex + 1}`),
+    [child.agentId, child.model, child.childIndex],
+  );
+  return <GhostAvatar spec={spec} size={size} title={humanizeAgent(child.agentId)} />;
 }
 
 function StatusMark({ status }: { status: DelegationChildView['status'] }) {
   if (status === 'running') {
-    return <Loader2 size={15} className="animate-spin text-primary" aria-hidden />;
+    return <Loader2 size={13} className="animate-spin text-primary" aria-hidden />;
   }
   if (status === 'completed') {
-    return <Check size={15} className="text-emerald-400" aria-hidden />;
+    return <Check size={13} className="text-emerald-400" aria-hidden />;
   }
   if (status === 'cancelled' || status === 'timed_out') {
-    return <Clock size={15} className="text-amber-400" aria-hidden />;
+    return <Clock size={13} className="text-amber-400" aria-hidden />;
   }
-  return <X size={15} className="text-red-400" aria-hidden />;
+  return <X size={13} className="text-red-400" aria-hidden />;
 }
 
-function ChildRow({
-  child,
-  compact,
-  winner = false,
-}: {
-  child: DelegationChildView;
-  compact: boolean;
-  winner?: boolean;
-}) {
+function ChildRow({ child, compact }: { child: DelegationChildView; compact: boolean }) {
   const percent = percentOf(child);
   const running = child.status === 'running';
   const failed = child.status === 'failed' || child.status === 'refused' || child.status === 'timed_out';
   const goal = child.goal || `Part ${child.childIndex + 1}`;
-  // A best-of attempt names its ANGLE ("mock the API"); the full sub-question
-  // stays available in the tooltip rather than disappearing.
   const label = child.approach || goal;
 
   return (
@@ -97,18 +90,21 @@ function ChildRow({
     >
       <div
         className={cn(
-          'grid shrink-0 place-items-center rounded-lg ring-1',
+          'grid shrink-0 place-items-center overflow-hidden rounded-lg ring-1',
           compact ? 'h-7 w-7' : 'h-9 w-9',
           failed ? 'bg-red-500/10 ring-red-400/20' : 'bg-white/5 ring-white/10',
         )}
       >
-        <Bot size={compact ? 13 : 16} className={failed ? 'text-red-300/80' : 'text-foreground/70'} aria-hidden />
+        <AgentFace child={child} size={compact ? 24 : 30} />
       </div>
 
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-1.5">
           <span
-            className={cn('shrink-0 truncate font-medium text-foreground/90', compact ? 'text-[11px]' : 'text-[13px]')}
+            className={cn(
+              'shrink-0 truncate font-medium text-foreground/90',
+              compact ? 'text-[11px]' : 'text-[13px]',
+            )}
             title={humanizeAgent(child.agentId)}
           >
             {child.model || humanizeAgent(child.agentId)}
@@ -120,16 +116,6 @@ function ChildRow({
           >
             {label}
           </span>
-          {winner && (
-            <span
-              className={cn(
-                'shrink-0 rounded-full bg-emerald-400/15 px-1.5 py-0.5 font-medium text-emerald-300 ring-1 ring-emerald-400/20',
-                compact ? 'text-[9px]' : 'text-[10px]',
-              )}
-            >
-              Best
-            </span>
-          )}
         </div>
         <div className={cn('truncate text-muted-foreground/80', compact ? 'text-[10px]' : 'text-[11px]')}>
           {statusLine(child)}
@@ -153,75 +139,88 @@ function ChildRow({
         </div>
       </div>
 
-      <div className={cn('shrink-0 text-right tabular-nums', compact ? 'w-14' : 'w-20')}>
-        <div className={cn('flex items-center justify-end gap-1 text-foreground/80', compact ? 'text-[11px]' : 'text-[12px]')}>
-          <StatusMark status={child.status} />
-          <span>{percent != null ? `${percent}%` : ''}</span>
-        </div>
-        <div className={cn('text-muted-foreground', compact ? 'text-[10px]' : 'text-[11px]')}>
-          {formatCost(child.costUsd)}
-        </div>
+      <div className={cn('flex shrink-0 items-center justify-end gap-1 tabular-nums text-foreground/80', compact ? 'w-14 text-[11px]' : 'w-16 text-[12px]')}>
+        <StatusMark status={child.status} />
+        <span>{percent != null ? `${percent}%` : ''}</span>
       </div>
     </div>
   );
 }
 
 function DelegationCard({ delegation, compact }: { delegation: DelegationView; compact: boolean }) {
+  const [open, setOpen] = useState(false);
   const total = delegation.children.length;
   const done = delegation.children.filter((c) => c.status !== 'running').length;
   const anyRunning = delegation.children.some((c) => c.status === 'running');
-  const { total: cost, unknown } = delegationCost(delegation.children);
+  const failed = delegation.children.some(
+    (c) => c.status === 'failed' || c.status === 'refused' || c.status === 'timed_out',
+  );
   const bestOf = delegation.strategy === 'best_of';
   const title = bestOf
-    ? `Best of ${total}`
+    ? `Best of ${total || '…'}`
     : anyRunning
       ? total === 1 ? '1 agent working' : `${total} agents working`
       : total === 1 ? '1 agent finished' : `${total} agents finished`;
-  const costText = unknown ? (cost > 0 ? `≥ ${formatCost(cost)}` : '—') : formatCost(cost);
-  const failed = delegation.children.some((c) => c.status === 'failed' || c.status === 'refused');
+  const subtitle = delegation.title && delegation.title !== title ? delegation.title : undefined;
 
   return (
-    <div className={cn('glass-card rounded-2xl border border-white/5', compact ? 'p-2' : 'p-3')}>
+    <>
       <div
-        className={cn('flex items-center gap-2 px-1', compact ? 'pb-1.5' : 'pb-2')}
-        role="status"
-        aria-live="polite"
-        aria-label={`${title}, ${done} of ${total} done, ${costText}`}
+        className={cn('glass-card cursor-pointer rounded-2xl border border-white/5 transition-colors hover:border-white/10', compact ? 'p-2' : 'p-3')}
+        role="button"
+        tabIndex={0}
+        aria-haspopup="dialog"
+        aria-label={`${title}${subtitle ? `, ${subtitle}` : ''}, ${done} of ${total} done. Open agent details.`}
+        onClick={() => setOpen(true)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
       >
-        <span className={cn('shrink-0', anyRunning ? 'text-primary' : failed ? 'text-amber-400' : 'text-muted-foreground/70')}>
-          {anyRunning ? <Activity size={compact ? 12 : 14} className="animate-pulse" aria-hidden />
-            : failed ? <AlertCircle size={compact ? 12 : 14} aria-hidden />
-            : <Layers size={compact ? 12 : 14} aria-hidden />}
-        </span>
-        <span className={cn('min-w-0 flex-1 truncate font-medium text-foreground', compact ? 'text-[11px]' : 'text-[13px]')}>
-          {title}
-        </span>
-        <span className={cn('shrink-0 text-muted-foreground', compact ? 'text-[10px]' : 'text-[12px]')}>
-          {done} of {total} done
-        </span>
-        <span className={cn('shrink-0 font-medium text-foreground/80 tabular-nums', compact ? 'text-[10px]' : 'text-[12px]')}>
-          {costText}
-        </span>
-      </div>
-
-      <div className={compact ? 'space-y-0.5' : 'space-y-1'}>
-        {delegation.children.map((child) => (
-          <ChildRow
-            key={child.childIndex}
-            child={child}
-            compact={compact}
-            winner={delegation.winner === child.childIndex}
-          />
-        ))}
-      </div>
-
-      {delegation.droppedClaims ? (
-        <div className={cn('px-1 text-muted-foreground/70', compact ? 'pt-1.5 text-[10px]' : 'pt-2 text-[11px]')}>
-          {delegation.droppedClaims} statement{delegation.droppedClaims === 1 ? '' : 's'} could not be
-          confirmed, so {delegation.droppedClaims === 1 ? "it isn't" : "they aren't"} repeated as fact.
+        <div className={cn('flex items-center gap-2 px-1', compact ? 'pb-1.5' : 'pb-2')}>
+          <span className={cn('shrink-0', anyRunning ? 'text-primary' : failed ? 'text-amber-400' : 'text-muted-foreground/70')}>
+            {anyRunning ? <Activity size={compact ? 12 : 14} className="animate-pulse" aria-hidden />
+              : failed ? <AlertCircle size={compact ? 12 : 14} aria-hidden />
+              : <Layers size={compact ? 12 : 14} aria-hidden />}
+          </span>
+          <span className={cn('shrink-0 font-medium text-foreground', compact ? 'text-[11px]' : 'text-[13px]')}>
+            {title}
+          </span>
+          {subtitle && (
+            <span className={cn('min-w-0 flex-1 truncate text-muted-foreground', compact ? 'text-[10px]' : 'text-[12px]')}>
+              · {subtitle}
+            </span>
+          )}
+          <span className={cn('ml-auto shrink-0 text-muted-foreground', compact ? 'text-[10px]' : 'text-[12px]')}>
+            {done} of {total} done
+          </span>
         </div>
-      ) : null}
-    </div>
+
+        {total === 0 ? (
+          <div className={cn('flex items-center gap-2 px-1 text-muted-foreground', compact ? 'py-1.5 text-[10px]' : 'py-2 text-[11px]')}>
+            <Loader2 size={12} className="animate-spin text-primary" aria-hidden />
+            Preparing agents…
+          </div>
+        ) : (
+          <div className={compact ? 'space-y-0.5' : 'space-y-1'}>
+            {delegation.children.map((child) => (
+              <ChildRow key={child.childIndex} child={child} compact={compact} />
+            ))}
+          </div>
+        )}
+
+        {delegation.droppedClaims ? (
+          <div className={cn('px-1 text-muted-foreground/70', compact ? 'pt-1.5 text-[10px]' : 'pt-2 text-[11px]')}>
+            {delegation.droppedClaims} statement{delegation.droppedClaims === 1 ? '' : 's'} could not be
+            confirmed, so {delegation.droppedClaims === 1 ? "it isn't" : "they aren't"} repeated as fact.
+          </div>
+        ) : null}
+      </div>
+
+      {open && <ParallelAgentsDialog delegation={delegation} onClose={() => setOpen(false)} />}
+    </>
   );
 }
 

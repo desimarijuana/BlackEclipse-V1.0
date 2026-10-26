@@ -142,6 +142,8 @@ class ChildProgressBridge:
 
         self.status = "running"
         self.activity: Optional[str] = None
+        # Last distinct activities, oldest first — the timeline the popup shows.
+        self.recent: list[str] = []
         self.step: Optional[int] = None
         self.max_steps: Optional[int] = None
         self.prompt_tokens = 0
@@ -238,8 +240,11 @@ class ChildProgressBridge:
             )
 
         activity = _activity_from(event_type, data)
-        if activity:
+        if activity and activity != self.activity:
             self.activity = activity
+            if not self.recent or self.recent[-1] != activity:
+                self.recent.append(activity)
+                del self.recent[:-12]
 
     # ── emission ─────────────────────────────────────────────────────────────
 
@@ -254,6 +259,7 @@ class ChildProgressBridge:
             **({"approach": self._approach} if self._approach else {}),
             "status": self.status,
             "activity": self.activity,
+            "recent": self.recent,
             "step": self.step,
             "maxSteps": self.max_steps,
             "tokens": self.tokens,

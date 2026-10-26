@@ -114,6 +114,9 @@ class DelegationRequest(BaseModel):
     # `split` = independent sub-questions; `best_of` = every part attempts the
     # SAME task and the verifier picks the strongest result.
     strategy: Strategy = "split"
+    # A short label for the whole fan-out ("Fix the checkout test"). best_of
+    # defaults it to the shared goal; split may omit it.
+    title: Optional[str] = Field(default=None, max_length=200)
     token_budget: int = Field(DEFAULT_CHILD_TOKEN_BUDGET, ge=1_000, le=2_000_000)
 
 
@@ -161,6 +164,7 @@ class DelegationResult(BaseModel):
 
     delegationId: str  # noqa: N815
     strategy: Strategy = "split"
+    title: Optional[str] = None
     outcomes: list[ChildOutcome] = Field(default_factory=list)
     aggregate: str = ""
     droppedClaims: list[str] = Field(default_factory=list)  # noqa: N815
@@ -175,6 +179,7 @@ class DelegationResult(BaseModel):
         return {
             "delegationId": self.delegationId,
             "strategy": self.strategy,
+            "title": self.title,
             "winner": self.winner,
             "workflowId": self.workflowId,
             "children": [
@@ -525,6 +530,7 @@ async def run_delegation(
         "children": len(request.children),
         "aggregate": request.aggregate,
         "strategy": request.strategy,
+        "title": request.title,
         # The rows the UI can draw before the first progress snapshot arrives.
         # A goal is the user's own sub-question, bounded; never a raw prompt.
         "agents": [
@@ -642,6 +648,7 @@ async def run_delegation(
     result = DelegationResult(
         delegationId=delegation_id,
         strategy=request.strategy,
+        title=request.title,
         outcomes=final,
         droppedClaims=dropped,
         budget=budget,

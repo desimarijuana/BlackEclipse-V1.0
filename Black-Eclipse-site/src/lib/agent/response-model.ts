@@ -215,6 +215,8 @@ export interface DelegationChildView {
   status: DelegationChildStatus;
   /** What the part is doing right now (the child's latest step). */
   activity?: string;
+  /** The last distinct activities, oldest first — the popup's timeline. */
+  recent?: string[];
   /** The runtime's step counter — never a percentage we computed ourselves. */
   step?: number;
   /** The child run's own step ceiling, when it reported one. */
@@ -235,6 +237,8 @@ export interface DelegationView {
   aggregate: 'list' | 'compare' | 'merge_claims';
   /** `split` = different sub-questions; `best_of` = N tries at the same task. */
   strategy: DelegationStrategy;
+  /** A short label for the whole fan-out (best_of defaults to its goal). */
+  title?: string;
   children: DelegationChildView[];
   /** Claims the parent refused to repeat (unconfirmed) — a count, never text. */
   droppedClaims?: number;

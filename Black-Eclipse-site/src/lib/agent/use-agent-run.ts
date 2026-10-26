@@ -19,7 +19,11 @@ import type { AssistantTurn, PendingApproval, PendingClarification } from './res
 import { emptyTurn } from './response-model';
 import { mergeCapabilityBuild, type CapabilityBuildView } from '@/lib/harness/capability-types';
 import { endActivity, initialActivityState, startActivity } from './activity-reducer';
-import { applyDelegationEvent } from './delegation-reducer';
+import {
+  applyDelegationEvent,
+  dropProvisionalDelegation,
+  startProvisionalDelegation,
+} from './delegation-reducer';
 import { ALERT_NOTIFY_EVENT } from '@/lib/alerts/browser-notifier';
 import { useNotificationsStore } from '@/lib/notifications/store';
 import { getUiFocus } from '@/lib/ui-engineering/ui-focus';
@@ -166,10 +170,20 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           const state = activityStateRef.current;
           startActivity(state, event.item);
           t.activities = [...state.activities];
+          // A delegate call is starting: show the fan-out card immediately, so a
+          // slow/late `delegation.started` never leaves only a tool row behind.
+          if (event.item.name === 'delegate') {
+            t.delegations = startProvisionalDelegation(t.delegations ?? [], event.item.id);
+          }
           publish(true);
           break;
         }
         case 'activity_end': {
+          // A delegate that refused/errored before starting leaves no real
+          // card; clear the optimistic one.
+          if (event.name === 'delegate') {
+            t.delegations = dropProvisionalDelegation(t.delegations ?? []);
+          }
           const state = activityStateRef.current;
           endActivity(state, {
             id: event.id,
@@ -200,6 +214,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           break;
         }
         case 'final': {
+          t.delegations = dropProvisionalDelegation(t.delegations ?? []);
           if (event.output) t.finalText = event.output;
           if (event.research) t.research = event.research;
           if (event.memory) t.memory = event.memory;
@@ -226,6 +241,7 @@ export function useAgentRun(options: UseAgentRunOptions = {}): UseAgentRun {
           break;
         }
         case 'error': {
+          t.delegations = dropProvisionalDelegation(t.delegations ?? []);
           t.error = { code: event.code, message: event.message };
           t.status = 'error';
           t.pendingApproval = undefined;

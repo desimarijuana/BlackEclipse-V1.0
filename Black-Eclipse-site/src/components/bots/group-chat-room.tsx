@@ -17,6 +17,14 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Markdown } from '@/components/chat/markdown';
+import { ParallelAgentsPanel } from '@/components/chat/parallel-agents-panel';
+import type { HarnessUiEvent } from '@/lib/agent/events';
+import type { DelegationView } from '@/lib/agent/response-model';
+import {
+  applyDelegationEvent,
+  dropProvisionalDelegation,
+  startProvisionalDelegation,
+} from '@/lib/agent/delegation-reducer';
 import { runGroupMemberTurn } from '@/lib/bots/invoke';
 import { useWorkspaceStore } from '@/lib/agent-workspace/store';
 import { BotAvatar } from '@/components/bots/bot-avatar';
@@ -211,6 +219,26 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
       }
       setMemberMood(bot.id, 'thinking');
       let streamed = '';
+      let delegations: DelegationView[] = [];
+      const applyDelegation = (event: HarnessUiEvent) => {
+        if (event.kind === 'activity_start' && event.item.name === 'delegate') {
+          delegations = startProvisionalDelegation(delegations, event.item.id);
+        } else if (event.kind === 'activity_end' && event.name === 'delegate') {
+          delegations = dropProvisionalDelegation(delegations);
+        } else if (
+          event.kind === 'delegation_start' ||
+          event.kind === 'delegation_progress' ||
+          event.kind === 'delegation_child' ||
+          event.kind === 'delegation_done'
+        ) {
+          delegations = applyDelegationEvent(delegations, event);
+        } else if (event.kind === 'final' || event.kind === 'error') {
+          delegations = dropProvisionalDelegation(delegations);
+        } else {
+          return;
+        }
+        updateMessage(group.id, replyId, { delegations });
+      };
       try {
         const reply = await runGroupMemberTurn({
           group,
@@ -219,6 +247,7 @@ export function GroupChatRoom({ group, bots, onDeleted, onChanged }: GroupChatRo
           prior,
           signal: controller.signal,
           onEvent: (event) => {
+            applyDelegation(event);
             const next = moodFromEvent(event);
             if (next) setMemberMood(bot.id, next);
           },
@@ -675,6 +704,9 @@ function GroupBubble({
         {avatar}
         <div className="min-w-0 flex-1">
           <div className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{message.authorName ?? groupName}</div>
+          {message.delegations && message.delegations.length > 0 && (
+            <ParallelAgentsPanel delegations={message.delegations} compact />
+          )}
           <Markdown content={message.content} compact className="w-full" />
           {timeRow}
         </div>
