@@ -46,14 +46,24 @@ describe('interactive document composer', () => {
     expect(html).not.toContain('</script><script>alert(1)');
   });
 
-  it('unwraps a full model document and keeps the composer CSP', () => {
+  it('keeps a full document body, styles and scripts, but owns the CSP', () => {
     const html = composeInteractiveDocument({
-      html: '<!doctype html><html><head><title>evil</title></head><body><p>hi</p></body></html>',
+      html:
+        '<!doctype html><html><head><title>evil</title>' +
+        '<meta http-equiv="Content-Security-Policy" content="default-src *">' +
+        '<style>.x{color:red}</style><script>window.__headRan = true;</script></head>' +
+        '<body><p class="x">hi</p><script>window.__bodyRan = true;</script></body></html>',
       nonce: 'n5',
     });
-    expect(html).toContain('<p>hi</p>');
+    expect(html).toContain('<p class="x">hi</p>');
+    expect(html).toContain('.x{color:red}');
+    expect(html).toContain('window.__headRan');
+    expect(html).toContain('window.__bodyRan');
     expect(html).not.toContain('<title>evil</title>');
-    expect(html.indexOf('Content-Security-Policy')).toBeLessThan(html.indexOf('<p>hi</p>'));
+    // The model's permissive policy is gone; ours is the only one.
+    expect(html).not.toContain('default-src *');
+    expect(html.match(/Content-Security-Policy/g)).toHaveLength(1);
+    expect(html.indexOf('Content-Security-Policy')).toBeLessThan(html.indexOf('<p class="x">'));
   });
 
   it('jsonForScript neutralizes line separators and angle brackets', () => {

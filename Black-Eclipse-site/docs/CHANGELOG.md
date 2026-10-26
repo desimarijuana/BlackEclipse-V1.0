@@ -59,6 +59,10 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `contract-matrix` parity. New files: `src/lib/response/blocks/interactive.ts`,
   `src/lib/interactive/{document,dataset}.ts` (+ tests),
   `src/components/response/{interactive-block,interactive-frame}.tsx`.
+  A settled ```` ```html ```` / ```` ```svg ```` / ```` ```eclipse-app ```` fence
+  renders through the same sandbox too, so a model that answers with UI code
+  still produces a live app; the composer preserves a full document's styles and
+  scripts but strips any model-supplied CSP meta.
   Decision: ADR-052. docs updated: `docs/interactive-response-engine.md`,
   `docs/DECISIONS.md`, `skills/ARCHITECT.md`.
 - **ui(layout): slim the app header.** Top bar and sidebar brand row now use a

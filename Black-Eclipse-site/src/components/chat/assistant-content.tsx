@@ -11,6 +11,9 @@ import { ResponseView } from '@/components/response/response-view';
 import { hasResponseFence } from '@/lib/response/fence-check';
 import { planMarkdown, plannerUpgraded } from '@/lib/response/planner';
 
+/** A model-authored app fence — Markdown must own it so it renders live. */
+const APP_FENCE = /(^|\n)\s*```(?:html|htm|xhtml|svg|eclipse-app)\b/i;
+
 /**
  * Assistant prose is the expensive part to render (full Markdown parse). It only
  * changes when its text does, so memoizing it stops a streaming turn from
@@ -34,7 +37,7 @@ export const AssistantContent = memo(function AssistantContent({
   onFollowup?: (prompt: string) => void;
 }) {
   const planned = useMemo(() => {
-    if (streaming || hasResponseFence(content)) return null;
+    if (streaming || hasResponseFence(content) || APP_FENCE.test(content)) return null;
     const response = planMarkdown(content);
     return plannerUpgraded(response) ? response : null;
   }, [content, streaming]);

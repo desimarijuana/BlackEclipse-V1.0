@@ -21,6 +21,14 @@ import { MathFormula } from '@/lib/chat/math';
 import { RESPONSE_FENCE_LANGUAGE } from '@/lib/response/fence-check';
 import { ResponseFenceLazy as ResponseFence } from '@/components/response/response-fence-lazy';
 import { MermaidBlock } from '@/components/response/mermaid-block';
+import { InteractiveBlock } from '@/components/response/interactive-block';
+import { interactiveBlock } from '@/lib/response/blocks/interactive';
+
+// A complete app the model wrote in a code fence renders LIVE, not as code.
+// This is the reliability path: models often answer "here's the code" with an
+// ```html fence instead of the `interactive` block. Both entries land in the
+// same sandboxed renderer, so the preview is identical.
+const APP_FENCE_LANGUAGES = new Set(['html', 'htm', 'xhtml', 'svg', 'eclipse-app']);
 
 // A ```mermaid fence is a diagram, not code. `mermaid-block` lazy-imports the
 // heavy `mermaid` package inside its own effect (so the library is still only
@@ -188,6 +196,23 @@ function Block({
       // definition never flashes a parse error.
       if (block.language === 'mermaid' && !streaming && block.value.trim()) {
         return <MermaidBlock diagram={block.value} />;
+      }
+      // An HTML/SVG app fence becomes a live sandboxed preview once the turn has
+      // settled (while streaming it stays code so a half-written document never
+      // flashes). A `svg` fence is wrapped so it centres like a figure.
+      if (
+        !streaming &&
+        block.value.trim() &&
+        APP_FENCE_LANGUAGES.has((block.language ?? '').toLowerCase())
+      ) {
+        const source =
+          block.language?.toLowerCase() === 'svg'
+            ? `<div style="display:flex;align-items:center;justify-content:center;min-height:100%">${block.value}</div>`
+            : block.value;
+        const parsed = interactiveBlock.safeParse({ type: 'interactive', html: source, height: 460 });
+        if (parsed.success) {
+          return <InteractiveBlock block={parsed.data} />;
+        }
       }
       return (
         <div className="group/code relative">

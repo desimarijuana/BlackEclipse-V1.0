@@ -57,20 +57,48 @@ function escapeScriptEnd(source: string): string {
   return source.replace(/<\/script/gi, '<\\/script');
 }
 
+interface SplitDocument {
+  /** Model head content that is safe to keep (styles, meta, scripts). */
+  head: string;
+  /** Body markup the composer wraps. */
+  body: string;
+}
+
 /**
- * Models sometimes emit a whole document instead of body markup. Keep the body
- * (so their markup still renders) and drop the outer shell; the composer owns
- * `<head>`, including the CSP, so a model can never replace the policy.
+ * Models sometimes emit a whole document instead of body markup. Keep their
+ * body AND head styles/scripts (a full document usually carries its CSS in
+ * `<head>`), but strip anything that could replace the policy: a model-supplied
+ * CSP `<meta>` is removed (ours is authoritative) and `<title>` is dropped (the
+ * card already shows a title). The composer still owns `<head>` order.
  */
-export function extractBodySource(html: string): string {
-  const body = /<body\b[^>]*>([\s\S]*?)<\/body\s*>/i.exec(html);
-  if (body) return body[1];
-  return html
-    .replace(/<!doctype[^>]*>/gi, '')
-    .replace(/<head\b[^>]*>[\s\S]*?<\/head\s*>/gi, '')
-    .replace(/<\/?html\b[^>]*>/gi, '')
-    .replace(/<\/?body\b[^>]*>/gi, '')
+export function splitInteractiveDocument(html: string): SplitDocument {
+  const hasDocumentShell = /<html[\s>]|<!doctype|<head[\s>]|<body[\s>]/i.test(html);
+  if (!hasDocumentShell) return { head: '', body: html };
+
+  const headMatch = /<head\b[^>]*>([\s\S]*?)<\/head\s*>/i.exec(html);
+  const bodyMatch = /<body\b[^>]*>([\s\S]*?)<\/body\s*>/i.exec(html);
+
+  const head = (headMatch?.[1] ?? '')
+    .replace(/<meta[^>]+http-equiv=["']?content-security-policy["']?[^>]*>/gi, '')
+    .replace(/<title\b[^>]*>[\s\S]*?<\/title\s*>/gi, '')
     .trim();
+
+  let body = bodyMatch?.[1] ?? html;
+  if (!bodyMatch) {
+    body = body
+      .replace(/<!doctype[^>]*>/gi, '')
+      .replace(/<head\b[^>]*>[\s\S]*?<\/head\s*>/gi, '')
+      .replace(/<\/?html\b[^>]*>/gi, '')
+      .replace(/<\/?body\b[^>]*>/gi, '')
+      .trim();
+  }
+
+  return { head, body };
+}
+
+/** The body markup of a model-supplied document (head is handled separately). */
+export function extractBodySource(html: string): string {
+  return splitInteractiveDocument(html).body;
 }
 
 /**
@@ -114,10 +142,12 @@ post({type:'eclipse:ready',nonce:NONCE});
 
 /** Compose the full sandboxed document. */
 export function composeInteractiveDocument(input: ComposeInteractiveInput): string {
-  const body = extractBodySource(input.html);
+  const { head, body } = splitInteractiveDocument(input.html);
   const css = input.css ? `\n${input.css}` : '';
   const js = input.js ? escapeScriptEnd(input.js) : '';
   const bootstrap = escapeScriptEnd(bootstrapScript(input.nonce, input.data));
+  // The bootstrap is emitted BEFORE the model's head content so a script in the
+  // model's own `<head>` already sees `window.Eclipse`.
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -125,9 +155,10 @@ export function composeInteractiveDocument(input: ComposeInteractiveInput): stri
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${INTERACTIVE_CSP}">
 <style>${BASE_CSS}${css}</style>
+<script>${bootstrap}</script>
+${head}
 </head>
 <body>
-<script>${bootstrap}</script>
 ${body}
 ${js ? `<script>${js}</script>` : ''}
 </body>

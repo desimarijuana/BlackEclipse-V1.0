@@ -686,6 +686,12 @@ to be *isolated*, not trusted.
   `status:'unavailable'` envelope — never a fabricated line. This is why the model
   is told to declare `dataset` instead of typing prices: a widget cannot claim to
   be live while showing invented numbers.
+- **Authoring is forgiving.** A settled ```` ```html ````, ```` ```htm ````,
+  ```` ```svg ```` or ```` ```eclipse-app ```` fence is rendered by the *same*
+  component, so a model that answers "here's the code" still produces a live app
+  instead of a wall of text. The composer keeps a full document's own
+  `<style>`/`<script>`/body, strips a model-supplied CSP `<meta>` and `<title>`,
+  and emits its own policy first.
 - **Fallback.** The Markdown projection names the app and its data request, and
   the PDF export says the app must be opened in the app — nothing vanishes on a
   surface that cannot run it.
