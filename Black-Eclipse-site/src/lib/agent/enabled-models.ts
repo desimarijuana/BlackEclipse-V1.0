@@ -14,6 +14,7 @@
 
 import { useEffect } from 'react';
 import { create } from 'zustand';
+import { sortModelsNewestFirst } from './model-recency';
 
 export const ENABLED_MODELS_KEY = 'be_enabled_models_v1';
 
@@ -156,7 +157,10 @@ export function compactModels(
 
   for (const m of allModels) push(m);
   if (opts.selected) push(opts.selected);
-  const truncated = out.length > MODEL_LIST_SOFT_LIMIT;
-  const models = truncated ? out.slice(0, MODEL_LIST_SOFT_LIMIT) : out;
+  // Newest first, so truncating at the soft limit keeps the LATEST models
+  // visible instead of silently cutting them off the bottom.
+  const ordered = sortModelsNewestFirst(out);
+  const truncated = ordered.length > MODEL_LIST_SOFT_LIMIT;
+  const models = truncated ? ordered.slice(0, MODEL_LIST_SOFT_LIMIT) : ordered;
   return { models, truncated, curated: false };
 }

@@ -672,7 +672,7 @@ def test_remote_providers_expose_dynamic_discovery() -> None:
 
     for pid in [
         "openai", "anthropic", "google", "mistral", "groq",
-        "deepseek", "xai", "openrouter", "together", "perplexity",
+        "deepseek", "xai", "openrouter", "opencode", "together", "perplexity",
         "fireworks", "ollama", "lmstudio", "custom",
     ]:
         spec = PROVIDER_CATALOG[pid]
@@ -692,6 +692,18 @@ def test_openai_models_parser_tolerates_wild_shapes() -> None:
     assert _parse_openai_models(["a", "b"]) == ["a", "b"]
     assert _parse_openai_models({"unexpected": 1}) == []
     assert _parse_openai_models(None) == []
+
+
+def test_opencode_discovery_targets_its_gateway_catalog() -> None:
+    from harness.model_runtime.providers.openai import opencode_models_url
+
+    # Chat lives under /openai/v1; the catalog is published one level up.
+    assert opencode_models_url("https://opencode.ai/inference/openai/v1") == (
+        "https://opencode.ai/inference/v1/models"
+    )
+    assert opencode_models_url(None) == "https://opencode.ai/inference/v1/models"
+    # A custom base is used as-is.
+    assert opencode_models_url("https://example.com/v1") == "https://example.com/v1/models"
 
 
 def test_run_is_constrained_only_for_keyless_fallback() -> None:

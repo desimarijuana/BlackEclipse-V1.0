@@ -31,6 +31,11 @@ export function figureUrl(block: unknown, origin: string): string {
   return `${origin.replace(/\/$/, '')}/figure#${encodeFigure(block)}`;
 }
 
+/** The standalone viewer URL for an `interactive` block. */
+export function appUrl(block: unknown, origin: string): string {
+  return `${origin.replace(/\/$/, '')}/app-view#${encodeFigure(block)}`;
+}
+
 /** Decode a `/figure#…` hash back into a parsed response, or null when invalid. */
 export function decodeFigure(hash: string): ParsedResponse | null {
   try {

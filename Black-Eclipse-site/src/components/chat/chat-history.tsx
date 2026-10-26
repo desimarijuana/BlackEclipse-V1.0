@@ -381,10 +381,6 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                 </div>
               )}
 
-              {msg.role === 'assistant' && msg.delegations && msg.delegations.length > 0 && (
-                <ParallelAgentsPanel delegations={msg.delegations} compact={compact} />
-              )}
-
               {msg.role === 'assistant' && ((msg.activities && msg.activities.length > 0) || Boolean(msg.autonomy) || Boolean(msg.codeVerification) || Boolean(msg.capability)) && (
                 <ActivityFeed
                   activities={msg.activities ?? []}
@@ -392,6 +388,12 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                   compact={compact}
                   capability={{ autonomy: msg.autonomy, verification: msg.codeVerification, capability: msg.capability }}
                 />
+              )}
+
+              {/* Delegated work sits WITH the activity rows (below them), not as a
+                  card above the turn: it is runtime detail, not the answer. */}
+              {msg.role === 'assistant' && msg.delegations && msg.delegations.length > 0 && (
+                <ParallelAgentsPanel delegations={msg.delegations} compact={compact} />
               )}
 
               {msg.role === 'assistant' ? (

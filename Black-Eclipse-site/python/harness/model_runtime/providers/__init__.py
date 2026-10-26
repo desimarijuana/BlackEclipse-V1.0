@@ -16,6 +16,7 @@ from .openai import (
     OllamaAdapter,
     OpenAIAdapter,
     OpenAICompatibleAdapter,
+    OpenCodeAdapter,
 )
 
 # Map `ProviderSpec.kind` (and a few provider ids whose kind is shared) to an
@@ -37,6 +38,7 @@ _FAMILY_ADAPTERS: dict[str, type[ProviderAdapter]] = {
     "vllm": LocalAdapter,
     "custom": OpenAICompatibleAdapter,
     "openrouter": OpenAICompatibleAdapter,
+    "opencode": OpenCodeAdapter,
     "together": OpenAICompatibleAdapter,
     "deepseek": OpenAICompatibleAdapter,
     "cerebras": OpenAICompatibleAdapter,

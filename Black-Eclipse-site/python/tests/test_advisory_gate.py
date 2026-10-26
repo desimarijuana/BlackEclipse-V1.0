@@ -163,3 +163,27 @@ def test_collector_dedupes_repeated_calls():
     collector.add("portfolio_get", args, data)
     collector.add("portfolio_get", args, data)
     assert len(collector.computations()) == 1
+
+def test_code_blocks_are_not_scanned_for_recommendations():
+    # A model-authored app is full of directive words and SHOUTING identifiers.
+    # None of them is a recommendation, so the gate must read prose only.
+    answer = (
+        "Here is the app.\n\n"
+        "```html\n"
+        "<style>.add{width:50%}.trim{width:100%}.exit{opacity:0}</style>\n"
+        "<script>const BARS=[];const VOL=0;const THR=10;const HOVER=1;"
+        "const PIN=2;const BASE=3;function add(){trim();exit();reduce();}</script>\n"
+        "```\n\n"
+        "Open it in the chat."
+    )
+    assert extract_claims(answer) == []
+    result = enforce_advisory_answer(answer)
+    assert result.verdicts == []
+    assert result.disclosure is None
+
+
+def test_prose_advice_is_still_flagged_next_to_code():
+    answer = "```js\nconst x = 1;\n```\n\nBuy 100 shares of AAPL."
+    claims = extract_claims(answer)
+    assert claims and claims[0].action == "buy"
+    assert "AAPL" in claims[0].symbols

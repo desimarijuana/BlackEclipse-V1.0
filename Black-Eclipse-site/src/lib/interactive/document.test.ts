@@ -66,6 +66,38 @@ describe('interactive document composer', () => {
     expect(html.indexOf('Content-Security-Policy')).toBeLessThan(html.indexOf('<p class="x">'));
   });
 
+  it('exposes the host context (theme/motion/locale) to the app', () => {
+    const html = composeInteractiveDocument({
+      html: '<p>x</p>',
+      nonce: 'n8',
+      context: { theme: 'light', reducedMotion: true, locale: 'en-GB' },
+    });
+    expect(html).toContain('"theme":"light"');
+    expect(html).toContain('"reducedMotion":true');
+    expect(html).toContain('"locale":"en-GB"');
+    expect(html).toContain('data-theme');
+    expect(html).toContain('eclipse:context');
+  });
+
+  it('exposes a visibility signal and pauses CSS off-screen', () => {
+    const html = composeInteractiveDocument({ html: '<p>x</p>', nonce: 'n9' });
+    expect(html).toContain('onVisibility');
+    expect(html).toContain('eclipse:visibility');
+    expect(html).toContain('data-eclipse-visible');
+    expect(html).toContain('animation-play-state:paused');
+  });
+
+  it('imposes no palette on the app', () => {
+    const html = composeInteractiveDocument({ html: '<p>x</p>', nonce: 'n7' });
+    expect(html).not.toContain('color-scheme');
+    expect(html).not.toContain('color:#e6e6e6');
+  });
+
+  it('exposes a bars() convenience beside data()', () => {
+    const html = composeInteractiveDocument({ html: '<p>x</p>', nonce: 'n6' });
+    expect(html).toContain('bars:function()');
+  });
+
   it('jsonForScript neutralizes line separators and angle brackets', () => {
     const encoded = jsonForScript({ a: '<x>', b: '\u2028' });
     expect(encoded).toContain('\\u003cx\\u003e');

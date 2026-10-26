@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { listModelProviders, listRuntimeModels, HarnessRuntimeUnavailable } from "@/lib/harness";
 import { readDiscoveredModels } from "@/lib/agent/discovered-models";
+import { sortModelsNewestFirst } from "@/lib/agent/model-recency";
 
 export const dynamic = "force-dynamic";
 
@@ -13,14 +14,20 @@ export async function GET() {
   try {
     const providers = await listModelProviders();
 
-    // Every place a discovered model can live, merged in order of durability:
-    //   1. the durable SystemConfig snapshot (survives a runtime restart),
-    //   2. the runtime's in-process registry (freshest, lost on restart).
+    // Every place a discovered model can live, merged in order of freshness:
+    //   1. the durable SystemConfig snapshot's `served` set — REPLACED by the
+    //      last successful probe, so it is the provider's true current list,
+    //   2. the snapshot's accumulated ids and the runtime registry (which hold
+    //      declared placeholders too — only `dynamic` entries are discoveries).
     const discoveredByProvider = new Map<string, string[]>();
+    const servedByProvider = new Map<string, string[]>();
     try {
       const snapshot = await readDiscoveredModels();
-      for (const [id, ids] of Object.entries(snapshot.providers)) {
+      for (const [id, ids] of Object.entries(snapshot.providers ?? {})) {
         discoveredByProvider.set(id, [...ids]);
+      }
+      for (const [id, ids] of Object.entries(snapshot.served ?? {})) {
+        if (ids.length) servedByProvider.set(id, [...ids]);
       }
     } catch {
       // No durable snapshot — the runtime registry below still contributes.
@@ -38,10 +45,13 @@ export async function GET() {
 
     const merged = providers.map((p) => {
       const id = typeof p.id === "string" ? p.id : undefined;
-      const extra = id ? discoveredByProvider.get(id) ?? [] : [];
-      if (extra.length === 0) return p;
+      // The freshest probe result wins; the accumulated set is only a fallback.
+      const extra = id ? servedByProvider.get(id) ?? discoveredByProvider.get(id) ?? [] : [];
+      if (extra.length === 0) {
+        return Array.isArray(p.models) ? { ...p, models: sortModelsNewestFirst(p.models as string[]) } : p;
+      }
       const declared = Array.isArray(p.models) ? (p.models as string[]) : [];
-      return { ...p, models: Array.from(new Set([...extra, ...declared])) };
+      return { ...p, models: sortModelsNewestFirst(Array.from(new Set([...extra, ...declared]))) };
     });
 
     return NextResponse.json({ success: true, providers: merged });

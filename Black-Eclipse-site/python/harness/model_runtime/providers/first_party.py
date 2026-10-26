@@ -44,7 +44,17 @@ class AnthropicAdapter(ProviderAdapter):
             raise RuntimeError(f"could not reach {url}: {exc}") from exc
         data = payload.get("data") if isinstance(payload, dict) else None
         if isinstance(data, list):
-            return [str(item.get("id")) for item in data if isinstance(item, dict) and item.get("id")]
+            found: list[tuple[str, Optional[str]]] = [
+                (str(item.get("id")), item.get("created_at"))
+                for item in data
+                if isinstance(item, dict) and item.get("id")
+            ]
+            # Anthropic returns an ISO-8601 `created_at`; newest first so a new
+            # Claude release leads the picker. Lexicographic order is correct
+            # for ISO timestamps; undated ids keep their relative order.
+            dated = sorted((p for p in found if p[1]), key=lambda pair: pair[1], reverse=True)
+            undated = [p for p in found if not p[1]]
+            return [model_id for model_id, _ in [*dated, *undated]]
         return []
 
     def apply_reasoning(self, model: Any, reasoning: Optional[ReasoningRequest]) -> Any:
@@ -94,12 +104,20 @@ class GoogleAdapter(ProviderAdapter):
             raise RuntimeError(f"could not reach {url}: {exc}") from exc
         models = payload.get("models") if isinstance(payload, dict) else None
         if isinstance(models, list):
-            out: list[str] = []
+            found: list[tuple[str, str]] = []
             for item in models:
-                name = item.get("name") if isinstance(item, dict) else item
+                if isinstance(item, dict):
+                    name = item.get("name")
+                    version = str(item.get("version") or "")
+                else:
+                    name = item
+                    version = ""
                 if name:
-                    out.append(str(name).replace("models/", "", 1))
-            return out
+                    found.append((str(name).replace("models/", "", 1), version))
+            # Gemini reports a `version` (e.g. `001`); newest first when present.
+            if any(version for _, version in found):
+                found.sort(key=lambda pair: pair[1], reverse=True)
+            return [model_id for model_id, _ in found]
         return []
 
     def apply_reasoning(self, model: Any, reasoning: Optional[ReasoningRequest]) -> Any:

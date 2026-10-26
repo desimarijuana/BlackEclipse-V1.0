@@ -118,6 +118,15 @@ export const LLM_PRESETS: LLMPreset[] = [
     docsUrl: "https://openrouter.ai/keys",
   },
   {
+    id: "opencode",
+    name: "OpenCode Zen",
+    description: "OpenCode's gateway of curated coding models on one key.",
+    baseUrl: "https://opencode.ai/inference/openai/v1",
+    model: "glm-5.3",
+    envVar: "OPENCODE_API_KEY",
+    docsUrl: "https://opencode.ai/console",
+  },
+  {
     id: "together",
     name: "Together AI",
     description: "Hosted open models with an OpenAI-compatible API.",
@@ -205,6 +214,7 @@ export const CATALOG_ENV_VARS: string[] = [
   "GEMINI_API_KEY",
   "XAI_API_KEY",
   "OPENROUTER_API_KEY",
+  "OPENCODE_API_KEY",
   "TOGETHER_API_KEY",
   "PERPLEXITY_API_KEY",
   "FIREWORKS_API_KEY",

@@ -60,12 +60,16 @@ export async function readDiscoveredModels(): Promise<DiscoveredSnapshot> {
 }
 
 /**
- * Merge the models a probe found for one provider into the durable snapshot.
- * Merges (never replaces) so discovering provider B does not erase provider A,
- * and a later probe that returns fewer models cannot drop already-known ones.
+ * Record the models a probe found for one provider into the durable snapshot.
+ *
+ * `providers[providerId]` is REPLACED by each successful probe — a model the
+ * provider no longer lists must stop appearing (otherwise old/decommissioned
+ * ids linger forever). Other providers are untouched, so discovering B never
+ * erases A. A caller that wants to pin a removed id can still do so client-side
+ * via the enabled-models selection.
  *
  * `servedIds` (optional) is the subset the provider genuinely serves. It is
- * merged the same way. When a probe cannot distinguish served models it is
+ * replaced the same way. When a probe cannot distinguish served models it is
  * omitted, and any previously-known served set is left untouched.
  */
 export async function recordDiscoveredModels(
@@ -74,7 +78,7 @@ export async function recordDiscoveredModels(
   servedIds?: string[],
 ): Promise<DiscoveredSnapshot> {
   const current = await readDiscoveredModels();
-  const merged = new Set([...(current.providers[providerId] ?? []), ...modelIds.filter(Boolean)]);
+  const nextIds = Array.from(new Set(modelIds.filter(Boolean)));
   // `served` is REPLACED by each successful probe (not merged): it must reflect
   // what the server serves NOW, or a model since removed would keep being
   // chosen as the default and 404. When the probe omits `servedIds`, the
@@ -82,7 +86,7 @@ export async function recordDiscoveredModels(
   const served =
     servedIds === undefined ? current.served[providerId] : Array.from(new Set(servedIds.filter(Boolean)));
   const next: DiscoveredSnapshot = {
-    providers: { ...current.providers, [providerId]: [...merged] },
+    providers: { ...current.providers, [providerId]: nextIds },
     served: { ...current.served, [providerId]: served ?? [] },
     updatedAt: new Date().toISOString(),
   };

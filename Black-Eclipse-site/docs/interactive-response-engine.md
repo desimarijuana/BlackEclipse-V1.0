@@ -691,7 +691,38 @@ to be *isolated*, not trusted.
   component, so a model that answers "here's the code" still produces a live app
   instead of a wall of text. The composer keeps a full document's own
   `<style>`/`<script>`/body, strips a model-supplied CSP `<meta>` and `<title>`,
-  and emits its own policy first.
+  and emits its own policy first. **The app owns its palette**: the shell sets
+  only structural defaults (box-sizing, margin, font, transparent background) and
+  never forces a text colour or `color-scheme`, so the model can design light,
+  dark or themed from the user's context. The card is full width and offers
+  Reload, Download (the composed HTML) and a viewport-filling Full page view
+  (Escape to exit). The scrollbar is thin and derived from the app's own
+  `currentColor`, scroll chaining is contained, the card auto-fits the app's
+  reported content height (clamped 240–900), and an uncaught app error is
+  surfaced as an "App error" banner instead of a silent blank — with an
+  **Ask Eclipse to fix** action that re-enters the agent with the error. Until
+  the app signals `eclipse:ready` the card shows a skeleton and fades the frame
+  in. The host exposes `Eclipse.context = { theme, reducedMotion, locale }`
+  (baked at mount, then pushed live when the app theme changes) so a widget can
+  match the user's scheme without guessing from the OS. `Eclipse.visible` /
+  `Eclipse.onVisibility(fn)` reports off-screen or hidden-tab state, the shell
+  pauses CSS animations while hidden and holds `requestAnimationFrame` callbacks
+  until the card returns, so an off-screen app stops burning CPU. The toolbar
+  also offers a source view with Copy, a drag/keyboard resize handle whose height
+  is remembered per app, and a focus-trapped full page that restores scroll and
+  focus on exit. A fenced app that
+  needs a series declares it
+  in a leading `<!--eclipse-dataset {"symbol":"AAPL","range":"6mo"}-->` comment
+  (stripped before render); the widget reads it with `Eclipse.data()` or
+  `Eclipse.bars()`.
+- **Live preview while writing.** A still-streaming ```` ```html ```` / ```` ```svg ````
+  / ```` ```eclipse-app ```` fence renders a debounced (450 ms) sandboxed preview
+  of what has arrived, labelled "Live preview · building"; the settled block
+  replaces it. No dataset is requested mid-stream.
+- **Sharing.** The Share action copies `/app-view#<base64>` (the same encoding as
+  `/figure`). The standalone page decodes the block and renders it in the same
+  sandbox — no server storage, `noindex`. Links are ephemeral and bounded by the
+  URL length.
 - **Fallback.** The Markdown projection names the app and its data request, and
   the PDF export says the app must be opened in the app — nothing vanishes on a
   surface that cannot run it.

@@ -93,6 +93,11 @@ PROVIDER_CATALOG: dict[str, ProviderSpec] = {
     "xai": ProviderSpec("xai", "xAI (Grok)", "openai", "https://api.x.ai/v1", "grok-2-latest", "XAI_API_KEY", openai_compatible=True, dynamic_discovery=True, context_window=131_072),
     # A router fronts models with wildly different windows. Do not guess.
     "openrouter": ProviderSpec("openrouter", "OpenRouter", "openai", "https://openrouter.ai/api/v1", "openai/gpt-4o-mini", "OPENROUTER_API_KEY", openai_compatible=True, dynamic_discovery=True),
+    # OpenCode Console gateway. Chat goes through its OpenAI-compatible endpoint
+    # (`…/inference/openai/v1`); the catalog is published one level up
+    # (`…/inference/v1/models`), which the OpenCode adapter probes directly. Its
+    # hosted models vary widely, so the window stays unknown.
+    "opencode": ProviderSpec("opencode", "OpenCode Zen", "openai", "https://opencode.ai/inference/openai/v1", "glm-5.3", "OPENCODE_API_KEY", openai_compatible=True, dynamic_discovery=True),
     # Together/Fireworks host many model families of different sizes. Only the
     # known Llama-3.3 entry is declared (below); the row is left unknown.
     "together": ProviderSpec("together", "Together AI", "openai", "https://api.together.xyz/v1", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "TOGETHER_API_KEY", openai_compatible=True, dynamic_discovery=True),
@@ -109,20 +114,25 @@ PROVIDER_CATALOG: dict[str, ProviderSpec] = {
 # the catalog does not know (the OpenAI-compatible path accepts any). Kept here,
 # beside the context windows, so the UI never keeps a second, drifting copy.
 PROVIDER_MODELS: dict[str, list[str]] = {
-    "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-3.5-turbo"],
+    # Ordered NEWEST FIRST. This is the offline seed for the picker; a live
+    # "Discover" probe replaces it with the provider's own list.
+    "openai": ["gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"],
     "anthropic": [
+        "claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5", "claude-sonnet-4",
         "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest",
-        "claude-3-opus-latest", "claude-4-sonnet-latest",
     ],
-    "google": ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro", "gemini-1.5-flash"],
-    "mistral": ["mistral-large-latest", "mistral-small-latest", "codestral-latest"],
+    "google": [
+        "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
+        "gemini-2.0-flash", "gemini-2.0-flash-lite",
+    ],
+    "mistral": ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest", "codestral-latest"],
     "groq": [
-        "llama-3.3-70b-versatile", "llama-3.1-8b-instant",
-        "mixtral-8x7b-32768", "gemma2-9b-it",
+        "openai/gpt-oss-120b", "openai/gpt-oss-20b", "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant", "gemma2-9b-it", "mixtral-8x7b-32768",
     ],
-    "deepseek": ["deepseek-chat", "deepseek-reasoner"],
-    "xai": ["grok-2-latest", "grok-2-1212", "grok-beta"],
-    "perplexity": ["sonar", "sonar-pro", "sonar-reasoning"],
+    "deepseek": ["deepseek-reasoner", "deepseek-chat"],
+    "xai": ["grok-4", "grok-3", "grok-3-mini", "grok-2-latest"],
+    "perplexity": ["sonar-deep-research", "sonar-reasoning-pro", "sonar-reasoning", "sonar-pro", "sonar"],
     "together": [
         "meta-llama/Llama-3.3-70B-Instruct-Turbo",
         "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
@@ -137,11 +147,22 @@ PROVIDER_MODELS: dict[str, list[str]] = {
     # id. The declared lists include the common open-weight VISION models so the
     # vision subsystem can find a local VLM without a discovery round-trip; the
     # list is a convenience, never an allowlist.
-    "ollama": ["llama3.1", "llama3.2", "qwen2.5", "qwen2.5-vl", "llava", "llava-llama3", "minicpm-v", "moondream", "gemma3", "mistral", "phi3"],
-    "lmstudio": ["local-model", "llava", "qwen2.5-vl", "gemma-3"],
+    "ollama": ["qwen3", "gemma3", "llama3.2", "llama3.1", "qwen2.5", "qwen2.5-vl", "llava", "llava-llama3", "minicpm-v", "moondream", "mistral", "phi3"],
+    "lmstudio": ["local-model", "qwen2.5-vl", "gemma-3", "llava"],
     "openrouter": [
-        "openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "google/gemini-flash-1.5",
-        "qwen/qwen2.5-vl-72b-instruct", "meta-llama/llama-3.2-11b-vision-instruct",
+        "openai/gpt-5", "anthropic/claude-sonnet-4.5", "google/gemini-2.5-pro",
+        "deepseek/deepseek-chat-v3.1", "meta-llama/llama-3.3-70b-instruct",
+        "qwen/qwen2.5-vl-72b-instruct", "openai/gpt-4o-mini",
+    ],
+    # OpenCode Console models served on its OpenAI-compatible chat endpoint
+    # (newest first). Models on the responses/Anthropic/Google endpoints are not
+    # listed here because this app speaks chat-completions; discovery still
+    # reports the gateway's full catalog.
+    "opencode": [
+        "kimi-k3", "kimi-k2.7-code", "kimi-k2.6", "kimi-k2.5",
+        "qwen3.8-max", "glm-5.3", "glm-5.2", "glm-5.1", "deepseek-v4-pro",
+        "minimax-m3", "mistral-large-4", "big-pickle",
+        "glm-5.3-flash-free", "deepseek-v4.1-flash-free", "nemotron-3-ultra-free",
     ],
 }
 

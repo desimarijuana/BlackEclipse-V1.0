@@ -82,6 +82,8 @@ export const PROVIDER_KEYS: ProviderKeyDef[] = [
     test: { url: 'https://api.x.ai/v1/models', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
   { envVar: 'OPENROUTER_API_KEY', label: 'OpenRouter', provider: 'OpenRouter', category: 'ai', description: 'Router across many models.', docsUrl: 'https://openrouter.ai/keys',
     test: { url: 'https://openrouter.ai/api/v1/models', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
+  { envVar: 'OPENCODE_API_KEY', label: 'OpenCode Zen', provider: 'OpenCode', category: 'ai', description: 'OpenCode Console gateway: curated coding models on one key.', docsUrl: 'https://opencode.ai/console',
+    test: { url: 'https://opencode.ai/inference/v1/models', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
   { envVar: 'TOGETHER_API_KEY', label: 'Together AI', provider: 'Together', category: 'ai', description: 'Open-model inference.', docsUrl: 'https://api.together.xyz/settings/api-keys',
     test: { url: 'https://api.together.xyz/v1/models', auth: { kind: 'header', name: 'authorization', prefix: 'Bearer ' } } },
   { envVar: 'PERPLEXITY_API_KEY', label: 'Perplexity', provider: 'Perplexity', category: 'ai', description: 'Search-augmented models.', docsUrl: 'https://www.perplexity.ai/settings/api',

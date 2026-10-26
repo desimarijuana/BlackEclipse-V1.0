@@ -12,12 +12,10 @@
 //  - an agent face is derived from the agent id (bot art), never a model logo;
 //  - a failed/refused part keeps its plain reason visible.
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Activity, AlertCircle, Bot, Check, Clock, Layers, Loader2, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { DelegationChildView, DelegationView } from '@/lib/agent/response-model';
-import { GhostAvatar } from '@/components/bots/ghost-avatar';
-import { ghostSpecFromId } from '@/lib/bots/ghost';
 import { ParallelAgentsDialog } from './parallel-agents-dialog';
 
 function humanizeAgent(agentId?: string): string {
@@ -52,12 +50,11 @@ function statusLine(child: DelegationChildView): string {
   return base;
 }
 
-function AgentFace({ child, size = 32 }: { child: DelegationChildView; size?: number }) {
-  const spec = useMemo(
-    () => ghostSpecFromId(child.agentId || child.model || `part-${child.childIndex + 1}`),
-    [child.agentId, child.model, child.childIndex],
-  );
-  return <GhostAvatar spec={spec} size={size} title={humanizeAgent(child.agentId)} />;
+// The same Bot glyph the ChatBot nav item uses. Delegated parts are one Eclipse
+// agent working in parallel, not distinct "bot faces", so the generated ghost
+// avatar was misleading (and the user asked for the nav icon).
+function AgentFace({ size = 32 }: { size?: number }) {
+  return <Bot size={Math.round(size * 0.58)} aria-hidden />;
 }
 
 function StatusMark({ status }: { status: DelegationChildView['status'] }) {
@@ -92,10 +89,10 @@ function ChildRow({ child, compact }: { child: DelegationChildView; compact: boo
         className={cn(
           'grid shrink-0 place-items-center overflow-hidden rounded-lg ring-1',
           compact ? 'h-7 w-7' : 'h-9 w-9',
-          failed ? 'bg-red-500/10 ring-red-400/20' : 'bg-white/5 ring-white/10',
+          failed ? 'bg-red-500/10 ring-red-400/20 text-red-300/80' : 'bg-white/5 ring-white/10 text-foreground/70',
         )}
       >
-        <AgentFace child={child} size={compact ? 24 : 30} />
+        <AgentFace size={compact ? 24 : 30} />
       </div>
 
       <div className="min-w-0 flex-1">

@@ -23,12 +23,18 @@ import { ResponseFenceLazy as ResponseFence } from '@/components/response/respon
 import { MermaidBlock } from '@/components/response/mermaid-block';
 import { InteractiveBlock } from '@/components/response/interactive-block';
 import { interactiveBlock } from '@/lib/response/blocks/interactive';
+import { StreamingAppPreview } from './streaming-app-preview';
 
 // A complete app the model wrote in a code fence renders LIVE, not as code.
 // This is the reliability path: models often answer "here's the code" with an
 // ```html fence instead of the `interactive` block. Both entries land in the
 // same sandboxed renderer, so the preview is identical.
 const APP_FENCE_LANGUAGES = new Set(['html', 'htm', 'xhtml', 'svg', 'eclipse-app']);
+
+// A fenced app can ask for a real series without the block envelope:
+//   <!--eclipse-dataset {"symbol":"AAPL","range":"6mo","interval":"1d"}-->
+// It is stripped from the document and handed to the host as `dataset`.
+const DATASET_DIRECTIVE_RE = /^\s*<!--\s*eclipse-dataset\s*:?\s*(\{[\s\S]*?\})\s*-->/i;
 
 // A ```mermaid fence is a diagram, not code. `mermaid-block` lazy-imports the
 // heavy `mermaid` package inside its own effect (so the library is still only
@@ -197,19 +203,44 @@ function Block({
       if (block.language === 'mermaid' && !streaming && block.value.trim()) {
         return <MermaidBlock diagram={block.value} />;
       }
+      // Still streaming: show a debounced live preview of what has arrived.
+      if (
+        streaming &&
+        block.value.trim().length >= 120 &&
+        APP_FENCE_LANGUAGES.has((block.language ?? '').toLowerCase())
+      ) {
+        return (
+          <StreamingAppPreview
+            source={block.value}
+            language={(block.language ?? '').toLowerCase()}
+            compact={compact}
+          />
+        );
+      }
       // An HTML/SVG app fence becomes a live sandboxed preview once the turn has
-      // settled (while streaming it stays code so a half-written document never
-      // flashes). A `svg` fence is wrapped so it centres like a figure.
+      // settled. A `svg` fence is wrapped so it centres like a figure.
       if (
         !streaming &&
         block.value.trim() &&
         APP_FENCE_LANGUAGES.has((block.language ?? '').toLowerCase())
       ) {
-        const source =
+        let source =
           block.language?.toLowerCase() === 'svg'
             ? `<div style="display:flex;align-items:center;justify-content:center;min-height:100%">${block.value}</div>`
             : block.value;
-        const parsed = interactiveBlock.safeParse({ type: 'interactive', html: source, height: 460 });
+        let dataset: unknown;
+        const directive = DATASET_DIRECTIVE_RE.exec(source);
+        if (directive) {
+          try {
+            dataset = JSON.parse(directive[1]);
+            source = source.slice(directive[0].length).trimStart();
+          } catch {
+            dataset = undefined;
+          }
+        }
+        const base = { type: 'interactive' as const, html: source, height: 460 };
+        let parsed = interactiveBlock.safeParse(dataset ? { ...base, dataset } : base);
+        if (!parsed.success && dataset) parsed = interactiveBlock.safeParse(base);
         if (parsed.success) {
           return <InteractiveBlock block={parsed.data} />;
         }

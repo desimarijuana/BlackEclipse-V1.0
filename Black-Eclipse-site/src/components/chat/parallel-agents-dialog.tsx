@@ -11,8 +11,6 @@ import { createPortal } from 'react-dom';
 import { Bot, Clock, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { DelegationChildView, DelegationView } from '@/lib/agent/response-model';
-import { GhostAvatar } from '@/components/bots/ghost-avatar';
-import { ghostSpecFromId } from '@/lib/bots/ghost';
 
 function humanizeAgent(agentId?: string): string {
   if (!agentId) return 'Eclipse Agent';
@@ -40,13 +38,10 @@ function statusLabel(child: DelegationChildView): string {
   }
 }
 
-function Face({ child, size = 36 }: { child: DelegationChildView; size?: number }) {
-  const seed = child.agentId || child.model || `part-${child.childIndex + 1}`;
-  try {
-    return <GhostAvatar spec={ghostSpecFromId(seed)} size={size} title={humanizeAgent(child.agentId)} />;
-  } catch {
-    return <Bot size={size * 0.5} aria-hidden />;
-  }
+// One Eclipse agent working in parallel — the same Bot glyph as the ChatBot nav
+// item, not a distinct generated face.
+function Face({ size = 36 }: { size?: number }) {
+  return <Bot size={Math.round(size * 0.5)} aria-hidden />;
 }
 
 /** The dialog's inner content — pure, so it can be rendered/tested without a portal. */
@@ -85,7 +80,7 @@ export function DelegationDetails({ delegation }: { delegation: DelegationView }
             >
               <div className="flex items-start gap-3">
                 <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white/5 ring-1 ring-white/10">
-                  <Face child={child} size={28} />
+                  <Face size={28} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">

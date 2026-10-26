@@ -17,6 +17,7 @@ import { Check, Layers, RefreshCw, Search } from '@/lib/icons';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useEnabledModelsStore } from '@/lib/agent/enabled-models';
+import { compareModelRecency } from '@/lib/agent/model-recency';
 
 /** Stable empty reference so the zustand selector never returns a new array. */
 const NO_MODELS: string[] = [];
@@ -65,11 +66,14 @@ export function ManageModelsDialog({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const list = q ? models.filter((m) => m.toLowerCase().includes(q)) : models;
-    // Enabled first, then alphabetical — the curated set stays at the top.
+    // Enabled first, then NEWEST first within each group — a newly released
+    // model sits at the top of the uncurated section instead of at the bottom.
     return [...list].sort((a, b) => {
       const ea = enabledSet.has(a) ? 0 : 1;
       const eb = enabledSet.has(b) ? 0 : 1;
       if (ea !== eb) return ea - eb;
+      const recency = compareModelRecency(a, b);
+      if (recency !== 0) return recency;
       return a.localeCompare(b);
     });
   }, [models, query, enabledSet]);

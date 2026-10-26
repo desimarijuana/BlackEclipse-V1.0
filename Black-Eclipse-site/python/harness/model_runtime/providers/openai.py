@@ -86,6 +86,11 @@ def _parse_openai_models(payload: Any) -> list[str]:
     Tolerates the shapes seen in the wild: `data` as a list of objects with an
     `id`, a bare list of id strings, or a top-level `models` list. Never
     fabricates an id.
+
+    When the provider reports a `created` timestamp (OpenAI, OpenRouter, Groq,
+    Together, Fireworks, Ollama all do) the ids are returned NEWEST FIRST, so
+    the picker leads with the latest releases instead of the oldest. Without a
+    timestamp the provider's own order is preserved.
     """
     if isinstance(payload, dict):
         entries = payload.get("data")
@@ -95,15 +100,22 @@ def _parse_openai_models(payload: Any) -> list[str]:
         entries = payload if isinstance(payload, list) else None
     if not isinstance(entries, list):
         return []
-    ids: list[str] = []
+    found: list[tuple[str, Optional[float]]] = []
     for item in entries:
+        created: Optional[float] = None
         if isinstance(item, dict):
             value = item.get("id") or item.get("name")
+            raw_created = item.get("created", item.get("created_at"))
+            if isinstance(raw_created, (int, float)):
+                created = float(raw_created)
         else:
             value = item
         if value:
-            ids.append(str(value))
-    return ids
+            found.append((str(value), created))
+    if any(created is not None for _, created in found):
+        # Models without a timestamp sort after dated ones, preserving their order.
+        found.sort(key=lambda pair: (pair[1] is None, -(pair[1] or 0.0)))
+    return [model_id for model_id, _ in found]
 
 
 class OpenAICompatibleAdapter(OpenAIAdapter):
@@ -125,10 +137,54 @@ class LocalAdapter(OpenAICompatibleAdapter):
     kind = "openai_compatible"
 
 
+class OpenCodeAdapter(OpenAICompatibleAdapter):
+    """OpenCode Console gateway.
+
+    Chat is OpenAI-compatible at `…/inference/openai/v1/chat/completions`, but
+    the gateway publishes its catalog one level up at `…/inference/v1/models`.
+    The generic `{base}/models` probe would 404, so discovery rewrites the base.
+    """
+
+    kind = "openai_compatible"
+
+    async def discover_models(self, settings) -> list[str]:  # type: ignore[override]
+        url = opencode_models_url(getattr(settings, "base_url", None))
+        headers = {}
+        api_key = getattr(settings, "api_key", None)
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        try:
+            import httpx  # noqa: PLC0415
+
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(f"could not reach {url}: {exc}") from exc
+        return _parse_openai_models(payload)
+
+
+OPENCODE_DEFAULT_BASE = "https://opencode.ai/inference/openai/v1"
+
+
+def opencode_models_url(base_url: Optional[str]) -> str:
+    """The OpenCode gateway catalog URL for a configured chat base URL.
+
+    `…/inference/openai/v1` (chat) → `…/inference/v1/models` (catalog).
+    Any other base is used as-is with `/models` appended.
+    """
+    base = (base_url or OPENCODE_DEFAULT_BASE).rstrip("/")
+    list_base = base[: -len("/openai/v1")] + "/v1" if base.endswith("/openai/v1") else base
+    return f"{list_base}/models"
+
+
 __all__ = [
     "LocalAdapter",
     "OllamaAdapter",
     "OpenAIAdapter",
     "OpenAICompatibleAdapter",
+    "OpenCodeAdapter",
+    "opencode_models_url",
     "probe_openai_models",
 ]

@@ -181,7 +181,9 @@ const REGISTRY = {
   simulation: (b: BlockOf<'simulation'>, ctx: RenderContext) => <SimulationBlock block={b} onFollowup={ctx.onFollowup} />,
   anatomy: (b: BlockOf<'anatomy'>) => <AnatomyBlock block={b} />,
   model3d: (b: BlockOf<'model3d'>) => <Model3dBlock block={b} />,
-  interactive: (b: BlockOf<'interactive'>) => <InteractiveBlock block={b} />,
+  interactive: (b: BlockOf<'interactive'>, ctx: RenderContext) => (
+    <InteractiveBlock block={b} onFollowup={ctx.onFollowup} />
+  ),
   layout: (b: BlockOf<'layout'>, ctx: RenderContext) => <LayoutBlock block={b} renderBlocks={ctx.renderBlocks} />,
   divider: (b: BlockOf<'divider'>) => <DividerBlock block={b} />,
   inputs: (b: BlockOf<'inputs'>) => <InputsBlock block={b} />,

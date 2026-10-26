@@ -14,6 +14,7 @@ describe('Markdown app fences render live', () => {
     expect(out).toContain('sandbox="allow-scripts"');
     expect(out).not.toContain('sandbox="allow-scripts allow-same-origin"');
     expect(out).toContain('Content-Security-Policy');
+    expect(out).toContain('Full page');
     expect(out).not.toContain('<pre');
   });
 
@@ -23,6 +24,25 @@ describe('Markdown app fences render live', () => {
     );
     expect(out).toContain('<iframe');
     expect(out).not.toContain('<pre');
+  });
+
+  it('streams a live preview once enough of the app has arrived', () => {
+    const out = renderToStaticMarkup(
+      <Markdown content={'```html\n<p>' + 'x'.repeat(140) + '</p>\n```'} streaming />,
+    );
+    expect(out).toContain('<iframe');
+    expect(out).toContain('Live preview');
+  });
+
+  it('reads an eclipse-dataset directive from a fence', () => {
+    const out = renderToStaticMarkup(
+      <Markdown
+        content={'```html\n<!--eclipse-dataset {"symbol":"AAPL","range":"6mo","interval":"1d"}-->\n<p>x</p>\n```'}
+      />,
+    );
+    expect(out).toContain('<iframe');
+    expect(out).toContain('Loading market data');
+    expect(out).not.toContain('eclipse-dataset');
   });
 
   it('keeps a fence as code while the turn is streaming', () => {

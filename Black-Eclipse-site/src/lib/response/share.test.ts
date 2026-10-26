@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { encodeFigure, decodeFigure, figureUrl } from './share';
+import { encodeFigure, decodeFigure, figureUrl, appUrl } from './share';
 
 describe('figure deep-link', () => {
   it('round-trips a model3d block through the hash', () => {
@@ -17,5 +17,14 @@ describe('figure deep-link', () => {
     expect(figureUrl({ type: 'model3d', parts: [] }, 'https://blackeclipse/')).toContain('https://blackeclipse/figure#');
     expect(decodeFigure('%%%%not-base64%%%%')).toBeNull();
     expect(decodeFigure('')).toBeNull();
+  });
+});
+
+describe('interactive app deep-link', () => {
+  it('round-trips an interactive block through /app-view', () => {
+    const block = { type: 'interactive', title: 'Bike', html: '<p>ok</p>' };
+    const decoded = decodeFigure(encodeFigure(block));
+    expect(decoded?.blocks[0]?.type).toBe('interactive');
+    expect(appUrl(block, 'https://blackeclipse/')).toContain('https://blackeclipse/app-view#');
   });
 });

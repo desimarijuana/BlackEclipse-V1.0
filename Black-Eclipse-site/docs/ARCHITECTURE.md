@@ -1127,33 +1127,50 @@ attaches as context and the answers the agent produces:
   id…" entry types any id. It never fabricates a list — with no data it still
   renders and lets a custom id be entered. (The old hardcoded
   "Flash-Lite/Flash/Pro" selector was removed precisely because it was fake.)
-- **Discovered models are durable, not re-probed every time.** A "Discover
-  installed models" probe registers the provider's models into the Python
-  runtime's in-process `ModelRegistry`, which is rebuilt on every runtime restart
-  and was lost on reload — forcing the operator to click Discover again and
-  again. The `POST /model-runtime/providers/{id}/discover` route now also merges
-  the found ids into a durable snapshot in `SystemConfig`
-   (`src/lib/agent/discovered-models.ts`, key `discovered_models_v1`; a
-   convenience list merged per provider, never an allowlist). Both catalog routes
-   (`/api/harness/models`, `/api/harness/chat/models`) merge that snapshot first,
-   then the runtime registry, so discovered models survive a reload AND a runtime
-   restart without re-probing. The snapshot also carries `served` — the provider's
-   OWN ids before the catalog merge (replaced per probe, not merged). That set
-   distinguishes an installed model from a declared placeholder the server does
-   not serve, so the composer's default can resolve to a model that will not
-   `404` (the `llama3.1`-on-a-cloud-only-Ollama failure); an explicit user pick is
-   never overridden.
+- **Discovered models are durable, replaced per probe, and shown newest-first.**
+  A "Discover installed models" probe registers the provider's models into the
+  Python runtime's in-process `ModelRegistry`, which is rebuilt on every runtime
+  restart and was lost on reload — forcing the operator to click Discover again
+  and again. The `POST /model-runtime/providers/{id}/discover` route also writes
+  the found ids to a durable snapshot in `SystemConfig`
+  (`src/lib/agent/discovered-models.ts`, key `discovered_models_v1`; a
+  convenience list, never an allowlist). `providers[providerId]` is **replaced**
+  by each successful probe (not merged), so a model the provider no longer lists
+  stops appearing; other providers are untouched. Both catalog routes
+  (`/api/harness/models`, `/api/harness/chat/models`) prefer the snapshot's
+  `served` set (the provider's OWN ids, replaced per probe) and fall back to the
+  accumulated set + runtime registry, so discovered models survive a reload AND a
+  runtime restart without re-probing. `served` distinguishes an installed model
+  from a declared placeholder the server does not serve, so the composer's
+  default can resolve to a model that will not `404` (the
+  `llama3.1`-on-a-cloud-only-Ollama failure); an explicit user pick is never
+  overridden.
+- **Recency is a first-class ordering, not incidental.** Providers that report a
+  `created` timestamp (the OpenAI-protocol families, Anthropic) are sorted
+  newest-first by the probe (`python/harness/model_runtime/providers/`), and the
+  TS surfaces apply `sortModelsNewestFirst` (`src/lib/agent/model-recency.ts`):
+  provider timestamp first, then version tuple within the same family, then a
+  `-latest` tiebreak, otherwise the incoming order is preserved. The Settings
+  picker silently re-probes a provider when its last attempt is older than
+  `AUTO_DISCOVER_TTL_MS` (throttled even on failure, stored under
+  `be_model_autodiscover_v1`), so a release since the last visit appears without a
+  manual click. An uncurated compact list is newest-first *before* it is capped at
+  `MODEL_LIST_SOFT_LIMIT`, so truncation keeps the latest models rather than
+  cutting them off the bottom.
 - **Every provider can enumerate its live models — not just local servers.**
   Discovery used to be gated on local servers + routers (`Ollama`/LM Studio/
   OpenRouter); a hosted API (OpenAI, Groq, DeepSeek, Mistral, Anthropic,
-  Gemini, xAI, Together, Perplexity, Fireworks) showed only its declared sample.
-  Now `ProviderSpec.dynamic_discovery` is true for all of them, and the probe is
-  protocol-generic in `python/harness/model_runtime/providers/`:
+  Gemini, xAI, Together, Perplexity, Fireworks, OpenCode) showed only its
+  declared sample. Now `ProviderSpec.dynamic_discovery` is true for all of them,
+  and the probe is protocol-generic in `python/harness/model_runtime/providers/`:
   `probe_openai_models` (`openai.py`) handles `GET {base}/models` with a
   `Bearer` key for every OpenAI-protocol family (`OpenAIAdapter`,
   `OpenAICompatibleAdapter`, and Mistral/Groq via `first_party.py`), while
   `AnthropicAdapter`/`GoogleAdapter` override `discover_models` for their own
-  list shapes. Because the browser never holds a provider key, the Next discover
+  list shapes. `OpenCodeAdapter` is the one adapter whose chat and catalog bases
+  differ: chat is `…/inference/openai/v1`, but the gateway publishes models at
+  `…/inference/v1/models` (`opencode_models_url` rewrites the base). Because the
+  browser never holds a provider key, the Next discover
   route (`src/app/api/harness/model-runtime/providers/[id]/discover/route.ts`)
   resolves it server-side from the env/vault (`resolveProviderKey(preset.envVar)`)
   and falls back to the preset base URL, so a private endpoint (which would 401

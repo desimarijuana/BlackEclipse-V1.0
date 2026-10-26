@@ -56,6 +56,10 @@ _SYMBOL_STOP = frozenset({
     "GAAP", "IFRS", "SEC", "FDA", "OK", "USA", "EU", "UK", "US", "AS", "OR", "SO",
     "IT", "IF", "IN", "ON", "TO", "OF", "AT", "IS", "BE", "BY", "WE", "NO", "DO",
     "BUY", "SELL", "ADD", "TRIM", "EXIT", "LONG", "SHORT", "HOLD", "N/A", "TBD",
+    # Format/tech tokens that appear in an answer about code or UI.
+    "JSON", "HTML", "CSS", "SVG", "API", "URL", "URI", "UI", "UX", "ID", "SQL",
+    "HTTP", "HTTPS", "SDK", "CLI", "PDF", "CSV", "PNG", "BARS", "VOL", "THR",
+    "HOVER", "PIN", "BASE", "JS", "TS", "OK", "TODO",
 })
 
 _PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s?%")
@@ -64,6 +68,18 @@ _SHARES_RE = re.compile(r"\b(\d[\d,]*)\s+shares?\b", re.IGNORECASE)
 _RATIO_RE = re.compile(r"\b(\d{1,3})\s*/\s*(\d{1,3})\b")
 
 _SUFFIX = {"k": 1_000.0, "m": 1_000_000.0, "b": 1_000_000_000.0}
+
+# Code is not prose. A model-authored app or snippet is full of directive words
+# (`add`, `trim`, `exit`, `reduce`), CSS percentages (50%, 100%) and SHOUTING
+# identifiers (BARS, VOL, THR, HOVER, PIN, BASE, JSON). Scanning it produced
+# imaginary "recommendations" for those tokens. The gate reads only prose:
+# fenced blocks and inline code are removed before sentences are extracted.
+_FENCE_RE = re.compile(r"```[\s\S]*?```|~~~[\s\S]*?~~~")
+_INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+
+
+def _prose_only(text: str) -> str:
+    return _INLINE_CODE_RE.sub(" ", _FENCE_RE.sub(" ", text or ""))
 
 
 def _parse_numbers(sentence: str) -> tuple[list[float], list[str]]:
@@ -126,7 +142,7 @@ def extract_claims(answer: str) -> list[AdvisoryClaim]:
     claims: list[AdvisoryClaim] = []
     seen: set[tuple[str, tuple[str, ...], str | None]] = set()
 
-    for sentence in _sentences(answer):
+    for sentence in _sentences(_prose_only(answer)):
         directive = _DIRECTIVE_RE.search(sentence)
         if directive is None:
             continue

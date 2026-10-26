@@ -7,6 +7,89 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-25
+- **feat(models): OpenCode Zen provider in AI / LLM.** Added `opencode` to the
+  provider presets (Settings → AI/LLM and the composer), the Python catalog
+  (`PROVIDER_CATALOG`/`PROVIDER_MODELS`, default `glm-5.3`), the key vault
+  (`OPENCODE_API_KEY`, tested against `https://opencode.ai/inference/v1/models`)
+  and `CATALOG_ENV_VARS`. Chat uses OpenCode's OpenAI-compatible endpoint
+  (`https://opencode.ai/inference/openai/v1`); because the catalog is published
+  one level up, `OpenCodeAdapter` rewrites discovery to
+  `https://opencode.ai/inference/v1/models` (verified live, 85 models). Tests:
+  `test_models.py`, `test_model_runtime.py` (URL rewrite + discovery wiring).
+  Docs: `docs/ARCHITECTURE.md`.
+- **feat(chat): shareable apps and a live preview while they stream.**
+  The interactive toolbar now has **Share**, which copies
+  `/app-view#<base64>` (the `/figure` encoding) and opens a standalone,
+  `noindex` viewer that renders the block in the same sandbox with no server
+  storage. A still-streaming ```` ```html ````/```` ```svg ````/```` ```eclipse-app ````
+  fence renders a debounced (450 ms) sandboxed "Live preview · building" of the
+  partial document; the settled block replaces it. Docs:
+  `docs/interactive-response-engine.md`.
+- **feat(chat): resize, source/copy, off-screen pause and a real dialog.**
+  The interactive card gains a drag/keyboard resize handle (double-click resets;
+  the height is remembered per app in localStorage), a source view with Copy, and
+  a focus-trapped full page that locks page scroll, restores scroll and focus on
+  exit, and closes on Escape. `Eclipse.visible` / `Eclipse.onVisibility(fn)` report
+  off-screen or hidden-tab state; while hidden the shell pauses CSS animations and
+  holds `requestAnimationFrame` callbacks so an off-screen app stops burning CPU.
+  Docs: `docs/interactive-response-engine.md`.
+- **feat(chat): interactive apps get host context, a skeleton, and a fix action.**
+  `Eclipse.context = { theme, reducedMotion, locale }` is baked at mount and
+  pushed live (the block observes the host `dark` class and the reduced-motion
+  media query), so an app can match Eclipse's scheme instead of the OS. The card
+  shows a skeleton until the app signals `eclipse:ready`, then fades the frame
+  in. The "App error" banner now offers **Ask Eclipse to fix**, which re-enters
+  the agent with the error and the app title. Docs:
+  `docs/interactive-response-engine.md`.
+- **feat(models): the picker shows newly released models first.** Model lists
+  were static/catalog-ordered, discovery was manual and its snapshot merged
+  forever, so a provider's new models stayed buried while decomissioned ids
+  lingered. Probes now sort by provider `created` (OpenAI family, Anthropic);
+  `src/lib/agent/model-recency.ts` ranks provider timestamp → version within a
+  family → `-latest`, preserving incoming order otherwise; both catalog routes
+  prefer the freshest `served` set and sort newest-first; `compactModels` keeps
+  the newest 40 on truncation; the Settings picker auto-re-probes after a 6h
+  throttle; the discovered snapshot now REPLACES each provider's set per probe;
+  and `PROVIDER_MODELS` is refreshed. Tests: `src/lib/agent/model-recency.test.ts`,
+  `enabled-models.test.ts`, Python `test_models.py`/`test_model_runtime*.py`.
+  Docs: `docs/ARCHITECTURE.md` (model picker section).
+- **ui(chat): a better interactive surface — scrollbar, auto-fit, error banner.**
+  The sandbox document now has a thin scrollbar derived from the app's own
+  `currentColor` (with a neutral fallback), transparent track and contained
+  scroll chaining. The shell reports its content height through a
+  `ResizeObserver`, so the card fits the app instead of showing a cramped inner
+  scroll (clamped 240–900). Uncaught errors and unhandled rejections post
+  `eclipse:error` to the host and appear as an "App error" banner. Docs:
+  `docs/interactive-response-engine.md`.
+- **feat(chat): interactive apps own their palette and get a full-page view.**
+  The document shell now sets only structural defaults (box-sizing, margin, font,
+  transparent background) — no forced text colour or `color-scheme` — so the model
+  can choose any palette from the user's context. The interactive card is full
+  width and its toolbar adds **Download** (the composed HTML) and **Full page**
+  (a viewport-filling overlay, Escape/Exit to close; Reload stays available).
+  Docs: `docs/interactive-response-engine.md`.
+- **fix(advisory): the fiduciary gate reads prose, not code.** A model-authored
+  app is full of directive words (`add`, `trim`, `exit`, `reduce`), CSS
+  percentages and SHOUTING identifiers (`BARS`, `VOL`, `THR`, `HOVER`, `PIN`,
+  `BASE`, `JSON`), so the gate invented "recommendations" for internal tokens and
+  appended a nonsensical Advisory note. `claims.extract_claims` now strips fenced
+  blocks and inline code before extracting sentences (the gate is a prose check),
+  with a few format/tech tokens added to the symbol stop-list. Prose advice next
+  to code is still disclosed. Tests: `python/tests/test_advisory_gate.py`.
+  no doc change — bug fix.
+- **feat(chat): a fenced app can request the dataset bridge.**
+  A leading `<!--eclipse-dataset {"symbol":"AAPL","range":"6mo"}-->` comment in
+  an ```html/```eclipse-app fence is parsed into the block's `dataset` and
+  stripped before render, so a fence-rendered app gets the same host-injected
+  series as the `interactive` block. The runtime also exposes `Eclipse.bars()`
+  for the bars array directly. Docs: `docs/interactive-response-engine.md`.
+- **ui(chat): parallel agents use the ChatBot nav glyph and sit with the activity.**
+  Replaced the generated ghost "bot faces" in the fan-out card and its detail
+  dialog with the same `Bot` icon the ChatBot nav item uses — a delegated part is
+  one Eclipse agent working in parallel, not a distinct bot. Moved the fan-out
+  card below `ActivityFeed` so it reads as runtime detail with the activity rows
+  instead of a card above the answer.
+  no doc change — presentation only.
 - **fix(chat): an app-build request stays in chat instead of the code workspace.**
   The classifier recognized the block vocabulary ("return it as one interactive
   block") but not the same deliverable phrased as code: "one self-contained HTML

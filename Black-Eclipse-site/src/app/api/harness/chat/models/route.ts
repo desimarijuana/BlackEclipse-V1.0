@@ -4,6 +4,7 @@ import { listModelProviders, listRuntimeModels } from "@/lib/harness";
 import { LLM_PRESETS } from "@/lib/agent/presets";
 import { resolveProviderKey } from "@/lib/provider-keys";
 import { readDiscoveredModels } from "@/lib/agent/discovered-models";
+import { sortModelsNewestFirst } from "@/lib/agent/model-recency";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,10 @@ export async function GET() {
   // SystemConfig snapshot is merged first (it survives a runtime restart), then
   // the runtime registry on top (freshest).
   const discoveredByProvider = new Map<string, string[]>();
+  // The freshest complete list from the last successful probe. It is replaced
+  // (not merged) on every probe, so it — not the accumulated set — is the truth
+  // about what a provider still serves.
+  const freshByProvider = new Map<string, string[]>();
   // The subset the provider is KNOWN to actually serve (genuinely probed, not
   // the static catalog's declared placeholders). Used by the composer to pick a
   // default that will not 404 — a keyless local server may not have the
@@ -64,6 +69,7 @@ export async function GET() {
       discoveredByProvider.set(id, [...ids]);
     }
     for (const [id, ids] of Object.entries(snapshot.served)) {
+      if (ids.length) freshByProvider.set(id, [...ids]);
       for (const model of ids) addServable(id, model);
     }
   } catch {
@@ -87,8 +93,9 @@ export async function GET() {
     LLM_PRESETS.map(async (preset) => {
       const cat = byId.get(preset.id);
       const declared = (cat?.models && cat.models.length ? cat.models : [preset.model]).filter(Boolean);
-      const discovered = discoveredByProvider.get(preset.id) ?? [];
-      const models = Array.from(new Set([...discovered, ...declared])).filter(Boolean);
+      // Prefer the last probe's replaced list; fall back to the accumulated one.
+      const discovered = freshByProvider.get(preset.id) ?? discoveredByProvider.get(preset.id) ?? [];
+      const models = sortModelsNewestFirst(Array.from(new Set([...discovered, ...declared])).filter(Boolean));
       let available = Boolean(preset.keyless);
       if (!available && preset.envVar) {
         try {

@@ -12,13 +12,43 @@ import { Layers, RefreshCw } from "@/lib/icons";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { discoverRuntimeModels } from "@/lib/harness/model-runtime-browser";
+import { sortModelsNewestFirst } from "@/lib/agent/model-recency";
 import {
   compactModels,
-  MODEL_LIST_SOFT_LIMIT,
   useEnabledModelsStore,
   useHydrateEnabledModels,
 } from "@/lib/agent/enabled-models";
 import { ManageModelsDialog } from "./manage-models-dialog";
+
+/** How often the picker silently re-probes a provider to surface new models. */
+const AUTO_DISCOVER_TTL_MS = 6 * 60 * 60 * 1000;
+const AUTO_DISCOVER_KEY = "be_model_autodiscover_v1";
+
+function readAutoAttempts(): Record<string, number> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(AUTO_DISCOVER_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    const out: Record<string, number> = {};
+    for (const [id, ts] of Object.entries(parsed)) {
+      if (typeof ts === "number" && Number.isFinite(ts)) out[id] = ts;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function markAutoAttempt(providerId: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const attempts = readAutoAttempts();
+    attempts[providerId] = Date.now();
+    window.localStorage.setItem(AUTO_DISCOVER_KEY, JSON.stringify(attempts));
+  } catch {
+    // Private mode / quota — auto-discovery simply runs again next mount.
+  }
+}
 
 interface Props {
   value: string;
@@ -64,18 +94,21 @@ export function ModelPicker({
   const enabled = useEnabledModelsStore((s) => (providerId ? s.providers[providerId] : undefined));
   const enable = useEnabledModelsStore((s) => s.enable);
 
-  // The FULL list (declared + discovered) — what the Manage dialog curates.
+  // The FULL list (declared + discovered), NEWEST FIRST — what the Manage
+  // dialog curates. Discovered ids lead, so a fresh probe never hides behind a
+  // stale declared sample.
   const allModels = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const m of [...options, ...extra]) {
+    for (const m of [...extra, ...options]) {
       if (m && !seen.has(m)) {
         seen.add(m);
         out.push(m);
       }
     }
-    if (value && !seen.has(value)) out.unshift(value);
-    return out;
+    const sorted = sortModelsNewestFirst(out);
+    if (value && !seen.has(value)) sorted.unshift(value);
+    return sorted;
   }, [options, extra, value]);
 
   // Only the ENABLED (or, when uncurated, a capped slice) reach the dropdown, so
@@ -94,33 +127,50 @@ export function ModelPicker({
     return compact.models;
   }, [compact.models, value]);
 
-  const discover = async (): Promise<boolean> => {
+  const discover = async (silent = false): Promise<boolean> => {
     if (!providerId || discovering) return false;
     setDiscovering(true);
-    setNote(null);
+    if (!silent) setNote(null);
     try {
       const res = await discoverRuntimeModels(providerId, { baseUrl, apiKey, model: value });
       if (!res.ok) {
-        setNote({ kind: "error", text: res.detail || "Discovery failed" });
+        if (!silent) setNote({ kind: "error", text: res.detail || "Discovery failed" });
         return false;
       }
-      const ids = res.models.map((m) => m.id).filter(Boolean);
+      const ids = sortModelsNewestFirst(res.models.map((m) => m.id).filter(Boolean));
       setExtra(ids);
-      setNote({
-        kind: "ok",
-        text: ids.length ? `Found ${ids.length} model${ids.length === 1 ? "" : "s"}` : "The provider listed no models",
-      });
+      if (!silent) {
+        setNote({
+          kind: "ok",
+          text: ids.length ? `Found ${ids.length} model${ids.length === 1 ? "" : "s"}` : "The provider listed no models",
+        });
+      }
       onDiscovered?.(ids);
-      // If nothing is selected yet, adopt the provider's first model.
+      // If nothing is selected yet, adopt the provider's newest model.
       if (!value && ids.length) onChange(ids[0]);
       return true;
     } catch (err) {
-      setNote({ kind: "error", text: err instanceof Error ? err.message : "Discovery failed" });
+      if (!silent) {
+        setNote({ kind: "error", text: err instanceof Error ? err.message : "Discovery failed" });
+      }
       return false;
     } finally {
       setDiscovering(false);
     }
   };
+
+  // Silently refresh the live list when the last attempt is stale, so a model
+  // released since the operator last looked appears without a manual click.
+  // Attempts are throttled even when they fail, so an unreachable provider is
+  // not hammered on every mount.
+  useEffect(() => {
+    if (!providerId || !canDiscover) return;
+    const last = readAutoAttempts()[providerId] ?? 0;
+    if (Date.now() - last < AUTO_DISCOVER_TTL_MS) return;
+    markAutoAttempt(providerId);
+    void discover(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providerId, baseUrl, canDiscover]);
 
   // A single "Discover" action that always curates: it probes, then opens the
   // Manage dialog so the operator picks what to surface (never a wall of ids).

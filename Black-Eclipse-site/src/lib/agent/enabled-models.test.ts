@@ -49,4 +49,12 @@ describe('compactModels', () => {
     expect(curated).toBe(true);
     expect(models).toEqual([]);
   });
+
+  it('keeps the newest models when an uncurated list is truncated', () => {
+    // `all` ascends model-000 … model-099, so newest-first must keep the tail.
+    const { models, truncated } = compactModels('openrouter', all);
+    expect(truncated).toBe(true);
+    expect(models[0]).toBe('model-099');
+    expect(models).not.toContain('model-000');
+  });
 });
