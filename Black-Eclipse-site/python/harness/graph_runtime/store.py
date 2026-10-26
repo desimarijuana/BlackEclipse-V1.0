@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import os
 from typing import Any, Optional
 
 from ..persistence import new_id, now_iso
@@ -27,6 +28,18 @@ from .model import GraphRun, NodeRun, NodeStatus, RunEvent
 # A node checkpoint survives a restart, but it is not an unlimited dataset.
 # Larger outputs stay visible as previews but make the run non-resumable.
 MAX_CHECKPOINT_BYTES = 2_000_000
+HARD_CHECKPOINT_BYTES = 16_000_000
+
+
+def _checkpoint_limit() -> int:
+    """Operator override for the per-node checkpoint size (bounded)."""
+    raw = os.environ.get("HARNESS_GRAPH_CHECKPOINT_MAX_BYTES")
+    if raw is not None and str(raw).strip():
+        try:
+            return max(1_000, min(int(float(raw)), HARD_CHECKPOINT_BYTES))
+        except (TypeError, ValueError):
+            pass
+    return MAX_CHECKPOINT_BYTES
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS HarnessGraphRun (
@@ -412,11 +425,12 @@ class GraphRunStore:
         terminal_value: Any = None,
     ) -> None:
         checkpoint = _json(outputs or {}) if record.status == NodeStatus.SUCCEEDED else None
-        resumable = bool(checkpoint is not None and len(checkpoint.encode("utf-8")) <= MAX_CHECKPOINT_BYTES)
+        limit = _checkpoint_limit()
+        resumable = bool(checkpoint is not None and len(checkpoint.encode("utf-8")) <= limit)
         if checkpoint is not None and not resumable:
             checkpoint = None
         terminal_json = _json(terminal_value) if terminal_done else None
-        if terminal_json is not None and len(terminal_json.encode("utf-8")) > MAX_CHECKPOINT_BYTES:
+        if terminal_json is not None and len(terminal_json.encode("utf-8")) > limit:
             # A huge terminal value is preview-only; do not pretend the run can
             # resume from a truncated value.
             terminal_json = None

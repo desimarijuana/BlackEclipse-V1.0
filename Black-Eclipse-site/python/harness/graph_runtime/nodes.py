@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import time
 import urllib.error
@@ -498,31 +499,70 @@ def _exec_switch(context: NodeExecContext) -> dict[str, Any]:
     }
 
 
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
+
+def _as_items(value: Any, node_label: str) -> list[Any]:
+    if not isinstance(value, list):
+        raise ValueError(f"{node_label} expects an array input")
+    if len(value) > MAX_LOOP_ITEMS:
+        raise ValueError(f"{node_label} is bounded to {MAX_LOOP_ITEMS} items (got {len(value)})")
+    out: list[Any] = []
+    for index, item in enumerate(value):
+        if isinstance(item, bool) or not isinstance(item, (int, float, dict)):
+            raise ValueError(
+                f"{node_label} works on numeric arrays or object rows; "
+                f"item {index} is {type(item).__name__}"
+            )
+        out.append(item)
+    return out
+
+
+def _item_scope(item: Any, index: int) -> dict[str, float]:
+    """Bind `index`, `value` and an object's numeric fields for the formula."""
+    scope: dict[str, float] = {"index": float(index)}
+    if isinstance(item, dict):
+        for key, value in item.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            if _IDENT.match(str(key)):
+                scope[str(key)] = float(value)
+        scope.setdefault("value", 0.0)
+    else:
+        scope["value"] = float(item)
+    return scope
+
+
 def _exec_map(context: NodeExecContext) -> dict[str, Any]:
-    numbers = _as_numeric_items(context.inputs.get("items"), "logic.map")
+    items = _as_items(context.inputs.get("items"), "logic.map")
     expression = context.config.get("expression", "value")
-    return {"items": [evaluate_formula(expression, {"value": v, "index": float(i)}) for i, v in enumerate(numbers)]}
+    return {"items": [
+        evaluate_formula(expression, _item_scope(item, index))
+        for index, item in enumerate(items)
+    ]}
 
 
 def _exec_filter(context: NodeExecContext) -> dict[str, Any]:
-    numbers = _as_numeric_items(context.inputs.get("items"), "logic.filter")
-    expression = context.config.get("expression", "value")
+    items = _as_items(context.inputs.get("items"), "logic.filter")
+    expression = context.config.get("expression", "value != 0")
     kept = [
-        v for i, v in enumerate(numbers)
-        if evaluate_formula(expression, {"value": v, "index": float(i)}) != 0
+        item for index, item in enumerate(items)
+        if evaluate_formula(expression, _item_scope(item, index)) != 0
     ]
-    return {"items": kept, "dropped": len(numbers) - len(kept)}
+    return {"items": kept, "dropped": len(items) - len(kept)}
 
 
 def _exec_reduce(context: NodeExecContext) -> dict[str, Any]:
-    numbers = _as_numeric_items(context.inputs.get("items"), "logic.reduce")
+    items = _as_items(context.inputs.get("items"), "logic.reduce")
     expression = context.config.get("expression", "acc + value")
     try:
         accumulator = float(context.config.get("initial", 0))
     except (TypeError, ValueError) as exc:
         raise ValueError("initial must be a number") from exc
-    for index, item in enumerate(numbers):
-        accumulator = evaluate_formula(expression, {"acc": accumulator, "value": item, "index": float(index)})
+    for index, item in enumerate(items):
+        scope = _item_scope(item, index)
+        scope["acc"] = accumulator
+        accumulator = evaluate_formula(expression, scope)
     return {"value": accumulator}
 
 
@@ -555,6 +595,92 @@ def _exec_gate(context: NodeExecContext) -> dict[str, Any]:
 
 
 MAX_HTTP_RESPONSE_BYTES = 1_000_000
+MAX_HTTP_HEADERS = 20
+
+_HEADER_NAME = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+_FORBIDDEN_HEADERS = frozenset({
+    "host", "content-length", "transfer-encoding", "connection", "upgrade",
+})
+# Secrets have no safe place in a graph's config/run record yet; a credential
+# REFERENCE is not implemented, so these names are refused rather than stored.
+_SENSITIVE_HEADERS = frozenset({
+    "authorization", "proxy-authorization", "cookie", "set-cookie",
+    "x-api-key", "api-key", "x-auth-token", "x-access-token",
+})
+
+
+def _custom_headers(raw: str) -> dict[str, str]:
+    text = str(raw or "").strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"headersJson is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("headersJson must be a JSON object")
+    if len(parsed) > MAX_HTTP_HEADERS:
+        raise ValueError(f"headersJson is bounded to {MAX_HTTP_HEADERS} headers")
+    out: dict[str, str] = {}
+    for name, value in parsed.items():
+        header = str(name).strip()
+        if not _HEADER_NAME.match(header):
+            raise ValueError(f"invalid header name {header!r}")
+        lowered = header.lower()
+        if lowered in _FORBIDDEN_HEADERS:
+            raise ValueError(f"header {header!r} is managed by the transport")
+        if lowered in _SENSITIVE_HEADERS:
+            raise ValueError(
+                f"header {header!r} is refused: credentials and cookies are not "
+                "accepted by a graph HTTP node yet"
+            )
+        if not isinstance(value, str):
+            raise ValueError(f"header {header!r} must be a string")
+        if len(value) > 1_000 or "\r" in value or "\n" in value:
+            raise ValueError(f"header {header!r} has an invalid value")
+        out[header] = value
+    return out
+
+
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+
+
+def _credential_headers(raw: str) -> dict[str, str]:
+    """Resolve `header -> ENV_VAR` references from THIS runtime's environment.
+
+    The config carries only the variable NAME. Values are never logged, stored
+    in a run record, or returned in an error.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"credentialEnvJson is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ValueError("credentialEnvJson must be a JSON object")
+    if len(parsed) > 10:
+        raise ValueError("credentialEnvJson is bounded to 10 headers")
+    out: dict[str, str] = {}
+    for name, variable in parsed.items():
+        header = str(name).strip()
+        if not _HEADER_NAME.match(header):
+            raise ValueError(f"invalid credential header name {header!r}")
+        if header.lower() in _FORBIDDEN_HEADERS:
+            raise ValueError(f"header {header!r} is managed by the transport")
+        env_name = str(variable or "").strip()
+        if not _ENV_NAME.match(env_name):
+            raise ValueError(f"credentialEnvJson for {header!r} must name an environment variable")
+        value = os.environ.get(env_name)
+        if not value:
+            raise ValueError(
+                f"credential variable {env_name} for header {header!r} is not set in the runtime environment"
+            )
+        if len(value) > 4_000 or "\r" in value or "\n" in value:
+            raise ValueError(f"credential variable {env_name} has an invalid value")
+        out[header] = value
+    return out
 
 
 def _exec_http(context: NodeExecContext) -> dict[str, Any]:
@@ -595,6 +721,16 @@ def _exec_http(context: NodeExecContext) -> dict[str, Any]:
                 raise ValueError(f"bodyJson is not valid JSON: {exc}") from exc
     data = None
     headers = {"Accept": "application/json, text/plain;q=0.9, */*;q=0.8"}
+    plain = _custom_headers(str(context.config.get("headersJson") or ""))
+    credentials = _credential_headers(str(context.config.get("credentialEnvJson") or ""))
+    overlap = {name.lower() for name in plain} & {name.lower() for name in credentials}
+    if overlap:
+        raise ValueError(
+            "a header cannot be set by both headersJson and credentialEnvJson: "
+            + ", ".join(sorted(overlap))
+        )
+    headers.update(plain)
+    headers.update(credentials)
     if payload is not None and method in ("POST", "PUT", "PATCH", "DELETE"):
         data = json.dumps(payload, sort_keys=True).encode("utf-8")
         headers["Content-Type"] = "application/json"
@@ -861,6 +997,8 @@ def build_default_registry() -> NodeRegistry:
             ConfigField("url", "string", "", max_length=2_000),
             ConfigField("method", "enum", "GET", enum=("GET", "POST", "PUT", "PATCH", "DELETE")),
             ConfigField("bodyJson", "string", "", max_length=20_000),
+            ConfigField("headersJson", "string", "", max_length=10_000),
+            ConfigField("credentialEnvJson", "string", "", max_length=10_000),
             ConfigField("timeoutMs", "integer", 10_000, minimum=1_000, maximum=60_000),
         ),
         capabilities=("network.egress",),

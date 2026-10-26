@@ -127,6 +127,68 @@ def test_http_post_sends_the_input_body(monkeypatch):
     assert captured["method"] == "POST"
 
 
+def test_http_sends_custom_plain_headers(monkeypatch):
+    monkeypatch.setattr("harness.mcp.ssrf.check_outbound_url", lambda _url: (True, None))
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["headers"] = {key.lower(): value for key, value in request.header_items()}
+        return _Response(b"{}")
+
+    monkeypatch.setattr(graph_nodes.urllib.request, "urlopen", fake_urlopen)
+    _exec({
+        "url": "https://example.com/api",
+        "method": "GET",
+        "headersJson": json.dumps({"X-Tenant": "desk-1"}),
+    })
+    assert captured["headers"]["x-tenant"] == "desk-1"
+
+
+def test_http_refuses_credential_or_transport_headers(monkeypatch):
+    monkeypatch.setattr("harness.mcp.ssrf.check_outbound_url", lambda _url: (True, None))
+    with pytest.raises(ValueError, match="credentials"):
+        _exec({"url": "https://example.com/api", "headersJson": '{"Authorization": "Bearer x"}'})
+    with pytest.raises(ValueError, match="transport"):
+        _exec({"url": "https://example.com/api", "headersJson": '{"Host": "evil"}'})
+    with pytest.raises(ValueError, match="not valid JSON"):
+        _exec({"url": "https://example.com/api", "headersJson": "{not json"})
+
+
+def test_http_resolves_credential_env_references(monkeypatch):
+    monkeypatch.setattr("harness.mcp.ssrf.check_outbound_url", lambda _url: (True, None))
+    monkeypatch.setenv("TEST_API_TOKEN", "secret-value")
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["headers"] = {key.lower(): value for key, value in request.header_items()}
+        return _Response(b"{}")
+
+    monkeypatch.setattr(graph_nodes.urllib.request, "urlopen", fake_urlopen)
+    _exec({
+        "url": "https://example.com/api",
+        "credentialEnvJson": json.dumps({"Authorization": "TEST_API_TOKEN"}),
+    })
+    assert captured["headers"]["authorization"] == "secret-value"
+
+    monkeypatch.delenv("TEST_API_TOKEN")
+    with pytest.raises(ValueError, match="TEST_API_TOKEN"):
+        _exec({
+            "url": "https://example.com/api",
+            "credentialEnvJson": json.dumps({"Authorization": "TEST_API_TOKEN"}),
+        })
+
+
+def test_http_refuses_ambiguous_header_sources(monkeypatch):
+    monkeypatch.setattr("harness.mcp.ssrf.check_outbound_url", lambda _url: (True, None))
+    monkeypatch.setenv("TEST_API_TOKEN", "secret-value")
+    with pytest.raises(ValueError, match="both"):
+        _exec({
+            "url": "https://example.com/api",
+            "headersJson": json.dumps({"X-Tenant": "plain"}),
+            "credentialEnvJson": json.dumps({"x-tenant": "TEST_API_TOKEN"}),
+        })
+
+
 def test_http_refuses_blocked_and_loopback_urls(monkeypatch):
     monkeypatch.setattr(
         "harness.mcp.ssrf.check_outbound_url",

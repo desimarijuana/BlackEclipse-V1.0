@@ -854,6 +854,16 @@
           "default": ""
         },
         {
+          "name": "credentialEnvJson",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "headersJson",
+          "kind": "string",
+          "default": ""
+        },
+        {
           "name": "method",
           "kind": "string",
           "default": "GET"
@@ -2855,6 +2865,11 @@
         }
       ],
       "configFields": [
+        {
+          "name": "allowBrowser",
+          "kind": "boolean",
+          "default": false
+        },
         {
           "name": "maxChars",
           "kind": "number",

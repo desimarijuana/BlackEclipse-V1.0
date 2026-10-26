@@ -115,6 +115,19 @@ def test_run_sync_writes_normalized_rows_and_terminal_output(service):
     assert record["nodeStatus"]["out"] == "succeeded"
 
 
+def test_checkpoint_limit_is_operator_configurable_and_bounded(monkeypatch):
+    from harness.graph_runtime.store import HARD_CHECKPOINT_BYTES, MAX_CHECKPOINT_BYTES, _checkpoint_limit
+
+    monkeypatch.delenv("HARNESS_GRAPH_CHECKPOINT_MAX_BYTES", raising=False)
+    assert _checkpoint_limit() == MAX_CHECKPOINT_BYTES
+    monkeypatch.setenv("HARNESS_GRAPH_CHECKPOINT_MAX_BYTES", "5000000")
+    assert _checkpoint_limit() == 5_000_000
+    monkeypatch.setenv("HARNESS_GRAPH_CHECKPOINT_MAX_BYTES", "999999999")
+    assert _checkpoint_limit() == HARD_CHECKPOINT_BYTES
+    monkeypatch.setenv("HARNESS_GRAPH_CHECKPOINT_MAX_BYTES", "not-a-number")
+    assert _checkpoint_limit() == MAX_CHECKPOINT_BYTES
+
+
 def test_execute_job_resumes_completed_nodes(service):
     calls: list[str] = []
     registry, ir = _counter_graph(calls)

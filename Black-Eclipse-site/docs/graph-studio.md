@@ -218,7 +218,10 @@ paper-trading confirmation and the `allowTrading` grant. LIVE mode and an
 ungranted trading node are refused by both the front door and the Python
 compiler. The Python compiler re-checks the same envelope.
 `integration.http` is the first network node: SSRF-checked, loopback refused,
-1 MB response cap, 60 s ceiling, and no custom headers/credentials yet.
+1 MB response cap, 60 s ceiling, plain custom headers (`headersJson`) and
+credential REFERENCES (`credentialEnvJson`: header → env-var name, resolved by
+the runtime and never stored). Transport-managed headers are refused; a header
+cannot come from both sources.
 
 **Determinism.** Executors are pure; the scheduler orders each layer by node id;
 node inputs come from succeeded upstream writers only (a node whose required
@@ -525,7 +528,7 @@ Phases 3–4:
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **218 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **225 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
   optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
@@ -562,22 +565,23 @@ or HTTP errors.
   atomic. A multi-machine fleet is not supported by the local SQLite store. The
   legacy in-process fallback (Fabric disabled) has no automatic resume.
 - **Checkpoint bound.** A successful node's full output is checkpointed up to
-  2 MB. A larger output is still visible as a preview, but the run is marked
+  2 MB by default. `HARNESS_GRAPH_CHECKPOINT_MAX_BYTES` raises it (bounded to
+  16 MB). A larger output is still visible as a preview, but the run is marked
   non-resumable and will start fresh if retried (safe for test runs, not yet for
-  effectful/trading runs).
+  effectful/trading runs). Large checkpoints cost memory.
 - Schedules tick while the app is up (a 60 s in-process timer). A fully
   headless/unattended deployment must drive `POST /api/workflow-schedules/tick`
   from external cron (see "Headless schedules"); the app cannot tick while it is
   stopped.
 - `logic.wait` blocks its thread; the 30 s cap and the 5 s test-run cap keep that
   bounded, but long waits belong in the Phase 4+ durable path.
-- Loop primitives operate on numeric arrays (documented); richer per-type
-  iteration arrives with the finance/agent nodes.
+- Loop primitives accept numeric arrays AND object rows: a row's numeric fields
+  are bound by name (plus `value`, `index`, `acc`), so `close - open` works. A
+  nested object/array field is not flattened; project it first.
 - Run history is browsable in the History panel; node runs and events are
   normalized tables, and successful nodes have resumable checkpoints.
 - Operator runs allow network and PAPER trading. External write nodes, live
-  trading and ungranted trading are refused; HTTP nodes do not support custom
-  headers or credential references yet. The paper account persists cash,
+  trading and ungranted trading are refused. The paper account persists cash,
   positions and realized PnL, but it is cost-basis accounting (no mark-to-market)
   and fills only at a supplied price - it never fetches a live quote.
   `persist: false` keeps a single-node fill stateless.
@@ -586,10 +590,11 @@ or HTTP errors.
   resumable across a restart. The nodes are bounded turns/plans (no autonomous
   loop), and a real-provider end-to-end test is still pending.
 - Web research nodes use the app's data bridge (a real operator run has one; a
-  headless runtime does not). `research.web_fetch` does not escalate a
-  client-rendered page to the browser and does not crawl or follow links; it
-  fetches exactly the URL it was given. `research.claim_verify` requires the
-  evidence ids explicitly and verifies against the local EvidenceStore only.
+  headless runtime does not). With `allowBrowser`, `research.web_fetch` escalates
+  a thin/failed page to the existing Browser Runtime; without it (the default) it
+  fetches exactly the URL it was given. It never crawls or follows links.
+  `research.claim_verify` requires the evidence ids explicitly and verifies
+  against the local EvidenceStore only.
 - A nested subworkflow gets its own durable run row AFTER it finishes; a child
   interrupted by a process crash has no partial row (the parent resumes from its
   node checkpoint). The child row is keyed by `<parentRunId>:<nodeId>`.

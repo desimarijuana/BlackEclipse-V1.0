@@ -168,6 +168,31 @@ def test_web_fetch_saves_evidence_when_a_research_id_is_set(store, bridge):
     assert bridge.calls[0] == ("web_fetch", {"url": "https://example.com/page"})
 
 
+def test_web_fetch_can_escalate_a_thin_page_to_the_browser(store, monkeypatch):
+    from harness.research.web_browser import EscalationOutcome
+
+    class _EmptyBridge(_FakeBridge):
+        async def fetch(self, capability, params):
+            if capability == "web_fetch":
+                return {"status": "OK", "url": params["url"], "title": "JS page", "text": ""}
+            return await super().fetch(capability, params)
+
+    async def fake_browser(url):
+        return EscalationOutcome(ok=True, url=url, text="Rendered body. " * 60, title="Rendered")
+
+    monkeypatch.setattr("harness.research.web_browser.browser_extract", fake_browser)
+    set_research_bridge(_EmptyBridge())
+    try:
+        result = _exec("research.web_fetch", {
+            "url": "https://example.com/app", "allowBrowser": True, "maxChars": 700,
+        })
+    finally:
+        set_research_bridge(None)
+    assert result["page"]["extraction"] == "browser"
+    assert result["page"]["escalation"]
+    assert result["text"].startswith("Rendered body.")
+
+
 def test_web_fetch_without_evidence_store_is_explicit(store, bridge):
     set_evidence_store(None)
     try:

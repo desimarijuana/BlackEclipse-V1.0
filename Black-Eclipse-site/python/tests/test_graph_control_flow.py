@@ -198,6 +198,38 @@ def test_loop_primitives_are_bounded():
     assert "bounded to" in (_by_node(run)["mapped"].error or "")
 
 
+def test_loop_primitives_bind_object_fields():
+    registry = build_default_registry()
+    registry.register(NodeDef(
+        type="test.rows", version="1.0.0", label="Rows", category="data",
+        outputs=(PortDef(id="items", name="Items", type=PortType.ARRAY),),
+        executor=lambda _ctx: {"items": [
+            {"open": 1.0, "close": 2.0},
+            {"open": 4.0, "close": 3.0},
+            {"open": 2.0, "close": 2.5},
+        ]},
+    ))
+    ir = _ir(
+        [
+            _node("trig", "trigger.manual"),
+            _node("rows", "test.rows"),
+            _node("mapped", "logic.map", {"expression": "close - open"}),
+            _node("kept", "logic.filter", {"expression": "value > 0"}),
+            _node("sum", "logic.reduce", {"expression": "acc + value", "initial": 0}),
+            _node("out", "output.result"),
+        ],
+        [
+            _edge("e1", "rows", "items", "mapped", "items"),
+            _edge("e2", "mapped", "items", "kept", "items"),
+            _edge("e3", "kept", "items", "sum", "items"),
+            _edge("e4", "sum", "value", "out", "value"),
+        ],
+    )
+    run = _run(ir, registry)
+    assert run.status == RunStatus.SUCCEEDED
+    assert run.output == 1.5
+
+
 def test_loop_primitives_reject_non_numeric_arrays():
     registry = build_default_registry()
     registry.register(NodeDef(

@@ -487,6 +487,21 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `test_graph_datasets.py` (cross-owner load/meta/list). docs updated:
   `docs/graph-studio.md`.
 
+- **feat(graph): HTTP headers/credential refs, browser escalation and object-row
+  loops.** `integration.http` gains `headersJson` (plain headers; transport
+  headers and secrets refused) and `credentialEnvJson` (header → environment
+  variable NAME resolved by the runtime only; values are never stored). Headers
+  may not come from both sources. `research.web_fetch` gains `allowBrowser`:
+  a thin/failed page escalates to the existing Browser Runtime and reports
+  `extraction: browser`; the default remains bridge-only. `logic.map/filter/
+  reduce` now accept object rows, binding each row's numeric fields by name
+  (plus `value`/`index`/`acc`). The per-node checkpoint size is operator-tunable
+  (`HARNESS_GRAPH_CHECKPOINT_MAX_BYTES`, 2–16 MB). Tests:
+  `test_graph_http_operator.py` (plain/credential headers, ambiguity, missing
+  env), `test_graph_research_nodes.py` (browser escalation),
+  `test_graph_control_flow.py` (object-row loop), `test_graph_durable.py`
+  (checkpoint limit bounds). docs updated: `docs/graph-studio.md`.
+
 - **docs(graph): refresh the remaining-work list.** Known limitations now reflect
   the shipped planner/delegate nodes, the documented external-cron path and the
   health watch; "Next milestone" names multi-process Fabric workers as the main

@@ -321,10 +321,30 @@ def exec_web_fetch(context: NodeExecContext) -> dict[str, Any]:
     ).strip()
     store = _require_store() if research_id else None
     result = _run_async(fetch(url, bridge=_bridge_for(context)))
+    escalation: Optional[str] = None
+    if bool(context.config.get("allowBrowser", False)):
+        from ..research.web_browser import browser_extract, needs_escalation  # noqa: PLC0415
+        from ..research.web_extract import FetchResult, content_hash  # noqa: PLC0415
+
+        escalate, reason = needs_escalation(
+            text=result.text, fetch_status=result.status, fetch_error=result.error,
+        )
+        if escalate:
+            outcome = _run_async(browser_extract(result.url or url))
+            if outcome.ok:
+                result = FetchResult(
+                    ok=True, url=outcome.url or url, text=outcome.text,
+                    title=outcome.title, status="OK", extraction="browser",
+                    contentHash=content_hash(outcome.text),
+                )
+                escalation = reason
+            else:
+                escalation = f"browser escalation unavailable: {outcome.reason}"
     if not result.ok or not result.text:
         raise ValueError(
-            f"could not retrieve {url}: {result.error or 'empty content'}; "
-            "this is an unavailable source, not evidence that the content is absent"
+            f"could not retrieve {url}: {result.error or 'empty content'}"
+            + (f" ({escalation})" if escalation else "")
+            + "; this is an unavailable source, not evidence that the content is absent"
         )
 
     truncated = len(result.text) > max_chars
@@ -347,6 +367,8 @@ def exec_web_fetch(context: NodeExecContext) -> dict[str, Any]:
         "contentHash": result.contentHash,
         "characters": len(result.text),
         "truncated": truncated,
+        "extraction": result.extraction,
+        "escalation": escalation,
         "researchId": research_id or None,
         "evidence": evidence.model_dump() if evidence is not None else None,
     }
@@ -515,6 +537,7 @@ def build_research_nodes() -> list[NodeDef]:
                 ConfigField("url", "string", "", max_length=2_000),
                 ConfigField("researchId", "string", "", max_length=200),
                 ConfigField("maxChars", "integer", DEFAULT_FETCH_CHARS, minimum=500, maximum=MAX_FETCH_CHARS),
+                ConfigField("allowBrowser", "boolean", False),
             ),
             capabilities=("network.egress",),
             side_effects=SideEffect.NETWORK,
