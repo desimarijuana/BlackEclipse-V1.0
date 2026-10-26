@@ -429,6 +429,7 @@ class GraphExecutor:
             depth=self._depth + 1,
             subworkflow_stack=stack,
             on_subworkflow=self._on_subworkflow,
+            user_id=self._user_id,
         )
         run = nested.execute()
         if self._on_subworkflow is not None:

@@ -97,6 +97,17 @@ def test_missing_and_expired_refs_fail_explicitly(dataset_store):
         dataset_store.load(meta["ref"])  # the expired row was removed
 
 
+def test_datasets_are_owner_scoped(dataset_store):
+    meta = dataset_store.save("mine", {"a": 1}, owner="alice")
+    assert dataset_store.load(meta["ref"], owner="alice") == {"a": 1}
+    with pytest.raises(DatasetNotFound):
+        dataset_store.load(meta["ref"], owner="bob")
+    with pytest.raises(DatasetNotFound):
+        dataset_store.meta(meta["ref"], owner="bob")
+    assert dataset_store.list(owner="bob") == []
+    assert len(dataset_store.list(owner="alice")) == 1
+
+
 def test_size_and_serialization_limits(dataset_store, monkeypatch):
     monkeypatch.setattr(datasets_module, "MAX_DATASET_BYTES", 8)
     with pytest.raises(DatasetTooLarge):

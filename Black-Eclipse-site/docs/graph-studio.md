@@ -419,8 +419,10 @@ large-payload seam: a series can travel as a ref instead of being embedded in a
 node's config or the run document. It is deliberately **local scratch**, not a
 market-data source and not a second JDDS. Limits: 8 MB per dataset, 200
 datasets, optional TTL (max 8 760 h); expired refs are purged and fail
-explicitly. The `local_write` side-effect class exists so a test run can use
-datasets while external write/network/trading remain refused.
+explicitly. Datasets are OWNER-SCOPED by the run's user id: another owner's ref
+is reported as not found, not as a forbidden row. The `local_write` side-effect
+class exists so a test run can use datasets while external
+write/network/trading remain refused.
 
 **Honest data.** Every payload carries provenance (`provider`, `symbol`,
 `interval`, `adjusted`, `rows`, `asOf`, `retrievedAt`). An empty vault is a
@@ -523,7 +525,7 @@ Phases 3–4:
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **217 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **218 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
   optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
@@ -588,9 +590,6 @@ or HTTP errors.
   client-rendered page to the browser and does not crawl or follow links; it
   fetches exactly the URL it was given. `research.claim_verify` requires the
   evidence ids explicitly and verifies against the local EvidenceStore only.
-- Datasets are not owner-scoped yet (single-user local surface). They are
-  bounded local scratch, not a tenant-isolated store; add an owner column before
-  exposing them in a multi-user deployment.
 - A nested subworkflow gets its own durable run row AFTER it finishes; a child
   interrupted by a process crash has no partial row (the parent resumes from its
   node checkpoint). The child row is keyed by `<parentRunId>:<nodeId>`.

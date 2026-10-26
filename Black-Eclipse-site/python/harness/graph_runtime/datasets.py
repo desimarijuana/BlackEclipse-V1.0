@@ -30,6 +30,7 @@ MAX_DATASETS = 200
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS HarnessGraphDataset (
   id          TEXT PRIMARY KEY,
+  ownerId     TEXT NOT NULL DEFAULT 'local',
   name        TEXT NOT NULL,
   valueType   TEXT NOT NULL,
   bytes       INTEGER NOT NULL,
@@ -77,6 +78,13 @@ class GraphDatasetStore:
 
     def _ensure_schema(self) -> None:
         self._db.executescript(_SCHEMA)
+        columns = {
+            row["name"] for row in self._db.execute("PRAGMA table_info(HarnessGraphDataset)")
+        }
+        if "ownerId" not in columns:
+            self._db.execute(
+                "ALTER TABLE HarnessGraphDataset ADD COLUMN ownerId TEXT NOT NULL DEFAULT 'local'"
+            )
         self._db.commit()
 
     @staticmethod
@@ -103,7 +111,8 @@ class GraphDatasetStore:
         rows = len(value) if isinstance(value, list) else None
         return text, value_type, len(encoded), rows
 
-    def save(self, name: str, value: Any, *, ttl_seconds: int = 0) -> dict[str, Any]:
+    def save(self, name: str, value: Any, *, ttl_seconds: int = 0,
+             owner: str = "local") -> dict[str, Any]:
         text, value_type, size, rows = self._serialize(value)
         if size > MAX_DATASET_BYTES:
             raise DatasetTooLarge(
@@ -128,10 +137,10 @@ class GraphDatasetStore:
 
         self._db.execute(
             """INSERT INTO HarnessGraphDataset
-               (id, name, valueType, bytes, rows, contentHash, payload, createdAt, expiresAt)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (dataset_id, (name or "dataset")[:200], value_type, size, rows, digest,
-             text, created_at, expires_at),
+               (id, ownerId, name, valueType, bytes, rows, contentHash, payload, createdAt, expiresAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (dataset_id, str(owner or "local")[:120], (name or "dataset")[:200],
+             value_type, size, rows, digest, text, created_at, expires_at),
         )
         self._db.commit()
         return {
@@ -145,14 +154,17 @@ class GraphDatasetStore:
             "expiresAt": expires_at,
         }
 
-    def load(self, ref: str) -> Any:
+    def load(self, ref: str, *, owner: str = "local") -> Any:
         dataset_id = self.id_of(ref)
         if not dataset_id:
             raise DatasetNotFound("no dataset reference was supplied")
         row = self._db.execute(
-            "SELECT payload, expiresAt FROM HarnessGraphDataset WHERE id=?", (dataset_id,),
+            "SELECT payload, expiresAt, ownerId FROM HarnessGraphDataset WHERE id=?",
+            (dataset_id,),
         ).fetchone()
-        if row is None:
+        # A dataset from another owner is reported as missing, not "forbidden":
+        # a reference holder must not learn whether it exists.
+        if row is None or str(row["ownerId"] or "local") != str(owner or "local")[:120]:
             raise DatasetNotFound(
                 f"dataset {ref!r} does not exist (it may have been deleted or created in another runtime)."
             )
@@ -165,12 +177,12 @@ class GraphDatasetStore:
         except json.JSONDecodeError as exc:  # pragma: no cover - our own writes are JSON
             raise DatasetSerializationError(f"dataset {ref!r} is unreadable: {exc}") from exc
 
-    def meta(self, ref: str) -> dict[str, Any]:
+    def meta(self, ref: str, *, owner: str = "local") -> dict[str, Any]:
         dataset_id = self.id_of(ref)
         row = self._db.execute(
             "SELECT * FROM HarnessGraphDataset WHERE id=?", (dataset_id,),
         ).fetchone()
-        if row is None:
+        if row is None or str(row["ownerId"] or "local") != str(owner or "local")[:120]:
             raise DatasetNotFound(f"dataset {ref!r} does not exist.")
         return {
             "ref": self.ref_of(row["id"]),
@@ -183,18 +195,31 @@ class GraphDatasetStore:
             "expiresAt": row["expiresAt"],
         }
 
-    def delete(self, ref: str) -> int:
-        cursor = self._db.execute(
-            "DELETE FROM HarnessGraphDataset WHERE id=?", (self.id_of(ref),),
-        )
+    def delete(self, ref: str, *, owner: Optional[str] = None) -> int:
+        dataset_id = self.id_of(ref)
+        if owner is None:
+            cursor = self._db.execute(
+                "DELETE FROM HarnessGraphDataset WHERE id=?", (dataset_id,),
+            )
+        else:
+            cursor = self._db.execute(
+                "DELETE FROM HarnessGraphDataset WHERE id=? AND ownerId=?",
+                (dataset_id, str(owner or "local")[:120]),
+            )
         self._db.commit()
         return cursor.rowcount
 
-    def list(self, limit: int = 50) -> list[dict[str, Any]]:
+    def list(self, limit: int = 50, *, owner: Optional[str] = None) -> list[dict[str, Any]]:
         limit = max(1, min(int(limit), 200))
-        rows = self._db.execute(
-            "SELECT * FROM HarnessGraphDataset ORDER BY createdAt DESC LIMIT ?", (limit,),
-        ).fetchall()
+        if owner is None:
+            rows = self._db.execute(
+                "SELECT * FROM HarnessGraphDataset ORDER BY createdAt DESC LIMIT ?", (limit,),
+            ).fetchall()
+        else:
+            rows = self._db.execute(
+                "SELECT * FROM HarnessGraphDataset WHERE ownerId=? ORDER BY createdAt DESC LIMIT ?",
+                (str(owner or "local")[:120], limit),
+            ).fetchall()
         return [
             {
                 "ref": self.ref_of(row["id"]),

@@ -479,6 +479,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `test_graph_subworkflows.py` (child run row + nodes + events). docs updated:
   `docs/graph-studio.md`.
 
+- **feat(graph): owner-scoped datasets.** `HarnessGraphDataset` gains an
+  `ownerId` column (existing rows migrate to `local`). Save/load/meta carry the
+  run's user id; another owner's reference is reported as NOT FOUND, so a ref
+  holder cannot probe another user's datasets. `delete`/`list` accept an optional
+  owner filter; the expiry purge is unchanged. Tests:
+  `test_graph_datasets.py` (cross-owner load/meta/list). docs updated:
+  `docs/graph-studio.md`.
+
 - **docs(graph): refresh the remaining-work list.** Known limitations now reflect
   the shipped planner/delegate nodes, the documented external-cron path and the
   health watch; "Next milestone" names multi-process Fabric workers as the main

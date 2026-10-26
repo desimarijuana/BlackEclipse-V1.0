@@ -35,6 +35,7 @@ def exec_dataset_save(context: NodeExecContext) -> dict[str, Any]:
             str(context.config.get("name") or context.node_id),
             value,
             ttl_seconds=ttl_hours * 3600,
+            owner=context.user_id,
         )
     except DatasetError as exc:
         raise ValueError(str(exc)) from exc
@@ -48,8 +49,8 @@ def exec_dataset_load(context: NodeExecContext) -> dict[str, Any]:
         raise ValueError("input 'ref' must be a dataset reference")
     try:
         store = require_dataset_store()
-        value = store.load(ref)
-        meta = store.meta(ref)
+        value = store.load(ref, owner=context.user_id)
+        meta = store.meta(ref, owner=context.user_id)
     except DatasetError as exc:
         raise ValueError(str(exc)) from exc
     context.emit(f"loaded dataset {meta['ref']} · {meta['bytes']} bytes")
