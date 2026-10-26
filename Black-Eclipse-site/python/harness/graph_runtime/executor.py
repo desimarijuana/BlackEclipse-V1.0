@@ -28,6 +28,7 @@ from typing import Any, Callable, Optional
 from ..persistence import now_iso
 from .compiler import RunGrants, compile_workflow, plan_inputs
 from .model import (
+    DeferredWait,
     ExecutionPlan,
     GraphRun,
     MAX_PREVIEW_CHARS,
@@ -35,6 +36,7 @@ from .model import (
     NodeRun,
     NodeStatus,
     PortKind,
+    RunDeferred,
     RunEvent,
     RunStatus,
     SideEffect,
@@ -96,6 +98,7 @@ class GraphExecutor:
         callback_token: Optional[str] = None,
         user_id: str = "local",
         on_subworkflow: Optional[Callable[[GraphRun], None]] = None,
+        allow_defer: bool = False,
     ) -> None:
         self._ir = ir
         self._plan = plan
@@ -117,6 +120,8 @@ class GraphExecutor:
         self._callback_token = callback_token
         self._user_id = user_id
         self._on_subworkflow = on_subworkflow
+        self._allow_defer = allow_defer
+        self._deferred: Optional[DeferredWait] = None
         self._terminal_outputs: dict[str, Any] = {}
 
         self._inputs_map = plan_inputs(ir)
@@ -282,6 +287,23 @@ class GraphExecutor:
             self._emit("node.started", f"{definition.label} (attempt {attempt})", node_id)
             try:
                 result = self._invoke(node_id, inputs, config, definition)
+            except DeferredWait as exc:
+                # A durable wait succeeded (checkpointed) and the RUN pauses; the
+                # Fabric job is requeued instead of holding this worker thread.
+                record.duration_ms = int((time.monotonic() - started) * 1000)
+                record.outputs = {key: _preview(value) for key, value in exc.outputs.items()}
+                record.status = NodeStatus.SUCCEEDED
+                record.finished_at = now_iso()
+                self._outputs[node_id] = dict(exc.outputs)
+                self._fired[node_id] = set()
+                self._emit(
+                    "node.deferred",
+                    f"paused for {exc.wake_after_seconds:.3f}s; the job will resume",
+                    node_id,
+                )
+                self._notify_node(record, dict(exc.outputs), [], False, None)
+                self._deferred = exc
+                return
             except _NodeTimeout as exc:
                 record.duration_ms = int((time.monotonic() - started) * 1000)
                 last_error = f"timed out after {exc.timeout_ms} ms"
@@ -351,6 +373,7 @@ class GraphExecutor:
             callback_base_url=self._callback_base_url,
             callback_token=self._callback_token,
             user_id=self._user_id,
+            allow_defer=self._allow_defer,
         )
 
         def call() -> dict[str, Any]:
@@ -496,6 +519,9 @@ class GraphExecutor:
                 with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="graph-layer") as pool:
                     list(pool.map(self._run_node, runnable))
 
+            if self._deferred is not None:
+                break
+
             if any(self._node_runs[node_id].status == NodeStatus.FAILED for node_id in runnable):
                 succeeded = False
                 if self._ir.settings.fail_fast:
@@ -514,14 +540,24 @@ class GraphExecutor:
                 self._emit("run.stopped", f"stopped by {stopper}; downstream nodes will be skipped", stopper)
                 break
 
-        # Mark every node that can no longer run.
-        self._settle_remaining(succeeded)
+        deferred = self._deferred
+        if deferred is None:
+            # Mark every node that can no longer run.
+            self._settle_remaining(succeeded)
 
         cancelled = self._cancel.is_set()
         failed = any(r.status == NodeStatus.FAILED for r in self._node_runs.values())
-        status = RunStatus.CANCELLED if cancelled else (RunStatus.FAILED if failed else RunStatus.SUCCEEDED)
+        if deferred is not None:
+            status = RunStatus.QUEUED
+        else:
+            status = RunStatus.CANCELLED if cancelled else (RunStatus.FAILED if failed else RunStatus.SUCCEEDED)
         duration_ms = int((time.monotonic() - started) * 1000)
-        if status == RunStatus.SUCCEEDED:
+        if deferred is not None:
+            self._emit(
+                "run.deferred",
+                f"paused for {deferred.wake_after_seconds:.3f}s; the job will resume",
+            )
+        elif status == RunStatus.SUCCEEDED:
             self._emit("run.succeeded", f"completed in {duration_ms} ms")
         elif status == RunStatus.CANCELLED:
             self._emit("run.cancelled", "run cancelled")
@@ -536,7 +572,7 @@ class GraphExecutor:
         elif terminal_values:
             output = terminal_values
 
-        return GraphRun(
+        run = GraphRun(
             id=self._run_id,
             workflowId=self._plan.workflow_id,
             workflowVersion=self._workflow_version,
@@ -545,7 +581,7 @@ class GraphExecutor:
             testRun=self._grants.test_run,
             status=status,
             startedAt=started_at,
-            finishedAt=now_iso(),
+            finishedAt=None if deferred is not None else now_iso(),
             durationMs=duration_ms,
             error=next((r.error for r in self._node_runs.values() if r.status == NodeStatus.FAILED), None),
             ownerId=self._owner_id,
@@ -554,6 +590,9 @@ class GraphExecutor:
             events=self._events,
             plan=self._plan,
         )
+        if deferred is not None:
+            raise RunDeferred(run, deferred.wake_after_seconds)
+        return run
 
     def _settle_remaining(self, succeeded: bool) -> None:
         """Nodes left pending after a failure/stop become `skipped`; after

@@ -548,6 +548,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `run-authorization.test.ts` (local-render confirmation). docs updated:
   `docs/graph-studio.md`, `docs/harness/security.md`.
 
+- **feat(graph): durable `logic.wait` via a deferred Fabric job.** A durable
+  graph no longer blocks a worker thread on a long wait: the wait node
+  checkpoints itself, the run is persisted as `queued`, the worker returns a
+  `deferred` outcome and the Fabric requeues the job at the wake time (without
+  consuming a retry), then resumes from the checkpoint. Waits are bounded to
+  24 h; non-durable `run_sync` keeps the 30 s cap and test runs the 5 s cap.
+  Tests: `test_graph_control_flow.py` (deferral), `test_graph_durable.py`
+  (defer + resume), `test_fabric_workers.py` (deferred requeue). docs updated:
+  `docs/graph-studio.md`.
+
 - **docs(graph): refresh the remaining-work list.** Known limitations now reflect
   the shipped planner/delegate nodes, the documented external-cron path and the
   health watch; "Next milestone" names multi-process Fabric workers as the main

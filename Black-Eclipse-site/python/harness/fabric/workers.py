@@ -351,6 +351,18 @@ class WorkerManager:
             self._emit_terminal(updated or current, outcome)
             return
 
+        if outcome.status == "deferred":
+            # A durable wait paused the job; requeue at its wake time without
+            # counting a retry failure or consuming an attempt.
+            delay = max(1.0, float(outcome.metrics.get("wakeAfterSeconds") or 1.0))
+            updated = self._safe(lambda: self._store.requeue_for_retry(
+                job.id, available_at=now() + delay, error="deferred wait",
+                error_class="DEFERRED",
+            ))
+            self._emit("job.deferred", updated or current,
+                       {"wakeAfterSeconds": delay})
+            return
+
         retryable = _is_retryable(outcome.error_class, outcome.retryable)
         exhausted = current.attempts >= max(1, current.max_attempts)
         if retryable and not exhausted:

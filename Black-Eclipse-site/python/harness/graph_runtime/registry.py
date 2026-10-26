@@ -69,6 +69,9 @@ class NodeExecContext:
     callback_base_url: str = ""
     callback_token: Optional[str] = None
     user_id: str = "local"
+    # True only for a durable Fabric job: a wait node may then defer the job
+    # instead of blocking the worker thread.
+    allow_defer: bool = False
 
 
 @dataclass

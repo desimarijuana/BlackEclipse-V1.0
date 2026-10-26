@@ -257,9 +257,17 @@ New nodes (both registries, Python executors, `scripts`-free and bounded):
 | `flow.gate` | Runs only when its control input fires — the branch primitive. |
 | `logic.switch` | Fires `matched`/`default` and reports `caseIndex`. |
 | `logic.map` / `logic.filter` / `logic.reduce` | Bounded (`10 000` items) numeric loops over the safe formula language. |
-| `logic.wait` | Bounded pause; a TEST run allows at most 5 s (compiler-enforced `test_run_limit`). |
+| `logic.wait` | Bounded pause; a durable job DEFERS itself instead of blocking. A TEST run allows at most 5 s. |
 | `logic.stop` | Ends the run here; downstream nodes become `skipped`. |
 | `flow.subworkflow` | Runs a **pinned** saved workflow (`workflowId@version`) as a nested run. |
+
+**Durable waits.** In a durable Fabric job, `logic.wait` checkpoints itself and
+pauses the RUN (status `queued`); the worker returns a `deferred` outcome and the
+Fabric requeues the job at the wake time without consuming a retry, then resumes
+from the wait checkpoint. It is bounded to 24 h and never holds a worker thread.
+A non-durable run (e.g. `run_sync`) still blocks, capped at 30 s; a test run is
+capped at 5 s by the compiler. Model settings stay in memory across the deferral,
+so a worker restart before the resume still makes agent nodes fail honestly.
 
 **Subworkflows are pinned and authority-preserving.** The node's parent input is
 delivered to the child's trigger as the run input; the child's terminal value
@@ -531,7 +539,7 @@ Phases 3–4:
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **229 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **232 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
   optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
@@ -578,8 +586,8 @@ or HTTP errors.
   headless/unattended deployment must drive `POST /api/workflow-schedules/tick`
   from external cron (see "Headless schedules"); the app cannot tick while it is
   stopped.
-- `logic.wait` blocks its thread; the 30 s cap and the 5 s test-run cap keep that
-  bounded, but long waits belong in the Phase 4+ durable path.
+- `logic.wait` defers a durable job (up to 24 h) instead of blocking. Only a
+  non-durable `run_sync` still blocks, capped at 30 s; a test run is capped at 5 s.
 - Loop primitives accept numeric arrays AND object rows: a row's numeric fields
   are bound by name (plus `value`, `index`, `acc`), so `close - open` works. A
   nested object/array field is not flattened; project it first.

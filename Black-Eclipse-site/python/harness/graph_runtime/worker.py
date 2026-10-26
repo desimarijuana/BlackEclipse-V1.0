@@ -20,7 +20,7 @@ from typing import Any
 
 from ..fabric.models import QueueName, WorkerKind, WorkerOutcome
 from ..fabric.workers import BaseWorker, WorkerContext
-from .model import RunStatus
+from .model import RunDeferred, RunStatus
 
 
 class GraphWorker(BaseWorker):
@@ -75,6 +75,13 @@ class GraphWorker(BaseWorker):
             done.set()
             watcher.cancel()
 
+        if isinstance(run, RunDeferred):
+            return WorkerOutcome(
+                status="deferred",
+                output={"runId": run.run.id, "status": "queued"},
+                metrics={"wakeAfterSeconds": run.wake_after_seconds},
+                progress=0.0,
+            )
         if run is None:
             return WorkerOutcome(
                 status="succeeded",

@@ -3,9 +3,18 @@ wait bounds and the required-control-input rule."""
 
 from __future__ import annotations
 
+import pytest
+
 from harness.graph_runtime.compiler import RunGrants, compile_workflow
 from harness.graph_runtime.executor import GraphExecutor
-from harness.graph_runtime.model import NodeStatus, PortDef, PortType, RunStatus, WorkflowIR
+from harness.graph_runtime.model import (
+    NodeStatus,
+    PortDef,
+    PortType,
+    RunDeferred,
+    RunStatus,
+    WorkflowIR,
+)
 from harness.graph_runtime.nodes import build_default_registry
 from harness.graph_runtime.registry import NodeDef
 
@@ -228,6 +237,31 @@ def test_loop_primitives_bind_object_fields():
     run = _run(ir, registry)
     assert run.status == RunStatus.SUCCEEDED
     assert run.output == 1.5
+
+
+def test_a_durable_wait_defers_the_run_instead_of_blocking():
+    ir = _ir(
+        [
+            _node("trig", "trigger.manual"),
+            _node("wait", "logic.wait", {"ms": 60_000}),
+            _node("out", "output.result"),
+        ],
+        [
+            _edge("e2", "wait", "waitedMs", "out", "value"),
+        ],
+    )
+    plan = compile_workflow(ir, REGISTRY, RunGrants(test_run=False))
+    assert plan.executable
+
+    with pytest.raises(RunDeferred) as info:
+        GraphExecutor(ir, plan, REGISTRY, run_id="grun_wait", allow_defer=True).execute()
+    deferred = info.value
+    assert deferred.run.status == RunStatus.QUEUED
+    assert deferred.wake_after_seconds == 60.0
+    by_node = {record.node_id: record for record in deferred.run.node_runs}
+    assert by_node["wait"].status == NodeStatus.SUCCEEDED
+    assert by_node["wait"].outputs == {"waitedMs": 60000}
+    assert by_node["out"].status == NodeStatus.PENDING
 
 
 def test_loop_primitives_reject_non_numeric_arrays():

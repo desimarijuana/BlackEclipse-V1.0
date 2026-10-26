@@ -1378,7 +1378,7 @@
       "version": "1.0.0",
       "category": "logic",
       "label": "Wait",
-      "description": "Pauses for a bounded time (a test run allows at most 5 s).",
+      "description": "Pauses for a bounded time; a durable run defers the job instead of blocking.",
       "inputs": [
         {
           "id": "in",

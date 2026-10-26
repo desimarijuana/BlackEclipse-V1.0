@@ -42,6 +42,26 @@ async def test_retry_then_success(store):
     await manager.stop()
 
 
+async def test_a_deferred_outcome_requeues_without_consuming_an_attempt(store):
+    manager = make_manager(store)
+    calls = {"n": 0}
+
+    async def handler(ctx):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"status": "deferred", "metrics": {"wakeAfterSeconds": 1}}
+        return {"status": "succeeded", "output": "done"}
+
+    manager.register_worker(function_worker("tool", ["user"], handler))
+    await manager.start()
+    submitted = await manager.submit("tool", {}, mode="BACKGROUND", queue="user", max_attempts=1)
+    job = await wait_terminal(manager, submitted["jobId"], timeout=8)
+    assert job["status"] == JobState.SUCCEEDED.value
+    assert job["attempts"] == 2  # the deferred claim plus the resumed claim
+    assert calls["n"] == 2
+    await manager.stop()
+
+
 async def test_retryable_exhausted_routes_to_dlq(store):
     manager = make_manager(store)
 

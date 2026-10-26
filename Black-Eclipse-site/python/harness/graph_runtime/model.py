@@ -248,6 +248,24 @@ class GraphRun(_Model):
     plan: Optional[ExecutionPlan] = None
 
 
+class DeferredWait(Exception):
+    """A durable wait node asks the run to pause instead of blocking a thread."""
+
+    def __init__(self, wake_after_seconds: float, outputs: dict[str, Any]) -> None:
+        super().__init__(f"defer for {wake_after_seconds:.3f}s")
+        self.wake_after_seconds = max(0.0, float(wake_after_seconds))
+        self.outputs = outputs
+
+
+class RunDeferred(Exception):
+    """The executor paused a durable run; the Fabric job is requeued at wake time."""
+
+    def __init__(self, run: GraphRun, wake_after_seconds: float) -> None:
+        super().__init__(f"run {run.id} deferred for {wake_after_seconds:.3f}s")
+        self.run = run
+        self.wake_after_seconds = max(0.0, float(wake_after_seconds))
+
+
 __all__ = [
     "SUPPORTED_IR_VERSIONS",
     "MAX_NODES",
@@ -270,6 +288,8 @@ __all__ = [
     "WorkflowSettings",
     "WorkflowMeta",
     "WorkflowIR",
+    "DeferredWait",
+    "RunDeferred",
     "Diagnostic",
     "PlanNode",
     "ExecutionPlan",

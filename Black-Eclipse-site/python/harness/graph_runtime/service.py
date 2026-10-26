@@ -27,6 +27,7 @@ from .model import (
     GraphRun,
     NodeRun,
     NodeStatus,
+    RunDeferred,
     RunEvent,
     RunStatus,
     Severity,
@@ -427,9 +428,16 @@ class GraphService:
             callback_token=os.environ.get("CRON_SECRET"),
             user_id=str(payload.get("ownerId") or "local"),
             on_subworkflow=self._persist_subworkflow,
+            allow_defer=True,
         )
         try:
             run = executor.execute()
+        except RunDeferred as deferred:
+            # The wait node is checkpointed and the run row is QUEUED. The worker
+            # requeues the Fabric job at the wake time; model settings stay in
+            # memory so the resumed run keeps its credentials.
+            self._store.finish_run(deferred.run)
+            return deferred
         except Exception as exc:  # noqa: BLE001 - persist, then let the worker classify
             failed = GraphRun(
                 id=run_id, workflowId=ir.id,

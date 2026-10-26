@@ -466,6 +466,7 @@ def _exec_output(context: NodeExecContext) -> dict[str, Any]:
 MAX_LOOP_ITEMS = 10_000
 MAX_WAIT_MS = 30_000
 TEST_RUN_MAX_WAIT_MS = 5_000
+DURABLE_MAX_WAIT_MS = 86_400_000
 
 
 def _as_numeric_items(value: Any, node_label: str) -> list[float]:
@@ -573,8 +574,19 @@ def _exec_wait(context: NodeExecContext) -> dict[str, Any]:
         raise ValueError("ms must be a whole number of milliseconds") from exc
     if milliseconds < 0:
         raise ValueError("ms cannot be negative")
+    if milliseconds > DURABLE_MAX_WAIT_MS:
+        raise ValueError(f"ms is bounded to {DURABLE_MAX_WAIT_MS}")
+    if context.allow_defer and milliseconds:
+        # Durable job: checkpoint this node and requeue the job at the wake
+        # time instead of occupying a worker thread.
+        from .model import DeferredWait  # noqa: PLC0415
+
+        raise DeferredWait(milliseconds / 1000.0, {"waitedMs": milliseconds})
     if milliseconds > MAX_WAIT_MS:
-        raise ValueError(f"ms is bounded to {MAX_WAIT_MS}")
+        raise ValueError(
+            f"ms is bounded to {MAX_WAIT_MS} in a non-durable run "
+            f"(durable jobs may wait up to {DURABLE_MAX_WAIT_MS})"
+        )
     if milliseconds:
         time.sleep(milliseconds / 1000.0)
     return {"waitedMs": milliseconds}
@@ -946,7 +958,7 @@ def build_default_registry() -> NodeRegistry:
         category="logic",
         inputs=(_port("in", "In", PortType.ANY, kind=PortKind.CONTROL, optional=True),),
         outputs=(_port("waitedMs", "Waited", PortType.NUMBER),),
-        config_fields=(ConfigField("ms", "integer", 0, minimum=0, maximum=MAX_WAIT_MS),),
+        config_fields=(ConfigField("ms", "integer", 0, minimum=0, maximum=DURABLE_MAX_WAIT_MS),),
         allowed_modes=_ALL, executor=_exec_wait,
         test_run_limits={"ms": TEST_RUN_MAX_WAIT_MS},
     ))

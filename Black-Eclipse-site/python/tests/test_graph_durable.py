@@ -166,6 +166,60 @@ def test_execute_job_resumes_completed_nodes(service):
     assert service._store.get_run(run_id)["nodeStatus"]["counter"] == "succeeded"
 
 
+def test_durable_wait_defers_then_resumes_from_the_checkpoint(service):
+    from harness.graph_runtime.model import RunDeferred
+
+    payload_ir = {
+        "irVersion": 1, "id": "wf_wait_durable", "name": "Wait",
+        "meta": {"createdAt": "", "updatedAt": "", "tags": []},
+        "nodes": [
+            {"id": "trig", "type": "trigger.manual", "version": "1.0.0", "config": {}, "layout": {"x": 0, "y": 0}},
+            {"id": "wait", "type": "logic.wait", "version": "1.0.0", "config": {"ms": 120_000}, "layout": {"x": 0, "y": 0}},
+            {"id": "out", "type": "output.result", "version": "1.0.0", "config": {}, "layout": {"x": 0, "y": 0}},
+        ],
+        "edges": [
+            {"id": "e2", "source": "wait", "sourceHandle": "waitedMs", "target": "out", "targetHandle": "value"},
+        ],
+        "settings": {"executionMode": "research", "failFast": False, "maxConcurrency": 1, "timeoutMs": 0},
+        "requiredCapabilities": [],
+    }
+    ir = WorkflowIR.model_validate(payload_ir)
+    service = GraphService(service._store, registry=build_default_registry())
+    grants = RunGrants(test_run=False)
+    plan = service.compile(ir, grants)
+    assert plan.executable, [d.message for d in plan.diagnostics]
+    run_id = "grun_wait_durable"
+    service._store.create_run(GraphRun(
+        id=run_id, workflowId=ir.id, workflowVersion=1, irVersion=1,
+        mode=plan.mode, testRun=False, status=RunStatus.RUNNING,
+        startedAt=now_iso(), plan=plan,
+    ))
+    payload = {
+        "ir": ir.model_dump(by_alias=True),
+        "subworkflows": {},
+        "runId": run_id,
+        "workflowVersion": 1,
+        "ownerId": "local",
+        "runInput": None,
+        "grants": {"testRun": False, "grantedCapabilities": [], "allowNetwork": False, "allowTrading": False},
+    }
+
+    started = time.monotonic()
+    first = service.execute_job(payload, cancel_event=threading.Event())
+    assert isinstance(first, RunDeferred)
+    assert time.monotonic() - started < 5  # it did not sleep 120 s
+    assert first.run.status == RunStatus.QUEUED
+    stored = service._store.get_run(run_id)
+    assert stored["status"] == "queued"
+    assert stored["nodeStatus"]["wait"] == "succeeded"
+    assert "out" not in stored["nodeStatus"]  # it has not settled yet
+
+    second = service.execute_job(payload, cancel_event=threading.Event())
+    assert isinstance(second, GraphRun)
+    assert second.status == RunStatus.SUCCEEDED
+    assert second.output == 120_000
+
+
 class _FakeFabric:
     def __init__(self):
         self.payload = None
