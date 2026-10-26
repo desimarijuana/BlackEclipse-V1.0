@@ -49,6 +49,34 @@ def test_a_valid_plan_becomes_a_research_ir():
     assert result["ir"]["requiredCapabilities"] == []
 
 
+def test_plan_accepts_common_edge_aliases_and_object_handles():
+    plan = _plan(
+        [
+            {"id": "trig", "type": "trigger.manual", "config": {}},
+            {"id": "out", "type": "output.result", "config": {}},
+        ],
+        [
+            {
+                "id": "e1",
+                "from": {"node": "trig", "port": "start"},
+                "to": {"node": "out", "port": "value"},
+            },
+        ],
+    )
+    result = validate_plan(plan, REGISTRY)
+    assert result["ok"] is True, result["errors"]
+    assert result["ir"]["edges"][0]["sourceHandle"] == "start"
+    assert result["ir"]["edges"][0]["targetHandle"] == "value"
+
+
+def test_a_plan_without_a_name_still_gets_a_default():
+    plan = _minimal()
+    plan.pop("name")
+    result = validate_plan(plan, REGISTRY)
+    assert result["ok"] is True
+    assert result["ir"]["name"] == "Generated workflow"
+
+
 def test_unknown_node_types_and_ports_are_rejected():
     unknown = _minimal()
     unknown["nodes"][0]["type"] = "does.not.exist"

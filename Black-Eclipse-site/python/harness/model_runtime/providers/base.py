@@ -32,7 +32,7 @@ class ProviderAdapter(abc.ABC):
         Delegates to the single existing factory. The agent never sees which
         provider SDK this eventually instantiates.
         """
-        from ..models import build_chat_model  # local import: avoids a cycle
+        from ...models import build_chat_model  # local import: avoids a cycle
 
         return build_chat_model(settings)
 

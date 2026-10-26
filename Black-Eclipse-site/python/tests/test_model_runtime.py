@@ -863,3 +863,15 @@ def test_ultra_on_native_openai_caps_at_high_because_there_is_no_higher_tier() -
     model = rt.prepare_model(_Native(), res)
     assert getattr(model, "reasoning_effort", None) == "high"
 
+
+def test_provider_adapter_delegates_to_the_harness_model_factory(monkeypatch) -> None:
+    """The adapter must call `harness.models.build_chat_model` (not a
+    `model_runtime.models` module that does not exist)."""
+    import harness.models as harness_models
+    from harness.model_runtime.providers.base import DelegatingAdapter
+    from harness.schemas import ModelSettings
+
+    sentinel = object()
+    monkeypatch.setattr(harness_models, "build_chat_model", lambda settings: sentinel)
+    settings = ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1")
+    assert DelegatingAdapter().build(settings) is sentinel

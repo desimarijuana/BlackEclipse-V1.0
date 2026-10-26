@@ -582,6 +582,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   files. Tests: `test_graph_durable.py` (spill, resume, cleanup). docs updated:
   `docs/graph-studio.md`.
 
+- **fix(model,graph): real-provider e2e now runs.** Two defects surfaced when
+  exercising a real Ollama model: `model_runtime/providers/base.py` imported a
+  nonexistent `model_runtime.models` (now `harness.models`), and the planner
+  rejected common model edge shapes (`from`/`to`, `sourcePort`/`targetPort`,
+  `{node, port}` handles) plus a missing title. The planner now normalizes those
+  aliases and defaults the workflow name. The opt-in e2e was run against the
+  configured Ollama model and passed chat-to-graph, step planning and an agent
+  node. Tests: `test_model_runtime.py`, `test_graph_planner.py`. docs updated:
+  `docs/graph-studio.md`.
+
 - **docs(graph): refresh the remaining-work list.** Known limitations now reflect
   the shipped planner/delegate nodes, the documented external-cron path and the
   health watch; "Next milestone" names multi-process Fabric workers as the main

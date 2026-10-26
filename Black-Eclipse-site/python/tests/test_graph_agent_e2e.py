@@ -15,6 +15,7 @@ deterministic fakes.
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 import pytest
@@ -28,10 +29,17 @@ _PROVIDER = os.getenv("HARNESS_E2E_PROVIDER", "").strip()
 _MODEL = os.getenv("HARNESS_E2E_MODEL", "").strip()
 _API_KEY = os.getenv("HARNESS_E2E_API_KEY", "").strip()
 _BASE_URL = os.getenv("HARNESS_E2E_BASE_URL", "").strip() or None
+# Local runtimes (Ollama/LM Studio/vLLM) accept requests without an API key.
+_KEYLESS = {"ollama", "lmstudio", "local", "vllm"}
 
 pytestmark = pytest.mark.skipif(
-    not (_ENABLED and _PROVIDER and _MODEL and _API_KEY),
-    reason="set HARNESS_E2E=1 plus HARNESS_E2E_PROVIDER/MODEL/API_KEY to run",
+    not (
+        _ENABLED
+        and _PROVIDER
+        and _MODEL
+        and (_API_KEY or _PROVIDER.lower() in _KEYLESS)
+    ),
+    reason="set HARNESS_E2E=1 plus HARNESS_E2E_PROVIDER/MODEL (and API_KEY unless local)",
 )
 
 
@@ -44,28 +52,29 @@ def _settings() -> dict:
     }
 
 
-@pytest.mark.asyncio
-async def test_chat_to_graph_with_a_real_provider():
-    result = await plan_graph(
-        "Fetch Apple daily bars, compute an EMA crossover signal and report the result.",
-        model_settings=_settings(),
-        registry=build_default_registry(),
-    )
+def test_chat_to_graph_and_step_planning_with_a_real_provider():
+    """Both model paths share ONE event loop (provider clients are loop-bound)."""
+    from harness.graph_runtime.agent_plan import generate_step_plan
+
+    async def run():
+        planned = await plan_graph(
+            "Fetch Apple daily bars, compute an EMA crossover signal and report the result.",
+            model_settings=_settings(),
+            registry=build_default_registry(),
+        )
+        steps = await generate_step_plan(
+            "Check one recent AAPL filing for revenue growth.",
+            model_settings=_settings(),
+        )
+        return planned, steps
+
+    result, plan = asyncio.run(run())
     assert result["ok"] is True, result.get("errors")
     ir = WorkflowIR.model_validate(result["ir"])
     assert ir.nodes
     assert any(node.type == "output.result" for node in ir.nodes)
     assert result["model"]["provider"]
 
-
-@pytest.mark.asyncio
-async def test_research_agent_with_a_real_provider():
-    from harness.graph_runtime.agent_plan import generate_step_plan
-
-    plan = await generate_step_plan(
-        "Check one recent AAPL filing for revenue growth.",
-        model_settings=_settings(),
-    )
     assert plan["steps"]
     assert all(step["objective"] for step in plan["steps"])
     assert plan["model"]["provider"]

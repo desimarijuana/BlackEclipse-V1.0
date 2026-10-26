@@ -408,7 +408,9 @@ re-implements the agent loop or tool registry.
 **Chat-to-graph.** `POST /api/graphs/plan` → Python `POST /graphs/plan` turns a
 natural-language objective into a candidate workflow. The model receives the
 runtime's ACTUAL node catalog (types, ports, config defaults, side effects) and
-returns strict JSON; `graph_runtime/planner.py` then validates every node type,
+returns strict JSON. `graph_runtime/planner.py` accepts the canonical edge fields
+plus common model aliases (`from`/`to`, `sourcePort`/`targetPort`, `{node, port}`
+handles), then validates every node type,
 port compatibility, config and edge, derives `requiredCapabilities` and picks
 `research` mode - or `paper` when the proposal contains a trading node - and
 dry-runs the compiler. Only a plan with zero errors becomes a `WorkflowIR`
@@ -539,7 +541,7 @@ Phases 3–4:
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **232 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **234 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
   optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
@@ -550,7 +552,9 @@ Phases 3–4:
   durable dispatch/resume), including a real
   Fabric manager + graph worker integration test and full-stack API tests on a
   temp database. `test_graph_agent_e2e.py` is an OPT-IN real-provider check:
-  skipped unless `HARNESS_E2E=1` plus provider/model/API-key env vars.
+  skipped unless `HARNESS_E2E=1` plus provider/model env vars (API key only for
+  remote providers). It passed locally against the configured Ollama model,
+  covering chat-to-graph, step planning and an agent node.
 
 ### Navigation regressions fixed (post-Phase 4)
 

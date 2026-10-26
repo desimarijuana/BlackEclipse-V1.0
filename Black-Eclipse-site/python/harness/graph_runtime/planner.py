@@ -32,6 +32,7 @@ PLAN_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "name": {"type": "string", "maxLength": 120},
+        "title": {"type": "string", "maxLength": 120},
         "summary": {"type": "string", "maxLength": 800},
         "nodes": {
             "type": "array",
@@ -56,18 +57,30 @@ PLAN_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     "id": {"type": "string"},
-                    "source": {"type": "string"},
-                    "sourceHandle": {"type": "string"},
-                    "target": {"type": "string"},
-                    "targetHandle": {"type": "string"},
+                    # Canonical names plus the aliases models commonly emit.
+                    "source": {"type": ["string", "object"]},
+                    "from": {"type": ["string", "object"]},
+                    # A handle may be a plain id or `{node, port}`.
+                    "sourceHandle": {"type": ["string", "object"]},
+                    "sourcePort": {"type": ["string", "object"]},
+                    "fromPort": {"type": ["string", "object"]},
+                    "fromHandle": {"type": ["string", "object"]},
+                    "target": {"type": ["string", "object"]},
+                    "to": {"type": ["string", "object"]},
+                    "targetHandle": {"type": ["string", "object"]},
+                    "targetPort": {"type": ["string", "object"]},
+                    "toPort": {"type": ["string", "object"]},
+                    "toHandle": {"type": ["string", "object"]},
                 },
-                "required": ["source", "sourceHandle", "target", "targetHandle"],
+                "required": [],
                 "additionalProperties": False,
             },
         },
         "warnings": {"type": "array", "items": {"type": "string"}, "maxItems": 10},
     },
-    "required": ["name", "summary", "nodes", "edges"],
+    # A model that omits a friendly title/summary is still a usable plan; the
+    # structure (nodes/edges) is what must be present.
+    "required": ["nodes", "edges"],
     "additionalProperties": False,
 }
 
@@ -118,6 +131,13 @@ def _slug(value: str) -> str:
 
 def _error(message: str, **detail: Any) -> dict[str, Any]:
     return {"message": message, **detail}
+
+
+def _handle(value: Any) -> str:
+    """A handle id from `"series"` or `{node, port}`; never a guessed port."""
+    if isinstance(value, dict):
+        return str(value.get("port") or value.get("handle") or value.get("id") or "")
+    return str(value or "")
 
 
 def validate_plan(
@@ -189,15 +209,33 @@ def validate_plan(
         if not isinstance(item, dict):
             errors.append(_error(f"edge {index + 1} is not an object", index=index))
             continue
-        source = str(item.get("source") or "")
-        target = str(item.get("target") or "")
+        source_ref = item.get("source") or item.get("from") or ""
+        target_ref = item.get("target") or item.get("to") or ""
+        if isinstance(source_ref, dict):
+            source = str(source_ref.get("node") or source_ref.get("id") or "")
+        else:
+            source = str(source_ref)
+        if isinstance(target_ref, dict):
+            target = str(target_ref.get("node") or target_ref.get("id") or "")
+        else:
+            target = str(target_ref)
         if source not in by_id or target not in by_id:
             errors.append(_error(f"edge {index + 1} references a missing node", index=index))
             continue
+        source_handle = _handle(
+            item.get("sourceHandle") or item.get("sourcePort")
+            or item.get("fromPort") or item.get("fromHandle")
+            or (source_ref.get("port") if isinstance(source_ref, dict) else None)
+        )
+        target_handle = _handle(
+            item.get("targetHandle") or item.get("targetPort")
+            or item.get("toPort") or item.get("toHandle")
+            or (target_ref.get("port") if isinstance(target_ref, dict) else None)
+        )
         source_def = registry.get(by_id[source]["type"])
         target_def = registry.get(by_id[target]["type"])
-        source_port = source_def.output_port(str(item.get("sourceHandle") or "")) if source_def else None
-        target_port = target_def.input_port(str(item.get("targetHandle") or "")) if target_def else None
+        source_port = source_def.output_port(source_handle) if source_def else None
+        target_port = target_def.input_port(target_handle) if target_def else None
         if source_port is None or target_port is None:
             errors.append(_error(
                 f"edge {index + 1} uses a port that does not exist on its node",
@@ -226,7 +264,7 @@ def validate_plan(
     ir = {
         "irVersion": 1,
         "id": workflow_id or f"wf_{uuid.uuid4().hex[:12]}",
-        "name": str(raw.get("name") or "Generated workflow")[:120],
+        "name": str(raw.get("name") or raw.get("title") or "Generated workflow")[:120],
         "description": str(raw.get("summary") or "")[:800],
         "meta": {"createdAt": "", "updatedAt": "", "tags": ["generated"]},
         "nodes": nodes,
