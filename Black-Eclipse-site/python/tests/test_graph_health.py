@@ -100,6 +100,16 @@ def test_health_measures_queue_wait(store):
     assert store.health()["queueWaitMs"]["avg"] == pytest.approx(500, abs=50)
 
 
+def test_health_alerts_keep_a_bounded_transition_history(store):
+    store.save_watch_state("degraded", ["failure rate high"])
+    store.save_alert("degraded", ["failure rate high"])
+    store.save_alert("healthy", [])
+    health = store.health()
+    assert health["watch"]["status"] == "degraded"
+    assert [alert["status"] for alert in health["alerts"]] == ["healthy", "degraded"]
+    assert health["alerts"][1]["reasons"] == ["failure rate high"]
+
+
 def test_health_is_bounded_and_says_so(store):
     for index in range(3):
         _run(store, f"r{index}", RunStatus.SUCCEEDED, 10)

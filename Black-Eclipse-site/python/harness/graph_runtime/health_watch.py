@@ -137,6 +137,11 @@ class GraphHealthWatcher:
         if status != previous and status in ("degraded", "healthy"):
             transition = status
         store.save_watch_state(status, reasons)
+        if transition:
+            try:
+                store.save_alert(status, reasons)
+            except Exception:  # noqa: BLE001 - history is best-effort
+                pass
 
         if transition == "degraded":
             publish_event("graph.health_degraded", {

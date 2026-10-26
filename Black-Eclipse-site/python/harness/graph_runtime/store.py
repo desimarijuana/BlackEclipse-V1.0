@@ -106,6 +106,13 @@ CREATE TABLE IF NOT EXISTS GraphHealthWatchState (
   reasons   TEXT NOT NULL DEFAULT '[]',
   updatedAt TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS GraphHealthAlert (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  status    TEXT NOT NULL,
+  reasons   TEXT NOT NULL DEFAULT '[]',
+  createdAt TEXT NOT NULL
+);
 """
 
 
@@ -370,6 +377,7 @@ class GraphRunStore:
             "slowestNodes": slowest[:10],
             "truncated": {"runs": truncated_runs, "nodeRuns": truncated_nodes},
             "watch": self.watch_state(),
+            "alerts": self.health_alerts(20),
         }
 
     def watch_state(self) -> dict[str, Any]:
@@ -392,6 +400,29 @@ class GraphRunStore:
             (status, _json(reasons), now_iso()),
         )
         self._db.commit()
+
+    def save_alert(self, status: str, reasons: list[str]) -> None:
+        """Append one TRANSITION to the bounded alert history."""
+        self._db.execute(
+            "INSERT INTO GraphHealthAlert (status, reasons, createdAt) VALUES (?, ?, ?)",
+            (status, _json(reasons), now_iso()),
+        )
+        self._db.commit()
+
+    def health_alerts(self, limit: int = 20) -> list[dict[str, Any]]:
+        rows = self._db.execute(
+            "SELECT * FROM GraphHealthAlert ORDER BY id DESC LIMIT ?",
+            (max(1, min(int(limit), 100)),),
+        ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "status": row["status"],
+                "reasons": _loads(row["reasons"], []),
+                "createdAt": row["createdAt"],
+            }
+            for row in rows
+        ]
 
     def delete_run(self, run_id: str) -> int:
         cursor = self._db.execute("DELETE FROM HarnessGraphRun WHERE id=?", (run_id,))

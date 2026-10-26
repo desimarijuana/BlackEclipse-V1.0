@@ -156,6 +156,33 @@ export function GraphHealthPanel() {
               )}
             </div>
 
+            <div>
+              <div className="mb-1 text-[9.5px] uppercase tracking-wide text-muted-foreground">
+                Recent watch alerts
+              </div>
+              {health.alerts.length === 0 ? (
+                <p className="text-[10px] text-muted-foreground">No transitions recorded yet.</p>
+              ) : (
+                health.alerts.map((alert) => (
+                  <div key={alert.id} className="text-[10px]">
+                    <span
+                      className={
+                        alert.status === 'degraded' ? 'text-rose-300' : 'text-emerald-300'
+                      }
+                    >
+                      {alert.status}
+                    </span>
+                    <span className="ml-1 text-muted-foreground">
+                      {formatTimestamp(alert.createdAt)}
+                    </span>
+                    {alert.reasons.length > 0 && (
+                      <div className="text-muted-foreground">{alert.reasons.join('; ')}</div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
             {(health.truncated.runs || health.truncated.nodeRuns) && (
               <p className="rounded border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[9.5px] text-amber-200">
                 Bounded read hit its cap; figures cover the most recent rows only.

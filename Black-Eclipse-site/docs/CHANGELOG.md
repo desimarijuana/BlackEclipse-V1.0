@@ -7,6 +7,25 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-25
+- **perf(chat): a code-classified turn no longer stalls for minutes before its
+  first model call.** A live "build me an interactive Candle Lab" turn recorded
+  only `run.created` → `response.plan` and then sat silent; on the same repo the
+  code-context seed (`CodeContextEngine.select`) measured **94 s**, synchronously
+  on the runtime's event loop — which also froze every other API route. Three
+  fixes: (1) `find_related_tests` resolved the reference set per TEST FILE
+  instead of per NAME, re-running the same SQL query ~32 500 times — now once per
+  name (94 s → ~2 s); (2) `call_edges(caller_name|callee_name)` indexes added so
+  the `col=? OR name=?` call-path reads stop full-scanning; (3) the chat code
+  classifier now treats "return it as one interactive block" as a `data_task`
+  content deliverable rather than `code_change` (the word "file" in "single-file"
+  used to trigger the code profile, ADR-H117 amendment). Also stopped
+  `EmbeddingService.configure()` from re-arming a tripped provider circuit on
+  every search (a 30 s cooldown), which was firing thousands of doomed
+  `/v1/embeddings` 404s against Ollama. Tests:
+  `test_intel.py` (one reference query per name), `test_search_embeddings.py`
+  (circuit survives re-configure), `test_code_request_intent.py`
+  (response-block vs renderer change). Docs updated:
+  `docs/harness/decisions.md` (ADR-H117 amendment).
 - **feat(chat): Eclipse can build and run interactive mini-apps in the conversation.**
   Added the `interactive` response block: the model authors self-contained
   HTML/CSS/JS/SVG (a price knob, a VWAP explorer, a doji figure) and it renders
@@ -510,6 +529,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `HARNESS_E2E=1` and provider/model/API-key env vars are set, covering
   chat-to-graph, step planning and an agent node against a REAL provider. Tests:
   `test_graph_research_nodes.py` (same-domain bound/dedupe). docs updated:
+  `docs/graph-studio.md`.
+
+- **feat(graph): bounded graph-health alert history.** Every watch transition
+  (`degraded`/`healthy`) is appended to `GraphHealthAlert`; `/graphs/health`
+  returns the newest 20 with reasons, and the Health tab lists them. Tests:
+  `test_graph_health.py` (order + reasons). docs updated:
   `docs/graph-studio.md`.
 
 - **docs(graph): refresh the remaining-work list.** Known limitations now reflect

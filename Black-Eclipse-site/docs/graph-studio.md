@@ -474,7 +474,9 @@ queue or scheduler.
 cadence and persists one verdict (`unmeasured` / `insufficient` / `healthy` /
 `degraded`) in `GraphHealthWatchState`; the health response carries it as
 `watch`. It publishes `graph.health_degraded` / `graph.health_recovered` only on a
-transition, never every tick. Thin data is `insufficient`, not healthy. Tuning:
+transition, never every tick; each transition is also appended to a bounded
+`GraphHealthAlert` history that the Health tab lists (newest first). Thin data
+is `insufficient`, not healthy. Tuning:
 `HARNESS_GRAPH_HEALTH_SECONDS` (default 300; `0` disables),
 `HARNESS_GRAPH_HEALTH_WINDOW_HOURS` (default 1),
 `HARNESS_GRAPH_HEALTH_MIN_RUNS` (default 5),
@@ -528,7 +530,7 @@ Phases 3–4:
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **226 tests pass** (model/registry/formula, compiler,
+- Python graph suites — **227 tests pass** (model/registry/formula, compiler,
   executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
   gateway quote/history, tabular transforms, quant backtest/walk-forward/
   optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
