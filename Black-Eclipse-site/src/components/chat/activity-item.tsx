@@ -3,7 +3,9 @@
 // ── ActivityItemRow — one tool/retrieval operation the agent performed ──────
 // Compact by default: an icon, a human label, a status, an optional duration,
 // and an optional result summary. Expandable only when there is something safe
-// and useful to show (a failure code, a source name, the raw operation).
+// and useful to show (a failure code, a source name, the raw operation, or the
+// bounded Python source that ran). The code lives INSIDE this disclosure — it
+// is never a second, always-visible panel.
 //
 // It never shows raw JSON, credentials, or chain-of-thought. The "technical"
 // details it can reveal are the operation name and a failure code — the things
@@ -55,6 +57,8 @@ export function ActivityItemRow({ item, compact = false, capability, latest = fa
   const [open, setOpen] = useState(false);
   const failed = item.status === 'failed';
   const running = item.status === 'running';
+  const preview = item.codePreview;
+  const previewLines = preview ? preview.text.split('\n').length : 0;
   // A refused code step shows its ONE plain sentence instead of the operation
   // label; the raw code stays behind "details".
   const refused = Boolean(item.reasonKey);
@@ -132,6 +136,25 @@ export function ActivityItemRow({ item, compact = false, capability, latest = fa
             <div className="flex gap-2">
               <dt className="text-muted-foreground/50">error</dt>
               <dd className="text-rose-300/90">{item.code}</dd>
+            </div>
+          )}
+          {preview && (
+            <div className="mt-1">
+              <div className="flex gap-2">
+                <dt className="shrink-0 text-muted-foreground/50">code</dt>
+                <dd className="text-muted-foreground/50">
+                  {preview.language} · {previewLines} line{previewLines === 1 ? '' : 's'}
+                  {preview.truncated && (
+                    <span className="text-amber-300/70">
+                      {' '}· showing {preview.text.length.toLocaleString()} of{' '}
+                      {preview.totalChars.toLocaleString()} chars
+                    </span>
+                  )}
+                </dd>
+              </div>
+              <pre className="mt-1 max-h-64 overflow-auto rounded border border-border/20 bg-black/15 p-2 text-[10.5px] leading-relaxed text-foreground/80">
+                <code>{preview.text}</code>
+              </pre>
             </div>
           )}
         </dl>

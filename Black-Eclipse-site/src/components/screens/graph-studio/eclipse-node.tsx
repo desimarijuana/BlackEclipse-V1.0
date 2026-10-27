@@ -1,16 +1,16 @@
 'use client';
 
-// ── Custom React Flow node ───────────────────────────────────────────────────
-// A compact, icon-led node in the spirit of n8n: one identity tile, one label,
-// typed ports, and hover-only actions. Appearance is driven by the registry, so
-// a new node type needs no new component.
+// ── Custom React Flow node ────────────────────────────────────────────────────
+// Wide, icon-led card: solid filled icon on the left, title + category stacked
+// to its right. Ports are represented by handles on the card's edge midpoints
+// (fanned when a side has several); their names live in the handle tooltip so
+// the card surface stays clean like the reference.
 
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Copy, MoreHorizontal, Plus, Trash2, WarningCircle } from '@/lib/icons';
 import type { NodeCategory, PortDef, SideEffectClass } from '@/lib/graph-studio/types';
 import type { NodeRunStatus } from '@/lib/graph-studio/execution-client';
-import { portColor, sideEffectColor } from '@/lib/graph-studio/port-style';
 import { nodeIcon } from './node-icons';
 
 export interface EclipseNodeData extends Record<string, unknown> {
@@ -24,24 +24,24 @@ export interface EclipseNodeData extends Record<string, unknown> {
   errorCount: number;
   warningCount: number;
   runStatus?: NodeRunStatus;
+  /** Hue shared by the border, the aurora and every wire leaving this node. */
+  accent: string;
+  hasIncoming: boolean;
+  hasOutgoing: boolean;
   onAddNext?: (nodeId: string, handle: string) => void;
   onDuplicate?: (nodeId: string) => void;
   onDelete?: (nodeId: string) => void;
   onMore?: (nodeId: string, anchor: { x: number; y: number }) => void;
 }
 
-const CATEGORY_ACCENT: Record<NodeCategory, string> = {
-  trigger: '#38bdf8',
-  data: '#34d399',
-  transform: '#a78bfa',
-  logic: '#f59e0b',
-  integration: '#22d3ee',
-  finance: '#2dd4bf',
-  quant: '#818cf8',
-  agent: '#e879f9',
-  research: '#facc15',
-  trading: '#fb7185',
-  output: '#94a3b8',
+const RUN_TONE: Record<NodeRunStatus, { dot: string; badge: string }> = {
+  pending: { dot: 'bg-slate-500', badge: 'text-slate-400' },
+  ready: { dot: 'bg-slate-400', badge: 'text-slate-300' },
+  running: { dot: 'bg-sky-400 animate-pulse', badge: 'text-sky-300' },
+  succeeded: { dot: 'bg-emerald-400', badge: 'text-emerald-300' },
+  failed: { dot: 'bg-rose-400', badge: 'text-rose-300' },
+  cancelled: { dot: 'bg-amber-400', badge: 'text-amber-300' },
+  skipped: { dot: 'bg-slate-600', badge: 'text-slate-500' },
 };
 
 const CATEGORY_LABEL: Record<NodeCategory, string> = {
@@ -58,23 +58,14 @@ const CATEGORY_LABEL: Record<NodeCategory, string> = {
   output: 'Output',
 };
 
-const RUN_TONE: Record<NodeRunStatus, { ring: string; dot: string; badge: string }> = {
-  pending: { ring: 'border-white/10', dot: 'bg-slate-500', badge: 'text-slate-400' },
-  ready: { ring: 'border-white/15', dot: 'bg-slate-400', badge: 'text-slate-300' },
-  running: { ring: 'border-sky-400/80', dot: 'bg-sky-400 animate-pulse', badge: 'text-sky-300' },
-  succeeded: { ring: 'border-emerald-500/70', dot: 'bg-emerald-400', badge: 'text-emerald-300' },
-  failed: { ring: 'border-rose-500/80', dot: 'bg-rose-400', badge: 'text-rose-300' },
-  cancelled: { ring: 'border-amber-400/70', dot: 'bg-amber-400', badge: 'text-amber-300' },
-  skipped: { ring: 'border-white/5 opacity-55', dot: 'bg-slate-600', badge: 'text-slate-500' },
-};
-
-function portTop(index: number, count: number): string {
-  return `${((index + 1) / (count + 1)) * 100}%`;
+function handleTop(index: number, count: number): string {
+  if (count <= 1) return '50%';
+  return `calc(50% + ${(index - (count - 1) / 2) * 18}px)`;
 }
 
 export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeData>>) {
   const Icon = nodeIcon(undefined, data.category);
-  const accent = CATEGORY_ACCENT[data.category] ?? sideEffectColor(data.sideEffects);
+  const accent = data.accent ?? 'var(--primary)';
   const hasError = data.errorCount > 0;
   const hasWarning = !hasError && data.warningCount > 0;
   const run = data.runStatus;
@@ -82,96 +73,67 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
 
   return (
     <div
+      style={{ ['--node-accent' as string]: accent }}
       className={cn(
-        'glass-card group/node relative w-[214px] rounded-xl border transition-[box-shadow,border-color] duration-150',
-        tone?.ring ?? (hasError ? 'border-rose-500/70' : hasWarning ? 'border-amber-500/60' : 'border-black/10 dark:border-white/10'),
-        selected
-          ? 'shadow-[0_0_0_1.5px_rgba(56,189,248,0.9),0_12px_32px_rgba(0,0,0,0.35)]'
-          : 'shadow-[0_4px_14px_rgba(0,0,0,0.18)]',
+        'node-card graph-node group/node relative w-[244px] rounded-[18px] transition-[box-shadow,border-color] duration-150',
+        selected && 'node-selected',
       )}
     >
-      <span
-        aria-hidden
-        className="absolute bottom-2.5 left-0 top-2.5 w-[3px] rounded-r-full"
-        style={{ background: accent }}
-      />
-
-      {data.inputs.map((port, i) => (
-        <Handle
-          key={`in-${port.id}`}
-          id={port.id}
-          type="target"
-          position={Position.Left}
-          style={{ top: portTop(i, data.inputs.length), background: portColor(port.type) }}
-          className="!h-2.5 !w-2.5 !border-2 !border-background"
-          title={`${port.name} · ${port.type}`}
-        />
-      ))}
-      {data.outputs.map((port, i) => (
-        <Handle
-          key={`out-${port.id}`}
-          id={port.id}
-          type="source"
-          position={Position.Right}
-          style={{ top: portTop(i, data.outputs.length), background: portColor(port.type) }}
-          className="!h-2.5 !w-2.5 !border-2 !border-background"
-          title={`${port.name} · ${port.type}`}
-        />
-      ))}
-
-      <div className="flex items-center gap-3 px-4 py-3 pl-[18px]">
-        <span
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ring-black/5 dark:ring-white/10"
-          style={{ background: `${accent}1c`, color: accent }}
-        >
-          <Icon size={17} />
+      {/* Identity: solid filled icon on the left, title + category to its right. */}
+      <div className="relative z-10 flex min-h-[112px] items-center gap-3.5 px-5 py-4">
+        <span className="flex h-12 w-12 shrink-0 items-center justify-center text-white">
+          <Icon size={34} weight="fill" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-semibold leading-snug tracking-tight text-foreground">{data.label}</span>
-          <span className="mt-0.5 block truncate text-[9.5px] font-medium tracking-wide text-muted-foreground/75">
+          <span className="block truncate text-[16px] font-semibold leading-tight tracking-tight text-white">
+            {data.label}
+          </span>
+          <span className="mt-1 block truncate text-[11px] leading-none text-white/45">
             {CATEGORY_LABEL[data.category]}
           </span>
         </span>
-        {(hasError || hasWarning) && (
-          <span className={cn('shrink-0', hasError ? 'text-rose-400' : 'text-amber-400')}>
-            {hasError ? <WarningCircle size={13} /> : <AlertTriangle size={13} />}
-          </span>
-        )}
       </div>
-
-      {tone && (
-        <span className={cn('absolute -bottom-2 right-2 flex items-center gap-1 rounded-full border border-black/10 bg-background/90 px-1.5 py-0.5 text-[8.5px] dark:border-white/10', tone.badge)}>
-          <span className={cn('h-1.5 w-1.5 rounded-full', tone.dot)} />
-          {run}
+      {(hasError || hasWarning) && (
+        <span className={cn('absolute right-2.5 top-2.5', hasError ? 'text-rose-400' : 'text-amber-400')}>
+          {hasError ? <WarningCircle size={13} /> : <AlertTriangle size={13} />}
         </span>
       )}
 
-      {/* Port labels appear on hover only — they keep the canvas readable. */}
-      <div className="pointer-events-none absolute left-3 top-0 h-full w-16 opacity-0 transition-opacity group-hover/node:opacity-100">
-        {data.inputs.map((port, i) => (
-          <span
-            key={`in-l-${port.id}`}
-            className="absolute -translate-y-1/2 text-[9px] text-muted-foreground"
-            style={{ top: portTop(i, data.inputs.length) }}
-          >
-            {port.name}
-          </span>
-        ))}
-      </div>
-      <div className="pointer-events-none absolute right-3 top-0 h-full w-16 text-right opacity-0 transition-opacity group-hover/node:opacity-100">
-        {data.outputs.map((port, i) => (
-          <span
-            key={`out-l-${port.id}`}
-            className="absolute right-0 -translate-y-1/2 text-[9px] text-muted-foreground"
-            style={{ top: portTop(i, data.outputs.length) }}
-          >
-            {port.name}
-          </span>
-        ))}
-      </div>
+      {/* Handles on the edge midpoints — left = incoming, right = outgoing —
+          fanned only when a side has several ports. Names stay in the tooltip. */}
+      {data.inputs.map((port, index) => (
+        <Handle
+          key={port.id}
+          id={port.id}
+          type="target"
+          position={Position.Left}
+          style={{
+            top: handleTop(index, data.inputs.length),
+            background: accent,
+            boxShadow: `0 0 6px ${accent}`,
+          }}
+          className="!z-10 !h-2.5 !w-2.5 !border-2 !border-background !left-[-5px]"
+          title={`${port.name} · ${port.type}`}
+        />
+      ))}
+      {data.outputs.map((port, index) => (
+        <Handle
+          key={port.id}
+          id={port.id}
+          type="source"
+          position={Position.Right}
+          style={{
+            top: handleTop(index, data.outputs.length),
+            background: accent,
+            boxShadow: `0 0 6px ${accent}`,
+          }}
+          className="!z-10 !h-2.5 !w-2.5 !border-2 !border-background !right-[-5px]"
+          title={`${port.name} · ${port.type}`}
+        />
+      ))}
 
-      {/* Add-next affordance on each output, like n8n's output "+" handle. */}
-      {data.outputs.map((port, i) => (
+      {/* Add-next affordance follows each output handle on hover. */}
+      {data.outputs.map((port, index) => (
         <button
           key={`add-${port.id}`}
           type="button"
@@ -180,12 +142,28 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
             event.stopPropagation();
             data.onAddNext?.(id, port.id);
           }}
-          className="nodrag nopan absolute right-[-13px] z-10 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full border border-sky-400/50 bg-background/90 text-sky-500 opacity-0 shadow-sm transition-opacity hover:bg-sky-50 group-hover/node:opacity-100 dark:text-sky-300 dark:hover:bg-sky-500/20"
-          style={{ top: portTop(i, data.outputs.length) }}
+          style={{
+            top: handleTop(index, data.outputs.length),
+            borderColor: `color-mix(in srgb, ${accent} 55%, transparent)`,
+            color: accent,
+          }}
+          className="nodrag nopan absolute right-[-31px] z-10 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full border bg-background/90 opacity-0 shadow-sm transition-opacity hover:bg-black/5 group-hover/node:opacity-100 dark:hover:bg-white/10"
         >
           <Plus size={10} />
         </button>
       ))}
+
+      {tone && (
+        <span
+          className={cn(
+            'absolute -bottom-2 right-2 flex items-center gap-1 rounded-full border border-black/10 bg-background/90 px-1.5 py-0.5 text-[8.5px] dark:border-white/10',
+            tone.badge,
+          )}
+        >
+          <span className={cn('h-1.5 w-1.5 rounded-full', tone.dot)} />
+          {run}
+        </span>
+      )}
 
       {/* Hover toolbar. Kept solid: it sits inside a canvas pane, not a modal. */}
       <div className="nodrag nopan absolute -top-8 right-0 flex items-center gap-0.5 rounded-md border border-black/10 bg-background/90 p-0.5 opacity-0 shadow-md transition-opacity group-hover/node:opacity-100 dark:border-white/10">
@@ -198,7 +176,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
           }}
           className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-white/10 hover:text-foreground"
         >
-          <Copy size={10} />
+          <Copy size={11} />
         </button>
         <button
           type="button"
@@ -209,21 +187,18 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
           }}
           className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-rose-500/15 hover:text-rose-400"
         >
-          <Trash2 size={10} />
+          <Trash2 size={11} />
         </button>
         <button
           type="button"
           title="More actions"
           onClick={(event) => {
             event.stopPropagation();
-            data.onMore?.(id, {
-              x: event.clientX,
-              y: event.clientY,
-            });
+            data.onMore?.(id, { x: event.clientX, y: event.clientY });
           }}
           className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-white/10 hover:text-foreground"
         >
-          <MoreHorizontal size={10} />
+          <MoreHorizontal size={11} />
         </button>
       </div>
     </div>

@@ -8,12 +8,13 @@
 
 import { GraphStudioScreen } from '../graph-studio/graph-studio-screen';
 
-export function OverviewScreen() {
+export function OverviewScreen({ onEditorChange }: { onEditorChange?: (editing: boolean) => void }) {
   return (
     <GraphStudioScreen
       eyebrow=""
       title="Overview"
       subtitle="Your workflows at a glance. Open one to keep editing, or start a new one."
+      onViewChange={onEditorChange}
     />
   );
 }

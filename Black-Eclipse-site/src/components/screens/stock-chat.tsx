@@ -184,27 +184,6 @@ function ScreenSkeleton() {
 }
 
 function StockChatContent() {
-  // Warm the Graph-mode screens while the shell is idle. Their chunks are large
-  // (React Flow / node library); without this the first click on Graph Studio
-  // sits on the slim top loader for a long time and reads as a broken page.
-  useEffect(() => {
-    let idleId: number | null = null;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const prefetch = () => {
-      void import('@/components/screens/overview/overview-screen');
-      void import('@/components/screens/tables/tables-screen');
-    };
-    if (typeof window.requestIdleCallback === 'function') {
-      idleId = window.requestIdleCallback(prefetch, { timeout: 4000 });
-    } else {
-      timer = setTimeout(prefetch, 2500);
-    }
-    return () => {
-      if (idleId !== null && typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(idleId);
-      if (timer) clearTimeout(timer);
-    };
-  }, []);
-
   // Hydrate interface language + accessibility prefs from localStorage once.
   useHydrateI18n();
   // Hydrate the centralized theme (branding/fonts/colors) and apply its tokens.
@@ -327,6 +306,9 @@ function StockChatContent() {
   // Phones render the agent/scheduler docks as a bottom sheet, not a side column.
   const isMobile = useIsMobile();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // True while the Overview workspace is showing the graph editor (not its
+  // gallery). The app header is visible on the gallery and hidden in the editor.
+  const [graphEditing, setGraphEditing] = useState(false);
   // Focus mode: a presentation-only "zen" view of the chat — hides the header
   // and sidebar and parks the transcript + composer in a centered column.
   // Scoped to the chat tab and the Ctrl+Alt+X shortcut.
@@ -1142,9 +1124,8 @@ function StockChatContent() {
         <TopBar 
           onToggleMenu={() => setMobileMenuOpen(true)}
           activeTab={activeTab}
-          // Graph mode (Overview + its in-place editor) is a full-bleed
-          // engineering workspace: no app header or search bar.
-          hidden={focusMode || activeTab === 'overview'}
+          // Overview keeps the app header; its in-place editor goes full-bleed.
+          hidden={focusMode || (activeTab === 'overview' && graphEditing)}
         />
 
         <div id="main-content" className="flex-1 overflow-y-auto relative w-full h-full z-10 pb-[4.25rem] md:pb-0" tabIndex={-1}>
@@ -1474,7 +1455,7 @@ function StockChatContent() {
 
           {visited.has('overview') && (
             <div className={cn('w-full h-full', activeTab === 'overview' ? '' : 'hidden')}>
-              <OverviewScreen />
+              <OverviewScreen onEditorChange={setGraphEditing} />
             </div>
           )}
 

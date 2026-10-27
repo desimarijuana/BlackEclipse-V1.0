@@ -6,6 +6,8 @@
 //
 // Nothing here talks to the network or to React — pure data + formatting.
 
+import type { ActivityCodePreview } from '@/lib/agent/response-model';
+
 /** Coarse lifecycle of a run, mirroring the runtime's status vocabulary. */
 export type AgentStatus =
   | 'idle'
@@ -61,6 +63,8 @@ export interface ActivityEntry {
   summary?: string;
   /** Failure/refusal code — detail, not the label. */
   code?: string;
+  /** Bounded, redacted source for a Python execution step. */
+  codePreview?: ActivityCodePreview;
   /** Optional handle to a large output or artifact opened in a viewer. */
   outputRef?: string;
   toolCallId?: string;

@@ -43,10 +43,13 @@ export function GraphStudioScreen({
   eyebrow = 'Graph Studio',
   title = 'Workflows',
   subtitle = 'Build, validate and run typed workflows. Every graph compiles to the same workflow model.',
+  onViewChange,
 }: {
   eyebrow?: string;
   title?: string;
   subtitle?: string;
+  /** Reports whether the workspace is showing the editor (shell hides its top bar). */
+  onViewChange?: (editing: boolean) => void;
 }) {
   const ir = useGraphEditor((s) => s.ir);
   const workflowId = useGraphEditor((s) => s.workflowId);
@@ -101,6 +104,13 @@ export function GraphStudioScreen({
     if (loadNonce > 0) setView('editor');
   }, [loadNonce]);
 
+  // Tell the shell whether this workspace is in the gallery or the editor, so
+  // the app header can stay visible on Overview and disappear in the editor.
+  const editing = view === 'editor' && Boolean(ir);
+  useEffect(() => {
+    onViewChange?.(editing);
+  }, [editing, onViewChange]);
+
   // A CLICKED node opens the inspector. Selection alone (a drag, or a marquee)
   // does not: the panel follows `inspectedNodeId`, and closes as soon as that
   // node leaves a single-node selection or another panel is pinned open.
@@ -114,11 +124,12 @@ export function GraphStudioScreen({
     }
   }, [singleSelectedId, inspectedNodeId, rightPanel]);
 
-  const save = useCallback(async () => {
+  const save = useCallback(async (): Promise<boolean> => {
     const current = useGraphEditor.getState().ir;
-    if (!current) return;
+    if (!current) return false;
     setBusy(true);
     setError(null);
+    let ok = false;
     try {
       if (workflowId) {
         const record = await saveWorkflow(workflowId, current);
@@ -131,6 +142,7 @@ export function GraphStudioScreen({
         void refreshCatalog();
         setNotice('Created');
       }
+      ok = true;
       setTimeout(() => setNotice(null), 2500);
     } catch (err) {
       if (err instanceof WorkflowApiError) setError(err.message);
@@ -138,6 +150,7 @@ export function GraphStudioScreen({
     } finally {
       setBusy(false);
     }
+    return ok;
   }, [workflowId, load, markSaved, refreshCatalog]);
 
   // Fallback poll for environments where SSE is unavailable/disconnects. The
@@ -297,14 +310,14 @@ export function GraphStudioScreen({
           variant="ghost"
           size="sm"
           onClick={backHome}
-          title="Back to workflows"
+          title="Back to Overview"
           className="gap-1.5 text-muted-foreground"
         >
-          <ChevronLeft size={14} /> <span className="hidden sm:inline">Workflows</span>
+          <ChevronLeft size={14} /> <span className="hidden sm:inline">Overview</span>
         </Button>
         <span className="h-4 w-px bg-white/10" />
 
-        <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-300 ring-1 ring-inset ring-sky-400/20">
+        <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20">
           <GitBranch size={14} />
           {dirty && (
             <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-amber-400 ring-1 ring-background" />
@@ -318,7 +331,7 @@ export function GraphStudioScreen({
             placeholder="Workflow name"
             size={Math.min(Math.max(ir.name.length || 1, 10), 34)}
             title="Rename workflow"
-            className="min-w-[10ch] max-w-[260px] rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-[13px] font-semibold tracking-tight text-foreground outline-none hover:border-white/10 focus:border-sky-400/50"
+            className="min-w-[10ch] max-w-[260px] rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-[13px] font-semibold tracking-tight text-foreground outline-none hover:border-white/10 focus:border-primary/50"
           />
           <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[9.5px] font-medium tabular-nums text-muted-foreground">
             v{currentVersion}
@@ -333,7 +346,7 @@ export function GraphStudioScreen({
             <span className={cn('h-1.5 w-1.5 rounded-full', dirty ? 'bg-amber-400' : 'bg-emerald-400')} />
             {dirty ? 'Unsaved' : 'Saved'}
           </span>
-          {notice && <span className="shrink-0 truncate text-[10px] text-sky-300">{notice}</span>}
+          {notice && <span className="shrink-0 truncate text-[10px] text-primary">{notice}</span>}
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -445,6 +458,36 @@ export function GraphStudioScreen({
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1">
             <GraphCanvas onSave={save} onInspectNode={setInspectedNodeId} />
+
+            {/* Center-stage run control: the primary way to execute the graph. */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-6 z-10 flex justify-center px-4">
+              <button
+                type="button"
+                disabled={!workflowId || errorCount > 0 || runBusy || run?.status === 'running'}
+                onClick={() => {
+                  if (dirty) {
+                    void save().then((ok) => { if (ok) void startRun(); });
+                  } else {
+                    void startRun();
+                  }
+                }}
+                title={
+                  !workflowId
+                    ? 'Save the workflow once before running it'
+                    : errorCount > 0
+                      ? 'Fix the validation errors before running'
+                      : dirty
+                        ? 'Save the current changes and run the workflow'
+                        : runBlockReason ?? 'Run a test execution of the saved version'
+                }
+                className="graph-accent pointer-events-auto flex items-center gap-2.5 rounded-full border px-5 py-2.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed"
+              >
+                <span className="graph-accent-chip flex h-6 w-6 items-center justify-center rounded-full">
+                  <Play size={12} />
+                </span>
+                {runBusy ? 'Starting…' : run?.status === 'running' ? 'Running…' : dirty ? 'Save & run' : 'Start workflow'}
+              </button>
+            </div>
           </div>
           <ExecutionDock
             onStart={() => void startRun()}

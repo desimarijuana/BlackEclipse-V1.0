@@ -226,6 +226,23 @@ function OutputRow({
               {entry.code && <DetailRow label="code" value={entry.code} tone="failed" />}
             </dl>
           )}
+          {single && entry?.codePreview && (
+            <div className="mt-1 overflow-hidden rounded-md border border-white/10 bg-black/15">
+              <div className="flex items-center gap-2 px-2 py-1 text-[9.5px] uppercase tracking-wide text-muted-foreground/55">
+                <span className="font-mono">{entry.codePreview.language}</span>
+                <span className="text-muted-foreground/35">·</span>
+                <span>{entry.codePreview.text.split('\n').length} line(s)</span>
+                {entry.codePreview.truncated && (
+                  <span className="ml-auto normal-case text-amber-300/70">
+                    {entry.codePreview.text.length.toLocaleString()} of {entry.codePreview.totalChars.toLocaleString()} chars
+                  </span>
+                )}
+              </div>
+              <pre className="max-h-64 overflow-auto border-t border-white/10 px-2.5 py-2 font-mono text-[10.5px] leading-relaxed text-foreground/80">
+                <code>{entry.codePreview.text}</code>
+              </pre>
+            </div>
+          )}
           {!single && (
             <ul className="space-y-px py-0.5">
               {group.items.map((item) => (

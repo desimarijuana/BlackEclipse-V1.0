@@ -823,12 +823,15 @@ def build_graph(
 
             tool_calls += 1
             # A safe, bounded "what" for the live stream — never file content.
-            from .code.activity import tool_detail  # noqa: PLC0415
+            from .code.activity import tool_code_preview, tool_detail  # noqa: PLC0415
 
-            detail = tool_detail(name, args if isinstance(args, dict) else {})
+            safe_args = args if isinstance(args, dict) else {}
+            detail = tool_detail(name, safe_args)
+            code_preview = tool_code_preview(name, safe_args)
             await emitter.emit("tool.requested", {
                 "name": name, "toolCallId": call_id, "step": state.get("step"),
                 **({"detail": detail} if detail else {}),
+                **({"codePreview": code_preview} if code_preview else {}),
             })
 
             key = _stable_key(name, args)

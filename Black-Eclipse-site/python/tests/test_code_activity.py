@@ -58,6 +58,41 @@ def test_analysis_detail_names_the_recipe_or_purpose_never_the_source():
     assert long is not None and len(long) <= activity.MAX_DETAIL_CHARS
 
 
+def test_code_preview_is_the_python_source():
+    source = "result = 1 + 1\nprint(result)"
+    preview = activity.tool_code_preview("analysis_run", {"source": source, "purpose": "p"})
+    assert preview == {
+        "language": "python",
+        "text": source,
+        "truncated": False,
+        "totalChars": len(source),
+    }
+    assert activity.tool_code_preview("execute_python", {"code": source})["text"] == source
+
+
+def test_code_preview_is_absent_for_a_recipe_or_other_tools():
+    assert activity.tool_code_preview("analysis_run", {"recipe": "sharpe", "purpose": "p"}) is None
+    assert activity.tool_code_preview("market_get_quote", {"ticker": "AAPL"}) is None
+
+
+def test_code_preview_redacts_secret_shaped_spans():
+    preview = activity.tool_code_preview(
+        "execute_python", {"code": 'password = "hunter2"\nprint(password)'}
+    )
+    assert preview is not None
+    assert "hunter2" not in preview["text"]
+    assert "print(password)" in preview["text"]
+
+
+def test_code_preview_is_bounded_and_reports_the_original_length():
+    source = "x = 1\n" * 2_000
+    preview = activity.tool_code_preview("execute_python", {"code": source})
+    assert preview is not None
+    assert len(preview["text"]) <= activity.MAX_CODE_PREVIEW_CHARS
+    assert preview["totalChars"] == len(source)
+    assert preview["truncated"] is True
+
+
 def test_command_summary_reports_exit_code():
     assert activity.tool_result_summary("terminal_run", {"status": "ok", "exitCode": 0}) == "exit 0"
     assert activity.tool_result_summary("terminal_run", {"status": "timed_out"}) == "timed out"

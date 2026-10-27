@@ -86,26 +86,26 @@ export function ScheduleList({ workflowId }: { workflowId: string | null }) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Name"
-            className="w-full rounded border border-white/10 bg-background/60 px-1.5 py-1 text-[11px] outline-none focus:border-sky-400/50"
+            className="w-full rounded border border-white/10 bg-background/60 px-1.5 py-1 text-[11px] outline-none focus:border-primary/50"
           />
           <input
             value={cron}
             onChange={(e) => setCron(e.target.value)}
             placeholder="0 9 * * 1-5"
-            className="w-full rounded border border-white/10 bg-background/60 px-1.5 py-1 font-mono text-[11px] outline-none focus:border-sky-400/50"
+            className="w-full rounded border border-white/10 bg-background/60 px-1.5 py-1 font-mono text-[11px] outline-none focus:border-primary/50"
           />
           <input
             value={timezone}
             onChange={(e) => setTimezone(e.target.value)}
             placeholder="America/New_York"
-            className="w-full rounded border border-white/10 bg-background/60 px-1.5 py-1 text-[11px] outline-none focus:border-sky-400/50"
+            className="w-full rounded border border-white/10 bg-background/60 px-1.5 py-1 text-[11px] outline-none focus:border-primary/50"
           />
           <div className="flex items-center justify-between">
             <span className="text-[9.5px] text-muted-foreground">minute hour day month weekday</span>
             <button
               type="button"
               onClick={() => void add()}
-              className="rounded-md border border-sky-400/30 bg-sky-500/10 px-2 py-0.5 text-[10px] text-sky-200 hover:bg-sky-500/20"
+              className="graph-accent rounded-md border px-2 py-0.5 text-[10px]"
             >
               Create
             </button>

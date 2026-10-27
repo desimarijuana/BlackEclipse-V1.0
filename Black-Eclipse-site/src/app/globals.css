@@ -1219,6 +1219,63 @@ html:not(.dark) .glass-drawer {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.70));
   box-shadow:    0 16px 48px rgba(0, 0, 0, 0.14),    inset 0 1px 0 rgba(255, 255, 255, 0.60),    inset -1px 0 0 rgba(0, 0, 0, 0.06);
 }
+/* React Flow node surface — a deliberate node material rather than page glass.
+ * Nodes live inside the transformed canvas viewport, where `backdrop-filter`
+ * cannot sample the page (the transform is a backdrop root). This layers a
+ * translucent gradient, an inset top highlight and a soft lift so the card
+ * still reads as premium frosted glass over the dot grid. */
+.node-card {
+  /* Same material as the sitewide `.glass-card` (tint + blur + insets), lifted
+   * to a graphite tint so the black bezel and white icon have contrast. */
+  background: rgb(24 24 28 / 0.58);
+  backdrop-filter: blur(18px) saturate(1.35);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.30),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset -1px 0 0 rgba(255, 255, 255, 0.06);
+}
+html:not(.dark) .node-card {
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset -1px 0 0 rgba(0, 0, 0, 0.08);
+}
+/* Node frame: a black bezel with an inset top highlight and a soft outer
+ * shadow. No glow/aurora lives on the node itself. */
+.graph-node {
+  border: 4px solid #000;
+  box-shadow:
+    0 18px 44px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.graph-node.node-selected {
+  outline: 2px solid color-mix(in srgb, var(--node-accent, #94a3b8) 70%, transparent);
+  outline-offset: 3px;
+}
+/* Theme-accent action control for Graph Studio. Colour comes from `--primary`
+ * (the live theme), never a hardcoded hue, and carries NO glow. */
+.graph-accent {
+  border-color: color-mix(in srgb, var(--primary) 40%, transparent);
+  background-color: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+.graph-accent:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--primary) 62%, transparent);
+  background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+}
+.graph-accent:disabled {
+  border-color: rgba(0, 0, 0, 0.08);
+  background-color: rgba(0, 0, 0, 0.03);
+  color: var(--muted-foreground);
+}
+html.dark .graph-accent:disabled {
+  border-color: rgba(255, 255, 255, 0.10);
+  background-color: rgba(255, 255, 255, 0.04);
+}
+.graph-accent-chip {
+  background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+}
 /* Chat slash-command popover — a deliberately NEAR-TRANSPARENT frosted panel
  * (the solid background is removed; only the blur remains). Low tint (0.14),
  * high blur + saturation so the content behind stays visible through real
@@ -1793,6 +1850,27 @@ html:not(.dark) [data-aurora-glow] {
 }
 .graph-canvas .react-flow__handle {
   cursor: crosshair;
+}
+/* Industry-standard cursor affordances: grab to pan, crosshair to box-select,
+ * grab/grabbing to move nodes, and a pointer on node action buttons. */
+.graph-canvas .react-flow__pane.draggable {
+  cursor: grab;
+}
+.graph-canvas .react-flow__pane.dragging {
+  cursor: grabbing;
+}
+.graph-canvas .react-flow__pane.selection,
+.graph-canvas.is-selecting .react-flow__pane {
+  cursor: crosshair;
+}
+.graph-canvas .react-flow__node {
+  cursor: grab;
+}
+.graph-canvas .react-flow__node.dragging {
+  cursor: grabbing;
+}
+.graph-canvas .react-flow__node button {
+  cursor: pointer;
 }
 .graph-canvas .react-flow__attribution {
   display: none;

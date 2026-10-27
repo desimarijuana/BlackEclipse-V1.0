@@ -19,7 +19,7 @@ import type {
   TaskStatus,
   WorkspaceEvent,
 } from './types';
-import { toolLabel } from '@/lib/agent/response-model';
+import { toolLabel, type ActivityCodePreview } from '@/lib/agent/response-model';
 
 type Payload = Record<string, unknown>;
 
@@ -28,6 +28,19 @@ function str(value: unknown): string | undefined {
 }
 function num(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function codePreview(value: unknown): ActivityCodePreview | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Payload;
+  const text = str(record.text);
+  if (!text) return undefined;
+  return {
+    language: str(record.language) ?? 'code',
+    text,
+    truncated: record.truncated === true,
+    totalChars: num(record.totalChars) ?? text.length,
+  };
 }
 
 /** Unwrap a runtime envelope `{ type, data }` into its inner payload. */
@@ -336,6 +349,7 @@ export function normalizeWorkspaceEvent(
           label: toolLabel(name),
           name,
           detail: str(p.detail),
+          codePreview: codePreview(p.codePreview),
           status: 'running',
           at,
           toolCallId: str(p.toolCallId),

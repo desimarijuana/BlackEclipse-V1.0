@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
-import { CornerDownLeft, Search } from '@/lib/icons';
+import { CornerDownLeft, Search, X } from '@/lib/icons';
 import { listNodeDefinitions } from '@/lib/graph-studio/registry';
 import type { NodeCategory, NodeDefinition, NodePosition } from '@/lib/graph-studio/types';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
@@ -177,15 +177,32 @@ export function NodeSearchPanel({
         : 'Add a step';
 
   return createPortal(
-    <div className="fixed inset-0 z-[120] flex items-start justify-center px-4 pt-[12vh]">
+    <div className="fixed inset-0 z-[120] flex justify-end">
       <button
         type="button"
-        aria-label="Close node search"
+        aria-label="Close node library"
         onClick={onClose}
-        className="absolute inset-0 cursor-default bg-black/40"
+        className="absolute inset-0 cursor-default bg-black/35"
       />
-      <div className="glass-drawer relative flex max-h-[70vh] w-full max-w-[680px] flex-col overflow-hidden rounded-2xl border border-white/10 shadow-[0_30px_80px_rgba(0,0,0,0.55)]">
-        <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5">
+      <aside className="glass-drawer relative flex h-full w-full max-w-[400px] flex-col overflow-hidden border-l border-white/10 shadow-[-24px_0_80px_rgba(0,0,0,0.55)] sm:rounded-l-2xl">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-[12px] font-semibold text-foreground">{title}</p>
+            <p className="mt-0.5 text-[10px] text-muted-foreground/70">
+              Pick a node to insert it at the selection.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            title="Close node library"
+            aria-label="Close node library"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div className="flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2.5">
           <Search size={15} className="shrink-0 text-muted-foreground" />
           <input
             ref={inputRef}
@@ -193,12 +210,11 @@ export function NodeSearchPanel({
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Search nodes…"
-            className="min-w-0 flex-1 bg-transparent text-[14px] text-foreground outline-none placeholder:text-muted-foreground/70"
+            className="min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground/70"
           />
           <span className="shrink-0 rounded border border-white/10 px-1.5 py-0.5 text-[9.5px] text-muted-foreground">Esc</span>
         </div>
-        <div className="shrink-0 px-3 pt-2 text-[10px] uppercase tracking-wide text-muted-foreground">{title}</div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5">
           {results.length === 0 && (
             <p className="px-2 py-6 text-center text-[12px] text-muted-foreground">
               {compatible.length === 0
@@ -226,7 +242,7 @@ export function NodeSearchPanel({
                         index === active ? 'bg-white/10' : 'hover:bg-white/5',
                       )}
                     >
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-sky-300">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] text-primary">
                         <Icon size={14} />
                       </span>
                       <span className="min-w-0 flex-1">
@@ -247,7 +263,7 @@ export function NodeSearchPanel({
           <span className="ml-auto">{results.length} node{results.length === 1 ? '' : 's'}</span>
         </div>
         {error && <p className="border-t border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-[10.5px] text-rose-200">{error}</p>}
-      </div>
+      </aside>
     </div>,
     document.body,
   );

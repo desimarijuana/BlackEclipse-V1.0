@@ -27,7 +27,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { cn } from '@/lib/utils';
 import {
-  Copy, Layers, LayoutGrid, Maximize2, Minus, Plus, Search, Trash2,
+  Copy, HelpCircle, Layers, LayoutGrid, Maximize2, Minus, Plus, Search, Trash2,
 } from '@/lib/icons';
 import type { Diagnostic, PortDef, WorkflowIR } from '@/lib/graph-studio/types';
 import type { GraphRunRecord, NodeRunStatus } from '@/lib/graph-studio/execution-client';
@@ -85,6 +85,14 @@ function buildNodes(
   const counts = diagnosticCounts(diagnostics);
   const statuses = runStatuses(run);
   const prevNodes = new Map(prev.map((n) => [n.id, n]));
+  // Wiring topology only. Colour comes from the live theme (`--primary`), so a
+  // theme switch re-tints every node, wire and aurora together.
+  const incomingCount = new Map<string, number>();
+  const outgoingCount = new Map<string, number>();
+  for (const edge of ir.edges) {
+    incomingCount.set(edge.target, (incomingCount.get(edge.target) ?? 0) + 1);
+    outgoingCount.set(edge.source, (outgoingCount.get(edge.source) ?? 0) + 1);
+  }
   return ir.nodes.map((node) => {
     const def = getNodeDefinition(node.type, node.version);
     const count = counts.get(node.id) ?? { error: 0, warning: 0 };
@@ -100,6 +108,9 @@ function buildNodes(
       errorCount: count.error,
       warningCount: count.warning,
       runStatus: statuses.get(node.id),
+      accent: 'var(--primary)',
+      hasIncoming: (incomingCount.get(node.id) ?? 0) > 0,
+      hasOutgoing: (outgoingCount.get(node.id) ?? 0) > 0,
       ...callbacks,
     };
     return {
@@ -140,30 +151,38 @@ function buildEdges(
   prev: Edge<EclipseEdgeData>[],
 ): Edge<EclipseEdgeData>[] {
   const prevEdges = new Map(prev.map((edge) => [edge.id, edge]));
-  return ir.edges.map((edge) => ({
-    id: edge.id,
-    source: edge.source,
-    sourceHandle: edge.sourceHandle,
-    target: edge.target,
-    targetHandle: edge.targetHandle,
-    type: 'eclipse',
-    selected: prevEdges.get(edge.id)?.selected ?? false,
-    data: {
-      onInsert: callbacks.onInsert,
-      onDelete: callbacks.onDelete,
-      runState: edgeRunState(run, edge.source, edge.target),
-    },
-    style: { stroke: 'rgba(148,163,184,0.5)', strokeWidth: 1.5 },
-  }));
+  return ir.edges.map((edge) => {
+    const accent = 'var(--primary)';
+    return {
+      id: edge.id,
+      source: edge.source,
+      sourceHandle: edge.sourceHandle,
+      target: edge.target,
+      targetHandle: edge.targetHandle,
+      type: 'eclipse',
+      selected: prevEdges.get(edge.id)?.selected ?? false,
+      data: {
+        onInsert: callbacks.onInsert,
+        onDelete: callbacks.onDelete,
+        runState: edgeRunState(run, edge.source, edge.target),
+        accent,
+      },
+      style: { stroke: accent, strokeWidth: 2 },
+    };
+  });
 }
 
 function CanvasControls({
   minimap,
+  helpOpen,
   onToggleMinimap,
+  onToggleHelp,
   onTidy,
 }: {
   minimap: boolean;
+  helpOpen: boolean;
   onToggleMinimap: () => void;
+  onToggleHelp: () => void;
   onTidy: () => void;
 }) {
   const { zoomIn, zoomOut, fitView, zoomTo } = useReactFlow();
@@ -186,8 +205,12 @@ function CanvasControls({
       <button type="button" title="Tidy up layout" onClick={onTidy} className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10">
         <LayoutGrid size={12} />
       </button>
-      <button type="button" title={minimap ? 'Hide minimap' : 'Show minimap'} onClick={onToggleMinimap} className={cn('flex h-6 w-6 items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10', minimap ? 'text-sky-500' : 'text-muted-foreground')}>
+      <button type="button" title={minimap ? 'Hide minimap' : 'Show minimap'} onClick={onToggleMinimap} className={cn('flex h-6 w-6 items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10', minimap ? 'text-primary' : 'text-muted-foreground')}>
         <Layers size={12} />
+      </button>
+      <span className="mx-0.5 h-4 w-px bg-black/10 dark:bg-white/10" />
+      <button type="button" title="Canvas shortcuts" onClick={onToggleHelp} className={cn('flex h-6 w-6 items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10', helpOpen ? 'text-primary' : 'text-muted-foreground')}>
+        <HelpCircle size={12} />
       </button>
     </div>
   );
@@ -295,12 +318,10 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
   const [search, setSearch] = useState<NodeInsertTarget | null>(null);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [minimap, setMinimap] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [shiftDown, setShiftDown] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const pointerRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  // Set while a node is being dragged, so the click that can trail a drag does
-  // not open the inspector (only a simple click should).
-  const draggedNodeRef = useRef<string | null>(null);
-  const dragClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
 
@@ -478,30 +499,16 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
     [setSelection],
   );
 
-  // Inspector opens on a genuine click, never at the end of a drag. React Flow
-  // selects a node on pointer-down (so it highlights while dragged); opening the
-  // detail panel on selection alone made every drag look like a click.
-  const onNodeDragStart = useCallback((_event: MouseEvent | TouchEvent, node: Node) => {
-    if (dragClearTimer.current) clearTimeout(dragClearTimer.current);
-    draggedNodeRef.current = node.id;
-  }, []);
-
-  const onNodeDragStop = useCallback(() => {
-    // The synthetic click (if the browser emits one) lands right after mouseup.
-    if (dragClearTimer.current) clearTimeout(dragClearTimer.current);
-    dragClearTimer.current = setTimeout(() => {
-      draggedNodeRef.current = null;
-    }, 250);
-  }, []);
-
-  const onNodeClick = useCallback((_event: ReactMouseEvent, node: Node) => {
-    if (draggedNodeRef.current === node.id) return;
+  // Industry convention (n8n/Figma): a click selects, a double-click opens the
+  // node details. Dragging never opens the inspector.
+  const onNodeDoubleClick = useCallback((_event: ReactMouseEvent, node: Node) => {
     onInspectNode?.(node.id);
   }, [onInspectNode]);
 
   const onPaneClick = useCallback(() => {
     setMenu(null);
     setSearch(null);
+    setHelpOpen(false);
     clearSelection();
     onInspectNode?.(null);
   }, [clearSelection, onInspectNode]);
@@ -597,6 +604,21 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
     return () => window.removeEventListener('mousemove', track);
   }, []);
 
+  // Crosshair while Shift is held (box-select mode), matching n8n.
+  useEffect(() => {
+    const down = (event: KeyboardEvent) => { if (event.key === 'Shift') setShiftDown(true); };
+    const up = (event: KeyboardEvent) => { if (event.key === 'Shift') setShiftDown(false); };
+    const blur = () => setShiftDown(false);
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', blur);
+    };
+  }, []);
+
   return (
     <div
       ref={wrapperRef}
@@ -613,9 +635,7 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
         onConnect={onConnect}
         isValidConnection={isValidConnection}
         onSelectionChange={onSelectionChange}
-        onNodeDragStart={onNodeDragStart}
-        onNodeDragStop={onNodeDragStop}
-        onNodeClick={onNodeClick}
+        onNodeDoubleClick={onNodeDoubleClick}
         onDrop={onDrop}
         onDragOver={onDragOver}
         onPaneContextMenu={onPaneContextMenu}
@@ -625,13 +645,13 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode={['Meta', 'Control']}
         selectionMode={SelectionMode.Partial}
-        // Default drag pans the canvas; hold Alt and drag to draw a selection box.
-        selectionKeyCode="Alt"
+        // n8n-style: drag the pane to pan; hold Shift and drag to box-select.
+        selectionKeyCode="Shift"
         fitView
         minZoom={0.2}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
-        className="graph-canvas bg-transparent"
+        className={cn('graph-canvas bg-transparent', shiftDown && 'is-selecting')}
       >
         <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="rgba(148,163,184,0.20)" />
         {minimap && (
@@ -645,10 +665,37 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
         )}
         <CanvasControls
           minimap={minimap}
+          helpOpen={helpOpen}
           onToggleMinimap={() => setMinimap((value) => !value)}
+          onToggleHelp={() => setHelpOpen((value) => !value)}
           onTidy={applyAutoLayout}
         />
       </ReactFlow>
+
+      {helpOpen && (
+        <div className="glass-tooltip absolute bottom-12 left-3 z-20 w-[292px] rounded-xl p-3">
+          <p className="mb-2 text-[11px] font-semibold text-foreground">Canvas shortcuts</p>
+          <dl className="space-y-1.5 text-[10.5px]">
+            {[
+              ['Pan', 'Drag canvas · Space+drag'],
+              ['Zoom', 'Scroll · pinch'],
+              ['Box select', 'Shift + drag'],
+              ['Multi-select', 'Ctrl/Cmd + click'],
+              ['Move node', 'Drag node'],
+              ['Node details', 'Double-click node'],
+              ['Add node', 'Tab · + Add node'],
+              ['Undo / redo', 'Ctrl+Z · Ctrl+Shift+Z'],
+              ['Delete', 'Backspace · Delete'],
+              ['Context menu', 'Right-click'],
+            ].map(([action, keys]) => (
+              <div key={action} className="flex items-start justify-between gap-3">
+                <dt className="text-muted-foreground">{action}</dt>
+                <dd className="text-right font-medium text-foreground/90">{keys}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
 
       {/* Right-edge add affordance — the node library is a search panel, so a
           persistent button keeps "add a step" discoverable without the old rail. */}
@@ -656,7 +703,7 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
         type="button"
         onClick={() => openPaneSearch()}
         title="Add a node (Tab)"
-        className="glass-card-subtle absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-sky-400/30 px-3 py-1.5 text-[11px] font-semibold text-sky-200 transition-colors hover:border-sky-400/50 hover:bg-white/[0.06] hover:text-sky-100"
+        className="glass-card-subtle graph-accent absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-colors"
       >
         <Plus size={13} /> Add node
       </button>
@@ -668,7 +715,7 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
             <button
               type="button"
               onClick={() => openPaneSearch()}
-              className="flex items-center gap-1.5 rounded-lg border border-sky-400/40 bg-sky-500/10 px-4 py-2 text-[12px] font-medium text-sky-200 hover:bg-sky-500/20"
+              className="graph-accent flex items-center gap-1.5 rounded-lg border px-4 py-2 text-[12px] font-medium"
             >
               <Plus size={14} /> Add first step
             </button>

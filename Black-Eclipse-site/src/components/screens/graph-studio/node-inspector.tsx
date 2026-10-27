@@ -226,7 +226,7 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
             value={node.label ?? ''}
             placeholder={def.label}
             onChange={(event) => dispatch({ op: 'update_node_label', nodeId: node.id, label: event.target.value || undefined })}
-            className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[13px] font-semibold text-foreground outline-none hover:border-white/10 focus:border-sky-400/50"
+            className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[13px] font-semibold text-foreground outline-none hover:border-white/10 focus:border-primary/50"
           />
           <div className="mt-1 flex items-center gap-1.5 px-1 text-[10px] text-muted-foreground">
             <span className="truncate">{def.label} · v{node.version}</span>
@@ -251,7 +251,7 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
             className={cn(
               'border-b-2 px-2.5 py-1.5 text-[11px] transition-colors',
               tab === id
-                ? 'border-sky-400 text-foreground'
+                ? 'border-primary text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground',
             )}
           >
@@ -276,7 +276,7 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
                       config: { ...node.config, workflowId: event.target.value, version: chosen?.currentVersion ?? 1 },
                     });
                   }}
-                  className="w-full rounded-md border border-white/10 bg-background/60 px-2 py-1 text-[12px] outline-none focus:border-sky-400/50"
+                  className="w-full rounded-md border border-white/10 bg-background/60 px-2 py-1 text-[12px] outline-none focus:border-primary/50"
                 >
                   <option value="">Select a saved workflow…</option>
                   {workflows.map((item) => (
@@ -293,7 +293,7 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
                     max={selectedWorkflow?.currentVersion ?? 1_000_000}
                     value={Number(node.config.version ?? 1)}
                     onChange={(event) => setConfigValue('version', Math.max(1, Number(event.target.value) || 1))}
-                    className="w-full rounded-md border border-white/10 bg-background/60 px-2 py-1 text-[12px] outline-none focus:border-sky-400/50"
+                    className="w-full rounded-md border border-white/10 bg-background/60 px-2 py-1 text-[12px] outline-none focus:border-primary/50"
                   />
                 </label>
                 {workflows.length === 0 && (
@@ -313,7 +313,7 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
               {configKeys.map((key) => {
                 const current = node.config[key] ?? defaults[key];
                 const kind = fieldType(defaults[key]);
-                const fieldClass = 'w-full rounded-md border border-white/10 bg-background/60 px-2 py-1.5 text-[12px] outline-none focus:border-sky-400/50';
+                const fieldClass = 'w-full rounded-md border border-white/10 bg-background/60 px-2 py-1.5 text-[12px] outline-none focus:border-primary/50';
                 return (
                   <label key={key} className="block">
                     <span className="mb-1 block text-[10.5px] text-muted-foreground">{humanize(key)}</span>
@@ -323,7 +323,7 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
                           type="checkbox"
                           checked={Boolean(current)}
                           onChange={(event) => setConfigValue(key, event.target.checked)}
-                          className="h-4 w-4 accent-sky-500"
+                          className="h-4 w-4 accent-primary"
                         />
                         <span className="text-[11px] text-muted-foreground">{Boolean(current) ? 'Enabled' : 'Disabled'}</span>
                       </span>

@@ -1,4 +1,5 @@
 import type {
+  ActivityCodePreview,
   ActivityItem,
   DelegationChildStatus,
   DelegationChildView,
@@ -152,6 +153,20 @@ function str(value: unknown): string | undefined {
 
 function num(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/** A malformed code preview is dropped, never half-rendered. */
+function codePreview(value: unknown): ActivityCodePreview | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const text = str(record.text);
+  if (!text) return undefined;
+  return {
+    language: str(record.language) ?? 'code',
+    text,
+    truncated: record.truncated === true,
+    totalChars: num(record.totalChars) ?? text.length,
+  };
 }
 
 const DELEGATION_CHILD_STATUSES: ReadonlySet<DelegationChildStatus> = new Set([
@@ -311,6 +326,7 @@ export function normalizeHarnessEvent(
     const name = str(payload.name) ?? 'tool';
     const id = str(payload.toolCallId) ?? `tool:${name}`;
     const detail = str(payload.detail);
+    const preview = codePreview(payload.codePreview);
     return {
       kind: 'activity_start',
       item: {
@@ -320,6 +336,7 @@ export function normalizeHarnessEvent(
         label: toolLabel(name),
         status: 'running',
         ...(detail ? { detail } : {}),
+        ...(preview ? { codePreview: preview } : {}),
       },
     };
   }

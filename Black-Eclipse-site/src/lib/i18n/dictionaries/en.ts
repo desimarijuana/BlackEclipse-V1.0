@@ -519,7 +519,7 @@ export const en = {
   'sidebar.untitledSession': 'Untitled Session',
   'sidebar.terminal': 'Terminal',
   'sidebar.agentic': 'Agentic',
-  'sidebar.graphStudio': 'Graph Studio',
+  'sidebar.graphStudio': 'Workflows',
   'sidebar.modeSwitcher': 'Menu mode',
   'sidebar.gateway': 'Gateway',
   'sidebar.gatewayHint': 'Connect Eclipse to Telegram, Discord, WhatsApp and more',

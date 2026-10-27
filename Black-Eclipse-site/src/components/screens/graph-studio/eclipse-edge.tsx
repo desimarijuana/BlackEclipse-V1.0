@@ -16,6 +16,8 @@ export interface EclipseEdgeData extends Record<string, unknown> {
   onInsert?: (edgeId: string) => void;
   onDelete?: (edgeId: string) => void;
   runState?: 'running' | 'succeeded' | 'failed';
+  /** Category accent of the source node — the wire's own hue. */
+  accent?: string;
 }
 
 export function EclipseEdge({
@@ -26,14 +28,47 @@ export function EclipseEdge({
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, curvature: 0.25,
   });
-  const runState = (data as EclipseEdgeData | undefined)?.runState;
+  const edgeData = data as EclipseEdgeData | undefined;
+  const runState = edgeData?.runState;
   const active = hovered || selected;
+  const accent = edgeData?.accent ?? 'var(--primary)';
+  const stroke = runState === 'failed'
+    ? 'rgba(251,113,133,0.9)'
+    : runState === 'succeeded'
+      ? 'rgba(52,211,153,0.85)'
+      : accent;
+  // Per-edge gradient so the wire fades in from the source and brightens
+  // toward the target, the way the reference connections read.
+  const gradientId = `eclipse-edge-grad-${id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
   return (
     <g
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      <defs>
+        <linearGradient
+          id={gradientId}
+          gradientUnits="userSpaceOnUse"
+          x1={sourceX}
+          y1={sourceY}
+          x2={targetX}
+          y2={targetY}
+        >
+          <stop offset="0%" style={{ stopColor: stroke, stopOpacity: 0.15 }} />
+          <stop offset="45%" style={{ stopColor: stroke, stopOpacity: 0.9 }} />
+          <stop offset="100%" style={{ stopColor: stroke, stopOpacity: 0.55 }} />
+        </linearGradient>
+      </defs>
+      {/* Soft glow underlay — the wire's "aurora" bleed. */}
+      <path
+        d={edgePath}
+        fill="none"
+        strokeWidth={active ? 10 : 7}
+        strokeOpacity={runState ? 0.22 : 0.14}
+        strokeLinecap="round"
+        style={{ stroke, filter: 'blur(3px)' }}
+      />
       <BaseEdge
         id={id}
         path={edgePath}
@@ -42,14 +77,9 @@ export function EclipseEdge({
         className={cn(runState === 'running' && 'graph-edge-running')}
         style={{
           ...style,
-          stroke: runState === 'failed'
-            ? 'rgba(251,113,133,0.85)'
-            : runState === 'succeeded'
-              ? 'rgba(52,211,153,0.8)'
-              : selected
-                ? 'rgba(56,189,248,0.95)'
-                : style?.stroke,
-          strokeWidth: active ? 2 : 1.5,
+          stroke: `url(#${gradientId})`,
+          strokeWidth: active ? 2.5 : 2,
+          filter: `drop-shadow(0 0 3px ${stroke})`,
         }}
       />
       {active && (
@@ -67,7 +97,7 @@ export function EclipseEdge({
                 event.stopPropagation();
                 (data as EclipseEdgeData | undefined)?.onInsert?.(id);
               }}
-              className="flex h-6 w-6 items-center justify-center rounded-full border border-sky-400/40 bg-background/90 text-sky-300 shadow-md transition-colors hover:bg-sky-500/20"
+              className="graph-accent flex h-6 w-6 items-center justify-center rounded-full border bg-background/90 shadow-md transition-colors"
             >
               <Plus size={12} />
             </button>

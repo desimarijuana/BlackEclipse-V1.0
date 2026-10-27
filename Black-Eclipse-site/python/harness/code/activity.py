@@ -23,8 +23,19 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from ..session_index import redact_span
+from .events import REDACT_MARKER
+
 MAX_DETAIL_CHARS = 200
 MAX_FILES = 12
+MAX_CODE_PREVIEW_CHARS = 8_000
+
+# The Python execution tools whose SOURCE is useful to show while they run.
+# The field is explicitly allowlisted — never the whole argument object.
+_CODE_PREVIEW_FIELDS = {
+    "analysis_run": "source",
+    "execute_python": "code",
+}
 
 # Argument fields that are safe to show verbatim (path/command/pattern), per tool.
 _PATH_TOOLS = {
@@ -158,6 +169,34 @@ def tool_detail(tool_name: str, args: dict[str, Any]) -> Optional[str]:
     return None
 
 
+def tool_code_preview(tool_name: str, args: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """A bounded, redacted source preview for a Python execution tool, or None.
+
+    Only the explicit `_CODE_PREVIEW_FIELDS` allowlist is read. The source is the
+    user's own program, so it is shown back to them — but secret-shaped spans are
+    scrubbed with the same pattern set the file reader uses, and the text is
+    hard-capped so one event can never carry an unbounded program. `totalChars`
+    is the ORIGINAL length, so the UI can state truncation honestly.
+    """
+    if not isinstance(args, dict):
+        return None
+    field = _CODE_PREVIEW_FIELDS.get(str(tool_name or ""))
+    if field is None:
+        return None
+    raw = args.get(field)
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    total_chars = len(raw)
+    truncated = total_chars > MAX_CODE_PREVIEW_CHARS
+    text = raw[:MAX_CODE_PREVIEW_CHARS] if truncated else raw
+    return {
+        "language": "python",
+        "text": redact_span(text, REDACT_MARKER),
+        "truncated": truncated,
+        "totalChars": total_chars,
+    }
+
+
 def tool_result_summary(tool_name: str, data: Any) -> Optional[str]:
     """A one-line result summary from a tool's structured `data`, or None.
 
@@ -244,7 +283,9 @@ def tool_result_summary(tool_name: str, data: Any) -> Optional[str]:
 
 
 __all__ = [
+    "MAX_CODE_PREVIEW_CHARS",
     "MAX_DETAIL_CHARS",
+    "tool_code_preview",
     "tool_detail",
     "tool_result_summary",
 ]

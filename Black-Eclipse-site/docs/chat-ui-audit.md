@@ -1,7 +1,7 @@
 ---
 title: Chat & Agent Experience — Audit and Overhaul Plan
 status: Current
-last-verified: 2026-10-25
+last-verified: 2026-10-27
 ---
 
 # Chat & Agent Experience — Audit and Overhaul Plan
@@ -77,7 +77,7 @@ Runtime frames are full envelopes: `{ id, runId, type, seq, at, data, transient?
 | `model.requested` | `step`, `messages` | yes |
 | `model.delta` | `text`, `finalizing` | **no (transient)** |
 | `model.completed` | `step`, `hasToolCalls`, token counts | yes |
-| `tool.requested` | `name`, `toolCallId`, `step` | yes |
+| `tool.requested` | `name`, `toolCallId`, `step`, optional `detail`, optional `codePreview` (`language`, `text`, `truncated`, `totalChars` for `analysis_run` / `execute_python`) | yes |
 | `tool.completed` | `name`, `toolCallId`, `durationMs` | yes |
 | `tool.failed` | `name`, `toolCallId`, `code`, `durationMs` | yes |
 | `retrieval.planned` / `cache_hit` / `deduplicated` / `source_start` / `source_ok` / `source_unavailable` | source + dataType | yes |
@@ -239,6 +239,13 @@ interface ActivityItem {
   name: string;            // raw id (kept, not shown raw)
   label: string;           // human label
   source?: string;         // retrieval source / data type
+  detail?: string;         // bounded command / path / purpose
+  codePreview?: {          // bounded, redacted Python source
+    language: string;
+    text: string;
+    truncated: boolean;
+    totalChars: number;
+  };
   status: 'running' | 'completed' | 'failed';
   durationMs?: number;
   code?: string;           // failure code
@@ -829,3 +836,29 @@ readable as the same text would have as a message; a lower document cap would
 have made the chip a downgrade. The runtime measures the assembled turn —
 documents included — against the model window, so a document that genuinely
 does not fit is reported, never silently dropped.
+
+## Code preview in activity (2026-10-27)
+
+Python execution steps now show the program they are running, not just a label.
+The contract is deliberately narrow:
+
+- **Producer** — `code/activity.py::tool_code_preview` reads only the
+  allowlisted field (`analysis_run.source`, `execute_python.code`), redacts
+  secret-shaped spans with the same `redact_span`/`REDACT_MARKER` used by the
+  file reader, and caps at `MAX_CODE_PREVIEW_CHARS` (8 000). `totalChars` is the
+  original length, so the UI can state truncation honestly.
+- **Event** — `graph.py` adds the optional `codePreview` object to
+  `tool.requested`; it is persisted with the run and replayed with the stream.
+- **Client** — `ActivityItem.codePreview` in `response-model.ts` is populated by
+  `events.ts` (chat) and `agent-workspace/normalize.ts` (workspace). A malformed
+  payload is dropped rather than half-rendered.
+- **UI** — `activity-item.tsx` and `agent-workspace/output-panel.tsx` render the
+  source INSIDE the step's existing expandable details, never as a second
+  always-visible panel. Nothing shows until the operator opens that activity
+  row; the source is never inferred when absent. A code answer the user asked
+  for is still ordinary response markdown, separate from the activity feed.
+
+Why an allowlist instead of the whole argument object: `workspace_patch_apply`
+and other tools carry file content, input data and secrets. A narrow,
+bounded, redacted preview gives the operator the code that matters without
+turning the activity feed into an argument dump.

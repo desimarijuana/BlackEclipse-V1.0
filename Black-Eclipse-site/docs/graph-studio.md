@@ -143,20 +143,20 @@ version; the IR is re-validated server-side before it is stored. Routes:
 
 ## Navigation and workspace
 
-Graph Studio is its **own top-level mode** (`NavGroup 'graph'`, opened with
-`Alt+G` or the mode switcher). Unlike Bots, it does **not** replace the sidebar
-with a custom workflow panel: the left sidebar uses the **standard nav list
+The **Workflows** mode (`NavGroup 'graph'`, opened with `Alt+G` or the mode
+switcher) is its own top-level workspace. Unlike Bots, it does **not** replace
+the sidebar with a custom panel: the left sidebar uses the **standard nav list
 filtered to graph sections** (**Overview**, Tables, plus the shared ChatBot
 item), so the shell looks and behaves like every other page. A fresh shell still
-boots in **Terminal**; a tab that chose Graph keeps it for that session.
+boots in **Terminal**; a tab that chose Workflows keeps it for that session.
 
 **Overview is the one Graph-mode page** (`overview` AppTab). There is no separate
 `graph-studio` nav item: Overview hosts the whole workspace — the workflow
 gallery *and* the editor. Opening/creating a workflow flips the page into the
-editor in place; the editor's **Workflows** back action returns to the gallery.
-Old `?tab=graph-studio` links alias to `?tab=overview`. Graph mode is
-full-bleed: the app top bar and chat dock are hidden; the left sidebar stays
-visible.
+editor in place; the editor's **Overview** back action returns to the gallery.
+Old `?tab=graph-studio` links alias to `?tab=overview`. The **gallery keeps the
+app top bar**; opening a workflow hides it so the **editor is full-bleed**. The
+chat dock is hidden in both; the left sidebar stays visible.
 
 The screen has two internal views (no router):
 
@@ -166,11 +166,11 @@ The screen has two internal views (no router):
   card when the editor still holds unsaved work. Data tables live on their own
   top-level **Tables** page (`docs/tables.md`), not inside Graph Studio.
 - **Editor** (`graph-studio-screen.tsx` → `graph-canvas.tsx`) — a 48px header
-  (back-to-Workflows, a content-sized workflow name with dirty-state dot,
+  (Overview breadcrumb, a content-sized workflow name with dirty-state dot,
   version, execution mode, undo/redo, issues, Save, Test, and a More menu), the
   canvas, an optional right inspector dock and a collapsible execution dock.
   The canvas is **transparent** over the shell's frosted background, and node
-  bodies use the shared `.glass-card` surface (not an opaque fill); floating
+  bodies use the `.node-card` material (a layered translucent surface with an inset highlight); floating
   palettes/menus stay on the glass overlay tiers.
 
 ### Visual language
@@ -183,7 +183,10 @@ themes. A solid canvas fill was removed because it flattened the rest of the
 workspace and made the editor look like a separate product.
 
 The left sidebar no longer hosts the node library. Adding a step happens **on
-the canvas**, where the insertion point is known:
+the canvas**, where the insertion point is known, and opens a **right-side node
+library drawer** (a portaled `glass-drawer`, 400px) with search, category
+sections and keyboard navigation. Picking a node inserts it at the pending
+target and closes the drawer. On a phone the drawer becomes a full-width sheet.
 
 | Gesture | Result |
 | --- | --- |
@@ -191,10 +194,14 @@ the canvas**, where the insertion point is known:
 | Canvas controls → **Tidy up layout** (or the editor's More menu) | Deterministic auto-layout of every node |
 | `+` on a node output | Search panel appends a node and wires that output |
 | `+` on a hovered edge | Search panel inserts a node *into* the edge (splits it) |
-| Right-click pane / node | Context menu: add/paste/select-all/tidy/fit, or duplicate/copy/delete |
-| Drag on empty pane | Pan the canvas (the default cursor stays in move mode) |
-| `Alt` + drag on empty pane | Marquee selection box (partial overlap selects nodes/edges) |
+| Drag on empty pane | Pan the canvas (grab/grabbing cursor) |
 | Middle-mouse drag / hold `Space` + drag | Pan the canvas (same as plain drag) |
+| `Shift` + drag on empty pane | Marquee selection box (crosshair cursor; n8n default) |
+| Click node | Select it (drag to move; never opens details) |
+| Double-click node | Open the Parameters / Settings / Output inspector |
+| `Ctrl/Cmd` + click node | Add/remove from the selection |
+| Right-click pane / node | Context menu: add/paste/select-all/tidy/fit, or duplicate/copy/delete |
+| Canvas controls → **?** | Canvas shortcuts panel |
 | `Ctrl/Cmd+D` / `C` / `V` / `A` | Duplicate / copy / paste / select all |
 | `Delete` / `Backspace` | Delete selected nodes and edges |
 
@@ -204,16 +211,19 @@ the chosen point (typed ports and acyclicity are checked by the same
 validated patches in `edit-ops.ts`, so undo/redo and the server-side revalidation
 seam are unchanged.
 
-**Node details.** **Clicking** a node (press and release without dragging) opens
-a ~380px inspector dock; dragging a node moves and selects it without opening
-the dock, and clicking empty canvas closes it. The dock has three
+**Node details.** **Double-clicking** a node opens a ~380px inspector dock
+(n8n/Figma convention); a single click just selects, dragging moves it, and
+clicking empty canvas closes the dock. The dock has three
 tabs: **Parameters** (registry-derived fields, friendly labels, JSON only for
 object/array fields), **Settings** (description, ports, capabilities, allowed
 modes, node id) and **Output** (the last run's bounded inputs/outputs for that
 node, read from the persisted run record). Issues, History and Health are
 reachable from the header instead of sharing five cramped tabs.
 
-**Execution.** The primary **Test** action runs the saved version. The bottom
+**Execution.** A center-stage **Start workflow** button at the bottom of the
+canvas is the primary run control; when there are unsaved edits it becomes
+**Save & run** (save, then execute the persisted version). The header's **Test**
+action does the same without the save step. The bottom
 **execution dock** collapses to a status strip and expands into the existing
 run console; node statuses also render on the canvas (border tint, status badge,
 animated edges while running). Operator runs open an explicit authorization

@@ -115,7 +115,7 @@ export function GraphHome({
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
             {eyebrow && (
-              <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-sky-400">
+              <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-primary">
                 <GitBranch size={14} /> {eyebrow}
               </div>
             )}
@@ -166,14 +166,14 @@ export function GraphHome({
         {generateOpen && (
           <div className="glass-card mt-4 rounded-xl border border-white/10 p-3">
             <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-foreground">
-              <Sparkles size={13} className="text-sky-400" /> Describe the workflow
+              <Sparkles size={13} className="text-primary" /> Describe the workflow
             </div>
             <textarea
               value={objective}
               onChange={(event) => setObjective(event.target.value)}
               rows={3}
               placeholder="Fetch AAPL daily bars, compute an SMA z-score, branch on the signal and report the result."
-              className="w-full resize-none rounded-lg border border-white/10 bg-background/60 px-2.5 py-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-sky-400/50"
+              className="w-full resize-none rounded-lg border border-white/10 bg-background/60 px-2.5 py-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary/50"
             />
             <div className="mt-2 flex items-center gap-2">
               <Button
@@ -197,7 +197,7 @@ export function GraphHome({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search workflows…"
-              className="w-full rounded-lg border border-white/10 bg-background/60 py-1.5 pl-8 pr-2 text-[12px] outline-none focus:border-sky-400/50"
+              className="w-full rounded-lg border border-white/10 bg-background/60 py-1.5 pl-8 pr-2 text-[12px] outline-none focus:border-primary/50"
             />
           </div>
           <span className="ml-auto text-[10.5px] text-muted-foreground">{filtered.length} workflow{filtered.length === 1 ? '' : 's'}</span>
@@ -209,9 +209,9 @@ export function GraphHome({
           <button
             type="button"
             onClick={onOpen}
-            className="mt-4 flex w-full items-center gap-3 rounded-xl border border-sky-400/25 bg-sky-500/[0.06] px-3 py-2.5 text-left transition-colors hover:border-sky-400/40 hover:bg-sky-500/10"
+            className="mt-4 flex w-full items-center gap-3 rounded-xl border border-primary/25 bg-primary/[0.06] px-3 py-2.5 text-left transition-colors hover:border-primary/40 hover:bg-primary/10"
           >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-300">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
               <GitBranch size={15} />
             </span>
             <span className="min-w-0 flex-1">
@@ -220,7 +220,7 @@ export function GraphHome({
                 {activeDirty ? 'Unsaved changes are still in the editor.' : 'Reopen the editor where you left off.'}
               </span>
             </span>
-            <ArrowRight size={13} className="shrink-0 text-sky-300" />
+            <ArrowRight size={13} className="shrink-0 text-primary" />
           </button>
         )}
 
@@ -230,7 +230,7 @@ export function GraphHome({
           )}
           {!loading && filtered.length === 0 && (
             <div className="glass-card col-span-full flex flex-col items-center gap-2 rounded-xl border border-dashed border-white/15 px-6 py-12 text-center">
-              <GitBranch size={24} className="text-sky-400/80" />
+              <GitBranch size={24} className="text-primary/80" />
               <p className="text-[13px] font-medium text-foreground">
                 {summaries.length === 0 ? 'No workflows yet' : 'No workflows match that search'}
               </p>
@@ -254,11 +254,11 @@ export function GraphHome({
           {filtered.map((summary) => (
             <article
               key={summary.id}
-              className="glass-card group relative flex min-h-[158px] flex-col overflow-hidden rounded-2xl border border-white/10 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-sky-400/30 hover:shadow-[0_14px_44px_rgba(56,189,248,0.10)]"
+              className="glass-card group relative flex min-h-[158px] flex-col overflow-hidden rounded-2xl border border-white/10 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:shadow-xl hover:shadow-primary/10"
             >
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-x-5 top-0 z-[1] h-px bg-gradient-to-r from-transparent via-sky-400/50 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+                className="pointer-events-none absolute inset-x-5 top-0 z-[1] h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100"
               />
               {/* One full-card hit target, so any click opens the workflow. */}
               <button
@@ -270,14 +270,14 @@ export function GraphHome({
                     if (!useWorkflowCatalog.getState().error) onOpen();
                   });
                 }}
-                className="absolute inset-0 z-0 cursor-pointer rounded-2xl outline-none focus-visible:ring-1 focus-visible:ring-sky-400/40"
+                className="absolute inset-0 z-0 cursor-pointer rounded-2xl outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
               />
               <div className="pointer-events-none relative z-[1] flex min-w-0 flex-1 flex-col">
                 <div className="flex items-start justify-between gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-300 ring-1 ring-inset ring-sky-400/20 transition-colors group-hover:bg-sky-500/15 group-hover:text-sky-200">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-inset ring-primary/20 transition-colors group-hover:bg-primary/20 group-hover:text-primary">
                     <GitBranch size={16} />
                   </span>
-                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-white/10 text-muted-foreground opacity-0 transition-all duration-200 group-hover:border-sky-400/30 group-hover:text-sky-300 group-hover:opacity-100">
+                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-white/10 text-muted-foreground opacity-0 transition-all duration-200 group-hover:border-primary/40 group-hover:text-primary group-hover:opacity-100">
                     <ArrowRight size={12} />
                   </span>
                 </div>
@@ -289,12 +289,12 @@ export function GraphHome({
                   <span className="rounded-full border border-white/10 bg-white/[0.03] px-1.5 py-0.5 font-medium">v{summary.currentVersion}</span>
                   <span className="flex items-center gap-1 rounded-full bg-white/[0.03] px-1.5 py-0.5"><Clock size={9} /> {relativeDate(summary.updatedAt)}</span>
                   {summary.tags.slice(0, 2).map((tag) => (
-                    <span key={tag} className="max-w-[96px] truncate rounded-full bg-white/5 px-1.5 py-0.5 text-sky-200/70">{tag}</span>
+                    <span key={tag} className="max-w-[96px] truncate rounded-full bg-white/5 px-1.5 py-0.5 text-primary/80">{tag}</span>
                   ))}
                 </div>
               </div>
               <div className="pointer-events-none relative z-[1] mt-3 flex items-center justify-between border-t border-white/[0.06] pt-2">
-                <span className="flex items-center gap-1 text-[10px] font-medium text-sky-300/70 transition-colors group-hover:text-sky-300">
+                <span className="flex items-center gap-1 text-[10px] font-medium text-primary/70 transition-colors group-hover:text-primary">
                   Open editor <ArrowRight size={10} />
                 </span>
                 <Button
@@ -323,15 +323,15 @@ export function GraphHome({
                 type="button"
                 disabled={busy}
                 onClick={() => void beginFromTemplate(template.id)}
-                className="glass-card-subtle group flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 p-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-sky-400/30 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+                className="glass-card-subtle group flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 p-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-300 ring-1 ring-inset ring-sky-400/20 transition-colors group-hover:bg-sky-500/15 group-hover:text-sky-200">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20 transition-colors group-hover:bg-primary/20 group-hover:text-primary">
                   <GitBranch size={13} />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center justify-between gap-2">
                     <span className="truncate text-[12px] font-medium text-foreground">{template.name}</span>
-                    <ArrowRight size={11} className="shrink-0 text-muted-foreground opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:text-sky-300 group-hover:opacity-100" />
+                    <ArrowRight size={11} className="shrink-0 text-muted-foreground opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:text-primary group-hover:opacity-100" />
                   </span>
                   <span className="mt-0.5 block text-[10.5px] leading-snug text-muted-foreground">{template.description}</span>
                 </span>

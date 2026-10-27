@@ -473,7 +473,7 @@ export function Sidebar({
           <div className="flex items-center justify-between gap-2 px-1 text-[11px] transition-all duration-300">
             <div className="flex flex-col min-w-0">
               <span className="font-semibold text-foreground truncate leading-tight">{appName}</span>
-              <span className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">{t('sidebar.terminal')}</span>
+              <span className="text-[9px] text-muted-foreground uppercase tracking-wide leading-tight">{t(activeMode.labelKey)}</span>
             </div>
             {/* Settings gear button — bottom-right of the Terminal footer */}
             <button

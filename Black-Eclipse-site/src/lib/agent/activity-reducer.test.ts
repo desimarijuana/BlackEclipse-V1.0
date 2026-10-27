@@ -54,6 +54,21 @@ describe('activity reducer', () => {
     expect(hasUniqueIds(s.activities)).toBe(true);
   });
 
+  it('keeps the code preview when the step completes', () => {
+    const s = initialActivityState();
+    startActivity(s, {
+      id: 'tool:analysis_run',
+      kind: 'tool',
+      name: 'analysis_run',
+      label: 'Executing Python',
+      status: 'running',
+      codePreview: { language: 'python', text: 'result = 1', truncated: false, totalChars: 10 },
+    });
+    endActivity(s, { id: 'tool:analysis_run', name: 'analysis_run', status: 'completed' });
+    expect(s.activities[0].codePreview?.text).toBe('result = 1');
+    expect(s.activities[0].status).toBe('completed');
+  });
+
   it('falls back to the most recent running item when no id is provided', () => {
     const s = initialActivityState();
     startActivity(s, item('a', 'yfinance'));

@@ -88,6 +88,43 @@ describe('normalizeHarnessEvent', () => {
     });
   });
 
+  it('carries the bounded Python code preview on tool.requested', () => {
+    const e = normalizeHarnessEvent('tool.requested', {
+      type: 'tool.requested',
+      data: {
+        name: 'analysis_run',
+        toolCallId: 'call_py',
+        codePreview: {
+          language: 'python',
+          text: 'result = 1',
+          truncated: false,
+          totalChars: 10,
+        },
+      },
+    });
+    expect(e).toMatchObject({
+      kind: 'activity_start',
+      item: {
+        id: 'call_py',
+        codePreview: {
+          language: 'python',
+          text: 'result = 1',
+          truncated: false,
+          totalChars: 10,
+        },
+      },
+    });
+  });
+
+  it('drops a malformed code preview instead of half-rendering it', () => {
+    const e = normalizeHarnessEvent('tool.requested', {
+      type: 'tool.requested',
+      data: { name: 'analysis_run', toolCallId: 'call_py', codePreview: { text: '' } },
+    });
+    expect(e).toMatchObject({ kind: 'activity_start', item: { id: 'call_py' } });
+    if (e?.kind === 'activity_start') expect(e.item.codePreview).toBeUndefined();
+  });
+
   it('carries the result summary on tool.completed', () => {
     const e = normalizeHarnessEvent('tool.completed', {
       type: 'tool.completed',

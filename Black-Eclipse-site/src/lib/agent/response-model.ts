@@ -64,6 +64,18 @@ export interface PendingClarification {
   allowCustom: boolean;
 }
 
+/**
+ * A bounded source preview for a code-execution step. The runtime redacts
+ * secret-shaped spans and hard-caps `text`; `totalChars` is the original length
+ * so the UI can state truncation honestly.
+ */
+export interface ActivityCodePreview {
+  language: string;
+  text: string;
+  truncated: boolean;
+  totalChars: number;
+}
+
 /** One thing the agent did (a tool call, a retrieval source, or a context note). */
 export interface ActivityItem {
   /** Stable id — the tool's `toolCallId` when the runtime provides one. */
@@ -81,6 +93,12 @@ export interface ActivityItem {
   detail?: string;
   /** Data category / provider for a retrieval item (e.g. "yfinance"). */
   source?: string;
+  /**
+   * The bounded, redacted program a Python execution tool is running. Present
+   * only for tools that execute model-authored source (`analysis_run`,
+   * `execute_python`); absent everywhere else.
+   */
+  codePreview?: ActivityCodePreview;
   status: 'running' | 'completed' | 'failed';
   /** Wall-clock duration when the runtime reports one. Never fabricated. */
   durationMs?: number;
