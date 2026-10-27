@@ -7,6 +7,42 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-27
+- **fix(harness): scope the candidate empty state and keep the read-only footer.**
+  A status-filtered empty listing now says "No learning candidates captured with
+  status 'accepted' yet." instead of implying the whole store is empty, and every
+  empty response keeps the read-only footer. A request above the 50-row cap now
+  says it was capped. no doc change - bug fix; no contract, setup, or architecture
+  change.
+- **fix(harness): upgrade the graph-run schema before indexing `jobId`.**
+  `GraphRunStore` created `idx_graph_run_job` inside the base schema script, so a
+  legacy `HarnessGraphRun` table without `jobId` raised `no such column: jobId`
+  and left the whole graph runtime unavailable at boot. The index is now created
+  after the column upgrade; regression test covers the legacy table. no doc
+  change - bug fix; no contract, setup, or architecture change.
+- **fix(harness): report the true candidate total past the 50-row page.**
+  `learning_candidate_list` now reads `count_candidates(status)` and says
+  "Showing N of M" when the page is truncated, so an operator cannot mistake the
+  tool's output cap for the queue size. Adds one read-only store count method and
+  a regression test. no doc change - bug fix; no contract, setup, or architecture
+  change.
+- **fix(graph): make the connection aurora actually visible.** The first pass
+  was too faint (2px, blurred, 16–55% opacity). Now a 3px hot core with an
+  accent box-shadow glow plus a wider blurred haze, breathing 45–100% on the
+  same 8s loop. Still respects reduced motion and Glow-off.
+  no doc change - tuning only.
+- **fix(harness): `learning_candidate_list` resolves the Eclipse-Memory store by
+  capability.** It now prefers `memory_service.store` and only accepts
+  `learning_store` when it exposes `list_candidates`, so the research path store
+  can no longer cause an `AttributeError`. The empty state reads
+  `skill_learning_mode` and no longer promises automatic capture when detection
+  is off (or unreadable); tests now use the production wiring. no doc change - bug
+  fix; no contract, setup, or architecture change.
+- **feat(graph): minimal live connection aurora on node edges.** Wired nodes show
+  a small blurred accent light bar on the left (`hasIncoming`) and/or right
+  (`hasOutgoing`) edge, breathing/bobbing on an 8s loop with the two sides
+  phase-offset. Respects `prefers-reduced-motion` and the Glow-off preference.
+  Rendered in `eclipse-node.tsx`; keyframes/classes in `globals.css`.
+  no doc change - visual restyle only; uses existing node data fields.
 - **feat(chat): show the Python program in the activity step.** `analysis_run`
   and `execute_python` now emit a bounded (`8 000` chars), secret-redacted
   `codePreview` on `tool.requested`, so the source appears inside the activity

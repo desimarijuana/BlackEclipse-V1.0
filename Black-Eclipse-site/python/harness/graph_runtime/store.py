@@ -71,7 +71,6 @@ CREATE TABLE IF NOT EXISTS HarnessGraphRun (
 
 CREATE INDEX IF NOT EXISTS idx_graph_run_workflow ON HarnessGraphRun(workflowId, startedAt);
 CREATE INDEX IF NOT EXISTS idx_graph_run_status ON HarnessGraphRun(status);
-CREATE INDEX IF NOT EXISTS idx_graph_run_job ON HarnessGraphRun(jobId);
 
 CREATE TABLE IF NOT EXISTS HarnessGraphNodeRun (
   runId        TEXT NOT NULL,
@@ -168,6 +167,12 @@ class GraphRunStore:
     def _ensure_schema(self) -> None:
         self._db.executescript(_SCHEMA)
         self._ensure_columns("HarnessGraphRun", [("jobId", "TEXT"), ("irHash", "TEXT")])
+        # The jobId index must be created AFTER the upgrade: on a legacy table
+        # (one created before jobId existed) an index in _SCHEMA fails with
+        # "no such column: jobId" and blocks the graph runtime at boot.
+        self._db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_graph_run_job ON HarnessGraphRun(jobId)"
+        )
         self._db.commit()
 
     # ── checkpoint spill ───────────────────────────────────────────────────

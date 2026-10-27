@@ -79,6 +79,10 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
         selected && 'node-selected',
       )}
     >
+      {/* Connection aurora: a small live glow on whichever side is wired. */}
+      {data.hasIncoming && <span className="node-aurora node-aurora--left" aria-hidden />}
+      {data.hasOutgoing && <span className="node-aurora node-aurora--right" aria-hidden />}
+
       {/* Identity: solid filled icon on the left, title + category to its right. */}
       <div className="relative z-10 flex min-h-[112px] items-center gap-3.5 px-5 py-4">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center text-white">

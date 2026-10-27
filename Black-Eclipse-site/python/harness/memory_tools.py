@@ -314,13 +314,31 @@ def _learning_review_store(ctx: ToolContext) -> Any:
 
 
 def _learning_candidate_store(ctx: ToolContext) -> Any:
-    store = getattr(ctx, "learning_store", None)
-    if store is None:
-        memory = getattr(ctx, "memory_service", None)
-        store = getattr(memory, "store", None) if memory is not None else None
-    if store is None:
-        raise RuntimeError("the learning candidate store is not available in this run")
-    return store
+    # Learning CANDIDATES live in EclipseMemoryStore; `ctx.learning_store` is the
+    # different-domain research LearningStore (paths/progress). Resolve by
+    # capability so a wrong-type object can never raise AttributeError.
+    memory = getattr(ctx, "memory_service", None)
+    store = getattr(memory, "store", None) if memory is not None else None
+    if callable(getattr(store, "list_candidates", None)):
+        return store
+    learning = getattr(ctx, "learning_store", None)
+    if callable(getattr(learning, "list_candidates", None)):
+        return learning
+    return None
+
+
+def _skill_learning_policy(ctx: ToolContext) -> Optional[tuple[Any, Any]]:
+    memory = getattr(ctx, "memory_service", None)
+    policy = getattr(memory, "policy", None) if memory is not None else None
+    if policy is None:
+        return None
+    try:
+        settings = policy.get_all()
+    except Exception:  # noqa: BLE001 - reporting must never raise
+        return None
+    if not isinstance(settings, dict):
+        return None
+    return settings.get("skill_learning_mode"), settings.get("auto_candidate_detection")
 
 
 async def learning_review_list_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -352,24 +370,72 @@ async def learning_review_list_handler(args: dict[str, Any], ctx: ToolContext) -
 
 async def learning_candidate_list_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     store = _learning_candidate_store(ctx)
-    status = str(args.get("status") or "").strip() or None
-    limit = max(1, min(int(args.get("limit") or 10), MAX_LEARNING_ROWS))
-    candidates = store.list_candidates(status=status, limit=limit)
-    if not candidates:
+    if store is None:
         return (
-            "No learning candidates captured yet. A candidate is created automatically at run end when "
-            "a reusable lesson is detected; they appear in Skills → Learning Queue.",
-            {"count": 0, "candidates": []},
+            "The learning candidate store is not available in this run.",
+            {"count": 0, "candidates": [], "available": False},
         )
-    lines = [f"{len(candidates)} learning candidate(s), most recent first:"]
+    status = str(args.get("status") or "").strip() or None
+    requested_limit = max(1, int(args.get("limit") or 10))
+    limit = min(requested_limit, MAX_LEARNING_ROWS)
+    cap_note = (
+        f"Requested limit {requested_limit} was capped at {MAX_LEARNING_ROWS}."
+        if requested_limit > MAX_LEARNING_ROWS else None
+    )
+    candidates = store.list_candidates(status=status, limit=limit)
+    total = None
+    counter = getattr(store, "count_candidates", None)
+    if callable(counter):
+        try:
+            total = int(counter(status=status))
+        except Exception:  # noqa: BLE001 - the page is still useful without a total
+            total = None
+    if not candidates:
+        policy = _skill_learning_policy(ctx)
+        mode, detection = policy if policy is not None else (None, None)
+        data = {
+            "count": 0, "total": total, "candidates": [],
+            "mode": mode, "autoCandidateDetection": detection,
+        }
+        scope = f" with status {status!r}" if status else ""
+        prefix = f"No learning candidates captured{scope} yet."
+        if detection is False:
+            text = (
+                prefix + " Automatic candidate detection is disabled "
+                f"(skill learning mode is {mode}); enable it in Settings \u2192 Skills or with "
+                "skill_learning_set, then rerun."
+            )
+        elif policy is None:
+            text = (
+                prefix + " The skill learning mode could not be read in this run, so automatic "
+                "capture cannot be confirmed; candidates would appear in Skills \u2192 Learning Queue."
+            )
+        else:
+            text = (
+                prefix + " A candidate is created automatically at run end when a reusable lesson "
+                "is detected; they appear in Skills \u2192 Learning Queue."
+            )
+        lines = [text]
+        if cap_note:
+            lines.append(cap_note)
+        lines.append("Read-only. Candidates are inert; review/accept them in Skills \u2192 Learning Queue.")
+        return "\n".join(lines), data
+    if total is not None and total > len(candidates):
+        lines = [f"Showing {len(candidates)} of {total} learning candidate(s), most recent first:"]
+    elif total is not None:
+        lines = [f"{len(candidates)} learning candidate(s), most recent first:"]
+    else:
+        lines = [f"{len(candidates)} learning candidate(s), most recent first (total unavailable):"]
     for candidate in candidates:
         title = candidate.get("title") or candidate.get("proposedLesson") or candidate.get("signature") or ""
         lines.append(
             f"  {candidate.get('id')} [{candidate.get('status')}] {candidate.get('candidateType')} "
-            f"run={candidate.get('sourceRunId')} confidence={candidate.get('confidence')} — {str(title)[:160]}"
+            f"run={candidate.get('sourceRunId')} confidence={candidate.get('confidence')} - {str(title)[:160]}"
         )
-    lines.append("Read-only. Candidates are inert; review/accept them in Skills → Learning Queue.")
-    return "\n".join(lines), {"count": len(candidates), "candidates": candidates}
+    if cap_note:
+        lines.append(cap_note)
+    lines.append("Read-only. Candidates are inert; review/accept them in Skills \u2192 Learning Queue.")
+    return "\n".join(lines), {"count": len(candidates), "total": total, "candidates": candidates}
 
 
 # ── skill_list / skill_view ─────────────────────────────────────────────────

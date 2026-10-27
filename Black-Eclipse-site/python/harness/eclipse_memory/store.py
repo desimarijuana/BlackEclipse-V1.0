@@ -1059,6 +1059,15 @@ class EclipseMemoryStore:
             rows = self._db.execute("SELECT * FROM LearningCandidate ORDER BY createdAt DESC LIMIT ?", (limit,)).fetchall()
         return [self._candidate_row(r) for r in rows]
 
+    def count_candidates(self, status: Optional[str] = None) -> int:
+        if status:
+            row = self._db.execute(
+                "SELECT COUNT(*) FROM LearningCandidate WHERE status=?", (status,)
+            ).fetchone()
+        else:
+            row = self._db.execute("SELECT COUNT(*) FROM LearningCandidate").fetchone()
+        return int(row[0]) if row else 0
+
     def find_candidate_by_signature(self, signature: str) -> Optional[dict[str, Any]]:
         row = self._db.execute(
             "SELECT * FROM LearningCandidate WHERE signature=? ORDER BY createdAt DESC LIMIT 1", (signature,)

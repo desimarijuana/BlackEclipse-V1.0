@@ -95,6 +95,44 @@ def service(tmp_path):
     memory.close()
 
 
+def test_store_upgrades_a_legacy_table_without_job_id(tmp_path):
+    memory = AgentMemoryStore(str(tmp_path / "legacy-agent-memory.db"))
+    memory._db.execute(
+        """CREATE TABLE HarnessGraphRun (
+             id TEXT PRIMARY KEY,
+             workflowId TEXT NOT NULL,
+             workflowVersion INTEGER,
+             irVersion INTEGER NOT NULL,
+             mode TEXT NOT NULL,
+             testRun INTEGER NOT NULL DEFAULT 1,
+             status TEXT NOT NULL,
+             ownerId TEXT NOT NULL DEFAULT 'local',
+             startedAt TEXT NOT NULL,
+             finishedAt TEXT,
+             durationMs INTEGER,
+             error TEXT,
+             plan TEXT,
+             result TEXT,
+             createdAt TEXT NOT NULL
+           )"""
+    )
+    memory._db.commit()
+    try:
+        GraphRunStore(memory)
+        columns = {
+            row["name"]
+            for row in memory._db.execute("PRAGMA table_info(HarnessGraphRun)").fetchall()
+        }
+        indexes = {
+            row["name"]
+            for row in memory._db.execute("PRAGMA index_list(HarnessGraphRun)").fetchall()
+        }
+        assert {"jobId", "irHash"} <= columns
+        assert "idx_graph_run_job" in indexes
+    finally:
+        memory.close()
+
+
 def test_run_sync_writes_normalized_rows_and_terminal_output(service):
     run = service.run_sync(_simple())
     assert run.status == RunStatus.SUCCEEDED
