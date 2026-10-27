@@ -7,6 +7,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-26
+- **fix(customization): the "Custom theme" tile is now a real button.** It looked
+  like the preset tiles but was a non-interactive `div`, so clicking it did
+  nothing. It now commits an unsaved custom draft (same path as "Apply changes")
+  or, while a preset is selected, returns to the saved custom theme. The tile
+  shows the selected check once custom is active and previews the saved theme
+  when a preset is being browsed. no doc change — UI interaction fix; token and
+  preset contracts unchanged.
 - **fix(dashboard): market dropdown options were white-on-white.** The global
   market `<select>` popup rendered on the native white background with light
   text; options now carry the repo-standard `bg-[#121212] text-foreground` so
@@ -106,6 +113,61 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   from the Agentic and Terminal menus; each mode now shows only its own pages
   (plus the shared ChatBot). Docs: `docs/graph-studio.md`, `docs/tables.md`,
   `docs/agentic-overview.md`, `docs/NAVIGATION.md`.
+
+- **fix(graph): cleaner workflow gallery.** The workflow gallery header is the
+  same on Overview and Graph Studio home — the redundant Home button and the
+  "Agentic workspace" eyebrow are gone. Workflow cards are rebuilt as taller
+  frosted cards with a status-accented icon, hover arrow, aligned metadata and a
+  separated action footer; template tiles match the same language. no doc change
+  — presentation only (the gallery contract is unchanged).
+
+- **refactor(graph): one Graph-mode page — Overview.** Retired the separate
+  Graph Studio nav tab (desktop sidebar, mobile bar, SDK nav manifest). Overview
+  now hosts the whole workspace: gallery in place, and opening/creating a
+  workflow switches that same page into the editor (back returns to the gallery).
+  Old `?tab=graph-studio` links alias to Overview. Overview is pinned directly
+  below ChatBot in Graph mode (desktop + mobile), regardless of saved custom
+  order. Docs: `docs/graph-studio.md`, `docs/agentic-overview.md`,
+  `docs/NAVIGATION.md`.
+
+- **fix(shell): stale chunks self-heal and Graph tabs preload.** Added a
+  `ChunkReloadGuard` that reloads once when a lazily-imported screen's chunk is
+  missing after a rebuild (this was why an old tab could open Graph Studio to a
+  blank page), and warmed the Graph Studio / Overview / Tables chunks while the
+  shell is idle so mode switches are immediate. no doc change — runtime
+  robustness/perf only.
+
+- **fix(theme): Custom theme tile is selectable again.** The unsaved/saved
+  "Custom theme" tile is now a real button: it applies an unsaved draft, or
+  returns to the saved custom theme after browsing a preset (instead of looking
+  dead / committing the preset under the custom label). no doc change — UI fix.
+
+- **feat(graph): editor affordances + roomier nodes.** Replaced the native
+  execution-mode `<select>` with the shared glass dropdown (fixes the broken
+  dark popup), surfaced **Tidy up layout** as a canvas-control button, added a
+  persistent **Add node** button on the canvas's right edge, and widened node
+  cards (214px) with an icon tile, tighter-but-roomier text hierarchy and larger
+  hover actions. Docs: `docs/graph-studio.md`.
+
+- **feat(graph): full-bleed Graph mode + redesigned editor header.** Graph mode
+  (Overview and its in-place editor) hides the app top bar. The editor header is
+  now 48px with a content-sized workflow name (no more stretched input), a dirty
+  dot, version chip, labeled execution-mode pill, grouped undo/redo and
+  issues/save/test actions. Docs: `docs/graph-studio.md`.
+
+- **fix(graph): pan by default, Alt+drag to box-select.** Canvas drag now pans
+  (the cursor stays in move mode); holding `Alt` while dragging draws the
+  marquee selection box. Node click-vs-drag inspector behaviour is unchanged.
+  Docs: `docs/graph-studio.md`.
+
+- **fix(graph): card hit targets and canvas selection.** A workflow card is now
+  one full-card click target (the footer/whitespace included; delete stays
+  separate), with a pointer cursor. The canvas draws a marquee selection when
+  dragging empty space (middle-mouse/Space pans). Clicking a node opens the
+  inspector; dragging it no longer does. React Flow now owns selection during
+  pointer interaction and the store mirror only applies programmatic changes,
+  fixing a `Maximum update depth` crash during marquee. Docs:
+  `docs/graph-studio.md`.
 
 ## 2026-10-25
 - **feat(models): OpenCode Zen provider in AI / LLM.** Added `opencode` to the

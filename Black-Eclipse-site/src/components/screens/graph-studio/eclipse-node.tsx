@@ -83,7 +83,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
   return (
     <div
       className={cn(
-        'glass-card group/node relative w-[188px] rounded-[10px] border transition-[box-shadow,border-color] duration-150',
+        'glass-card group/node relative w-[214px] rounded-xl border transition-[box-shadow,border-color] duration-150',
         tone?.ring ?? (hasError ? 'border-rose-500/70' : hasWarning ? 'border-amber-500/60' : 'border-black/10 dark:border-white/10'),
         selected
           ? 'shadow-[0_0_0_1.5px_rgba(56,189,248,0.9),0_12px_32px_rgba(0,0,0,0.35)]'
@@ -92,7 +92,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
     >
       <span
         aria-hidden
-        className="absolute bottom-2 left-0 top-2 w-[3px] rounded-r-full"
+        className="absolute bottom-2.5 left-0 top-2.5 w-[3px] rounded-r-full"
         style={{ background: accent }}
       />
 
@@ -119,16 +119,16 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
         />
       ))}
 
-      <div className="flex items-center gap-2.5 px-3 py-2.5 pl-4">
+      <div className="flex items-center gap-3 px-4 py-3 pl-[18px]">
         <span
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ring-1 ring-inset ring-black/5 dark:ring-white/10"
           style={{ background: `${accent}1c`, color: accent }}
         >
-          <Icon size={16} />
+          <Icon size={17} />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[12.5px] font-semibold leading-tight text-foreground">{data.label}</span>
-          <span className="block truncate text-[9px] font-medium uppercase tracking-wider text-muted-foreground/80">
+          <span className="block truncate text-[13px] font-semibold leading-snug tracking-tight text-foreground">{data.label}</span>
+          <span className="mt-0.5 block truncate text-[9.5px] font-medium tracking-wide text-muted-foreground/75">
             {CATEGORY_LABEL[data.category]}
           </span>
         </span>
@@ -188,7 +188,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
       ))}
 
       {/* Hover toolbar. Kept solid: it sits inside a canvas pane, not a modal. */}
-      <div className="nodrag nopan absolute -top-7 right-0 flex items-center gap-0.5 rounded-md border border-black/10 bg-background/90 p-0.5 opacity-0 shadow-md transition-opacity group-hover/node:opacity-100 dark:border-white/10">
+      <div className="nodrag nopan absolute -top-8 right-0 flex items-center gap-0.5 rounded-md border border-black/10 bg-background/90 p-0.5 opacity-0 shadow-md transition-opacity group-hover/node:opacity-100 dark:border-white/10">
         <button
           type="button"
           title="Duplicate node"
@@ -196,7 +196,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
             event.stopPropagation();
             data.onDuplicate?.(id);
           }}
-          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-white/10 hover:text-foreground"
+          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-white/10 hover:text-foreground"
         >
           <Copy size={10} />
         </button>
@@ -207,7 +207,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
             event.stopPropagation();
             data.onDelete?.(id);
           }}
-          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-rose-500/15 hover:text-rose-400"
+          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-rose-500/15 hover:text-rose-400"
         >
           <Trash2 size={10} />
         </button>
@@ -221,7 +221,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
               y: event.clientY,
             });
           }}
-          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-white/10 hover:text-foreground"
+          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-white/10 hover:text-foreground"
         >
           <MoreHorizontal size={10} />
         </button>

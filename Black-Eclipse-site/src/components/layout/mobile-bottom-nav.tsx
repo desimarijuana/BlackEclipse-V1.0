@@ -63,7 +63,7 @@ export const MODE_TABS: Record<NavGroup, AppTab[]> = {
   terminal: ['chat', 'home', 'dashboard', 'discovery', 'portfolio', 'investor-eye', 'market-workspace', 'journal', 'news', 'heatmap', 'economics', 'alerts'],
   agentic: ['chat', 'skills', 'memory', 'artifacts', 'tasks', 'pages'],
   bots: ['bots', 'chat', 'tasks', 'artifacts', 'memory', 'skills'],
-  graph: ['graph-studio', 'overview', 'tables', 'chat'],
+  graph: ['chat', 'overview', 'tables'],
 };
 
 const MODES: { id: NavGroup; icon: LucideIcon }[] = [
@@ -131,7 +131,7 @@ export function MobileBottomNav({
     setMode(id);
     // Dedicated modes also open their workspace, mirroring the desktop switcher.
     if (id === 'bots') onChangeTab('bots');
-    if (id === 'graph') onChangeTab('graph-studio');
+    if (id === 'graph') onChangeTab('overview');
   };
 
   const itemCls = (active: boolean) => cn(

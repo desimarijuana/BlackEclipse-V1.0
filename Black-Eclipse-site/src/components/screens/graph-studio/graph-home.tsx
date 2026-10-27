@@ -7,7 +7,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowRight, ChevronDown, Clock, GitBranch, Home, Plus, Search, Sparkles, Trash2,
+  ArrowRight, ChevronDown, Clock, GitBranch, Plus, Search, Sparkles, Trash2,
 } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { useWorkflowCatalog } from '@/lib/graph-studio/catalog-store';
@@ -31,18 +31,14 @@ function relativeDate(value: string): string {
 
 export function GraphHome({
   onOpen,
-  onExit,
   eyebrow = 'Graph Studio',
   title = 'Workflows',
   subtitle = 'Build, validate and run typed workflows. Every graph compiles to the same workflow model.',
-  showExit = true,
 }: {
   onOpen: () => void;
-  onExit?: () => void;
   eyebrow?: string;
   title?: string;
   subtitle?: string;
-  showExit?: boolean;
 }) {
   const summaries = useWorkflowCatalog((s) => s.summaries);
   const loading = useWorkflowCatalog((s) => s.loading);
@@ -118,24 +114,15 @@ export function GraphHome({
       <div className="w-full px-4 py-6 md:px-6 lg:px-8">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-sky-400">
-              <GitBranch size={14} /> {eyebrow}
-            </div>
+            {eyebrow && (
+              <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-sky-400">
+                <GitBranch size={14} /> {eyebrow}
+              </div>
+            )}
             <h1 className="mt-1 text-[24px] font-semibold tracking-tight text-foreground">{title}</h1>
             <p className="mt-1 max-w-xl text-[12px] text-muted-foreground">{subtitle}</p>
           </div>
           <div className="flex items-center gap-2">
-            {showExit && onExit && (
-              <Button
-                type="button"
-                variant="outline"
-                size="icon-sm"
-                onClick={onExit}
-                title="Back to Eclipse"
-              >
-                <Home size={14} />
-              </Button>
-            )}
             <Button
               type="button"
               variant="outline"
@@ -267,39 +254,47 @@ export function GraphHome({
           {filtered.map((summary) => (
             <article
               key={summary.id}
-              className="glass-card group relative flex min-h-[112px] flex-col rounded-xl border border-white/10 p-3 transition-colors hover:border-sky-400/30"
+              className="glass-card group relative flex min-h-[158px] flex-col overflow-hidden rounded-2xl border border-white/10 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-sky-400/30 hover:shadow-[0_14px_44px_rgba(56,189,248,0.10)]"
             >
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-x-5 top-0 z-[1] h-px bg-gradient-to-r from-transparent via-sky-400/50 to-transparent opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+              />
+              {/* One full-card hit target, so any click opens the workflow. */}
               <button
                 type="button"
+                aria-label={`Open ${summary.name}`}
                 onClick={() => {
                   if (!confirmDiscard()) return;
                   void open(summary.id).then(() => {
                     if (!useWorkflowCatalog.getState().error) onOpen();
                   });
                 }}
-                className="min-w-0 flex-1 text-left"
-              >
-                <div className="flex items-start gap-2">
-                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-300">
-                    <GitBranch size={14} />
+                className="absolute inset-0 z-0 cursor-pointer rounded-2xl outline-none focus-visible:ring-1 focus-visible:ring-sky-400/40"
+              />
+              <div className="pointer-events-none relative z-[1] flex min-w-0 flex-1 flex-col">
+                <div className="flex items-start justify-between gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500/10 text-sky-300 ring-1 ring-inset ring-sky-400/20 transition-colors group-hover:bg-sky-500/15 group-hover:text-sky-200">
+                    <GitBranch size={16} />
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-semibold text-foreground">{summary.name}</span>
-                    <span className="mt-0.5 line-clamp-2 block text-[10.5px] leading-snug text-muted-foreground">
-                      {summary.description || 'No description.'}
-                    </span>
+                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-white/10 text-muted-foreground opacity-0 transition-all duration-200 group-hover:border-sky-400/30 group-hover:text-sky-300 group-hover:opacity-100">
+                    <ArrowRight size={12} />
                   </span>
                 </div>
-                <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[9.5px] text-muted-foreground">
-                  <span className="rounded-full border border-white/10 px-1.5 py-0.5">v{summary.currentVersion}</span>
-                  <span className="flex items-center gap-1"><Clock size={9} /> {relativeDate(summary.updatedAt)}</span>
+                <span className="mt-3 block truncate text-[13.5px] font-semibold tracking-tight text-foreground">{summary.name}</span>
+                <span className="mt-1 line-clamp-2 min-h-[28px] block text-[10.5px] leading-snug text-muted-foreground">
+                  {summary.description || 'No description.'}
+                </span>
+                <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3 text-[9.5px] text-muted-foreground">
+                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-1.5 py-0.5 font-medium">v{summary.currentVersion}</span>
+                  <span className="flex items-center gap-1 rounded-full bg-white/[0.03] px-1.5 py-0.5"><Clock size={9} /> {relativeDate(summary.updatedAt)}</span>
                   {summary.tags.slice(0, 2).map((tag) => (
-                    <span key={tag} className="rounded-full bg-white/5 px-1.5 py-0.5">{tag}</span>
+                    <span key={tag} className="max-w-[96px] truncate rounded-full bg-white/5 px-1.5 py-0.5 text-sky-200/70">{tag}</span>
                   ))}
                 </div>
-              </button>
-              <div className="mt-2 flex items-center justify-between border-t border-white/5 pt-1.5">
-                <span className="flex items-center gap-1 text-[10px] font-medium text-sky-300 opacity-0 transition-opacity group-hover:opacity-100">
+              </div>
+              <div className="pointer-events-none relative z-[1] mt-3 flex items-center justify-between border-t border-white/[0.06] pt-2">
+                <span className="flex items-center gap-1 text-[10px] font-medium text-sky-300/70 transition-colors group-hover:text-sky-300">
                   Open editor <ArrowRight size={10} />
                 </span>
                 <Button
@@ -310,7 +305,7 @@ export function GraphHome({
                   onClick={() => {
                     if (window.confirm(`Delete “${summary.name}”? This removes its saved versions.`)) void remove(summary.id);
                   }}
-                  className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-rose-400"
+                  className="pointer-events-auto relative z-[2] text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-rose-400"
                 >
                   <Trash2 size={11} />
                 </Button>
@@ -328,10 +323,18 @@ export function GraphHome({
                 type="button"
                 disabled={busy}
                 onClick={() => void beginFromTemplate(template.id)}
-                className="glass-card-subtle rounded-xl border border-white/10 p-3 text-left transition-colors hover:border-sky-400/30 hover:bg-white/[0.04] disabled:opacity-50"
+                className="glass-card-subtle group flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 p-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-sky-400/30 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <span className="block text-[12px] font-medium text-foreground">{template.name}</span>
-                <span className="mt-0.5 block text-[10.5px] leading-snug text-muted-foreground">{template.description}</span>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-300 ring-1 ring-inset ring-sky-400/20 transition-colors group-hover:bg-sky-500/15 group-hover:text-sky-200">
+                  <GitBranch size={13} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[12px] font-medium text-foreground">{template.name}</span>
+                    <ArrowRight size={11} className="shrink-0 text-muted-foreground opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:text-sky-300 group-hover:opacity-100" />
+                  </span>
+                  <span className="mt-0.5 block text-[10.5px] leading-snug text-muted-foreground">{template.description}</span>
+                </span>
               </button>
             ))}
           </div>

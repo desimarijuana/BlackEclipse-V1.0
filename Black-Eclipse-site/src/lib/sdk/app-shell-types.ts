@@ -51,7 +51,6 @@ export const APP_NAV_SECTIONS: readonly AppNavManifestSection[] = [
   { id: 'sdk', label: 'Eclipse SDK', group: 'agentic' },
   { id: 'memory', label: 'Eclipse Memory', group: 'agentic' },
   { id: 'artifacts', label: 'Artifacts', group: 'agentic' },
-  { id: 'graph-studio', label: 'Graph Studio', group: 'graph' },
   { id: 'tables', label: 'Tables', group: 'graph' },
 ];
 

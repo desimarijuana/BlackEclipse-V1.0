@@ -26,9 +26,9 @@ describe('mobile bottom nav — tab metadata coverage', () => {
     expect(LABS.filter((id) => !TAB_META[id]?.icon)).toEqual([]);
   });
 
-  it('the graph mode opens the graph studio workspace', () => {
-    expect(MODE_TABS.graph[0]).toBe('graph-studio');
-    expect(TAB_META['graph-studio']?.icon).toBeDefined();
+  it('the graph mode opens the overview workspace below ChatBot', () => {
+    expect(MODE_TABS.graph.slice(0, 2)).toEqual(['chat', 'overview']);
+    expect(TAB_META.overview?.icon).toBeDefined();
   });
 
   it('lists no tab twice inside a mode', () => {

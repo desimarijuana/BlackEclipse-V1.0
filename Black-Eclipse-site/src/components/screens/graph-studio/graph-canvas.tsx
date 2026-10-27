@@ -20,6 +20,7 @@ import { createPortal } from 'react-dom';
 import {
   ReactFlow, ReactFlowProvider, Background, BackgroundVariant, MiniMap,
   applyNodeChanges, applyEdgeChanges, useReactFlow,
+  SelectionMode,
   type Node, type Edge, type Connection, type NodeChange, type EdgeChange,
   type OnSelectionChangeParams,
 } from '@xyflow/react';
@@ -63,6 +64,10 @@ function runStatuses(run: GraphRunRecord | null): Map<string, NodeRunStatus> {
   return map;
 }
 
+function selectionKey(nodeIds: string[], edgeIds: string[]): string {
+  return `${nodeIds.join('|')}#${edgeIds.join('|')}`;
+}
+
 interface NodeCallbacks {
   onAddNext: (nodeId: string, handle: string) => void;
   onDuplicate: (nodeId: string) => void;
@@ -76,7 +81,6 @@ function buildNodes(
   run: GraphRunRecord | null,
   prev: Node<EclipseNodeData>[],
   callbacks: NodeCallbacks,
-  selectedIds: Set<string>,
 ): Node<EclipseNodeData>[] {
   const counts = diagnosticCounts(diagnostics);
   const statuses = runStatuses(run);
@@ -105,7 +109,9 @@ function buildNodes(
       // and version restore must actually move nodes.
       position: previous?.dragging ? previous.position : node.layout,
       data,
-      selected: selectedIds.has(node.id),
+      // Selection is owned by React Flow (applied via onNodesChange); carry it
+      // across rebuilds instead of deriving it from the editor store here.
+      selected: previous?.selected ?? false,
     } satisfies Node<EclipseNodeData>;
   });
 }
@@ -131,8 +137,9 @@ function buildEdges(
   ir: WorkflowIR,
   run: GraphRunRecord | null,
   callbacks: EdgeCallbacks,
-  selectedIds: Set<string>,
+  prev: Edge<EclipseEdgeData>[],
 ): Edge<EclipseEdgeData>[] {
+  const prevEdges = new Map(prev.map((edge) => [edge.id, edge]));
   return ir.edges.map((edge) => ({
     id: edge.id,
     source: edge.source,
@@ -140,7 +147,7 @@ function buildEdges(
     target: edge.target,
     targetHandle: edge.targetHandle,
     type: 'eclipse',
-    selected: selectedIds.has(edge.id),
+    selected: prevEdges.get(edge.id)?.selected ?? false,
     data: {
       onInsert: callbacks.onInsert,
       onDelete: callbacks.onDelete,
@@ -150,7 +157,15 @@ function buildEdges(
   }));
 }
 
-function CanvasControls({ minimap, onToggleMinimap }: { minimap: boolean; onToggleMinimap: () => void }) {
+function CanvasControls({
+  minimap,
+  onToggleMinimap,
+  onTidy,
+}: {
+  minimap: boolean;
+  onToggleMinimap: () => void;
+  onTidy: () => void;
+}) {
   const { zoomIn, zoomOut, fitView, zoomTo } = useReactFlow();
   const zoom = useGraphEditor((s) => s.canvasZoom) ?? 1;
   return (
@@ -167,6 +182,9 @@ function CanvasControls({ minimap, onToggleMinimap }: { minimap: boolean; onTogg
       <span className="mx-0.5 h-4 w-px bg-black/10 dark:bg-white/10" />
       <button type="button" title="Fit view" onClick={() => void fitView({ padding: 0.25, duration: 250 })} className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10">
         <Maximize2 size={12} />
+      </button>
+      <button type="button" title="Tidy up layout" onClick={onTidy} className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10">
+        <LayoutGrid size={12} />
       </button>
       <button type="button" title={minimap ? 'Hide minimap' : 'Show minimap'} onClick={onToggleMinimap} className={cn('flex h-6 w-6 items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10', minimap ? 'text-sky-500' : 'text-muted-foreground')}>
         <Layers size={12} />
@@ -247,9 +265,11 @@ function ContextMenu({
 
 export interface GraphCanvasProps {
   onSave?: () => void;
+  /** Open the node inspector. `null` closes it (pane click / selection clear). */
+  onInspectNode?: (nodeId: string | null) => void;
 }
 
-function CanvasInner({ onSave }: GraphCanvasProps) {
+function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
   const ir = useGraphEditor((s) => s.ir);
   const diagnostics = useGraphEditor((s) => s.diagnostics);
   const run = useGraphEditor((s) => s.run);
@@ -277,6 +297,10 @@ function CanvasInner({ onSave }: GraphCanvasProps) {
   const [minimap, setMinimap] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const pointerRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  // Set while a node is being dragged, so the click that can trail a drag does
+  // not open the inspector (only a simple click should).
+  const draggedNodeRef = useRef<string | null>(null);
+  const dragClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
 
@@ -333,11 +357,46 @@ function CanvasInner({ onSave }: GraphCanvasProps) {
       setEdges([]);
       return;
     }
-    const selected = new Set(selection.nodeIds);
-    const selectedEdges = new Set(selection.edgeIds);
-    setNodes((prev) => buildNodes(ir, diagnostics, run, prev, nodeCallbacks, selected));
-    setEdges(buildEdges(ir, run, edgeCallbacks, selectedEdges));
-  }, [ir, diagnostics, run, selection.nodeIds, selection.edgeIds, nodeCallbacks, edgeCallbacks]);
+    setNodes((prev) => buildNodes(ir, diagnostics, run, prev, nodeCallbacks));
+    setEdges((prev) => buildEdges(ir, run, edgeCallbacks, prev));
+  }, [ir, diagnostics, run, nodeCallbacks, edgeCallbacks]);
+
+  // Programmatic selection (select-all / duplicate / paste) lands in the store.
+  // React Flow owns selection during pointer interaction (and reports it back
+  // through onSelectionChange), so this only writes when the flags actually
+  // differ — otherwise a marquee drag would ping-pong nodes <> selection.
+  useEffect(() => {
+    // Pointer selection already reached the nodes through `onNodesChange`.
+    // Only mirror the store when the change did NOT originate from React Flow
+    // (select-all / duplicate / paste), which is what avoids the update loop.
+    const key = selectionKey(selection.nodeIds, selection.edgeIds);
+    if (flowSelectionKeyRef.current === key) {
+      flowSelectionKeyRef.current = null;
+      return;
+    }
+    const nodeIds = new Set(selection.nodeIds);
+    const edgeIds = new Set(selection.edgeIds);
+    setNodes((prev) => {
+      let changed = false;
+      const next = prev.map((node) => {
+        const selected = nodeIds.has(node.id);
+        if (node.selected === selected) return node;
+        changed = true;
+        return { ...node, selected };
+      });
+      return changed ? next : prev;
+    });
+    setEdges((prev) => {
+      let changed = false;
+      const next = prev.map((edge) => {
+        const selected = edgeIds.has(edge.id);
+        if (edge.selected === selected) return edge;
+        changed = true;
+        return { ...edge, selected };
+      });
+      return changed ? next : prev;
+    });
+  }, [selection.nodeIds, selection.edgeIds]);
 
   // Sidebar/toolbar insertions still land here (the canvas owns the viewport).
   useEffect(() => {
@@ -405,12 +464,47 @@ function CanvasInner({ onSave }: GraphCanvasProps) {
     [ir],
   );
 
+  // Remember the last selection React Flow itself reported. Pointer selection
+  // is already applied to the nodes by `onNodesChange`; the store → nodes sync
+  // below must skip those echoes or a marquee drag ping-pongs forever.
+  const flowSelectionKeyRef = useRef<string | null>(null);
   const onSelectionChange = useCallback(
     (params: OnSelectionChangeParams) => {
-      setSelection({ nodeIds: params.nodes.map((n) => n.id), edgeIds: params.edges.map((e) => e.id) });
+      const nodeIds = params.nodes.map((n) => n.id);
+      const edgeIds = params.edges.map((e) => e.id);
+      flowSelectionKeyRef.current = selectionKey(nodeIds, edgeIds);
+      setSelection({ nodeIds, edgeIds });
     },
     [setSelection],
   );
+
+  // Inspector opens on a genuine click, never at the end of a drag. React Flow
+  // selects a node on pointer-down (so it highlights while dragged); opening the
+  // detail panel on selection alone made every drag look like a click.
+  const onNodeDragStart = useCallback((_event: MouseEvent | TouchEvent, node: Node) => {
+    if (dragClearTimer.current) clearTimeout(dragClearTimer.current);
+    draggedNodeRef.current = node.id;
+  }, []);
+
+  const onNodeDragStop = useCallback(() => {
+    // The synthetic click (if the browser emits one) lands right after mouseup.
+    if (dragClearTimer.current) clearTimeout(dragClearTimer.current);
+    dragClearTimer.current = setTimeout(() => {
+      draggedNodeRef.current = null;
+    }, 250);
+  }, []);
+
+  const onNodeClick = useCallback((_event: ReactMouseEvent, node: Node) => {
+    if (draggedNodeRef.current === node.id) return;
+    onInspectNode?.(node.id);
+  }, [onInspectNode]);
+
+  const onPaneClick = useCallback(() => {
+    setMenu(null);
+    setSearch(null);
+    clearSelection();
+    onInspectNode?.(null);
+  }, [clearSelection, onInspectNode]);
 
   const onDrop = useCallback(
     (event: DragEvent) => {
@@ -519,19 +613,20 @@ function CanvasInner({ onSave }: GraphCanvasProps) {
         onConnect={onConnect}
         isValidConnection={isValidConnection}
         onSelectionChange={onSelectionChange}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDragStop={onNodeDragStop}
+        onNodeClick={onNodeClick}
         onDrop={onDrop}
         onDragOver={onDragOver}
         onPaneContextMenu={onPaneContextMenu}
         onNodeContextMenu={onNodeContextMenu}
-        onPaneClick={() => {
-          setMenu(null);
-          setSearch(null);
-          clearSelection();
-        }}
+        onPaneClick={onPaneClick}
         onViewportChange={(viewport) => setZoom(viewport.zoom)}
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode={['Meta', 'Control']}
-        selectionKeyCode="Shift"
+        selectionMode={SelectionMode.Partial}
+        // Default drag pans the canvas; hold Alt and drag to draw a selection box.
+        selectionKeyCode="Alt"
         fitView
         minZoom={0.2}
         maxZoom={2}
@@ -548,8 +643,23 @@ function CanvasInner({ onSave }: GraphCanvasProps) {
             nodeColor="rgba(148,163,184,0.5)"
           />
         )}
-        <CanvasControls minimap={minimap} onToggleMinimap={() => setMinimap((value) => !value)} />
+        <CanvasControls
+          minimap={minimap}
+          onToggleMinimap={() => setMinimap((value) => !value)}
+          onTidy={applyAutoLayout}
+        />
       </ReactFlow>
+
+      {/* Right-edge add affordance — the node library is a search panel, so a
+          persistent button keeps "add a step" discoverable without the old rail. */}
+      <button
+        type="button"
+        onClick={() => openPaneSearch()}
+        title="Add a node (Tab)"
+        className="glass-card-subtle absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border border-sky-400/30 px-3 py-1.5 text-[11px] font-semibold text-sky-200 transition-colors hover:border-sky-400/50 hover:bg-white/[0.06] hover:text-sky-100"
+      >
+        <Plus size={13} /> Add node
+      </button>
 
       {ir && ir.nodes.length === 0 && (
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">

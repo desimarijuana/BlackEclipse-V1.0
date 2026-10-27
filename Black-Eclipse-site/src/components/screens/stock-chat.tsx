@@ -144,10 +144,6 @@ const MlLabScreen = dynamic(
   () => import('@/components/screens/ml-lab/ml-lab-screen').then((m) => m.MlLabScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
-const GraphStudioScreen = dynamic(
-  () => import('@/components/screens/graph-studio/graph-studio-screen').then((m) => m.GraphStudioScreen),
-  { ssr: false, loading: () => <ScreenSkeleton /> }
-);
 const OverviewScreen = dynamic(
   () => import('@/components/screens/overview/overview-screen').then((m) => m.OverviewScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
@@ -188,6 +184,27 @@ function ScreenSkeleton() {
 }
 
 function StockChatContent() {
+  // Warm the Graph-mode screens while the shell is idle. Their chunks are large
+  // (React Flow / node library); without this the first click on Graph Studio
+  // sits on the slim top loader for a long time and reads as a broken page.
+  useEffect(() => {
+    let idleId: number | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const prefetch = () => {
+      void import('@/components/screens/overview/overview-screen');
+      void import('@/components/screens/tables/tables-screen');
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(prefetch, { timeout: 4000 });
+    } else {
+      timer = setTimeout(prefetch, 2500);
+    }
+    return () => {
+      if (idleId !== null && typeof window.cancelIdleCallback === 'function') window.cancelIdleCallback(idleId);
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
   // Hydrate interface language + accessibility prefs from localStorage once.
   useHydrateI18n();
   // Hydrate the centralized theme (branding/fonts/colors) and apply its tokens.
@@ -350,6 +367,9 @@ function StockChatContent() {
   // by the ⌘K search bar and applies them to the SPA's activeTab state machine.
   useEffect(() => {
     const apply = (dest: Destination) => {
+      // `graph-studio` used to be a separate page; Overview now hosts the whole
+      // workspace, so old deep links / bookmarks land on it.
+      const tab: AppTab = dest.tab === 'graph-studio' ? 'overview' : dest.tab;
       if (dest.params?.action === 'new-chat') {
         handleNewChat();
       }
@@ -388,7 +408,7 @@ function StockChatContent() {
       // `focus` target. Screens consume it with the `useSubroute` hook.
       if (dest.subroute) {
         const sub = dest.subroute.split('.').slice(1).join('.') || dest.subroute;
-        useCommandStore.getState().requestSubroute(dest.tab, sub, dest.params?.focus);
+        useCommandStore.getState().requestSubroute(tab, sub, dest.params?.focus);
       }
       // Settings has no tab screen — it is a modal. Route there instead of
       // switching to a tab that renders nothing.
@@ -401,11 +421,11 @@ function StockChatContent() {
         setSettingsOpen(true);
         return;
       }
-      if (dest.tab === 'chart') {
+      if (tab === 'chart') {
         // Chart needs a symbol; default to the last selected one.
         setActiveTab('chart');
       } else {
-        setActiveTab(dest.tab);
+        setActiveTab(tab);
       }
       if (dest.deepLink) {
         try { window.history.pushState(null, '', dest.deepLink); } catch { /* ignore */ }
@@ -1122,9 +1142,9 @@ function StockChatContent() {
         <TopBar 
           onToggleMenu={() => setMobileMenuOpen(true)}
           activeTab={activeTab}
-          // Graph Studio is a full-bleed engineering workspace: no header (and
-          // no search bar) — every pixel goes to the canvas.
-          hidden={focusMode || activeTab === 'graph-studio'}
+          // Graph mode (Overview + its in-place editor) is a full-bleed
+          // engineering workspace: no app header or search bar.
+          hidden={focusMode || activeTab === 'overview'}
         />
 
         <div id="main-content" className="flex-1 overflow-y-auto relative w-full h-full z-10 pb-[4.25rem] md:pb-0" tabIndex={-1}>
@@ -1452,15 +1472,9 @@ function StockChatContent() {
             </div>
           )}
 
-          {visited.has('graph-studio') && (
-            <div className={cn('w-full h-full', activeTab === 'graph-studio' ? '' : 'hidden')}>
-              <GraphStudioScreen onExit={() => setActiveTab('overview')} />
-            </div>
-          )}
-
           {visited.has('overview') && (
             <div className={cn('w-full h-full', activeTab === 'overview' ? '' : 'hidden')}>
-              <OverviewScreen onOpenWorkflow={() => setActiveTab('graph-studio')} />
+              <OverviewScreen />
             </div>
           )}
 
@@ -1511,7 +1525,7 @@ function StockChatContent() {
               is open. Mounted once here rather than per-screen; the dock gates
               on this panel's own display so it never floats over an inactive
               keep-alive tab. */}
-          {activeTab !== 'chat' && activeTab !== 'bots' && activeTab !== 'graph-studio' && activeTab !== 'tables' && activeTab !== 'overview' && !settingsOpen && (
+          {activeTab !== 'chat' && activeTab !== 'bots' && activeTab !== 'tables' && activeTab !== 'overview' && !settingsOpen && (
             <ChatDock visible />
           )}
         </div>
@@ -1526,13 +1540,11 @@ function StockChatContent() {
             ? <MobileDockHost activeTab={activeTab} />
             : (activeTab === 'bots'
               ? <BotSchedulerDock />
-                : activeTab === 'graph-studio'
-                  ? null // Graph Studio's inspector/run console own the right rail.
-                  : activeTab === 'tables'
-                    ? null // Tables is a full-width data surface.
-                    : activeTab === 'overview'
-                      ? null // Overview is a full-width workflow dashboard.
-                      : <AgentWorkspace showExplain={activeTab === 'chat'} />))}
+                : activeTab === 'tables'
+                  ? null // Tables is a full-width data surface.
+                  : activeTab === 'overview'
+                    ? null // Overview owns the Graph Studio inspector/run rail.
+                    : <AgentWorkspace showExplain={activeTab === 'chat'} />))}
         {terminalOpen && <TerminalDock slot="right" />}
       </div>
 

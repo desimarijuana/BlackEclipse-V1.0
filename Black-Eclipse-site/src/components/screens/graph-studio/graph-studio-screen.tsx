@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Check, ChevronLeft, GitBranch, Home, MoreHorizontal, Play, Redo2, Save, Undo2, WarningCircle, X,
+  Check, ChevronDown, ChevronLeft, GitBranch, MoreHorizontal, Play, Redo2, Save, Undo2, WarningCircle, X,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
@@ -39,7 +39,15 @@ type WorkspaceView = 'home' | 'editor';
 type RightPanel = 'node' | 'issues' | 'history' | 'health' | null;
 const MODES: ExecutionMode[] = ['research', 'backtest', 'paper', 'live'];
 
-export function GraphStudioScreen({ onExit }: { onExit?: () => void }) {
+export function GraphStudioScreen({
+  eyebrow = 'Graph Studio',
+  title = 'Workflows',
+  subtitle = 'Build, validate and run typed workflows. Every graph compiles to the same workflow model.',
+}: {
+  eyebrow?: string;
+  title?: string;
+  subtitle?: string;
+}) {
   const ir = useGraphEditor((s) => s.ir);
   const workflowId = useGraphEditor((s) => s.workflowId);
   const baseVersion = useGraphEditor((s) => s.baseVersion);
@@ -70,6 +78,10 @@ export function GraphStudioScreen({ onExit }: { onExit?: () => void }) {
 
   const [view, setView] = useState<WorkspaceView>('home');
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
+  // The node whose inspector the user actually asked for with a click. Kept
+  // apart from selection so dragging a node (which selects it on pointer-down)
+  // never pops the inspector open.
+  const [inspectedNodeId, setInspectedNodeId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [runBusy, setRunBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,13 +101,18 @@ export function GraphStudioScreen({ onExit }: { onExit?: () => void }) {
     if (loadNonce > 0) setView('editor');
   }, [loadNonce]);
 
-  // A selected node opens the inspector; clearing the selection closes it unless
-  // another panel (issues/history/health) is pinned open.
+  // A CLICKED node opens the inspector. Selection alone (a drag, or a marquee)
+  // does not: the panel follows `inspectedNodeId`, and closes as soon as that
+  // node leaves a single-node selection or another panel is pinned open.
+  const singleSelectedId = selection.nodeIds.length === 1 ? selection.nodeIds[0] : null;
   useEffect(() => {
     if (rightPanel === 'issues' || rightPanel === 'history' || rightPanel === 'health') return;
-    if (selection.nodeIds.length === 1) setRightPanel('node');
-    else if (selection.nodeIds.length === 0) setRightPanel(null);
-  }, [selection.nodeIds.length, rightPanel]);
+    if (singleSelectedId && singleSelectedId === inspectedNodeId) {
+      if (rightPanel !== 'node') setRightPanel('node');
+    } else if (rightPanel === 'node') {
+      setRightPanel(null);
+    }
+  }, [singleSelectedId, inspectedNodeId, rightPanel]);
 
   const save = useCallback(async () => {
     const current = useGraphEditor.getState().ir;
@@ -268,68 +285,108 @@ export function GraphStudioScreen({ onExit }: { onExit?: () => void }) {
   };
 
   if (view === 'home' || !ir) {
-    return <GraphHome onOpen={() => setView('editor')} onExit={onExit} />;
+    return <GraphHome onOpen={() => setView('editor')} eyebrow={eyebrow} title={title} subtitle={subtitle} />;
   }
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
-      {/* Slim editor header — name, state, and only the primary actions. */}
-      <header className="flex h-11 shrink-0 items-center gap-1.5 border-b border-white/10 px-2.5">
-        {onExit && (
-          <>
-            <Button type="button" variant="ghost" size="icon-sm" onClick={onExit} title="Back to Overview">
-              <Home size={14} />
-            </Button>
-            <span className="h-4 w-px bg-white/10" />
-          </>
-        )}
-        <Button type="button" variant="ghost" size="sm" onClick={backHome} title="Back to workflows">
-          <ChevronLeft size={14} /> Workflows
+      {/* Editor header — identity on the left, run/save actions on the right. */}
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-white/10 bg-background/30 px-3">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={backHome}
+          title="Back to workflows"
+          className="gap-1.5 text-muted-foreground"
+        >
+          <ChevronLeft size={14} /> <span className="hidden sm:inline">Workflows</span>
         </Button>
-        <span className="mx-0.5 h-4 w-px bg-white/10" />
-        <GitBranch size={14} className="shrink-0 text-sky-400" />
-        <input
-          value={ir.name}
-          onChange={(event) => dispatch({ op: 'set_meta', name: event.target.value })}
-          placeholder="Workflow name"
-          className="min-w-0 max-w-[320px] flex-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[13px] font-semibold text-foreground outline-none hover:border-white/10 focus:border-sky-400/50"
-        />
-        <span className="shrink-0 rounded-full border border-white/10 px-1.5 py-0.5 text-[9.5px] text-muted-foreground">
-          v{currentVersion}
+        <span className="h-4 w-px bg-white/10" />
+
+        <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-300 ring-1 ring-inset ring-sky-400/20">
+          <GitBranch size={14} />
+          {dirty && (
+            <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-amber-400 ring-1 ring-background" />
+          )}
         </span>
-        <span className={cn('shrink-0 text-[10px]', dirty ? 'text-amber-400' : 'text-emerald-400')}>
-          {dirty ? 'Unsaved' : 'Saved'}
-        </span>
-        {notice && <span className="shrink-0 text-[10px] text-sky-300">{notice}</span>}
+
+        <div className="flex min-w-0 items-center gap-2">
+          <input
+            value={ir.name}
+            onChange={(event) => dispatch({ op: 'set_meta', name: event.target.value })}
+            placeholder="Workflow name"
+            size={Math.min(Math.max(ir.name.length || 1, 10), 34)}
+            title="Rename workflow"
+            className="min-w-[10ch] max-w-[260px] rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-[13px] font-semibold tracking-tight text-foreground outline-none hover:border-white/10 focus:border-sky-400/50"
+          />
+          <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[9.5px] font-medium tabular-nums text-muted-foreground">
+            v{currentVersion}
+          </span>
+          <span
+            className={cn(
+              'flex shrink-0 items-center gap-1 text-[10px] font-medium',
+              dirty ? 'text-amber-400' : 'text-emerald-400/90',
+            )}
+            title={dirty ? 'Unsaved changes' : 'All changes saved'}
+          >
+            <span className={cn('h-1.5 w-1.5 rounded-full', dirty ? 'bg-amber-400' : 'bg-emerald-400')} />
+            {dirty ? 'Unsaved' : 'Saved'}
+          </span>
+          {notice && <span className="shrink-0 truncate text-[10px] text-sky-300">{notice}</span>}
+        </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <select
-            value={ir.settings.executionMode}
-            onChange={(event) => dispatch({ op: 'set_settings', settings: { executionMode: event.target.value as ExecutionMode } })}
-            className="rounded-md border border-white/10 bg-background/60 px-1.5 py-1 text-[10.5px] text-muted-foreground outline-none focus:border-sky-400/50"
-            title="Execution mode"
-          >
-            {MODES.map((mode) => (
-              <option key={mode} value={mode}>{mode}</option>
-            ))}
-          </select>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <button
+                  type="button"
+                  title="Execution mode"
+                  className="flex cursor-pointer items-center gap-1.5 rounded-md border border-white/10 bg-background/60 px-2 py-1 text-[10.5px] font-medium text-foreground outline-none transition-colors hover:border-white/20 focus-visible:border-sky-400/50"
+                />
+              }
+            >
+              <span className="hidden text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/60 lg:inline">
+                Mode
+              </span>
+              <span className="capitalize">{ir.settings.executionMode}</span>
+              <ChevronDown size={11} className="text-muted-foreground" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-36">
+              {MODES.map((mode) => (
+                <DropdownMenuItem
+                  key={mode}
+                  onClick={() => dispatch({ op: 'set_settings', settings: { executionMode: mode as ExecutionMode } })}
+                >
+                  <span className="flex-1 capitalize">{mode}</span>
+                  {ir.settings.executionMode === mode && <Check size={12} className="opacity-70" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <span className="mx-0.5 h-4 w-px bg-white/10" />
           <Button type="button" variant="ghost" size="icon-sm" disabled={past === 0} onClick={undo} title="Undo (Ctrl+Z)">
             <Undo2 size={13} />
           </Button>
           <Button type="button" variant="ghost" size="icon-sm" disabled={future === 0} onClick={redo} title="Redo (Ctrl+Shift+Z)">
             <Redo2 size={13} />
           </Button>
+
+          <span className="mx-0.5 h-4 w-px bg-white/10" />
           <Button
             type="button"
             variant={rightPanel === 'issues' ? 'secondary' : 'ghost'}
             size="sm"
             onClick={() => setRightPanel((panel) => (panel === 'issues' ? (selection.nodeIds.length === 1 ? 'node' : null) : 'issues'))}
             title="Validation issues"
-            className={cn(errorCount > 0 && 'text-rose-300 hover:text-rose-200')}
+            className={cn('gap-1.5', errorCount > 0 && 'text-rose-300 hover:text-rose-200')}
           >
             <WarningCircle size={12} />
-            {errorCount > 0 ? errorCount : 'Issues'}
+            <span className={cn(errorCount > 0 && 'tabular-nums')}>{errorCount > 0 ? errorCount : 'Issues'}</span>
           </Button>
+
           <Button
             type="button"
             variant="outline"
@@ -337,6 +394,7 @@ export function GraphStudioScreen({ onExit }: { onExit?: () => void }) {
             disabled={!ir || busy || errorCount > 0}
             onClick={() => void save()}
             title={errorCount > 0 ? 'Fix validation errors before saving' : 'Save (Ctrl+S)'}
+            className="gap-1.5"
           >
             {dirty ? <Save size={12} /> : <Check size={12} />} Save
           </Button>
@@ -346,6 +404,7 @@ export function GraphStudioScreen({ onExit }: { onExit?: () => void }) {
             disabled={!canRun}
             onClick={() => void startRun()}
             title={runBlockReason ?? 'Run a test execution of the saved version'}
+            className="gap-1.5"
           >
             <Play size={11} /> Test
           </Button>
@@ -385,7 +444,7 @@ export function GraphStudioScreen({ onExit }: { onExit?: () => void }) {
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1">
-            <GraphCanvas onSave={save} />
+            <GraphCanvas onSave={save} onInspectNode={setInspectedNodeId} />
           </div>
           <ExecutionDock
             onStart={() => void startRun()}
@@ -399,12 +458,30 @@ export function GraphStudioScreen({ onExit }: { onExit?: () => void }) {
 
         {rightPanel && (
           <aside className="flex w-[380px] max-w-[85vw] shrink-0 flex-col border-l border-white/10 bg-background/40">
-            {rightPanel === 'node' && <NodeInspector onClose={() => setRightPanel(null)} />}
+            {rightPanel === 'node' && (
+              <NodeInspector
+                onClose={() => {
+                  setRightPanel(null);
+                  setInspectedNodeId(null);
+                }}
+              />
+            )}
             {rightPanel === 'issues' && (
               <div className="flex h-full flex-col">
                 <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/10 px-3">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Issues</span>
-                  <button type="button" onClick={() => setRightPanel(selection.nodeIds.length === 1 ? 'node' : null)} className="rounded p-1 text-muted-foreground hover:text-foreground">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selection.nodeIds.length === 1) {
+                        setInspectedNodeId(selection.nodeIds[0]);
+                        setRightPanel('node');
+                      } else {
+                        setRightPanel(null);
+                      }
+                    }}
+                    className="rounded p-1 text-muted-foreground hover:text-foreground"
+                  >
                     <X size={12} />
                   </button>
                 </div>

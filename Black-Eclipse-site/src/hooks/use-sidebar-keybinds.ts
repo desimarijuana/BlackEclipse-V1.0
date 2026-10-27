@@ -32,7 +32,7 @@ export function handleSidebarShortcut(event: KeyboardEvent, config: SidebarConfi
 /** Dedicated modes whose shortcut must also open their workspace tab. */
 const MODE_OPENS_TAB: Partial<Record<NavGroup, AppTab>> = {
   bots: 'bots',
-  graph: 'graph-studio',
+  graph: 'overview',
 };
 
 /**

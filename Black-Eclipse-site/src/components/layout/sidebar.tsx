@@ -57,7 +57,7 @@ const NAV_MODES: Array<{
   { id: 'terminal', labelKey: 'sidebar.terminal', icon: SquareTerminal },
   { id: 'agentic', labelKey: 'sidebar.agentic', icon: BrainCircuit },
   { id: 'bots', labelKey: 'nav.bots', icon: Ghost, opens: 'bots' },
-  { id: 'graph', labelKey: 'sidebar.graphStudio', icon: GitBranch, opens: 'graph-studio' },
+  { id: 'graph', labelKey: 'sidebar.graphStudio', icon: GitBranch, opens: 'overview' },
 ];
 
 /** Display labels for the mode hotkeys, shown on each switcher entry so the
@@ -146,6 +146,13 @@ export function Sidebar({
       return { ...def, label: key ? t(key) : def.label, shortcut: s.shortcut };
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
+
+  // Graph mode has one workspace page (Overview); keep it directly below the
+  // shared ChatBot item regardless of the saved custom order.
+  if (navMode === 'graph') {
+    const rank = (id: AppTab) => (id === 'chat' ? 0 : id === 'overview' ? 1 : 2);
+    navItems.sort((a, b) => rank(a.id) - rank(b.id));
+  }
 
   // Red unread badges, fed by the notification center (price alerts, agent
   // approvals, finished background tasks). Counts key by the owning AppTab.

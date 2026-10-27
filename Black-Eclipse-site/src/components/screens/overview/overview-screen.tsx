@@ -1,20 +1,19 @@
 'use client';
 
-// ── Agentic Overview ─────────────────────────────────────────────────────────
-// The Agentic-mode landing page: the workflow gallery (view/open/create) without
-// the Graph Studio editor chrome. Opening or creating a workflow routes to the
-// Graph Studio tab, where the editor takes over.
+// ── Graph Overview ──────────────────────────────────────────────────────────
+// The ONE Graph-mode page. It hosts the full Graph Studio workspace: the
+// workflow gallery (view/open/create) and, once a workflow is opened, the
+// editor. There is no separate "Graph Studio" tab — Overview is the entry point
+// and the editor lives in-place behind the gallery's back button.
 
-import { GraphHome } from '../graph-studio/graph-home';
+import { GraphStudioScreen } from '../graph-studio/graph-studio-screen';
 
-export function OverviewScreen({ onOpenWorkflow }: { onOpenWorkflow: () => void }) {
+export function OverviewScreen() {
   return (
-    <GraphHome
-      eyebrow="Agentic workspace"
+    <GraphStudioScreen
+      eyebrow=""
       title="Overview"
       subtitle="Your workflows at a glance. Open one to keep editing, or start a new one."
-      showExit={false}
-      onOpen={onOpenWorkflow}
     />
   );
 }

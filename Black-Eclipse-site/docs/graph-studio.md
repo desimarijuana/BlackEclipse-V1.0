@@ -146,12 +146,17 @@ version; the IR is re-validated server-side before it is stored. Routes:
 Graph Studio is its **own top-level mode** (`NavGroup 'graph'`, opened with
 `Alt+G` or the mode switcher). Unlike Bots, it does **not** replace the sidebar
 with a custom workflow panel: the left sidebar uses the **standard nav list
-filtered to graph sections** (Graph Studio, Overview, Tables, plus the shared ChatBot item), so the shell looks and behaves like every other page. A fresh shell
-still boots in **Terminal**; a tab that chose Graph keeps it for that session.
+filtered to graph sections** (**Overview**, Tables, plus the shared ChatBot
+item), so the shell looks and behaves like every other page. A fresh shell still
+boots in **Terminal**; a tab that chose Graph keeps it for that session.
 
-While the Graph Studio tab is active the app shell hides the top bar and the
-chat dock, but the left sidebar stays visible. A **Back** action returns to the
-workflow gallery / Overview.
+**Overview is the one Graph-mode page** (`overview` AppTab). There is no separate
+`graph-studio` nav item: Overview hosts the whole workspace — the workflow
+gallery *and* the editor. Opening/creating a workflow flips the page into the
+editor in place; the editor's **Workflows** back action returns to the gallery.
+Old `?tab=graph-studio` links alias to `?tab=overview`. Graph mode is
+full-bleed: the app top bar and chat dock are hidden; the left sidebar stays
+visible.
 
 The screen has two internal views (no router):
 
@@ -159,11 +164,11 @@ The screen has two internal views (no router):
   gallery** of saved workflows (name, description, version, tags, updated time),
   the template starter set, prompt-to-graph generation, and a "continue editing"
   card when the editor still holds unsaved work. Data tables live on their own
-  top-level **Tables** page (`docs/tables.md`), not inside Graph Studio. Agentic
-  mode also exposes the same gallery as **Overview** (`docs/agentic-overview.md`), a
-  workflow dashboard that opens the editor only when you choose a workflow.
-- **Editor** (`graph-studio-screen.tsx` → `graph-canvas.tsx`) — a slim header,
-  the canvas, an optional right inspector dock and a collapsible execution dock.
+  top-level **Tables** page (`docs/tables.md`), not inside Graph Studio.
+- **Editor** (`graph-studio-screen.tsx` → `graph-canvas.tsx`) — a 48px header
+  (back-to-Workflows, a content-sized workflow name with dirty-state dot,
+  version, execution mode, undo/redo, issues, Save, Test, and a More menu), the
+  canvas, an optional right inspector dock and a collapsible execution dock.
   The canvas is **transparent** over the shell's frosted background, and node
   bodies use the shared `.glass-card` surface (not an opaque fill); floating
   palettes/menus stay on the glass overlay tiers.
@@ -182,10 +187,14 @@ the canvas**, where the insertion point is known:
 
 | Gesture | Result |
 | --- | --- |
-| `Tab` (canvas focused) / empty-state "Add first step" | Search panel inserts a node under the pointer / view centre |
+| `Tab` (canvas focused) / empty-state "Add first step" / right-edge **Add node** button | Search panel inserts a node under the pointer / view centre |
+| Canvas controls → **Tidy up layout** (or the editor's More menu) | Deterministic auto-layout of every node |
 | `+` on a node output | Search panel appends a node and wires that output |
 | `+` on a hovered edge | Search panel inserts a node *into* the edge (splits it) |
 | Right-click pane / node | Context menu: add/paste/select-all/tidy/fit, or duplicate/copy/delete |
+| Drag on empty pane | Pan the canvas (the default cursor stays in move mode) |
+| `Alt` + drag on empty pane | Marquee selection box (partial overlap selects nodes/edges) |
+| Middle-mouse drag / hold `Space` + drag | Pan the canvas (same as plain drag) |
 | `Ctrl/Cmd+D` / `C` / `V` / `A` | Duplicate / copy / paste / select all |
 | `Delete` / `Backspace` | Delete selected nodes and edges |
 
@@ -195,7 +204,9 @@ the chosen point (typed ports and acyclicity are checked by the same
 validated patches in `edit-ops.ts`, so undo/redo and the server-side revalidation
 seam are unchanged.
 
-**Node details.** Selecting a node opens a ~380px inspector dock with three
+**Node details.** **Clicking** a node (press and release without dragging) opens
+a ~380px inspector dock; dragging a node moves and selects it without opening
+the dock, and clicking empty canvas closes it. The dock has three
 tabs: **Parameters** (registry-derived fields, friendly labels, JSON only for
 object/array fields), **Settings** (description, ports, capabilities, allowed
 modes, node id) and **Output** (the last run's bounded inputs/outputs for that

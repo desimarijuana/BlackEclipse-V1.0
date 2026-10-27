@@ -21,7 +21,7 @@ describe('defaultSidebarConfig', () => {
     // the explicit expected list — not a count derived from the source under
     // test — so adding/removing a section fails here on purpose.
     expect(config.sections.map((s) => s.shortcut)).toEqual([
-      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', '', ''
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', ''
     ]);
     expect(config.sections.map((s) => s.id)).toEqual(DEFAULT_SIDEBAR_SECTIONS.map((s) => s.id));
   });
@@ -60,7 +60,7 @@ describe('v1 migration', () => {
     // (only the first 12 get F1..F12). This is the explicit expected list, so a
     // change to the canonical section count fails here.
     expect(loadSidebarConfig().sections.map((s) => s.shortcut)).toEqual([
-      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', '', ''
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', ''
     ]);
   });
 
@@ -202,14 +202,16 @@ describe('nav groups (Terminal / Agentic)', () => {
     expect(agentic.sort()).toEqual(['artifacts', 'chat', 'memory', 'sdk', 'skills']);
   });
 
-  it('graph studio is its own mode, using the standard nav list', () => {
-    const graph = DEFAULT_SIDEBAR_SECTIONS.find((s) => s.id === 'graph-studio')!;
+  it('graph mode uses Overview as its one page, plus Tables', () => {
+    const graph = DEFAULT_SIDEBAR_SECTIONS.find((s) => s.id === 'overview')!;
     expect(navGroupsFor(graph)).toEqual(['graph']);
-    expect(modeForTab('graph-studio')).toBe('graph');
+    expect(modeForTab('overview')).toBe('graph');
+    // The old `graph-studio` page is retired; Overview hosts the workspace.
+    expect(DEFAULT_SIDEBAR_SECTIONS.some((s) => s.id === 'graph-studio')).toBe(false);
     const agentic = DEFAULT_SIDEBAR_SECTIONS.filter((s) => navGroupsFor(s).includes('agentic')).map((s) => s.id);
-    expect(agentic).not.toContain('graph-studio');
+    expect(agentic).not.toContain('overview');
     const graphMode = DEFAULT_SIDEBAR_SECTIONS.filter((s) => navGroupsFor(s).includes('graph')).map((s) => s.id);
-    expect(graphMode.sort()).toEqual(['graph-studio', 'overview', 'tables']);
+    expect(graphMode.sort()).toEqual(['overview', 'tables']);
   });
 
   it('NAV_GROUPS is the ONE mode list (persistence + panels read it)', () => {

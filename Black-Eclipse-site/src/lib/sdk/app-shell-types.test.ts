@@ -15,7 +15,8 @@ describe('app shell nav contracts', () => {
     expect(nav.mode).toBe('terminal');
     expect(nav.sections.map((section) => section.id)).toEqual([...APP_NAV_IDS]);
     expect(nav.sections.every((section) => section.enabled)).toBe(true);
-    expect(APP_NAV_SECTIONS.map((section) => section.id)).toContain('graph-studio');
+    expect(APP_NAV_SECTIONS.map((section) => section.id)).toContain('overview');
+    expect(APP_NAV_SECTIONS.map((section) => section.id)).not.toContain('graph-studio');
   });
 
   it('cannot drift from the sidebar section definitions', () => {

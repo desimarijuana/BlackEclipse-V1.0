@@ -469,6 +469,14 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
     userPresets.find((p) => JSON.stringify(draft) === JSON.stringify(normalizeTheme(p.theme)))?.id ??
     null;
 
+  // The "Custom theme" tile is the user's own look: commit an unsaved draft,
+  // or — when a preset is currently selected — return to the saved custom theme
+  // instead of committing that preset under the custom label.
+  const handleCustomTheme = () => {
+    if (activePreset === null) applyDraft();
+    else discardDraft();
+  };
+
   const COLORS: { key: keyof ThemeColors; label: string; hint: string }[] = [
     { key: "primary", label: "Primary", hint: "Brand / interactive" },
     { key: "accent", label: "Accent", hint: "Secondary brand tint" },
@@ -930,26 +938,40 @@ export function CustomizationSettingsPanel({ generalTab }: { generalTab?: React.
               })}
 
               {/* The live, unsaved draft â€” always the last tile so "tune below"
-                  has an obvious home. */}
-              <div
+                  has an obvious home. Clicking it commits an unsaved custom
+                  draft, or returns to the saved custom theme after browsing a
+                  preset, mirroring the preset tiles instead of looking dead. */}
+              <button
+                type="button"
+                onClick={handleCustomTheme}
+                aria-pressed={activePreset === null}
+                title={
+                  activePreset === null
+                    ? dirty ? "Apply your custom theme" : "Your custom theme"
+                    : "Return to your custom theme"
+                }
                 className={cn(
-                  "flex flex-col gap-2 rounded-xl border p-2.5 text-left",
-                  dirty && activePreset === null
-                    ? "bg-primary/10 border-primary/40"
-                    : "border-border/20 glass-card-subtle",
+                  "flex flex-col gap-2 rounded-xl border p-2.5 text-left transition-all cursor-pointer",
+                  activePreset === null
+                    ? dirty
+                      ? "bg-primary/10 border-primary/40"
+                      : "bg-primary/5 border-primary/30"
+                    : "border-border/20 glass-card-subtle hover:border-border/40",
                 )}
               >
-                <ThemePreview theme={draft} />
+                <ThemePreview theme={activePreset === null ? draft : theme} />
                 <span className="flex flex-col min-w-0 px-0.5">
                   <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                     Custom theme
-                    {dirty && activePreset === null && <Check className="w-3 h-3 text-primary shrink-0" />}
+                    {activePreset === null && <Check className="w-3 h-3 text-primary shrink-0" />}
                   </span>
                   <span className="text-[10px] text-muted-foreground truncate">
-                    {dirty && activePreset === null ? "Unsaved â€” tune below" : "Tune tokens, then save"}
+                    {activePreset === null
+                      ? dirty ? "Unsaved â€” click to apply" : "Your custom theme"
+                      : "Click to return to your custom theme"}
                   </span>
                 </span>
-              </div>
+              </button>
             </div>
 
             <AppWideThemePresets theme={draft} />
