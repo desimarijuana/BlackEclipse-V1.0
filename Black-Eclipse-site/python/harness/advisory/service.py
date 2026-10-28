@@ -182,6 +182,7 @@ class AdvisoryService:
     def evaluate_decisions(
         self, marks: dict[str, float], *, benchmark_return: Optional[float] = None,
         horizon: Optional[str] = None, limit: int = 5000,
+        decision_ids: Optional[set[str]] = None,
     ) -> list[dict[str, Any]]:
         """Evaluate every open decision that has an entry price and a matching mark.
 
@@ -193,6 +194,8 @@ class AdvisoryService:
         for row in self.store.list_decisions(limit=limit):
             decision = self.store.get_decision(row["id"])
             if decision is None or decision.get("outcome") or _entry_price(decision) is None:
+                continue
+            if decision_ids is not None and decision["id"] not in decision_ids:
                 continue
             symbols = [str(s).upper() for s in decision.get("symbols") or []]
             price = next((normalized[s] for s in symbols if normalized.get(s) is not None), None)
@@ -209,6 +212,8 @@ class AdvisoryService:
     async def auto_evaluate(
         self, gateway: Any, *, benchmark_return: Optional[float] = None,
         horizon: Optional[str] = None,
+        decision_ids: Optional[set[str]] = None,
+        limit: int = 5000,
     ) -> dict[str, Any]:
         """Fetch current prices for open decisions and record their outcomes.
 
@@ -220,10 +225,23 @@ class AdvisoryService:
         if gateway is None:
             return {"evaluated": 0, "skipped": [], "reason": "no market gateway"}
         open_decisions = []
-        for row in self.store.list_decisions(limit=5000):
+        skipped_no_price: list[str] = []
+        skipped_not_due: list[str] = []
+        moment = now_iso()
+        for row in self.store.list_decisions(limit=limit):
             decision = self.store.get_decision(row["id"])
-            if decision is not None and not decision.get("outcome") and _entry_price(decision):
-                open_decisions.append(decision)
+            if decision is None or decision.get("outcome"):
+                continue
+            if decision_ids is not None and decision["id"] not in decision_ids:
+                continue
+            if _entry_price(decision) is None:
+                skipped_no_price.append(decision["id"])
+                continue
+            due_at = str(decision.get("dueAt") or "")
+            if not due_at or due_at > moment:
+                skipped_not_due.append(decision["id"])
+                continue
+            open_decisions.append(decision)
         skipped: list[str] = []
         symbols = {str(s).upper() for d in open_decisions for s in (d.get("symbols") or [])}
         marks: dict[str, float] = {}
@@ -235,12 +253,23 @@ class AdvisoryService:
             price = _positive_or_none(_quote_price(quote))
             if price is not None:
                 marks[symbol] = price
-        results = self.evaluate_decisions(marks, benchmark_return=benchmark_return, horizon=horizon)
+        results = self.evaluate_decisions(
+            marks, benchmark_return=benchmark_return, horizon=horizon,
+            decision_ids={d["id"] for d in open_decisions}, limit=limit,
+        )
         evaluated = {r["decisionId"] for r in results}
         for decision in open_decisions:
             if decision["id"] not in evaluated:
                 skipped.append(decision["id"])
-        return {"evaluated": len(results), "outcomes": results, "skipped": skipped}
+        return {
+            "evaluated": len(results),
+            "outcomes": results,
+            "skipped": skipped,
+            "skippedNoPrice": len(skipped_no_price),
+            "skippedNoPriceIds": skipped_no_price,
+            "skippedNotDue": len(skipped_not_due),
+            "skippedNotDueIds": skipped_not_due,
+        }
 
     def backfill_scoring_fields(self, *, dry_run: bool = False) -> dict[str, Any]:
         """Make legacy rows' method/horizon explicit (never invent an outcome)."""
@@ -294,6 +323,10 @@ class AdvisoryService:
                 overdue.append(decision["id"])
         outcomes = self.store.outcomes_for([d["id"] for d in decisions])
         outcome_by_id = {o["decisionId"]: o for o in outcomes}
+        from .scoring import counts as scoring_counts  # noqa: PLC0415
+
+        hydrated = [self.store.get_decision(d["id"]) or d for d in decisions]
+        canonical = scoring_counts(hydrated, outcome_by_id, now=moment)
         counts = {RIGHT: 0, WRONG: 0, NEUTRAL: 0}
         realized: list[float] = []
         benchmark: list[float] = []
@@ -336,10 +369,13 @@ class AdvisoryService:
         return {
             "total": len(decisions),
             "byStatus": by_status,
-            "unscored": unscored,
-            "needsBackfill": needs_backfill,
+            "unscored": canonical["unscored"],
+            "needsBackfill": canonical["needsBackfill"],
+            "scorable": canonical["scorable"],
+            "noEntryPrice": canonical["no_entry_price"],
+            "notDue": canonical["not_due"],
             "overdue": overdue,
-            "overdueCount": len(overdue),
+            "overdueCount": canonical["overdue"],
             "evaluated": len(outcomes),
             "outcomes": counts,
             "hitRate": (counts[RIGHT] / decided) if decided else None,

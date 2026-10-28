@@ -12,7 +12,11 @@ import pytest
 from harness.eclipse_memory import EclipseMemoryService, EclipseMemoryStore
 from harness.eclipse_memory.consolidation import consolidate_active
 from harness.eclipse_memory.decision import authorize_proposal, content_signature
-from harness.self_improvement.lesson_contract import derive_confidence
+from harness.self_improvement.lesson_contract import (
+    aggregate_signals,
+    derive_confidence,
+)
+from harness.skills.learning import _candidate_recurrence_key
 from harness.skills.evaluation import retire_non_discriminating
 from harness.skills.learning import analyze_run as learning_analyze
 from harness.memory_tools import (
@@ -524,6 +528,76 @@ def test_loop_end_to_end_generate_accept_enable_score_retire():
     finally:
         run_store.close()
         service.close()
+
+
+def test_recurrence_key_is_structural_not_title_or_timestamp():
+    same_a = [
+        {"name": "get_fundamentals", "ok": False, "error": {"code": "TOOL_ERROR"}, "text": "TOOL_ERROR"},
+        {"name": "get_fundamentals", "ok": True, "text": "ok"},
+    ]
+    same_b = [
+        {"name": "get_fundamentals", "ok": False, "error": {"code": "TOOL_ERROR"}, "text": "TOOL_ERROR"},
+        {"name": "get_fundamentals", "ok": True, "text": "ok"},
+    ]
+    assert _candidate_recurrence_key("failure_recovery", same_a) == (
+        _candidate_recurrence_key("failure_recovery", same_b)
+    )
+    different_failure = [
+        {"name": "get_fundamentals", "ok": False, "error": {"code": "DATA_UNAVAILABLE"}, "text": "unavailable"},
+        {"name": "get_fundamentals", "ok": True, "text": "ok"},
+    ]
+    assert _candidate_recurrence_key("failure_recovery", same_a) != (
+        _candidate_recurrence_key("failure_recovery", different_failure)
+    )
+    proc_a = [{"name": "analysis_run", "ok": True}, {"name": "research_search", "ok": True}]
+    proc_b = [{"name": "analysis_run", "ok": True}, {"name": "research_search", "ok": True}]
+    proc_c = [{"name": "research_search", "ok": True}, {"name": "analysis_run", "ok": True}]
+    assert _candidate_recurrence_key("successful_procedure", proc_a) == (
+        _candidate_recurrence_key("successful_procedure", proc_b)
+    )
+    assert _candidate_recurrence_key("successful_procedure", proc_a) != (
+        _candidate_recurrence_key("successful_procedure", proc_c)
+    )
+
+
+def test_five_identical_lessons_collapse_to_one_recurring_signal():
+    reviews = [
+        {
+            "runId": f"run_sig_{index}",
+            "result": {"outcomes": [{
+                "category": "typed_lesson",
+                "payload": {"lesson": {
+                    "condition": "successful analysis_run procedure",
+                    "action": "reuse analysis_run",
+                    "kind": "successful_procedure",
+                    "confidence": 0.5,
+                }},
+            }]},
+        }
+        for index in range(5)
+    ]
+    signals = aggregate_signals(reviews, min_occurrences=2)
+    assert len(signals) == 1
+    assert signals[0]["occurrences"] == 5
+    assert signals[0]["eligible"] is True
+
+
+def test_explicit_correction_is_eligible_at_recurrence_one():
+    reviews = [{
+        "runId": "run_corr_sig",
+        "result": {"outcomes": [{
+            "category": "typed_lesson",
+            "payload": {"lesson": {
+                "condition": "user correction about fiscal year",
+                "action": "use the period ended instead",
+                "kind": "user_correction",
+                "confidence": 0.4,
+            }},
+        }]},
+    }]
+    signals = aggregate_signals(reviews, min_occurrences=2)
+    assert signals[0]["eligible"] is True
+    assert signals[0]["reason"] == "explicit correction fast path"
 
 
 def test_usage_report_separates_automatic_from_explicit_saves():

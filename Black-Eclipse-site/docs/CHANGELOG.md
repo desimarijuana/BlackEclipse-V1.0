@@ -7,6 +7,38 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-28
+- **test(learning): pin the operator gates.**
+  Added `test_learning_gates.py` and an accept-route 403 test: candidate
+  acceptance, skill authoring, skill lifecycle writes, and effectful capability
+  activation remain operator-gated; the advisory cadence writes only observed
+  outcomes. Documentation: `docs/self-improvement/GATE_REGRESSION.md`.
+- **feat(advisory): explain and honestly backfill legacy debt.**
+  `GET /advisory/legacy` reports why each legacy recommendation is unscorable
+  (`no_horizon`, `no_entry_price`, `no_symbol`, `no_method`).
+  `POST /advisory/backfill-entry-prices` (operator-gated, dry-run first) fetches
+  a real historical bar at the decision's creation time and stores it with
+  source/as-of provenance; a missing bar is a named skip, and existing prices
+  are never overwritten. The live 14 legacy rows stay unscorable (no horizon, no
+  price, non-tradable symbols). Tests: `test_advisory_backfill.py`.
+- **feat(advisory): add a bounded unattended outcome-scoring cadence.**
+  `advisory/cadence.py` scores due, priced recommendations on an interval,
+  skips no-price/not-due rows with named counts, makes no market request when
+  nothing is due, and is disabled by `HARNESS_ADVISORY_AUTO_EVALUATE=0`.
+  Operator surfaces `GET /advisory/cadence` and `POST /advisory/cadence/run`
+  expose the last tick. No approval gate is touched; no legacy score is
+  invented. Tests: `test_advisory_cadence.py`.
+- **fix(learning): reconcile advisory scoring and make lesson keys structural.**
+  The advisory gate and scorecard now share one canonical definition
+  (`advisory/scoring.py`: evaluated / scorable / no_entry_price / unscored /
+  not_due); `auto_evaluate` scores only due rows with an entry price and counts
+  the two skip reasons separately. Lesson recurrence is keyed by the recorded
+  procedure/failure evidence, not the templated text or a stored signature;
+  explicit corrections are eligible at recurrence 1. Memory promotion runs the
+  recurrence + conflict gate before activating a proposed row. Legacy advisory
+  rows get an additive `legacyUnscored` mark; no score is invented. Tests: 282
+  related advisory/learning/skills/memory tests passed; `npx tsc --noEmit`
+  passed. Docs: `docs/self-improvement/LOOP_MAP.md`,
+  `SCORING_CHANGES.md`, `RECURRENCE_FIX.md`, `MEMORY_PROMOTION.md`.
 - **feat(learning): close the candidate→draft→accept→score→retire loop.**
   The operator accept route now accepts `detected` and auto-drafted candidates,
   re-validates the contract, creates/keeps the inert skill and records

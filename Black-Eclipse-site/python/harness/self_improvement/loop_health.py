@@ -249,24 +249,13 @@ def gate_report(
                 for o in store.outcomes_for([d["id"] for d in decisions])
             }
 
+            from ..advisory.scoring import counts as scoring_counts  # noqa: PLC0415
+
             def _bucket(rows: list[dict[str, Any]]) -> dict[str, Any]:
-                evaluated = sum(1 for d in rows if d["id"] in outcomes)
-                unscored = sum(
-                    1 for d in rows
-                    if d.get("horizon") in (None, "") or d.get("horizon") == "unscored"
-                )
-                overdue = sum(
-                    1 for d in rows
-                    if d["id"] not in outcomes
-                    and d.get("dueAt")
-                    and str(d["dueAt"]) <= moment.isoformat()
-                )
-                return {
-                    "total": len(rows),
-                    "evaluated": evaluated,
-                    "unscored": unscored,
-                    "overdue": overdue,
-                }
+                hydrated = [store.get_decision(d["id"]) or d for d in rows]
+                return scoring_counts(
+                    hydrated, outcomes, now=moment.isoformat(),
+                ).copy()
 
             current_advice = [
                 d for d in decisions

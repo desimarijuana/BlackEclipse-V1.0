@@ -228,6 +228,7 @@ def test_scorecard_reports_unscored_and_overdue_as_defects(tmp_path):
     svc.record_verdict(run_id="r1", verdict=_claim())
     svc.record_verdict(
         run_id="r2", verdict=_claim(action="sell"), horizon="1d",
+        entry_prices={"AAPL": 100.0},
     )
     # A row with no stated horizon is only possible as legacy data.
     svc.store._db.execute(

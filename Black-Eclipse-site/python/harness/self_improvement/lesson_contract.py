@@ -266,6 +266,40 @@ def _lesson_payload(outcome: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
     return lesson if isinstance(lesson, Mapping) else None
 
 
+def structural_lesson_signature(lesson: Mapping[str, Any]) -> str:
+    """The stable lesson key: procedure/failure evidence, never title text.
+
+    Old reviews stored a templated condition/action and a signature derived from
+    it. Reading the recorded procedure/failure fields lets the same keyer fold
+    those historical rows correctly without rewriting them.
+    """
+    kind = str(lesson.get("kind") or "lesson")
+    procedure = lesson.get("procedure") or []
+    if kind == "successful_procedure" and procedure:
+        steps = [
+            str(step.get("detail") or step.get("action") or step)
+            if isinstance(step, Mapping) else str(step)
+            for step in procedure
+        ]
+        return signal_signature(
+            kind=kind, condition="observed sequence", action="->".join(steps),
+        )
+    if kind == "failure_recovery":
+        failed = str(lesson.get("failedCall") or "").strip()
+        recovered = str(lesson.get("recoveredCall") or "").strip()
+        precondition = str(lesson.get("precondition") or "").strip()
+        if failed or recovered or precondition:
+            return signal_signature(
+                kind=kind, condition=f"{failed}|{precondition}",
+                action=recovered or "recovery",
+            )
+    return signal_signature(
+        kind=kind,
+        condition=str(lesson.get("condition") or ""),
+        action=str(lesson.get("action") or ""),
+    )
+
+
 def aggregate_signals(
     reviews: Iterable[Mapping[str, Any]], *, min_occurrences: int = MIN_OCCURRENCES
 ) -> list[dict[str, Any]]:
@@ -290,11 +324,7 @@ def aggregate_signals(
             action = str(lesson.get("action") or "").strip()
             if not condition or not action:
                 continue
-            signature = str(lesson.get("signature") or "") or signal_signature(
-                kind=str(lesson.get("kind") or outcome.get("category") or "lesson"),
-                condition=condition,
-                action=action,
-            )
+            signature = structural_lesson_signature(lesson)
             group = groups.setdefault(
                 signature,
                 {
@@ -318,9 +348,12 @@ def aggregate_signals(
     for group in groups.values():
         distinct = len(group["evidenceRunIds"]) or group["occurrences"]
         group["distinctRuns"] = distinct
-        group["eligible"] = distinct >= threshold
+        fast = str(group.get("kind") or "") == "user_correction"
+        group["eligible"] = distinct >= threshold or (fast and distinct >= 1)
         group["reason"] = (
-            "recurrence threshold met"
+            "explicit correction fast path"
+            if fast and distinct >= 1
+            else "recurrence threshold met"
             if group["eligible"]
             else f"seen in {distinct} run(s); at least {threshold} required"
         )

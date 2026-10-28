@@ -77,17 +77,26 @@ def _candidate_recurrence_key(candidate_type: str, tools: list[dict[str, Any]]) 
     """A deterministic signature for "the same experience" so recurrence can be
     counted across runs without storing raw prose. Two runs share a key when
     their tool evidence for that candidate type is the same."""
-    if candidate_type in ("failure_recovery", "validation_improvement",
-                          "source_selection_improvement", "provider_eligibility_improvement"):
-        names = sorted({str(t.get("name")) for t in tools if not t.get("ok")})
+    if candidate_type == "failure_recovery":
+        # Order + tool name + failure class. Args vary legitimately; the
+        # failure signature must not.
+        names = [
+            f"{t.get('name')}:{_error_code(t)}"
+            for t in tools if not t.get("ok")
+        ]
     elif candidate_type == "successful_procedure":
-        names = sorted({str(t.get("name")) for t in tools if t.get("ok")})
+        # Canonical ordered sequence (names + success pattern).
+        names = [str(t.get("name")) for t in tools if t.get("ok")]
+    elif candidate_type in ("validation_improvement",
+                             "source_selection_improvement",
+                             "provider_eligibility_improvement"):
+        names = sorted({str(t.get("name")) for t in tools if not t.get("ok")})
     else:
         return None
     if not names:
         return None
     digest = hashlib.sha256(
-        f"{candidate_type}|{','.join(names)}".encode("utf-8")
+        f"{candidate_type}|{'->'.join(names)}".encode("utf-8")
     ).hexdigest()
     return digest[:32]
 
@@ -556,15 +565,26 @@ def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
         and tool_successes
         and "tool.failed" not in event_types
     ):
-        successful_tools = sorted({t["name"] for t in tool_successes})
+        ordered_tools: list[str] = []
+        for execution in tool_successes:
+            name = str(execution.get("name") or "")
+            if name and name not in ordered_tools:
+                ordered_tools.append(name)
+        successful_tools = ordered_tools
+        sequence = " -> ".join(successful_tools)
+        capability = _infer_capability(tool_successes) or "general"
         recurrence = _recurrence_count(store, run_id, "successful_procedure", tool_successes)
         if recurrence >= 1:
             draft = {
                 "candidateType": "successful_procedure",
-                "title": f"Reusable procedure: {', '.join(successful_tools[:3])}",
-                "problem": "A multi-step research procedure completed with no tool failures.",
-                "observedBehavior": f"{run.get('modelSteps')} model steps; tools: {', '.join(successful_tools)}.",
-                "proposedLesson": "This tool sequence is a reusable procedure for similar objectives.",
+                "title": f"Reusable procedure: {sequence}",
+                "problem": f"Multi-step {capability} procedure completed: {sequence}.",
+                "observedBehavior": f"{run.get('modelSteps')} model steps; tools: {sequence}.",
+                "proposedLesson": (
+                    f"Reuse the observed {capability} sequence: {sequence}."
+                ),
+                "condition": f"successful {capability} procedure with sequence {sequence}",
+                "action": f"reuse the observed sequence: {sequence}",
                 "proposedProcedure": [
                     {"step": i + 1, "action": f"call {name}"} for i, name in enumerate(successful_tools)
                 ],

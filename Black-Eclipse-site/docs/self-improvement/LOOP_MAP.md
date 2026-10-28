@@ -76,14 +76,30 @@ proposed (memory) ──recurrence>=2 + no conflict──> active
 - Startup: `skills/draft.py:evaluate_drafted_skills` and
   `evaluate_used_skills` (learned drafts; learned skills after N completed uses).
 - Advice scoring: `advisory/service.py:auto_evaluate` and
-  `advisory/tools.py:advisory_evaluate_outcomes` (existing operator/trigger
-  surface; no new autonomous schedule was added in this change).
+  `advisory/tools.py:advisory_evaluate_outcomes`; unattended cadence in
+  `advisory/cadence.py` (one bounded task, `HARNESS_ADVISORY_AUTO_EVALUATE`
+  kill switch, `/advisory/cadence` + `/advisory/cadence/run`).
+
+## Scoring / recurrence anchors (2026-10-28)
+
+| Anchor | Hit | Role |
+|---|---|---|
+| `"recurrence not met" / "typed lesson observed"` | `learning_review.py:316-318` | Generic review null text; it is not the aggregate recurrence result. |
+| `structural_lesson_signature` | `self_improvement/lesson_contract.py` | New keyer: procedure steps / failed-recovered-precondition; ignores stored templated signatures. |
+| `aggregate_signals` | `self_improvement/lesson_contract.py` | Folds reviews by the structural key; explicit corrections eligible at 1, inferred at 2. |
+| `advisory_evaluate_outcomes` | `advisory/tools.py:92` | Operator/trigger evaluation surface. |
+| `auto_evaluate` | `advisory/service.py:209` | Skips no-price and not-due rows; evaluates only due+priced. |
+| `skill_version_evaluate` / `skill_discrimination_check` | `skills/lifecycle_tools.py:245/183` | Existing operator evaluation surfaces; retirement helper is `skills/evaluation.py:retire_non_discriminating`. |
+| `"unscored" / "need backfill"` | `advisory/scoring.py` | Canonical states; both gate and scorecard call `counts`. |
 
 ## Known gaps at map time
 
-1. `drafted` was unreachable at accept (fixed).
+1. `drafted` is accepted now (`routers/sessions.py` accepts detected+drafted).
 2. Legacy failure_recovery rows lacked contract fields (quarantined; new
    producer is contract-clean).
 3. Constant-confidence legacy rows (quarantined; producer derives confidence).
-4. Advisory outcome scoring has a trigger, but no automatic cadence was added.
-5. 109 legacy reviews are history; they are marked, not rewritten.
+4. Advisory outcome scoring has a trigger, but **no automatic cadence** was
+   added; live `evaluated=0`, all 19 rows have no entry price.
+5. 109 legacy reviews and 14 legacy recommendations are history; reviews are
+   marked `legacyUnscored`, advisory rows get `legacyUnscored`; no scores are
+   invented.

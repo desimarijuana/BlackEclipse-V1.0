@@ -188,7 +188,10 @@ def test_auto_evaluate_fetches_prices_and_records_outcomes(tmp_path):
     import asyncio
 
     svc = _service(tmp_path)
-    svc.record_verdict(run_id="r1", verdict=_verdict(), entry_prices={"AAPL": 100.0})
+    svc.record_verdict(
+        run_id="r1", verdict=_verdict(), entry_prices={"AAPL": 100.0},
+        horizon="0d",
+    )
     result = asyncio.run(svc.auto_evaluate(_Gateway({"AAPL": 120.0}), benchmark_return=0.0))
     assert result["evaluated"] == 1
     assert result["outcomes"][0]["verdict"] == "right"
@@ -199,7 +202,10 @@ def test_auto_evaluate_skips_a_recommendation_without_a_price(tmp_path):
     import asyncio
 
     svc = _service(tmp_path)
-    svc.record_verdict(run_id="r1", verdict=_verdict(), entry_prices={"AAPL": 100.0})
+    svc.record_verdict(
+        run_id="r1", verdict=_verdict(), entry_prices={"AAPL": 100.0},
+        horizon="0d",
+    )
     result = asyncio.run(svc.auto_evaluate(_Gateway({})))  # no quote
     assert result["evaluated"] == 0
     assert len(result["skipped"]) == 1
