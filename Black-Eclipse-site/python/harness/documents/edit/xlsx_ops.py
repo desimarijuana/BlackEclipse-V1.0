@@ -415,16 +415,9 @@ def append_rows(package: OoxmlPackage, edit: dict[str, Any]) -> set[str]:
 
 
 def _structure_guard(package: OoxmlPackage, part: str, *, axis: str) -> None:
-    raw = package.read(part)
-    if raw is None:
-        return
-    root = parse(raw)
-    for unsafe in ("legacyDrawing", "pivotTableDefinition", "oleObjects"):
-        if find_local(root, unsafe) is not None:
-            raise EditError(
-                "EDIT_STRUCTURE_UNSAFE",
-                f"structural edits are refused while the sheet contains {unsafe}",
-            )
+    # Pivot caches, OLE anchors and legacy VML anchors are handled by
+    # `_rewrite_related_parts`; there is no blanket refusal here.
+    return None
 
 
 def _shift_cell_ref(cell: ET.Element, *, column: int, row_number: int) -> None:
@@ -615,6 +608,94 @@ def _resolve_rel(base_part: str, target: str) -> str:
         else:
             stack.append(piece)
     return "/".join(stack)
+
+
+def _shift_anchor_text(value: str, *, axis: str, at: int, count: int, delete: bool) -> str:
+    pieces = [piece.strip() for piece in value.split(",")]
+    if len(pieces) != 8:
+        return value
+    for index in ((0, 4) if axis == "columns" else (2, 6)):
+        try:
+            pieces[index] = str(int(_shift_number(pieces[index], at=at, count=count, delete=delete).lstrip("$")))
+        except (ValueError, IndexError):
+            return value
+    return ", ".join(pieces)
+
+
+def _shift_drawing_anchors(package: OoxmlPackage, part: str, *, axis: str, at: int, count: int, delete: bool) -> bool:
+    raw = package.read(part)
+    if raw is None:
+        return False
+    root = parse(raw)
+    changed = False
+    for anchor in list(iter_local(root, "from")) + list(iter_local(root, "to")):
+        node = find_local(anchor, "col" if axis == "columns" else "row")
+        if node is not None and node.text:
+            try:
+                shifted = _shift_number(node.text.strip(), at=at, count=count, delete=delete).lstrip("$")
+            except ValueError:
+                continue
+            if shifted != node.text:
+                node.text = shifted
+                changed = True
+    for anchor in iter_local(root, "Anchor"):
+        if anchor.text:
+            shifted = _shift_anchor_text(anchor.text, axis=axis, at=at, count=count, delete=delete)
+            if shifted != anchor.text:
+                anchor.text = shifted
+                changed = True
+    if changed:
+        package.write(part, serialize(root))
+    return changed
+
+
+def _rewrite_pivot(package: OoxmlPackage, pivot_part: str, *, target_sheet: str, axis: str, at: int, count: int, delete: bool) -> set[str]:
+    touched: set[str] = set()
+    root = parse(package.require(pivot_part))
+    location = find_local(root, "location")
+    if location is None or not attr(location, "ref"):
+        raise EditError("EDIT_PIVOT_UNSAFE", "a pivot table has no location reference")
+    location.set("ref", _shift_ref_text(
+        attr(location, "ref"), target_sheet=target_sheet, axis=axis, at=at, count=count, delete=delete,
+    ))
+    package.write(pivot_part, serialize(root))
+    touched.add(pivot_part)
+    for entry in _rels_entries(package, pivot_part):
+        if not entry["type"].casefold().endswith("/pivotcachedefinition"):
+            continue
+        cache_part = _resolve_rel(pivot_part, entry["target"])
+        if not package.has(cache_part):
+            raise EditError("EDIT_PIVOT_UNSAFE", "a pivot cache definition part is missing")
+        cache = parse(package.require(cache_part))
+        cache.set("refreshOnLoad", "1")
+        source = find_local(cache, "cacheSource")
+        worksheet = find_local(source, "worksheetSource") if source is not None else None
+        if worksheet is not None and attr(worksheet, "ref"):
+            sheet_name = attr(worksheet, "sheet")
+            if not sheet_name or sheet_name.casefold() == target_sheet.casefold():
+                worksheet.set("ref", _shift_ref_text(
+                    attr(worksheet, "ref"), target_sheet=target_sheet,
+                    axis=axis, at=at, count=count, delete=delete,
+                ))
+        package.write(cache_part, serialize(cache))
+        touched.add(cache_part)
+    return touched
+
+
+def _shift_ole_and_legacy(package: OoxmlPackage, root: ET.Element, target_part: str, *, axis: str, at: int, count: int, delete: bool) -> set[str]:
+    touched: set[str] = set()
+    relations = {entry["id"]: entry for entry in _rels_entries(package, target_part)}
+    for element_name in ("drawing", "legacyDrawing"):
+        element = find_local(root, element_name)
+        if element is None:
+            continue
+        relation = relations.get(attr(element, "id"))
+        if relation is None:
+            continue
+        part = _resolve_rel(target_part, relation["target"])
+        if package.has(part) and _shift_drawing_anchors(package, part, axis=axis, at=at, count=count, delete=delete):
+            touched.add(part)
+    return touched
 
 
 def _rewrite_related_parts(package: OoxmlPackage, *, target_sheet: str, target_part: str, axis: str, at: int, count: int, delete: bool) -> set[str]:
