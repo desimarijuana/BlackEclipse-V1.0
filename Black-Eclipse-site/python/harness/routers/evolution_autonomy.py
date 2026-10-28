@@ -68,6 +68,21 @@ def decide_rsl_autonomy(
     return {"success": True, "decision": decision, "activates": False}
 
 
+@router.get("/evolution/tool-contracts")
+def tool_contract_shadow(
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Read-only inventory of widen-eligible tools. Grants nothing."""
+    from ..agents import get_agent  # noqa: PLC0415
+    from ..self_improvement.tool_shadow import shadow_report  # noqa: PLC0415
+
+    agent = get_agent("eclipse-agent")
+    return {
+        "success": True,
+        **shadow_report(service.registry, agent.tools or ()),
+    }
+
+
 @router.get("/evolution/self-modification")
 def self_modification_status(
     _: bool = Depends(require_operator),
