@@ -94,7 +94,7 @@ export function SavedPagesNav({
               onNavigate?.();
             }}
             className={cn(
-              'h-8 shrink-0 flex items-center px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer overflow-hidden no-underline outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
+              'h-8 flex items-center px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer overflow-hidden no-underline outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
               selected
                 ? 'rounded-lg bg-white/[0.07] text-foreground'
                 : 'rounded-lg bg-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground',

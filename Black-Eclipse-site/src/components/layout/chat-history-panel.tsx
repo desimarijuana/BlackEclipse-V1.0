@@ -37,10 +37,6 @@ export interface ChatHistoryPanelProps {
   onNewChat: () => void;
   /** Legacy permanent delete (also fixes the active selection in the shell). */
   onDeleteConversation: (id: string) => void;
-  /** Fill the available sidebar height and scroll the list itself, instead of
-   *  capping it to `45vh`. Used when the panel shares the sidebar with a
-   *  separately scrollable app list. */
-  fill?: boolean;
 }
 
 type RenameTarget = { kind: 'chat' | 'folder'; id: string } | null;
@@ -57,7 +53,6 @@ export function ChatHistoryPanel({
   onSelectConversation,
   onNewChat,
   onDeleteConversation,
-  fill = false,
 }: ChatHistoryPanelProps) {
   const t = useT();
   const {
@@ -313,7 +308,7 @@ export function ChatHistoryPanel({
   const hasAnything = view.pinned.length > 0 || view.groups.length > 0;
 
   return (
-    <div className={cn('flex flex-col gap-2 pb-4', fill && 'flex-1 min-h-0')}>
+    <div className="flex flex-col gap-2 pb-4">
       {/* Header + global actions */}
       <div className="flex items-center justify-between px-1">
         <span className="text-[13px] text-muted-foreground uppercase tracking-widest font-bold">{t('sidebar.chatHistory')}</span>
@@ -369,7 +364,7 @@ export function ChatHistoryPanel({
       </div>
 
       {/* List */}
-      <div className={`flex flex-col gap-2.5 pr-1 ${fill ? 'flex-1 min-h-0 overflow-y-auto' : 'max-h-[45vh] overflow-y-auto'} ${dragging ? 'cursor-grabbing' : ''}`}>
+      <div className={`flex flex-col gap-2.5 max-h-[45vh] overflow-y-auto pr-1 ${dragging ? 'cursor-grabbing' : ''}`}>
         {view.pinned.length > 0 && (
           <div data-droppable data-drop-key="pinned" className={`flex flex-col gap-1.5 rounded-lg ${dropKey === 'pinned' && dragging ? 'bg-primary/10 ring-1 ring-primary/40' : ''}`}>
             <div className="flex items-center gap-1.5 px-1">

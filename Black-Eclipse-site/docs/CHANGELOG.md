@@ -59,6 +59,13 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   divider. Nav anchors are now `shrink-0` (also in `saved-pages-nav.tsx`) so rows
   keep their 32px height and spacing inside a constrained scroll pane instead of
   compressing. no doc change beyond this entry.
+- **revert(sidebar): restore the original single-scroll navigation.**
+  Reverted the two sidebar layout experiments (the split history/apps panes and
+  the Apps strip above them). Chat history sits under the menu again, only on the
+  ChatBot tab, in the original one-column scroll. Restored `sidebar.tsx`,
+  `chat-history-panel.tsx`, `saved-pages-nav.tsx`, and the `en.ts` /
+  `size-budget.test.ts` entries to their pre-change state. no doc change beyond
+  this entry.
 - **feat(learning): add class-authorized self-modification (Tier B).**
   `self_improvement/self_modification.py` auto-accepts contract-clean,
   evaluated candidates and auto-enables **read-only** learned skills under an
