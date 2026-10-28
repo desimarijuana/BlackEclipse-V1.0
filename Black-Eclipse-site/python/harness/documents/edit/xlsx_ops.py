@@ -732,6 +732,18 @@ def _rewrite_related_parts(package: OoxmlPackage, *, target_sheet: str, target_p
             package.write(table_name, serialize(table))
             touched.add(table_name)
 
+    for pivot_ref in iter_local(root, "pivotTablePart"):
+        relation = relations.get(attr(pivot_ref, "id"))
+        if relation is None:
+            raise EditError("EDIT_PIVOT_UNSAFE", "a pivot table relationship is missing")
+        pivot_part = _resolve_rel(target_part, relation["target"])
+        if not package.has(pivot_part):
+            raise EditError("EDIT_PIVOT_UNSAFE", "a pivot table part is missing")
+        touched.update(_rewrite_pivot(
+            package, pivot_part, target_sheet=target_sheet,
+            axis=axis, at=at, count=count, delete=delete,
+        ))
+
     drawing = find_local(root, "drawing")
     if drawing is not None:
         relation = relations.get(attr(drawing, "id"))
@@ -758,6 +770,9 @@ def _rewrite_related_parts(package: OoxmlPackage, *, target_sheet: str, target_p
                     if changed:
                         package.write(chart_part, serialize(chart))
                         touched.add(chart_part)
+    touched.update(_shift_ole_and_legacy(
+        package, root, target_part, axis=axis, at=at, count=count, delete=delete,
+    ))
     return touched
 
 

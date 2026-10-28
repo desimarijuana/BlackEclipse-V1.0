@@ -382,6 +382,11 @@ def learn(
         return {"ok": True, "mode": "off", "reason": "preference learning disabled", "created": [], "saved": []}
     if mode not in PREFERENCE_MODE_VALUES:
         mode = "ask"
+    # `memory_mode=off` is the user's statement that automatic memory should not
+    # produce anything. Even an inert preference prompt would contradict that;
+    # an explicit "remember this" still works through the turn gate.
+    if str(settings_alive.get("memory_mode") or "") == "off":
+        return {"ok": True, "mode": mode, "reason": "memory_mode is off", "created": [], "saved": []}
 
     groups = service.store.preference_observation_groups(user_id=user_id)
     active = _active_preference_keys(service, user_id)

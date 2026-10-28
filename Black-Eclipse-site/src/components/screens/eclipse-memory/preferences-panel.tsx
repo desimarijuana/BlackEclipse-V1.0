@@ -63,7 +63,7 @@ export function Preferences({ isOperator }: { isOperator: boolean }) {
   const scan = async () => {
     setBusy(true);
     try {
-      const result = await learnPreferences();
+      const result = await learnPreferences("local");
       const created = result.created?.length ?? 0;
       setToast(created > 0
         ? `Found ${created} new preference ${created === 1 ? "inference" : "inferences"}.`

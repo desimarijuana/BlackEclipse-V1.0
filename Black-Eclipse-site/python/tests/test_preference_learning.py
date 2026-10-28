@@ -132,6 +132,15 @@ def test_policy_off_disables_learning(service):
     assert service.store.list_suggestions(status="pending", scope_id="u1") == []
 
 
+def test_memory_mode_off_blocks_automatic_preference_prompts(service):
+    _three_runs(service)
+    service.policy.set("memory_mode", "off")
+    result = service.learn_preferences(user_id="u1")
+    assert result["created"] == []
+    assert result["saved"] == []
+    assert service.store.list_suggestions(status="pending", scope_id="u1") == []
+
+
 def test_disabled_dimension_is_not_learned(service):
     _three_runs(service)
     service.policy.set("preference_dimensions", {"answer_format": False})
