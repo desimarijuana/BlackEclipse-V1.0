@@ -1,0 +1,78 @@
+{
+  "id": "system.workspace-writing",
+  "name": "Workspace Writing",
+  "version": "1.0.0",
+  "description": "Create and maintain Markdown, README, meeting notes, SOP, requirements, release notes and other workspace documents.",
+  "category": "system",
+  "tags": [
+    "writing",
+    "markdown",
+    "readme",
+    "notes",
+    "documentation"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "readme",
+          "notes",
+          "sop",
+          "requirements",
+          "release-notes",
+          "other"
+        ]
+      },
+      "brief": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ]
+  },
+  "requiredTools": [
+    "document_create",
+    "document_context",
+    "eclipse_report"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "report.generate"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 12
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "file": {
+        "type": "object"
+      },
+      "outline": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "file",
+      "outline",
+      "warnings"
+    ]
+  }
+}

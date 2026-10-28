@@ -1,0 +1,70 @@
+{
+  "id": "system.office-edit",
+  "name": "Office File Editing",
+  "version": "1.0.0",
+  "description": "Update existing Word, Excel, PowerPoint and PDF files while preserving unmodified package parts and reporting unsupported features.",
+  "category": "system",
+  "tags": [
+    "office",
+    "docx",
+    "xlsx",
+    "pptx",
+    "editing"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "instruction": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "path",
+      "instruction"
+    ]
+  },
+  "requiredTools": [
+    "document_create",
+    "document_context",
+    "pdf_extract",
+    "ocr_extract",
+    "vision_analyze"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "report.generate"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "file": {
+        "type": "object"
+      },
+      "changes": {
+        "type": "array"
+      },
+      "unsupported": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "file",
+      "changes",
+      "unsupported"
+    ]
+  }
+}

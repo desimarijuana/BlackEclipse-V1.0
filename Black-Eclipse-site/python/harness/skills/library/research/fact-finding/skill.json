@@ -1,0 +1,76 @@
+{
+  "id": "research.fact-finding",
+  "name": "Fact Finding",
+  "version": "1.0.0",
+  "description": "Investigate a specific claim, clue, rumor, quotation or paper finding and trace it to primary evidence.",
+  "category": "research",
+  "tags": [
+    "research",
+    "verification",
+    "claims",
+    "sources",
+    "investigation"
+  ],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "claim": {
+        "type": "string",
+        "description": "The claim, clue, quote or finding to verify."
+      },
+      "context": {
+        "type": "string",
+        "description": "Optional origin or where the claim was seen."
+      }
+    },
+    "required": [
+      "claim"
+    ]
+  },
+  "requiredTools": [
+    "web_search",
+    "web_extract",
+    "claim_verify",
+    "citation_validate",
+    "get_news"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "research.read",
+    "analysis.execute"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 10,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "verdict": {
+        "type": "string"
+      },
+      "evidence": {
+        "type": "array"
+      },
+      "reasoning": {
+        "type": "string"
+      },
+      "remaining_uncertainty": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "verdict",
+      "evidence",
+      "reasoning",
+      "remaining_uncertainty"
+    ]
+  }
+}

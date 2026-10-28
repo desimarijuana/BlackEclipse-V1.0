@@ -1,0 +1,76 @@
+{
+  "id": "system.calendar",
+  "name": "Calendar",
+  "version": "1.0.0",
+  "description": "Read free-busy time and manage events through a connected Google Calendar or Outlook Calendar account.",
+  "category": "system",
+  "tags": [
+    "calendar",
+    "events",
+    "scheduling",
+    "availability",
+    "productivity"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "availability",
+          "list",
+          "create",
+          "update"
+        ]
+      },
+      "window": {
+        "type": "string"
+      },
+      "event": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "clarify",
+    "job_create",
+    "job_list"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "external.network"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 12
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "events": {
+        "type": "array"
+      },
+      "availability": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "events",
+      "availability",
+      "warnings"
+    ]
+  }
+}

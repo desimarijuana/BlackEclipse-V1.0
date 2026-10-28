@@ -1,0 +1,61 @@
+{
+  "id": "system.ios-app-intents",
+  "name": "iOS App Intents",
+  "version": "1.0.0",
+  "description": "Design and verify App Intents, App Shortcuts, entities, queries, parameters and system integrations in an iOS app.",
+  "category": "system",
+  "tags": [
+    "ios",
+    "app-intents",
+    "shortcuts",
+    "swift",
+    "integration"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "feature": {
+        "type": "string"
+      },
+      "project_path": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "feature"
+    ]
+  },
+  "requiredTools": [],
+  "requiredSkills": [],
+  "permissions": [],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 8
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "intent": {
+        "type": "object"
+      },
+      "code": {
+        "type": "string"
+      },
+      "checks": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "intent",
+      "code",
+      "checks"
+    ]
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "id": "system.swiftui-interface-engineering",
+  "name": "SwiftUI Interface Engineering",
+  "version": "1.0.0",
+  "description": "Implement and validate SwiftUI screens, navigation, state, accessibility, adaptive layout and current platform presentation APIs.",
+  "category": "system",
+  "tags": [
+    "swiftui",
+    "ios",
+    "ui",
+    "accessibility",
+    "layout"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "screen": {
+        "type": "string"
+      },
+      "requirements": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "screen"
+    ]
+  },
+  "requiredTools": [],
+  "requiredSkills": [],
+  "permissions": [],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 8
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "code": {
+        "type": "string"
+      },
+      "checks": {
+        "type": "array"
+      },
+      "notes": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "code",
+      "checks",
+      "notes"
+    ]
+  }
+}

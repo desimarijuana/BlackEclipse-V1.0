@@ -1,0 +1,80 @@
+{
+  "id": "finance.perp-wallets",
+  "name": "Perp Wallets",
+  "version": "1.0.0",
+  "description": "Manage perpetual sub-accounts: list, reconcile, and plan transfers between wallets, with an auditable balance record.",
+  "category": "finance",
+  "tags": [
+    "perps",
+    "wallets",
+    "accounts",
+    "reconciliation",
+    "transfers"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "list",
+          "reconcile",
+          "transfer_plan"
+        ]
+      },
+      "wallet": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "portfolio_list",
+    "portfolio_get",
+    "portfolio_calculate_pnl",
+    "portfolio_reconcile",
+    "journal_add_trade"
+  ],
+  "requiredSkills": [
+    "finance.account-overview"
+  ],
+  "permissions": [
+    "portfolio.read"
+  ],
+  "riskLevel": "high",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "wallets": {
+        "type": "array"
+      },
+      "balances": {
+        "type": "object"
+      },
+      "reconciliation": {
+        "type": "object"
+      },
+      "plan": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "wallets",
+      "balances",
+      "reconciliation",
+      "plan"
+    ]
+  }
+}

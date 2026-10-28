@@ -1,0 +1,88 @@
+{
+  "id": "research.deep-research",
+  "name": "Deep Research",
+  "version": "1.0.0",
+  "description": "Run multi-source research that synthesises evidence, compares alternatives and explains a field, with citations and explicit gaps.",
+  "category": "research",
+  "tags": [
+    "research",
+    "evidence",
+    "synthesis",
+    "landscape",
+    "citations"
+  ],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string",
+        "description": "The research question or field to investigate."
+      },
+      "scope": {
+        "type": "string",
+        "description": "Optional boundary: region, timeframe, asset class."
+      },
+      "depth": {
+        "type": "string",
+        "enum": [
+          "standard",
+          "deep"
+        ]
+      }
+    },
+    "required": [
+      "question"
+    ]
+  },
+  "requiredTools": [
+    "web_search",
+    "web_extract",
+    "get_news",
+    "get_source_health",
+    "get_research_health"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "research.read",
+    "analysis.execute",
+    "report.generate"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 11,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "summary": {
+        "type": "string"
+      },
+      "findings": {
+        "type": "array"
+      },
+      "evidence": {
+        "type": "array"
+      },
+      "conflicts": {
+        "type": "array"
+      },
+      "gaps": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "summary",
+      "findings",
+      "evidence",
+      "conflicts",
+      "gaps"
+    ]
+  }
+}

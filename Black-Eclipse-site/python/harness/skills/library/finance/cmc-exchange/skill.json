@@ -1,0 +1,79 @@
+{
+  "id": "finance.cmc-exchange",
+  "name": "CoinMarketCap Exchange API",
+  "version": "1.0.0",
+  "description": "Reference for CoinMarketCap exchange endpoints: exchange info, volume, market pairs, assets and reserve context.",
+  "category": "finance",
+  "tags": [
+    "coinmarketcap",
+    "exchanges",
+    "api",
+    "volume",
+    "reference"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "exchange": {
+        "type": "string"
+      },
+      "dataset": {
+        "type": "string",
+        "enum": [
+          "info",
+          "volume",
+          "pairs",
+          "assets"
+        ]
+      }
+    }
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_volume",
+    "get_trades",
+    "web_search",
+    "web_extract"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "research.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "exchange": {
+        "type": "object"
+      },
+      "pairs": {
+        "type": "array"
+      },
+      "volume": {
+        "type": "object"
+      },
+      "notes": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "exchange",
+      "pairs",
+      "volume",
+      "notes"
+    ]
+  }
+}

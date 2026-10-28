@@ -1,0 +1,83 @@
+{
+  "id": "system.task-planning",
+  "name": "Task Planning",
+  "version": "1.0.0",
+  "description": "Break projects into staged tasks, dependencies, owners, acceptance checks, status updates and limited review rounds.",
+  "category": "system",
+  "tags": [
+    "planning",
+    "tasks",
+    "dependencies",
+    "projects",
+    "execution"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "goal": {
+        "type": "string"
+      },
+      "constraints": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "owners": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "goal"
+    ]
+  },
+  "requiredTools": [
+    "clarify",
+    "project_create",
+    "project_next",
+    "project_show",
+    "project_digest",
+    "job_create"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "skill.invoke"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 120000,
+    "maxToolCalls": 24
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "stages": {
+        "type": "array"
+      },
+      "tasks": {
+        "type": "array"
+      },
+      "risks": {
+        "type": "array"
+      },
+      "acceptance": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "stages",
+      "tasks",
+      "risks",
+      "acceptance"
+    ]
+  }
+}

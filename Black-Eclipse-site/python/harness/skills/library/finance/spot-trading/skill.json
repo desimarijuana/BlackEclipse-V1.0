@@ -1,0 +1,90 @@
+{
+  "id": "finance.spot-trading",
+  "name": "Spot Trading Plan",
+  "version": "1.0.0",
+  "description": "Resolve assets, balances and routes, then prepare a spot buy, sell, swap or transfer plan for explicit user approval. Eclipse does not execute trades.",
+  "category": "finance",
+  "tags": [
+    "spot",
+    "trading",
+    "swap",
+    "transfer",
+    "planning"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "buy",
+          "sell",
+          "swap",
+          "transfer"
+        ]
+      },
+      "asset": {
+        "type": "string"
+      },
+      "amount": {
+        "type": "string"
+      },
+      "venue": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action",
+      "asset"
+    ]
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_quote",
+    "get_orderbook",
+    "portfolio_get",
+    "journal_add_trade",
+    "clarify"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "portfolio.read"
+  ],
+  "riskLevel": "high",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 120000,
+    "maxToolCalls": 24
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "plan": {
+        "type": "object"
+      },
+      "preview": {
+        "type": "object"
+      },
+      "risks": {
+        "type": "array"
+      },
+      "approval_required": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "plan",
+      "preview",
+      "risks",
+      "approval_required"
+    ]
+  }
+}

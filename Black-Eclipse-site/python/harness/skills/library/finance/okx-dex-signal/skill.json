@@ -1,0 +1,83 @@
+{
+  "id": "finance.okx-dex-signal",
+  "name": "OKX DEX Signals",
+  "version": "1.0.0",
+  "description": "OKX smart-money, whale and KOL tracking, aggregated buy signals and leaderboard rankings for on-chain activity.",
+  "category": "finance",
+  "tags": [
+    "okx",
+    "smart-money",
+    "whales",
+    "signals",
+    "onchain"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "dataset": {
+        "type": "string",
+        "enum": [
+          "address_tracker",
+          "buy_signals",
+          "leaderboard"
+        ]
+      },
+      "address": {
+        "type": "string"
+      },
+      "token": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "dataset"
+    ]
+  },
+  "requiredTools": [
+    "get_trades",
+    "get_market_snapshot",
+    "web_search",
+    "search_evidence"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "research.read"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "signals": {
+        "type": "array"
+      },
+      "addresses": {
+        "type": "array"
+      },
+      "evidence": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "signals",
+      "addresses",
+      "evidence",
+      "warnings"
+    ]
+  }
+}

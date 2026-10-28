@@ -1,0 +1,92 @@
+{
+  "id": "finance.brokerage-trading",
+  "name": "Brokerage Order Plan",
+  "version": "1.0.0",
+  "description": "Prepare single-leg stock or ETF orders for a connected brokerage, including preview, risk checks and explicit approval. Eclipse does not execute.",
+  "category": "finance",
+  "tags": [
+    "brokerage",
+    "stocks",
+    "etf",
+    "orders",
+    "planning"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "symbol": {
+        "type": "string"
+      },
+      "side": {
+        "type": "string",
+        "enum": [
+          "buy",
+          "sell"
+        ]
+      },
+      "quantity": {
+        "type": "number"
+      },
+      "order_type": {
+        "type": "string",
+        "enum": [
+          "market",
+          "limit"
+        ]
+      }
+    },
+    "required": [
+      "symbol",
+      "side"
+    ]
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_quote",
+    "get_orderbook",
+    "portfolio_get",
+    "journal_add_trade",
+    "clarify"
+  ],
+  "requiredSkills": [
+    "finance.brokerage-accounts"
+  ],
+  "permissions": [
+    "data.read",
+    "portfolio.read"
+  ],
+  "riskLevel": "high",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 120000,
+    "maxToolCalls": 24
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "plan": {
+        "type": "object"
+      },
+      "preview": {
+        "type": "object"
+      },
+      "risks": {
+        "type": "array"
+      },
+      "approval_required": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "plan",
+      "preview",
+      "risks",
+      "approval_required"
+    ]
+  }
+}

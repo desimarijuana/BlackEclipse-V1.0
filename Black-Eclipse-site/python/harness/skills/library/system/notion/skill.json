@@ -1,0 +1,76 @@
+{
+  "id": "system.notion",
+  "name": "Notion",
+  "version": "1.0.0",
+  "description": "Search, read and publish structured Notion pages through a connected Notion account.",
+  "category": "system",
+  "tags": [
+    "notion",
+    "pages",
+    "knowledge",
+    "publishing",
+    "workspace"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "search",
+          "read",
+          "publish"
+        ]
+      },
+      "query": {
+        "type": "string"
+      },
+      "content": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "document_context",
+    "document_create",
+    "web_search"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "external.network",
+    "report.generate"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 12
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "pages": {
+        "type": "array"
+      },
+      "page": {
+        "type": "object"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "pages",
+      "page",
+      "warnings"
+    ]
+  }
+}

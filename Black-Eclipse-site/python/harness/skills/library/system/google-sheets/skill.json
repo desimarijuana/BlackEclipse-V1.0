@@ -1,0 +1,78 @@
+{
+  "id": "system.google-sheets",
+  "name": "Google Sheets",
+  "version": "1.0.0",
+  "description": "Read, create and update Google Sheets through a connected Google Workspace account.",
+  "category": "system",
+  "tags": [
+    "google",
+    "sheets",
+    "spreadsheet",
+    "workspace",
+    "data"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "read",
+          "create",
+          "update"
+        ]
+      },
+      "spreadsheet_id": {
+        "type": "string"
+      },
+      "range": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "document_create",
+    "analyze_dataset",
+    "query_dataset",
+    "python_chart"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "external.network",
+    "analysis.execute",
+    "report.generate"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "sheet": {
+        "type": "object"
+      },
+      "rows": {
+        "type": "integer"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "sheet",
+      "rows",
+      "warnings"
+    ]
+  }
+}

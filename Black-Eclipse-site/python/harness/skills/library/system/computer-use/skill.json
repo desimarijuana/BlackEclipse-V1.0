@@ -1,0 +1,67 @@
+{
+  "id": "system.computer-use",
+  "name": "Computer Use",
+  "version": "1.0.0",
+  "description": "Drive desktop GUIs with window capture and accessibility, preferring element indices over pixel guesses.",
+  "category": "system",
+  "tags": [
+    "desktop",
+    "gui",
+    "automation",
+    "accessibility",
+    "computer"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "goal": {
+        "type": "string"
+      },
+      "app": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "goal"
+    ]
+  },
+  "requiredTools": [
+    "computer_use",
+    "computer_read_screen",
+    "computer_windows",
+    "computer_displays",
+    "computer_status"
+  ],
+  "requiredSkills": [],
+  "permissions": [],
+  "riskLevel": "high",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "result": {
+        "type": "object"
+      },
+      "actions": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "result",
+      "actions",
+      "warnings"
+    ]
+  }
+}

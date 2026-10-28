@@ -1,0 +1,65 @@
+{
+  "id": "system.swiftui-performance-diagnostics",
+  "name": "SwiftUI Performance Diagnostics",
+  "version": "1.0.0",
+  "description": "Diagnose SwiftUI rendering, update, scrolling, launch and test performance with repeatable builds and runtime evidence.",
+  "category": "system",
+  "tags": [
+    "swiftui",
+    "performance",
+    "ios",
+    "profiling",
+    "diagnostics"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "symptom": {
+        "type": "string"
+      },
+      "project_path": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "symptom"
+    ]
+  },
+  "requiredTools": [],
+  "requiredSkills": [],
+  "permissions": [],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 8
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "measurements": {
+        "type": "object"
+      },
+      "cause": {
+        "type": "string"
+      },
+      "fix": {
+        "type": "string"
+      },
+      "checks": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "measurements",
+      "cause",
+      "fix",
+      "checks"
+    ]
+  }
+}

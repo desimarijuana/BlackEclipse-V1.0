@@ -1,0 +1,77 @@
+{
+  "id": "finance.coingecko",
+  "name": "CoinGecko Reference",
+  "version": "1.0.0",
+  "description": "Reference for CoinGecko and GeckoTerminal market, DeFi, NFT and on-chain token endpoints, rate limits and authentication.",
+  "category": "finance",
+  "tags": [
+    "coingecko",
+    "crypto",
+    "onchain",
+    "api",
+    "reference"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "asset": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "question"
+    ]
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_ohlcv",
+    "get_market_cap",
+    "get_volume",
+    "web_search",
+    "web_extract"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "research.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 24
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "answer": {
+        "type": "string"
+      },
+      "endpoints": {
+        "type": "array"
+      },
+      "parameters": {
+        "type": "object"
+      },
+      "notes": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "answer",
+      "endpoints",
+      "parameters",
+      "notes"
+    ]
+  }
+}

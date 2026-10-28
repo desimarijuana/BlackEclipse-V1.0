@@ -1,0 +1,77 @@
+{
+  "id": "finance.okx-audit-log",
+  "name": "OKX Audit Log",
+  "version": "1.0.0",
+  "description": "Export and inspect OKX on-chain audit logs and command history for compliance and troubleshooting.",
+  "category": "finance",
+  "tags": [
+    "okx",
+    "audit",
+    "compliance",
+    "logs",
+    "reference"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "export",
+          "locate",
+          "inspect"
+        ]
+      },
+      "window": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "web_search",
+    "web_extract",
+    "memory"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "data.read",
+    "research.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 12
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "location": {
+        "type": "string"
+      },
+      "entries": {
+        "type": "array"
+      },
+      "format": {
+        "type": "string"
+      },
+      "notes": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "location",
+      "entries",
+      "format",
+      "notes"
+    ]
+  }
+}

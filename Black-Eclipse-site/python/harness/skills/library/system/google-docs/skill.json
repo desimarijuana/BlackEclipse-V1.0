@@ -1,0 +1,76 @@
+{
+  "id": "system.google-docs",
+  "name": "Google Docs",
+  "version": "1.0.0",
+  "description": "Read, create and update Google Docs through a connected Google Workspace account.",
+  "category": "system",
+  "tags": [
+    "google",
+    "docs",
+    "workspace",
+    "writing",
+    "collaboration"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "read",
+          "create",
+          "update"
+        ]
+      },
+      "document_id": {
+        "type": "string"
+      },
+      "brief": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "document_create",
+    "document_context",
+    "eclipse_report"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "external.network",
+    "report.generate"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 12
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "document": {
+        "type": "object"
+      },
+      "changes": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "document",
+      "changes",
+      "warnings"
+    ]
+  }
+}

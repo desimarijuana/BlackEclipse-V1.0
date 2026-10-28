@@ -1,0 +1,79 @@
+{
+  "id": "finance.binance-agentic",
+  "name": "Binance Agentic Account",
+  "version": "1.0.0",
+  "description": "Read a connected Binance Agentic sub-account: market data, balances, orders, positions, spot, margin, convert and futures context.",
+  "category": "finance",
+  "tags": [
+    "binance",
+    "cex",
+    "account",
+    "market-data",
+    "positions"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "view": {
+        "type": "string",
+        "enum": [
+          "market",
+          "balances",
+          "orders",
+          "positions"
+        ]
+      },
+      "symbol": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "view"
+    ]
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_orderbook",
+    "get_funding_rate",
+    "get_open_interest",
+    "get_quote",
+    "portfolio_get"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "portfolio.read"
+  ],
+  "riskLevel": "high",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 24
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "account": {
+        "type": "object"
+      },
+      "markets": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "account",
+      "markets",
+      "warnings"
+    ]
+  }
+}

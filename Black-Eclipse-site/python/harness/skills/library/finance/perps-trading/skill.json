@@ -1,0 +1,88 @@
+{
+  "id": "finance.perps-trading",
+  "name": "Perpetuals Plan",
+  "version": "1.0.0",
+  "description": "Prepare long or short perpetual plans across crypto, equities, indices, commodities and FX, including funding, leverage, liquidation distance and exit rules.",
+  "category": "finance",
+  "tags": [
+    "perps",
+    "derivatives",
+    "leverage",
+    "funding",
+    "risk"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "asset": {
+        "type": "string"
+      },
+      "direction": {
+        "type": "string",
+        "enum": [
+          "long",
+          "short"
+        ]
+      },
+      "leverage": {
+        "type": "number"
+      },
+      "venue": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "asset",
+      "direction"
+    ]
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_funding_rate",
+    "get_open_interest",
+    "get_orderbook",
+    "portfolio_get",
+    "calculate_volatility"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "portfolio.read"
+  ],
+  "riskLevel": "high",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 120000,
+    "maxToolCalls": 24
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "plan": {
+        "type": "object"
+      },
+      "liquidation_distance": {
+        "type": "number"
+      },
+      "funding_cost": {
+        "type": "object"
+      },
+      "risks": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "plan",
+      "liquidation_distance",
+      "funding_cost",
+      "risks"
+    ]
+  }
+}

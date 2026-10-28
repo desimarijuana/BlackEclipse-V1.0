@@ -1,0 +1,86 @@
+{
+  "id": "finance.market-data",
+  "name": "Market Data",
+  "version": "1.0.0",
+  "description": "Retrieve factual crypto and traditional-market prices, snapshots, history, company financials, news, flows and on-chain data with provenance.",
+  "category": "finance",
+  "tags": [
+    "market",
+    "prices",
+    "crypto",
+    "equities",
+    "data"
+  ],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "symbols": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "market": {
+        "type": "string"
+      },
+      "fields": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "as_of": {
+        "type": "string",
+        "description": "ISO date or 'latest'."
+      }
+    },
+    "required": [
+      "symbols"
+    ]
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_historical_prices",
+    "get_ohlcv",
+    "market_get_quote",
+    "get_fundamentals",
+    "get_news",
+    "get_coverage",
+    "get_source_health"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "data.read",
+    "research.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 180000,
+    "maxToolCalls": 32
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "quotes": {
+        "type": "array"
+      },
+      "unavailable": {
+        "type": "array"
+      },
+      "provenance": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "quotes",
+      "unavailable",
+      "provenance"
+    ]
+  }
+}

@@ -1,0 +1,85 @@
+{
+  "id": "system.artifact-document",
+  "name": "Word Documents",
+  "version": "1.0.0",
+  "description": "Create, read, summarise, translate, compare and edit Word documents as real DOCX files.",
+  "category": "system",
+  "tags": [
+    "documents",
+    "docx",
+    "word",
+    "report",
+    "writing"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "create",
+          "read",
+          "summarise",
+          "translate",
+          "compare",
+          "edit"
+        ]
+      },
+      "source": {
+        "type": "string",
+        "description": "Asset id or local path."
+      },
+      "brief": {
+        "type": "string",
+        "description": "Content requirements for a new document."
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "document_create",
+    "document_context",
+    "eclipse_report",
+    "vision_analyze"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "report.generate"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "document": {
+        "type": "object"
+      },
+      "summary": {
+        "type": "string"
+      },
+      "changes": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "document",
+      "summary",
+      "changes",
+      "warnings"
+    ]
+  }
+}

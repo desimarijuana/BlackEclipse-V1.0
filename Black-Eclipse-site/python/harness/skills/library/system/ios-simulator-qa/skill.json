@@ -1,0 +1,61 @@
+{
+  "id": "system.ios-simulator-qa",
+  "name": "iOS Simulator QA",
+  "version": "1.0.0",
+  "description": "Inspect and automate an iOS app in Simulator for screenshots, accessibility trees, taps, typing, gestures, logs and LLDB diagnosis.",
+  "category": "system",
+  "tags": [
+    "ios",
+    "simulator",
+    "qa",
+    "automation",
+    "debugging"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "app": {
+        "type": "string"
+      },
+      "flow": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "app"
+    ]
+  },
+  "requiredTools": [],
+  "requiredSkills": [],
+  "permissions": [],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 8
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "screenshots": {
+        "type": "array"
+      },
+      "findings": {
+        "type": "array"
+      },
+      "logs": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "screenshots",
+      "findings",
+      "logs"
+    ]
+  }
+}

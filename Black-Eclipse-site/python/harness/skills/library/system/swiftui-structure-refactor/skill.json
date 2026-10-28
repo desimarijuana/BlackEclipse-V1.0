@@ -1,0 +1,61 @@
+{
+  "id": "system.swiftui-structure-refactor",
+  "name": "SwiftUI Structure Refactor",
+  "version": "1.0.0",
+  "description": "Refactor large SwiftUI views while preserving behavior, state ownership, navigation, dependencies, previews and tests.",
+  "category": "system",
+  "tags": [
+    "swiftui",
+    "refactor",
+    "ios",
+    "structure",
+    "state"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "view": {
+        "type": "string"
+      },
+      "goal": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "view"
+    ]
+  },
+  "requiredTools": [],
+  "requiredSkills": [],
+  "permissions": [],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 8
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "changes": {
+        "type": "array"
+      },
+      "behavior_preserved": {
+        "type": "array"
+      },
+      "checks": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "changes",
+      "behavior_preserved",
+      "checks"
+    ]
+  }
+}

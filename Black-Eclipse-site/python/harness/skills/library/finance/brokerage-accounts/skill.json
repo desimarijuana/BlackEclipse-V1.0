@@ -1,0 +1,76 @@
+{
+  "id": "finance.brokerage-accounts",
+  "name": "Brokerage Accounts",
+  "version": "1.0.0",
+  "description": "Read selected brokerage accounts, cash, buying power, positions and orders through a connected brokerage plugin.",
+  "category": "finance",
+  "tags": [
+    "brokerage",
+    "accounts",
+    "positions",
+    "cash",
+    "orders"
+  ],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "account": {
+        "type": "string"
+      },
+      "view": {
+        "type": "string",
+        "enum": [
+          "summary",
+          "positions",
+          "orders",
+          "cash"
+        ]
+      }
+    }
+  },
+  "requiredTools": [
+    "portfolio_list",
+    "portfolio_get",
+    "portfolio_calculate_pnl",
+    "portfolio_calculate_exposure",
+    "portfolio_reconcile"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "portfolio.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "accounts": {
+        "type": "array"
+      },
+      "positions": {
+        "type": "array"
+      },
+      "orders": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "accounts",
+      "positions",
+      "orders",
+      "warnings"
+    ]
+  }
+}

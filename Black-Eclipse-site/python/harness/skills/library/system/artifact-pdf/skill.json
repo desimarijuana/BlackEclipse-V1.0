@@ -1,0 +1,86 @@
+{
+  "id": "system.artifact-pdf",
+  "name": "PDF Documents",
+  "version": "1.0.0",
+  "description": "Create, read, merge, split, watermark and deliver PDF files.",
+  "category": "system",
+  "tags": [
+    "pdf",
+    "documents",
+    "report",
+    "export",
+    "files"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "create",
+          "read",
+          "merge",
+          "split",
+          "watermark"
+        ]
+      },
+      "sources": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "brief": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "document_create",
+    "pdf_extract",
+    "ocr_extract",
+    "eclipse_report",
+    "vision_analyze"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "report.generate"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "pdf": {
+        "type": "object"
+      },
+      "text": {
+        "type": "string"
+      },
+      "pages": {
+        "type": "integer"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "pdf",
+      "text",
+      "pages",
+      "warnings"
+    ]
+  }
+}

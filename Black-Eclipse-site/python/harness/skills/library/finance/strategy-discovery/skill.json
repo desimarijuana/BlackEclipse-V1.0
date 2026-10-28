@@ -1,0 +1,77 @@
+{
+  "id": "finance.strategy-discovery",
+  "name": "Strategy Discovery",
+  "version": "1.0.0",
+  "description": "Discover and compare published strategies for a trading request, including leaderboards, inspection, following, forking and running.",
+  "category": "finance",
+  "tags": [
+    "strategies",
+    "marketplace",
+    "leaderboard",
+    "discovery",
+    "comparison"
+  ],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "goal": {
+        "type": "string"
+      },
+      "risk_profile": {
+        "type": "string"
+      },
+      "venue": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "goal"
+    ]
+  },
+  "requiredTools": [
+    "list_strategies",
+    "compare_strategies",
+    "list_strategy_venues",
+    "list_strategy_deployments",
+    "grade_strategy_edge"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "data.read",
+    "analysis.execute"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "candidates": {
+        "type": "array"
+      },
+      "comparison": {
+        "type": "object"
+      },
+      "recommendation": {
+        "type": "string"
+      },
+      "risks": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "candidates",
+      "comparison",
+      "recommendation",
+      "risks"
+    ]
+  }
+}

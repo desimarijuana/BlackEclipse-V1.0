@@ -1,0 +1,75 @@
+{
+  "id": "finance.cmc-crypto",
+  "name": "CoinMarketCap Crypto API",
+  "version": "1.0.0",
+  "description": "Reference for CoinMarketCap cryptocurrency endpoints: quotes, listings, OHLCV, trending and categories.",
+  "category": "finance",
+  "tags": [
+    "coinmarketcap",
+    "crypto",
+    "api",
+    "reference",
+    "market-data"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "endpoint": {
+        "type": "string"
+      },
+      "symbols": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_ohlcv",
+    "get_quote",
+    "get_market_cap",
+    "get_volume"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "endpoint": {
+        "type": "string"
+      },
+      "parameters": {
+        "type": "object"
+      },
+      "data": {
+        "type": "object"
+      },
+      "notes": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "endpoint",
+      "parameters",
+      "data",
+      "notes"
+    ]
+  }
+}

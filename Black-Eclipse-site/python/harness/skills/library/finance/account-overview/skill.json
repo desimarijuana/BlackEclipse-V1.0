@@ -1,0 +1,86 @@
+{
+  "id": "finance.account-overview",
+  "name": "Account Overview",
+  "version": "1.0.0",
+  "description": "Summarise identity, holdings, balance, PnL, activities, trade configuration and recorded trade history for the user's own account.",
+  "category": "finance",
+  "tags": [
+    "account",
+    "portfolio",
+    "pnl",
+    "history",
+    "holdings"
+  ],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "view": {
+        "type": "string",
+        "enum": [
+          "summary",
+          "holdings",
+          "pnl",
+          "activity",
+          "history"
+        ]
+      },
+      "period": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "view"
+    ]
+  },
+  "requiredTools": [
+    "portfolio_list",
+    "portfolio_get",
+    "portfolio_calculate_pnl",
+    "portfolio_calculate_exposure",
+    "journal_trades",
+    "analyse_trade_log"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "portfolio.read",
+    "analysis.execute"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 24
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "account": {
+        "type": "object"
+      },
+      "holdings": {
+        "type": "array"
+      },
+      "pnl": {
+        "type": "object"
+      },
+      "activity": {
+        "type": "array"
+      },
+      "limitations": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "account",
+      "holdings",
+      "pnl",
+      "activity",
+      "limitations"
+    ]
+  }
+}

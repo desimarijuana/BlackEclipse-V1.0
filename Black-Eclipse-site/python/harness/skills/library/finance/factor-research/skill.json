@@ -1,0 +1,79 @@
+{
+  "id": "finance.factor-research",
+  "name": "Factor Research",
+  "version": "1.0.0",
+  "description": "Discover, validate and manage quantitative factors through structured research campaigns, then deliver the resulting factor list.",
+  "category": "finance",
+  "tags": [
+    "factors",
+    "quant",
+    "research",
+    "alpha",
+    "validation"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "hypothesis": {
+        "type": "string"
+      },
+      "universe": {
+        "type": "string"
+      },
+      "horizon": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "hypothesis"
+    ]
+  },
+  "requiredTools": [
+    "create_factor_definition",
+    "list_factor_definitions",
+    "run_factor_evaluation",
+    "analyze_factor_stability",
+    "analyze_factor_redundancy",
+    "submit_factor_promotion",
+    "factor_capabilities"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "data.read",
+    "analysis.execute"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 180000,
+    "maxToolCalls": 28
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "factor_id": {
+        "type": "string"
+      },
+      "definition": {
+        "type": "object"
+      },
+      "evaluation": {
+        "type": "object"
+      },
+      "limitations": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "factor_id",
+      "definition",
+      "evaluation",
+      "limitations"
+    ]
+  }
+}

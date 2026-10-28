@@ -1,0 +1,87 @@
+{
+  "id": "finance.wallet-transfer",
+  "name": "Wallet Transfers",
+  "version": "1.0.0",
+  "description": "Prepare deposits, withdrawals, sweeps and transfers between spot and perpetual wallets, with fees and risks shown before approval.",
+  "category": "finance",
+  "tags": [
+    "wallet",
+    "deposit",
+    "withdrawal",
+    "transfer",
+    "funding"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "direction": {
+        "type": "string",
+        "enum": [
+          "deposit",
+          "withdraw",
+          "internal_transfer"
+        ]
+      },
+      "asset": {
+        "type": "string"
+      },
+      "amount": {
+        "type": "string"
+      },
+      "destination": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "direction",
+      "asset"
+    ]
+  },
+  "requiredTools": [
+    "portfolio_get",
+    "portfolio_list",
+    "portfolio_reconcile",
+    "journal_add_trade",
+    "clarify"
+  ],
+  "requiredSkills": [
+    "finance.account-overview"
+  ],
+  "permissions": [
+    "portfolio.read"
+  ],
+  "riskLevel": "high",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "plan": {
+        "type": "object"
+      },
+      "fees": {
+        "type": "object"
+      },
+      "risks": {
+        "type": "array"
+      },
+      "approval_required": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "plan",
+      "fees",
+      "risks",
+      "approval_required"
+    ]
+  }
+}

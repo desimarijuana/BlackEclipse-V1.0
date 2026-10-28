@@ -1,0 +1,78 @@
+{
+  "id": "finance.btc-cycle",
+  "name": "BTC Halving Cycle",
+  "version": "1.0.0",
+  "description": "Assess Bitcoin halving-cycle phase, bull and bear gain decay, next-halving estimate and rainbow-band context.",
+  "category": "finance",
+  "tags": [
+    "bitcoin",
+    "cycle",
+    "halving",
+    "macro",
+    "crypto"
+  ],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "as_of": {
+        "type": "string",
+        "description": "ISO date; defaults to latest data."
+      }
+    }
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_historical_prices",
+    "get_ohlcv",
+    "python_chart"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "analysis.execute"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "phase": {
+        "type": "string"
+      },
+      "days_since_halving": {
+        "type": "integer"
+      },
+      "next_halving_estimate": {
+        "type": "string"
+      },
+      "gain_decay": {
+        "type": "array"
+      },
+      "rainbow_band": {
+        "type": "string"
+      },
+      "limitations": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "phase",
+      "days_since_halving",
+      "next_halving_estimate",
+      "gain_decay",
+      "rainbow_band",
+      "limitations"
+    ]
+  }
+}

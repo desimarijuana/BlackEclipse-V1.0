@@ -1,0 +1,84 @@
+{
+  "id": "finance.autopilot",
+  "name": "Autopilot Strategies",
+  "version": "1.0.0",
+  "description": "List and inspect deployed strategies across sources, including running and stopped strategies, grids and account performance.",
+  "category": "finance",
+  "tags": [
+    "autopilot",
+    "strategies",
+    "deployment",
+    "monitoring",
+    "performance"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "list",
+          "inspect",
+          "status",
+          "stop_plan"
+        ]
+      },
+      "strategy_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "bot_list",
+    "bot_get",
+    "bot_status",
+    "bot_history",
+    "list_strategy_deployments",
+    "stop_strategy_deployment",
+    "create_strategy_deployment"
+  ],
+  "requiredSkills": [
+    "finance.strategy-codegen"
+  ],
+  "permissions": [
+    "portfolio.read",
+    "analysis.execute"
+  ],
+  "riskLevel": "high",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 180000,
+    "maxToolCalls": 28
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "strategies": {
+        "type": "array"
+      },
+      "status": {
+        "type": "object"
+      },
+      "performance": {
+        "type": "object"
+      },
+      "risks": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "strategies",
+      "status",
+      "performance",
+      "risks"
+    ]
+  }
+}

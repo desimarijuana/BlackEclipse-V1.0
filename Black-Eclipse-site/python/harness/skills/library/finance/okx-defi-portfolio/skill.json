@@ -1,0 +1,74 @@
+{
+  "id": "finance.okx-defi-portfolio",
+  "name": "OKX DeFi Portfolio",
+  "version": "1.0.0",
+  "description": "Read OKX DeFi positions across staking and lending protocols, including per-protocol detail and position overview.",
+  "category": "finance",
+  "tags": [
+    "okx",
+    "defi",
+    "portfolio",
+    "staking",
+    "lending"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "view": {
+        "type": "string",
+        "enum": [
+          "overview",
+          "protocol"
+        ]
+      },
+      "protocol": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "view"
+    ]
+  },
+  "requiredTools": [
+    "portfolio_get",
+    "portfolio_calculate_exposure",
+    "get_market_snapshot",
+    "web_search"
+  ],
+  "requiredSkills": [
+    "finance.account-overview"
+  ],
+  "permissions": [
+    "portfolio.read"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "positions": {
+        "type": "array"
+      },
+      "protocols": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "positions",
+      "protocols",
+      "warnings"
+    ]
+  }
+}

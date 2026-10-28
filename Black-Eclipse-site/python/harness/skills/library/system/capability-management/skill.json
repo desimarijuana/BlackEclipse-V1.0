@@ -1,0 +1,80 @@
+{
+  "id": "system.capability-management",
+  "name": "Capability Management",
+  "version": "1.0.0",
+  "description": "Find, install, configure or uninstall plugins, independent skills and MCP servers, and diagnose integration setup problems.",
+  "category": "system",
+  "tags": [
+    "plugins",
+    "skills",
+    "mcp",
+    "integrations",
+    "setup"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "find",
+          "inspect",
+          "install",
+          "configure",
+          "remove",
+          "diagnose"
+        ]
+      },
+      "capability": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "skill_list",
+    "skill_view",
+    "search_skills",
+    "clarify"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "skill.invoke"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "capability": {
+        "type": "object"
+      },
+      "status": {
+        "type": "string"
+      },
+      "steps": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "capability",
+      "status",
+      "steps",
+      "warnings"
+    ]
+  }
+}

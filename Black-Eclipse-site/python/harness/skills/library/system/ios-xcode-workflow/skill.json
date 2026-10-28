@@ -1,0 +1,64 @@
+{
+  "id": "system.ios-xcode-workflow",
+  "name": "iOS Xcode Workflow",
+  "version": "1.0.0",
+  "description": "Build, test, run and inspect iOS projects with Xcode and Simulator, including schemes, failures, launches and coverage.",
+  "category": "system",
+  "tags": [
+    "ios",
+    "xcode",
+    "build",
+    "tests",
+    "simulator"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "project_path": {
+        "type": "string"
+      },
+      "scheme": {
+        "type": "string"
+      },
+      "destination": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "project_path"
+    ]
+  },
+  "requiredTools": [],
+  "requiredSkills": [],
+  "permissions": [],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 8
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "build": {
+        "type": "object"
+      },
+      "tests": {
+        "type": "object"
+      },
+      "diagnostics": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "build",
+      "tests",
+      "diagnostics"
+    ]
+  }
+}

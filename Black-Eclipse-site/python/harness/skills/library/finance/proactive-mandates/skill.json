@@ -1,0 +1,85 @@
+{
+  "id": "finance.proactive-mandates",
+  "name": "Proactive Mandates",
+  "version": "1.0.0",
+  "description": "Create and manage themed portfolio mandates with a risk profile and budget, generate allocation proposals, and track approval status.",
+  "category": "finance",
+  "tags": [
+    "mandates",
+    "portfolio",
+    "allocation",
+    "proposals",
+    "approval"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "theme": {
+        "type": "string"
+      },
+      "budget": {
+        "type": "number"
+      },
+      "risk_profile": {
+        "type": "string",
+        "enum": [
+          "conservative",
+          "balanced",
+          "aggressive"
+        ]
+      }
+    },
+    "required": [
+      "theme"
+    ]
+  },
+  "requiredTools": [
+    "portfolio_get",
+    "portfolio_construct",
+    "portfolio_optimize",
+    "portfolio_stress_test",
+    "request_strategy_approval",
+    "clarify"
+  ],
+  "requiredSkills": [
+    "finance.analysis"
+  ],
+  "permissions": [
+    "portfolio.read",
+    "analysis.execute"
+  ],
+  "riskLevel": "high",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 120000,
+    "maxToolCalls": 24
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "mandate": {
+        "type": "object"
+      },
+      "proposal": {
+        "type": "object"
+      },
+      "stress_test": {
+        "type": "object"
+      },
+      "approval_status": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "mandate",
+      "proposal",
+      "stress_test",
+      "approval_status"
+    ]
+  }
+}

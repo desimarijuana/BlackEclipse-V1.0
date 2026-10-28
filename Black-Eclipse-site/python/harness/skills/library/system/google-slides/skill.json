@@ -1,0 +1,76 @@
+{
+  "id": "system.google-slides",
+  "name": "Google Slides",
+  "version": "1.0.0",
+  "description": "Read, create and update Google Slides through a connected Google Workspace account.",
+  "category": "system",
+  "tags": [
+    "google",
+    "slides",
+    "presentation",
+    "workspace",
+    "deck"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "read",
+          "create",
+          "update"
+        ]
+      },
+      "presentation_id": {
+        "type": "string"
+      },
+      "brief": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "document_create",
+    "python_chart",
+    "image_generate"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "external.network",
+    "report.generate"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 12
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "deck": {
+        "type": "object"
+      },
+      "outline": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "deck",
+      "outline",
+      "warnings"
+    ]
+  }
+}

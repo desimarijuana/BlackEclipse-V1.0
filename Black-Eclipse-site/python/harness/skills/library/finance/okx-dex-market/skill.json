@@ -1,0 +1,85 @@
+{
+  "id": "finance.okx-dex-market",
+  "name": "OKX DEX Market Data",
+  "version": "1.0.0",
+  "description": "OKX on-chain market data: token prices, candles, index prices, and wallet DEX PnL with win rate and realized results.",
+  "category": "finance",
+  "tags": [
+    "okx",
+    "dex",
+    "market-data",
+    "pnl",
+    "onchain"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "dataset": {
+        "type": "string",
+        "enum": [
+          "price",
+          "candles",
+          "index",
+          "wallet_pnl"
+        ]
+      },
+      "token": {
+        "type": "string"
+      },
+      "wallet": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "dataset"
+    ]
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_ohlcv",
+    "get_trades",
+    "portfolio_calculate_pnl",
+    "analyse_trade_log"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "portfolio.read"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "object"
+      },
+      "pnl": {
+        "type": "object"
+      },
+      "provenance": {
+        "type": "object"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "data",
+      "pnl",
+      "provenance",
+      "warnings"
+    ]
+  }
+}

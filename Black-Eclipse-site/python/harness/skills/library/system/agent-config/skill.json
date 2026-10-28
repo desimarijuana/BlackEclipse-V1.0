@@ -1,0 +1,76 @@
+{
+  "id": "system.agent-config",
+  "name": "Agent Configuration",
+  "version": "1.0.0",
+  "description": "Read or change agent settings, preferences and limits, and configure standalone API credentials.",
+  "category": "system",
+  "tags": [
+    "settings",
+    "preferences",
+    "configuration",
+    "limits",
+    "secrets"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "read",
+          "change",
+          "credential"
+        ]
+      },
+      "setting": {
+        "type": "string"
+      },
+      "value": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "memory",
+    "skill_list",
+    "search_skills",
+    "clarify"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "skill.invoke"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "settings": {
+        "type": "object"
+      },
+      "changed": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "settings",
+      "changed",
+      "warnings"
+    ]
+  }
+}

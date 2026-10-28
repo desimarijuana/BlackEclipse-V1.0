@@ -1,0 +1,82 @@
+{
+  "id": "finance.pre-ipo",
+  "name": "Pre-IPO Access",
+  "version": "1.0.0",
+  "description": "Check availability and access channels for pre-IPO and private-company assets, including tokenized spot and perpetual routes.",
+  "category": "finance",
+  "tags": [
+    "pre-ipo",
+    "private-companies",
+    "access",
+    "tokenized",
+    "markets"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "company": {
+        "type": "string"
+      },
+      "route": {
+        "type": "string",
+        "enum": [
+          "spot",
+          "perps",
+          "any"
+        ]
+      }
+    },
+    "required": [
+      "company"
+    ]
+  },
+  "requiredTools": [
+    "resolve_instrument",
+    "get_market_snapshot",
+    "get_news",
+    "portfolio_get",
+    "web_search"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "research.read",
+    "portfolio.read"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "available": {
+        "type": "boolean"
+      },
+      "routes": {
+        "type": "array"
+      },
+      "terms": {
+        "type": "object"
+      },
+      "risks": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "available",
+      "routes",
+      "terms",
+      "risks"
+    ]
+  }
+}

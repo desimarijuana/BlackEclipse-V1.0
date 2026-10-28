@@ -1,0 +1,80 @@
+{
+  "id": "system.artifact-presentation",
+  "name": "Presentations",
+  "version": "1.0.0",
+  "description": "Create, read, summarise and deliver PowerPoint decks as real PPTX files.",
+  "category": "system",
+  "tags": [
+    "slides",
+    "pptx",
+    "presentation",
+    "deck",
+    "report"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "create",
+          "read",
+          "summarise"
+        ]
+      },
+      "brief": {
+        "type": "string"
+      },
+      "slides": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "document_create",
+    "python_chart",
+    "image_generate",
+    "eclipse_report"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "report.generate"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "deck": {
+        "type": "object"
+      },
+      "outline": {
+        "type": "array"
+      },
+      "slides": {
+        "type": "integer"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "deck",
+      "outline",
+      "slides",
+      "warnings"
+    ]
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "id": "system.automation",
+  "name": "Automation",
+  "version": "1.0.0",
+  "description": "Create and manage automations: reminders, scheduled agents, price alerts, address trade alerts and local workflows.",
+  "category": "system",
+  "tags": [
+    "automation",
+    "scheduling",
+    "alerts",
+    "jobs",
+    "workflow"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "create",
+          "list",
+          "inspect",
+          "run",
+          "pause",
+          "resume",
+          "delete"
+        ]
+      },
+      "schedule": {
+        "type": "string"
+      },
+      "task": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "job_create",
+    "job_list",
+    "job_run_now",
+    "job_describe_template",
+    "bot_create",
+    "bot_list",
+    "bot_get"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "skill.invoke"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 180000,
+    "maxToolCalls": 28
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "automation": {
+        "type": "object"
+      },
+      "schedule": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "automation",
+      "schedule",
+      "status",
+      "warnings"
+    ]
+  }
+}

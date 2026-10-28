@@ -1,0 +1,79 @@
+{
+  "id": "system.video-generation",
+  "name": "Video Production",
+  "version": "1.0.0",
+  "description": "Produce videos using the current model, real footage and render templates for animation, editing, subtitles and short films.",
+  "category": "system",
+  "tags": [
+    "video",
+    "animation",
+    "editing",
+    "subtitles",
+    "media"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "brief": {
+        "type": "string"
+      },
+      "duration": {
+        "type": "number"
+      },
+      "aspect": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "brief"
+    ]
+  },
+  "requiredTools": [
+    "video_create_project",
+    "video_update_project",
+    "video_validate_project",
+    "video_render_final",
+    "video_inspect",
+    "video_list_projects",
+    "image_generate"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "external.network",
+    "report.generate"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 180000,
+    "maxToolCalls": 28
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "project": {
+        "type": "object"
+      },
+      "video": {
+        "type": "object"
+      },
+      "storyboard": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "project",
+      "video",
+      "storyboard",
+      "warnings"
+    ]
+  }
+}

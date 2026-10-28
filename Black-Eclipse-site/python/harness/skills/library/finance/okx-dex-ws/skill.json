@@ -1,0 +1,82 @@
+{
+  "id": "finance.okx-dex-ws",
+  "name": "OKX DEX WebSocket",
+  "version": "1.0.0",
+  "description": "Manage OKX on-chain WebSocket sessions and channels for real-time prices, candles, trades, signals, tracker and meme scanning.",
+  "category": "finance",
+  "tags": [
+    "okx",
+    "websocket",
+    "streaming",
+    "realtime",
+    "onchain"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "start",
+          "poll",
+          "stop",
+          "list",
+          "channels"
+        ]
+      },
+      "channel": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "stream_market_data",
+    "get_market_snapshot",
+    "get_trades",
+    "web_search"
+  ],
+  "requiredSkills": [
+    "finance.okx-dex-market"
+  ],
+  "permissions": [
+    "data.read",
+    "external.network"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "session": {
+        "type": "object"
+      },
+      "channels": {
+        "type": "array"
+      },
+      "events": {
+        "type": "array"
+      },
+      "notes": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "session",
+      "channels",
+      "events",
+      "notes"
+    ]
+  }
+}

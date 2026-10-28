@@ -1,0 +1,80 @@
+{
+  "id": "system.diagram-design",
+  "name": "Diagram Design",
+  "version": "1.0.0",
+  "description": "Create technical and product diagrams as standalone HTML with inline SVG: architecture, flowchart, sequence, state machine, ER, timeline, swimlane and quadrant.",
+  "category": "system",
+  "tags": [
+    "diagrams",
+    "svg",
+    "architecture",
+    "flowchart",
+    "visualization"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "kind": {
+        "type": "string",
+        "enum": [
+          "architecture",
+          "flowchart",
+          "sequence",
+          "state",
+          "er",
+          "timeline",
+          "swimlane",
+          "quadrant",
+          "tree",
+          "venn",
+          "pyramid"
+        ]
+      },
+      "content": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "kind",
+      "content"
+    ]
+  },
+  "requiredTools": [
+    "document_create",
+    "python_chart"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "report.generate"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 8
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "html": {
+        "type": "object"
+      },
+      "svg": {
+        "type": "string"
+      },
+      "notes": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "html",
+      "svg",
+      "notes"
+    ]
+  }
+}

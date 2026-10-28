@@ -1,0 +1,83 @@
+{
+  "id": "system.artifact-spreadsheet",
+  "name": "Spreadsheets",
+  "version": "1.0.0",
+  "description": "Create, read, audit, edit and convert Excel workbooks or CSV files.",
+  "category": "system",
+  "tags": [
+    "spreadsheet",
+    "excel",
+    "xlsx",
+    "csv",
+    "data"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "create",
+          "read",
+          "audit",
+          "edit",
+          "convert"
+        ]
+      },
+      "source": {
+        "type": "string"
+      },
+      "schema": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "document_create",
+    "analyze_dataset",
+    "python_chart",
+    "query_dataset"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "report.generate",
+    "analysis.execute"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "workbook": {
+        "type": "object"
+      },
+      "rows": {
+        "type": "integer"
+      },
+      "issues": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "workbook",
+      "rows",
+      "issues",
+      "warnings"
+    ]
+  }
+}

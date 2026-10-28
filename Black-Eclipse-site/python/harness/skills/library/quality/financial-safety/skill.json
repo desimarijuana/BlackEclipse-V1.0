@@ -1,0 +1,83 @@
+{
+  "id": "quality.financial-safety",
+  "name": "Financial Safety Check",
+  "version": "1.0.0",
+  "description": "Warn before impaired spending, scam or coercion payments, revenge trading, or self-harm signals, and correct a prior warning when asked.",
+  "category": "quality",
+  "tags": [
+    "safety",
+    "scam",
+    "coercion",
+    "risk",
+    "guardrails"
+  ],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "situation": {
+        "type": "string"
+      },
+      "amount": {
+        "type": "number"
+      },
+      "counterparty": {
+        "type": "string"
+      },
+      "urgency": {
+        "type": "string",
+        "enum": [
+          "none",
+          "some",
+          "extreme"
+        ]
+      }
+    },
+    "required": [
+      "situation"
+    ]
+  },
+  "requiredTools": [
+    "portfolio_get",
+    "journal_trades",
+    "get_market_snapshot"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "portfolio.read",
+    "analysis.execute"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 120000,
+    "maxToolCalls": 12
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "risk": {
+        "type": "string"
+      },
+      "signals": {
+        "type": "array"
+      },
+      "recommended_action": {
+        "type": "string"
+      },
+      "resources": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "risk",
+      "signals",
+      "recommended_action",
+      "resources"
+    ]
+  }
+}

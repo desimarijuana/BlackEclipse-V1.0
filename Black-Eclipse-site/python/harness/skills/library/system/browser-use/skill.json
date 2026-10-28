@@ -1,0 +1,73 @@
+{
+  "id": "system.browser-use",
+  "name": "Browser Use",
+  "version": "1.0.0",
+  "description": "Operate a browser workbench page for navigation, extraction, screenshots and form workflows while the user watches.",
+  "category": "system",
+  "tags": [
+    "browser",
+    "web",
+    "navigation",
+    "extraction",
+    "forms"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "url": {
+        "type": "string"
+      },
+      "goal": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "url",
+      "goal"
+    ]
+  },
+  "requiredTools": [
+    "browser_navigate",
+    "browser_snapshot",
+    "browser_click",
+    "browser_type",
+    "browser_get_text",
+    "browser_screenshot",
+    "browser_extract",
+    "browser_tabs"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "external.network"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 180000,
+    "maxToolCalls": 32
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "result": {
+        "type": "object"
+      },
+      "screenshots": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "result",
+      "screenshots",
+      "warnings"
+    ]
+  }
+}

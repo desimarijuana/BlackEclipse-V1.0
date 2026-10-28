@@ -1,0 +1,91 @@
+{
+  "id": "finance.institution",
+  "name": "Institution Mode",
+  "version": "1.0.0",
+  "description": "Run a multi-agent institution workflow (analysts, debate, trader, risk, portfolio manager) for high-stakes single-asset or multi-asset analysis.",
+  "category": "finance",
+  "tags": [
+    "analysis",
+    "multi-agent",
+    "debate",
+    "risk",
+    "committee"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "subject": {
+        "type": "string"
+      },
+      "question": {
+        "type": "string"
+      },
+      "roles": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "subject",
+      "question"
+    ]
+  },
+  "requiredTools": [
+    "research_start",
+    "get_market_snapshot",
+    "get_fundamentals",
+    "portfolio_get",
+    "calculate_drawdown",
+    "python_chart"
+  ],
+  "requiredSkills": [
+    "finance.analysis",
+    "research.deep-research"
+  ],
+  "permissions": [
+    "data.read",
+    "research.read",
+    "analysis.execute",
+    "portfolio.read"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 120000,
+    "maxToolCalls": 24
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "thesis": {
+        "type": "string"
+      },
+      "bull_case": {
+        "type": "string"
+      },
+      "bear_case": {
+        "type": "string"
+      },
+      "risk_review": {
+        "type": "string"
+      },
+      "decision": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "thesis",
+      "bull_case",
+      "bear_case",
+      "risk_review",
+      "decision"
+    ]
+  }
+}

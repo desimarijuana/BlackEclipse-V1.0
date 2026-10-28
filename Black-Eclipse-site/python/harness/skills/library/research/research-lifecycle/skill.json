@@ -1,0 +1,100 @@
+{
+  "id": "research.research-lifecycle",
+  "name": "Research Lifecycle",
+  "version": "1.0.0",
+  "description": "Maintain a versioned investment research case from evidence snapshots and thesis revisions through decision, watchlist and review triggers.",
+  "category": "research",
+  "tags": [
+    "research",
+    "thesis",
+    "lifecycle",
+    "watchlist",
+    "decisions"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "subject": {
+        "type": "string",
+        "description": "Company, asset or theme."
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "create",
+          "update",
+          "review",
+          "close"
+        ]
+      },
+      "thesis": {
+        "type": "string",
+        "description": "Current thesis when revising."
+      }
+    },
+    "required": [
+      "subject",
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "research_start",
+    "research_status",
+    "get_fundamentals",
+    "get_market_snapshot",
+    "get_news",
+    "memory",
+    "document_create"
+  ],
+  "requiredSkills": [
+    "research.deep-research",
+    "research.fact-finding"
+  ],
+  "permissions": [
+    "research.read",
+    "analysis.execute",
+    "report.generate"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 11,
+    "timeoutMs": 180000,
+    "maxToolCalls": 28
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "case_id": {
+        "type": "string"
+      },
+      "version": {
+        "type": "integer"
+      },
+      "thesis": {
+        "type": "string"
+      },
+      "evidence": {
+        "type": "array"
+      },
+      "triggers": {
+        "type": "array"
+      },
+      "status": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "case_id",
+      "version",
+      "thesis",
+      "evidence",
+      "triggers",
+      "status"
+    ]
+  }
+}

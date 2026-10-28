@@ -1,0 +1,77 @@
+{
+  "id": "system.mail",
+  "name": "Mail",
+  "version": "1.0.0",
+  "description": "Search, read, draft, reply and send email through a connected Gmail or Outlook account.",
+  "category": "system",
+  "tags": [
+    "email",
+    "mail",
+    "draft",
+    "inbox",
+    "productivity"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "search",
+          "read",
+          "draft",
+          "reply",
+          "send"
+        ]
+      },
+      "query": {
+        "type": "string"
+      },
+      "body": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "web_search",
+    "web_extract",
+    "clarify"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "external.network"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 12
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "messages": {
+        "type": "array"
+      },
+      "draft": {
+        "type": "object"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "messages",
+      "draft",
+      "warnings"
+    ]
+  }
+}

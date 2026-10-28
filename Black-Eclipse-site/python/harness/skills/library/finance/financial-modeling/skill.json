@@ -1,0 +1,93 @@
+{
+  "id": "finance.financial-modeling",
+  "name": "Financial Modeling",
+  "version": "1.0.0",
+  "description": "Build, roll forward and audit transparent three-statement, DCF, LBO, comps, merger, debt and capital-structure models.",
+  "category": "finance",
+  "tags": [
+    "modeling",
+    "dcf",
+    "lbo",
+    "comps",
+    "capital-structure"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "symbol": {
+        "type": "string"
+      },
+      "model_type": {
+        "type": "string",
+        "enum": [
+          "three_statement",
+          "dcf",
+          "lbo",
+          "comps",
+          "merger",
+          "debt"
+        ]
+      },
+      "assumptions": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "symbol",
+      "model_type"
+    ]
+  },
+  "requiredTools": [
+    "fundamentals_get_financials",
+    "fundamentals_get_company_profile",
+    "finance_metrics",
+    "finance_series",
+    "finance_valuation",
+    "finance_growth",
+    "finance_fcf",
+    "python_chart",
+    "document_create"
+  ],
+  "requiredSkills": [
+    "finance.fundamental-analysis"
+  ],
+  "permissions": [
+    "data.read",
+    "analysis.execute",
+    "report.generate"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 10,
+    "timeoutMs": 180000,
+    "maxToolCalls": 36
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "model": {
+        "type": "object"
+      },
+      "assumptions": {
+        "type": "object"
+      },
+      "sensitivity": {
+        "type": "object"
+      },
+      "limitations": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "model",
+      "assumptions",
+      "sensitivity",
+      "limitations"
+    ]
+  }
+}

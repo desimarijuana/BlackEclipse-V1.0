@@ -1,0 +1,84 @@
+{
+  "id": "finance.hyperliquid",
+  "name": "Hyperliquid Reference",
+  "version": "1.0.0",
+  "description": "Hyperliquid read-only reference: Info endpoint, WebSocket subscriptions, HyperEVM RPC and rate limits for prices, books, funding and positions.",
+  "category": "finance",
+  "tags": [
+    "hyperliquid",
+    "perps",
+    "onchain",
+    "api",
+    "reference"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "dataset": {
+        "type": "string",
+        "enum": [
+          "prices",
+          "candles",
+          "book",
+          "funding",
+          "positions",
+          "hyperevm"
+        ]
+      },
+      "coin": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "dataset"
+    ]
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_orderbook",
+    "get_funding_rate",
+    "get_open_interest",
+    "get_trades",
+    "get_quote"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 24
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "object"
+      },
+      "endpoint": {
+        "type": "string"
+      },
+      "rate_limit": {
+        "type": "string"
+      },
+      "notes": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "data",
+      "endpoint",
+      "rate_limit",
+      "notes"
+    ]
+  }
+}

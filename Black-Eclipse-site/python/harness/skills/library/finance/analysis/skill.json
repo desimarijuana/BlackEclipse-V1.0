@@ -1,0 +1,102 @@
+{
+  "id": "finance.analysis",
+  "name": "Asset Analysis",
+  "version": "1.0.0",
+  "description": "Analyze, compare or recommend tokens, stocks, indices, commodities, FX and DeFi, including screening, valuation, allocation and entry/stop/take-profit plans.",
+  "category": "finance",
+  "tags": [
+    "analysis",
+    "screening",
+    "allocation",
+    "trade-plan",
+    "equity-analysis"
+  ],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "subject": {
+        "type": "string"
+      },
+      "question": {
+        "type": "string"
+      },
+      "risk_profile": {
+        "type": "string",
+        "enum": [
+          "conservative",
+          "balanced",
+          "aggressive"
+        ]
+      },
+      "horizon": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "subject",
+      "question"
+    ]
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_historical_prices",
+    "get_ohlcv",
+    "get_fundamentals",
+    "get_news",
+    "calculate_returns",
+    "calculate_drawdown",
+    "run_monte_carlo",
+    "portfolio_get",
+    "python_chart"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "analysis.execute",
+    "portfolio.read"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 11,
+    "timeoutMs": 180000,
+    "maxToolCalls": 40
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "view": {
+        "type": "string"
+      },
+      "thesis": {
+        "type": "string"
+      },
+      "opposing_case": {
+        "type": "string"
+      },
+      "levels": {
+        "type": "object"
+      },
+      "risks": {
+        "type": "array"
+      },
+      "evidence": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "view",
+      "thesis",
+      "opposing_case",
+      "levels",
+      "risks",
+      "evidence"
+    ]
+  }
+}

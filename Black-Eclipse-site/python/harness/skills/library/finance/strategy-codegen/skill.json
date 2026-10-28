@@ -1,0 +1,90 @@
+{
+  "id": "finance.strategy-codegen",
+  "name": "Strategy Codegen",
+  "version": "1.0.0",
+  "description": "Author, port, backtest, validate and deploy trading strategies in the Eclipse strategy runtime, and inspect deployed strategies.",
+  "category": "finance",
+  "tags": [
+    "strategy",
+    "codegen",
+    "backtest",
+    "deployment",
+    "validation"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "idea": {
+        "type": "string"
+      },
+      "universe": {
+        "type": "string"
+      },
+      "timeframe": {
+        "type": "string"
+      },
+      "venue": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "idea"
+    ]
+  },
+  "requiredTools": [
+    "create_strategy",
+    "update_strategy",
+    "validate_strategy",
+    "run_backtest",
+    "run_vectorized_backtest",
+    "run_walk_forward",
+    "optimize_parameters",
+    "generate_edge_report",
+    "request_strategy_approval"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "analysis.execute"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 180000,
+    "maxToolCalls": 36
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "strategy_id": {
+        "type": "string"
+      },
+      "code": {
+        "type": "string"
+      },
+      "backtest": {
+        "type": "object"
+      },
+      "validation": {
+        "type": "object"
+      },
+      "risks": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "strategy_id",
+      "code",
+      "backtest",
+      "validation",
+      "risks"
+    ]
+  }
+}

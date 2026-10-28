@@ -1,0 +1,75 @@
+{
+  "id": "system.data-studio-dashboard",
+  "name": "Data Studio Dashboard",
+  "version": "1.0.0",
+  "description": "Create a real Data Studio dashboard when the user explicitly asks for a dashboard, market board, monitoring page or shareable data site.",
+  "category": "system",
+  "tags": [
+    "dashboard",
+    "market-board",
+    "monitoring",
+    "website",
+    "data"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "request": {
+        "type": "string"
+      },
+      "share": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "request"
+    ]
+  },
+  "requiredTools": [
+    "document_create",
+    "python_chart",
+    "browser_navigate",
+    "browser_screenshot"
+  ],
+  "requiredSkills": [
+    "system.data-studio"
+  ],
+  "permissions": [
+    "analysis.execute",
+    "report.generate"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "dashboard": {
+        "type": "object"
+      },
+      "url": {
+        "type": "string"
+      },
+      "panels": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "dashboard",
+      "url",
+      "panels",
+      "warnings"
+    ]
+  }
+}

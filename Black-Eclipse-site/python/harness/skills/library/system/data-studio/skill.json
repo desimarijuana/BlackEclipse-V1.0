@@ -1,0 +1,77 @@
+{
+  "id": "system.data-studio",
+  "name": "Data Studio",
+  "version": "1.0.0",
+  "description": "Author a live-data dashboard app from a plain-language request.",
+  "category": "system",
+  "tags": [
+    "dashboard",
+    "data",
+    "app",
+    "live-data",
+    "studio"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "request": {
+        "type": "string"
+      },
+      "data_sources": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "required": [
+      "request"
+    ]
+  },
+  "requiredTools": [
+    "document_create",
+    "python_chart",
+    "browser_navigate",
+    "browser_screenshot",
+    "analyze_dataset"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "analysis.execute",
+    "report.generate"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "app": {
+        "type": "object"
+      },
+      "files": {
+        "type": "array"
+      },
+      "preview": {
+        "type": "object"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "app",
+      "files",
+      "preview",
+      "warnings"
+    ]
+  }
+}

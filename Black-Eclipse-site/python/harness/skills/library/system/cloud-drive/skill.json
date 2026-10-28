@@ -1,0 +1,77 @@
+{
+  "id": "system.cloud-drive",
+  "name": "Cloud Drive",
+  "version": "1.0.0",
+  "description": "Search, read, upload, move and version files through connected Google Workspace or OneDrive accounts.",
+  "category": "system",
+  "tags": [
+    "drive",
+    "files",
+    "cloud",
+    "google",
+    "onedrive"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "search",
+          "read",
+          "upload",
+          "move"
+        ]
+      },
+      "query": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "document_context",
+    "document_create",
+    "web_search"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "external.network",
+    "report.generate"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 12
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "files": {
+        "type": "array"
+      },
+      "document": {
+        "type": "object"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "files",
+      "document",
+      "warnings"
+    ]
+  }
+}

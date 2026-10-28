@@ -1,0 +1,71 @@
+{
+  "id": "system.image-generation",
+  "name": "Image Generation",
+  "version": "1.0.0",
+  "description": "Generate or edit images from text, reference images, multiple images, or masks with the current image model.",
+  "category": "system",
+  "tags": [
+    "image",
+    "generation",
+    "editing",
+    "inpainting",
+    "media"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "prompt": {
+        "type": "string"
+      },
+      "reference": {
+        "type": "string"
+      },
+      "aspect": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "prompt"
+    ]
+  },
+  "requiredTools": [
+    "image_generate",
+    "image_understand",
+    "render_image_gallery",
+    "vision_analyze"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "external.network"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "image": {
+        "type": "object"
+      },
+      "revised_prompt": {
+        "type": "string"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "image",
+      "revised_prompt",
+      "warnings"
+    ]
+  }
+}

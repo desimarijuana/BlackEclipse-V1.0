@@ -1,0 +1,83 @@
+{
+  "id": "finance.binance",
+  "name": "Binance Market Reference",
+  "version": "1.0.0",
+  "description": "Reference for Binance CEX spot and futures public market data: klines, tickers, orderbook depth, funding, open interest and long/short ratios.",
+  "category": "finance",
+  "tags": [
+    "binance",
+    "cex",
+    "market-data",
+    "derivatives",
+    "reference"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "symbol": {
+        "type": "string"
+      },
+      "dataset": {
+        "type": "string",
+        "enum": [
+          "spot",
+          "futures",
+          "funding",
+          "open_interest",
+          "orderbook"
+        ]
+      }
+    },
+    "required": [
+      "symbol"
+    ]
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_ohlcv",
+    "get_orderbook",
+    "get_funding_rate",
+    "get_open_interest",
+    "get_quote"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 24
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "object"
+      },
+      "endpoint": {
+        "type": "string"
+      },
+      "provenance": {
+        "type": "object"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "data",
+      "endpoint",
+      "provenance",
+      "warnings"
+    ]
+  }
+}

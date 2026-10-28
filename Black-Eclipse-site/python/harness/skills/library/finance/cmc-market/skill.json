@@ -1,0 +1,80 @@
+{
+  "id": "finance.cmc-market",
+  "name": "CoinMarketCap Market API",
+  "version": "1.0.0",
+  "description": "Reference for CoinMarketCap market-wide endpoints: global metrics, fear and greed, indices, trending topics and charts.",
+  "category": "finance",
+  "tags": [
+    "coinmarketcap",
+    "market",
+    "sentiment",
+    "api",
+    "reference"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "dataset": {
+        "type": "string",
+        "enum": [
+          "global",
+          "fear_greed",
+          "indices",
+          "trending",
+          "charts"
+        ]
+      }
+    },
+    "required": [
+      "dataset"
+    ]
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_ohlcv",
+    "get_market_cap",
+    "web_search",
+    "web_extract"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "research.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "metric": {
+        "type": "object"
+      },
+      "series": {
+        "type": "array"
+      },
+      "method": {
+        "type": "string"
+      },
+      "notes": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "metric",
+      "series",
+      "method",
+      "notes"
+    ]
+  }
+}

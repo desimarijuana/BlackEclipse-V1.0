@@ -1,0 +1,75 @@
+{
+  "id": "system.viz-chart",
+  "name": "Charts",
+  "version": "1.0.0",
+  "description": "Turn data into ECharts and render it inline in the response.",
+  "category": "system",
+  "tags": [
+    "charts",
+    "visualization",
+    "echarts",
+    "data",
+    "inline"
+  ],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "object"
+      },
+      "chart_type": {
+        "type": "string",
+        "enum": [
+          "line",
+          "bar",
+          "candlestick",
+          "scatter",
+          "heatmap",
+          "pie"
+        ]
+      },
+      "title": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "data"
+    ]
+  },
+  "requiredTools": [
+    "python_chart",
+    "plot_equity_curve",
+    "plot_drawdown",
+    "calculate_returns"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "analysis.execute"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "chart": {
+        "type": "object"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "chart",
+      "warnings"
+    ]
+  }
+}

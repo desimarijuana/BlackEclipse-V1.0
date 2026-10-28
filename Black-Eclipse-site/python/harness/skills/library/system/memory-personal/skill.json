@@ -1,0 +1,78 @@
+{
+  "id": "system.memory-personal",
+  "name": "Personal Memory",
+  "version": "1.0.0",
+  "description": "Save and recall durable user facts, search prior conversations and manage personalization when a request depends on past context.",
+  "category": "system",
+  "tags": [
+    "memory",
+    "personalization",
+    "history",
+    "preferences",
+    "recall"
+  ],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "write",
+          "search",
+          "read",
+          "forget"
+        ]
+      },
+      "content": {
+        "type": "string"
+      },
+      "query": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "memory",
+    "memory_search_native",
+    "session_search",
+    "search_experiences",
+    "search_memory"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "data.read"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "memories": {
+        "type": "array"
+      },
+      "written": {
+        "type": "object"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "memories",
+      "written",
+      "warnings"
+    ]
+  }
+}

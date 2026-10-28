@@ -1,0 +1,80 @@
+{
+  "id": "quality.visual-reading",
+  "name": "Visual Reading",
+  "version": "1.0.0",
+  "description": "Read screenshots, scans, receipts, forms and charts with OCR plus visual structure, confidence, and source-location reporting.",
+  "category": "quality",
+  "tags": [
+    "vision",
+    "ocr",
+    "documents",
+    "charts",
+    "extraction"
+  ],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "asset_id": {
+        "type": "string",
+        "description": "Uploaded image or document asset id."
+      },
+      "question": {
+        "type": "string",
+        "description": "What to read or extract."
+      }
+    },
+    "required": [
+      "asset_id"
+    ]
+  },
+  "requiredTools": [
+    "vision_analyze",
+    "vision_answer",
+    "ocr_extract",
+    "image_understand",
+    "document_vision"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "data.read",
+    "analysis.execute"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string"
+      },
+      "structure": {
+        "type": "object"
+      },
+      "confidence": {
+        "type": "number"
+      },
+      "locations": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "text",
+      "structure",
+      "confidence",
+      "locations",
+      "warnings"
+    ]
+  }
+}

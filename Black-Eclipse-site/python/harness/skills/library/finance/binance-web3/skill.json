@@ -1,0 +1,84 @@
+{
+  "id": "finance.binance-web3",
+  "name": "Binance Web3 Reference",
+  "version": "1.0.0",
+  "description": "Reference for Binance Web3 on-chain data: token candles, trending rankings, smart-money trades, holders, liquidity pools and wallet activity.",
+  "category": "finance",
+  "tags": [
+    "binance",
+    "web3",
+    "onchain",
+    "smart-money",
+    "reference"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "chain": {
+        "type": "string"
+      },
+      "token": {
+        "type": "string"
+      },
+      "dataset": {
+        "type": "string",
+        "enum": [
+          "candles",
+          "trending",
+          "trades",
+          "holders",
+          "pools",
+          "wallet"
+        ]
+      }
+    }
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_ohlcv",
+    "get_trades",
+    "web_search",
+    "web_extract"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "research.read"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 20
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "data": {
+        "type": "object"
+      },
+      "chain": {
+        "type": "string"
+      },
+      "provenance": {
+        "type": "object"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "data",
+      "chain",
+      "provenance",
+      "warnings"
+    ]
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "id": "system.google-forms",
+  "name": "Google Forms",
+  "version": "1.0.0",
+  "description": "Read form bodies and responses, or update Google Forms through a connected Google Workspace account.",
+  "category": "system",
+  "tags": [
+    "google",
+    "forms",
+    "survey",
+    "responses",
+    "workspace"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "read",
+          "responses",
+          "update"
+        ]
+      },
+      "form_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ]
+  },
+  "requiredTools": [
+    "document_context",
+    "document_create",
+    "web_search"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "external.network",
+    "report.generate"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 7,
+    "timeoutMs": 120000,
+    "maxToolCalls": 12
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "form": {
+        "type": "object"
+      },
+      "responses": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "form",
+      "responses",
+      "warnings"
+    ]
+  }
+}

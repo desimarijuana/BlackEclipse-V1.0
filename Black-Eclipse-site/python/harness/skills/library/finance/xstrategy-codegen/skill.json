@@ -1,0 +1,82 @@
+{
+  "id": "finance.xstrategy-codegen",
+  "name": "Cross-Sectional Strategy Codegen",
+  "version": "1.0.0",
+  "description": "Author, backtest and deploy cross-sectional multi-asset basket strategies written as a factor score over a symbol universe.",
+  "category": "finance",
+  "tags": [
+    "strategy",
+    "cross-sectional",
+    "basket",
+    "factors",
+    "backtest"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "hypothesis": {
+        "type": "string"
+      },
+      "universe": {
+        "type": "string"
+      },
+      "rebalance": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "hypothesis",
+      "universe"
+    ]
+  },
+  "requiredTools": [
+    "create_factor_definition",
+    "compose_alpha_model",
+    "run_quantile_portfolio",
+    "run_backtest",
+    "analyze_factor_stability",
+    "request_strategy_approval"
+  ],
+  "requiredSkills": [
+    "finance.factor-research",
+    "finance.strategy-codegen"
+  ],
+  "permissions": [
+    "data.read",
+    "analysis.execute"
+  ],
+  "riskLevel": "medium",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 120000,
+    "maxToolCalls": 24
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "factor": {
+        "type": "object"
+      },
+      "portfolio": {
+        "type": "object"
+      },
+      "backtest": {
+        "type": "object"
+      },
+      "limitations": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "factor",
+      "portfolio",
+      "backtest",
+      "limitations"
+    ]
+  }
+}

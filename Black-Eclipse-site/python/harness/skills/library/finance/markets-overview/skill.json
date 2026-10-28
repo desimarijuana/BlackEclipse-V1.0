@@ -1,0 +1,89 @@
+{
+  "id": "finance.markets-overview",
+  "name": "Markets Overview",
+  "version": "1.0.0",
+  "description": "Produce a cross-asset briefing covering indices, futures, FX, yields, sectors, movers, crypto sentiment, news and earnings.",
+  "category": "finance",
+  "tags": [
+    "markets",
+    "briefing",
+    "macro",
+    "sectors",
+    "overview"
+  ],
+  "status": "enabled",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "region": {
+        "type": "string"
+      },
+      "asset_classes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "horizon": {
+        "type": "string",
+        "enum": [
+          "session",
+          "week",
+          "month"
+        ]
+      }
+    }
+  },
+  "requiredTools": [
+    "get_market_snapshot",
+    "get_historical_prices",
+    "get_news",
+    "get_fundamentals",
+    "calculate_returns",
+    "calculate_correlation"
+  ],
+  "requiredSkills": [
+    "finance.market-data"
+  ],
+  "permissions": [
+    "data.read",
+    "analysis.execute"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 9,
+    "timeoutMs": 120000,
+    "maxToolCalls": 24
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "regime": {
+        "type": "string"
+      },
+      "sections": {
+        "type": "array"
+      },
+      "movers": {
+        "type": "array"
+      },
+      "risks": {
+        "type": "array"
+      },
+      "provenance": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "regime",
+      "sections",
+      "movers",
+      "risks",
+      "provenance"
+    ]
+  }
+}

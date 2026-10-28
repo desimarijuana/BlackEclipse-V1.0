@@ -1,0 +1,80 @@
+{
+  "id": "system.artifact-report",
+  "name": "Business Reports",
+  "version": "1.0.0",
+  "description": "Produce concise business reports, weekly updates, proposals and briefs as validated local artifacts without unnecessary deep research.",
+  "category": "system",
+  "tags": [
+    "report",
+    "brief",
+    "proposal",
+    "writing",
+    "deliverable"
+  ],
+  "status": "draft",
+  "instructions": "SKILL.md",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "brief": {
+        "type": "string"
+      },
+      "audience": {
+        "type": "string"
+      },
+      "format": {
+        "type": "string",
+        "enum": [
+          "docx",
+          "pdf",
+          "markdown"
+        ]
+      }
+    },
+    "required": [
+      "brief"
+    ]
+  },
+  "requiredTools": [
+    "document_create",
+    "eclipse_report",
+    "python_chart",
+    "document_context"
+  ],
+  "requiredSkills": [],
+  "permissions": [
+    "report.generate"
+  ],
+  "riskLevel": "low",
+  "limits": {
+    "maxSteps": 8,
+    "timeoutMs": 120000,
+    "maxToolCalls": 16
+  },
+  "author": "eclipse",
+  "origin": "builtin",
+  "compatibleRuntime": ">=0.1.0",
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "report": {
+        "type": "object"
+      },
+      "outline": {
+        "type": "array"
+      },
+      "sources": {
+        "type": "array"
+      },
+      "warnings": {
+        "type": "array"
+      }
+    },
+    "required": [
+      "report",
+      "outline",
+      "sources",
+      "warnings"
+    ]
+  }
+}
