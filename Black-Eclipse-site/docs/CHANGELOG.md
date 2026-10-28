@@ -11,7 +11,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Added `test_learning_gates.py` and an accept-route 403 test: candidate
   acceptance, skill authoring, skill lifecycle writes, and effectful capability
   activation remain operator-gated; the advisory cadence writes only observed
-  outcomes. Documentation: `docs/self-improvement/GATE_REGRESSION.md`.
+  outcomes. These tests run in the default Python suite. Documentation:
+  `docs/self-improvement/GATE_REGRESSION.md`.
 - **feat(advisory): explain and honestly backfill legacy debt.**
   `GET /advisory/legacy` reports why each legacy recommendation is unscorable
   (`no_horizon`, `no_entry_price`, `no_symbol`, `no_method`).

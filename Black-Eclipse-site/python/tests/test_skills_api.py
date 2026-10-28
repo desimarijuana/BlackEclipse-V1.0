@@ -115,6 +115,18 @@ def test_candidate_accept_creates_an_inert_skill(client):
     assert store.get_skill(body["resultingSkillId"])["status"] == "draft"
 
 
+def test_candidate_accept_refuses_without_operator_flag(client):
+    missing = client.post(
+        "/learning/candidates/does_not_exist/accept", json={},
+    )
+    assert missing.status_code == 403
+    denied = client.post(
+        "/learning/candidates/does_not_exist/accept",
+        json={"operator": False},
+    )
+    assert denied.status_code == 403
+
+
 def test_learning_candidates_endpoint_starts_empty_or_lists(client):
     body = client.get("/learning/candidates").json()
     assert body["success"] is True
