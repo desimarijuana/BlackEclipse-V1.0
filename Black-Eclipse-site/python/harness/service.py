@@ -998,6 +998,26 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - skill maintenance must never block boot
             log.warning("startup skill maintenance failed", exc_info=True)
             result["skillMaintenance"] = {"ok": False, "error": "maintenance failed"}
+        # Agent-curated memory: merge exact/near duplicates, but leave a genuine
+        # contradiction for review (resolve_conflicts=False). Rows are retained.
+        try:
+            from .eclipse_memory.consolidation import consolidate_active  # noqa: PLC0415
+
+            result["memoryConsolidation"] = consolidate_active(
+                self.memory.store, limit=200, dry_run=False,
+                resolve_conflicts=False,
+            )
+        except Exception:  # noqa: BLE001 - consolidation must never block boot
+            log.warning("startup memory consolidation failed", exc_info=True)
+            result["memoryConsolidation"] = {"ok": False, "error": "consolidation failed"}
+        # Cross-session recall: index completed runs that predate indexing.
+        try:
+            from .session_index import backfill_run_index  # noqa: PLC0415
+
+            result["sessionIndexBackfill"] = backfill_run_index(self.store, limit=200)
+        except Exception:  # noqa: BLE001 - backfill must never block boot
+            log.warning("session index backfill failed", exc_info=True)
+            result["sessionIndexBackfill"] = {"ok": False, "error": "backfill failed"}
         try:
             from .code.worktree import sweep_expired  # noqa: PLC0415
 

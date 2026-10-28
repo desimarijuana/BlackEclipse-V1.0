@@ -306,12 +306,14 @@ EXPECTED = (
     # the app-surface tools do.
     'learning_review_list',
     'learning_candidate_list',
+    'learning_candidate_validate',
     # Bounded read-only GET over the app's own loopback API (QA Round 1).
     'app_api_get',
     # Skill lifecycle: versions + review trails are read-only; activation and the
     # learning switch are approval-gated writes (removed at plan_only).
     'skill_version_history',
     'skill_reviews',
+    'skill_discrimination_check',
     'skill_learning_get',
     # The acquire loop (skill install/uninstall/sources + MCP catalog/install) —
     # deliberately part of the chat code profile: "install this skill / MCP

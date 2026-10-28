@@ -1,4 +1,4 @@
----
+﻿---
 title: Learning Loop Closure
 status: Current
 last-verified: 2026-10-27
@@ -16,11 +16,11 @@ joint falsifiable, and the evidence that would prove a change worked.
 ## The four joints
 
 ```
-run outcome ──► review ──► typed lesson ──► candidate ──► evaluation ──► approval
-                  │                                          │
-                  └── explicit null (reason + evidence)      └── vs a named base
+run outcome â”€â”€â–º review â”€â”€â–º typed lesson â”€â”€â–º candidate â”€â”€â–º evaluation â”€â”€â–º approval
+                  â”‚                                          â”‚
+                  â””â”€â”€ explicit null (reason + evidence)      â””â”€â”€ vs a named base
 
-advice ──► basis at issue time ──► horizon ──► score at deadline ──► calibration
+advice â”€â”€â–º basis at issue time â”€â”€â–º horizon â”€â”€â–º score at deadline â”€â”€â–º calibration
 ```
 
 Every joint has a required output. A null is allowed only when it names what was
@@ -51,7 +51,7 @@ A `failure_recovery` candidate must carry:
 
 - `failedCall` and `recoveredCall` (the observable pair),
 - `precondition` (the error code/message that triggers it),
-- `proposedProcedure` (classify → recover → verify),
+- `proposedProcedure` (classify â†’ recover â†’ verify),
 - `replayTest` (how to reproduce and check it).
 
 Those fields are persisted on `LearningCandidate` (migration 32), not only in the
@@ -72,7 +72,10 @@ capability, and its body must not report `UNAVAILABLE`/`TimeoutError`/
 
 - a root version is `not_applicable`;
 - a version with a named base but no outcome metrics is `needs_review` (a gap,
-  never a fabricated metric);
+  never a fabricated metric); the gap is recorded on the dimension and does not
+  flip the overall evaluation to `needs_review`, so an ordinary patch still
+  activates. A mandatory discrimination failure (regression or an
+  indistinguishable candidate) does block;
 - identical candidate/base metrics make the dimension `failed` (mandatory), so
   the candidate cannot be promoted as an improvement;
 - three or more identical passing evaluations of one unchanged version are
@@ -182,3 +185,44 @@ gate does not hide them. New writes cannot reproduce them.
   preserved.
 - They do not invent missing metrics or outcomes.
 - They do not change the review queue, evaluator runtime, or database ownership.
+
+## Autonomy update (2026-10-27)
+
+The loop now closes the three gaps that kept it at "propose only" without
+granting a capability:
+
+- **Automatic memory has automatic authority.** A `MemoryDecision` that the
+  gate marked `metadata.automatic` is written with `source=automatic_learning`
+  and `authority=automatic` (retention-eligible, outranked by explicit). It also
+  emits `memory.automatic_saved`, which the usage report counts separately from
+  an explicit save. Before this, `apply_explicit_intent` hard-coded
+  `explicit_user`, so the Control Room always reported `automatic = 0` even when
+  the loop had learned the fact.
+- **Gate-approved model preferences are saved, not merely surfaced.** Under
+  `memory_mode=automatic_selective`, a model proposal whose re-check returns
+  `save` and whose type is `preference`/`constraint` is committed as an
+  automatic memory. Financial facts, secrets, semantic claims and every other
+  proposal remain inert. The model still cannot authorize its own write; the
+  gate does.
+- **Recurring candidates become inert skill drafts.** When a candidate's
+  signature recurs, its `occurrenceCount` is updated on the existing row (it is
+  no longer discarded as a duplicate). Once it reaches two observations and
+  carries a real `proposedProcedure`, `analyze_run` calls `propose_draft`: a
+  `status=draft`, `evaluationStatus=not_evaluated` skill is stored. Nothing is
+  evaluated, enabled or promoted automatically. Construction candidates keep
+  their dedicated recurrence gate (`maybe_draft_construction`).
+- **User corrections are candidates.** A run whose memory blob records
+  `action=correct` now produces a scoped `user_correction` candidate (condition,
+  method, evidence, replay test); a single correction stays `detected`.
+- **Memory curation runs at startup.** `run_startup_maintenance` calls
+  `consolidate_active(resolve_conflicts=False)`: exact/near duplicates are
+  superseded (rows retained), while a genuine contradiction is reported and
+  both records stay active for review.
+- **Historical recall is backfilled.** Startup indexes up to 200 completed runs
+  that predate `session_indexing_enabled`, so `session_search` works for old
+  sessions, not only new ones.
+
+The human gate is unchanged: candidates can be accepted, drafts evaluated and
+skills enabled only through the existing operator routes. These changes make
+the loop author and curate; they do not make it grant.
+

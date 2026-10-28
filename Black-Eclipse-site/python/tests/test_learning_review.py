@@ -214,8 +214,9 @@ def test_review_failure_does_not_affect_response(stores):
     assert run["output"] == "done"
 
 
-def test_model_outcomes_are_inert_and_gated(stores, monkeypatch):
-    """A model proposal can never write directly; it is surfaced as inert."""
+def test_model_outcomes_are_gated_before_automatic_write(stores, monkeypatch):
+    """A model proposal never writes directly: the gate decides, and an
+    approved preference is stored with automatic (not explicit) authority."""
     memory, run_store = stores
     _run(run_store, "run_1", "I prefer concise answers.")
 
@@ -234,10 +235,15 @@ def test_model_outcomes_are_inert_and_gated(stores, monkeypatch):
         model_settings=ModelSettings(provider="openai", model="gpt-4o-mini"),
     )
     assert result["modelUsed"] is True
-    for outcome in result["outcomes"]:
-        assert outcome["inert"] is True
-        # A model proposal never auto-writes durable memory from the background.
-        assert outcome["created"] is False
+    proposals = [
+        outcome for outcome in result["outcomes"]
+        if outcome["category"] == "durable_memory_proposal"
+    ]
+    assert proposals and proposals[0]["created"] is True
+    assert proposals[0]["inert"] is False
+    saved = memory.store.list_memories()
+    assert len(saved) == 1
+    assert saved[0]["authority"] == "automatic"
 
 
 def test_model_rejects_financial_and_secret_content(stores, monkeypatch):

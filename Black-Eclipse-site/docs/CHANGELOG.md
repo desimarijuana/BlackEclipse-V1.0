@@ -7,6 +7,47 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-27
+- **ui(graph): align the New workflow button with the shared menu system.** The
+  template picker is now a real `DropdownMenu` (anchored, dismissable, keyboard
+  navigable) instead of a hand-rolled floating panel, and the trigger uses the
+  standard primary button sizing alongside Generate from prompt.
+  no doc change — UI consistency only.
+- **ui(graph): move Start workflow into the header toolbar.** The center-stage
+  floating run button is gone; the same save-and-run control now sits inline in
+  the editor header row and uses the standard black primary button style. Docs:
+  `docs/graph-studio.md`.
+- **fix(learning,rsl): finish the loop-closure and widening verification.** Migration
+  32 no longer re-adds columns that the base schema already creates (a fresh or
+  historical db now reopens), the published tool registry is regenerated, the
+  chat-code profile declares `learning_candidate_validate` and
+  `skill_discrimination_check`, and the two recovery tests now retry the same tool
+  (a different tool that merely succeeds is not recovery evidence). A
+  discrimination gap (named base, no outcome metrics) is reported on the
+  dimension but is non-blocking, so an ordinary patch still activates; a
+  mandatory regression/indistinguishability still blocks. Size ratchets re-pinned
+  to the measured tree. Docs: `docs/self-improvement/loop-closure.md`.
+- **feat(learning): close the skill, memory and recall loops.** Automatic
+  memories now carry `authority=automatic` (source `automatic_learning`) instead
+  of masquerading as explicit; gate-approved model preferences save under
+  `automatic_selective`; recurring candidates update their occurrence count and
+  auto-draft an inert `status=draft` skill; recorded user corrections become
+  scoped candidates; startup consolidation merges duplicates but leaves
+  contradictions for review; and startup backfills up to 200 historical runs into
+  the session index. Nothing is auto-enabled: operator acceptance, evaluation
+  and promotion remain the only activation path. The usage report now separates
+  `automaticSaved` from explicit saves. Tests: 355 related memory / skills /
+  learning / session tests passed; `npx tsc --noEmit` passed. Docs:
+  `docs/self-improvement/loop-closure.md` (Autonomy update).
+- **feat(rsl): add an evidence-gated tool-widening safety-case builder and
+  freeze the mechanism it protects.** `self_improvement/widening.py` assembles a
+  pure, deterministic ratification package for adding one read/compute tool
+  (need, holdout, replay, deny path, conclusion stability, blast radius, TTL,
+  revocation); it never grants, auto-applies or self-renews. `security.py` now
+  refuses RSL targets under `self_improvement/**`, `capabilities/**`,
+  `grants.py` and `recovery/envelope.py`, and the frozen denylist can no longer
+  be replaced by a caller. Tests: `python/tests/test_widening.py` (16 targeted
+  tests passed with the related RSL/autonomy/capability suites). Docs:
+  `docs/self-improvement/tool-widening/{corrections,diagnosis,safety-case-spec,design,risks}.md`.
 - **feat(learning): expose the accept-route dry-run and the mandatory flag.**
   `learning_candidate_validate` is a read-only probe that returns the HTTP status
   the operator accept route would produce (404/409/422/200) without writing, so
@@ -332,6 +373,14 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `dispatch(patch, { coalesceKey })` collapses a typing session into one undo
   entry. `buildNodes` reuses unchanged node objects so editing one node no longer
   re-renders the whole canvas. Docs: `docs/graph-studio.md`.
+- **style(graph): node icons are plain outline glyphs.** Removed the filled
+  Phosphor weight and the accent-tinted icon chip; nodes now use the same
+  regular-weight, muted icon treatment as the rest of the site. no doc change —
+  visual restyle only.
+- **fix(graph): remove the node connection glow.** Deleted the side aurora spans,
+  their CSS/keyframes, the handle glow and the now-unused incoming/outgoing
+  flags. Nodes are a flat glass card; wires stay the accent colour. no doc change
+  — visual restyle only.
 
 ## 2026-10-26
 - **fix(customization): the "Custom theme" tile is now a real button.** It looked

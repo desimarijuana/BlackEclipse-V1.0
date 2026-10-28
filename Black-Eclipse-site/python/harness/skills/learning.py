@@ -373,6 +373,54 @@ def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
 
     drafts: list[dict[str, Any]] = []
 
+    # ── 0. Explicit user correction: a recorded correction is strong evidence
+    #         that a prior answer was wrong. The candidate preserves the corrected
+    #         fact as a scoped lesson; it never generalizes beyond it.
+    memory_blob = run.get("memory") if isinstance(run.get("memory"), dict) else {}
+    correction = str((memory_blob or {}).get("contentPreview") or "").strip()
+    if str((memory_blob or {}).get("action") or "") in ("correct", "corrected") and correction:
+        from ..self_improvement.lesson_contract import derive_confidence  # noqa: PLC0415
+
+        drafts.append({
+            "candidateType": "user_correction",
+            "title": "Apply the user's recorded correction",
+            "problem": "The user corrected a previous answer.",
+            "observedBehavior": f"The correction recorded in the run was: {correction[:400]}",
+            "condition": "a prior answer conflicts with the user's explicit correction",
+            "action": f"apply the user's correction and state {correction[:200]}",
+            "proposedLesson": (
+                "When a user corrects a prior answer, apply the corrected statement "
+                "and do not repeat the superseded claim."
+            ),
+            "proposedProcedure": [
+                {"step": 1, "action": "detect",
+                 "detail": "recognize that the user is correcting a prior answer"},
+                {"step": 2, "action": "apply",
+                 "detail": f"use the corrected statement: {correction[:200]}"},
+                {"step": 3, "action": "verify",
+                 "detail": "check the final answer reflects the correction"},
+            ],
+            "evidenceReferences": [
+                {"kind": "memory", "id": run_id, "action": "correction"},
+            ],
+            "replayTest": (
+                f"Replay run {run_id}: present the corrected statement and assert the "
+                "answer reflects it rather than the superseded claim."
+            ),
+            "occurrenceCount": 1,
+            "confidence": derive_confidence(
+                evidence_count=1, occurrence_count=1, has_replay=True,
+            ),
+            "generalizationNotes": (
+                "This lesson is scoped to the corrected fact; do not generalize it "
+                "to unrelated claims."
+            ),
+            "knownLimitations": (
+                "A single correction is weak evidence for a reusable procedure; "
+                "recurrence is required before it can become a skill."
+            ),
+        })
+
     # ── 1. Failure recovery: a failure occurred, then the run still completed
     #         through a different, observable call. The candidate carries the
     #         failed call, the recovered call, the precondition and a replay test;
@@ -523,6 +571,7 @@ def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
                 "evidenceReferences": [
                     {"kind": "tool", "name": t["name"], "at": t.get("createdAt")} for t in tool_successes
                 ],
+                "occurrenceCount": recurrence + 1,
                 "confidence": min(0.8, 0.5 + 0.1 * recurrence),
                 "generalizationNotes": (
                     f"Observed in {recurrence + 1} runs with the same tool evidence; "

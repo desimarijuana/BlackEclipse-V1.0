@@ -1,0 +1,209 @@
+# Design: evidence-gated tool widening
+
+## Recommendation
+
+**Adopt Option B, with the time-boxing and revocation fields of Option C carried
+on the proposal artifact — but no grant mechanism.** The self-improvement loop
+assembles a complete, machine-checkable ratification package and stops. A human
+ratifies through the existing operator surfaces. The package is scoped to one
+tool, one agent, at most 14 days, with a named revocation path, and it carries
+`granted: false`, `autoApply: false`, `selfRenewable: false`.
+
+This is deliberately **not** Option A, and it is not yet Option C. The code
+change in this task implements only the package builder and a hardening of the
+frozen target denylist. Nothing is wired into the runtime's tool resolver.
+
+## The strongest argument against building any of this
+
+The operator gate is the feature, not the bug. This is a financial agent; every
+additional tool enlarges the set of things that can be wrong with money, data
+provenance and answer authority. In a regulated context, the value of the
+current design is precisely that a human who understands the grant owns it. A
+"ten-second approval" is not the same as a ten-second *understanding*.
+
+The observed numbers make this concrete. The running instance reports 57
+learning candidates, 2 accepted, 52 rejected (~89% lifetime rejection), and the
+recent rejections are not near-misses: one was a "front-door reachability check,
+not a reusable recovery", another timed out in replay. A loop with that
+precision should not be handed a lower-friction path to widening its own reach.
+Automation bias makes a well-formatted safety case *more* dangerous than a blank
+form, because a busy operator is more likely to approve a document that looks
+complete.
+
+There is also a measurement problem: as `corrections.md` shows, tool additions
+are refused before they can be benchmarked (`candidate_invoker.py:76-81`). So
+"the loop already has the evidence" is false. Option B must first build the
+evidence pipeline, not just reformat an existing one. If that pipeline cannot be
+built honestly, the correct outcome is to keep hand-typing grants.
+
+**What would have to be true for a stronger option to be safe:**
+
+1. A tool addition is measurable on held-out replay, with derivation and
+   validation disjoint, and the evaluator is not controlled by the proposer.
+2. Every tool declares a real contract: read-only, blast radius, deny path,
+   call budget, data classes touched, and a machine-checked effect class.
+3. The loop's candidate precision has improved materially (the 89% rejection
+   rate is the symptom; a measured precision/recall with a stable denominator is
+   the evidence).
+4. Revocation is a first-class runtime operation, not a config edit that may be
+   forgotten.
+5. Audit can answer who proposed, who ratified, on what evidence, when it
+   expires, and how it was revoked, without reading a chat log.
+6. Red-team evidence shows the deny path and the conclusion-stability check
+   survive adversarial inputs.
+
+Until (1) and (2) exist, Option A is a bet on the loop's judgement with no
+measurement behind it.
+
+## Options
+
+### A. Earned-grant ladder
+
+**What it changes:** the autonomy classifier and `decide` would need an
+L1.5/L2-with-evidence rung; `validate_snapshot` would need to admit measured
+tool additions; the surface resolver would need to consume a grant record;
+`grants.py` would need expiry and a widening kind.
+
+**Cost:** high. Touches the authority path, the evaluation path and the runtime
+surface. Requires new DB schema and expiry enforcement at every execution seam.
+
+**What it makes possible that is bad:** the loop can accumulate reach without a
+human in the loop; a mis-classified tool (e.g. one that leaks data but declares
+`read`) becomes a standing capability; automation bias makes the eventual human
+ratification weaker; a compromised proposer can aim the ladder at a tool it
+wants.
+
+**How it fails:** evidence gaming (selecting flattering runs), metric gaming by
+inaction, silent conclusion drift, expiry not checked on a cached surface, and
+the "read-only" label being wrong. The code already shows the classification
+trusts the caller's `risk` argument (`autonomy.py:174-248`), so a second
+independent check would be mandatory.
+
+**Verdict:** reject for now.
+
+### B. No grant change — fix the human's cost
+
+**What it changes:** a new pure module assembles the safety case; an operator
+route/UI can display it; the actual change remains the existing operator action.
+No authority path changes.
+
+**Cost:** low. One module, one test file, optional route/UI later.
+
+**What it makes possible that is bad:** a polished package creates automation
+bias; the package can be wrong in the same way the loop is wrong; the operator
+may approve without reading the human-review items.
+
+**How it fails:** if the evidence pipeline is absent, the package is empty and
+the operator still does the research; if the package is generated by the same
+process that proposed the tool, it can launder the proposal's assumptions.
+
+**Verdict:** recommended, with mandatory human-review items and a visible
+"evidence incomplete → refuse" state.
+
+### C. Scoped/temporary grant
+
+**What it changes:** a widening grant record with `expiresAt`, `scope`,
+`toolNames`, `maxCallsPerDay`, `ratifiedBy`; the surface resolver checks it;
+a scheduler or execution seam expires it; revocation is immediate.
+
+**Cost:** medium-high. Every execution must consult the grant; cache
+invalidation on expiry; audit; UI.
+
+**What it makes possible that is bad:** temporary access is still access, and
+"temporary" tends to be renewed; a time-boxed grant can cover a quarter-end or
+an incident window, which is exactly when the blast radius matters most.
+
+**How it fails:** expiry is checked only at process start; a warm cache keeps
+the tool; renewal becomes a rubber stamp; the grant outlives the need because
+revocation is nobody's job.
+
+**Verdict:** the right *shape* for a future grant, but only after B's evidence
+pipeline and D's contracts exist. The package can carry the TTL and revocation
+fields now without issuing a grant.
+
+### D. Structural: capability contracts
+
+**What it changes:** every tool declares pre/post-conditions, effect class,
+blast radius, data classes, deny path and budget; a checker enforces the
+contract at registration and at call time; widening becomes "this tool satisfies
+the read/compute contract".
+
+**Cost:** high, but mostly one-time metadata and a checker. It is the only
+option that makes the safety question *checkable* rather than discretionary.
+
+**What it makes possible that is bad:** a false contract is worse than no
+contract because it looks authoritative; contract drift when the tool changes;
+the checker becomes another thing to compromise.
+
+**How it fails:** a tool declares `read` but opens a socket; a contract passes
+while the implementation diverges; the checker is bypassed by a tool registered
+outside the registry.
+
+**Verdict:** the correct long-term foundation. It is a prerequisite for C and a
+strong reason not to do A now.
+
+## Why B now, and what "C-shaped fields" means
+
+The system already has the raw materials for a safety case but no subject for
+one. `HarnessSnapshot` is a data-only tuple of tool names
+(`models.py:44-70`); the capability manifest has `effect`, `permissions`,
+`tests` and `acceptance` but only for recipes (`manifest.py:45-106`); the
+surface diff shows `toolsAdded` but not why or how safe
+(`routers/evolution.py:537-559`). B creates the missing artifact: a package that
+says *which* tool, *on what failure*, *with what replay*, *with what deny path*,
+*with what blast radius*, *until when*, and *how to revoke*. The operator can
+then ratify or reject in one review, instead of starting from a blank page.
+
+The TTL/revocation fields are inert in the package. They become real only if a
+later C is built and wired to the surface resolver. That keeps the default
+end-state "denied" and satisfies constraint 1.
+
+## Code touch-points (implemented in this change)
+
+| File | Change | Why |
+|---|---|---|
+| `python/harness/self_improvement/widening.py` | New pure safety-case builder | Produces the ratification package; never grants. |
+| `python/harness/self_improvement/security.py` | Add `self_improvement/**`, `capabilities/**`, `grants.py`, `recovery/envelope.py` to `RSL_DENY_GLOBS`; remove the `deny_globs` override | The mechanism must be structurally unreachable, and the denylist must not be configurable. |
+| `python/tests/test_widening.py` | New tests | Deny path, evidence refusal, no self-grant/renewal, frozen denylist, withdrawal/expiry. |
+| `docs/self-improvement/tool-widening/*` | This design set | The rationale, spec, risks and diagnosis. |
+
+Deliberately **not** touched:
+
+- `autonomy.py` (no new risk rung),
+- `loop.py` (no automatic activation),
+- `candidate_invoker.py` (tool additions remain unmeasurable until a safe
+  widening evaluator exists),
+- `builder.py` / `manifest.py` (no new capability kind),
+- `grants.py` (no widening grant kind, no schema change),
+- `surface.py` / `agents.py` (no runtime tool-set change).
+
+## Blast radius
+
+- **Runtime behaviour:** none. The new module is not imported by any runtime
+  path. The security change only *adds* frozen targets; it cannot make an
+  already-allowed target landable, and it removes an override that no caller
+  used.
+- **Data:** no schema, no migration, no new table.
+- **API:** no new route.
+- **Tests:** one new test file; the existing RSL security parameterised test
+  covers every new deny glob automatically.
+- **Operational:** none; no env var, no boot step.
+- **Residual:** the package is not yet surfaced to an operator. B's user-facing
+  benefit requires a later route/UI; this change builds the checkable core.
+
+## What evidence would change this recommendation
+
+- A measured tool-addition candidate that passes held-out replay, a deny-path
+  test and conclusion stability, produced by an evaluator independent of the
+  proposer. If that exists, Option C becomes defensible.
+- A material improvement in the loop's proposal precision (not a lower rejection
+  rate by lowering the bar — a higher acceptance rate on a stable denominator).
+- A regulatory/audit requirement that grants be time-boxed and machine-readable.
+- A red-team result showing the deny path and conclusion-stability check hold
+  under adversarial tool metadata.
+- Operator-time data showing the review bottleneck is the package, not the
+  decision. If operators already approve quickly, B adds little and the effort
+  should go to tool contracts (D) instead.
+
+If none of these arrive, the honest position is: **keep hand-typing grants and
+keep the operator gate exactly where it is.**

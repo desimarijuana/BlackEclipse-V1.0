@@ -564,6 +564,20 @@ class AgentMemoryStore:
         ).fetchall()
         return [_run_row(r) for r in rows]
 
+    def unindexed_completed_runs(self, limit: int = 200) -> list[dict[str, Any]]:
+        """Completed runs with no SessionMessage row, newest first."""
+        bound = max(1, min(int(limit), 2000))
+        rows = self._db.execute(
+            """SELECT r.* FROM HarnessRun r
+               WHERE r.status = 'completed'
+                 AND NOT EXISTS (
+                   SELECT 1 FROM SessionMessage m WHERE m.runId = r.id
+                 )
+               ORDER BY r.createdAt DESC LIMIT ?""",
+            (bound,),
+        ).fetchall()
+        return [_run_row(r) for r in rows]
+
     # ── Usage analytics ─────────────────────────────────────────────────────
     # Token consumption is real, persisted data. `totalTokens` can legitimately
     # be 0 when a provider (e.g. a local Ollama server) omits a usage block — the

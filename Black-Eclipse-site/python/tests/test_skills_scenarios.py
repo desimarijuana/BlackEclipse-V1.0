@@ -185,7 +185,7 @@ def test_scenario_5_failure_recovery_candidate(env):
             self.text = "x"; self.error = None if ok else type("E", (), {"model_dump_json": lambda s: "{}"})(); self.args = {}
 
     env["store"].record_tool_execution(run_id, T("fundamentals_get_financials", False))
-    env["store"].record_tool_execution(run_id, T("research_search", True))
+    env["store"].record_tool_execution(run_id, T("fundamentals_get_financials", True))
     env["store"].update_run(run_id, status="completed", output="done", modelSteps=3)
 
     result = capture_from_run(run_id, env["store"], env["skill_store"], actor_is_operator=True)

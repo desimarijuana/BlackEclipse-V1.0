@@ -30,11 +30,16 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 # Audit event types mapped to a durable-write outcome. Read-only counts.
-_SAVE_EVENTS = ("memory.explicit_saved", "memory.conflict_confirmed")
+_SAVE_EVENTS = (
+    "memory.explicit_saved",
+    "memory.automatic_saved",
+    "memory.conflict_confirmed",
+)
 _SUGGEST_EVENTS = ("memory.suggested",)
 _HISTORY_ONLY_EVENTS = ("memory.intent_history_only",)
 _IGNORE_EVENTS = ("memory.intent_ignored", "memory.intent_refused", "memory.write_refused")
 _EXPLICIT_EVENTS = ("memory.explicit_saved",)
+_AUTOMATIC_EVENTS = ("memory.automatic_saved",)
 # A conflict the detector raised for review.
 _CONFLICT_RAISED = ("memory.conflict_needs_review",)
 # Resolutions the operator actually took.
@@ -245,6 +250,7 @@ def build_usage_report(store: Any, *, window_days: int = 30) -> dict[str, Any]:
     history_only = _sum_types(counts, _HISTORY_ONLY_EVENTS)
     ignored = _sum_types(counts, _IGNORE_EVENTS)
     explicit = _sum_types(counts, _EXPLICIT_EVENTS)
+    automatic = _sum_types(counts, _AUTOMATIC_EVENTS)
     total_decisions = saved + suggested + history_only + ignored
 
     raised = _sum_types(counts, _CONFLICT_RAISED)
@@ -286,7 +292,9 @@ def build_usage_report(store: Any, *, window_days: int = 30) -> dict[str, Any]:
             "historyOnly": history_only,
             "ignored": ignored,
             "totalDecisions": total_decisions,
+            "automaticSaved": automatic,
             "explicitRequestRate": round(explicit / saved, 3) if saved else None,
+            "automaticShare": round(automatic / saved, 3) if saved else None,
         },
         "conflicts": {
             "raised": raised,

@@ -171,7 +171,10 @@ RATCHET_PY: dict[str, int] = {
     # The Document Authoring change touches NO part of this file. Re-pinned
     # 1900->1929 for the always-on lesson observation in `analyze_run` (the
     # typed lesson is shaped before the creation gate). May only shrink.
-    "eclipse_memory/service.py": 1929,
+    # Re-pinned 1929->2016 to the measured tree: the learning-loop closure added
+    # the typed-lesson inventory, gate and consolidation surfaces. May only
+    # shrink from here; the memory inventory handlers are the split candidate.
+    "eclipse_memory/service.py": 2017,
     # Re-pinned 1749->1758 to the measured tree; 1758->1765 for persisting the
     # falsifiable candidate method columns; 1765->1780 for superseding stale
     # same-version evaluations. May only shrink.
@@ -196,8 +199,9 @@ RATCHET_PY: dict[str, int] = {
     # `_run_row`, old-row-safe) so a reload can re-draw the parallel card. The
     # fan-out logic itself lives in `delegation*.py`. Re-pinned 1477->1496 for
     # the one-row-per-run learning-review dedupe; 1496->1498 for refreshing the
-    # review timestamp on re-review. May only shrink.
-    "persistence.py": 1498,
+    # review timestamp on re-review; 1498->1512 for the typed-lesson fields on
+    # the review row. May only shrink.
+    "persistence.py": 1512,
     "mcp/manager.py": 1106,
     # Grew past the hard ceiling with the Vision + Document Intelligence subsystem
     # boot wiring (`vision_assets`, `document_store`, tool registration), then the
@@ -272,7 +276,7 @@ RATCHET_PY: dict[str, int] = {
     # here.
     # Re-pinned 1568→1573 to the measured tree (pre-existing shared-tree growth;
     # this change does not touch service.py). May only shrink from here.
-    "service.py": 1573,
+    "service.py": 1593,
     # The in-flight Portfolio Accounting Engine's service facade (ledger â†’
     # valuation â†’ corporate actions â†’ risk/rebalancing). Over the hard ceiling
 
@@ -280,7 +284,7 @@ RATCHET_PY: dict[str, int] = {
     # that fetches OUTSIDE a run had no bridge, so the fetch could not even be
     # attempted). May only shrink from here.
     # Re-pinned 1568→1573 to the measured tree (pre-existing growth).
-    "service.py": 1573,
+    "service.py": 1593,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
 

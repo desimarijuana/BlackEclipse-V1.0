@@ -186,6 +186,39 @@ def index_run(
     return {"ok": True, "indexed": indexed, "runId": run_id}
 
 
+def backfill_run_index(store: Any, *, limit: int = 200) -> dict[str, Any]:
+    """Index completed runs that predate session indexing.
+
+    Bounded and idempotent: only runs with no SessionMessage row are considered,
+    newest first. A failure is reported, never raised. This is what makes
+    cross-session recall work for historical runs, not just new ones.
+    """
+    finder = getattr(store, "unindexed_completed_runs", None)
+    if finder is None:
+        return {"ok": False, "reason": "store_has_no_backfill_query", "indexed": 0}
+    try:
+        runs = finder(limit)
+    except Exception as exc:  # noqa: BLE001 - a backfill must never break boot
+        return {"ok": False, "reason": str(exc), "indexed": 0}
+    indexed = 0
+    failed = 0
+    for run in runs:
+        try:
+            result = index_run(
+                store, str(run.get("id") or ""), user_id=run.get("userId"),
+            )
+            if result.get("ok") and result.get("indexed"):
+                indexed += 1
+        except Exception:  # noqa: BLE001 - one bad run never stops the sweep
+            failed += 1
+    return {
+        "ok": True,
+        "candidates": len(runs),
+        "indexed": indexed,
+        "failed": failed,
+    }
+
+
 def build_summary(store: Any, session_id: str, *, limit: int = 40) -> dict[str, Any]:
     """Build a bounded, deterministic session summary from its indexed messages.
 

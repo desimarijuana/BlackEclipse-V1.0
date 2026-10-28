@@ -297,7 +297,9 @@ def review_run(
     model_used = False
     if model and model_settings is not None:
         try:
-            model_outcomes = _model_outcomes(service, run, model_settings)
+            model_outcomes = _model_outcomes(
+                service, run, model_settings, run_id=run_id,
+            )
             if model_outcomes:
                 model_used = True
                 outcomes.extend(model_outcomes)
@@ -372,6 +374,20 @@ def _deterministic_outcomes(service: Any, run_store: Any, run_id: str) -> list[d
             "reason": "an inert reusable-procedure candidate was created (recurrence-gated)",
             "payload": {"category": "skill", "evidenceRunId": run_id},
         })
+    drafts = analysis.get("draftsCreated") or []
+    if drafts:
+        outcomes.append({
+            "category": "skill_candidate", "created": True, "inert": True,
+            "reason": (
+                "a recurring candidate was auto-drafted as an inert skill; "
+                "evaluation and promotion remain operator actions"
+            ),
+            "payload": {
+                "category": "skill", "evidenceRunId": run_id,
+                "skill": drafts[0].get("skillId"),
+                "recurrence": len(drafts),
+            },
+        })
     # A review always carries the typed lesson it observed, even when candidate
     # creation is policy-disabled. Promotion still needs recurrence + approval.
     for lesson in (analysis.get("lessons") or [])[:4]:
@@ -437,7 +453,13 @@ def _deterministic_outcomes(service: Any, run_store: Any, run_id: str) -> list[d
     return outcomes
 
 
-def _model_outcomes(service: Any, run: dict[str, Any], model_settings: Any) -> list[dict[str, Any]]:
+def _model_outcomes(
+    service: Any,
+    run: dict[str, Any],
+    model_settings: Any,
+    *,
+    run_id: str = "",
+) -> list[dict[str, Any]]:
     """A bounded, optional model review. Its output is INERT and gate-checked.
 
     The model may only return a strict JSON object; unknown categories and any
@@ -493,17 +515,37 @@ def _model_outcomes(service: Any, run: dict[str, Any], model_settings: Any) -> l
             scope="general", confidence=0.6, settings=settings,
         )
         created = False
-        if category == "durable_memory_proposal" and decision.outcome == "save":
-            # Even a gate-approved model proposal is surfaced as a review item,
-            # never silently written from the background.
-            created = False
-        elif category == "memory_suggestion" and decision.outcome in ("save", "suggest"):
-            created = False
+        reason = (
+            f"model proposal re-checked by the gate ({decision.outcome}); "
+            "requires operator review"
+        )
+        if (
+            category == "durable_memory_proposal"
+            and decision.outcome == "save"
+            and decision.memory_type in ("preference", "constraint")
+            and str(settings.get("memory_mode") or "") == "automatic_selective"
+        ):
+            from dataclasses import replace  # noqa: PLC0415
+
+            decision = replace(
+                decision,
+                metadata={**dict(decision.metadata or {}), "automatic": True},
+            )
+            committed = service.commit_decision(
+                decision, run_id=run_id or None,
+                user_id=(run.get("userId") or None),
+            )
+            created = bool(committed.get("ok"))
+            reason = (
+                "gate-approved durable memory saved automatically"
+                if created else
+                f"gate-approved memory was not saved: {committed.get('reason') or 'refused'}"
+            )
         outcomes.append({
             "category": category,
             "created": created,
-            "inert": True,
-            "reason": f"model proposal re-checked by the gate ({decision.outcome}); requires operator review",
+            "inert": not created,
+            "reason": reason,
             "payload": {"content": content, "memoryType": decision.memory_type, "reason": decision.reason},
         })
     return outcomes

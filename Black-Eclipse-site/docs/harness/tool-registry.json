@@ -1,7 +1,7 @@
 {
-  "digest": "3d8fc934b3706186",
+  "digest": "20fcad46fa369648",
   "manifestVersion": "1",
-  "toolCount": 958,
+  "toolCount": 960,
   "tools": [
     {
       "deprecated": false,
@@ -16470,6 +16470,28 @@
     },
     {
       "deprecated": false,
+      "description": "Read-only dry-run of the operator accept route for one candidate: returns the HTTP status it would produce (404 missing, 409 not detected, 422 non-falsifiable, 200 acceptable). Writes nothing.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_id"
+        ],
+        "type": "object"
+      },
+      "name": "learning_candidate_validate",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Build (and persist) a validated, prerequisite-aware learning path. Discovers resources across sources when none are supplied; skills may be proposed by the model and are validated into a DAG with per-skill resources, exercises and assessments.",
       "effect": null,
       "inputSchema": {
@@ -16578,7 +16600,8 @@
               "queued",
               "running",
               "completed",
-              "failed"
+              "failed",
+              "superseded"
             ],
             "type": "string"
           }
@@ -26066,6 +26089,41 @@
       "permission": "write",
       "replacement": null,
       "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read-only discrimination check: compare a version against a named base using caller-supplied outcome metrics. Returns failed when the metrics are identical or worse, passed when one improves, and an explicit gap when metrics are absent. Persists nothing.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "baseMetrics": {
+            "type": "object"
+          },
+          "baseVersion": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "object"
+          },
+          "skill_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "skill_id",
+          "version"
+        ],
+        "type": "object"
+      },
+      "name": "skill_discrimination_check",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
       "version": "1.0.0"
     },
     {

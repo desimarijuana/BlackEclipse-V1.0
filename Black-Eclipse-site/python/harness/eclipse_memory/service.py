@@ -54,6 +54,7 @@ class MemoryFullError(MemoryWriteError):
 VALID_SOURCES = frozenset(
     {
         "explicit_user",      # "remember that â€¦"
+        "automatic_learning", # a gate-approved automatic observation
         "user_correction",    # the user corrected Eclipse
         "execution_lesson",   # a validated reusable lesson from a run
         "system_decision",    # an explicitly recorded architecture decision
@@ -75,6 +76,40 @@ EXPLICIT_SOURCES = frozenset({"explicit_user", "user_correction", "manual", "imp
 
 def _derive_authority(source: str) -> str:
     return "explicit" if source in EXPLICIT_SOURCES else "automatic"
+
+
+_DRAFTABLE_CANDIDATES = frozenset({
+    "failure_recovery",
+    "successful_procedure",
+    "validation_improvement",
+    "source_selection_improvement",
+    "provider_eligibility_improvement",
+    "user_correction",
+})
+
+
+def _draft_ready(draft: dict[str, Any]) -> bool:
+    """Whether a detected candidate has enough evidence for an INERT draft.
+
+    A draft is never activated; this only decides when the agent may author one
+    without an operator click. Single-observation candidates stay candidates.
+    """
+    candidate_type = str(draft.get("candidateType") or "")
+    if candidate_type not in _DRAFTABLE_CANDIDATES:
+        return False
+    scope = draft.get("scope") if isinstance(draft.get("scope"), dict) else {}
+    if scope.get("capability") == "ui_engineering":
+        return False
+    if any(
+        isinstance(step, dict) and step.get("action") == "escalate"
+        for step in (draft.get("proposedProcedure") or [])
+    ):
+        return False
+    steps = draft.get("proposedProcedure") or []
+    if len(steps) < 2:
+        return False
+    occurrence = int(draft.get("occurrenceCount") or 1)
+    return occurrence >= 2
 
 
 class EclipseMemoryService:
@@ -1008,12 +1043,15 @@ class EclipseMemoryService:
         )
 
         if intent.action == "save":
+            automatic = bool((intent.metadata or {}).get("automatic"))
             memory = self.write_memory(
                 memory_type=intent.memory_type, content=intent.content,
-                source="explicit_user", scope=scope, scope_id=scope_id,
+                source="automatic_learning" if automatic else "explicit_user",
+                scope=scope, scope_id=scope_id,
                 subject=intent.subject, source_run_id=run_id,
                 confidence=intent.confidence,
-                verification="unverified", created_by=user_id or "user",
+                verification="unverified",
+                created_by="eclipse-learning" if automatic else (user_id or "user"),
             )
             if memory.get("status") == "proposed":
                 # A contradiction with an existing active memory was stored inert
@@ -1030,8 +1068,9 @@ class EclipseMemoryService:
                     ),
                 }
             self.store.append_memory_event(
-                "memory.explicit_saved", memory_id=memory["id"], run_id=run_id,
-                data={"matchedPhrase": intent.matched_phrase},
+                "memory.automatic_saved" if automatic else "memory.explicit_saved",
+                memory_id=memory["id"], run_id=run_id,
+                data={"matchedPhrase": intent.matched_phrase, "automatic": automatic},
             )
             return {"ok": True, "action": "saved", "memory": memory}
 
@@ -1292,6 +1331,37 @@ class EclipseMemoryService:
         created = 0
         skipped = 0
         rejected: list[dict[str, Any]] = []
+        drafts_created: list[dict[str, Any]] = []
+        try:
+            observed_tools = sorted({
+                str(execution.get("name"))
+                for execution in (run_store.list_tool_executions(run_id) or [])
+                if execution.get("name")
+            })
+        except Exception:  # noqa: BLE001 - a missing trace only limits the draft
+            observed_tools = []
+        def _auto_draft(candidate_id: str, candidate_view: dict[str, Any]) -> None:
+            if mode != "automatic_selective" or not _draft_ready(candidate_view):
+                return
+            try:
+                from ..skills.draft import propose_draft  # noqa: PLC0415
+
+                drafted = propose_draft(
+                    candidate_id, store, available_tools=observed_tools,
+                )
+                if drafted.get("ok"):
+                    drafts_created.append({
+                        "candidateId": candidate_id,
+                        "skillId": (drafted.get("draft") or {}).get("id"),
+                        "reusable": bool(drafted.get("reusable")),
+                    })
+            except Exception as error:  # noqa: BLE001 - a draft is best-effort
+                rejected.append({
+                    "candidateType": candidate_view.get("candidateType"),
+                    "title": str(candidate_view.get("title") or "")[:120],
+                    "problems": [f"auto_draft_failed: {type(error).__name__}: {error}"],
+                })
+
         for draft in drafts:
             problems = candidate_problems(draft)
             if problems:
@@ -1306,7 +1376,23 @@ class EclipseMemoryService:
                 skipped += 1
                 continue
             signature = _signature(draft["candidateType"], draft["problem"])
-            if store.find_candidate_by_signature(signature):
+            existing = store.find_candidate_by_signature(signature)
+            if existing:
+                prior = int(existing.get("occurrenceCount") or 1)
+                current = max(prior, int(draft.get("occurrenceCount") or 1))
+                confidence = max(
+                    float(existing.get("confidence") or 0),
+                    float(draft.get("confidence") or 0),
+                )
+                if current != prior or confidence != float(existing.get("confidence") or 0):
+                    store.update_candidate(
+                        existing["id"], occurrenceCount=current, confidence=confidence,
+                    )
+                if str(existing.get("status")) == "detected":
+                    _auto_draft(existing["id"], {
+                        **existing, "occurrenceCount": current,
+                        "confidence": confidence,
+                    })
                 skipped += 1
                 continue
             from ..persistence import now_iso as _now
@@ -1318,9 +1404,11 @@ class EclipseMemoryService:
                                data={"candidateId": candidate_id, "candidateType": draft["candidateType"],
                                      "automatic": True})
             created += 1
+            _auto_draft(candidate_id, draft)
         result["candidatesCreated"] = created
         result["candidatesSkipped"] = skipped
         result["candidatesRejected"] = rejected
+        result["draftsCreated"] = drafts_created
         return result
 
     # â”€â”€ One-time import from the legacy agent-memory.db skill tables â”€â”€â”€â”€â”€â”€â”€â”€
@@ -1459,6 +1547,7 @@ class EclipseMemoryService:
             "explicit_user": "saved because the user explicitly requested it",
             "user_correction": "saved because the user corrected an earlier answer",
             "manual": "saved by the operator through the UI",
+            "automatic_learning": "learned automatically from a gate-approved observation",
             "execution_lesson": "learned automatically from a validated execution (incl. post-run analysis)",
             "system_decision": "saved because an architecture decision was recorded",
             "verified_source": "saved from a verified source",

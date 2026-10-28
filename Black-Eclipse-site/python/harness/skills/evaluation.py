@@ -163,6 +163,7 @@ def _discrimination_dimension(
     if not metrics and not base_metrics:
         return {
             "name": "discrimination", "status": "needs_review", "mandatory": False,
+            "blocking": False,
             "detail": (
                 f"base {resolved_base} is named but no outcome metrics were "
                 f"supplied ({', '.join(OUTCOME_METRICS)}); discrimination is an "
@@ -172,6 +173,7 @@ def _discrimination_dimension(
     if not metrics or not base_metrics:
         return {
             "name": "discrimination", "status": "needs_review", "mandatory": False,
+            "blocking": False,
             "detail": (
                 f"base {resolved_base} is named but outcome metrics are missing on "
                 "one side; cannot distinguish candidate from base"
@@ -182,6 +184,7 @@ def _discrimination_dimension(
     if not deltas:
         return {
             "name": "discrimination", "status": "needs_review", "mandatory": False,
+            "blocking": False,
             "detail": (
                 "no comparable outcome metric was supplied for both candidate and base"
             ),
@@ -311,7 +314,12 @@ def evaluate_skill(
     mandatory_failed = [
         d for d in dimensions if d.get("mandatory") and d["status"] != "passed"
     ]
-    soft_issue = [d for d in dimensions if not d.get("mandatory") and d["status"] in ("failed", "needs_review")]
+    soft_issue = [
+        d for d in dimensions
+        if not d.get("mandatory")
+        and d.get("blocking", True)
+        and d["status"] in ("failed", "needs_review")
+    ]
 
     if mandatory_failed:
         status = "blocked"

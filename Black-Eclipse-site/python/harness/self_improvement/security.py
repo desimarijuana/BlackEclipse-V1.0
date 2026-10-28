@@ -11,13 +11,17 @@ from __future__ import annotations
 from fnmatch import fnmatch
 from pathlib import PurePosixPath
 import re
-from typing import Iterable, Optional
+from typing import Optional
 
 # Every path the evaluator, the gates, the approval boundary, the tests and the
 # landing machinery own. A candidate that touches one is refused, never skipped.
 RSL_DENY_GLOBS: tuple[str, ...] = (
     "python/harness/evaluation/**",
     "python/harness/security/**",
+    "python/harness/self_improvement/**",
+    "python/harness/capabilities/**",
+    "python/harness/grants.py",
+    "python/harness/recovery/envelope.py",
     "python/harness/code/policy.py",
     "python/harness/code/authorizers.py",
     "python/harness/code/promotion.py",
@@ -61,17 +65,14 @@ def _normalise(target: str) -> str:
     return text
 
 
-def assert_landable_target(
-    target: str,
-    *,
-    deny_globs: Optional[Iterable[str]] = None,
-) -> str:
+def assert_landable_target(target: str) -> str:
     """Return the normalized target, or raise a structured `RSLTargetError`.
 
     Absolute paths, drive-qualified paths and any `..` segment are outside the
     workspace. A path matching the frozen denylist is refused with
     `RSL_FROZEN_TARGET`; the check is case-insensitive and normalizes both slash
-    styles, so `./python\\harness\\evaluation\\runner.py` is still refused.
+    styles, so `./python\\harness\\evaluation\\runner.py` is still refused. The
+    denylist is not a parameter: a caller cannot narrow or replace it.
     """
     normal = _normalise(target)
     if not normal:
@@ -85,7 +86,7 @@ def assert_landable_target(
         )
 
     folded = normal.casefold()
-    for pattern in deny_globs if deny_globs is not None else RSL_DENY_GLOBS:
+    for pattern in RSL_DENY_GLOBS:
         if fnmatch(folded, str(pattern).casefold()):
             raise RSLTargetError(
                 RSL_FROZEN_TARGET, path=normal,

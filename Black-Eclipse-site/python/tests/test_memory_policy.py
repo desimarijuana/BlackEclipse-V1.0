@@ -309,7 +309,7 @@ def test_recovered_failure_creates_inert_candidate(env):
     # candidate under the default automatic_selective mode.
     env["run_store"].create_run("run_8d", "eclipse-agent", {"query": "x"})
     env["run_store"].record_tool_execution("run_8d", _tool("get_fundamentals", False, "TOOL_ERROR"))
-    env["run_store"].record_tool_execution("run_8d", _tool("research_search", True))
+    env["run_store"].record_tool_execution("run_8d", _tool("get_fundamentals", True))
     env["run_store"].update_run("run_8d", status="completed", output="Recovered.", modelSteps=3)
     result = env["memory"].analyze_run("run_8d", env["run_store"])
     assert result["candidatesCreated"] >= 1
@@ -322,7 +322,7 @@ def test_auto_detection_creates_inert_candidates(env):
     env["run_store"].create_run("run_9", "eclipse-agent", {"query": "x"})
     env["run_store"].append_event("run_9", "run.started", 1)
     env["run_store"].record_tool_execution("run_9", _tool("get_fundamentals", False, "TOOL_ERROR"))
-    env["run_store"].record_tool_execution("run_9", _tool("research_search", True))
+    env["run_store"].record_tool_execution("run_9", _tool("get_fundamentals", True))
     env["run_store"].update_run("run_9", status="completed", output="Recovered with research.", modelSteps=3)
     result = env["memory"].analyze_run("run_9", env["run_store"])
     assert result["candidatesCreated"] >= 1

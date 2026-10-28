@@ -257,12 +257,6 @@ MIGRATIONS: list[tuple[int, list[str]]] = [
               observedBehavior   TEXT,
               proposedLesson     TEXT,
               proposedProcedure  TEXT,
-              condition          TEXT,
-              action             TEXT,
-              failedCall         TEXT,
-              recoveredCall      TEXT,
-              precondition       TEXT,
-              replayTest         TEXT,
               occurrenceCount    INTEGER NOT NULL DEFAULT 1,
               evidenceReferences TEXT NOT NULL DEFAULT '[]',
               confidence         REAL NOT NULL DEFAULT 0.5,
@@ -1159,7 +1153,6 @@ MIGRATIONS.append(
             "ALTER TABLE LearningCandidate ADD COLUMN recoveredCall TEXT;",
             "ALTER TABLE LearningCandidate ADD COLUMN precondition TEXT;",
             "ALTER TABLE LearningCandidate ADD COLUMN replayTest TEXT;",
-            "ALTER TABLE LearningCandidate ADD COLUMN occurrenceCount INTEGER NOT NULL DEFAULT 1;",
         ],
     )
 )

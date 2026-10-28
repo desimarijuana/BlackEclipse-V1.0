@@ -87,8 +87,15 @@ def consolidate_active(
     *,
     limit: int = 200,
     dry_run: bool = False,
+    resolve_conflicts: bool = True,
 ) -> dict[str, Any]:
-    """Resolve duplicates and contradictions among active memories."""
+    """Resolve duplicates and contradictions among active memories.
+
+    ``resolve_conflicts=False`` keeps the automatic sweep conservative: exact and
+    near duplicates are superseded, but a contradiction is reported for review
+    and both statements stay active. This is what the startup maintenance pass
+    uses; an operator can still run the full resolver explicitly.
+    """
     rows = store.list_memories(status="active", limit=limit)
     ordered = sorted(rows, key=_stamp)
     superseded: list[dict[str, Any]] = []
@@ -138,6 +145,11 @@ def consolidate_active(
             kept.append(row)
             continue
 
+        if reason == "contradiction" and not resolve_conflicts:
+            conflicts.append(replacement["id"])
+            kept.append(row)
+            continue
+
         old = replacement
         # The later statement wins; the older one is retained and linked.
         if dry_run:
@@ -178,6 +190,7 @@ def consolidate_active(
     return {
         "ok": True,
         "dryRun": bool(dry_run),
+        "resolveConflicts": bool(resolve_conflicts),
         "scanned": len(ordered),
         "superseded": superseded,
         "duplicates": duplicates,

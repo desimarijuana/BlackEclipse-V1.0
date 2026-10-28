@@ -588,8 +588,10 @@ def test_durable_preference_saved_automatically_in_selective_mode(env):
     saved = env["memory"].store.list_memories()
     assert len(saved) == 1
     assert saved[0]["scope"] == "user"
-    # Provenance is preserved for audit.
-    assert saved[0]["source"] == "explicit_user"
+    # Provenance is preserved for audit: an automatic save must not masquerade
+    # as an explicit user statement.
+    assert saved[0]["source"] == "automatic_learning"
+    assert saved[0]["authority"] == "automatic"
 
 
 def test_onetime_task_detail_not_saved(env):
