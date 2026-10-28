@@ -58,7 +58,9 @@ wins over an inferred one.
 | `preference_dimensions` | `{}` | Per-dimension switches (absent = enabled). |
 
 When memory is disabled (`memory_enabled=false`) or preference learning is
-`off`, no evidence is collected at all.
+`off`, no evidence is collected at all. `memory_mode=off` also blocks automatic
+preference prompts (even inert suggestions); an explicit "remember this" still
+works through the turn gate.
 
 ## Surfaces
 

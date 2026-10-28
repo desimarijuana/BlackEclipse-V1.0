@@ -93,7 +93,7 @@ conversation's `context`/`output` folder, or a source path.
 |---|---|
 | DOCX | `replace_text`, `set_paragraph_text`, `set_table_cell`, `set_core_property`, `insert_image`, `accept_revisions`, `reject_revisions` |
 | XLSX | `set_cell`, `set_formula`, `set_number_format`, `rename_sheet`, `append_rows`, `insert_rows`, `delete_rows`, `insert_columns`, `delete_columns` |
-| PPTX | `set_slide_title`, `replace_text`, `set_notes`, `set_shape_text`, `delete_slide`, `duplicate_slide`, `replace_chart_data`, `add_smartart_node`, `remove_smartart_node`, `set_smartart_node_text` |
+| PPTX | `set_slide_title`, `replace_text`, `set_notes`, `set_shape_text`, `delete_slide`, `duplicate_slide`, `replace_chart_data`, `add_smartart_node`, `remove_smartart_node`, `set_smartart_node_text`, `set_smartart_layout` |
 | PDF | `fill_form`, `rotate_pages`, `add_annotation`, `set_metadata`, `redact` |
 
 `replace_text` works across runs: it preserves the first run's formatting,
@@ -106,9 +106,9 @@ Structural XLSX edits (`insert_rows`/`delete_rows`/`insert_columns`/
 `delete_columns`) rewrite A1 references across the workbook: formulas, defined
 names, merged ranges, conditional formats, data validations, hyperlinks,
 auto-filters, column ranges, table references, table formulas and chart series
-formulas are shifted/expanded with the cells. Pivot tables, OLE objects and legacy
-drawings are still refused (`EDIT_STRUCTURE_UNSAFE`) because their part-level
-references need a deeper remap. Structural targets are reported, so the
+formulas are shifted/expanded with the cells. Pivot table locations and cache source ranges are shifted and the cache is marked
+`refreshOnLoad`; OLE and legacy VML anchors shift with the rows/columns. Pivot
+caches whose definition is missing are refused (`EDIT_PIVOT_UNSAFE`). Structural targets are reported, so the
 preservation proof names exactly which parts changed.
 
 `docx.insert_image` adds the media part, image relationship, content-type default
@@ -132,9 +132,9 @@ page becomes an image (`redactionMode: "rasterized_page"`).
 
 ## What is deliberately not supported yet
 
-SmartArt layout-template changes (adding/removing nodes and editing labels are
-supported). Structural XLSX edits on pivot/OLE-bearing sheets are refused rather
-than silently breaking part-level references.
+SmartArt layout templates can be swapped from a donor diagram in the same deck;
+cross-deck template import is not supported. Pivot definitions with no reachable
+cache are refused rather than guessed.
 
 ## Failure codes
 
@@ -145,7 +145,9 @@ than silently breaking part-level references.
 | `EDIT_FORMAT_UNSUPPORTED` / `EDIT_FORMAT_MISMATCH` | not an editable format, or plan/source disagree |
 | `EDIT_MACRO_REFUSED` | VBA project present and macro policy is off |
 | `EDIT_XML_UNSAFE` | DTD/entity declaration in a package part |
-| `EDIT_STRUCTURE_UNSAFE` | pivot/OLE/legacy-drawing structural edit |
+| `EDIT_PIVOT_UNSAFE` | pivot definition/cache cannot be shifted safely |
+| `EDIT_DIAGRAM_LAYOUT_MISSING` | SmartArt layout/quick-style/colors relationship missing |
+| `EDIT_STRUCTURE_UNSAFE` | structural edit reached an unsupported structure |
 | `EDIT_CHART_SERIES_MISMATCH` | chart series count differs from the plan |
 | `EDIT_NO_REVISIONS` | accept/reject found no tracked revisions |
 | `EDIT_VERIFICATION_FAILED` | untouched-part/relationship/expected-content proof failed |
