@@ -16,7 +16,7 @@ from .self_modification import SelfModificationAudit
 from .tool_shadow import shadow_report
 from .widening_queue import WideningProposalStore
 
-_ACTIVE: dict[str, frozenset[str]] = {}
+_ACTIVE: dict[str, dict[str, str]] = {}
 
 
 def _expiry(days: int) -> str:
@@ -33,22 +33,26 @@ def _detail(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def granted_tools(agent_id: str) -> frozenset[str]:
-    return _ACTIVE.get(str(agent_id), frozenset())
+    now = now_iso()
+    return frozenset(
+        name for name, expires in _ACTIVE.get(str(agent_id), {}).items()
+        if not expires or expires > now
+    )
 
 
 def refresh(store: Any) -> dict[str, list[str]]:
     """Rebuild the overlay from durable active grants (expired ones excluded)."""
     audit = SelfModificationAudit(store)
     now = now_iso()
-    grouped: dict[str, set[str]] = {}
+    grouped: dict[str, dict[str, str]] = {}
     for row in audit.active("widen_tool"):
         expires = str(row.get("expiresAt") or "")
         if expires and expires <= now:
             continue
         agent_id = str(_detail(row).get("agentId") or "eclipse-agent")
-        grouped.setdefault(agent_id, set()).add(str(row.get("subject") or ""))
+        grouped.setdefault(agent_id, {})[str(row.get("subject") or "")] = expires
     global _ACTIVE
-    _ACTIVE = {agent: frozenset(tools) for agent, tools in grouped.items() if tools}
+    _ACTIVE = {agent: tools for agent, tools in grouped.items() if tools}
     return {agent: sorted(tools) for agent, tools in _ACTIVE.items()}
 
 

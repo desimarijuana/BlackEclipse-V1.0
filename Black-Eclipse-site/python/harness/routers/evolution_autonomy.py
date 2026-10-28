@@ -176,6 +176,68 @@ def widening_withdraw(
     return {"success": ok, "proposalId": proposal_id, "withdrawn": ok}
 
 
+@router.get("/evolution/effectful-widening")
+def effectful_widening_list(
+    limit: int = 100, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..self_improvement.effectful_widening import EffectfulProposalStore  # noqa: PLC0415
+
+    return {"success": True, "proposals": EffectfulProposalStore(service.store).list(limit=limit)}
+
+
+@router.post("/evolution/effectful-widening/propose")
+def effectful_widening_propose(
+    body: dict[str, Any],
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..agents import get_agent  # noqa: PLC0415
+    from ..self_improvement.effectful_widening import propose  # noqa: PLC0415
+
+    agent = get_agent("eclipse-agent")
+    return {
+        "success": True,
+        **propose(
+            service.store, service.registry, str(body.get("toolName") or ""),
+            justification=str(body.get("justification") or ""),
+            caps=body.get("caps") if isinstance(body.get("caps"), dict) else {},
+            ttl_hours=int(body.get("ttlHours") or 4),
+            already_allowed=tuple(agent.tools or ()),
+        ),
+    }
+
+
+@router.post("/evolution/effectful-widening/{proposal_id}/approve")
+def effectful_widening_approve(
+    proposal_id: str,
+    body: dict[str, Any],
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..self_improvement.effectful_widening import approve  # noqa: PLC0415
+
+    return {
+        "success": True,
+        **approve(service.store, proposal_id, str(body.get("token") or "")),
+    }
+
+
+@router.get("/evolution/effectful-widening/grants")
+def effectful_widening_grants(
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..self_improvement.effectful_widening import list_grants  # noqa: PLC0415
+
+    return {"success": True, "grants": list_grants(service.store)}
+
+
+@router.post("/evolution/effectful-widening/grants/{grant_id}/revoke")
+def effectful_widening_revoke(
+    grant_id: str, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..self_improvement.effectful_widening import revoke_grant  # noqa: PLC0415
+
+    return {"success": True, **revoke_grant(service.store, grant_id)}
+
+
 @router.get("/evolution/tool-contracts")
 def tool_contract_shadow(
     _: bool = Depends(require_operator),

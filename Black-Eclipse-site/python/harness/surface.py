@@ -173,6 +173,12 @@ def _declared_allowlist(agent: AgentConfig, registry: ToolRegistry) -> Optional[
             if getattr(tool, "risk", "low") not in ("none", "low"):
                 continue
             allowed.add(name)
+        from .self_improvement.effectful_widening import granted_tools as effectful_granted  # noqa: PLC0415
+
+        for name in effectful_granted(agent.id):
+            tool = registry.get(name)
+            if tool is not None and getattr(tool, "permission", "") != "read":
+                allowed.add(name)
     if agent.allowMcpTools:
         allowed.update(name for name in registry.names() if name.startswith("mcp_"))
     if getattr(agent, "allowPluginTools", False):

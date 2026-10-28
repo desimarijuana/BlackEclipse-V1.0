@@ -603,6 +603,19 @@ class ToolRegistry:
                     f"Tool {name!r} has effect {tool.effect or tool.permission!r} and is not approved for this call",
                     started,
                 )
+            store = getattr(ctx, "memory_store", None)
+            if store is not None:
+                from .self_improvement.effectful_widening import check_call  # noqa: PLC0415
+
+                limit = check_call(
+                    store, str(getattr(ctx, "agent_id", "") or ""), name, clean,
+                )
+                if limit is not None and not limit.get("ok"):
+                    return self._failure(
+                        call_id, name, "WIDENING_CAP_EXCEEDED",
+                        f"Tool {name!r} blocked by effectful widening cap {limit.get('reason')!r}",
+                        started,
+                    )
 
         effective_timeout = effective_timeout_ms(
             tool.timeout_ms, timeout_ms, long_running=tool.long_running

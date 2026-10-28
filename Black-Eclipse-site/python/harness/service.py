@@ -415,6 +415,14 @@ class AgenticService:
         from .journal_tools import register_journal_tools  # noqa: PLC0415
 
         register_journal_tools(self.registry)
+        # The money-movement guardrails: scam/coercion, impaired spending, crisis,
+        # aggregate limits and the money confirm gate. Boot wiring lives in
+        # `finance_guardrails/bootstrap.py`; it reuses the ONE agent-memory
+        # connection and the ONE single-use approval store, and registers its
+        # read-only status/check tools on the SAME registry.
+        from .finance_guardrails.bootstrap import install_finance_guardrail_layer  # noqa: PLC0415
+
+        install_finance_guardrail_layer(self)
         # The Security subsystem (ADR-H159): the ONE decision path (Security
         # Gateway + Permission/Policy/Risk/Approval/Capability engines + Security
         # Floor + secrets + network policy + audit) over every privileged effect.
@@ -1516,9 +1524,11 @@ class AgenticService:
                 )
 
                 self._self_modification = SelfModificationExecutor(self)
+            from .self_improvement.effectful_widening import refresh as refresh_effectful  # noqa: PLC0415
             from .self_improvement.widening_runtime import refresh  # noqa: PLC0415
 
             refresh(self.store)
+            refresh_effectful(self.store)
             await self._self_modification.start()
         except Exception:  # noqa: BLE001 - never block boot
             log.warning("self-modification executor failed to start", exc_info=True)

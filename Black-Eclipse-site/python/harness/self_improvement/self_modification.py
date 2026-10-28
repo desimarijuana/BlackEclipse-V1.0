@@ -374,10 +374,14 @@ class SelfModificationExecutor:
         self._last_run_at = now
         self._skips = []
         apply = not self.policy.shadow
+        from .effectful_widening import expire_due as expire_effectful  # noqa: PLC0415
+        from .effectful_widening import refresh as refresh_effectful  # noqa: PLC0415
         from .widening_runtime import expire_due, refresh  # noqa: PLC0415
 
         widen_expired = expire_due(self.service.store)
+        effectful_expired = expire_effectful(self.service.store)
         refresh(self.service.store)
+        refresh_effectful(self.service.store)
         expired: list[dict[str, Any]] = []
         for row in self.audit.expire_due(now):
             self._disable(str(row.get("subject") or ""), "self-modification TTL expired")
@@ -416,6 +420,7 @@ class SelfModificationExecutor:
             "accepted": accepted, "enabled": enabled,
             "expired": [row.get("id") for row in expired],
             "expiredWidenGrants": widen_expired,
+            "expiredEffectfulGrants": effectful_expired,
             "rolledBack": rolled_back,
             "skipped": list(self._skips),
         }
