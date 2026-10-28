@@ -197,7 +197,9 @@ granting a capability:
   emits `memory.automatic_saved`, which the usage report counts separately from
   an explicit save. Before this, `apply_explicit_intent` hard-coded
   `explicit_user`, so the Control Room always reported `automatic = 0` even when
-  the loop had learned the fact.
+  the loop had learned the fact. A preference embedded in a long prompt is
+  extracted as its own clause (task instructions are not stored), and a
+  task-scoped marker elsewhere in the prompt no longer suppresses it.
 - **Gate-approved model preferences are saved, not merely surfaced.** Under
   `memory_mode=automatic_selective`, a model proposal whose re-check returns
   `save` and whose type is `preference`/`constraint` is committed as an
@@ -210,10 +212,12 @@ granting a capability:
   carries a real `proposedProcedure`, `analyze_run` calls `propose_draft`: a
   `status=draft`, `evaluationStatus=not_evaluated` skill is stored. Startup
   maintenance also quarantines nonconforming legacy candidates and drafts the
-  remaining ready ones, so old rows are not stranded. Nothing is evaluated,
-  enabled or promoted automatically. Construction candidates keep their
-  dedicated recurrence gate (`maybe_draft_construction`). Migration 33 restores
-  `LearningCandidate.occurrenceCount` on stores created before it.
+  remaining ready ones, so old rows are not stranded. `skill_list`/`skill_view`
+  now also read store-only drafts (a learning draft has no installable file),
+  and `learning_candidate_list` prints the drafted skill id. Nothing is
+  evaluated, enabled or promoted automatically. Construction candidates keep
+  their dedicated recurrence gate (`maybe_draft_construction`). Migration 33
+  restores `LearningCandidate.occurrenceCount` on stores created before it.
 - **User corrections are candidates.** A run whose memory blob records
   `action=correct` now produces a scoped `user_correction` candidate (condition,
   method, evidence, replay test); a single correction stays `detected`.
@@ -226,6 +230,9 @@ granting a capability:
   runtime, `session_search` no longer filters on the local caller id (indexed
   messages have no `userId`), and a multi-token query that matches no single
   message retries with ANY terms (`matchMode=any`) instead of returning nothing.
+  The tool now prints `matchMode`, and an explicit `run_id` search indexes that
+  run once and retries, so the just-finished run is recallable without waiting
+  for the background indexer.
 
 The human gate is unchanged: candidates can be accepted, drafts evaluated and
 skills enabled only through the existing operator routes. These changes make

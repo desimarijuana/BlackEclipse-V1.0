@@ -116,6 +116,22 @@ _ONE_OFF_PATTERNS = (
     r"\bfor this (task|run|turn|one|request|time|analysis)\b",
     r"\b(for now|this time|today only|just this once|in this run)\b",
 )
+
+# A durable preference inside a longer prompt ("First: I prefer ..."). Only the
+# preference clause is stored; the surrounding task instructions are not.
+_PREFERENCE_CLAUSE_RE = re.compile(
+    r"(?i)\b(?:i (?:prefer|like|always|never)|my preference is|we (?:always|never))"
+    r"\b[^.!?\n]{2,300}"
+)
+
+
+def _preference_clause(text: str) -> str:
+    match = _PREFERENCE_CLAUSE_RE.search(text or "")
+    if not match:
+        return ""
+    return match.group(0).strip(" \t:;-")
+
+
 _GREETING_RE = re.compile(
     r"^\s*(hi|hello|hey|yo|thanks|thank you|good (morning|afternoon|evening)|"
     r"cheers|ok|okay|sure|cool|nice)\b[\s!.,]*$",
@@ -435,28 +451,46 @@ def _decide_incidental(
             outcome="ignore", reason="content looks like a secret/credential — not stored",
             content="", refused=True, provenance="explicit_user",
         )
-    if looks_like_financial_fact(text):
-        return _ignore("financial/market figure belongs to the run, not durable memory")
-    if _matches(text, _ONE_OFF_PATTERNS):
-        return _history_only("task-scoped one-off — searchable history only", content=text)
-
     # A direct user preference ("I prefer …", "my preference is …") is about the
-    # user and low-risk; a project convention ("always / from now on / rule")
+    # user and low-risk; only that clause is considered, not the surrounding
+    # task instructions. A project convention ("always / from now on / rule")
     # is a project-specific assertion that needs stronger evidence. A question
     # ("why do I prefer …?") is not a durable statement.
+    preference_text = _preference_clause(text)
+    if looks_like_financial_fact(preference_text or text):
+        return _ignore("financial/market figure belongs to the run, not durable memory")
+    if preference_text and looks_like_secret(preference_text):
+        return _ignore(
+            "the preference clause contains a secret/credential — not stored",
+            content="", refused=True,
+        )
+    # A task-scoped marker anywhere in a long prompt must not suppress a clear,
+    # standalone preference clause. Only the clause is stored.
+    if not preference_text and _matches(text, _ONE_OFF_PATTERNS):
+        return _history_only("task-scoped one-off — searchable history only", content=text)
+
     is_question = text.rstrip().endswith("?") or bool(re.match(
         r"^\s*(why|what|how|when|where|which|who|do|does|did|can|could|should|"
         r"would|is|are|was|were|will)\b",
         text, re.IGNORECASE,
     ))
     if is_question:
-        return _history_only("question, not a durable statement — searchable history only", content=text)
-    direct_preference = bool(re.search(
-        r"\b(i (?:prefer|like|always|never)|my preference|we (?:always|never))\b",
-        text, re.IGNORECASE,
-    ))
+        lead = text
+        if preference_text:
+            index = text.find(preference_text)
+            lead = re.split(r"[.!?\n]", text[:index])[-1].strip() if index > 0 else ""
+        starts_as_question = bool(re.match(
+            r"(why|what|how|when|where|which|who|do|does|did|can|could|should|"
+            r"would|is|are|was|were|will)\b",
+            lead, re.IGNORECASE,
+        ))
+        if starts_as_question or not preference_text:
+            return _history_only(
+                "question, not a durable statement — searchable history only",
+                content=text,
+            )
     convention = _matches(text, _CONVENTION_PATTERNS)
-    durable = direct_preference or convention
+    durable = bool(preference_text) or convention
     if not durable:
         return _history_only("not durable information — searchable history only", content=text)
 
@@ -469,8 +503,9 @@ def _decide_incidental(
     if mode == "off":
         return _history_only("automatic memory learning is off — explicit request required", content=text)
 
-    scope, subject = _infer_scope(text)
-    memory_type = _classify_type(text)
+    content = preference_text or text
+    scope, subject = _infer_scope(content)
+    memory_type = "preference" if preference_text else _classify_type(content)
     if memory_type == "preference" and scope == "general":
         scope = "user"
     scope, scope_id = resolve_owner_scope(
@@ -482,21 +517,21 @@ def _decide_incidental(
         return MemoryDecision(
             outcome="suggest", action="save",
             reason="possible durable preference/convention — confirm to remember",
-            content=text, memory_type=memory_type, scope=scope, scope_id=scope_id,
+            content=content, memory_type=memory_type, scope=scope, scope_id=scope_id,
             subject=subject, confidence=0.5, importance=0.5, provenance="explicit_user",
         )
 
     # automatic_selective: strong, low-risk, durable evidence saves without a
     # prompt. A direct user preference qualifies on first statement; a
     # project-specific convention additionally requires recurrence.
-    if direct_preference:
+    if preference_text:
         pref_scope, pref_sid = resolve_owner_scope(
             "user", user_id, user_id=user_id, conversation_id=conversation_id,
         )
         return MemoryDecision(
             outcome="save", action="save",
             reason="high-confidence, low-risk user preference — saved automatically",
-            content=text, memory_type="preference", scope=pref_scope,
+            content=preference_text, memory_type="preference", scope=pref_scope,
             scope_id=pref_sid, subject=subject, confidence=0.75, importance=0.6,
             provenance="explicit_user",
             metadata={"automatic": True, "evidence": "direct user preference"},
@@ -505,7 +540,7 @@ def _decide_incidental(
         return MemoryDecision(
             outcome="save", action="save",
             reason="recurring project convention — saved automatically",
-            content=text, memory_type=memory_type, scope=scope, scope_id=scope_id,
+            content=content, memory_type=memory_type, scope=scope, scope_id=scope_id,
             subject=subject, confidence=0.6, importance=0.55, provenance="explicit_user",
             metadata={"automatic": True, "evidence": "recurrence"},
         )

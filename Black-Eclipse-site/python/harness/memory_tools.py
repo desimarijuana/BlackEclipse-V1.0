@@ -260,8 +260,7 @@ async def session_search_handler(args: dict[str, Any], ctx: ToolContext) -> tupl
     scope_user = ctx.user_id if args.get("scope") != "global" else None
     if str(scope_user or "").strip().lower() in ("", "local", "anonymous", "default"):
         scope_user = None
-    result = store.search_session_messages(
-        query,
+    search_kwargs = dict(
         user_id=scope_user,
         date_from=args.get("date_from"),
         date_to=args.get("date_to"),
@@ -275,13 +274,27 @@ async def session_search_handler(args: dict[str, Any], ctx: ToolContext) -> tupl
         kind=args.get("kind"),
         limit=limit or 10,
     )
+    result = store.search_session_messages(query, **search_kwargs)
+    # Read-your-writes: an explicit run_id may point at a run whose indexing is
+    # still finishing. Index it once, then retry, instead of reporting empty.
+    if not result.get("results") and args.get("run_id"):
+        try:
+            from .session_index import index_run  # noqa: PLC0415
+
+            index_run(store, str(args["run_id"]))
+            result = store.search_session_messages(query, **search_kwargs)
+        except Exception:  # noqa: BLE001 - search still returns its honest result
+            pass
     if not result.get("results"):
         return (
             "No matching prior session content found. Historical search is "
-            f"available (engine: {result.get('engine')}).",
+            f"available (engine: {result.get('engine')}, match: {result.get('matchMode') or 'all'}).",
             {**result, "count": 0},
         )
-    lines = [f"{len(result['results'])} matching prior message(s) (engine: {result.get('engine')}):"]
+    lines = [
+        f"{len(result['results'])} matching prior message(s) "
+        f"(engine: {result.get('engine')}, match: {result.get('matchMode') or 'all'}):"
+    ]
     for hit in result["results"]:
         score = f" score={hit['score']:.2f}" if hit.get("score") is not None else ""
         lines.append(
@@ -547,6 +560,11 @@ async def learning_candidate_list_handler(args: dict[str, Any], ctx: ToolContext
             f"created={str(candidate.get('createdAt') or '')[:19]} "
             f"run={candidate.get('sourceRunId')} confidence={candidate.get('confidence')} - {str(title)[:160]}"
         )
+        if candidate.get("resultingSkillId"):
+            lines.append(
+                f"    draftedSkill={candidate.get('resultingSkillId')} "
+                f"version={candidate.get('resultingSkillVersion') or '?'}"
+            )
         stored_method = any(
             candidate.get(key)
             for key in ("failedCall", "recoveredCall", "precondition", "replayTest")
@@ -675,11 +693,48 @@ async def skill_list_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[st
     registry = getattr(ctx, "skill_registry", None)
     if registry is None:
         return "Skills are not available in this run.", {"count": 0}
+    query = str(args.get("query") or "")
     results = registry.discover(
-        query=str(args.get("query") or ""),
+        query=query,
         category=args.get("category"),
         include_non_executable=True,
     )
+    # Drafts and other store-only skills are not loaded into the in-memory
+    # registry (a learning draft has no installable instruction file). Expose
+    # them from the same store so the operator and the agent can see/evaluate
+    # them instead of reporting "no such skill".
+    store = getattr(registry, "store", None)
+    if store is not None and hasattr(store, "list_skills"):
+        known = {str(item.get("id")) for item in results}
+        terms = [term for term in query.lower().split() if term]
+        for row in store.list_skills():
+            skill_id = str(row.get("id") or "")
+            if not skill_id or skill_id in known:
+                continue
+            if args.get("status") and row.get("status") != args.get("status"):
+                continue
+            if args.get("category") and row.get("category") != args.get("category"):
+                continue
+            haystack = " ".join([
+                skill_id, str(row.get("name") or ""),
+                str(row.get("description") or ""),
+                " ".join(str(tag) for tag in (row.get("tags") or [])),
+            ]).lower()
+            if terms and not all(term in haystack for term in terms):
+                continue
+            results.append({
+                "id": skill_id,
+                "name": row.get("name") or skill_id,
+                "version": row.get("latestVersion") or "0.0.0",
+                "status": row.get("status") or "unknown",
+                "description": row.get("description") or "",
+                "category": row.get("category") or "",
+                "tags": list(row.get("tags") or []),
+                "executable": False,
+                "storeOnly": True,
+            })
+            known.add(skill_id)
+        results.sort(key=lambda item: str(item.get("id") or ""))
     if not results:
         return "No skills match.", {"count": 0, "skills": []}
     lines = [f"{len(results)} skill(s):"]
@@ -698,14 +753,33 @@ async def skill_view_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[st
     if not skill_id:
         return "A skill name is required.", {"found": False}
     loaded = registry.get(skill_id)
-    if loaded is None:
-        return f"No skill named {skill_id!r}. Use skill_list to see available skills.", {"found": False}
-    manifest = loaded.manifest
+    manifest = None
     instructions = ""
-    try:
-        instructions = loaded.load_instructions()
-    except OSError:
-        instructions = ""
+    if loaded is not None:
+        manifest = loaded.manifest
+        try:
+            instructions = loaded.load_instructions()
+        except OSError:
+            instructions = ""
+    else:
+        store = getattr(registry, "store", None)
+        record = store.get_skill(skill_id) if store is not None else None
+        if record is None:
+            return (
+                f"No skill named {skill_id!r}. Use skill_list to see available skills.",
+                {"found": False},
+            )
+        row = store.get_version(skill_id, record.get("latestVersion") or "") or {}
+        try:
+            from .skills.manifest import SkillManifest  # noqa: PLC0415
+
+            manifest = SkillManifest.model_validate(row.get("manifest") or {})
+        except Exception:
+            return (
+                f"Skill {skill_id!r} has no readable manifest.",
+                {"found": False},
+            )
+        instructions = str(row.get("instructions") or "")
     body = "\n".join([
         f"# {manifest.name} ({manifest.id} v{manifest.version})",
         f"Status: {manifest.status} · Risk: {manifest.riskLevel}",

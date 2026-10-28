@@ -10,10 +10,16 @@ import pytest
 
 from harness.eclipse_memory import EclipseMemoryService, EclipseMemoryStore
 from harness.eclipse_memory.consolidation import consolidate_active
-from harness.memory_tools import session_search_handler
+from harness.memory_tools import (
+    learning_candidate_list_handler,
+    session_search_handler,
+    skill_list_handler,
+    skill_view_handler,
+)
 from harness.persistence import AgentMemoryStore
 from harness.session_index import backfill_run_index
-from harness.skills.draft import auto_draft_ready_candidates
+from harness.skills.draft import auto_draft_ready_candidates, propose_draft
+from harness.skills.registry import SkillRegistry
 from harness.tools import ToolContext
 
 
@@ -137,6 +143,91 @@ def test_automatic_consolidation_merges_duplicates_but_not_contradictions():
         assert service.store.get_memory(right["id"])["status"] == "active"
     finally:
         service.close()
+
+
+def test_a_preference_inside_a_long_audit_prompt_is_saved_alone():
+    directory = tempfile.mkdtemp(prefix="be-pref-")
+    service = EclipseMemoryService(
+        EclipseMemoryStore(os.path.join(directory, "eclipse-memory.db")),
+    )
+    try:
+        text = (
+            "HARDCORE LOOP VERIFICATION. Treat this as an audit. Read-only except "
+            "the preference sentence below. In this run do not write.\n\n"
+            'First: I prefer concise, evidence-first answers with a short "What changed" '
+            "section and no preamble.\n\nNow run the audit."
+        )
+        decision = service.decide_turn(text, user_id="local")
+        assert decision.outcome == "save"
+        outcome = service.commit_decision(decision, user_id="local")
+        memory = outcome["memory"]
+        assert memory["authority"] == "automatic"
+        assert memory["content"].startswith("I prefer concise")
+        assert "HARDCORE" not in memory["content"]
+        assert "in this run" not in memory["content"]
+    finally:
+        service.close()
+
+
+@pytest.mark.asyncio
+async def test_store_only_draft_is_visible_to_skill_list_and_view():
+    directory = tempfile.mkdtemp(prefix="be-draft-view-")
+    store = EclipseMemoryStore(os.path.join(directory, "eclipse-memory.db"))
+    try:
+        candidate_id = store.save_candidate({
+            "candidateType": "successful_procedure",
+            "title": "Reusable procedure: analysis_run",
+            "problem": "A multi-step procedure completed.",
+            "proposedLesson": "Use analysis_run for this repeatable computation.",
+            "proposedProcedure": [{"step": 1, "action": "call analysis_run"}],
+            "evidenceReferences": [
+                {"kind": "tool", "name": "analysis_run"},
+                {"kind": "tool", "name": "analysis_run"},
+            ],
+            "confidence": 0.6, "status": "detected",
+            "signature": "store_only_draft", "sourceRunId": "run_seed",
+        })
+        assert propose_draft(candidate_id, store, available_tools=["analysis_run"])["ok"]
+        registry = SkillRegistry(store)
+        ctx = ToolContext(
+            run_id="probe", log=lambda *_: None, skill_registry=registry,
+            memory_service=EclipseMemoryService(store),
+        )
+        skill_id = "learned.reusable-procedure-analysis-run"
+        text, data = await skill_list_handler({"query": skill_id}, ctx)
+        assert any(item["id"] == skill_id and item["status"] == "draft" for item in data["skills"]), text
+        view_text, view = await skill_view_handler({"name": skill_id}, ctx)
+        assert view["found"] is True
+        assert view["status"] == "draft"
+        assert "analysis_run" in view_text
+        list_text, listed = await learning_candidate_list_handler({}, ctx)
+        assert "draftedSkill=" + skill_id in list_text
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_session_search_run_id_indexes_a_just_finished_run():
+    directory = tempfile.mkdtemp(prefix="be-race-")
+    store = AgentMemoryStore(os.path.join(directory, "agent-memory.db"))
+    try:
+        store.create_run("run_race", "eclipse-agent", {"query": "x"})
+        store.update_run(
+            "run_race", status="completed",
+            output="The unique racecheck token.", modelSteps=2,
+        )
+        ctx = ToolContext(
+            run_id="probe", log=lambda *_: None,
+            memory_store=store, user_id="local",
+        )
+        text, data = await session_search_handler(
+            {"query": "racecheck", "run_id": "run_race"}, ctx,
+        )
+        assert data["results"], text
+        assert data["results"][0]["runId"] == "run_race"
+        assert "match:" in text
+    finally:
+        store.close()
 
 
 def test_usage_report_separates_automatic_from_explicit_saves():
