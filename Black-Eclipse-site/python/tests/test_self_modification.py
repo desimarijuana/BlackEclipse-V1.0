@@ -98,6 +98,31 @@ def test_ttl_expiry_disables_the_skill(tmp_path):
         service.store.close()
 
 
+def test_shadow_mode_records_but_does_not_enable(tmp_path):
+    service = _service(tmp_path)
+    try:
+        cid = _candidate(service.skill_registry.store)
+        accepted = SelfModificationExecutor(
+            service, SelfModificationPolicy(mode="accept"),
+        )
+        accepted.run_once()
+        skill_id = service.skill_registry.store.get_candidate(cid)["resultingSkillId"]
+        assert service.skill_registry.store.get_skill(skill_id)["status"] == "draft"
+
+        shadow = SelfModificationExecutor(
+            service, SelfModificationPolicy(mode="shadow"),
+        )
+        result = shadow.run_once()
+        assert result["enabled"], result
+        assert service.skill_registry.store.get_skill(skill_id)["status"] == "draft"
+        assert any(
+            row["kind"] == "shadow_enable_skill"
+            for row in shadow.audit.list(10)
+        )
+    finally:
+        service.store.close()
+
+
 def test_off_mode_and_cap_refuse_enablement(tmp_path):
     service = _service(tmp_path)
     try:

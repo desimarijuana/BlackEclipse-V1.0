@@ -9,7 +9,9 @@ skills, place financial actions, or edit this policy.
 
 Environment / settings:
 
-- `HARNESS_SELF_MODIFICATION` — `off` | `accept` | `enable` (default `enable`).
+- `HARNESS_SELF_MODIFICATION` — `off` | `shadow` | `accept` | `enable`
+  (default `enable`). `shadow` records what it *would* accept/enable as
+  `shadow_*` audit rows but changes no candidate or skill.
 - `HARNESS_SELF_MODIFICATION_TTL_DAYS` — default `7`, 1–90.
 - `HARNESS_SELF_MODIFICATION_MAX_SKILLS` — active learned-skill cap, default `3`.
 - `HARNESS_SELF_MODIFICATION_MAX_ACTIONS` — per-day cap, default `10`.
@@ -53,7 +55,8 @@ Every action is a durable `SelfModificationAction` row:
 - accept mode accepts but does not enable;
 - enable mode enables a read-only skill with audit + expiry;
 - TTL expiry disables it;
-- `off` and `max_active_skills=0` refuse enablement.
+- `off` and `max_active_skills=0` refuse enablement;
+- `shadow` records `shadow_enable_skill` but leaves the skill `draft`.
 
 ## Still operator-only
 

@@ -26,7 +26,7 @@ from ..skills.evaluation import evaluate_skill
 
 log = logging.getLogger("harness.self_modification")
 
-MODES = ("off", "accept", "enable")
+MODES = ("off", "shadow", "accept", "enable")
 ALLOWED_SKILL_PERMISSIONS = frozenset({"data.read", "analysis.execute", "analysis.read"})
 MAX_CANDIDATES = 50
 MAX_SKILLS_PER_TICK = 10
@@ -74,12 +74,16 @@ class SelfModificationPolicy:
         return self.mode != "off"
 
     @property
+    def shadow(self) -> bool:
+        return self.mode == "shadow"
+
+    @property
     def auto_accept(self) -> bool:
-        return self.mode in ("accept", "enable")
+        return self.mode in ("shadow", "accept", "enable")
 
     @property
     def auto_enable(self) -> bool:
-        return self.mode == "enable"
+        return self.mode in ("shadow", "enable")
 
 
 class SelfModificationAudit:
@@ -117,14 +121,15 @@ class SelfModificationAudit:
         evidence: str = "",
         expires_at: Optional[str] = None,
         detail: Optional[dict[str, Any]] = None,
+        status: str = "active",
     ) -> str:
         action_id = "selfmod_" + uuid.uuid4().hex[:16]
         self._db.execute(
             "INSERT INTO SelfModificationAction "
             "(id, kind, subject, evidence, status, createdAt, expiresAt, revokedAt, detail) "
-            "VALUES (?, ?, ?, ?, 'active', ?, ?, NULL, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)",
             (
-                action_id, kind, subject, evidence, now_iso(), expires_at,
+                action_id, kind, subject, evidence, status, now_iso(), expires_at,
                 json.dumps(detail or {}),
             ),
         )
@@ -238,12 +243,30 @@ class SelfModificationExecutor:
             data={"reason": reason},
         )
 
-    def _accept_candidate(self, candidate: dict[str, Any]) -> Optional[dict[str, Any]]:
+    def _accept_candidate(
+        self, candidate: dict[str, Any], *, apply: bool = True,
+    ) -> Optional[dict[str, Any]]:
         from .lesson_contract import candidate_problems  # noqa: PLC0415
 
         if candidate_problems(candidate):
             return None
         candidate_id = str(candidate.get("id") or "")
+        if not apply:
+            skill_id = str(candidate.get("resultingSkillId") or "")
+            if not skill_id:
+                self._skip("accept_candidate", candidate_id, "no_draft_in_shadow")
+                return None
+            evaluations = self.store.list_evaluations(skill_id, limit=1)
+            if not evaluations or evaluations[0].get("status") != "passed":
+                self._skip("accept_candidate", candidate_id, "evaluation_not_passed")
+                return None
+            result = {"candidateId": candidate_id, "skillId": skill_id}
+            self.audit.record(
+                kind="shadow_accept_candidate", subject=candidate_id,
+                evidence=str(evaluations[0].get("id") or ""),
+                status="shadow", detail={"skillId": skill_id},
+            )
+            return result
         if not candidate.get("resultingSkillId"):
             result = propose_draft(
                 candidate_id, self.store,
@@ -273,7 +296,9 @@ class SelfModificationExecutor:
         )
         return {"candidateId": candidate_id, "skillId": skill_id, "version": version}
 
-    def _enable_skill(self, skill_row: dict[str, Any]) -> Optional[dict[str, Any]]:
+    def _enable_skill(
+        self, skill_row: dict[str, Any], *, apply: bool = True,
+    ) -> Optional[dict[str, Any]]:
         skill_id = str(skill_row.get("id") or "")
         if not skill_id.startswith("learned."):
             self._skip("enable_skill", skill_id, "not_learned")
@@ -295,6 +320,13 @@ class SelfModificationExecutor:
             self._skip("enable_skill", skill_id, "evaluation_not_passed")
             return None
         version = str(skill_row.get("latestVersion") or manifest.version)
+        if not apply:
+            self.audit.record(
+                kind="shadow_enable_skill", subject=skill_id,
+                evidence=str(evaluations[0].get("id") or ""),
+                status="shadow", detail={"version": version},
+            )
+            return {"skillId": skill_id, "version": version, "shadow": True}
         self.store.set_version_status(skill_id, version, "enabled", "passed")
         self.store.append_event(
             "skill.auto_enabled", skill_id=skill_id, version=version,
@@ -317,6 +349,7 @@ class SelfModificationExecutor:
         now = now_iso()
         self._last_run_at = now
         self._skips = []
+        apply = not self.policy.shadow
         expired: list[dict[str, Any]] = []
         for row in self.audit.expire_due(now):
             self._disable(str(row.get("subject") or ""), "self-modification TTL expired")
@@ -327,7 +360,7 @@ class SelfModificationExecutor:
                 for candidate in self.store.list_candidates(status=status, limit=MAX_CANDIDATES):
                     if self.audit.count_today("accept_candidate") >= self.policy.max_actions_per_day:
                         break
-                    result = self._accept_candidate(candidate)
+                    result = self._accept_candidate(candidate, apply=apply)
                     if result:
                         accepted.append(result)
         enabled: list[dict[str, Any]] = []
@@ -346,7 +379,7 @@ class SelfModificationExecutor:
                     break
                 if self.audit.count_today("enable_skill") >= self.policy.max_actions_per_day:
                     break
-                result = self._enable_skill(skill)
+                result = self._enable_skill(skill, apply=apply)
                 if result:
                     enabled.append(result)
                     remaining -= 1
@@ -405,6 +438,7 @@ class SelfModificationExecutor:
         return {
             "mode": self.policy.mode,
             "enabled": self.policy.enabled,
+            "shadow": self.policy.shadow,
             "paused": self._paused,
             "autoAccept": self.policy.auto_accept,
             "autoEnable": self.policy.auto_enable,
