@@ -175,6 +175,45 @@ def _pptx_chart_fixture() -> bytes:
     return buffer.getvalue()
 
 
+def _xlsx_pivot_fixture() -> bytes:
+    x = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    r = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    pkg = "http://schemas.openxmlformats.org/package/2006/relationships"
+    ct = "http://schemas.openxmlformats.org/package/2006/content-types"
+    xdr = "http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"
+    rows = "".join(
+        f'<row r="{index}"><c r="A{index}"><v>{index}</v></c><c r="B{index}"><v>{index * 10}</v></c></row>'
+        for index in range(1, 5)
+    )
+    files = {
+        "[Content_Types].xml": f'<?xml version="1.0"?><Types xmlns="{ct}"><Default Extension="xml" ContentType="application/xml"/><Default Extension="vml" ContentType="application/vnd.openxmlformats-officedocument.vmlDrawing"/></Types>',
+        "xl/workbook.xml": f'<?xml version="1.0"?><workbook xmlns="{x}" xmlns:r="{r}"><sheets><sheet name="Data" sheetId="1" r:id="rId1"/></sheets></workbook>',
+        "xl/_rels/workbook.xml.rels": f'<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rId1" Type="{r}/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
+        "xl/worksheets/sheet1.xml": (
+            f'<?xml version="1.0"?><worksheet xmlns="{x}" xmlns:r="{r}"><dimension ref="A1:B4"/>'
+            f'<sheetData>{rows}</sheetData><pivotTableParts count="1"><pivotTablePart r:id="rIdP"/></pivotTableParts>'
+            f'<drawing r:id="rIdD"/><legacyDrawing r:id="rIdV"/></worksheet>'
+        ),
+        "xl/worksheets/_rels/sheet1.xml.rels": (
+            f'<?xml version="1.0"?><Relationships xmlns="{pkg}">'
+            f'<Relationship Id="rIdP" Type="{r}/pivotTable" Target="../pivotTables/pivotTable1.xml"/>'
+            f'<Relationship Id="rIdD" Type="{r}/drawing" Target="../drawings/drawing1.xml"/>'
+            f'<Relationship Id="rIdV" Type="{r}/vmlDrawing" Target="../drawings/vmlDrawing1.vml"/>'
+            f'</Relationships>'
+        ),
+        "xl/pivotTables/pivotTable1.xml": f'<?xml version="1.0"?><pivotTableDefinition xmlns="{x}"><location ref="A3:B10"/></pivotTableDefinition>',
+        "xl/pivotTables/_rels/pivotTable1.xml.rels": f'<?xml version="1.0"?><Relationships xmlns="{pkg}"><Relationship Id="rIdC" Type="{r}/pivotCacheDefinition" Target="../pivotCache/pivotCacheDefinition1.xml"/></Relationships>',
+        "xl/pivotCache/pivotCacheDefinition1.xml": f'<?xml version="1.0"?><pivotCacheDefinition xmlns="{x}" refreshOnLoad="0"><cacheSource><worksheetSource ref="A1:B9" sheet="Data"/></cacheSource></pivotCacheDefinition>',
+        "xl/drawings/drawing1.xml": f'<?xml version="1.0"?><xdr:wsDr xmlns:xdr="{xdr}"><xdr:twoCellAnchor><xdr:from><xdr:col>1</xdr:col><xdr:row>2</xdr:row></xdr:from><xdr:to><xdr:col>2</xdr:col><xdr:row>4</xdr:row></xdr:to></xdr:twoCellAnchor></xdr:wsDr>',
+        "xl/drawings/vmlDrawing1.vml": '<?xml version="1.0"?><xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:x="urn:schemas-microsoft-com:office:excel"><v:shape><x:ClientData><x:Anchor>1, 0, 2, 0, 2, 0, 4, 0</x:Anchor></x:ClientData></v:shape></xml>',
+    }
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, content in files.items():
+            archive.writestr(name, content)
+    return buffer.getvalue()
+
+
 def _pptx_layout_fixture() -> bytes:
     p_ns = "http://schemas.openxmlformats.org/presentationml/2006/main"
     r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -527,6 +566,24 @@ def test_pptx_replace_text_in_a_diagram_part():
     assert outcome.report["ok"], outcome.report
     package = OoxmlPackage.from_bytes(outcome.data)
     assert b"Final" in package.require("ppt/diagrams/data1.xml")
+
+
+def test_xlsx_structural_edit_updates_pivots_ole_and_legacy_anchors():
+    outcome = apply_edit_plan(_xlsx_pivot_fixture(), "pivot.xlsx", EditPlan.from_dict({
+        "edits": [{"op": "xlsx.insert_rows", "sheet": "Data", "at": 2, "count": 1}],
+    }))
+    assert outcome.report["ok"], outcome.report
+    package = OoxmlPackage.from_bytes(outcome.data)
+    pivot = package.require("xl/pivotTables/pivotTable1.xml")
+    assert b'ref="A4:B11"' in pivot
+    cache = package.require("xl/pivotCache/pivotCacheDefinition1.xml")
+    assert b'ref="A1:B10"' in cache
+    assert b'refreshOnLoad="1"' in cache
+    drawing = package.require("xl/drawings/drawing1.xml")
+    assert b"<xdr:row>3</xdr:row>" in drawing
+    assert b"<xdr:row>5</xdr:row>" in drawing
+    vml = package.require("xl/drawings/vmlDrawing1.vml")
+    assert b"1, 0, 3, 0, 2, 0, 5, 0" in vml
 
 
 def test_pptx_smartart_layout_swap_from_donor_slide():
