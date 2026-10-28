@@ -34,7 +34,14 @@ async def advisory_list(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     lines = [f"{len(rows)} recorded recommendation(s):"]
     for r in rows:
         symbols = " ".join(r.get("symbols") or []) or "-"
-        lines.append(f"  - [{r['status']}] {r['action']} {symbols} ({r['createdAt']})")
+        outcome = r.get("outcome")
+        scored = f", {outcome['verdict']}" if outcome else ", unscored"
+        lines.append(
+            f"  - [{r['status']}] {r['action']} {symbols} "
+            f"method={r.get('method') or 'MISSING'} "
+            f"horizon={r.get('horizon') or 'MISSING'} "
+            f"dueAt={r.get('dueAt') or '-'}{scored} ({r['createdAt']})"
+        )
     return "\n".join(lines), {"decisions": rows}
 
 
@@ -60,13 +67,26 @@ async def advisory_scorecard(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
         owner_id=args.get("owner_id") or _owner(ctx),
     )
     hit = card["hitRate"]
-    text = (
+    lines = [
         f"{card['total']} recommendation(s): {card['byStatus']['computed']} computed, "
         f"{card['byStatus']['sourced']} sourced, {card['byStatus']['unverified']} unverified; "
         f"{card['evaluated']} evaluated"
-        + (f", hit rate {hit:.0%}" if hit is not None else "") + "."
-    )
-    return text, card
+        + (f", hit rate {hit:.0%}" if hit is not None else "") + "; "
+        f"{card.get('unscored', 0)} without a horizon, "
+        f"{card.get('overdueCount', 0)} overdue, "
+        f"{card.get('needsBackfill', 0)} need backfill."
+    ]
+    for bucket in card.get("byMethod") or []:
+        rate = bucket.get("hitRate")
+        lines.append(
+            f"  method {bucket['method']}: {bucket['total']} total, "
+            f"{bucket['evaluated']} evaluated, "
+            f"hit rate {'n/a' if rate is None else f'{rate:.0%}'}"
+            + (", DEMOTED" if bucket.get("demoted") else "")
+        )
+    if card.get("demotedMethods"):
+        lines.append("Demoted methods: " + ", ".join(card["demotedMethods"]) + ".")
+    return "\n".join(lines), card
 
 
 async def advisory_evaluate_outcomes(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:

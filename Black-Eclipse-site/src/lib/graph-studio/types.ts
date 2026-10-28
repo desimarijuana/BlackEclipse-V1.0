@@ -165,6 +165,26 @@ export type SideEffectClass =
    *  the world, so a test run may perform it. */
   | 'local_write';
 
+/**
+ * How a config key is presented and edited. `inline` fields are the 1–2 values
+ * shown directly on the canvas node; everything else lives in the inspector.
+ * This is presentation metadata only — it never changes the persisted config or
+ * the node's semantics.
+ */
+export interface ConfigFieldDef {
+  key: string;
+  label: string;
+  kind: 'text' | 'number' | 'boolean' | 'select' | 'json';
+  /** Show on the node card (at most two per definition; json is panel-only). */
+  inline?: boolean;
+  options?: { value: string; label: string }[];
+  placeholder?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  help?: string;
+}
+
 export interface NodeDefinition {
   type: string;
   version: string;

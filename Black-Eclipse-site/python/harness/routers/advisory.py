@@ -77,6 +77,18 @@ async def advisory_record_outcome(decision_id: str, request: Request,
     return result
 
 
+@router.post("/advisory/backfill")
+async def advisory_backfill(body: Optional[dict[str, Any]] = Body(default=None),
+                            _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Fill method/horizon on legacy decisions; never invents an outcome."""
+    return {
+        "success": True,
+        **_ledger().backfill_scoring_fields(
+            dry_run=bool((body or {}).get("dryRun")),
+        ),
+    }
+
+
 @router.post("/advisory/evaluate")
 async def advisory_evaluate(body: dict[str, Any] = Body(...),
                             _: bool = Depends(require_operator)) -> dict[str, Any]:

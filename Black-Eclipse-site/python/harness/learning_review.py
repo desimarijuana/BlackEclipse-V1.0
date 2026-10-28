@@ -73,8 +73,18 @@ OUTCOME_CATEGORIES = frozenset(
         "skill_candidate",
         "skill_patch",
         "mistake_recovery",
+        "typed_lesson",
         "no_learning",
     }
+)
+
+# What a review inspects. A `no_learning` verdict must name this evidence.
+_REVIEW_EVIDENCE = (
+    "run.status",
+    "tool.executions",
+    "retrieval.events",
+    "memory.outcome",
+    "skill.executions",
 )
 
 # Market/provider-specific failure wording that must NOT be generalized globally.
@@ -110,24 +120,44 @@ def _bounded(result: dict[str, Any]) -> dict[str, Any]:
         safe_payload = {
             k: (v[:400] if isinstance(v, str) else v)
             for k, v in payload.items()
-            if k in ("content", "memoryType", "scope", "reason", "category", "recurrence", "limitations", "evidenceRunId", "skill", "baseVersion")
+            if k in (
+                "content", "memoryType", "scope", "reason", "category", "recurrence",
+                "limitations", "evidenceRunId", "skill", "baseVersion", "lesson",
+                "signal", "condition", "action", "evidence", "failedCall",
+                "recoveredCall", "precondition", "procedure", "replayTest",
+                "confidence", "evidenceChecked", "justified",
+            )
         }
         trimmed.append({
             "category": outcome.get("category"),
             "created": bool(outcome.get("created")),
             "inert": bool(outcome.get("inert", True)),
             "reason": (outcome.get("reason") or "")[:300],
+            # A null's justification lives at the outcome level; dropping it
+            # here made every persisted null look bare.
+            "justified": bool(outcome.get("justified", False)),
+            "evidenceChecked": list(outcome.get("evidenceChecked") or [])[:8],
             "payload": safe_payload,
         })
+    no_learning = not any(o.get("created") for o in trimmed)
+    null_outcome = next(
+        (o for o in trimmed if o.get("category") == "no_learning"), None
+    )
     return {
         "reviewId": result.get("reviewId"),
         "runId": result.get("runId"),
         "mode": result.get("mode", "deterministic"),
         "outcomes": trimmed,
+        "signals": result.get("signals") or [],
         "modelUsed": bool(result.get("modelUsed")),
         "tokenBudget": result.get("tokenBudget"),
         "gateApplied": True,
-        "noLearning": not any(o.get("created") for o in trimmed),
+        "noLearning": no_learning,
+        "noLearningReason": (
+            (null_outcome or {}).get("reason")
+            if no_learning and null_outcome
+            else None
+        ),
     }
 
 
@@ -274,14 +304,49 @@ def review_run(
         except Exception as exc:  # noqa: BLE001 - model is best-effort and inert
             outcomes.append({"category": "no_learning", "created": False, "reason": f"model review error: {exc}"})
 
-    if not outcomes:
-        outcomes = [{"category": "no_learning", "created": False, "reason": "nothing durable detected"}]
+    created = any(outcome.get("created") for outcome in outcomes)
+    if not created:
+        from .self_improvement.lesson_contract import NoLearningVerdict  # noqa: PLC0415
+
+        typed = [o for o in outcomes if o.get("category") == "typed_lesson"]
+        if typed:
+            reason = (
+                "typed lesson observed but not promotable yet: "
+                + "; ".join(
+                    str((o.get("payload") or {}).get("reason") or "recurrence not met")
+                    for o in typed[:3]
+                )
+            )
+        elif outcomes:
+            reason = (
+                "candidate outcomes are inert and require operator review; "
+                "no typed lesson was extractable"
+            )
+        else:
+            reason = (
+                "no typed lesson: no failed->recovered call pair, explicit "
+                "correction, or repeated successful procedure was present"
+            )
+        verdict = NoLearningVerdict(reason=reason, evidenceChecked=_REVIEW_EVIDENCE)
+        outcomes.append({**verdict.to_dict(), "created": False, "inert": True})
+
+    signals: list[dict[str, Any]] = []
+    try:
+        from .self_improvement.lesson_contract import (  # noqa: PLC0415
+            aggregate_from_store,
+        )
+
+        signals = aggregate_from_store(run_store, limit=50)[:10]
+    except Exception:  # noqa: BLE001 - an aggregate view never breaks a review
+        signals = []
+
     return _bounded({
         "runId": run_id,
         "mode": "deterministic+model" if model_used else "deterministic",
         "modelUsed": model_used,
         "tokenBudget": MODEL_TOKEN_BUDGET if model_used else None,
         "outcomes": outcomes,
+        "signals": signals,
     })
 
 
@@ -306,6 +371,16 @@ def _deterministic_outcomes(service: Any, run_store: Any, run_id: str) -> list[d
             "category": "skill_candidate", "created": True, "inert": True,
             "reason": "an inert reusable-procedure candidate was created (recurrence-gated)",
             "payload": {"category": "skill", "evidenceRunId": run_id},
+        })
+    # A review always carries the typed lesson it observed, even when candidate
+    # creation is policy-disabled. Promotion still needs recurrence + approval.
+    for lesson in (analysis.get("lessons") or [])[:4]:
+        if not isinstance(lesson, dict):
+            continue
+        outcomes.append({
+            "category": "typed_lesson", "created": False, "inert": True,
+            "reason": "typed lesson observed; recurrence and operator approval required",
+            "payload": {"lesson": lesson, "evidenceRunId": run_id},
         })
 
     # 1b) A structured skill patch may be PROPOSED for an enabled skill that the

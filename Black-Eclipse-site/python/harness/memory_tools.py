@@ -199,7 +199,23 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
             "relevance over this scope + general, excluding proposed/expired/low-confidence "
             "unverified. The totals above are the whole store.",
         ]
-        return "\n".join(lines), {"total": total, "counts": counts}
+        consolidation: dict[str, Any] = {}
+        try:
+            from .eclipse_memory.consolidation import consolidate_active  # noqa: PLC0415
+
+            consolidation = consolidate_active(svc.store, dry_run=True)
+            lines.append(
+                "  consolidation (dry-run): "
+                f"duplicateCount={consolidation.get('duplicateCount', 0)}, "
+                f"conflictCount={consolidation.get('conflictCount', 0)}, "
+                f"residueCount={consolidation.get('residueCount', 0)}, "
+                f"relatedCount={consolidation.get('relatedCount', 0)}"
+            )
+        except Exception as exc:  # noqa: BLE001
+            consolidation = {"error": str(exc)[:200]}
+        return "\n".join(lines), {
+            "total": total, "counts": counts, "consolidation": consolidation,
+        }
 
     # list
     default_list_scope = "conversation" if ctx.conversation_id else args.get("scope")
@@ -349,13 +365,70 @@ async def learning_review_list_handler(args: dict[str, Any], ctx: ToolContext) -
     reviews = store.list_learning_reviews(status=status, limit=limit)
     by_status = ", ".join(f"{key} {value}" for key, value in sorted((health.get("byStatus") or {}).items()))
     header = f"Learning reviews: {health.get('total', 0)} total" + (f" ({by_status})" if by_status else "") + "."
+    # The gate is the deliverable; expose it on a bound READ tool so a chat run
+    # can read gate.ok without HTTP-body permission.
+    gate: dict[str, Any] = {}
+    try:
+        from .self_improvement.loop_health import gate_report  # noqa: PLC0415
+
+        memory = getattr(ctx, "memory_service", None)
+        candidates = getattr(memory, "store", None) if memory is not None else None
+        advisory = getattr(ctx, "advisory_service", None)
+        policy = getattr(memory, "policy", None) if memory is not None else None
+        mode = policy.get_all().get("skill_learning_mode") if policy is not None else None
+        gate = gate_report(
+            store, skill_store=candidates, advisory_service=advisory,
+            learning_mode=mode,
+        )
+    except Exception as exc:  # noqa: BLE001 - reading the gate never breaks the list
+        gate = {"ok": False, "unavailable": True, "reason": str(exc)[:200]}
+    gap_codes = [
+        str(g.get("code")) for g in (gate.get("gaps") or []) if isinstance(g, dict)
+    ]
+    reviews_gate = gate.get("reviews") or {}
+    legacy_reviews = gate.get("legacyReviews") or {}
+    advice_gate = gate.get("advisory") or {}
+    legacy_advice = gate.get("legacyAdvisory") or {}
+    candidates_gate = gate.get("candidates") or {}
+    gate_line = (
+        f"Gate: ok={gate.get('ok')} gaps={', '.join(gap_codes) or 'none'} "
+        f"contractSince={gate.get('contractSince')}\n"
+        f"  current reviews: {reviews_gate.get('completed')} completed, "
+        f"{reviews_gate.get('withTypedLesson')} typed, "
+        f"{reviews_gate.get('justifiedNulls')} justified nulls, "
+        f"{reviews_gate.get('unjustifiedNulls')} unjustified nulls\n"
+        f"  legacy reviews: {legacy_reviews.get('unjustifiedNulls')} unjustified nulls\n"
+        f"  current advice: {advice_gate.get('total')} total, "
+        f"{advice_gate.get('evaluated')} evaluated, {advice_gate.get('unscored')} unscored, "
+        f"{advice_gate.get('overdue')} overdue\n"
+        f"  legacy advice: {legacy_advice.get('total')} total, "
+        f"{legacy_advice.get('evaluated')} evaluated, {legacy_advice.get('unscored')} unscored, "
+        f"{legacy_advice.get('overdue')} overdue\n"
+        f"  candidates: {candidates_gate.get('accepted')} accepted, "
+        f"{candidates_gate.get('detected')} detected, "
+        f"{candidates_gate.get('nonconforming')} nonconforming, "
+        f"{candidates_gate.get('staleDetected')} staleDetected\n"
+        f"  memory: {((gate.get('memory') or {}).get('duplicateCount'))} duplicates, "
+        f"{((gate.get('memory') or {}).get('conflictCount'))} conflicts, "
+        f"{((gate.get('memory') or {}).get('residueCount'))} residue, "
+        f"{((gate.get('memory') or {}).get('relatedCount'))} related"
+    )
     if not reviews:
         return (
             header + " No review records yet. One is queued automatically after every completed or "
-            "failed chat run and persisted after a short idle; Memory → Reviews can also run one on demand.",
-            {"health": health, "reviews": [], "count": 0},
+            "failed chat run and persisted after a short idle; Memory \u2192 Reviews can also run one on demand.\n"
+            + gate_line,
+            {"health": health, "reviews": [], "count": 0, "gate": gate},
         )
+    from .self_improvement.loop_health import audit_reviews  # noqa: PLC0415
+
+    audit = audit_reviews(reviews)
     lines = [header]
+    lines.append(
+        f"  audit: {audit['typedLessons']} typed lesson(s), "
+        f"{audit['justifiedNulls']} justified null(s), "
+        f"{audit['unjustifiedNulls']} bare/unjustified null(s)."
+    )
     for review in reviews:
         outcomes = (review.get("result") or {}).get("outcomes") or []
         kinds = ", ".join(str(outcome.get("category") or "outcome") for outcome in outcomes[:5]) or "no outcomes"
@@ -364,8 +437,33 @@ async def learning_review_list_handler(args: dict[str, Any], ctx: ToolContext) -
             f"[{review.get('status')}/{review.get('mode')}] "
             f"{str(review.get('createdAt') or '')[:19]} — {len(outcomes)} outcome(s): {kinds}"
         )
+        for outcome in outcomes[:5]:
+            if not isinstance(outcome, dict):
+                continue
+            if outcome.get("category") == "typed_lesson":
+                lesson = (outcome.get("payload") or {}).get("lesson") or {}
+                evidence = lesson.get("evidence") or []
+                lines.append(
+                    f"    lesson: when {str(lesson.get('condition') or '')[:120]} -> "
+                    f"{str(lesson.get('action') or '')[:160]} "
+                    f"(confidence {lesson.get('confidence')}) "
+                    f"evidence={len(evidence)}: "
+                    f"{', '.join(str(item) for item in evidence[:5])[:200] or 'MISSING'}"
+                )
+            elif outcome.get("category") == "no_learning":
+                label = "justified" if bool(outcome.get("justified")) else "UNJUSTIFIED"
+                reason = str(outcome.get("reason") or "").strip() or "NO REASON"
+                checked = outcome.get("evidenceChecked") or []
+                lines.append(
+                    f"    null[{label}]: {reason[:200]} "
+                    f"(checked {len(checked)} item(s))"
+                )
+    lines.append(gate_line)
     lines.append("Read-only. Running a review and accept/reject decisions are operator actions (Memory → Reviews).")
-    return "\n".join(lines), {"health": health, "reviews": reviews, "count": len(reviews)}
+    return "\n".join(lines), {
+        "health": health, "reviews": reviews, "count": len(reviews),
+        "audit": audit, "gate": gate,
+    }
 
 
 async def learning_candidate_list_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
@@ -426,16 +524,144 @@ async def learning_candidate_list_handler(args: dict[str, Any], ctx: ToolContext
         lines = [f"{len(candidates)} learning candidate(s), most recent first:"]
     else:
         lines = [f"{len(candidates)} learning candidate(s), most recent first (total unavailable):"]
+    from .self_improvement.lesson_contract import candidate_problems  # noqa: PLC0415
+
+    enriched: list[dict[str, Any]] = []
+    terminal = {"rejected", "expired", "accepted", "drafted"}
     for candidate in candidates:
+        item = dict(candidate)
+        status = str(candidate.get("status") or "")
+        item["contractProblems"] = (
+            candidate_problems(candidate) if status not in terminal else []
+        )
+        enriched.append(item)
         title = candidate.get("title") or candidate.get("proposedLesson") or candidate.get("signature") or ""
         lines.append(
-            f"  {candidate.get('id')} [{candidate.get('status')}] {candidate.get('candidateType')} "
+            f"  {candidate.get('id')} [{status}] {candidate.get('candidateType')} "
+            f"created={str(candidate.get('createdAt') or '')[:19]} "
             f"run={candidate.get('sourceRunId')} confidence={candidate.get('confidence')} - {str(title)[:160]}"
+        )
+        stored_method = any(
+            candidate.get(key)
+            for key in ("failedCall", "recoveredCall", "precondition", "replayTest")
+        )
+        if candidate.get("candidateType") == "failure_recovery" and (
+            status not in terminal or stored_method
+        ):
+            lines.append(
+                "    method: "
+                f"condition={candidate.get('condition') or 'MISSING'} | "
+                f"action={candidate.get('action') or 'MISSING'} | "
+                f"failed={candidate.get('failedCall') or 'MISSING'} | "
+                f"recovered={candidate.get('recoveredCall') or 'MISSING'} | "
+                f"precondition={candidate.get('precondition') or 'MISSING'} | "
+                f"replayTest={'yes' if candidate.get('replayTest') else 'MISSING'} | "
+                f"occurrenceCount={candidate.get('occurrenceCount')} | "
+                f"procedureSteps={len(candidate.get('proposedProcedure') or [])}"
+            )
+        if status in ("rejected", "expired"):
+            note = str(candidate.get("knownLimitations") or "").strip()
+            lines.append(
+                f"    {status}: " + (note[:200] or "no longer actionable; retained for audit")
+            )
+        elif status == "accepted":
+            limitation = str(candidate.get("knownLimitations") or "").strip()
+            if limitation:
+                lines.append(f"    limitations: {limitation[:240]}")
+        elif item["contractProblems"]:
+            lines.append(
+                "    CONTRACT VIOLATION: " + ", ".join(item["contractProblems"])
+            )
+    counts: dict[str, int] = {}
+    for item in enriched:
+        status = str(item.get("status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    from datetime import datetime, timedelta, timezone  # noqa: PLC0415
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    stale_detected = 0
+    for item in enriched:
+        if str(item.get("status")) != "detected":
+            continue
+        stamp = str(item.get("createdAt") or "").replace("Z", "+00:00")
+        try:
+            created = datetime.fromisoformat(stamp)
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            if created <= cutoff:
+                stale_detected += 1
+        except ValueError:
+            continue
+    nonconforming = sum(1 for item in enriched if item.get("contractProblems"))
+    full_counts: dict[str, int] = {}
+    if callable(counter):
+        for candidate_status in (
+            "detected", "drafted", "accepted", "rejected", "expired", "retired", "proposed",
+        ):
+            try:
+                full_counts[candidate_status] = int(counter(status=candidate_status))
+            except Exception:  # noqa: BLE001
+                continue
+    lines.append(
+        "  queue: "
+        + ", ".join(f"{key} {value}" for key, value in sorted(counts.items()))
+        + f"; staleDetected={stale_detected}, nonconforming={nonconforming}"
+        + f", quarantinable={nonconforming}"
+        + "; only `detected` rows are actionable."
+    )
+    if full_counts:
+        lines.append(
+            "  full store: "
+            + ", ".join(f"{key} {value}" for key, value in sorted(full_counts.items()))
+            + f"; hidden by the {MAX_LEARNING_ROWS}-row page: "
+            + str(max(0, sum(full_counts.values()) - len(enriched)))
         )
     if cap_note:
         lines.append(cap_note)
     lines.append("Read-only. Candidates are inert; review/accept them in Skills \u2192 Learning Queue.")
-    return "\n".join(lines), {"count": len(candidates), "total": total, "candidates": candidates}
+    return "\n".join(lines), {
+        "count": len(enriched), "total": total, "candidates": enriched,
+    }
+
+
+async def learning_candidate_validate_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """Read-only dry-run of the accept route: 404 / 409 / 422 / 200.
+
+    Performs no write, so a chat run can prove the negative paths without an
+    operator POST.
+    """
+    store = _learning_candidate_store(ctx)
+    if store is None:
+        return "The learning candidate store is not available.", {"available": False}
+    candidate_id = str(args.get("candidate_id") or "").strip()
+    if not candidate_id:
+        return "candidate_id is required.", {"available": False}
+    candidate = store.get_candidate(candidate_id)
+    if candidate is None:
+        return f"would return 404: no candidate {candidate_id}.", {
+            "httpStatus": 404, "candidateId": candidate_id,
+        }
+    status = str(candidate.get("status") or "")
+    if status != "detected":
+        return (
+            f"would return 409: only a `detected` candidate can be accepted; "
+            f"this one is {status!r}.",
+            {"httpStatus": 409, "candidateId": candidate_id, "status": status},
+        )
+    from .self_improvement.lesson_contract import candidate_problems  # noqa: PLC0415
+
+    problems = candidate_problems(candidate)
+    if problems:
+        return (
+            "would return 422: candidate is not falsifiable: "
+            + ", ".join(problems),
+            {"httpStatus": 422, "candidateId": candidate_id, "problems": problems},
+        )
+    return (
+        "would return 200: candidate is falsifiable and could be accepted "
+        "(read-only dry-run; nothing was written).",
+        {"httpStatus": 200, "candidateId": candidate_id, "status": status},
+    )
 
 
 # ── skill_list / skill_view ─────────────────────────────────────────────────
@@ -725,7 +951,7 @@ def register_memory_tools(registry: ToolRegistry) -> None:
             input_schema={
                 "type": "object",
                 "properties": {
-                    "status": {"type": "string", "enum": ["queued", "running", "completed", "failed"]},
+                    "status": {"type": "string", "enum": ["queued", "running", "completed", "failed", "superseded"]},
                     "limit": {"type": "integer", "description": "Max reviews (1..50)."},
                 },
             },
@@ -753,6 +979,28 @@ def register_memory_tools(registry: ToolRegistry) -> None:
             handler=learning_candidate_list_handler,
             permission="read",
             risk="low",
+            timeout_ms=10_000,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="learning_candidate_validate",
+            description=(
+                "Read-only dry-run of the operator accept route for one candidate: "
+                "returns the HTTP status it would produce (404 missing, 409 not "
+                "detected, 422 non-falsifiable, 200 acceptable). Writes nothing."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "string"},
+                },
+                "required": ["candidate_id"],
+                "additionalProperties": False,
+            },
+            handler=learning_candidate_validate_handler,
+            permission="read",
+            risk="none",
             timeout_ms=10_000,
         )
     )

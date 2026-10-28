@@ -44,7 +44,7 @@ def env():
 def _completed_run_with_failure(store, run_id="run_learn", *, recovered=True, steps=3):
     store.create_run(run_id, "eclipse-agent", {"query": "analyse ACME"})
     store.append_event(run_id, "run.started", 1)
-    store.append_event(run_id, "tool.failed", 2, {"name": "fundamentals_get_financials", "code": "TOOL_ERROR"})
+    store.append_event(run_id, "tool.failed", 2, {"name": "research_search", "code": "TOOL_ERROR"})
     store.append_event(run_id, "tool.completed", 3, {"name": "research_search"})
 
     class T:
@@ -57,7 +57,7 @@ def _completed_run_with_failure(store, run_id="run_learn", *, recovered=True, st
             self.error = None if ok else type("E", (), {"model_dump_json": lambda self: "{}"})()
             self.args = {}
 
-    store.record_tool_execution(run_id, T("fundamentals_get_financials", False))
+    store.record_tool_execution(run_id, T("research_search", False))
     store.record_tool_execution(run_id, T("research_search", True))
     store.update_run(
         run_id,

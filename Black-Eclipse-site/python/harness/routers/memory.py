@@ -213,6 +213,28 @@ def detect_compaction(
     return {"success": True, "proposals": proposals}
 
 
+@router.post("/eclipse-memory/consolidation/sweep")
+def consolidate_memory(
+    payload: Optional[dict[str, Any]] = None,
+    operator: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Resolve active duplicates/contradictions to the later statement.
+
+    Operator-gated; rows are superseded and linked, never deleted.
+    """
+    if not operator:
+        raise HTTPException(status_code=403, detail="operator authorization required")
+    from ..eclipse_memory.consolidation import consolidate_active  # noqa: PLC0415
+
+    return {
+        "success": True,
+        **consolidate_active(
+            service.memory.store,
+            dry_run=bool((payload or {}).get("dryRun")),
+        ),
+    }
+
+
 @router.post("/eclipse-memory/compaction/{proposal_id}/accept")
 def accept_compaction(
     proposal_id: str,

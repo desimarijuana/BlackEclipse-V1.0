@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Trash2, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { getNodeDefinition } from '@/lib/graph-studio/registry';
+import { fieldsFor } from '@/lib/graph-studio/config-fields';
 import { validateConfig } from '@/lib/graph-studio/validation';
 import { portColor, sideEffectColor } from '@/lib/graph-studio/port-style';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
@@ -17,23 +18,9 @@ import { useWorkflowCatalog } from '@/lib/graph-studio/catalog-store';
 import type { PortDef } from '@/lib/graph-studio/types';
 import type { NodeRunRecord } from '@/lib/graph-studio/execution-client';
 import { nodeIcon } from './node-icons';
+import { ConfigField } from './config-field';
 
 type InspectorTab = 'parameters' | 'settings' | 'output';
-
-function fieldType(value: unknown): 'boolean' | 'number' | 'array' | 'object' | 'string' {
-  if (typeof value === 'boolean') return 'boolean';
-  if (typeof value === 'number') return 'number';
-  if (Array.isArray(value)) return 'array';
-  if (value && typeof value === 'object') return 'object';
-  return 'string';
-}
-
-function humanize(key: string): string {
-  return key
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/[_-]+/g, ' ')
-    .replace(/^./, (char) => char.toUpperCase());
-}
 
 function preview(value: unknown): string {
   if (value === undefined) return '—';
@@ -55,36 +42,6 @@ function PortRow({ port, direction }: { port: PortDef; direction: 'in' | 'out' }
         {port.optional ? ' · optional' : ''}
       </span>
     </div>
-  );
-}
-
-function JsonField({
-  value, rows, className, onCommit,
-}: {
-  value: unknown;
-  rows: number;
-  className: string;
-  onCommit: (value: unknown) => void;
-}) {
-  const serialized = JSON.stringify(value, null, 2);
-  const [text, setText] = useState(serialized);
-  useEffect(() => {
-    setText(serialized);
-  }, [serialized]);
-  return (
-    <textarea
-      value={text}
-      onChange={(event) => setText(event.target.value)}
-      onBlur={() => {
-        try {
-          onCommit(JSON.parse(text));
-        } catch {
-          setText(serialized);
-        }
-      }}
-      rows={rows}
-      className={className}
-    />
   );
 }
 
@@ -200,13 +157,16 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
   const configError = validateConfig(def, node.config);
   const defaults = def.defaultConfig();
   const isSubworkflow = node.type === 'flow.subworkflow';
-  const configKeys = Object.keys(defaults).filter(
-    (key) => !(isSubworkflow && (key === 'workflowId' || key === 'version')),
+  const fields = fieldsFor(def).filter(
+    (field) => !(isSubworkflow && (field.key === 'workflowId' || field.key === 'version')),
   );
   const selectedWorkflow = workflows.find((item) => item.id === node.config.workflowId);
 
   const setConfigValue = (key: string, value: unknown) => {
-    dispatch({ op: 'update_node_config', nodeId: node.id, config: { ...node.config, [key]: value } });
+    dispatch(
+      { op: 'update_node_config', nodeId: node.id, config: { ...node.config, [key]: value } },
+      { coalesceKey: `config:${node.id}:${key}` },
+    );
   };
 
   const tabs: [InspectorTab, string][] = [
@@ -225,7 +185,10 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
           <input
             value={node.label ?? ''}
             placeholder={def.label}
-            onChange={(event) => dispatch({ op: 'update_node_label', nodeId: node.id, label: event.target.value || undefined })}
+            onChange={(event) => dispatch(
+              { op: 'update_node_label', nodeId: node.id, label: event.target.value || undefined },
+              { coalesceKey: `label:${node.id}` },
+            )}
             className="w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[13px] font-semibold text-foreground outline-none hover:border-white/10 focus:border-primary/50"
           />
           <div className="mt-1 flex items-center gap-1.5 px-1 text-[10px] text-muted-foreground">
@@ -305,50 +268,21 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
               </div>
             )}
 
-            {configKeys.length === 0 && !isSubworkflow && (
+            {fields.length === 0 && !isSubworkflow && (
               <p className="text-[11.5px] text-muted-foreground">This node has no configuration.</p>
             )}
 
             <div className="space-y-2.5">
-              {configKeys.map((key) => {
-                const current = node.config[key] ?? defaults[key];
-                const kind = fieldType(defaults[key]);
-                const fieldClass = 'w-full rounded-md border border-white/10 bg-background/60 px-2 py-1.5 text-[12px] outline-none focus:border-primary/50';
+              {fields.map((field) => {
+                const current = node.config[field.key] ?? defaults[field.key];
                 return (
-                  <label key={key} className="block">
-                    <span className="mb-1 block text-[10.5px] text-muted-foreground">{humanize(key)}</span>
-                    {kind === 'boolean' ? (
-                      <span className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(current)}
-                          onChange={(event) => setConfigValue(key, event.target.checked)}
-                          className="h-4 w-4 accent-primary"
-                        />
-                        <span className="text-[11px] text-muted-foreground">{Boolean(current) ? 'Enabled' : 'Disabled'}</span>
-                      </span>
-                    ) : kind === 'number' ? (
-                      <input
-                        type="number"
-                        value={Number(current)}
-                        onChange={(event) => setConfigValue(key, event.target.value === '' ? 0 : Number(event.target.value))}
-                        className={fieldClass}
-                      />
-                    ) : kind === 'array' || kind === 'object' ? (
-                      <JsonField
-                        value={current}
-                        rows={kind === 'array' ? 3 : 5}
-                        className={cn(fieldClass, 'resize-y font-mono text-[11px]')}
-                        onCommit={(next) => setConfigValue(key, next)}
-                      />
-                    ) : (
-                      <input
-                        value={String(current)}
-                        onChange={(event) => setConfigValue(key, event.target.value)}
-                        className={fieldClass}
-                      />
-                    )}
-                  </label>
+                  <ConfigField
+                    key={field.key}
+                    field={field}
+                    value={current}
+                    variant="panel"
+                    onCommit={(next) => setConfigValue(field.key, next)}
+                  />
                 );
               })}
             </div>

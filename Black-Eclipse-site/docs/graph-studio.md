@@ -1,7 +1,7 @@
 ---
 title: Graph Studio — Visual Workflow Engineering
 status: Current
-last-verified: 2026-10-26
+last-verified: 2026-10-27
 ---
 
 # Graph Studio
@@ -172,6 +172,16 @@ The screen has two internal views (no router):
   The canvas is **transparent** over the shell's frosted background, and node
   bodies use the `.node-card` material (a layered translucent surface with an inset highlight); floating
   palettes/menus stay on the glass overlay tiers.
+  Nodes are **compact by default**: a 46px identity header (32px icon, 13px
+  title, 9.5px category, quiet run dot, 2px black bezel) plus up to two **inline
+  parameter fields**. A scalar value can therefore be read and changed without
+  opening the inspector; object/array values stay panel-only. Fields whose input
+  is supplied by an edge render a read-only **From wire** chip instead of an
+  input, so a value cannot silently shadow the connected wire. `config-fields.ts`
+  owns the presentation metadata (label, kind, select options, `inline`) and
+  falls back to the definition's `defaultConfig()` shape for nodes without
+  overrides — persisted config and semantics are unchanged. Auto-layout gaps keep
+  enough vertical room for a node with two inline fields.
 
 ### Visual language
 
@@ -213,7 +223,13 @@ seam are unchanged.
 
 **Node details.** **Double-clicking** a node opens a ~380px inspector dock
 (n8n/Figma convention); a single click just selects, dragging moves it, and
-clicking empty canvas closes the dock. The dock has three
+clicking empty canvas closes the dock. The card's inline fields and the
+inspector's Parameters tab are the **same renderer** (`config-field.tsx`) at two
+densities: text/number edits commit on blur or Enter (Escape reverts), booleans
+and selects commit immediately, and consecutive edits to one control collapse
+into a single undo step (`dispatch(patch, { coalesceKey })`). Inline inputs are
+`nodrag nopan nowheel`, so typing never pans the canvas, drags the node, or opens
+the inspector mid-edit. The dock has three
 tabs: **Parameters** (registry-derived fields, friendly labels, JSON only for
 object/array fields), **Settings** (description, ports, capabilities, allowed
 modes, node id) and **Output** (the last run's bounded inputs/outputs for that

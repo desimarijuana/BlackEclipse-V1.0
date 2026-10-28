@@ -819,6 +819,9 @@ def evaluate_skill_endpoint(skill_id: str, payload: dict[str, Any]) -> dict[str,
     result = evaluate_skill(
         skill_id, payload.get("version"), service.skill_registry,
         run_regression=bool(payload.get("runRegression")),
+        base_version=payload.get("baseVersion"),
+        metrics=payload.get("metrics"),
+        base_metrics=payload.get("baseMetrics"),
     )
     return {"success": result.get("ok", False), **result}
 

@@ -1,16 +1,18 @@
 'use client';
 
 // ── Custom React Flow node ────────────────────────────────────────────────────
-// Wide, icon-led card: solid filled icon on the left, title + category stacked
-// to its right. Ports are represented by handles on the card's edge midpoints
-// (fanned when a side has several); their names live in the handle tooltip so
-// the card surface stays clean like the reference.
+// Compact, icon-led card: a 46px identity header (icon, title, category, run
+// state) plus up to two inline config fields. Ports are handles on the card's
+// edge midpoints (fanned when a side has several); their names live in the
+// handle tooltip so the surface stays clean. Inline fields edit the SAME
+// validated config the inspector does — one renderer, two densities.
 
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { cn } from '@/lib/utils';
 import { AlertTriangle, Copy, MoreHorizontal, Plus, Trash2, WarningCircle } from '@/lib/icons';
-import type { NodeCategory, PortDef, SideEffectClass } from '@/lib/graph-studio/types';
+import type { ConfigFieldDef, NodeCategory, PortDef, SideEffectClass } from '@/lib/graph-studio/types';
 import type { NodeRunStatus } from '@/lib/graph-studio/execution-client';
+import { ConfigField } from './config-field';
 import { nodeIcon } from './node-icons';
 
 export interface EclipseNodeData extends Record<string, unknown> {
@@ -18,9 +20,16 @@ export interface EclipseNodeData extends Record<string, unknown> {
   type: string;
   version: string;
   category: NodeCategory;
+  icon?: string;
   sideEffects: SideEffectClass;
   inputs: PortDef[];
   outputs: PortDef[];
+  /** The persisted config, rendered by the inline fields. */
+  config: Record<string, unknown>;
+  /** At most two scalar fields shown on the card. */
+  inlineFields: ConfigFieldDef[];
+  /** Input handles currently supplied by an edge — those fields show "From wire". */
+  wiredInputHandles: string[];
   errorCount: number;
   warningCount: number;
   runStatus?: NodeRunStatus;
@@ -28,6 +37,7 @@ export interface EclipseNodeData extends Record<string, unknown> {
   accent: string;
   hasIncoming: boolean;
   hasOutgoing: boolean;
+  onConfigCommit?: (nodeId: string, key: string, value: unknown) => void;
   onAddNext?: (nodeId: string, handle: string) => void;
   onDuplicate?: (nodeId: string) => void;
   onDelete?: (nodeId: string) => void;
@@ -64,7 +74,7 @@ function handleTop(index: number, count: number): string {
 }
 
 export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeData>>) {
-  const Icon = nodeIcon(undefined, data.category);
+  const Icon = nodeIcon(data.icon, data.category);
   const accent = data.accent ?? 'var(--primary)';
   const hasError = data.errorCount > 0;
   const hasWarning = !hasError && data.warningCount > 0;
@@ -75,7 +85,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
     <div
       style={{ ['--node-accent' as string]: accent }}
       className={cn(
-        'node-card graph-node group/node relative w-[244px] rounded-[18px] transition-[box-shadow,border-color] duration-150',
+        'node-card graph-node group/node relative w-[244px] rounded-[12px] transition-[box-shadow,border-color] duration-150',
         selected && 'node-selected',
       )}
     >
@@ -83,24 +93,57 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
       {data.hasIncoming && <span className="node-aurora node-aurora--left" aria-hidden />}
       {data.hasOutgoing && <span className="node-aurora node-aurora--right" aria-hidden />}
 
-      {/* Identity: solid filled icon on the left, title + category to its right. */}
-      <div className="relative z-10 flex min-h-[112px] items-center gap-3.5 px-5 py-4">
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center text-white">
-          <Icon size={34} weight="fill" />
+      {/* Identity: filled icon, title + category, quiet run-state dot. */}
+      <div className="relative z-10 flex h-[46px] items-center gap-2.5 px-3">
+        <span
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset ring-white/10"
+          style={{ color: accent, background: `color-mix(in srgb, ${accent} 14%, transparent)` }}
+        >
+          <Icon size={20} weight="fill" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[16px] font-semibold leading-tight tracking-tight text-white">
+          <span
+            className="block truncate text-[13px] font-semibold leading-tight tracking-tight text-foreground"
+            title={`${data.label} · ${data.type}@${data.version}`}
+          >
             {data.label}
           </span>
-          <span className="mt-1 block truncate text-[11px] leading-none text-white/45">
+          <span className="mt-0.5 block truncate text-[9.5px] leading-none text-muted-foreground">
             {CATEGORY_LABEL[data.category]}
           </span>
         </span>
+        {(hasError || hasWarning) && (
+          <span className={cn('shrink-0', hasError ? 'text-rose-400' : 'text-amber-400')}>
+            {hasError ? <WarningCircle size={12} /> : <AlertTriangle size={12} />}
+          </span>
+        )}
+        {tone && (
+          <span
+            title={`Run status: ${run}`}
+            aria-label={`Run status: ${run}`}
+            className={cn('h-2 w-2 shrink-0 rounded-full', tone.dot)}
+          />
+        )}
       </div>
-      {(hasError || hasWarning) && (
-        <span className={cn('absolute right-2.5 top-2.5', hasError ? 'text-rose-400' : 'text-amber-400')}>
-          {hasError ? <WarningCircle size={13} /> : <AlertTriangle size={13} />}
-        </span>
+
+      {/* Inline parameters — the values you most often change, editable in place. */}
+      {data.inlineFields.length > 0 && (
+        <div
+          className="nodrag nopan nowheel relative z-10 space-y-1 border-t border-black/10 px-2.5 py-1.5 dark:border-white/10"
+          onDoubleClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          {data.inlineFields.map((field) => (
+            <ConfigField
+              key={field.key}
+              field={field}
+              value={data.config[field.key]}
+              variant="inline"
+              wired={data.wiredInputHandles.includes(field.key)}
+              onCommit={(value) => data.onConfigCommit?.(id, field.key, value)}
+            />
+          ))}
+        </div>
       )}
 
       {/* Handles on the edge midpoints — left = incoming, right = outgoing —
@@ -157,20 +200,8 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
         </button>
       ))}
 
-      {tone && (
-        <span
-          className={cn(
-            'absolute -bottom-2 right-2 flex items-center gap-1 rounded-full border border-black/10 bg-background/90 px-1.5 py-0.5 text-[8.5px] dark:border-white/10',
-            tone.badge,
-          )}
-        >
-          <span className={cn('h-1.5 w-1.5 rounded-full', tone.dot)} />
-          {run}
-        </span>
-      )}
-
       {/* Hover toolbar. Kept solid: it sits inside a canvas pane, not a modal. */}
-      <div className="nodrag nopan absolute -top-8 right-0 flex items-center gap-0.5 rounded-md border border-black/10 bg-background/90 p-0.5 opacity-0 shadow-md transition-opacity group-hover/node:opacity-100 dark:border-white/10">
+      <div className="nodrag nopan absolute -top-7 right-0 z-20 flex items-center gap-0.5 rounded-md border border-black/10 bg-background/90 p-0.5 opacity-0 shadow-md transition-opacity group-hover/node:opacity-100 group-focus-within/node:opacity-100 dark:border-white/10">
         <button
           type="button"
           title="Duplicate node"

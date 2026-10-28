@@ -36,6 +36,10 @@ _COMPUTE_PREFIXES: tuple[str, ...] = (
 _READ_TOOLS = frozenset({"portfolio_get", "portfolio_list", "portfolio_list_runs",
                          "portfolio_get_run", "portfolio_list_reconciliations"})
 
+# Price observations that can anchor a later outcome evaluation. A quote is not
+# a portfolio computation; it only contributes a real, positive entry price.
+PRICE_TOOLS = frozenset({"market_get_quote", "get_quote"})
+
 _SYMBOL_KEYS = frozenset({"symbol", "ticker", "symbols", "asset", "instrument",
                           "assetid", "instrumentid"})
 _ACTION_KEYS = frozenset({"action", "side", "txntype", "type", "recommendation",
@@ -65,6 +69,10 @@ class AdvisoryCollector:
         """Record one tool call. Never raises — collection is best-effort."""
         try:
             name = str(tool_name)
+            if name in PRICE_TOOLS:
+                self._prices.update(_collect_prices(data))
+                self._consulted.update(_collect_symbols(data) | _symbol_args(args))
+                return
             if not name.startswith("portfolio_"):
                 return
             symbols = _collect_symbols(data) | _symbol_args(args)

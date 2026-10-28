@@ -156,7 +156,7 @@ async def skill_reviews_handler(args: dict[str, Any], ctx: Any) -> tuple[str, An
             # The regression detail names the comparison baseline, so it must be
             # shown even when it PASSED — otherwise "passed" is unfalsifiable.
             if (
-                dim.get("name") == "regression"
+                dim.get("name") in ("regression", "discrimination")
                 or dim.get("status") in ("failed", "needs_review")
             ) and dim.get("detail"):
                 lines.append(f"    {dim.get('name')}: {dim.get('detail')}")
@@ -178,6 +178,43 @@ async def skill_reviews_handler(args: dict[str, Any], ctx: Any) -> tuple[str, An
         "reviews": reviews,
         "evaluations": evaluations,
     }
+
+
+async def skill_discrimination_check_handler(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Read-only discrimination check with caller-supplied metrics.
+
+    Proves the identical/better/worse rules without persisting an evaluation.
+    """
+    registry = _registry_of(ctx)
+    if registry is None:
+        return "Skills are not available in this run.", {"available": False}
+    skill_id = str(args.get("skill_id") or args.get("name") or "").strip()
+    version = str(args.get("version") or "").strip()
+    if not skill_id or not version:
+        return "skill_id and version are required.", {"available": False}
+    if registry.manifest(skill_id) is None:
+        return f"No skill named {skill_id!r}.", {"available": False}
+    from .evaluation import _discrimination_dimension  # noqa: PLC0415
+
+    try:
+        prior = [
+            e for e in registry.store.list_evaluations(skill_id, limit=50)
+            if str(e.get("status")) != "superseded"
+        ]
+    except Exception:  # noqa: BLE001
+        prior = []
+    dimension = _discrimination_dimension(
+        registry.store, skill_id, version,
+        base_version=args.get("baseVersion"),
+        metrics=args.get("metrics"),
+        base_metrics=args.get("baseMetrics"),
+        prior_evaluations=prior,
+    )
+    text = (
+        f"discrimination={dimension.get('status')} "
+        f"(mandatory={bool(dimension.get('mandatory'))}): {dimension.get('detail')}"
+    )
+    return text, dimension
 
 
 async def skill_learning_get_handler(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
@@ -362,6 +399,33 @@ def register_skill_lifecycle_tools(registry: ToolRegistry) -> None:
             handler=skill_reviews_handler,
             permission="read",
             risk="low",
+            timeout_ms=10_000,
+        )
+    )
+    registry.register(
+        ToolDefinition(
+            name="skill_discrimination_check",
+            description=(
+                "Read-only discrimination check: compare a version against a named "
+                "base using caller-supplied outcome metrics. Returns failed when the "
+                "metrics are identical or worse, passed when one improves, and an "
+                "explicit gap when metrics are absent. Persists nothing."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "skill_id": {"type": "string"},
+                    "version": {"type": "string"},
+                    "baseVersion": {"type": "string"},
+                    "metrics": {"type": "object"},
+                    "baseMetrics": {"type": "object"},
+                },
+                "required": ["skill_id", "version"],
+                "additionalProperties": False,
+            },
+            handler=skill_discrimination_check_handler,
+            permission="read",
+            risk="none",
             timeout_ms=10_000,
         )
     )

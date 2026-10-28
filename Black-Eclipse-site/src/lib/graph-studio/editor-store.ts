@@ -22,6 +22,24 @@ export interface EditorSelection {
   edgeIds: string[];
 }
 
+/**
+ * `coalesceKey` groups consecutive edits of the same control into ONE undo
+ * entry (e.g. typing in a config field). Time-bounded so a later, separate edit
+ * to the same field is still its own step.
+ */
+export interface DispatchOptions {
+  coalesceKey?: string;
+}
+
+const COALESCE_WINDOW_MS = 1_200;
+let lastCoalesceKey: string | null = null;
+let lastCoalesceAt = 0;
+
+function clearCoalesce() {
+  lastCoalesceKey = null;
+  lastCoalesceAt = 0;
+}
+
 interface LoadOptions {
   workflowId: string;
   baseVersion?: number;
@@ -58,7 +76,7 @@ export interface GraphEditorState {
   setRun: (run: GraphRunRecord | null) => void;
   requestInsert: (type: string, version: string) => void;
   consumeInsert: () => void;
-  dispatch: (patch: Patch) => boolean;
+  dispatch: (patch: Patch, opts?: DispatchOptions) => boolean;
   dispatchMany: (patches: Patch[]) => boolean;
   undo: () => void;
   redo: () => void;
@@ -95,6 +113,7 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
   pendingInsert: null,
 
   load: (ir, opts) => {
+    clearCoalesce();
     set({
       ir,
       workflowId: opts.workflowId,
@@ -116,7 +135,7 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
   requestInsert: (type, version) => set({ pendingInsert: { type, version, nonce: Date.now() } }),
   consumeInsert: () => set({ pendingInsert: null }),
 
-  dispatch: (patch) => {
+  dispatch: (patch, opts) => {
     const { ir, past } = get();
     if (!ir) return false;
     const result = applyPatch(ir, patch);
@@ -124,9 +143,17 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
       set({ lastError: result.error });
       return false;
     }
+    const now = Date.now();
+    const coalesce = Boolean(
+      opts?.coalesceKey
+      && opts.coalesceKey === lastCoalesceKey
+      && now - lastCoalesceAt < COALESCE_WINDOW_MS,
+    );
+    lastCoalesceKey = opts?.coalesceKey ?? null;
+    lastCoalesceAt = now;
     set({
       ir: result.ir,
-      past: [...past, ir].slice(-MAX_HISTORY),
+      past: coalesce ? past : [...past, ir].slice(-MAX_HISTORY),
       future: [],
       dirty: true,
       diagnostics: validateWorkflow(result.ir),
@@ -136,6 +163,7 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
   },
 
   dispatchMany: (patches) => {
+    clearCoalesce();
     const { ir, past } = get();
     if (!ir) return false;
     const result = applyPatches(ir, patches);
@@ -155,6 +183,7 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
   },
 
   undo: () => {
+    clearCoalesce();
     const { ir, past, future } = get();
     if (!ir || past.length === 0) return;
     const previous = past[past.length - 1];
@@ -169,6 +198,7 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
   },
 
   redo: () => {
+    clearCoalesce();
     const { ir, past, future } = get();
     if (!ir || future.length === 0) return;
     const next = future[0];
@@ -240,6 +270,7 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
   },
 
   applyAutoLayout: () => {
+    clearCoalesce();
     const { ir } = get();
     if (!ir) return;
     const positions = autoLayout(ir);
@@ -259,6 +290,7 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
   },
 
   reset: () => {
+    clearCoalesce();
     set({
       ir: null,
       workflowId: null,

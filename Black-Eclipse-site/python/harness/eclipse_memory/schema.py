@@ -257,6 +257,13 @@ MIGRATIONS: list[tuple[int, list[str]]] = [
               observedBehavior   TEXT,
               proposedLesson     TEXT,
               proposedProcedure  TEXT,
+              condition          TEXT,
+              action             TEXT,
+              failedCall         TEXT,
+              recoveredCall      TEXT,
+              precondition       TEXT,
+              replayTest         TEXT,
+              occurrenceCount    INTEGER NOT NULL DEFAULT 1,
               evidenceReferences TEXT NOT NULL DEFAULT '[]',
               confidence         REAL NOT NULL DEFAULT 0.5,
               generalizationNotes TEXT,
@@ -1134,6 +1141,25 @@ MIGRATIONS.append(
             "ALTER TABLE LearningCandidate ADD COLUMN adoptedArtifactId TEXT;",
             "ALTER TABLE LearningCandidate ADD COLUMN validationRunId TEXT;",
             "CREATE INDEX IF NOT EXISTS idx_learning_cue ON LearningCandidate(cue);",
+        ],
+    )
+)
+
+# Migration 32 — falsifiable learning candidates. A candidate must persist the
+# method it encodes (condition/action, the failed/recovered call, the
+# precondition and a replay test), not only prose. Additive: legacy rows read
+# NULL and remain quarantined by the contract.
+MIGRATIONS.append(
+    (
+        32,
+        [
+            "ALTER TABLE LearningCandidate ADD COLUMN condition TEXT;",
+            "ALTER TABLE LearningCandidate ADD COLUMN action TEXT;",
+            "ALTER TABLE LearningCandidate ADD COLUMN failedCall TEXT;",
+            "ALTER TABLE LearningCandidate ADD COLUMN recoveredCall TEXT;",
+            "ALTER TABLE LearningCandidate ADD COLUMN precondition TEXT;",
+            "ALTER TABLE LearningCandidate ADD COLUMN replayTest TEXT;",
+            "ALTER TABLE LearningCandidate ADD COLUMN occurrenceCount INTEGER NOT NULL DEFAULT 1;",
         ],
     )
 )

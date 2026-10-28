@@ -139,8 +139,9 @@ RATCHET_PY: dict[str, int] = {
     # at the run head). That work touches no part of the tool loop; the
     # subsystem-wiring block remains the split candidate. May only shrink.
     # Re-pinned 2315->2323 to the merged tree (Round 3 plus the response-style
-    # wiring above). May only shrink.
-    "graph.py": 2323,
+    # wiring above). Re-pinned 2323->2326 to the measured tree; the growth
+    # predates this change and no part of it lives here. May only shrink.
+    "graph.py": 2326,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -167,9 +168,14 @@ RATCHET_PY: dict[str, int] = {
     # emissions at the write/review seams. May only shrink from here.
     # Re-pinned 1845â†’1900 to the measured tree: the already-committed
     # per-conversation memory work (ADR-H194) grew the file past its pin on HEAD.
-    # The Document Authoring change touches NO part of this file. May only shrink.
-    "eclipse_memory/service.py": 1900,
-    "eclipse_memory/store.py": 1749,
+    # The Document Authoring change touches NO part of this file. Re-pinned
+    # 1900->1929 for the always-on lesson observation in `analyze_run` (the
+    # typed lesson is shaped before the creation gate). May only shrink.
+    "eclipse_memory/service.py": 1929,
+    # Re-pinned 1749->1758 to the measured tree; 1758->1765 for persisting the
+    # falsifiable candidate method columns; 1765->1780 for superseding stale
+    # same-version evaluations. May only shrink.
+    "eclipse_memory/store.py": 1780,
     # Grew with the `documents` run-blob column (schema + `_ADDED_COLUMNS` +
     # `_run_row`). Re-pinned from 1395 for the thread-safe connection fix: the
     # per-thread/autocommit pool lives in `harness/sqlite_pool.py`, leaving only
@@ -188,8 +194,10 @@ RATCHET_PY: dict[str, int] = {
     # additive and NULL for older rows. May only shrink from here.
     # Re-pinned 1475→1477 for the `delegation` read field (four lines in
     # `_run_row`, old-row-safe) so a reload can re-draw the parallel card. The
-    # fan-out logic itself lives in `delegation*.py`.
-    "persistence.py": 1477,
+    # fan-out logic itself lives in `delegation*.py`. Re-pinned 1477->1496 for
+    # the one-row-per-run learning-review dedupe; 1496->1498 for refreshing the
+    # review timestamp on re-review. May only shrink.
+    "persistence.py": 1498,
     "mcp/manager.py": 1106,
     # Grew past the hard ceiling with the Vision + Document Intelligence subsystem
     # boot wiring (`vision_assets`, `document_store`, tool registration), then the

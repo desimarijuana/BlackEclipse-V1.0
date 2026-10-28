@@ -199,6 +199,7 @@ def _diagnostic_summary(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # (a lesson about quote routing must not be applied to filings, etc.).
 _TOOL_CAPABILITY: dict[str, str] = {
     "market_get_quote": "live_quote",
+    "get_quote": "live_quote",
     "market_get_ohlcv": "price_history",
     "fundamentals_get_company_profile": "fundamentals",
     "fundamentals_get_financials": "financial_statements",
@@ -250,6 +251,104 @@ def _regression_case(tools: list[dict[str, Any]]) -> Optional[str]:
     return f"fixture: {'_'.join(parts)} — assert route category + no fabricated value"
 
 
+def _error_code(execution: dict[str, Any]) -> str:
+    error = execution.get("error")
+    if isinstance(error, dict):
+        code = error.get("code") or error.get("message")
+    else:
+        code = getattr(error, "code", None) or getattr(error, "message", None)
+    text = str(execution.get("text") or "")
+    import re  # noqa: PLC0415
+
+    generic = (not code) or str(code).lower() in (
+        "tool_error", "error", "none", "tool_failure",
+    )
+    if generic or "TOOL_" in text:
+        match = re.search(r"\b(TOOL_[A-Z_]+)\b", text)
+        if match:
+            code = match.group(1)
+        elif "timed out" in text.lower():
+            code = "TOOL_TIMEOUT"
+        elif "unavailable" in text.lower():
+            code = "UNAVAILABLE"
+    return str(code or "tool_error").strip()[:120]
+
+
+def _call_label(execution: dict[str, Any]) -> str:
+    name = str(execution.get("name") or "tool")
+    args = execution.get("args") or {}
+    if isinstance(args, dict) and args:
+        try:
+            rendered = ", ".join(f"{key}={value!r}" for key, value in list(args.items())[:4])
+        except Exception:  # noqa: BLE001 - a label never breaks analysis
+            rendered = ""
+        if rendered:
+            return f"{name}({rendered})"[:240]
+    return name
+
+
+_FAILURE_TEXT_MARKERS = (
+    "unavailable", "timeouterror", "timed out", "tool error", "forbidden",
+    "not approved", "failed to", "app api unavailable", "app api error",
+    "http 4", "http 5", "status code 4", "status code 5", "404", "500",
+)
+
+# The app-API proxy is a front-door reachability check, not a reusable recovery
+# method: a retry cannot fix a down app. Never learn a recovery that routes
+# through it.
+_NON_RECOVERY_TOOLS = frozenset({"app_api_get"})
+
+
+def _execution_succeeded(execution: dict[str, Any]) -> bool:
+    """A tool call that reports an unavailable/error body is NOT a recovery."""
+    if not execution.get("ok"):
+        return False
+    text = str(execution.get("text") or "").lower()
+    return not any(marker in text for marker in _FAILURE_TEXT_MARKERS)
+
+
+def _first_recovery_pair(
+    tools: list[dict[str, Any]],
+) -> Optional[tuple[dict[str, Any], dict[str, Any], str]]:
+    """The first failure followed by a genuine same-capability recovery.
+
+    A different tool that merely happens to succeed later is not evidence that
+    it recovered the failed objective. The recovery must be the same tool (a
+    retry) or the same recorded capability, and its body must not itself report
+    unavailability/error.
+    """
+    for index, execution in enumerate(tools):
+        if _execution_succeeded(execution):
+            continue
+        failed_name = str(execution.get("name") or "")
+        if failed_name in _NON_RECOVERY_TOOLS:
+            continue
+        failed_capability = _TOOL_CAPABILITY.get(failed_name)
+        for later in tools[index + 1 :]:
+            if not _execution_succeeded(later):
+                continue
+            later_name = str(later.get("name") or "")
+            if later_name in _NON_RECOVERY_TOOLS:
+                continue
+            same_capability = (
+                failed_capability is not None
+                and _TOOL_CAPABILITY.get(later_name) == failed_capability
+            )
+            if later_name == failed_name or same_capability:
+                return execution, later, _error_code(execution)
+    return None
+
+
+def _failure_confidence(evidence_count: int, occurrence_count: int) -> float:
+    from ..self_improvement.lesson_contract import derive_confidence  # noqa: PLC0415
+
+    return derive_confidence(
+        evidence_count=evidence_count,
+        occurrence_count=occurrence_count,
+        has_replay=True,
+    )
+
+
 def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
     """Analyze one run and return candidate drafts (not yet persisted).
 
@@ -275,28 +374,95 @@ def analyze_run(run_id: str, store: Any) -> list[dict[str, Any]]:
     drafts: list[dict[str, Any]] = []
 
     # ── 1. Failure recovery: a failure occurred, then the run still completed
-    #         (or a later identical tool succeeded) through a different path.
+    #         through a different, observable call. The candidate carries the
+    #         failed call, the recovered call, the precondition and a replay test;
+    #         without those it is not falsifiable and is not created.
     recovered = bool(tool_failures) and run.get("status") == "completed"
     if recovered:
-        failed_tools = sorted({t["name"] for t in tool_failures})
-        later_success = sorted({t["name"] for t in tool_successes})
-        draft = {
-            "candidateType": "failure_recovery",
-            "title": f"Recovery after {', '.join(failed_tools)} failure",
-            "problem": f"Tool(s) {', '.join(failed_tools)} failed during the run.",
-            "observedBehavior": (
-                f"The run still completed using {', '.join(later_success) or 'alternative steps'}."
-            ),
-            "proposedLesson": "When these tools fail, prefer the alternative that worked before giving up.",
-            "evidenceReferences": [
-                {"kind": "tool", "name": t["name"], "error": (t.get("error") or {}).get("code")}
-                for t in tool_failures
-            ],
-            "confidence": 0.55,
-            "generalizationNotes": "Generalize only if the fallback is data-source-independent.",
-            "knownLimitations": "A single recovery is not proof the fallback always works; verify before reuse.",
-        }
-        drafts.append(draft)
+        pairing = _first_recovery_pair(tools)
+        if pairing is not None:
+            failed_exec, recovered_exec, precondition = pairing
+            failed_name = str(failed_exec.get("name"))
+            recovered_name = str(recovered_exec.get("name"))
+            same_tool = failed_name == recovered_name
+            recurrence = _recurrence_count(store, run_id, "failure_recovery", tools)
+            evidence = [
+                {"kind": "tool", "name": failed_name, "phase": "failed",
+                 "error": precondition, "at": failed_exec.get("createdAt")},
+                {"kind": "tool", "name": recovered_name, "phase": "recovered",
+                 "at": recovered_exec.get("createdAt")},
+            ]
+            title = (
+                f"Retry {failed_name} after a transient {precondition}"
+                if same_tool
+                else f"Recover from {precondition} by calling {recovered_name}"
+            )
+            action = (
+                f"retry {failed_name} once after a transient {precondition}, then "
+                "verify the result is OK"
+                if same_tool
+                else (
+                    f"call {recovered_name} after {failed_name} fails with "
+                    f"{precondition}, then verify the original objective is satisfied"
+                )
+            )
+            draft = {
+                "candidateType": "failure_recovery",
+                "title": title,
+                "problem": (
+                    f"{failed_name} failed with {precondition}; the run recovered "
+                    f"through {recovered_name}."
+                ),
+                "observedBehavior": (
+                    f"{failed_name} failed, then {recovered_name} succeeded and the "
+                    "run completed."
+                ),
+                "condition": (
+                    f"{failed_name} returns {precondition}"
+                ),
+                "action": action,
+                "failedCall": _call_label(failed_exec),
+                "recoveredCall": _call_label(recovered_exec),
+                "precondition": precondition,
+                "proposedLesson": (
+                    f"When {failed_name} fails with {precondition}, "
+                    + (
+                        f"retry it once (transient {precondition}) and verify the "
+                        "result is OK."
+                        if same_tool
+                        else f"call {recovered_name} instead and verify the objective."
+                    )
+                ),
+                "proposedProcedure": [
+                    {"step": 1, "action": "classify",
+                     "detail": f"recognize {failed_name} returning {precondition}"},
+                    {"step": 2, "action": "recover",
+                     "detail": (
+                         f"retry {failed_name} once"
+                         if same_tool
+                         else f"call {recovered_name} with the same objective"
+                     )},
+                    {"step": 3, "action": "verify",
+                     "detail": "confirm the result is OK before using it"},
+                ],
+                "replayTest": (
+                    f"Replay run {run_id}: force {failed_name} to return "
+                    f"{precondition}; assert {recovered_name} is called and the run "
+                    "completes."
+                ),
+                "evidenceReferences": evidence,
+                "occurrenceCount": recurrence + 1,
+                "confidence": _failure_confidence(len(evidence), recurrence + 1),
+                "generalizationNotes": (
+                    f"Observed in {recurrence + 1} run(s) with the same failure "
+                    "signature; scope is the recorded precondition."
+                ),
+                "knownLimitations": (
+                    "Applies only while the precondition matches; re-verify if the "
+                    "provider error or tool contract changes."
+                ),
+            }
+            drafts.append(draft)
 
     # ── 2. Repeated failure with no recovery: a reusable validation improvement
     #         only when a validation rule is implicated (not a transient outage).
@@ -513,9 +679,22 @@ def capture_from_run(
         explicit = explicit_skill_candidate(run_id, run_store, user_intent=user_intent)
         if not any(d["candidateType"] == "successful_procedure" for d in drafts):
             drafts.append(explicit)
+    from ..self_improvement.lesson_contract import candidate_problems  # noqa: PLC0415
+
     created: list[dict[str, Any]] = []
     duplicates: list[str] = []
+    rejected: list[dict[str, Any]] = []
     for draft in drafts:
+        problems = candidate_problems(draft)
+        if problems and not (
+            user_intent and draft.get("candidateType") == "successful_procedure"
+        ):
+            rejected.append({
+                "candidateType": draft.get("candidateType"),
+                "title": str(draft.get("title") or "")[:120],
+                "problems": problems,
+            })
+            continue
         signature = _signature(draft["candidateType"], draft["problem"])
         existing = skill_store.find_candidate_by_signature(signature)
         if existing:
@@ -551,7 +730,10 @@ def capture_from_run(
             except Exception:  # noqa: BLE001 - mistake capture is best-effort
                 pass
         created.append(skill_store.get_candidate(candidate_id) or {"id": candidate_id})
-    return {"ok": True, "created": created, "duplicates": duplicates}
+    return {
+        "ok": True, "created": created, "duplicates": duplicates,
+        "rejected": rejected,
+    }
 
 
 __all__ = ["analyze_run", "capture_from_run"]

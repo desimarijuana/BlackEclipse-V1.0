@@ -1259,21 +1259,49 @@ class EclipseMemoryService:
         except Exception as exc:  # noqa: BLE001 - analysis must never break a run
             result["mistakeError"] = str(exc)
 
+        # Observation is always on: a review must be able to state what it saw,
+        # even when candidate creation is policy-disabled. Only CREATION is gated.
+        try:
+            drafts = learning_analyze(run_id, run_store)
+        except Exception as exc:  # noqa: BLE001
+            result["candidateError"] = str(exc)
+            drafts = []
+
+        try:
+            from ..self_improvement.lesson_contract import (  # noqa: PLC0415
+                lesson_from_candidate,
+            )
+
+            lessons = []
+            for draft in drafts:
+                built = lesson_from_candidate(draft)
+                if built is not None and not built.problems():
+                    lessons.append({**built.to_dict(), "kind": draft.get("candidateType")})
+            result["lessons"] = lessons[:8]
+        except Exception:  # noqa: BLE001 - lesson shaping must never break analysis
+            result["lessons"] = []
+
         mode = str(settings.get("skill_learning_mode") or "automatic_selective")
         if mode == "off":
             result["candidateDetection"] = "disabled by policy"
             return result
 
-        threshold = float(settings["candidate_confidence_threshold"])
-        try:
-            drafts = learning_analyze(run_id, run_store)
-        except Exception as exc:  # noqa: BLE001
-            result["candidateError"] = str(exc)
-            return result
+        from ..self_improvement.lesson_contract import candidate_problems  # noqa: PLC0415
 
+        threshold = float(settings["candidate_confidence_threshold"])
         created = 0
         skipped = 0
+        rejected: list[dict[str, Any]] = []
         for draft in drafts:
+            problems = candidate_problems(draft)
+            if problems:
+                rejected.append({
+                    "candidateType": draft.get("candidateType"),
+                    "title": str(draft.get("title") or "")[:120],
+                    "problems": problems,
+                })
+                skipped += 1
+                continue
             if float(draft.get("confidence", 0)) < threshold:
                 skipped += 1
                 continue
@@ -1292,6 +1320,7 @@ class EclipseMemoryService:
             created += 1
         result["candidatesCreated"] = created
         result["candidatesSkipped"] = skipped
+        result["candidatesRejected"] = rejected
         return result
 
     # â”€â”€ One-time import from the legacy agent-memory.db skill tables â”€â”€â”€â”€â”€â”€â”€â”€

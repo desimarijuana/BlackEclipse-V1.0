@@ -32,6 +32,7 @@ import {
 import type { Diagnostic, PortDef, WorkflowIR } from '@/lib/graph-studio/types';
 import type { GraphRunRecord, NodeRunStatus } from '@/lib/graph-studio/execution-client';
 import { getNodeDefinition } from '@/lib/graph-studio/registry';
+import { inlineFieldsFor } from '@/lib/graph-studio/config-fields';
 import { canConnect } from '@/lib/graph-studio/patches';
 import { buildDuplicateNodes, buildClipboard } from '@/lib/graph-studio/edit-ops';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
@@ -73,6 +74,38 @@ interface NodeCallbacks {
   onDuplicate: (nodeId: string) => void;
   onDelete: (nodeId: string) => void;
   onMore: (nodeId: string, anchor: { x: number; y: number }) => void;
+  onConfigCommit: (nodeId: string, key: string, value: unknown) => void;
+}
+
+function sameStringArray(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function sameNodeData(a: EclipseNodeData, b: EclipseNodeData): boolean {
+  return (
+    a.label === b.label
+    && a.type === b.type
+    && a.version === b.version
+    && a.category === b.category
+    && a.icon === b.icon
+    && a.sideEffects === b.sideEffects
+    && a.inputs === b.inputs
+    && a.outputs === b.outputs
+    && a.config === b.config
+    && a.inlineFields === b.inlineFields
+    && sameStringArray(a.wiredInputHandles, b.wiredInputHandles)
+    && a.errorCount === b.errorCount
+    && a.warningCount === b.warningCount
+    && a.runStatus === b.runStatus
+    && a.accent === b.accent
+    && a.hasIncoming === b.hasIncoming
+    && a.hasOutgoing === b.hasOutgoing
+    && a.onConfigCommit === b.onConfigCommit
+    && a.onAddNext === b.onAddNext
+    && a.onDuplicate === b.onDuplicate
+    && a.onDelete === b.onDelete
+    && a.onMore === b.onMore
+  );
 }
 
 function buildNodes(
@@ -89,22 +122,31 @@ function buildNodes(
   // theme switch re-tints every node, wire and aurora together.
   const incomingCount = new Map<string, number>();
   const outgoingCount = new Map<string, number>();
+  const wiredInputs = new Map<string, string[]>();
   for (const edge of ir.edges) {
     incomingCount.set(edge.target, (incomingCount.get(edge.target) ?? 0) + 1);
     outgoingCount.set(edge.source, (outgoingCount.get(edge.source) ?? 0) + 1);
+    const handles = wiredInputs.get(edge.target);
+    if (handles) handles.push(edge.targetHandle);
+    else wiredInputs.set(edge.target, [edge.targetHandle]);
   }
   return ir.nodes.map((node) => {
     const def = getNodeDefinition(node.type, node.version);
     const count = counts.get(node.id) ?? { error: 0, warning: 0 };
     const previous = prevNodes.get(node.id);
+    const wiredInputHandles = wiredInputs.get(node.id) ?? NO_HANDLES;
     const data: EclipseNodeData = {
       label: node.label ?? def?.label ?? node.type,
       type: node.type,
       version: node.version,
       category: def?.category ?? 'transform',
+      icon: def?.icon,
       sideEffects: def?.sideEffects ?? 'none',
-      inputs: (def?.inputs ?? []) as PortDef[],
-      outputs: (def?.outputs ?? []) as PortDef[],
+      inputs: (def?.inputs ?? NO_PORTS) as PortDef[],
+      outputs: (def?.outputs ?? NO_PORTS) as PortDef[],
+      config: node.config,
+      inlineFields: inlineFieldsFor(def),
+      wiredInputHandles,
       errorCount: count.error,
       warningCount: count.warning,
       runStatus: statuses.get(node.id),
@@ -113,19 +155,33 @@ function buildNodes(
       hasOutgoing: (outgoingCount.get(node.id) ?? 0) > 0,
       ...callbacks,
     };
+    const position = previous?.dragging ? previous.position : node.layout;
+    const selected = previous?.selected ?? false;
+    // Reuse the previous node object when nothing it renders changed. Without
+    // this, editing one config field re-renders every node on the canvas.
+    if (
+      previous
+      && sameNodeData(previous.data, data)
+      && previous.position.x === position.x
+      && previous.position.y === position.y
+      && previous.selected === selected
+    ) {
+      return previous;
+    }
     return {
       id: node.id,
       type: 'eclipse',
-      // Keep the live drag position, but otherwise trust the IR — auto-layout
-      // and version restore must actually move nodes.
-      position: previous?.dragging ? previous.position : node.layout,
+      position,
       data,
       // Selection is owned by React Flow (applied via onNodesChange); carry it
       // across rebuilds instead of deriving it from the editor store here.
-      selected: previous?.selected ?? false,
+      selected,
     } satisfies Node<EclipseNodeData>;
   });
 }
+
+const NO_PORTS: PortDef[] = [];
+const NO_HANDLES: string[] = [];
 
 function edgeRunState(run: GraphRunRecord | null, source: string, target: string): EdgeDataState {
   const statuses = runStatuses(run);
@@ -363,9 +419,19 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
     setMenu({ x: anchor.x, y: anchor.y, flow: screenToFlowPosition(anchor), nodeId });
   }, [screenToFlowPosition]);
 
+  const onConfigCommit = useCallback((nodeId: string, key: string, value: unknown) => {
+    const current = useGraphEditor.getState().ir;
+    const node = current?.nodes.find((item) => item.id === nodeId);
+    if (!node) return;
+    dispatch(
+      { op: 'update_node_config', nodeId, config: { ...node.config, [key]: value } },
+      { coalesceKey: `config:${nodeId}:${key}` },
+    );
+  }, [dispatch]);
+
   const nodeCallbacks = useMemo<NodeCallbacks>(
-    () => ({ onAddNext, onDuplicate: onDuplicateNode, onDelete: onDeleteNode, onMore }),
-    [onAddNext, onDuplicateNode, onDeleteNode, onMore],
+    () => ({ onAddNext, onDuplicate: onDuplicateNode, onDelete: onDeleteNode, onMore, onConfigCommit }),
+    [onAddNext, onDuplicateNode, onDeleteNode, onMore, onConfigCommit],
   );
   const edgeCallbacks = useMemo<EdgeCallbacks>(
     () => ({ onInsert: onInsertEdge, onDelete: onDeleteEdge }),

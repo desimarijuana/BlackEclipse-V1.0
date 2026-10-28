@@ -252,8 +252,100 @@ def session_delete(
 
 @router.get("/learning-review/health")
 def learning_review_health() -> dict[str, Any]:
-    """Queue + audit health. Nothing here enables a skill or writes memory."""
-    return {"success": True, **service.learning_review.health()}
+    """Queue + audit health, plus whether each learning gate has a consumer."""
+    payload: dict[str, Any] = {"success": True, **service.learning_review.health()}
+    try:
+        from ..self_improvement.loop_health import (  # noqa: PLC0415
+            gate_report,
+            loop_metrics,
+        )
+
+        candidates = getattr(getattr(service, "memory", None), "store", None)
+        advisory = getattr(service, "advisory", None)
+        try:
+            policy = service.memory.policy.get_all()
+            learning_mode = policy.get("skill_learning_mode")
+        except Exception:  # noqa: BLE001
+            learning_mode = None
+        payload["gate"] = gate_report(
+            service.store, skill_store=candidates, advisory_service=advisory,
+            learning_mode=learning_mode,
+        )
+        payload["loop"] = loop_metrics(
+            service.store, skill_store=candidates, advisory_service=advisory,
+        )
+    except Exception as exc:  # noqa: BLE001 - health must never fail
+        payload["gate"] = {"ok": False, "unavailable": True, "reason": str(exc)[:200]}
+    return payload
+
+
+@router.post("/learning/candidates/quarantine")
+def quarantine_candidates(
+    payload: Optional[dict[str, Any]] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Reject detected candidates that violate the falsifiability contract.
+
+    Operator-gated; rows are retained with a status reason, never deleted.
+    """
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(
+            status_code=403,
+            detail="skill.review requires an authorized operator",
+        )
+    from ..self_improvement.loop_health import (  # noqa: PLC0415
+        quarantine_nonconforming_candidates,
+    )
+
+    candidates = getattr(getattr(service, "memory", None), "store", None)
+    if candidates is None:
+        raise HTTPException(status_code=503, detail="candidate store unavailable")
+    return {
+        "success": True,
+        **quarantine_nonconforming_candidates(
+            candidates, dry_run=bool(payload.get("dryRun")),
+        ),
+    }
+
+
+@router.post("/learning/candidates/{candidate_id}/accept")
+def accept_candidate(
+    candidate_id: str,
+    payload: Optional[dict[str, Any]] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Accept a candidate for review authoring. Never enables a skill."""
+    payload = payload or {}
+    if not bool(payload.get("operator")):
+        raise HTTPException(
+            status_code=403,
+            detail="skill.review requires an authorized operator",
+        )
+    candidates = getattr(getattr(service, "memory", None), "store", None)
+    if candidates is None:
+        raise HTTPException(status_code=503, detail="candidate store unavailable")
+    candidate = candidates.get_candidate(candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail="candidate not found")
+    if str(candidate.get("status")) != "detected":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "only a `detected` candidate can be accepted; "
+                f"this one is {candidate.get('status')!r}"
+            ),
+        )
+    from ..self_improvement.lesson_contract import candidate_problems  # noqa: PLC0415
+
+    problems = candidate_problems(candidate)
+    if problems:
+        raise HTTPException(
+            status_code=422,
+            detail="candidate is not falsifiable: " + ", ".join(problems),
+        )
+    candidates.update_candidate(candidate_id, status="accepted", reviewedAt=now_iso())
+    return {"success": True, "candidateId": candidate_id, "status": "accepted"}
 
 
 @router.get("/learning-review")

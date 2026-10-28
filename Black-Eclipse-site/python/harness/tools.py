@@ -641,7 +641,9 @@ class ToolRegistry:
         # what the run actually did. Additive and best-effort — it never changes
         # the result.
         advisory_sink = getattr(ctx, "advisory_sink", None)
-        if advisory_sink is not None and name.startswith("portfolio_"):
+        if advisory_sink is not None and (
+            name.startswith("portfolio_") or name in ("market_get_quote", "get_quote")
+        ):
             try:
                 advisory_sink(name, clean, data)
             except Exception:  # noqa: BLE001 - collection must not break a run

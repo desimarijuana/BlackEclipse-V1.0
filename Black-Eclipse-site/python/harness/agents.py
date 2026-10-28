@@ -418,6 +418,7 @@ ECLIPSE_AGENT = AgentConfig(
         # evaluated version or switch automatic skill learning (both approval-gated).
         "skill_version_history",
         "skill_reviews",
+        "skill_discrimination_check",
         "skill_learning_get",
         "skill_version_evaluate",
         "skill_version_activate",
@@ -442,6 +443,7 @@ ECLIPSE_AGENT = AgentConfig(
         # candidates the Memory â†’ Reviews / Skills â†’ Learning Queue screens read.
         "learning_review_list",
         "learning_candidate_list",
+        "learning_candidate_validate",
         # Bounded read-only GET over the app's OWN loopback API (QA Round 1):
         # the sanctioned alternative to the hard-denied `curl` dead-end.
         "app_api_get",
@@ -905,8 +907,10 @@ CHAT_CODE_TOOLS: tuple[str, ...] = (
     "git_submodule_init", "git_submodule_sync",
     # read-only context, unchanged from ECLIPSE_AGENT
     "memory", "skill_list", "skill_view", "session_search", "session_open",
-    "learning_review_list", "learning_candidate_list", "app_api_get",
-    "skill_version_history", "skill_reviews", "skill_learning_get",
+    "learning_review_list", "learning_candidate_list",
+    "learning_candidate_validate", "app_api_get",
+    "skill_version_history", "skill_reviews", "skill_discrimination_check",
+    "skill_learning_get",
     # The acquire loop stays available in a coding turn: "install this skill /
     # MCP integration" is a valid code request and must not fall off the surface
     # when the front door classifies a mixed turn as `code_change`.

@@ -8,10 +8,24 @@ a portfolio.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Optional
 
 from ..persistence import now_iso
 from .store import AdvisoryStore, decision_id as _decision_id
+
+# A recommendation must have a stated horizon. When neither the claim nor the
+# caller states one, the ledger records this explicit policy default (never an
+# invented outcome).
+DEFAULT_HORIZON = os.environ.get("HARNESS_ADVISORY_DEFAULT_HORIZON", "30d")
+
+# A method is the basis class, not the action verb. This is what calibration is
+# grouped by when the claim carries no explicit method.
+_METHOD_BY_STATUS = {
+    "computed": "portfolio_computation",
+    "sourced": "portfolio_read",
+    "unverified": "model_advice",
+}
 
 # Outcome verdicts (the closed vocabulary).
 RIGHT = "right"
@@ -43,6 +57,8 @@ class AdvisoryService:
         owner_id: Optional[str] = None,
         sources: Optional[list[str]] = None,
         entry_prices: Optional[dict[str, float]] = None,
+        horizon: Optional[str] = None,
+        method: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         """Persist every claim in a gate verdict as a durable decision.
 
@@ -61,14 +77,27 @@ class AdvisoryService:
             did = _decision_id(run_id, action, symbols, target)
             status = str(claim.get("status") or "unverified")
             reason = claim.get("reason")
+            issued_at = now_iso()
+            claim_horizon = str(
+                claim.get("horizon") or horizon or DEFAULT_HORIZON
+            )
+            # An action verb is not a method. Without an explicit method, record
+            # the basis class (computed/sourced/unverified), not `buy`.
+            claim_method = str(
+                claim.get("method") or method or _METHOD_BY_STATUS.get(status, "unclassified")
+            )[:120]
             self.store.upsert_decision({
                 "id": did, "runId": run_id, "portfolioId": portfolio_id,
                 "conversationId": conversation_id, "ownerId": owner_id,
-                "createdAt": now_iso(), "action": action, "symbols": list(symbols),
+                "createdAt": issued_at, "action": action, "symbols": list(symbols),
                 "target": target, "thesis": _thesis(claim), "status": status,
-                "truthReason": reason,
+                "truthReason": reason, "method": claim_method,
+                "horizon": claim_horizon,
+                "dueAt": due_at(issued_at, claim_horizon),
             })
             entries = self._basis_entries(status, reason, source_refs)
+            entries.append({"kind": "method", "ref": claim_method})
+            entries.append({"kind": "horizon", "ref": claim_horizon})
             entry = prices.get(str(symbols[0]).upper()) if symbols else None
             if entry is not None:
                 entries.append({"kind": "entry_price", "ref": repr(entry),
@@ -213,18 +242,58 @@ class AdvisoryService:
                 skipped.append(decision["id"])
         return {"evaluated": len(results), "outcomes": results, "skipped": skipped}
 
+    def backfill_scoring_fields(self, *, dry_run: bool = False) -> dict[str, Any]:
+        """Make legacy rows' method/horizon explicit (never invent an outcome)."""
+        return self.store.backfill_scoring_fields(dry_run=dry_run)
+
+    def due_decisions(
+        self, *, now: Optional[str] = None, limit: int = 5000,
+    ) -> list[dict[str, Any]]:
+        """Unscored decisions whose stated horizon has elapsed (never invented)."""
+        moment = now or now_iso()
+        due: list[dict[str, Any]] = []
+        for row in self.store.list_decisions(limit=limit):
+            decision = self.store.get_decision(row["id"])
+            if decision is None or decision.get("outcome"):
+                continue
+            if decision.get("horizon") in (None, "unscored"):
+                continue
+            due_at = decision.get("dueAt")
+            if due_at and str(due_at) <= moment:
+                due.append(decision)
+        return due
+
     def scorecard(
         self, *, portfolio_id: Optional[str] = None, owner_id: Optional[str] = None,
+        now: Optional[str] = None, min_method_sample: int = 5,
     ) -> dict[str, Any]:
-        """A deterministic summary of decisions and how they turned out."""
+        """A deterministic summary plus per-method calibration and defects."""
         decisions = self.store.list_decisions(
             portfolio_id=portfolio_id, owner_id=owner_id, limit=10_000,
         )
         by_status = {"computed": 0, "sourced": 0, "unverified": 0}
+        unscored = 0
+        needs_backfill = 0
+        moment = now or now_iso()
+        overdue: list[str] = []
         for decision in decisions:
+            if (
+                decision.get("method") in (None, "", "unclassified")
+                or decision.get("horizon") in (None, "", "unscored")
+            ):
+                needs_backfill += 1
             if decision["status"] in by_status:
                 by_status[decision["status"]] += 1
+            if decision.get("horizon") in (None, "unscored"):
+                unscored += 1
+            if (
+                not decision.get("outcome")
+                and decision.get("dueAt")
+                and str(decision["dueAt"]) <= moment
+            ):
+                overdue.append(decision["id"])
         outcomes = self.store.outcomes_for([d["id"] for d in decisions])
+        outcome_by_id = {o["decisionId"]: o for o in outcomes}
         counts = {RIGHT: 0, WRONG: 0, NEUTRAL: 0}
         realized: list[float] = []
         benchmark: list[float] = []
@@ -234,16 +303,85 @@ class AdvisoryService:
                 realized.append(outcome["realizedReturn"])
             if outcome["benchmarkReturn"] is not None:
                 benchmark.append(outcome["benchmarkReturn"])
+
+        by_method: dict[str, dict[str, Any]] = {}
+        for decision in decisions:
+            method = str(decision.get("method") or decision.get("action") or "unknown")
+            bucket = by_method.setdefault(
+                method, {"method": method, "total": 0, "evaluated": 0,
+                         "right": 0, "wrong": 0, "neutral": 0, "hitRate": None,
+                         "unscored": 0, "overdue": 0, "demoted": False},
+            )
+            bucket["total"] += 1
+            if decision.get("horizon") in (None, "unscored"):
+                bucket["unscored"] += 1
+            if decision["id"] in overdue:
+                bucket["overdue"] += 1
+            outcome = outcome_by_id.get(decision["id"])
+            if outcome:
+                bucket["evaluated"] += 1
+                verdict = outcome["verdict"]
+                bucket[verdict] = bucket.get(verdict, 0) + 1
+        for bucket in by_method.values():
+            decided = bucket["right"] + bucket["wrong"]
+            if decided:
+                bucket["hitRate"] = round(bucket["right"] / decided, 4)
+            bucket["demoted"] = bool(
+                decided >= max(1, int(min_method_sample))
+                and bucket["hitRate"] is not None
+                and bucket["hitRate"] < 0.5
+            )
+
         decided = counts[RIGHT] + counts[WRONG]
         return {
             "total": len(decisions),
             "byStatus": by_status,
+            "unscored": unscored,
+            "needsBackfill": needs_backfill,
+            "overdue": overdue,
+            "overdueCount": len(overdue),
             "evaluated": len(outcomes),
             "outcomes": counts,
             "hitRate": (counts[RIGHT] / decided) if decided else None,
             "avgRealizedReturn": (sum(realized) / len(realized)) if realized else None,
             "avgBenchmarkReturn": (sum(benchmark) / len(benchmark)) if benchmark else None,
+            "byMethod": sorted(by_method.values(), key=lambda b: b["method"]),
+            "demotedMethods": sorted(
+                b["method"] for b in by_method.values() if b["demoted"]
+            ),
         }
+
+
+_HORIZON_UNITS = {"d": 1, "w": 7, "m": 30, "y": 365}
+
+
+def _horizon_days(horizon: Any) -> Optional[int]:
+    text = str(horizon or "").strip().lower()
+    if not text or text == "unscored":
+        return None
+    if text.isdigit():
+        return int(text)
+    unit = text[-1:]
+    number = text[:-1]
+    if unit in _HORIZON_UNITS and number.isdigit():
+        return int(number) * _HORIZON_UNITS[unit]
+    return None
+
+
+def due_at(issued_at: str, horizon: Any) -> Optional[str]:
+    """The scoring deadline for a stated horizon, or None when unscored."""
+    import datetime as _dt
+
+    days = _horizon_days(horizon)
+    if days is None:
+        return None
+    try:
+        stamp = _dt.datetime.fromisoformat(str(issued_at).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=_dt.timezone.utc)
+    return (stamp + _dt.timedelta(days=days)).isoformat()
 
 
 def _quote_price(quote: Any) -> Optional[float]:
@@ -279,4 +417,11 @@ def _thesis(claim: dict[str, Any]) -> str:
     return f"{claim.get('action')} {who}{to}".strip()
 
 
-__all__ = ["AdvisoryService", "classify_outcome", "RIGHT", "WRONG", "NEUTRAL"]
+__all__ = [
+    "AdvisoryService",
+    "classify_outcome",
+    "due_at",
+    "RIGHT",
+    "WRONG",
+    "NEUTRAL",
+]

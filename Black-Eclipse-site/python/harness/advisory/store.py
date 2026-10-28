@@ -35,7 +35,10 @@ CREATE TABLE IF NOT EXISTS AdvisoryDecision (
   target         TEXT,
   thesis         TEXT,
   status         TEXT NOT NULL,
-  truthReason    TEXT
+  truthReason    TEXT,
+  method         TEXT,
+  horizon        TEXT,
+  dueAt          TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_advisory_decision_created ON AdvisoryDecision(createdAt);
 CREATE INDEX IF NOT EXISTS idx_advisory_decision_portfolio ON AdvisoryDecision(portfolioId);
@@ -83,6 +86,16 @@ class AdvisoryStore:
 
     def _ensure_schema(self) -> None:
         self._db.executescript(_SCHEMA)
+        # Additive columns for databases created before scoring horizons existed.
+        existing = {
+            row["name"]
+            for row in self._db.execute("PRAGMA table_info(AdvisoryDecision)").fetchall()
+        }
+        for column in ("method", "horizon", "dueAt"):
+            if column not in existing:
+                self._db.execute(
+                    f"ALTER TABLE AdvisoryDecision ADD COLUMN {column} TEXT"
+                )
         self._db.commit()
 
     # ── Decisions ────────────────────────────────────────────────────────────
@@ -90,8 +103,8 @@ class AdvisoryStore:
         self._db.execute(
             """INSERT INTO AdvisoryDecision
                (id, runId, portfolioId, conversationId, ownerId, createdAt, action,
-                symbols, target, thesis, status, truthReason)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                symbols, target, thesis, status, truthReason, method, horizon, dueAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO NOTHING""",
             (
                 decision["id"], decision.get("runId"), decision.get("portfolioId"),
@@ -100,6 +113,8 @@ class AdvisoryStore:
                 json.dumps(list(decision.get("symbols") or [])),
                 decision.get("target"), decision.get("thesis"),
                 decision["status"], decision.get("truthReason"),
+                decision.get("method"), decision.get("horizon"),
+                decision.get("dueAt"),
             ),
         )
         self._db.commit()
@@ -141,6 +156,73 @@ class AdvisoryStore:
             f"SELECT * FROM AdvisoryDecision {where} ORDER BY createdAt DESC LIMIT ?", values
         ).fetchall()
         return [self._decision_row(r) for r in rows]
+
+    def backfill_scoring_fields(self, *, dry_run: bool = False) -> dict[str, Any]:
+        """Fill method/horizon on legacy rows without inventing an outcome.
+
+        `method` falls back to the recorded action; `horizon` becomes the
+        explicit `unscored` defect. `dueAt` stays NULL because no deadline was
+        ever stated.
+        """
+        import datetime as _dt
+        import os
+
+        default_horizon = os.environ.get("HARNESS_ADVISORY_DEFAULT_HORIZON", "30d")
+        method_by_status = {
+            "computed": "portfolio_computation",
+            "sourced": "portfolio_read",
+            "unverified": "model_advice",
+        }
+        rows = self._db.execute(
+            "SELECT id, action, status, method, horizon, createdAt FROM AdvisoryDecision "
+            "WHERE method IS NULL OR method='unclassified' "
+            "OR horizon IS NULL OR horizon='unscored'"
+        ).fetchall()
+        updates: list[str] = []
+        for row in rows:
+            method = (
+                row["method"]
+                if row["method"] and row["method"] != "unclassified"
+                else method_by_status.get(str(row["status"]), "unclassified")
+            )
+            horizon = (
+                row["horizon"]
+                if row["horizon"] and row["horizon"] != "unscored"
+                else default_horizon
+            )
+            due = None
+            try:
+                stamp = _dt.datetime.fromisoformat(
+                    str(row["createdAt"]).replace("Z", "+00:00")
+                )
+                import re
+
+                match = re.match(r"^(\d+)([dwmy])$", str(horizon).lower())
+                units = {"d": 1, "w": 7, "m": 30, "y": 365}
+                days = (
+                    int(match.group(1)) * units[match.group(2)]
+                    if match else None
+                )
+                if days is not None:
+                    due = (stamp + _dt.timedelta(days=days)).isoformat()
+            except (TypeError, ValueError):
+                due = None
+            updates.append(row["id"])
+            if not dry_run:
+                self._db.execute(
+                    "UPDATE AdvisoryDecision SET method=?, horizon=?, dueAt=? "
+                    "WHERE id=? AND (method IS NULL OR method='unclassified' "
+                    "OR horizon IS NULL OR horizon='unscored')",
+                    (method, horizon, due, row["id"]),
+                )
+        if not dry_run:
+            self._db.commit()
+        return {
+            "ok": True,
+            "dryRun": bool(dry_run),
+            "backfilled": updates,
+            "backfilledCount": len(updates),
+        }
 
     # ── Basis ────────────────────────────────────────────────────────────────
     def add_basis(self, decision_id: str, entries: list[dict[str, Any]]) -> None:
@@ -203,6 +285,9 @@ class AdvisoryStore:
             "createdAt": row["createdAt"], "action": row["action"],
             "symbols": json.loads(row["symbols"] or "[]"), "target": row["target"],
             "thesis": row["thesis"], "status": row["status"], "truthReason": row["truthReason"],
+            "method": row["method"] if "method" in row.keys() else None,
+            "horizon": row["horizon"] if "horizon" in row.keys() else None,
+            "dueAt": row["dueAt"] if "dueAt" in row.keys() else None,
         }
 
     @staticmethod

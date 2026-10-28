@@ -24,11 +24,23 @@ from .autonomy import (
 from .cmp import CMPConfig, descendant_lift, metaproductivity
 from .config import DEFAULT_MODE, MODES, RSLConfig
 from .hillclimb import HillClimbConfig, run_hillclimb
+from .lesson_contract import (
+    Lesson,
+    NoLearningVerdict,
+    aggregate_signals,
+    candidate_problems,
+)
 from .lesson_feedback import (
     LessonOutcomeStore,
     LessonStats,
     rank_lessons,
     retire_unhelpful,
+)
+from .loop_health import (
+    evidence_plan,
+    expire_stale_candidates,
+    gate_report,
+    loop_metrics,
 )
 from .models import HarnessSnapshot, Observation
 from .operators import (
@@ -57,9 +69,11 @@ __all__ = [
     "HarnessSnapshot",
     "HarnessStateStore",
     "HillClimbConfig",
+    "Lesson",
     "LessonOutcomeStore",
     "LessonStats",
     "MODES",
+    "NoLearningVerdict",
     "OPERATORS",
     "Observation",
     "RSLConfig",
@@ -69,16 +83,22 @@ __all__ = [
     "StateArchive",
     "UtilityWeights",
     "acceptance",
+    "aggregate_signals",
     "assert_landable_target",
     "autonomy_decide",
     "autonomy_status",
     "build_replay_suite",
+    "candidate_problems",
     "classify_ops",
     "classify_ops_risk",
     "classify_snapshot_risk",
     "classify_snapshot",
     "descendant_lift",
+    "evidence_plan",
+    "expire_stale_candidates",
+    "gate_report",
     "jaccard_novelty",
+    "loop_metrics",
     "metaproductivity",
     "model_settings_from_env",
     "op_signature",

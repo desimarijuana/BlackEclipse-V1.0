@@ -537,6 +537,24 @@ async def get_source_health(args: dict[str, Any], ctx: ToolContext) -> tuple[str
     else:
         lines.append("No LIVE recorded routes (only fixture rows, if any, were found).")
     lines.append("")
+    from .retrieval.health import diagnose_routes  # noqa: PLC0415
+
+    diagnosis = diagnose_routes(rows)
+    if diagnosis["defects"]:
+        lines.append("Diagnosis — routing defects (NOT provider outages):")
+        for defect in diagnosis["defects"]:
+            lines.append(
+                f"  {defect['source']} × {defect['capability']}: generic route failing "
+                f"while {', '.join(defect['healthyMarkets'])} succeed — "
+                f"{defect['recommendedAction']}"
+            )
+    if diagnosis["providerFailures"]:
+        lines.append("Diagnosis — provider failures (every observed market fails):")
+        for provider in diagnosis["providerFailures"]:
+            lines.append(
+                f"  {provider['source']} × {provider['capability']}: "
+                f"{provider['recommendedAction']}"
+            )
     lines.extend(_health_explainer())
     if withheld:
         lines.append("")
@@ -552,6 +570,7 @@ async def get_source_health(args: dict[str, Any], ctx: ToolContext) -> tuple[str
         "rows": rows,
         "recordedRoutes": summary.get("recordedRoutes", len(rows)),
         "withheld": withheld,
+        "diagnosis": diagnosis,
     }
 
 

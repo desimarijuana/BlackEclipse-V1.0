@@ -1085,6 +1085,27 @@ class AgentMemoryStore:
 
     # ── Learning review audit (M3) ──────────────────────────────────────────
     def save_learning_review(self, review: dict[str, Any]) -> dict[str, Any]:
+        # One run has one review row. A direct/operator re-run updates it
+        # instead of appending a duplicate with identical content.
+        if (
+            not review.get("id")
+            and review.get("status") == "completed"
+            and review.get("runId")
+        ):
+            existing = self.latest_learning_review(review.get("runId"))
+            if existing is not None:
+                refreshed_at = now_iso()
+                updated = self.update_learning_review(
+                    existing["id"],
+                    status="completed",
+                    createdAt=refreshed_at,
+                    finishedAt=review.get("finishedAt") or refreshed_at,
+                    mode=review.get("mode", existing.get("mode")),
+                    result=review.get("result"),
+                    error=review.get("error"),
+                )
+                if updated is not None:
+                    return updated
         review_id = review.get("id") or new_id("lrev")
         self._db.execute(
             """INSERT OR REPLACE INTO LearningReview
@@ -1106,7 +1127,7 @@ class AgentMemoryStore:
     def update_learning_review(self, review_id: str, **patch: Any) -> Optional[dict[str, Any]]:
         allowed = {
             "status", "startedAt", "finishedAt", "model", "inputDigest",
-            "result", "error", "attempts",
+            "result", "error", "attempts", "createdAt",
         }
         sets, params = [], []
         for key, value in patch.items():

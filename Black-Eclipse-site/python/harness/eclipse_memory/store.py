@@ -948,6 +948,21 @@ class EclipseMemoryStore:
         self._db.commit()
         return evaluation_id
 
+    def supersede_evaluations(
+        self, skill_id: str, version: str, keep_id: str
+    ) -> None:
+        """Mark earlier evaluations of the same version superseded (retained).
+
+        The newest evaluation is the authoritative one; history stays queryable
+        but a stale self-comparison is not presented as a current pass.
+        """
+        self._db.execute(
+            "UPDATE SkillEvaluation SET status='superseded' "
+            "WHERE skillId=? AND version=? AND id<>? AND status<>'superseded'",
+            (skill_id, version, keep_id),
+        )
+        self._db.commit()
+
     def get_evaluation(self, evaluation_id: str) -> Optional[dict[str, Any]]:
         row = self._db.execute("SELECT * FROM SkillEvaluation WHERE id=?", (evaluation_id,)).fetchone()
         if not row:
@@ -1006,13 +1021,18 @@ class EclipseMemoryStore:
         self._db.execute(
             """INSERT INTO LearningCandidate
                (id, sourceRunId, candidateType, title, problem, observedBehavior, proposedLesson,
-                proposedProcedure, evidenceReferences, confidence, generalizationNotes, knownLimitations,
-                signature, duplicateGroup, status, createdAt, reviewedAt, resultingSkillId, resultingSkillVersion,
-                draftManifest, diagnostics, scope, cue, adoptedArtifactType, adoptedArtifactId, validationRunId)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                proposedProcedure, condition, action, failedCall, recoveredCall, precondition,
+                replayTest, occurrenceCount, evidenceReferences, confidence, generalizationNotes,
+                knownLimitations, signature, duplicateGroup, status, createdAt, reviewedAt,
+                resultingSkillId, resultingSkillVersion, draftManifest, diagnostics, scope, cue,
+                adoptedArtifactType, adoptedArtifactId, validationRunId)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (candidate_id, candidate.get("sourceRunId"), candidate["candidateType"], candidate["title"],
              candidate.get("problem"), candidate.get("observedBehavior"), candidate.get("proposedLesson"),
              json.dumps(candidate.get("proposedProcedure")) if candidate.get("proposedProcedure") is not None else None,
+             candidate.get("condition"), candidate.get("action"),
+             candidate.get("failedCall"), candidate.get("recoveredCall"), candidate.get("precondition"),
+             candidate.get("replayTest"), int(candidate.get("occurrenceCount") or 1),
              json.dumps(candidate.get("evidenceReferences") or []),
              float(candidate.get("confidence", 0.5)),
              candidate.get("generalizationNotes"), candidate.get("knownLimitations"),
@@ -1031,6 +1051,8 @@ class EclipseMemoryStore:
         allowed = {
             "status", "reviewedAt", "resultingSkillId", "resultingSkillVersion", "draftManifest", "confidence",
             "knownLimitations", "scope", "cue", "adoptedArtifactType", "adoptedArtifactId", "validationRunId",
+            "condition", "action", "failedCall", "recoveredCall", "precondition", "replayTest",
+            "occurrenceCount",
         }
         sets, params = [], []
         for key, value in patch.items():

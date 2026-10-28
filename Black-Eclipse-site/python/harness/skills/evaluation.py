@@ -76,12 +76,148 @@ def _financial_integrity(manifest: SkillManifest) -> tuple[bool, str]:
     return False, f"finance output schema must declare: {', '.join(missing)}"
 
 
+OUTCOME_METRICS = (
+    "taskSuccess",
+    "retrievalHitRate",
+    "citationCoverage",
+    "unsupportedClaimRate",
+    "costUsd",
+)
+_HIGHER_IS_BETTER = frozenset(
+    {"taskSuccess", "retrievalHitRate", "citationCoverage"}
+)
+_METRIC_TOLERANCE = 0.01
+
+
+def _metric_deltas(
+    metrics: dict[str, Any], base_metrics: dict[str, Any]
+) -> tuple[list[dict[str, Any]], list[str], bool]:
+    """Compare a candidate's outcome metrics with its base.
+
+    Returns (deltas, regressions, distinguishable). Metrics are caller-supplied
+    measurements; a missing metric is a gap, never a fabricated zero.
+    """
+    deltas: list[dict[str, Any]] = []
+    regressions: list[str] = []
+    for name in OUTCOME_METRICS:
+        if metrics.get(name) is None or base_metrics.get(name) is None:
+            continue
+        try:
+            candidate = float(metrics[name])
+            base = float(base_metrics[name])
+        except (TypeError, ValueError):
+            continue
+        delta = candidate - base
+        higher = name in _HIGHER_IS_BETTER
+        if higher and delta < -_METRIC_TOLERANCE:
+            regressions.append(f"{name} fell {abs(delta):.4f}")
+        if not higher and delta > _METRIC_TOLERANCE:
+            regressions.append(f"{name} rose {abs(delta):.4f}")
+        deltas.append({
+            "metric": name, "base": base, "candidate": candidate,
+            "delta": round(delta, 6), "higherIsBetter": higher,
+        })
+    distinguishable = any(abs(item["delta"]) > _METRIC_TOLERANCE for item in deltas)
+    return deltas, regressions, distinguishable
+
+
+def _discrimination_dimension(
+    store: SkillStore,
+    skill_id: str,
+    version: str,
+    *,
+    base_version: Optional[str],
+    metrics: Optional[dict[str, Any]],
+    base_metrics: Optional[dict[str, Any]],
+    prior_evaluations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Prove the candidate differs from a named base on outcome metrics.
+
+    Same version + identical results repeated does not prove improvement: it is
+    a broken harness signal and is reported as such.
+    """
+    resolved_base = base_version
+    if not resolved_base:
+        try:
+            stored = store.get_version(skill_id, version)
+            resolved_base = (stored or {}).get("baseVersion")
+        except Exception:  # noqa: BLE001
+            resolved_base = None
+
+    same_version = [e for e in prior_evaluations if e["version"] == version]
+    if len(same_version) >= 3 and all(e.get("status") == "passed" for e in same_version):
+        return {
+            "name": "discrimination", "status": "needs_review", "mandatory": False,
+            "detail": (
+                f"{len(same_version)} identical passing evaluations of {version}; "
+                "the harness is not producing a signal"
+            ),
+        }
+
+    if not resolved_base:
+        return {
+            "name": "discrimination", "status": "not_applicable", "mandatory": False,
+            "detail": "root version: no base version to compare against",
+        }
+
+    if not metrics and not base_metrics:
+        return {
+            "name": "discrimination", "status": "needs_review", "mandatory": False,
+            "detail": (
+                f"base {resolved_base} is named but no outcome metrics were "
+                f"supplied ({', '.join(OUTCOME_METRICS)}); discrimination is an "
+                "explicit gap, not a pass"
+            ),
+        }
+    if not metrics or not base_metrics:
+        return {
+            "name": "discrimination", "status": "needs_review", "mandatory": False,
+            "detail": (
+                f"base {resolved_base} is named but outcome metrics are missing on "
+                "one side; cannot distinguish candidate from base"
+            ),
+        }
+
+    deltas, regressions, distinguishable = _metric_deltas(metrics, base_metrics)
+    if not deltas:
+        return {
+            "name": "discrimination", "status": "needs_review", "mandatory": False,
+            "detail": (
+                "no comparable outcome metric was supplied for both candidate and base"
+            ),
+        }
+    if regressions:
+        return {
+            "name": "discrimination", "status": "failed", "mandatory": True,
+            "detail": f"vs {resolved_base}: " + "; ".join(regressions),
+            "metrics": deltas,
+        }
+    if not distinguishable:
+        return {
+            "name": "discrimination", "status": "failed", "mandatory": True,
+            "detail": (
+                f"vs {resolved_base}: every outcome metric is within "
+                f"{_METRIC_TOLERANCE}; the candidate cannot be distinguished from "
+                "its base"
+            ),
+            "metrics": deltas,
+        }
+    return {
+        "name": "discrimination", "status": "passed", "mandatory": False,
+        "detail": f"vs {resolved_base}: outcome metrics differ measurably",
+        "metrics": deltas,
+    }
+
+
 def evaluate_skill(
     skill_id: str,
     version: Optional[str],
     registry: SkillRegistry,
     *,
     run_regression: bool = False,
+    base_version: Optional[str] = None,
+    metrics: Optional[dict[str, Any]] = None,
+    base_metrics: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Run the deterministic evaluation for one skill version and persist it."""
     manifest = registry.manifest(skill_id)
@@ -157,6 +293,21 @@ def evaluate_skill(
     if run_regression:
         dimensions.append(_regression_dimension(registry.store, skill_id, resolved_version, dimensions))
 
+    # 10. Discrimination: a version must be distinguishable from its named base
+    # on outcome metrics. Same-version identical passes are a harness defect.
+    try:
+        prior_evaluations = [
+            e for e in registry.store.list_evaluations(skill_id, limit=50)
+            if str(e.get("status")) != "superseded"
+        ]
+    except Exception:  # noqa: BLE001
+        prior_evaluations = []
+    dimensions.append(_discrimination_dimension(
+        registry.store, skill_id, resolved_version,
+        base_version=base_version, metrics=metrics, base_metrics=base_metrics,
+        prior_evaluations=prior_evaluations,
+    ))
+
     mandatory_failed = [
         d for d in dimensions if d.get("mandatory") and d["status"] != "passed"
     ]
@@ -188,6 +339,12 @@ def evaluate_skill(
         summary=summary,
         cases=None,
     )
+    try:
+        registry.store.supersede_evaluations(
+            skill_id, resolved_version, evaluation_id,
+        )
+    except Exception:  # noqa: BLE001 - history bookkeeping never fails an evaluation
+        pass
     registry.store.append_event("skill.evaluation_completed", skill_id=skill_id, version=resolved_version,
                                 data={"evaluationId": evaluation_id, "status": status})
 
@@ -290,6 +447,13 @@ def _evidence_shape(manifest: SkillManifest) -> tuple[bool, str]:
     return False, "output schema has no evidence/references field"
 
 
+def _version_key(version: Any) -> tuple[int, ...]:
+    import re  # noqa: PLC0415
+
+    parts = re.findall(r"\d+", str(version or ""))
+    return tuple(int(part) for part in parts[:3]) or (0,)
+
+
 def _regression_dimension(
     store: SkillStore, skill_id: str, version: str, current: list[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -303,7 +467,10 @@ def _regression_dimension(
     against itself. A newly-failed mandatory dimension is a regression. Never
     raises.
     """
-    prior_all = store.list_evaluations(skill_id, limit=50)
+    prior_all = [
+        e for e in store.list_evaluations(skill_id, limit=50)
+        if str(e.get("status")) != "superseded"
+    ]
     compared_against = version
     comparison = None
     base_version = None
@@ -312,17 +479,33 @@ def _regression_dimension(
         base_version = (stored or {}).get("baseVersion")
     except Exception:  # noqa: BLE001 - lineage lookup must not break evaluation
         base_version = None
-    if base_version:
+    if base_version and _version_key(base_version) < _version_key(version):
         base_evals = [e for e in prior_all if e["version"] == base_version]
         if base_evals:
             comparison = base_evals[0]
             compared_against = base_version
     if comparison is None:
         same_version = [e for e in prior_all if e["version"] == version]
-        comparison = same_version[0] if same_version else None
+        if same_version:
+            return {
+                "name": "regression", "status": "needs_review",
+                "mandatory": False,
+                "detail": (
+                    f"same-version re-evaluation of {version}; no independent "
+                    "baseline, so this cannot detect a regression"
+                ),
+            }
     if comparison is None:
-        prior_versions = [e for e in prior_all if e["version"] != version]
+        # Never compare a version with a LATER one: an earlier evaluation is the
+        # only meaningful baseline (a 1.1.0 result cannot be regressed against
+        # 1.1.1). Pick the closest earlier version.
+        prior_versions = [
+            e for e in prior_all
+            if e["version"] != version
+            and _version_key(e["version"]) < _version_key(version)
+        ]
         if prior_versions:
+            prior_versions.sort(key=lambda e: _version_key(e["version"]), reverse=True)
             comparison = prior_versions[0]
             compared_against = comparison["version"]
     if comparison is None:

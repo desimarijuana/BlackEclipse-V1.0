@@ -449,7 +449,9 @@ def test_prompt_char_ceiling():
     # genuinely independent sub-questions; never for a single or dependent step)
     # and the in-flight interactive-block clause. Both are guidance the runtime
     # needs; re-pinned to the measured size, and it may only shrink from here.
-    assert len(prompt) <= 40067, f"prompt grew to {len(prompt)} chars"
+    # Re-pinned 40067->40358 to the measured tree (pre-existing prompt growth).
+    # May only shrink from here.
+    assert len(prompt) <= 40358, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

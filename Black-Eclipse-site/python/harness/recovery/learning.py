@@ -58,32 +58,51 @@ def incident_to_candidate(
     if not strategies:
         return None
 
+    from ..self_improvement.lesson_contract import derive_confidence  # noqa: PLC0415
+
     code = incident.get("code") or "error"
     message = incident.get("message") or code
     kind = incident.get("kind") or "unknown"
+    recovered = ", ".join(str(strategy) for strategy in strategies)
+    occurrence = int(incident.get("occurrenceCount", 1))
+    evidence = [
+        {"type": "recovery_incident", "id": incident.get("id")},
+        *[
+            {"type": "recovery_attempt", "id": a.get("id")}
+            for a in attempts if a.get("outcome") in ("succeeded", "resolved")
+        ],
+    ]
     signature = _signature("failure_recovery", f"{kind}:{message}")
     return {
         "candidateType": "failure_recovery",
-        "title": f"Recover from {kind} ({code})",
+        "title": f"Recover from {code} by applying {recovered}"[:200],
         "problem": f"Repeated {kind} failure: {message}",
         "observedBehavior": message,
+        "condition": f"{kind} returns {code}: {message}",
+        "action": f"apply {recovered} and verify the original operation succeeds",
+        "failedCall": f"{kind}:{code}",
+        "recoveredCall": recovered,
+        "precondition": f"{kind} failure with code {code}",
         "proposedLesson": (
-            f"When a {kind} failure with code '{code}' recurs, recover with: "
-            + ", ".join(strategies) + "."
+            f"When a {kind} failure with code '{code}' recurs, apply "
+            f"{recovered} and verify the original operation succeeds."
         ),
         "proposedProcedure": [
             {"step": 1, "action": "classify", "detail": f"recognize the {kind} signature"},
-            {"step": 2, "action": "recover", "detail": f"apply {', '.join(strategies)}"},
+            {"step": 2, "action": "recover", "detail": f"apply {recovered}"},
             {"step": 3, "action": "verify", "detail": "confirm the original operation succeeds"},
         ],
-        "evidenceReferences": [
-            {"type": "recovery_incident", "id": incident.get("id")},
-            *[
-                {"type": "recovery_attempt", "id": a.get("id")}
-                for a in attempts if a.get("outcome") in ("succeeded", "resolved")
-            ],
-        ],
-        "confidence": min(0.9, 0.5 + 0.1 * int(incident.get("occurrenceCount", 1))),
+        "replayTest": (
+            f"Replay incident {incident.get('id')}: reproduce {kind} code {code}; "
+            f"assert {recovered} resolves it."
+        ),
+        "evidenceReferences": evidence,
+        "occurrenceCount": occurrence,
+        "confidence": derive_confidence(
+            evidence_count=len(evidence),
+            occurrence_count=occurrence,
+            has_replay=True,
+        ),
         "generalizationNotes": "Derived from a recurring, verified recovery.",
         "knownLimitations": "Applies to the recorded signature; revisit if the environment changes.",
         "diagnostics": incident.get("diagnosis") or {},
@@ -119,6 +138,10 @@ def promote_incidents(
         attempts = service.store.list_attempts(incident["id"])
         draft = incident_to_candidate(incident, attempts, min_occurrences=min_occurrences)
         if draft is None:
+            continue
+        from ..self_improvement.lesson_contract import candidate_problems  # noqa: PLC0415
+
+        if candidate_problems(draft):
             continue
         existing = skill_store.find_candidate_by_signature(draft["signature"])
         if existing:

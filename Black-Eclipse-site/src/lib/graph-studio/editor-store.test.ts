@@ -37,6 +37,22 @@ describe('graph editor store', () => {
     expect(store().ir?.name).toBe('Renamed');
   });
 
+  it('coalesces consecutive edits of one control into a single undo step', () => {
+    const ir = buildTemplate('blank')!;
+    store().load(ir, { workflowId: 'w1' });
+    store().dispatch({ op: 'set_meta', name: 'A' }, { coalesceKey: 'name' });
+    store().dispatch({ op: 'set_meta', name: 'B' }, { coalesceKey: 'name' });
+    store().dispatch({ op: 'set_meta', name: 'C' }, { coalesceKey: 'name' });
+    expect(store().ir?.name).toBe('C');
+    expect(store().past).toHaveLength(1);
+    store().undo();
+    expect(store().ir?.name).toBe(ir.name);
+    // A different control starts a new history entry.
+    store().dispatch({ op: 'set_meta', name: 'D' }, { coalesceKey: 'name' });
+    store().dispatch({ op: 'set_meta', description: 'x' }, { coalesceKey: 'description' });
+    expect(store().past).toHaveLength(2);
+  });
+
   it('a rejected patch changes nothing and records the error', () => {
     const ir = buildTemplate('blank')!;
     store().load(ir, { workflowId: 'w1' });

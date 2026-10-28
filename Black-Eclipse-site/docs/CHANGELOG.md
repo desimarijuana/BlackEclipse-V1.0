@@ -7,6 +7,149 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-27
+- **feat(learning): expose the accept-route dry-run and the mandatory flag.**
+  `learning_candidate_validate` is a read-only probe that returns the HTTP status
+  the operator accept route would produce (404/409/422/200) without writing, so
+  the negative paths are observable from chat. The discrimination probe prints
+  `mandatory=True/False` in its text. Candidate rows already print procedure
+  steps and occurrence count. Live: `gate.ok=true`, `accepted=2`, `detected=0`,
+  typed 1, memory 0/0/2/0. Docs:
+  `docs/self-improvement/loop-closure.md`.
+- **feat(learning): add a read-only discrimination probe and close the remaining
+  read gaps.** `skill_discrimination_check` lets a chat run prove
+  identical→failed / better→passed / worse→failed with caller-supplied metrics
+  without persisting an evaluation. `skill_reviews` now prints the
+  discrimination detail. Candidate rows print `occurrenceCount` and the
+  procedure step count; the queue line prints `quarantinable`; the scorecard
+  prints `needsBackfill`; `learning_review_list(status="superseded")` is a valid
+  filter. The app-API proxy is excluded from recoverable-tool lessons (a retry
+  cannot fix a down front door), so the current typed lesson is the genuine
+  `research_search` transient-`UNAVAILABLE` retry. Live: `gate.ok=true`,
+  `accepted=2`, `detected=0`, current typed lessons 1, memory 0/0/2/0. Docs:
+  `docs/self-improvement/loop-closure.md`.
+- **fix(learning): withdraw the false lessons and keep only a replayable one.**
+  The gate now prints the memory domain too (duplicates/conflicts/residue/
+  related), review rows print the evidence list, candidate rows print
+  `occurrenceCount` and the procedure step count, and a re-review refreshes the
+  review timestamp so a corrected lesson is current. The two `app_api_get`
+  lessons were superseded and their candidates rejected; the sole current typed
+  lesson is the genuine `research_search` transient-`UNAVAILABLE` retry, accepted
+  as `cand_2a07300e`. The generic "record the working source preference" lesson
+  is rejected as a generic action. Live: `gate.ok=true`, `accepted=2`,
+  `detected=0`, current typed lessons 1. Docs:
+  `docs/self-improvement/loop-closure.md`.
+- **fix(learning): only a genuine same-capability recovery becomes a lesson.**
+  A later tool that happens to succeed is no longer treated as recovery
+  evidence; the recovery must be the same tool or the same recorded capability,
+  and its body must not itself report `UNAVAILABLE`/`TimeoutError`/`TOOL_FORBIDDEN`.
+  The two accepted lessons whose `app_api_get` replay timed out were withdrawn
+  (`rejected`, retained) and their reviews superseded; a genuine
+  `research_search` retry from `run_615d7fce` was reviewed, encoded and accepted.
+  Review rows now print the evidence list, and re-evaluating a version marks
+  earlier same-version evaluations `superseded` so a self-referential pass is
+  no longer presented as current. Live: `gate.ok=true`, `accepted=2`,
+  `detected=0`, current typed lessons 2. Docs:
+  `docs/self-improvement/loop-closure.md`.
+- **fix(learning): print the full candidate census and `relatedCount`.** The
+  candidate list now reports the complete store counts by status (not only the
+  page) and the number hidden by the 50-row cap, so a legacy row cannot vanish
+  from the audit. Memory inventory prints `relatedCount` alongside the
+  duplicate/conflict/residue dry-run counts. Gate remains `ok=true`, gaps empty,
+  accepted 3, detected 0. Docs: `docs/self-improvement/loop-closure.md`.
+- **fix(learning): make every gate domain readable from the bound tool.** The
+  `learning_review_list` gate block now prints `contractSince`, current reviews
+  (typed/justified/unjustified), legacy reviews, current and legacy advice
+  (evaluated/unscored/overdue), and candidates (accepted/detected/nonconforming/
+  stale). `learning_candidate_list` prints `staleDetected`/`nonconforming` and an
+  accepted row's limitations; `memory(action="inventory")` reports the
+  consolidation dry-run counts and cross-type `related` pairs. Accepted the last
+  actionable candidate (`cand_421aa3c1`, with the recovery-tool-timeout
+  limitation): live `accepted=3, detected=0, gate.ok=true`. Docs:
+  `docs/self-improvement/loop-closure.md`.
+- **fix(learning): expose the gate on the read tool; tighten discrimination.**
+  `learning_review_list` now returns `gate` (ok, gaps, current/legacy windows) so
+  a chat run can read `gate.ok` without HTTP-body permission. A version with a
+  named base but no outcome metrics now reports `discrimination=needs_review`
+  (explicit gap), not `not_applicable`; a root version stays
+  `not_applicable`. Residue detection is limited to <=2 tokens or the known
+  `loopback can save` fragment, so a real short preference is not mislabelled.
+  Live: `system.anatomy-figure` v1.1.1 vs v1.1.0 is `needs_review`; gate remains
+  `ok=true`, gaps empty. Docs: `docs/self-improvement/loop-closure.md`.
+- **fix(learning): gate the current contract window, report legacy separately.**
+  `gate_report` now counts reviews and advice created since
+  `HARNESS_LEARNING_CONTRACT_SINCE` (default `2026-10-28T00:00:00Z`) for its pass
+  criteria, and reports pre-contract rows under `legacyReviews` /
+  `legacyAdvisory` instead of letting them keep the gate red forever. The advice
+  gate is due-aware: an unscored recommendation is a defect only at its stated
+  horizon, not before. Live result: `gate.ok=true`; current window 3 reviews
+  with 0 unjustified nulls and 2 current recommendations not yet due; legacy
+  window retains 197 bare nulls and 109 unscored rows for audit. Docs:
+  `docs/self-improvement/loop-closure.md`.
+- **fix(advisory): record a basis method and a stated horizon at issue time.**
+  Every recommendation now gets `method` (explicit, else the basis class
+  `portfolio_computation`/`portfolio_read`/`model_advice`, never the action
+  verb), `horizon` (explicit, else the policy default `30d`), and `dueAt`; both
+  are recorded as basis entries. Quote tools (`market_get_quote`/`get_quote`)
+  now contribute an entry price, so a later evaluation can compute a return.
+  Backfill applied to the live ledger (111 rows); `advice_missing_horizon`
+  cleared and the scorecard reports `byMethod`/hit rate/demotion. Also reports
+  memory residue (`fragment: <=4 tokens, no subject`) without touching it, and
+  diagnoses a generic-only all-fail route as a provider failure. Regression
+  evaluation no longer compares a version against itself. Docs:
+  `docs/self-improvement/loop-closure.md`.
+- **fix(learning): persist the falsifiable method and unfreeze intake.** The
+  `LearningCandidate` table now stores `condition`, `action`, `failedCall`,
+  `recoveredCall`, `precondition`, `replayTest` and `occurrenceCount` (migration
+  32), so the writer no longer drops the fields the contract requires. A
+  previously-created detected candidate was repaired from its run draft and is
+  now conforming; intake was re-enabled (`automatic_selective`), a conforming
+  specimen was created and accepted (accepted=2, detected=0,
+  nonconforming=0). `_regression_dimension` never compares a version against a
+  later one (the 1.1.0-vs-1.1.1 inversion), a completed review updates its
+  existing row instead of duplicating, and persisted nulls keep
+  `justified`/`evidenceChecked`. Fresh `system.anatomy-figure` evaluations now
+  carry the `discrimination` dimension (`not_applicable`, explicit gap). Docs:
+  `docs/self-improvement/loop-closure.md`.
+- **fix(harness): persist null justification, dedupe reviews, expose accept/eval.**
+  `_bounded` now keeps `justified`/`evidenceChecked` at the outcome level, so a
+  saved null no longer reads as bare; a completed review for one run updates the
+  existing row instead of appending a duplicate. Adds operator
+  `POST /learning/candidates/{id}/accept` (status only; never enables a skill),
+  extends `POST /skills/{id}/evaluate` with `baseVersion`/`metrics`/`baseMetrics`
+  so `discrimination` is reachable, reports `intake_disabled` when
+  `skill_learning_mode=off`, and records a missing advisory method as
+  `unclassified` rather than echoing the action verb. Live state: accepted 1,
+  detected 0, duplicate review superseded, fresh evaluation includes
+  `discrimination`. Docs: `docs/self-improvement/loop-closure.md`.
+- **fix(harness): make pre-contract learning rows visible and drainable.** The
+  review list now prints every typed lesson and labels a bare null
+  `UNJUSTIFIED`; the candidate list shows `failedCall`/`recoveredCall`/
+  `precondition`/`replayTest` and a `CONTRACT VIOLATION` per stored row. The gate
+  counts unjustified nulls and nonconforming candidates, not only typed lessons.
+  Adds operator-gated quarantine (`POST /learning/candidates/quarantine`) and
+  advisory backfill (`POST /advisory/backfill`) that exposes legacy
+  method/horizon as `unscored` without inventing a result. Consolidation now
+  resolves near-duplicates (containment/subject link) and the verbosity conflict
+  ("straight to the facts" vs "detailed with sources"), still supersede-only.
+  Applied to the live stores: 48 nonconforming candidates quarantined, 2 stale
+  candidates expired, 2 memory records superseded, 109 advisory rows backfilled,
+  and one real review produced a typed lesson (recurrence 1/2). Docs:
+  `docs/self-improvement/loop-closure.md`.
+- **feat(harness): close the learning loop, not just record it.** Reviews now emit
+  a typed lesson (`condition -> action -> evidence`) or a justified `no_learning`
+  null (reason + `evidenceChecked`), and carry a cross-review signal aggregate
+  that requires two distinct runs before a lesson is eligible. Failure-recovery
+  candidates must carry the failed call, recovered call, precondition, procedure
+  and a replay test; templated titles and constant `0.55` confidence are rejected
+  at creation. Skill evaluation adds a `discrimination` dimension against a named
+  base on outcome metrics (identical results fail; repeated identical passes are
+  flagged as a broken harness). Advisory decisions record `method` + `horizon` +
+  `dueAt`, and the scorecard reports unscored/overdue/per-method calibration and
+  demotes methods that do not score. Route health diagnoses generic-vs-market
+  routing defects, active memory is consolidated (duplicates + contradictions
+  supersede to the later statement, retained), and `gate_report` treats an
+  unconsumed candidate queue as a design failure. Docs:
+  `docs/self-improvement/loop-closure.md`; `docs/NAVIGATION.md` rows updated.
 - **fix(harness): scope the candidate empty state and keep the read-only footer.**
   A status-filtered empty listing now says "No learning candidates captured with
   status 'accepted' yet." instead of implying the whole store is empty, and every
@@ -177,6 +320,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `data-outgoing` hooks. Nodes are now just the black-bezel glass card with the
   icon/title/subtitle; wires carry the accent colour only. no doc change -
   visual restyle only.
+- **feat(graph): compact node cards with inline parameter editing.** Node cards
+  shrink from a 112px min-height / 4px bezel to a 46px identity header / 2px
+  bezel (icon 48→32px, title 16→13px), with the run status folded into the header
+  and the hover toolbar tightened. Up to two scalar config fields now render as
+  inline editors on the card (text/number commit on blur or Enter, selects and
+  booleans immediately, Escape reverts); fields supplied by an incoming edge show
+  a read-only "From wire" chip. `config-fields.ts` adds presentation metadata
+  (label/kind/options/inline) over the registry defaults, a shared
+  `config-field.tsx` replaces the inspector's hand-rolled fields, and
+  `dispatch(patch, { coalesceKey })` collapses a typing session into one undo
+  entry. `buildNodes` reuses unchanged node objects so editing one node no longer
+  re-renders the whole canvas. Docs: `docs/graph-studio.md`.
 
 ## 2026-10-26
 - **fix(customization): the "Custom theme" tile is now a real button.** It looked

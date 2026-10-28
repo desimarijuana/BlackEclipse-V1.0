@@ -74,7 +74,9 @@ def test_unverified_decision_records_a_none_basis(tmp_path):
     svc = _service(tmp_path)
     recorded = svc.record_verdict(run_id="run_1", verdict=_verdict(status="unverified"))
     kinds = {b["kind"] for b in recorded[0]["basis"]}
-    assert kinds == {"none"}
+    assert "none" in kinds
+    # A method and a stated horizon are recorded at issue time.
+    assert "method" in kinds and "horizon" in kinds
 
 
 # ── listing / filtering ───────────────────────────────────────────────────────

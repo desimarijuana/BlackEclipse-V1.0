@@ -235,4 +235,91 @@ def rank_sources(
     return [name for _, _, name in ranked], notes
 
 
-__all__ = ["build_health_index", "health_verdict", "rank_sources", "HealthIndex"]
+_GENERIC_MARKETS = frozenset({"", "*", "GLOBAL", "ALL", "UNKNOWN"})
+
+
+def diagnose_routes(
+    rows: Any, *, min_fail: int = 3
+) -> dict[str, Any]:
+    """Classify route failures into causes instead of counting them.
+
+    A source that fails on the GENERIC route while succeeding on specific
+    markets is a routing defect, not a provider outage. Only a source that
+    fails across every observed market is classified as a provider failure.
+    """
+    index = build_health_index(rows)
+    grouped: dict[tuple[str, str], dict[str, dict[str, int]]] = {}
+    for (source, capability, market), counts in index.items():
+        grouped.setdefault((source, capability), {})[market] = counts
+
+    defects: list[dict[str, Any]] = []
+    providers: list[dict[str, Any]] = []
+    for (source, capability), markets in sorted(grouped.items()):
+        generic = {
+            market: counts for market, counts in markets.items()
+            if str(market).upper() in _GENERIC_MARKETS
+        }
+        specific = {
+            market: counts for market, counts in markets.items()
+            if str(market).upper() not in _GENERIC_MARKETS
+        }
+        healthy_specific = sorted(
+            market for market, counts in specific.items()
+            if counts.get("fail", 0) == 0 and counts.get("success", 0) > 0
+        )
+        dead_specific = [
+            market for market, counts in specific.items()
+            if counts.get("success", 0) == 0 and counts.get("fail", 0) >= min_fail
+        ]
+        dead_generic = [
+            market for market, counts in generic.items()
+            if counts.get("success", 0) == 0 and counts.get("fail", 0) >= min_fail
+        ]
+        if dead_generic and not specific:
+            providers.append({
+                "kind": "provider_failure",
+                "source": source,
+                "capability": capability,
+                "failingMarkets": dead_generic,
+                "recommendedAction": (
+                    f"treat {source} as failing for {capability} on the generic "
+                    "route; keep the circuit breaker open and probe before reuse"
+                ),
+            })
+            continue
+        if dead_generic and healthy_specific:
+            defects.append({
+                "kind": "routing_defect",
+                "source": source,
+                "capability": capability,
+                "failingMarkets": dead_generic,
+                "healthyMarkets": healthy_specific,
+                "recommendedAction": (
+                    f"route {capability} for {source} to the specific markets "
+                    f"{', '.join(healthy_specific)} instead of the generic route; "
+                    "stop recording it as a provider failure"
+                ),
+            })
+        elif dead_specific and not healthy_specific and len(dead_specific) == len(specific):
+            providers.append({
+                "kind": "provider_failure",
+                "source": source,
+                "capability": capability,
+                "failingMarkets": sorted(dead_specific),
+                "recommendedAction": (
+                    f"treat {source} as failing for {capability}; keep the circuit "
+                    "breaker open and probe before reuse"
+                ),
+            })
+    return {
+        "defects": defects,
+        "providerFailures": providers,
+        "routingDefectCount": len(defects),
+        "providerFailureCount": len(providers),
+    }
+
+
+__all__ = [
+    "build_health_index", "diagnose_routes", "health_verdict", "rank_sources",
+    "HealthIndex",
+]
