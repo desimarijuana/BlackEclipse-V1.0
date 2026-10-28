@@ -60,5 +60,19 @@ def test_stage_eligible_tools_without_granting(tmp_path):
         approved = proposals.approve(proposal["id"])
         assert approved["status"] == "approved_pending_application"
         assert proposals.withdraw(proposal["id"]) is False
+
+        from harness.agents import get_agent
+        from harness.self_improvement.widening_runtime import apply_proposal, revoke_grant
+        from harness.surface import effective_allowlist
+
+        grant = apply_proposal(store, registry, proposal["id"], ttl_days=7)
+        assert grant["ok"] is True
+        assert "market_read_test" in effective_allowlist(
+            get_agent("eclipse-agent"), registry,
+        )
+        assert revoke_grant(store, grant["grantId"])["ok"] is True
+        assert "market_read_test" not in effective_allowlist(
+            get_agent("eclipse-agent"), registry,
+        )
     finally:
         store.close()

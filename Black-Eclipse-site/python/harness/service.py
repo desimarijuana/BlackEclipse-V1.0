@@ -1516,6 +1516,9 @@ class AgenticService:
                 )
 
                 self._self_modification = SelfModificationExecutor(self)
+            from .self_improvement.widening_runtime import refresh  # noqa: PLC0415
+
+            refresh(self.store)
             await self._self_modification.start()
         except Exception:  # noqa: BLE001 - never block boot
             log.warning("self-modification executor failed to start", exc_info=True)

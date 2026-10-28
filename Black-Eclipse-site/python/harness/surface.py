@@ -159,6 +159,20 @@ def _declared_allowlist(agent: AgentConfig, registry: ToolRegistry) -> Optional[
     if agent.tools is None:
         return None
     allowed = set(agent.tools)
+    if agent.id == "eclipse-agent":
+        from .self_improvement.widening_runtime import granted_tools  # noqa: PLC0415
+
+        for name in granted_tools(agent.id):
+            tool = registry.get(name)
+            if tool is None:
+                continue
+            if getattr(tool, "permission", "") != "read":
+                continue
+            if str(getattr(tool, "effect", "") or "") not in ("", "read"):
+                continue
+            if getattr(tool, "risk", "low") not in ("none", "low"):
+                continue
+            allowed.add(name)
     if agent.allowMcpTools:
         allowed.update(name for name in registry.names() if name.startswith("mcp_"))
     if getattr(agent, "allowPluginTools", False):

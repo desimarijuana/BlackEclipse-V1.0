@@ -374,6 +374,10 @@ class SelfModificationExecutor:
         self._last_run_at = now
         self._skips = []
         apply = not self.policy.shadow
+        from .widening_runtime import expire_due, refresh  # noqa: PLC0415
+
+        widen_expired = expire_due(self.service.store)
+        refresh(self.service.store)
         expired: list[dict[str, Any]] = []
         for row in self.audit.expire_due(now):
             self._disable(str(row.get("subject") or ""), "self-modification TTL expired")
@@ -411,6 +415,7 @@ class SelfModificationExecutor:
         self._last_result = {
             "accepted": accepted, "enabled": enabled,
             "expired": [row.get("id") for row in expired],
+            "expiredWidenGrants": widen_expired,
             "rolledBack": rolled_back,
             "skipped": list(self._skips),
         }

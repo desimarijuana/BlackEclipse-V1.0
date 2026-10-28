@@ -28,16 +28,33 @@ runtime surface changes.
   status to `ready_for_ratification`.
 - `POST /evolution/widening/{id}/approve` — operator approval; status becomes
   `approved_pending_application`. **No runtime surface changes.**
+- `POST /evolution/widening/{id}/apply` — apply an approved proposal as a
+  **read-only** runtime grant (default TTL 7 days). Revalidates the tool against
+  the contract shadow; refuses effectful/financial/high-risk tools, unknown
+  tools, unapproved proposals, and duplicates.
+- `GET /evolution/widening/grants` — active grants.
+- `POST /evolution/widening/grants/{id}/revoke` — revoke a grant immediately.
 - `POST /evolution/widening/{id}/withdraw` — withdraw a proposal.
+
+## Runtime overlay
+
+`widening_runtime.py` keeps an in-process map of `agentId -> read-only tool
+names`, refreshed on boot, apply, revoke, and the self-modification tick. The
+surface unions those names into `eclipse-agent`'s allowlist only when the
+registry tool is still `read`, non-effectful, and `none`/`low` risk. Expired
+grants are excluded immediately and marked expired by the tick. This changes
+only the run's bound schema; it never edits the agent preset or a source file.
 
 ## Tests
 
 `test_widening_queue.py`: stages the one read-only tool, excludes write and
 financial tools, skips a duplicate, attaches the three evidence items until
-`ready_for_ratification`, approves to `approved_pending_application`, and refuses
-withdrawal after approval; the registry is unchanged.
+`ready_for_ratification`, approves to `approved_pending_application`, refuses
+withdrawal after approval, applies the grant, sees it in `eclipse-agent`'s
+effective allowlist, and revokes it back out.
 
 ## Not built
 
-No runtime grant, no allowlist change, no automatic application. Approval records
-the decision only; applying a ratified tool remains a separate operator action.
+No automatic application and no effectful/financial widening. Apply remains an
+operator action, and only read-only, non-effectful, `none`/`low`-risk tools can
+be granted.

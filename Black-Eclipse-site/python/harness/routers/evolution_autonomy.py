@@ -130,6 +130,42 @@ def widening_approve(
     }
 
 
+@router.get("/evolution/widening/grants")
+def widening_grants(
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..self_improvement.widening_runtime import list_grants  # noqa: PLC0415
+
+    return {"success": True, "grants": list_grants(service.store)}
+
+
+@router.post("/evolution/widening/grants/{grant_id}/revoke")
+def widening_grant_revoke(
+    grant_id: str, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..self_improvement.widening_runtime import revoke_grant  # noqa: PLC0415
+
+    return {"success": True, **revoke_grant(service.store, grant_id)}
+
+
+@router.post("/evolution/widening/{proposal_id}/apply")
+def widening_apply(
+    proposal_id: str,
+    body: Optional[dict[str, Any]] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..self_improvement.widening_runtime import apply_proposal  # noqa: PLC0415
+
+    return {
+        "success": True,
+        **apply_proposal(
+            service.store, service.registry, proposal_id,
+            ttl_days=int((body or {}).get("ttlDays") or 7),
+            agent_id=str((body or {}).get("agentId") or "eclipse-agent"),
+        ),
+    }
+
+
 @router.post("/evolution/widening/{proposal_id}/withdraw")
 def widening_withdraw(
     proposal_id: str, _: bool = Depends(require_operator),
