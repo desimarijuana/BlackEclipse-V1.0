@@ -78,38 +78,11 @@ def _derive_authority(source: str) -> str:
     return "explicit" if source in EXPLICIT_SOURCES else "automatic"
 
 
-_DRAFTABLE_CANDIDATES = frozenset({
-    "failure_recovery",
-    "successful_procedure",
-    "validation_improvement",
-    "source_selection_improvement",
-    "provider_eligibility_improvement",
-    "user_correction",
-})
-
-
 def _draft_ready(draft: dict[str, Any]) -> bool:
-    """Whether a detected candidate has enough evidence for an INERT draft.
+    """Whether a detected candidate has enough evidence for an INERT draft."""
+    from ..skills.draft import draft_ready  # noqa: PLC0415 - keep the import local
 
-    A draft is never activated; this only decides when the agent may author one
-    without an operator click. Single-observation candidates stay candidates.
-    """
-    candidate_type = str(draft.get("candidateType") or "")
-    if candidate_type not in _DRAFTABLE_CANDIDATES:
-        return False
-    scope = draft.get("scope") if isinstance(draft.get("scope"), dict) else {}
-    if scope.get("capability") == "ui_engineering":
-        return False
-    if any(
-        isinstance(step, dict) and step.get("action") == "escalate"
-        for step in (draft.get("proposedProcedure") or [])
-    ):
-        return False
-    steps = draft.get("proposedProcedure") or []
-    if len(steps) < 2:
-        return False
-    occurrence = int(draft.get("occurrenceCount") or 1)
-    return occurrence >= 2
+    return draft_ready(draft)
 
 
 class EclipseMemoryService:

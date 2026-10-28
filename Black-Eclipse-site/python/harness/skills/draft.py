@@ -20,6 +20,88 @@ from .manifest import SkillManifest
 from .store import SkillStore
 
 
+_DRAFTABLE_CANDIDATES = frozenset({
+    "failure_recovery",
+    "successful_procedure",
+    "validation_improvement",
+    "source_selection_improvement",
+    "provider_eligibility_improvement",
+    "user_correction",
+})
+
+
+def draft_ready(candidate: dict[str, Any]) -> bool:
+    """Whether a detected candidate has enough evidence for an INERT draft.
+
+    A draft is never activated. Recurrence is the gate for single-run candidate
+    types; a successful procedure may draft when it carries repeated tool
+    evidence (the legacy shape stored no occurrence count).
+    """
+    candidate_type = str(candidate.get("candidateType") or "")
+    if candidate_type not in _DRAFTABLE_CANDIDATES:
+        return False
+    scope = candidate.get("scope") if isinstance(candidate.get("scope"), dict) else {}
+    if scope.get("capability") == "ui_engineering":
+        return False
+    if not (candidate.get("proposedProcedure") or []):
+        return False
+    occurrence = int(candidate.get("occurrenceCount") or 0)
+    if occurrence >= 2:
+        return True
+    evidence = [
+        ref for ref in (candidate.get("evidenceReferences") or [])
+        if isinstance(ref, dict) and ref.get("kind") == "tool" and ref.get("name")
+    ]
+    return candidate_type == "successful_procedure" and len(evidence) >= 2
+
+
+def auto_draft_ready_candidates(
+    store: SkillStore,
+    *,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Draft every detected, falsifiable, recurrence-backed candidate (inert).
+
+    Called by startup maintenance so candidates detected before this path
+    existed are not stranded. It never evaluates, enables or promotes a skill.
+    """
+    from ..self_improvement.lesson_contract import candidate_problems  # noqa: PLC0415
+
+    drafted: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    candidates = store.list_candidates(status="detected", limit=limit)
+    for candidate in candidates:
+        problems = candidate_problems(candidate)
+        if problems:
+            skipped.append({"candidateId": candidate.get("id"), "problems": problems})
+            continue
+        if not draft_ready(candidate):
+            skipped.append({"candidateId": candidate.get("id"), "problems": ["not_ready"]})
+            continue
+        available = [
+            str(ref["name"]) for ref in (candidate.get("evidenceReferences") or [])
+            if isinstance(ref, dict) and ref.get("kind") == "tool" and ref.get("name")
+        ]
+        result = propose_draft(str(candidate["id"]), store, available_tools=available)
+        if result.get("ok"):
+            drafted.append({
+                "candidateId": candidate.get("id"),
+                "skillId": (result.get("draft") or {}).get("id"),
+                "reusable": bool(result.get("reusable")),
+            })
+        else:
+            skipped.append({
+                "candidateId": candidate.get("id"),
+                "problems": [str(result.get("error") or "draft_failed")],
+            })
+    return {
+        "ok": True,
+        "scanned": len(candidates),
+        "drafted": drafted,
+        "skipped": skipped,
+    }
+
+
 def _slug(text: str) -> str:
     import re
 
@@ -279,4 +361,8 @@ def propose_draft(
     return {"ok": True, "draft": draft, "issues": issue_notes, "reusable": reusable}
 
 
-__all__ = ["propose_draft"]
+__all__ = [
+    "auto_draft_ready_candidates",
+    "draft_ready",
+    "propose_draft",
+]

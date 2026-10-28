@@ -254,9 +254,15 @@ async def session_search_handler(args: dict[str, Any], ctx: ToolContext) -> tupl
     if not query:
         return "A search query is required.", {"available": True, "results": [], "hasMore": False}
     limit = int(args.get("limit") or 0) or None
+    # A single-user local runtime indexes messages without a userId; filtering by
+    # the caller's local identity would hide every prior session. Real multi-user
+    # ids are still enforced.
+    scope_user = ctx.user_id if args.get("scope") != "global" else None
+    if str(scope_user or "").strip().lower() in ("", "local", "anonymous", "default"):
+        scope_user = None
     result = store.search_session_messages(
         query,
-        user_id=ctx.user_id if args.get("scope") != "global" else None,
+        user_id=scope_user,
         date_from=args.get("date_from"),
         date_to=args.get("date_to"),
         run_id=args.get("run_id"),

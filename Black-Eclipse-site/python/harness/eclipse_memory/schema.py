@@ -1158,6 +1158,18 @@ MIGRATIONS.append(
 )
 
 # The current schema version = the highest migration number.
+# Migration 33: a database created before the occurrenceCount column was added
+# can carry the newer candidate fields without it (the guarded migration runner
+# skips an already-present column, so this is safe on current stores too).
+MIGRATIONS.append(
+    (
+        33,
+        [
+            "ALTER TABLE LearningCandidate ADD COLUMN occurrenceCount INTEGER NOT NULL DEFAULT 1;",
+        ],
+    )
+)
+
 SCHEMA_VERSION = max(version for version, _ in MIGRATIONS)
 
 __all__ = ["MIGRATIONS", "SCHEMA_VERSION"]

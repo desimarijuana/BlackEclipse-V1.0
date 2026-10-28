@@ -6,10 +6,15 @@ import os
 import tempfile
 from types import SimpleNamespace
 
+import pytest
+
 from harness.eclipse_memory import EclipseMemoryService, EclipseMemoryStore
 from harness.eclipse_memory.consolidation import consolidate_active
+from harness.memory_tools import session_search_handler
 from harness.persistence import AgentMemoryStore
 from harness.session_index import backfill_run_index
+from harness.skills.draft import auto_draft_ready_candidates
+from harness.tools import ToolContext
 
 
 def _tool(name: str, ok: bool, text: str = "") -> SimpleNamespace:
@@ -149,6 +154,58 @@ def test_usage_report_separates_automatic_from_explicit_saves():
         assert report["durableWrites"]["saved"] >= 1
     finally:
         service.close()
+
+
+def test_a_legacy_detected_candidate_is_auto_drafted_at_maintenance():
+    directory = tempfile.mkdtemp(prefix="be-legacy-draft-")
+    store = EclipseMemoryStore(os.path.join(directory, "eclipse-memory.db"))
+    try:
+        candidate_id = store.save_candidate({
+            "candidateType": "successful_procedure",
+            "title": "Reusable procedure: analysis_run",
+            "problem": "A multi-step research procedure completed with no tool failures.",
+            "proposedLesson": "Use analysis_run for this repeatable computation.",
+            "proposedProcedure": [{"step": 1, "action": "call analysis_run"}],
+            "evidenceReferences": [
+                {"kind": "tool", "name": "analysis_run"},
+                {"kind": "tool", "name": "analysis_run"},
+            ],
+            "confidence": 0.6,
+            "status": "detected",
+            "signature": "legacy_successful_procedure",
+            "sourceRunId": "run_legacy",
+        })
+        result = auto_draft_ready_candidates(store)
+        assert result["drafted"], result
+        candidate = store.get_candidate(candidate_id)
+        assert candidate["status"] == "drafted"
+        assert store.get_skill(candidate["resultingSkillId"])["status"] == "draft"
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_local_session_search_does_not_filter_out_unowned_history():
+    directory = tempfile.mkdtemp(prefix="be-local-recall-")
+    store = AgentMemoryStore(os.path.join(directory, "agent-memory.db"))
+    try:
+        store.create_run("run_old", "eclipse-agent", {"query": "what did we decide"})
+        store.update_run(
+            "run_old", status="completed",
+            output="We decided to use consolidated figures.", modelSteps=2,
+        )
+        backfill_run_index(store, limit=10)
+        ctx = ToolContext(
+            run_id="run_now", log=lambda *_: None,
+            memory_store=store, user_id="local",
+        )
+        text, data = await session_search_handler(
+            {"query": "consolidated figures"}, ctx,
+        )
+        assert data["results"], text
+        assert data["results"][0]["runId"] == "run_old"
+    finally:
+        store.close()
 
 
 def test_session_index_backfill_makes_historical_runs_searchable():

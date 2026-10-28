@@ -6,6 +6,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-28
+- **feat(learning,graph): tool-widening safety case, boot-time recall, graph UI
+  polish.** Added the evidence-gated `self_improvement/widening.py` ratification
+  package (read/compute only, refusal by default) with its spec and tests; startup
+  now consolidates duplicate automatic memories (contradictions left for review)
+  and backfills completed runs into the session index; the self-improvement
+  denylist now also covers the widening/capability/grant surfaces and can no
+  longer be narrowed by a caller; graph node cards, canvas, home and globals
+  styling were tightened. `npx tsc --noEmit` passed. Docs:
+  `docs/self-improvement/loop-closure.md`, `docs/self-improvement/tool-widening/`,
+  `docs/graph-studio.md`, `docs/harness/tool-registry.json`.
+
 ## 2026-10-27
 - **ui(graph): align the New workflow button with the shared menu system.** The
   template picker is now a real `DropdownMenu` (anchored, dismissable, keyboard

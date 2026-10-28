@@ -998,6 +998,31 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - skill maintenance must never block boot
             log.warning("startup skill maintenance failed", exc_info=True)
             result["skillMaintenance"] = {"ok": False, "error": "maintenance failed"}
+        # Learning queue hygiene: legacy/nonconforming candidates are retained as
+        # rejected, so they cannot masquerade as a ready backlog.
+        try:
+            from .self_improvement.loop_health import (  # noqa: PLC0415
+                quarantine_nonconforming_candidates,
+            )
+
+            result["candidateQuarantine"] = quarantine_nonconforming_candidates(
+                self.skill_store, dry_run=False,
+            )
+        except Exception:  # noqa: BLE001 - quarantine must never block boot
+            log.warning("candidate quarantine failed", exc_info=True)
+            result["candidateQuarantine"] = {"ok": False, "error": "quarantine failed"}
+        # Autonomous creation: draft every detected, falsifiable,
+        # recurrence-backed candidate. Drafts are inert; evaluation and
+        # promotion remain operator actions.
+        try:
+            from .skills.draft import auto_draft_ready_candidates  # noqa: PLC0415
+
+            result["candidateDrafts"] = auto_draft_ready_candidates(
+                self.skill_store, limit=100,
+            )
+        except Exception:  # noqa: BLE001 - drafting must never block boot
+            log.warning("candidate auto-draft failed", exc_info=True)
+            result["candidateDrafts"] = {"ok": False, "error": "draft failed"}
         # Agent-curated memory: merge exact/near duplicates, but leave a genuine
         # contradiction for review (resolve_conflicts=False). Rows are retained.
         try:
