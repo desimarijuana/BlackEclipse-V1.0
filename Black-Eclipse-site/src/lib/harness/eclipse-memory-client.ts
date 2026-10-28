@@ -28,6 +28,7 @@ import type {
   MemoryProviderTestResult,
   MemoryUsageReport,
   MistakeRecord,
+  PreferenceSummary,
   SessionOpenResult,
   SessionSearchHealth,
   SessionSearchResult,
@@ -72,6 +73,25 @@ export async function memoryHealth(): Promise<EclipseMemoryHealth> {
 export async function memoryOverview(): Promise<MemoryOverview> {
   const body = await request<MemoryOverview & { success: boolean }>("/eclipse-memory/overview", { method: "GET" });
   return body;
+}
+
+export async function memoryPreferences(scopeId?: string): Promise<PreferenceSummary> {
+  const qs = scopeId ? `?scopeId=${encodeURIComponent(scopeId)}` : "";
+  return request<PreferenceSummary>(`/eclipse-memory/preferences${qs}`, { method: "GET" });
+}
+
+export async function learnPreferences(userId?: string, runId?: string): Promise<{
+  success: boolean;
+  mode: string;
+  created: Array<Record<string, unknown>>;
+  saved: Array<Record<string, unknown>>;
+  skipped: Array<Record<string, unknown>>;
+  observationCount: number;
+}> {
+  return request("/eclipse-memory/preferences/learn", {
+    method: "POST",
+    body: JSON.stringify({ userId, runId }),
+  });
 }
 
 export async function listMemories(filters: {
@@ -474,6 +494,7 @@ export interface MemorySuggestion {
   status: string;
   createdAt: string;
   decidedAt: string | null;
+  structuredData?: Record<string, unknown> | null;
 }
 
 export async function listSuggestions(status = "pending", scopeId?: string): Promise<MemorySuggestion[]> {

@@ -10,7 +10,7 @@
 import type { AppTab } from './app-tabs';
 
 export type MemoryTabId =
-  | 'overview' | 'memories' | 'sessions' | 'history' | 'skills' | 'suggestions'
+  | 'overview' | 'memories' | 'history' | 'preferences' | 'sessions' | 'skills' | 'suggestions'
   | 'lifecycle' | 'reviews' | 'activity' | 'profile' | 'profiles' | 'providers'
   | 'files' | 'policies' | 'health';
 
@@ -37,8 +37,9 @@ export interface ScreenDef<Id extends string = string> {
 export const MEMORY_TABS: ScreenTabDef<MemoryTabId>[] = [
   { id: 'overview', label: 'Overview' },
   { id: 'memories', label: 'Facts', aliases: ['explorer'] },
+  { id: 'preferences', label: 'Preferences' },
+  { id: 'history', label: 'Session Search', aliases: ['search'] },
   { id: 'sessions', label: 'Sessions' },
-  { id: 'history', label: 'Session Search' },
   { id: 'skills', label: 'Skills' },
   { id: 'suggestions', label: 'Suggestions' },
   { id: 'lifecycle', label: 'Lifecycle' },

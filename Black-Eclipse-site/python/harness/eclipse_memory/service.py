@@ -840,6 +840,85 @@ class EclipseMemoryService:
             pass
         return decision
 
+    def observe_turn_preferences(
+        self,
+        text: str,
+        *,
+        user_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        conversation_id: Optional[str] = None,
+        learn_now: bool = True,
+    ) -> dict[str, Any]:
+        """Record repeated style/format signals and optionally run the learner.
+
+        This is personalization, never a durable write. A single task instruction
+        is only an observation; the preference learner requires repeated,
+        consistent evidence before it can stage an inert suggestion.
+        """
+        from .preferences import learn as learn_preferences  # noqa: PLC0415
+        from .preferences import record_observations  # noqa: PLC0415
+
+        # Privacy floor: when memory is off, or preference learning is off, do
+        # not even collect evidence. Nothing is retained for a later opt-in.
+        try:
+            settings = self.policy.get_all()
+        except Exception:  # noqa: BLE001
+            settings = {}
+        if settings.get("memory_enabled") is False or str(
+            settings.get("preference_learning_mode") or "ask"
+        ) == "off":
+            return {"observations": 0, "learning": None, "owner": user_id or "local"}
+
+        owner = user_id or (f"conv:{conversation_id}" if conversation_id else "local")
+        try:
+            observations = record_observations(
+                self.store, text, user_id=owner, run_id=run_id,
+                session_id=session_id, source="turn",
+            )
+        except Exception:  # noqa: BLE001 - observation never blocks a turn
+            observations = []
+        learning = None
+        if learn_now:
+            try:
+                learning = learn_preferences(self, user_id=owner, run_id=run_id)
+            except Exception as exc:  # noqa: BLE001 - personalization is best-effort
+                learning = {"ok": False, "reason": str(exc)[:200], "created": [], "saved": []}
+        return {"observations": len(observations), "learning": learning, "owner": owner}
+
+    def observe_run_preferences(self, run_id: str, run_store: Any) -> dict[str, Any]:
+        """Observe a completed run's user turn, then run the learner once."""
+        try:
+            run = run_store.get_run(run_id) or {}
+        except Exception:  # noqa: BLE001
+            return {"ok": False, "reason": "run unavailable", "observations": 0}
+        agent_id = str(run.get("agentId") or "")
+        if agent_id.startswith("skill:"):
+            return {"ok": True, "skipped": "skill child run", "observations": 0}
+        try:
+            query = ((run.get("input") or {}).get("query") or "")
+        except Exception:  # noqa: BLE001
+            query = ""
+        owner = run.get("userId") or "local"
+        result = self.observe_turn_preferences(
+            query, user_id=owner, run_id=run_id,
+            session_id=run.get("sessionId"), learn_now=True,
+        )
+        result["ok"] = True
+        return result
+
+    def learn_preferences(
+        self, *, user_id: Optional[str] = None, run_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        from .preferences import learn  # noqa: PLC0415
+
+        return learn(self, user_id=user_id, run_id=run_id)
+
+    def preference_summary(self, *, user_id: Optional[str] = None) -> dict[str, Any]:
+        from .preferences import summary  # noqa: PLC0415
+
+        return summary(self, user_id=user_id)
+
     def promote_confirmed_proposals(self) -> dict[str, Any]:
         """Promote a proposed memory only after recurrence + a clean dedup/conflict gate.
 
@@ -927,6 +1006,7 @@ class EclipseMemoryService:
             "confidence": decision.confidence,
             "signature": signature,
             "status": "pending",
+            "structuredData": (getattr(decision, "metadata", {}) or {}).get("structuredData"),
         })
         self.store.append_memory_event(
             "memory.suggested", run_id=run_id,
@@ -978,6 +1058,7 @@ class EclipseMemoryService:
             subject=decision.subject, confidence=decision.confidence,
             importance=decision.importance, verification="unverified",
             created_by=user_id or "user",
+            structured_data=suggestion.get("structuredData"),
         )
         self.store.set_suggestion_status(suggestion_id, "accepted")
         self.store.append_memory_event(
@@ -1078,6 +1159,7 @@ class EclipseMemoryService:
                 confidence=intent.confidence,
                 verification="unverified",
                 created_by="eclipse-learning" if automatic else (user_id or "user"),
+                structured_data=(intent.metadata or {}).get("structuredData"),
             )
             if memory.get("status") == "proposed":
                 # A contradiction with an existing active memory was stored inert

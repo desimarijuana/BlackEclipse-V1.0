@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   Activity, AlertCircle, Brain, Database, FileText, Lightbulb, Loader2, Lock, MessageSquare, Plug, Plus,
-  RefreshCcw, Search, Settings2, ShieldCheck, Trash2, Wrench, X, type LucideIcon,
+  RefreshCcw, Search, Settings2, ShieldCheck, Sparkles, Trash2, Wrench, X, type LucideIcon,
 } from "@/lib/icons";
 import { MEMORY_TABS, screenTab, type MemoryTabId } from "@/lib/app-screens";
 import { TabBar } from "@/components/ui/tab-bar";
@@ -44,6 +44,7 @@ import {
   OriginBadge, Section, Spinner, StatusPill, TypeBadge,
 } from "./memory-ui";
 import { MemoryDrawer, MemoryModal } from "./memory-overlay";
+import { Preferences } from "./preferences-panel";
 import type {
   CorrectionRecord, EclipseMemoryHealth, MemoryDatabaseHealth, MemoryDetail,
   MemoryExportDocument, MemoryLifecycleView,
@@ -62,7 +63,7 @@ type Tab = MemoryTabId;
 // Labels + ids come from `MEMORY_TABS` (the same list the agent's surface map
 // reads); only the icons are screen-local presentation.
 const TAB_ICONS: Record<Tab, LucideIcon> = {
-  overview: Brain, memories: Database, sessions: MessageSquare, history: Search,
+  overview: Brain, memories: Database, preferences: Sparkles, sessions: MessageSquare, history: Search,
   skills: Wrench, suggestions: Lightbulb, lifecycle: RefreshCcw, reviews: Activity,
   activity: Activity, profile: Lock, profiles: ShieldCheck, providers: Plug,
   files: FileText, policies: Settings2, health: ShieldCheck,
@@ -103,6 +104,7 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
       />
       {tab === "overview" && <Overview onNavigate={setTab} />}
       {tab === "memories" && <Memories isOperator={isOperator} />}
+      {tab === "preferences" && <Preferences isOperator={isOperator} />}
       {tab === "profile" && <Profile isOperator={isOperator} />}
       {tab === "profiles" && <Profiles isOperator={isOperator} />}
       {tab === "history" && <History />}

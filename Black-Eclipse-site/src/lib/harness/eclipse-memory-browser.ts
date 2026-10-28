@@ -25,6 +25,7 @@ import type {
   MemoryProviderTestResult,
   MemoryUsageReport,
   MistakeRecord,
+  PreferenceSummary,
   SessionSearchHit,
   SessionOpenResult,
   SessionSearchHealth,
@@ -52,6 +53,27 @@ export async function memoryHealth(): Promise<EclipseMemoryHealth> {
 
 export async function memoryOverview(): Promise<MemoryOverview> {
   return api<MemoryOverview>("/api/eclipse-memory/overview");
+}
+
+/** Active learned preferences, pending inferences and the evidence behind them. */
+export async function memoryPreferences(scopeId?: string): Promise<PreferenceSummary> {
+  const qs = scopeId ? `?scopeId=${encodeURIComponent(scopeId)}` : "";
+  return api<PreferenceSummary>(`/api/eclipse-memory/preferences${qs}`);
+}
+
+/** Run the deterministic learner now. Creates inert suggestions only. */
+export async function learnPreferences(userId?: string, runId?: string): Promise<{
+  success: boolean;
+  mode: string;
+  created: Array<Record<string, unknown>>;
+  saved: Array<Record<string, unknown>>;
+  skipped: Array<Record<string, unknown>>;
+  observationCount: number;
+}> {
+  return api("/api/eclipse-memory/preferences/learn", {
+    method: "POST",
+    body: JSON.stringify({ userId, runId }),
+  });
 }
 
 export async function listMemories(filters: {
@@ -595,6 +617,7 @@ export interface MemorySuggestion {
   status: string;
   createdAt: string;
   decidedAt: string | null;
+  structuredData?: Record<string, unknown> | null;
 }
 
 export async function listSuggestions(status = "pending"): Promise<MemorySuggestion[]> {

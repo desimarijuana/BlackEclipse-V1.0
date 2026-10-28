@@ -311,11 +311,12 @@ class EclipseMemoryStore:
 
     def save_suggestion(self, suggestion: dict[str, Any]) -> str:
         suggestion_id = suggestion.get("id") or new_id("sugg")
+        structured = suggestion.get("structuredData")
         self._db.execute(
             """INSERT INTO MemorySuggestion
                (id, runId, scope, scopeId, subject, memoryType, content, reason, provenance,
-                confidence, signature, status, candidateId, createdAt, decidedAt)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                confidence, signature, status, candidateId, createdAt, decidedAt, structuredData)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 suggestion_id, suggestion.get("runId"), suggestion.get("scope", "user"),
                 suggestion.get("scopeId"), suggestion.get("subject"),
@@ -324,6 +325,7 @@ class EclipseMemoryStore:
                 float(suggestion.get("confidence", 0.5)), suggestion["signature"],
                 suggestion.get("status", "pending"), suggestion.get("candidateId"),
                 suggestion.get("createdAt") or now_iso(), suggestion.get("decidedAt"),
+                json.dumps(structured) if structured is not None else None,
             ),
         )
         self._db.commit()
@@ -333,7 +335,7 @@ class EclipseMemoryStore:
         row = self._db.execute(
             "SELECT * FROM MemorySuggestion WHERE id=?", (suggestion_id,)
         ).fetchone()
-        return dict(row) if row else None
+        return _suggestion_row(row) if row else None
 
     def list_suggestions(
         self, status: Optional[str] = None, *, scope_id: Optional[str] = None, limit: int = 100
@@ -350,7 +352,7 @@ class EclipseMemoryStore:
             f"SELECT * FROM MemorySuggestion {clause} ORDER BY createdAt DESC LIMIT ?",
             [*params, limit],
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_suggestion_row(r) for r in rows]
 
     def find_suggestion_by_signature(
         self, signature: str, *, scope_id: Optional[str] = None
@@ -372,7 +374,7 @@ class EclipseMemoryStore:
                 "SELECT * FROM MemorySuggestion WHERE signature=? ORDER BY createdAt DESC LIMIT 1",
                 (signature,),
             ).fetchone()
-        return dict(row) if row else None
+        return _suggestion_row(row) if row else None
 
     def set_suggestion_status(self, suggestion_id: str, status: str) -> Optional[dict[str, Any]]:
         self._db.execute(
@@ -592,6 +594,131 @@ class EclipseMemoryStore:
             pass
 
     # ── Memory events (audit) ───────────────────────────────────────────────
+
+    # ── Learned-preference observations (bounded, append-only) ───────────────
+
+    def record_preference_observation(
+        self,
+        *,
+        user_id: Optional[str],
+        dimension: str,
+        value: str,
+        confidence: float = 0.6,
+        evidence_text: Optional[str] = None,
+        run_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        source: str = "turn",
+    ) -> Optional[dict[str, Any]]:
+        """Record one behavioural observation.
+
+        Idempotent per (userId, dimension, value, runId): re-indexing the same run
+        never inflates recurrence. A blank/absent run id is stored as `''` so the
+        UNIQUE constraint still applies (SQLite treats NULLs as distinct).
+        """
+        if not dimension or not value:
+            return None
+        observation_id = new_id("prefobs")
+        now = now_iso()
+        try:
+            self._db.execute(
+                """INSERT OR IGNORE INTO PreferenceObservation
+                   (id, userId, dimension, value, confidence, evidenceText, runId,
+                    sessionId, source, createdAt)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    observation_id, user_id, dimension, value,
+                    max(0.0, min(float(confidence), 1.0)),
+                    (evidence_text or "")[:500] or None,
+                    run_id or "", session_id, source, now,
+                ),
+            )
+            self._db.commit()
+        except Exception:  # noqa: BLE001 - observation is best-effort, never blocks a run
+            return None
+        row = self._db.execute(
+            "SELECT * FROM PreferenceObservation WHERE id=?", (observation_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def list_preference_observations(
+        self, *, user_id: Optional[str] = None, dimension: Optional[str] = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        where: list[str] = []
+        params: list[Any] = []
+        if user_id is not None:
+            where.append("(userId = ? OR userId IS NULL)")
+            params.append(user_id)
+        if dimension:
+            where.append("dimension = ?")
+            params.append(dimension)
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        rows = self._db.execute(
+            f"SELECT * FROM PreferenceObservation {clause} ORDER BY createdAt DESC LIMIT ?",
+            [*params, max(1, min(int(limit), 2000))],
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def preference_observation_groups(
+        self, *, user_id: Optional[str] = None, limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Aggregate observations into (dimension, value) evidence groups.
+
+        Returns distinct-run counts, total observations, the most recent sighting
+        and a bounded evidence excerpt. No raw transcript is exposed.
+        """
+        where = ""
+        params: list[Any] = []
+        if user_id is not None:
+            where = "WHERE (userId = ? OR userId IS NULL)"
+            params.append(user_id)
+        rows = self._db.execute(
+            f"""SELECT dimension, value,
+                       COUNT(*) AS observationCount,
+                       COUNT(DISTINCT runId) AS distinctRuns,
+                       MIN(createdAt) AS firstSeenAt,
+                       MAX(createdAt) AS lastSeenAt,
+                       MAX(confidence) AS confidence
+                FROM PreferenceObservation {where}
+                GROUP BY dimension, value
+                ORDER BY lastSeenAt DESC
+                LIMIT ?""",
+            [*params, max(1, min(int(limit), 500))],
+        ).fetchall()
+        groups = [dict(row) for row in rows]
+        for group in groups:
+            excerpt = self._db.execute(
+                """SELECT evidenceText FROM PreferenceObservation
+                   WHERE dimension=? AND value=?
+                     AND evidenceText IS NOT NULL AND evidenceText <> ''
+                   ORDER BY createdAt DESC LIMIT 1""",
+                (group["dimension"], group["value"]),
+            ).fetchone()
+            group["evidenceText"] = excerpt["evidenceText"] if excerpt else None
+        return groups
+
+    def preference_observation_count(self, *, user_id: Optional[str] = None) -> int:
+        if user_id is not None:
+            row = self._db.execute(
+                "SELECT COUNT(*) FROM PreferenceObservation WHERE userId = ? OR userId IS NULL",
+                (user_id,),
+            ).fetchone()
+        else:
+            row = self._db.execute("SELECT COUNT(*) FROM PreferenceObservation").fetchone()
+        return int(row[0]) if row else 0
+
+    def prune_preference_observations(self, keep: int = 5000) -> None:
+        """Bound growth without touching recent evidence."""
+        try:
+            self._db.execute(
+                "DELETE FROM PreferenceObservation WHERE id IN ("
+                "  SELECT id FROM PreferenceObservation ORDER BY createdAt DESC LIMIT -1 OFFSET ?"
+                ")",
+                (max(1, int(keep)),),
+            )
+            self._db.commit()
+        except Exception:  # noqa: BLE001 - pruning is best-effort
+            pass
 
     def append_memory_event(
         self, event_type: str, *, memory_id: Optional[str] = None, run_id: Optional[str] = None,
@@ -1735,6 +1862,16 @@ def _memory_row(row: sqlite3.Row) -> dict[str, Any]:
             record["structuredData"] = json.loads(record["structuredData"])
         except (TypeError, ValueError):
             pass
+    return record
+
+
+def _suggestion_row(row: sqlite3.Row) -> dict[str, Any]:
+    record = dict(row)
+    if record.get("structuredData"):
+        try:
+            record["structuredData"] = json.loads(record["structuredData"])
+        except (TypeError, ValueError):
+            record["structuredData"] = None
     return record
 
 

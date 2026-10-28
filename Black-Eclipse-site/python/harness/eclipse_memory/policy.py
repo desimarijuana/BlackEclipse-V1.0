@@ -42,6 +42,12 @@ MODE_VALUES = ("automatic_selective", "ask_before_saving", "off")
 # Keys whose value is one of MODE_VALUES.
 MODE_KEYS = ("memory_mode", "skill_learning_mode")
 
+# Learned-preference mode: off | ask | auto. This is deliberately separate from
+# `memory_mode`: a user may want stated facts saved automatically while inferred
+# preferences still ask first.
+PREFERENCE_MODE_KEYS = ("preference_learning_mode",)
+PREFERENCE_MODE_VALUES = ("off", "ask", "auto")
+
 # Old boolean keys that are now derived from the modes. They are NOT in DEFAULTS
 # (so they cannot be persisted or set) but ARE injected into resolved settings
 # by `PolicyStore.get_all` for call sites that still read them.
@@ -62,6 +68,20 @@ DEFAULTS: dict[str, Any] = {
     # evidence. Created candidates are always inert; nothing is ever enabled or
     # promoted without evaluation + operator approval.
     "skill_learning_mode": "automatic_selective",
+    # Learned preferences: inferred from repeated behaviour across runs, never
+    # from one task instruction. `ask` stages an inert suggestion; `auto` lets
+    # the existing memory gate save when its own mode permits; `off` disables
+    # inference completely. Three independent observations across three runs are
+    # required before anything is proposed.
+    "preference_learning_mode": "ask",
+    "preference_min_observations": 3,
+    "preference_min_distinct_runs": 3,
+    "preference_min_consistency": 0.6,
+    "preference_confidence_threshold": 0.6,
+    "preference_suppression_days": 30,
+    # Per-dimension switches. An absent/unknown dimension is enabled; the UI can
+    # turn a dimension off without deleting the evidence already collected.
+    "preference_dimensions": {},
     # Minimum confidence a detected candidate must have to be recorded.
     "candidate_confidence_threshold": 0.4,
     # Retrieval context budget (characters).
@@ -192,6 +212,11 @@ DEFAULTS: dict[str, Any] = {
 
 # Hard bounds. Policy may pick any value in range, but never cross these.
 BOUNDS: dict[str, tuple[Any, Any]] = {
+    "preference_min_observations": (1, 50),
+    "preference_min_distinct_runs": (1, 50),
+    "preference_min_consistency": (0.0, 1.0),
+    "preference_confidence_threshold": (0.0, 1.0),
+    "preference_suppression_days": (0, 3650),
     "candidate_confidence_threshold": (0.0, 1.0),
     "context_budget_chars": (200, 20_000),
     "retrieval_limit": (1, 50),
@@ -292,6 +317,8 @@ def validate(key: str, value: Any) -> Any:
     coerced = _coerce(key, value)
     if key in MODE_KEYS and coerced not in MODE_VALUES:
         raise PolicyError(f"policy {key!r} must be one of {MODE_VALUES}")
+    if key in PREFERENCE_MODE_KEYS and coerced not in PREFERENCE_MODE_VALUES:
+        raise PolicyError(f"policy {key!r} must be one of {PREFERENCE_MODE_VALUES}")
     if key in LOCKED_VALUES and coerced != LOCKED_VALUES[key]:
         raise PolicyError(f"policy {key!r} is locked to {LOCKED_VALUES[key]!r}")
     if key in BOUNDS:
@@ -304,6 +331,14 @@ def validate(key: str, value: Any) -> Any:
                 raise PolicyError(
                     f"policy {key!r} value for {category!r} must be one of {CATEGORY_POLICY_VALUES}"
                 )
+    if key == "preference_dimensions":
+        from .preferences import DIMENSION_KEYS  # noqa: PLC0415 - avoid an import cycle
+
+        for dimension, enabled in coerced.items():
+            if dimension not in DIMENSION_KEYS:
+                raise PolicyError(f"policy {key!r} has unknown dimension {dimension!r}")
+            if not isinstance(enabled, bool):
+                raise PolicyError(f"policy {key!r} value for {dimension!r} must be a boolean")
     return coerced
 
 

@@ -725,6 +725,35 @@ def reset_memory_endpoint(payload: dict[str, Any], _: bool = Depends(require_ope
 # a record so the same suggestion is not re-offered.
 
 
+@router.get("/eclipse-memory/preferences")
+def list_learned_preferences(scopeId: Optional[str] = None) -> dict[str, Any]:
+    """The Personal Memory -> Preferences read model.
+
+    Active learned preferences, pending inferences (inert suggestions), the
+    observation evidence groups, the closed dimension vocabulary and the exact
+    thresholds in force. Read-only and content-bounded.
+    """
+    return service.memory.preference_summary(user_id=scopeId)
+
+
+@router.post("/eclipse-memory/preferences/learn")
+def learn_preferences(
+    payload: Optional[dict[str, Any]] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Run the deterministic preference learner now (operator action).
+
+    Creates inert suggestions only; the user still accepts or dismisses each
+    one. Accepting a suggestion is the existing suggestion route and the ONE
+    memory write gate.
+    """
+    payload = payload or {}
+    result = service.memory.learn_preferences(
+        user_id=payload.get("userId"), run_id=payload.get("runId"),
+    )
+    return {"success": bool(result.get("ok")), **result}
+
+
 @router.get("/eclipse-memory/suggestions")
 def list_suggestions(
     status: Optional[str] = "pending", scopeId: Optional[str] = None, limit: int = 100,

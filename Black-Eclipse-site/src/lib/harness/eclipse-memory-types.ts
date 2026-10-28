@@ -42,6 +42,60 @@ export interface MemoryRecord {
   statusReason?: string | null;
 }
 
+/** Learned-preference evidence: one (dimension, value) group of observations. */
+export interface PreferenceObservationGroup {
+  dimension: string;
+  value: string;
+  observationCount: number;
+  distinctRuns: number;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  confidence: number;
+  evidenceText?: string | null;
+}
+
+export interface PreferenceDimension {
+  id: string;
+  label: string;
+  enabled: boolean;
+  values: string[];
+}
+
+export interface PreferenceSuggestion {
+  id: string;
+  runId: string | null;
+  scope: string;
+  scopeId: string | null;
+  subject: string | null;
+  memoryType: string;
+  content: string;
+  reason: string | null;
+  provenance: string | null;
+  confidence: number;
+  status: string;
+  createdAt: string;
+  structuredData?: Record<string, unknown> | null;
+}
+
+export interface PreferenceSummary {
+  success: boolean;
+  mode: "off" | "ask" | "auto" | string;
+  enabled: boolean;
+  dimensions: PreferenceDimension[];
+  active: MemoryRecord[];
+  suggestions: PreferenceSuggestion[];
+  observations: PreferenceObservationGroup[];
+  observationCount: number;
+  thresholds: {
+    minObservations: number;
+    minDistinctRuns: number;
+    minConsistency: number;
+    confidence: number;
+    suppressionDays: number;
+  };
+  generatedAt?: string;
+}
+
 export interface MemoryExplanation {
   memoryId: string;
   memoryType: string;

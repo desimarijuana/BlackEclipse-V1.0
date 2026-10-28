@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  clientIsOperator, listMemories, memoryHealth, memoryLifecycle, memoryProfile,
+  clientIsOperator, listMemories, memoryHealth, memoryLifecycle, memoryPreferences,
+  learnPreferences, memoryProfile,
   memoryProviderSearch, memoryProviderStatus, memoryRetention,
   rebuildProfile, restoreMemory,
   sessionSearch, sessionSearchHealth,
@@ -43,6 +44,31 @@ describe("eclipse-memory browser client", () => {
     const url = String(fetchMock.mock.calls[0]?.[0] ?? "");
     expect(url).toContain("memoryType=preference");
     expect(url).toContain("status=active");
+  });
+
+  it("memoryPreferences passes the scope and reads the summary", async () => {
+    const fetchMock = vi.fn(async (_url: string) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, mode: "ask", dimensions: [], active: [], suggestions: [], observations: [], observationCount: 0, thresholds: {} }),
+    }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const summary = await memoryPreferences("u1");
+    expect(summary.mode).toBe("ask");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/eclipse-memory/preferences?scopeId=u1");
+  });
+
+  it("learnPreferences posts the deterministic learner request", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, mode: "ask", created: [], saved: [], skipped: [], observationCount: 0 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    await learnPreferences("u1", "run-1");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/eclipse-memory/preferences/learn");
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain("run-1");
   });
 
   it("surfaces an API error message", async () => {

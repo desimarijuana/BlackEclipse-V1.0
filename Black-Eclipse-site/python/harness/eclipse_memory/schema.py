@@ -1173,6 +1173,38 @@ MIGRATIONS.append(
     )
 )
 
+# Migration 34 — learned preferences. A preference is inferred only from
+# repeated, consistent behaviour across runs, never from a single task
+# instruction. Observations are append-only and bounded; the raw text is kept
+# only as a short evidence excerpt. `MemorySuggestion.structuredData` carries
+# the dimension/value/evidence counts so the UI and prompt can explain *why* a
+# suggestion exists without a second table.
+MIGRATIONS.append(
+    (
+        34,
+        [
+            """
+            CREATE TABLE IF NOT EXISTS PreferenceObservation (
+              id           TEXT PRIMARY KEY,
+              userId       TEXT,
+              dimension    TEXT NOT NULL,
+              value        TEXT NOT NULL,
+              confidence   REAL NOT NULL DEFAULT 0.6,
+              evidenceText TEXT,
+              runId        TEXT NOT NULL DEFAULT '',
+              sessionId    TEXT,
+              source       TEXT NOT NULL DEFAULT 'turn',
+              createdAt    TEXT NOT NULL,
+              UNIQUE (userId, dimension, value, runId)
+            );
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_prefobs_user ON PreferenceObservation(userId, dimension, value);",
+            "CREATE INDEX IF NOT EXISTS idx_prefobs_run ON PreferenceObservation(runId);",
+            "ALTER TABLE MemorySuggestion ADD COLUMN structuredData TEXT;",
+        ],
+    )
+)
+
 # Migration 35 — evaluation loop guard + non-activation cause. A version records
 # the fingerprint of its last evaluation, so an unchanged passed version is held
 # instead of re-evaluated. A draft that passed but is not enabled records WHY.

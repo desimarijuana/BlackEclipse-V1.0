@@ -128,6 +128,22 @@ async def test_memory_inventory_reports_whole_store_counts(env):
     assert "whole store" in text
 
 
+async def test_memory_tool_preferences_surface(env):
+    ctx = _ctx(env)
+    for index in range(3):
+        env["memory"].observe_turn_preferences(
+            "Please show the results as a table", user_id="u1", run_id=f"pref-run-{index}",
+        )
+    text, data = await env["registry"].get("memory").handler(
+        {"action": "preferences"}, ctx,
+    )
+    assert data["mode"] == "ask"
+    assert len(data["suggestions"]) == 1
+    assert data["observations"][0]["dimension"] == "answer_format"
+    assert "Pending suggestions" in text
+    assert "A suggestion is not memory" in text
+
+
 async def test_memory_tool_rejects_bad_write(env):
     ctx = _ctx(env)
     _, data = await env["registry"].get("memory").handler(

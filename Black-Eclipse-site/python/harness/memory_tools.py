@@ -217,6 +217,61 @@ async def memory_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
             "total": total, "counts": counts, "consolidation": consolidation,
         }
 
+    if action == "preferences":
+        owner = ctx.user_id or "local"
+        try:
+            summary = svc.preference_summary(user_id=owner)
+        except Exception as exc:  # noqa: BLE001 - a read never crashes the tool
+            return (
+                "Preferences are unavailable right now.",
+                {"available": False, "error": str(exc)[:200]},
+            )
+        active = summary.get("active") or []
+        pending = summary.get("suggestions") or []
+        observations = summary.get("observations") or []
+        lines = [
+            f"Learned preferences (mode={summary.get('mode')}, "
+            f"observations={summary.get('observationCount', 0)}):",
+        ]
+        if active:
+            lines.append(f"  Active ({len(active)}):")
+            for memory in active[:20]:
+                structured = memory.get("structuredData") or {}
+                label = structured.get("dimension") or memory.get("subject") or "preference"
+                lines.append(
+                    f"    [{label}] {memory.get('content')} "
+                    f"(confidence {memory.get('confidence')})"
+                )
+        else:
+            lines.append("  Active: none yet.")
+        if pending:
+            lines.append(
+                f"  Pending suggestions ({len(pending)}) — inert until the user "
+                "accepts them in Eclipse Memory -> Preferences:"
+            )
+            for suggestion in pending[:20]:
+                structured = suggestion.get("structuredData") or {}
+                lines.append(
+                    f"    [{structured.get('dimension') or suggestion.get('subject')}] "
+                    f"{suggestion.get('content')} — {suggestion.get('reason')}"
+                )
+        if observations:
+            lines.append("  Evidence groups (dimension/value -> runs):")
+            for group in observations[:20]:
+                lines.append(
+                    f"    {group.get('dimension')}={group.get('value')} "
+                    f"({group.get('distinctRuns')} runs, "
+                    f"{group.get('observationCount')} observations)"
+                )
+        lines.append(
+            "A suggestion is not memory. Accepting one writes it through the "
+            "shared gate; dismissing it suppresses the same inference."
+        )
+        return "\n".join(lines), {
+            "active": active, "suggestions": pending,
+            "observations": observations, "mode": summary.get("mode"),
+        }
+
     # list
     default_list_scope = "conversation" if ctx.conversation_id else args.get("scope")
     memories = svc.store.list_memories(
@@ -1017,14 +1072,15 @@ def register_memory_tools(registry: ToolRegistry) -> None:
                 "Persistent agent memory across sessions. action='save' stores a durable fact "
                 "(type: preference|semantic|procedural|episodic|constraint|observation|summary); "
                 "action='search' retrieves relevant memories; action='list' lists stored memory; "
-                "action='inventory' returns whole-store counts by status/lifecycle (no content). "
-                "Save only durable, reusable facts — not every sentence. User preferences are "
-                "user-scoped; never turn them into universal rules."
+                "action='inventory' returns whole-store counts by status/lifecycle (no content); "
+                "action='preferences' lists learned preferences, pending inferences and their "
+                "evidence. Save only durable, reusable facts — not every sentence. User "
+                "preferences are user-scoped; never turn them into universal rules."
             ),
             input_schema={
                 "type": "object",
                 "properties": {
-                    "action": {"type": "string", "enum": ["save", "search", "list", "inventory"], "description": "Operation to perform."},
+                    "action": {"type": "string", "enum": ["save", "search", "list", "inventory", "preferences"], "description": "Operation to perform."},
                     "content": {"type": "string", "description": "The memory content (action=save). Write a declarative fact, not an instruction."},
                     "type": {"type": "string", "enum": ["preference", "semantic", "procedural", "episodic", "constraint", "observation", "summary"], "description": "Memory type."},
                     "scope": {"type": "string", "enum": ["user", "general", "market", "task", "conversation"], "description": "Memory scope."},
