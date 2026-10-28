@@ -67,6 +67,7 @@ from .routers.evolution_corpus import router as evolution_corpus_router
 from .routers.execution import router as execution_router
 from .routers.fabric import router as fabric_router
 from .routers.financial import router as financial_router
+from .routers.finance_guardrails import router as finance_guardrails_router
 from .routers.git import router as git_router
 from .routers.graphs import router as graphs_router
 from .routers.grants import router as grants_router
@@ -135,6 +136,7 @@ app.include_router(evolution_corpus_router)
 app.include_router(execution_router)
 app.include_router(fabric_router)
 app.include_router(financial_router)
+app.include_router(finance_guardrails_router)
 app.include_router(git_router)
 app.include_router(grants_router)
 app.include_router(graphs_router)

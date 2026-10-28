@@ -45,10 +45,25 @@ export function ApprovalCard({ approval, anchor, onDecide }: ApprovalCardProps) 
   const [mounted, setMounted] = useState(false);
   const [busy, setBusy] = useState<'approve' | 'always' | 'deny' | null>(null);
   const [rect, setRect] = useState<{ left: number; top: number; width: number } | null>(null);
+  const [typed, setTyped] = useState('');
+  const challenge = approval.challenge;
+  const [secondsLeft, setSecondsLeft] = useState(challenge?.coolingOffSeconds ?? 0);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // A money confirmation may require a cooling-off period before the approve
+  // control becomes usable. The timer is display-only; the runtime re-checks the
+  // elapsed time when it consumes the approval, so a fast click cannot bypass it.
+  useEffect(() => {
+    setSecondsLeft(challenge?.coolingOffSeconds ?? 0);
+    if (!challenge?.coolingOffSeconds) return;
+    const timer = setInterval(() => {
+      setSecondsLeft((value) => (value > 0 ? value - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [challenge?.coolingOffSeconds]);
 
   // Track the anchor's box so the card stays glued just above the composer
   // through resize/scroll (the composer can move when the window changes).
@@ -88,6 +103,11 @@ export function ApprovalCard({ approval, anchor, onDecide }: ApprovalCardProps) 
   const riskStyle = risk ? RISK_STYLE[risk] ?? 'border-border/40 text-muted-foreground' : null;
   const highRisk = risk === 'high';
   const canRemember = Boolean(approval.grantPattern) && !highRisk;
+  const needsPhrase = Boolean(
+    challenge?.requiresTypedConfirmation && challenge?.confirmPhrase,
+  );
+  const phraseOk = !needsPhrase || typed.trim() === challenge?.confirmPhrase;
+  const canApprove = busy === null && secondsLeft <= 0 && phraseOk;
 
   return createPortal(
     <div
@@ -133,15 +153,48 @@ export function ApprovalCard({ approval, anchor, onDecide }: ApprovalCardProps) 
             {approval.summary && (
               <p className="mt-0.5 text-[12px] leading-relaxed text-foreground/80">{approval.summary}</p>
             )}
+            {challenge?.reasons && challenge.reasons.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {challenge.reasons.slice(0, 5).map((reason) => (
+                  <li key={reason} className="flex gap-1.5 text-[11px] leading-relaxed text-foreground/75">
+                    <span className="mt-[3px] h-1 w-1 shrink-0 rounded-full bg-primary" />
+                    <span>{reason}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {challenge?.escalateTo && (
+              <p className="mt-2 text-[11px] text-rose-300">
+                Check in with {challenge.escalateTo} before continuing.
+              </p>
+            )}
+            {secondsLeft > 0 && (
+              <p className="mt-2 text-[11px] font-medium text-muted-foreground">
+                Cooling-off: {secondsLeft}s before you can confirm.
+              </p>
+            )}
+            {needsPhrase && (
+              <label className="mt-2 block text-[11px] text-muted-foreground">
+                Type <span className="font-mono text-foreground">{challenge?.confirmPhrase}</span> to confirm
+                <input
+                  value={typed}
+                  onChange={(event) => setTyped(event.target.value)}
+                  spellCheck={false}
+                  autoComplete="off"
+                  className="mt-1 w-full rounded-lg border border-border/40 bg-transparent px-2 py-1.5 text-xs text-foreground focus:border-primary/40 focus:outline-none"
+                />
+              </label>
+            )}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => void decide('approve')}
-                disabled={busy !== null}
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                disabled={!canApprove}
+                title={secondsLeft > 0 ? 'Wait for the cooling-off period' : undefined}
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy === 'approve' ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
-                Allow once
+                {challenge ? 'Confirm' : 'Allow once'}
               </button>
               {canRemember && (
                 <button

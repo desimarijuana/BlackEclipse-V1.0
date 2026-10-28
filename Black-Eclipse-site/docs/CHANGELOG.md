@@ -7,6 +7,23 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-28
+- **feat(guardrails): money-movement guardrails + confirm gate.** Added
+  `python/harness/finance_guardrails/`: a deterministic, model-free layer that
+  normalizes every money-shaped tool call into a `MoneyIntent` and evaluates
+  scam/coercion markers (urgency, secrecy, impersonated authority, remote access,
+  guaranteed returns, gift cards/wire-only), impaired spending (declared state +
+  baseline/escalation signals), crisis mode + panic pause, aggregate
+  per-transaction/daily/velocity limits, counterparty allow/block lists and
+  novelty. A `confirm`/`escalate` routes the exact intent through the existing
+  single-use approval store (`kind="money_guardrail"`, digest-bound) with a
+  cooling-off + typed-confirmation challenge; a `deny` is terminal and explained.
+  Enforced at the computer finance/click handlers, the browser click handler,
+  the shell/terminal authorizer seam and the MCP effect authorizer (before
+  grants), so a prompt or standing grant cannot bypass it. Operator routes `/finance-guardrails/*` + Settings › Money
+  Guardrails; read-only agent tools `finance_guardrail_status`/`_check`.
+  Docs updated: `docs/harness/money-guardrails.md` (new),
+  `docs/harness/security.md`, `docs/NAVIGATION.md`, `docs/DECISIONS.md` +
+  `skills/ARCHITECT.md` (ADR-055).
 - **feat(ui): crypto alt-data surfaces over the market pack.** Added the
   read-only `GET /api/crypto/alt-data` front door (same TS adapters as the agent,
   30s cache, honest UNAVAILABLE envelope), a `CryptoAltData` panel on Market

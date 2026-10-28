@@ -424,6 +424,36 @@ async def _click(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         return error
     target = args.get("target")
     label = target if isinstance(target, str) else ""
+    # A click that names a money action passes the money guardrails first. This
+    # enforces scam/coercion, impaired-spending and crisis rules at the point
+    # where a real payment would otherwise be submitted.
+    try:
+        from ..finance_guardrails import get_service as _guardrails  # noqa: PLC0415
+        from ..finance_guardrails.intent import intent_from_tool  # noqa: PLC0415
+
+        guard = _guardrails()
+        if guard is not None:
+            money_intent = intent_from_tool(
+                "browser_click", args, run_id=str(getattr(ctx, "run_id", "")),
+            )
+            if money_intent is not None:
+                allowed, verdict = await guard.enforce(money_intent, ctx)
+                if not allowed:
+                    await emit(ctx, "money_guardrail.blocked", {
+                        "action": money_intent.action, "decision": verdict.decision,
+                        "reasons": verdict.reasons, "rules": verdict.rules,
+                    })
+                    return (
+                        f"REFUSED (MONEY_GUARDRAIL_{verdict.decision.upper()}): "
+                        + (" ".join(verdict.reasons) or "this money movement is not approved."),
+                        {"status": "refused", "code": f"MONEY_GUARDRAIL_{verdict.decision.upper()}",
+                         "guardrail": verdict.to_dict()},
+                    )
+    except Exception:  # noqa: BLE001 - a money click must fail closed
+        return (
+            "REFUSED (MONEY_GUARDRAIL_ERROR): the money guardrails could not be evaluated.",
+            {"status": "refused", "code": "MONEY_GUARDRAIL_ERROR"},
+        )
     destructive = guard_external_submission(label, session)
     if destructive is not None:
         allowed, gate = await require_permission(ctx, session, "external_submission", detail=label, tool="browser_click")

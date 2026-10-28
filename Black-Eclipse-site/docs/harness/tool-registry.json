@@ -1,7 +1,7 @@
 {
-  "digest": "fec3d551dd4cffbf",
+  "digest": "741cd01da4188f55",
   "manifestVersion": "1",
-  "toolCount": 964,
+  "toolCount": 966,
   "tools": [
     {
       "deprecated": false,
@@ -11193,6 +11193,66 @@
       "permission": "read",
       "replacement": null,
       "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Ask what the money guardrails would decide for a hypothetical action (buy/sell/transfer/withdraw/payment) without performing it or recording it.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "account": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "number"
+          },
+          "channel": {
+            "type": "string"
+          },
+          "counterparty": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "instrument": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "name": "finance_guardrail_check",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read the active money-movement guardrails: mode, caps, spend aggregates, impaired/crisis/panic state and recent decisions. Read-only.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "finance_guardrail_status",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
       "version": "1.0.0"
     },
     {

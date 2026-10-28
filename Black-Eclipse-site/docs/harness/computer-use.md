@@ -1,7 +1,7 @@
 ---
 title: Computer Use Engine
 status: Current
-last-verified: 2026-10-07
+last-verified: 2026-10-28
 ---
 
 # Computer Use Engine
@@ -186,7 +186,12 @@ genuinely provisioned isolated desktop.
   `simulation`. `transfer`/`withdraw`/`deposit`/`payment`/`account_change` are
   always blocked; a live mutation needs approval; `assisted` may prepare but not
   submit; notional/account/instrument/app allowlists are enforced **before** the
-  UI is touched.
+  UI is touched. The firewall is now followed by the money guardrails
+  (`finance_guardrails/`): a deny refuses, and a confirm forces an approval even
+  when the firewall's mode would allow autonomously. A click/type that names a
+  money verb passes the same guardrails before delivery, so the prompt's "never
+  click Submit to bypass the firewall" is enforced, not merely requested. See
+  `money-guardrails.md`.
 - Screen-derived finance carries explicit provenance
   (`source_type=desktop_screen`) and is never authoritative market data.
 

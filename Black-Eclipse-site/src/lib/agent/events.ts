@@ -4,6 +4,7 @@ import type {
   DelegationChildStatus,
   DelegationChildView,
   DelegationView,
+  ApprovalChallenge,
   PendingApproval,
   PendingClarification,
   ResponsePlan,
@@ -481,6 +482,7 @@ export function normalizeHarnessEvent(
         // derived. Absent when the action is not grantable (never offered).
         grantPattern: str(payload.grantPattern),
         grantLabel: str(payload.grantLabel),
+        challenge: coerceChallenge(payload.challenge),
       },
     };
   }
@@ -679,4 +681,31 @@ export function normalizeHarnessEvent(
   if (status) return { kind: 'status', status };
 
   return null;
+}
+
+/**
+ * Coerce a raw money-confirm challenge into typed display data. Only known
+ * fields are copied; a malformed value yields undefined so the card degrades to
+ * an ordinary approval instead of showing invented detail.
+ */
+function coerceChallenge(raw: unknown): ApprovalChallenge | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = raw as Record<string, unknown>;
+  const reasons = Array.isArray(value.reasons)
+    ? value.reasons.filter((r): r is string => typeof r === 'string' && r.trim().length > 0)
+    : undefined;
+  const cooling = num(value.coolingOffSeconds);
+  const amount = num(value.amount);
+  return {
+    ...(reasons && reasons.length > 0 ? { reasons } : {}),
+    ...(cooling != null ? { coolingOffSeconds: cooling } : {}),
+    ...(typeof value.requiresTypedConfirmation === 'boolean'
+      ? { requiresTypedConfirmation: value.requiresTypedConfirmation }
+      : {}),
+    ...(typeof value.confirmPhrase === 'string' ? { confirmPhrase: value.confirmPhrase } : {}),
+    ...(typeof value.escalateTo === 'string' ? { escalateTo: value.escalateTo } : {}),
+    ...(amount != null ? { amount } : {}),
+    ...(typeof value.currency === 'string' ? { currency: value.currency } : {}),
+    ...(typeof value.counterparty === 'string' ? { counterparty: value.counterparty } : {}),
+  };
 }

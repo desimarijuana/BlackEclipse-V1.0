@@ -1,7 +1,7 @@
 ---
 title: Security — one decision path for every privileged operation
 status: Current
-last-verified: 2026-10-08
+last-verified: 2026-10-28
 ---
 
 # Security
@@ -121,6 +121,17 @@ The approval engine is a typed broker over the **existing single-use store**
 (`grants.py`). An approval is bound to the exact action, resource, session and
 task, and single-use: a successful claim consumes it and a repeat needs a fresh
 decision. A timeout, a missing store, or any communication failure fails closed.
+
+### Money-movement guardrails (ADR-055)
+
+Financial harm gets a dedicated layer ABOVE the approval store:
+`python/harness/finance_guardrails/` evaluates every money-shaped tool call for
+scam/coercion, impaired spending, crisis, aggregate limits and novelty, then
+routes a `confirm`/`escalate` through this same single-use store
+(`kind="money_guardrail"`). It is deterministic and can only add restriction; a
+standing grant cannot bypass a deny. Panic pause and crisis mode are human
+switches (operator routes only). See
+[`money-guardrails.md`](./money-guardrails.md).
 
 ## Capabilities (`security/capabilities.py`)
 

@@ -44,6 +44,24 @@ export interface PendingApproval {
   grantPattern?: string;
   /** Human label for the grant, e.g. "Always allow `python3` in this workspace". */
   grantLabel?: string;
+  /**
+   * The money-confirm challenge (money guardrail approvals only): why the
+   * action needs a deliberate confirmation, how long to wait, and the exact
+   * phrase the operator must type. Absent for ordinary approvals.
+   */
+  challenge?: ApprovalChallenge;
+}
+
+/** The extra fields a money-movement confirmation carries. */
+export interface ApprovalChallenge {
+  reasons?: string[];
+  coolingOffSeconds?: number;
+  requiresTypedConfirmation?: boolean;
+  confirmPhrase?: string;
+  escalateTo?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  counterparty?: string | null;
 }
 
 /**

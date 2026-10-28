@@ -674,6 +674,30 @@ async def invoke_effect_authorizer(authorizer: Any, tool: Any, args: dict[str, A
         return False
 
 
+def _money_guardrail(
+    name: str, args: dict[str, Any], effect: str, run_id: str,
+) -> Optional[tuple[Any, Any]]:
+    """Evaluate an MCP call as a money intent, when the guardrails are installed.
+
+    Returns `(verdict, service)` or None. A guardrail failure yields None here;
+    the capability's own approval path still applies (never an implicit allow).
+    """
+    try:
+        from ..finance_guardrails import get_service  # noqa: PLC0415
+        from ..finance_guardrails.intent import intent_from_tool  # noqa: PLC0415
+
+        service = get_service()
+        if service is None:
+            return None
+        intent = intent_from_tool(name, args, effect=effect, run_id=run_id)
+        if intent is None:
+            return None
+        return service.evaluate_and_record(intent), service
+    except Exception:  # noqa: BLE001 - the guardrail must never crash an approval
+        log.warning("money guardrail evaluation failed", exc_info=True)
+        return None
+
+
 def make_effect_authorizer(approvals: ApprovalStore, run_id: str, emitter: Any = None):
     """Build the async authorizer attached to every run's ToolContext.
 
@@ -706,6 +730,28 @@ def make_effect_authorizer(approvals: ApprovalStore, run_id: str, emitter: Any =
         # without consuming a second approval.
         if ctx is not None and getattr(ctx, "effect_authorized_digest", None) == digest:
             return True
+        # Money-movement guardrails apply BEFORE any grant or approval: a
+        # standing grant must never bypass a scam/crisis/limit deny, and a
+        # confirm verdict adds a cooling-off check on the operator's decision.
+        guard = _money_guardrail(str(getattr(tool, "name", "")), clean_args, effect, run_id)
+        if guard is not None:
+            money_verdict, money_service = guard
+            if money_verdict.decision == "deny":
+                if emitter is not None:
+                    await emitter.emit("money_guardrail.blocked", {
+                        "tool": str(getattr(tool, "name", "")),
+                        "reasons": money_verdict.reasons, "rules": money_verdict.rules,
+                    })
+                return False
+            if money_verdict.decision in ("confirm", "escalate"):
+                active = approvals.find_active(server_id, original, clean_args)
+                if active is not None and not money_service._cooling_met(active, money_verdict):
+                    if emitter is not None:
+                        await emitter.emit("money_guardrail.cooling", {
+                            "tool": str(getattr(tool, "name", "")),
+                            "remainingSeconds": money_service._cooling_remaining(active, money_verdict),
+                        })
+                    return False
         # Standing grant ("always allow <tool> on <server>"): removes the prompt
         # for this tool on this server. Unknown effects never reach here.
         grants = getattr(approvals, "grants", None)
@@ -733,6 +779,11 @@ def make_effect_authorizer(approvals: ApprovalStore, run_id: str, emitter: Any =
         # can act on it.
         request: Optional[dict[str, Any]] = None
         try:
+            guard_note = ""
+            guard_risk = getattr(tool, "effect_risk", None)
+            if guard is not None and guard[0].decision in ("confirm", "escalate"):
+                guard_note = " Guardrail: " + " ".join(guard[0].reasons)
+                guard_risk = "critical" if guard[0].risk == "critical" else "high"
             request = approvals.request(
                 server_id=server_id,
                 tool=original,
@@ -740,9 +791,9 @@ def make_effect_authorizer(approvals: ApprovalStore, run_id: str, emitter: Any =
                 effect=effect,
                 args=clean_args,
                 run_id=run_id,
-                action_summary=getattr(tool, "effect_action_summary", None),
+                action_summary=(getattr(tool, "effect_action_summary", None) or "") + guard_note or None,
                 affected_data=getattr(tool, "effect_affected_data", None),
-                risk=getattr(tool, "effect_risk", None),
+                risk=guard_risk,
                 grant_kind="mcp_tool", grant_pattern=original, grant_scope=server_id,
             )
             if emitter is not None:

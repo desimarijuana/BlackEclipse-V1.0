@@ -218,6 +218,37 @@ async def _computer_use(args: dict[str, Any], ctx: ToolContext) -> tuple[str, An
             ok, refusal = await _require_permission(ctx, session, "window_control", action="focus_app", tool="computer_use")
             if not ok:
                 return refusal
+        # A click/type that names a money action (Buy, Sell, Withdraw, …) must
+        # pass the money guardrails BEFORE the delivery reaches the terminal.
+        # This is the enforcement that a prompt alone could not provide.
+        try:
+            from ..finance_guardrails import get_service as _guardrails  # noqa: PLC0415
+            from ..finance_guardrails.intent import intent_from_tool  # noqa: PLC0415
+
+            guard = _guardrails()
+            if guard is not None:
+                money_intent = intent_from_tool(
+                    "computer_use", {**args, "action": action},
+                    run_id=str(getattr(ctx, "run_id", "")),
+                )
+                if money_intent is not None:
+                    allowed, verdict = await guard.enforce(money_intent, ctx)
+                    if not allowed:
+                        await _emit(ctx, "money_guardrail.blocked", {
+                            "action": money_intent.action, "decision": verdict.decision,
+                            "reasons": verdict.reasons, "rules": verdict.rules,
+                        })
+                        return (
+                            f"REFUSED (MONEY_GUARDRAIL_{verdict.decision.upper()}): "
+                            + (" ".join(verdict.reasons) or "this money movement is not approved."),
+                            {"status": "refused", "code": f"MONEY_GUARDRAIL_{verdict.decision.upper()}",
+                             "guardrail": verdict.to_dict()},
+                        )
+        except Exception:  # noqa: BLE001 - fail closed for money actions
+            return (
+                "REFUSED (MONEY_GUARDRAIL_ERROR): the money guardrails could not be evaluated.",
+                {"status": "refused", "code": "MONEY_GUARDRAIL_ERROR"},
+            )
         result = await core.act(action, **params)
     except ApprovalRequired as exc:
         return _refusal(exc, "computer_use")
@@ -490,6 +521,40 @@ async def _finance_prepare(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
         "order_type": args.get("order_type"), "account": args.get("account"),
     }
     decision = firewall.evaluate(intent)
+    # Money-movement guardrails run AFTER the finance firewall and can only add
+    # friction: a deny refuses, a confirm forces the approval path even when the
+    # firewall's mode would allow it autonomously.
+    try:
+        from ..finance_guardrails import get_service as _guardrails  # noqa: PLC0415
+        from ..finance_guardrails.intent import intent_from_tool  # noqa: PLC0415
+
+        guard = _guardrails()
+        if guard is not None:
+            money_intent = intent_from_tool(
+                "computer_finance_prepare",
+                {**args, "action": args.get("action")},
+                run_id=str(getattr(ctx, "run_id", "")),
+            )
+            if money_intent is not None:
+                verdict = guard.evaluate_and_record(money_intent)
+                if verdict.decision == "deny":
+                    await _emit(ctx, "money_guardrail.blocked", {
+                        "action": args.get("action"), "reasons": verdict.reasons,
+                        "rules": verdict.rules,
+                    })
+                    return (
+                        "REFUSED (MONEY_GUARDRAIL_BLOCKED): " + " ".join(verdict.reasons),
+                        {"status": "refused", "code": "MONEY_GUARDRAIL_BLOCKED",
+                         "guardrail": verdict.to_dict(), "finance": decision.to_dict()},
+                    )
+                if verdict.decision in ("confirm", "escalate"):
+                    decision.allowed = False
+                    decision.requires_approval = True
+                    decision.reason = (
+                        f"{decision.reason} Guardrail: " + " ".join(verdict.reasons)
+                    )
+    except Exception:  # noqa: BLE001 - the guardrail must never authorize on error
+        pass
     if decision.blocked:
         await _emit(ctx, "computer.finance.blocked", {"action": args.get("action"), "reason": decision.reason})
         return (f"REFUSED (COMPUTER_FINANCE_BLOCKED): {decision.reason}",

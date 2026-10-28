@@ -51,6 +51,10 @@ from .portfolio.tools import PORTFOLIO_TOOLS
 # The Advisory Ledger tools (`advisory_*`). Registered by `advisory/bootstrap.py`;
 # imported as the ONE canonical list so the allowlist cannot drift.
 from .advisory.tools import ADVISORY_TOOLS
+# The money-guardrail tools (`finance_guardrail_*`, read-only). Registered by
+# `finance_guardrails/bootstrap.py` on the SAME registry; imported as the ONE
+# canonical list so the allowlist cannot drift.
+from .finance_guardrails.tools import FINANCE_GUARDRAIL_TOOLS
 # The ML Research Lab tools (`ml_*`). Registered by `ml/bootstrap.py` on the SAME
 # registry; imported as the ONE canonical list so the allowlist cannot drift.
 from .ml.tools import ML_TOOLS
@@ -380,6 +384,10 @@ ECLIPSE_AGENT = AgentConfig(
         # Advisory Ledger: recall past recommendations and their outcomes
         # (read-only; the ledger is written by the runtime, not a model call).
         *ADVISORY_TOOLS,
+        # Money guardrails: read the active caps/state and ask what would happen
+        # to a hypothetical intent. Read-only by construction - the agent can
+        # never change the limits, declare impairment, or clear crisis/panic.
+        *FINANCE_GUARDRAIL_TOOLS,
         # ML Research Lab: leakage-safe dataset construction, chronological/walk-
         # forward/purged splits, native + optional model adapters, experiment runs,
         # metric evaluation and a versioned model registry with reproduction.

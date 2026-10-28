@@ -187,6 +187,7 @@ def build_effect_authorizer(
     code_authorizer = make_journal_authorizer(code_authorizer)
 
     if approvals is None or not workspace_id:
+        code_authorizer = _wrap_with_money_guardrails(code_authorizer, run_id)
         return _wrap_with_security(code_authorizer, run_id, workspace_id)
 
     from .actions import make_code_action_authorizer  # noqa: PLC0415
@@ -206,7 +207,9 @@ def build_effect_authorizer(
             return bool(await code_authorizer(tool, args, ctx))
         return bool(await code_authorizer(tool, args, ctx))
 
-    return _wrap_with_security(authorize, run_id, workspace_id)
+    return _wrap_with_security(
+        _wrap_with_money_guardrails(authorize, run_id), run_id, workspace_id,
+    )
 
 
 def _admit_runtime_tools(inner: Any) -> Any:
@@ -259,6 +262,42 @@ def _admit_local_writes(inner: Any) -> Any:
         name = str(getattr(tool, "name", ""))
         if name in _ADMIT_LOCAL_WRITES:
             return True
+        return bool(await inner(tool, args, ctx))
+
+    return authorize
+
+
+_SHELL_TOOL_NAMES = frozenset({"terminal_run", "shell_run", "command_run"})
+
+
+def _wrap_with_money_guardrails(inner: Any, run_id: str) -> Any:
+    """Gate the shell/terminal surface through the money guardrails.
+
+    `terminal_run` / `shell_run` / `command_run` can reach a broker or payment
+    API. When the command names such a surface AND a money verb, the guardrail
+    runs BEFORE the command's own approval. Every other tool falls through
+    unchanged (computer/browser/MCP enforce at their own seams).
+    """
+
+    async def authorize(tool: Any, args: dict[str, Any], ctx: Any = None) -> bool:
+        name = str(getattr(tool, "name", ""))
+        if name not in _SHELL_TOOL_NAMES:
+            return bool(await inner(tool, args, ctx))
+        try:
+            from ..finance_guardrails import get_service  # noqa: PLC0415
+            from ..finance_guardrails.intent import intent_from_tool  # noqa: PLC0415
+
+            service = get_service()
+            if service is not None:
+                intent = intent_from_tool(
+                    name, args, run_id=str(getattr(ctx, "run_id", "") or run_id),
+                )
+                if intent is not None:
+                    allowed, _verdict = await service.enforce(intent, ctx)
+                    if not allowed:
+                        return False
+        except Exception:  # noqa: BLE001 - a failing guardrail must not authorize
+            return False
         return bool(await inner(tool, args, ctx))
 
     return authorize
