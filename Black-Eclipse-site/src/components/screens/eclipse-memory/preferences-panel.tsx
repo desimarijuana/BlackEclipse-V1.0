@@ -10,7 +10,7 @@ import { Brain, Database, Loader2, Sparkles, Trash2 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import {
   archiveMemory, acceptSuggestion, dismissSuggestion, learnPreferences,
-  memoryPreferences,
+  memoryPreferences, updatePolicies,
 } from "@/lib/harness/eclipse-memory-browser";
 import type { PreferenceSummary } from "@/lib/harness/eclipse-memory-types";
 import {
@@ -73,6 +73,29 @@ export function Preferences({ isOperator }: { isOperator: boolean }) {
     finally { setBusy(false); setTimeout(() => setToast(null), 5000); }
   };
 
+  const setMode = (mode: "off" | "ask" | "auto") => {
+    if (!summary) return;
+    void act(
+      () => updatePolicies({ preference_learning_mode: mode }),
+      `Learning mode set to ${mode}`,
+    );
+  };
+
+  const toggleDimension = (id: string) => {
+    if (!summary) return;
+    const next = Object.fromEntries(
+      summary.dimensions.map((dimension) => [
+        dimension.id,
+        dimension.id === id ? !dimension.enabled : dimension.enabled,
+      ]),
+    );
+    const target = summary.dimensions.find((dimension) => dimension.id === id);
+    void act(
+      () => updatePolicies({ preference_dimensions: next }),
+      `${target?.label ?? id} ${target?.enabled ? "disabled" : "enabled"}`,
+    );
+  };
+
   if (loading) return <Spinner />;
   if (error) return <ErrorBox message={error} />;
   if (!summary) return <EmptyBox title="Preferences unavailable" hint="The memory runtime did not return a read model." />;
@@ -121,6 +144,56 @@ export function Preferences({ isOperator }: { isOperator: boolean }) {
       </div>
 
       {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
+
+      <div className="mb-3">
+        <Section title="Learning controls" icon={Sparkles}>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Mode</span>
+            {([
+              { value: "off", label: "Off", hint: "No inference at all." },
+              { value: "ask", label: "Ask first", hint: "Propose an inert inference for confirmation." },
+              { value: "auto", label: "Automatic", hint: "Save through the memory gate when policy allows." },
+            ] as const).map((mode) => (
+              <button
+                key={mode.value}
+                type="button"
+                title={mode.hint}
+                disabled={!isOperator || busy}
+                onClick={() => setMode(mode.value)}
+                className={`cursor-pointer rounded-full border px-2.5 py-1 text-[10px] font-semibold transition ${
+                  summary.mode === mode.value
+                    ? "border-primary/40 bg-primary/15 text-primary"
+                    : "border-border/30 text-muted-foreground hover:border-primary/30"
+                } disabled:cursor-not-allowed disabled:opacity-60`}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">Dimensions</span>
+            {summary.dimensions.map((dimension) => (
+              <button
+                key={dimension.id}
+                type="button"
+                disabled={!isOperator || busy}
+                onClick={() => toggleDimension(dimension.id)}
+                title={`${dimension.label}: ${dimension.enabled ? "on" : "off"}. Turn off to stop collecting evidence for this dimension.`}
+                className={`cursor-pointer rounded-full border px-2.5 py-1 text-[10px] font-semibold transition ${
+                  dimension.enabled
+                    ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
+                    : "border-border/30 text-muted-foreground"
+                } disabled:cursor-not-allowed disabled:opacity-60`}
+              >
+                {dimension.label} {dimension.enabled ? "on" : "off"}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[9px] text-muted-foreground/80">
+            Turning a dimension off stops NEW evidence for it; existing evidence and remembered preferences stay until you forget them.
+          </p>
+        </Section>
+      </div>
 
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
         <Section title={`Pending inferences (${pending.length})`} icon={Sparkles}>

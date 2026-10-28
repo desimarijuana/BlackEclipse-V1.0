@@ -2070,6 +2070,19 @@ const DERIVED_POLICY_KEYS = new Set([
   "auto_candidate_detection",
 ]);
 
+// Learned-preference controls are owned by the Preferences tab (mode, dimension
+// switches, thresholds). They are validated server-side like every other policy
+// but must not render as generic number/object inputs here.
+const PREFERENCE_POLICY_KEYS = new Set([
+  "preference_learning_mode",
+  "preference_min_observations",
+  "preference_min_distinct_runs",
+  "preference_min_consistency",
+  "preference_confidence_threshold",
+  "preference_suppression_days",
+  "preference_dimensions",
+]);
+
 const POLICY_HINTS: Record<string, string> = {
   memory_mode: "How durable user preferences and project facts are learned.",
   skill_learning_mode: "How reusable procedures become learning candidates (always inert until reviewed).",
@@ -2130,7 +2143,7 @@ function Policies({ isOperator }: { isOperator: boolean }) {
 
   return (
     <div className="animate-fade-in-up">
-      <Header title="Memory Policies" hint="Configurable behaviour with hard safety floors. Automatic skill promotion is locked off regardless of setting; values are bounded and validated server-side." />
+      <Header title="Memory Policies" hint="Configurable behaviour with hard safety floors. Automatic skill promotion is locked off regardless of setting; values are bounded and validated server-side. Learned-preference mode, dimensions and thresholds live on the Preferences tab." />
       {data.budget && !data.budget.unlimited && (
         <p className={cn("mb-3 text-[11px]", data.budget.full ? "text-amber-400" : "text-muted-foreground")}>
           {data.budget.full
@@ -2141,7 +2154,9 @@ function Policies({ isOperator }: { isOperator: boolean }) {
       {toast && <p className="mb-3 text-[11px] text-primary">{toast}</p>}
 
       <div className="space-y-2">
-        {Object.entries(draft).filter(([key]) => !DERIVED_POLICY_KEYS.has(key)).map(([key, value]) => {
+        {Object.entries(draft)
+          .filter(([key]) => !DERIVED_POLICY_KEYS.has(key) && !PREFERENCE_POLICY_KEYS.has(key))
+          .map(([key, value]) => {
           const locked = lockedKeys.has(key);
           const isMode = LEARNING_MODE_KEYS.has(key);
           const isBool = typeof data.defaults[key] === "boolean";
