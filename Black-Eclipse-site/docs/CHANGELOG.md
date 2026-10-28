@@ -7,6 +7,10 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-28
+- **fix(institution): keep the run dialog polling when review queues repairs.**
+  `finalize` can return `status: "repairing"` after queueing bounded repairs; the
+  dialog now resumes polling instead of stopping on the first terminal task state.
+  no doc change — behaviour fix covered by `docs/harness/institution-preset.md`.
 - **feat(agents): Institution multi-agent preset (analyst → debate → trader → risk → PM).**
   Added one cast spec in `python/harness/institution/` that materialises into
   `AgentConfig` presets, A2A definitions, a validated `TeamDefinition` task graph

@@ -145,7 +145,14 @@ export function InstitutionRunDialog({
             reviewed.current = true;
             try {
               const report = await reviewTeam(run.id);
-              if (!cancelled && report?.reviewOutcome) setReviewOutcome(report.reviewOutcome);
+              if (cancelled) return;
+              if (report?.status === 'repairing') {
+                // `finalize` queued bounded repairs; keep watching until they land.
+                reviewed.current = false;
+                timer = setTimeout(tick, 2500);
+                return;
+              }
+              if (report?.reviewOutcome) setReviewOutcome(report.reviewOutcome);
             } catch {
               /* the synthesis still renders; the review is best-effort */
             }
