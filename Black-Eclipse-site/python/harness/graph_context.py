@@ -355,6 +355,23 @@ async def _apply_memory_intent(
             pass
         return None
 
+    # Learned preferences: observe style/format signals across turns. This is
+    # separate from the explicit-intent gate above and never writes durable
+    # memory — the learner can only stage an inert suggestion. Best-effort.
+    try:
+        memory_service.observe_turn_preferences(
+            request.input.query,
+            user_id=request.userId,
+            run_id=request.runId,
+            session_id=getattr(request, "sessionId", None),
+            conversation_id=getattr(request, "conversationId", None),
+        )
+    except Exception as exc:  # noqa: BLE001 - preference learning never breaks a run
+        try:
+            await emitter.emit("memory.preference_learning_failed", {"error": str(exc)[:200]})
+        except Exception:  # noqa: BLE001
+            pass
+
     if decision.outcome in ("ignore", "history_only") and not decision.refused:
         # Nothing durable: leave the turn uncluttered. A skill request is
         # surfaced so the run's completion can create the draft from its trace.

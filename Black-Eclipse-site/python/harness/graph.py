@@ -1969,7 +1969,15 @@ async def _post_run_analysis(
         return None
     try:
         skill_store = getattr(skill_registry, "store", None)
-        return memory_service.analyze_run(run_id, store, skill_store=skill_store)
+        analysis = memory_service.analyze_run(run_id, store, skill_store=skill_store)
+        # Learned preferences are a separate, deterministic pass over the same
+        # run. It can only stage inert suggestions; a failure is a diagnostic.
+        try:
+            if isinstance(analysis, dict):
+                analysis["preferences"] = memory_service.observe_run_preferences(run_id, store)
+        except Exception:  # noqa: BLE001
+            pass
+        return analysis
     except Exception:  # noqa: BLE001
         try:
             store.append_event(run_id, "memory.analysis_failed", 0, {})
