@@ -368,6 +368,11 @@ class ArtifactService:
             existing = self._store.lookup_idempotency(input_model.idempotency_key)
             if existing:
                 return self.get(existing, owner_id=owner_id)
+        if input_model.expected_checksum and artifact.checksum != input_model.expected_checksum:
+            raise ArtifactError(
+                "ARTIFACT_CONFLICT",
+                "the artifact changed since it was read; re-read it and retry the edit",
+            )
         path, inline = self._read_source(input_model)
         try:
             if inline is not None:

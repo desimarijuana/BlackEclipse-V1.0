@@ -368,6 +368,7 @@ class AddVersionInput(BaseModel):
     task_id: Optional[str] = None
     run_id: Optional[str] = None
     idempotency_key: Optional[str] = Field(None, max_length=200)
+    expected_checksum: Optional[str] = Field(None, max_length=128)
 
 
 class CollectionInput(BaseModel):

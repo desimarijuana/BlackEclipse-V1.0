@@ -750,5 +750,6 @@ __all__ = [
     "set_notes",
     "set_shape_text",
     "set_slide_title",
+    "set_smartart_layout",
     "set_smartart_node_text",
 ]

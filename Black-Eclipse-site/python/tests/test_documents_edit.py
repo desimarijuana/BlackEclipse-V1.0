@@ -175,6 +175,62 @@ def _pptx_chart_fixture() -> bytes:
     return buffer.getvalue()
 
 
+def _pptx_layout_fixture() -> bytes:
+    p_ns = "http://schemas.openxmlformats.org/presentationml/2006/main"
+    r_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    dgm_ns = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
+    pkg_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+    ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
+
+    def slide(number: int) -> str:
+        return (
+            f'<?xml version="1.0" encoding="UTF-8"?><p:sld xmlns:p="{p_ns}" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+            f'xmlns:dgm="{dgm_ns}" xmlns:r="{r_ns}"><p:cSld><p:spTree/></p:cSld>'
+            f'<dgm:relIds r:dm="rIdD" r:lo="rIdL" r:qs="rIdQ" r:cs="rIdC"/></p:sld>'
+        )
+
+    def rels(number: int) -> str:
+        return (
+            f'<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="{pkg_ns}">'
+            f'<Relationship Id="rIdD" Type="{r_ns}/diagramData" Target="../diagrams/data{number}.xml"/>'
+            f'<Relationship Id="rIdL" Type="{r_ns}/diagramLayout" Target="../diagrams/layout{number}.xml"/>'
+            f'<Relationship Id="rIdQ" Type="{r_ns}/diagramQuickStyle" Target="../diagrams/quickStyle{number}.xml"/>'
+            f'<Relationship Id="rIdC" Type="{r_ns}/diagramColors" Target="../diagrams/colors{number}.xml"/>'
+            f'</Relationships>'
+        )
+
+    files = {
+        "[Content_Types].xml": f'<?xml version="1.0"?><Types xmlns="{ct_ns}"><Default Extension="xml" ContentType="application/xml"/></Types>',
+        "ppt/presentation.xml": (
+            f'<?xml version="1.0"?><p:presentation xmlns:p="{p_ns}" xmlns:r="{r_ns}"><p:sldIdLst>'
+            f'<p:sldId id="256" r:id="rId1"/><p:sldId id="257" r:id="rId2"/></p:sldIdLst></p:presentation>'
+        ),
+        "ppt/_rels/presentation.xml.rels": (
+            f'<?xml version="1.0"?><Relationships xmlns="{pkg_ns}">'
+            f'<Relationship Id="rId1" Type="{r_ns}/slide" Target="slides/slide1.xml"/>'
+            f'<Relationship Id="rId2" Type="{r_ns}/slide" Target="slides/slide2.xml"/>'
+            f'</Relationships>'
+        ),
+        "ppt/slides/slide1.xml": slide(1),
+        "ppt/slides/slide2.xml": slide(2),
+        "ppt/slides/_rels/slide1.xml.rels": rels(1),
+        "ppt/slides/_rels/slide2.xml.rels": rels(2),
+        "ppt/diagrams/data1.xml": f'<?xml version="1.0"?><dgm:dataModel xmlns:dgm="{dgm_ns}"/>',
+        "ppt/diagrams/data2.xml": f'<?xml version="1.0"?><dgm:dataModel xmlns:dgm="{dgm_ns}"/>',
+        "ppt/diagrams/layout1.xml": f'<?xml version="1.0"?><dgm:layoutDef xmlns:dgm="{dgm_ns}" uniqueId="urn:one"/>',
+        "ppt/diagrams/layout2.xml": f'<?xml version="1.0"?><dgm:layoutDef xmlns:dgm="{dgm_ns}" uniqueId="urn:two"/>',
+        "ppt/diagrams/quickStyle1.xml": f'<?xml version="1.0"?><dgm:styleDef xmlns:dgm="{dgm_ns}"/>',
+        "ppt/diagrams/quickStyle2.xml": f'<?xml version="1.0"?><dgm:styleDef xmlns:dgm="{dgm_ns}"/>',
+        "ppt/diagrams/colors1.xml": f'<?xml version="1.0"?><dgm:colorsDef xmlns:dgm="{dgm_ns}"/>',
+        "ppt/diagrams/colors2.xml": f'<?xml version="1.0"?><dgm:colorsDef xmlns:dgm="{dgm_ns}"/>',
+    }
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, content in files.items():
+            archive.writestr(name, content)
+    return buffer.getvalue()
+
+
 def _pptx_diagram_fixture() -> bytes:
     ct_ns = "http://schemas.openxmlformats.org/package/2006/content-types"
     dgm_ns = "http://schemas.openxmlformats.org/drawingml/2006/diagram"
@@ -471,6 +527,20 @@ def test_pptx_replace_text_in_a_diagram_part():
     assert outcome.report["ok"], outcome.report
     package = OoxmlPackage.from_bytes(outcome.data)
     assert b"Final" in package.require("ppt/diagrams/data1.xml")
+
+
+def test_pptx_smartart_layout_swap_from_donor_slide():
+    outcome = apply_edit_plan(_pptx_layout_fixture(), "deck.pptx", EditPlan.from_dict({
+        "edits": [{
+            "op": "pptx.set_smartart_layout", "slide": 1, "diagram": 0,
+            "fromSlide": 2, "fromDiagram": 0,
+        }],
+    }))
+    assert outcome.report["ok"], outcome.report
+    rels = OoxmlPackage.from_bytes(outcome.data).require("ppt/slides/_rels/slide1.xml.rels")
+    assert b"../diagrams/layout2.xml" in rels
+    assert b"../diagrams/quickStyle2.xml" in rels
+    assert b"../diagrams/colors2.xml" in rels
 
 
 def test_pptx_smartart_node_add_text_and_remove():
