@@ -2070,18 +2070,10 @@ const DERIVED_POLICY_KEYS = new Set([
   "auto_candidate_detection",
 ]);
 
-// Learned-preference controls are owned by the Preferences tab (mode, dimension
-// switches, thresholds). They are validated server-side like every other policy
-// but must not render as generic number/object inputs here.
-const PREFERENCE_POLICY_KEYS = new Set([
-  "preference_learning_mode",
-  "preference_min_observations",
-  "preference_min_distinct_runs",
-  "preference_min_consistency",
-  "preference_confidence_threshold",
-  "preference_suppression_days",
-  "preference_dimensions",
-]);
+// Preference controls live on the Preferences tab, not the generic policy list.
+const PREFERENCE_POLICY_KEYS = new Set(["preference_learning_mode", "preference_min_observations",
+  "preference_min_distinct_runs", "preference_min_consistency", "preference_confidence_threshold",
+  "preference_suppression_days", "preference_dimensions"]);
 
 const POLICY_HINTS: Record<string, string> = {
   memory_mode: "How durable user preferences and project facts are learned.",

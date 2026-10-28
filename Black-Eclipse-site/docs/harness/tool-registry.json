@@ -1,5 +1,5 @@
 {
-  "digest": "c982965483df8fe1",
+  "digest": "6a67d1a0bf2cd2d1",
   "manifestVersion": "1",
   "toolCount": 969,
   "tools": [
@@ -9948,7 +9948,7 @@
     },
     {
       "deprecated": false,
-      "description": "Edit an existing Word, Excel, PowerPoint or PDF file without rebuilding it. Supply an artifactId (preferred), the name of a file attached to this conversation (`sessionFile`), or a source path, plus a small `edits` array. Supported operations: docx.replace_text, docx.set_paragraph_text, docx.set_table_cell, docx.set_core_property, docx.insert_image, docx.accept_revisions, docx.reject_revisions; xlsx.set_cell, xlsx.set_formula, xlsx.set_number_format, xlsx.rename_sheet, xlsx.append_rows, xlsx.insert_rows, xlsx.delete_rows, xlsx.insert_columns, xlsx.delete_columns; pptx.set_slide_title, pptx.replace_text, pptx.set_notes, pptx.set_shape_text, pptx.delete_slide, pptx.duplicate_slide, pptx.replace_chart_data, pptx.add_smartart_node, pptx.remove_smartart_node, pptx.set_smartart_node_text; pdf.fill_form, pdf.rotate_pages, pdf.add_annotation, pdf.set_metadata, pdf.redact. The tool verifies that every untouched OOXML package part is byte-identical, then publishes a NEW artifact version. It never edits the original in place. Set dryRun=true to inspect the preservation report without writing.",
+      "description": "Edit an existing Word, Excel, PowerPoint or PDF file without rebuilding it. Supply an artifactId (preferred), the name of a file attached to this conversation (`sessionFile`), or a source path, plus a small `edits` array. Supported operations: docx.replace_text, docx.set_paragraph_text, docx.set_table_cell, docx.set_core_property, docx.insert_image, docx.accept_revisions, docx.reject_revisions; xlsx.set_cell, xlsx.set_formula, xlsx.set_number_format, xlsx.rename_sheet, xlsx.append_rows, xlsx.insert_rows, xlsx.delete_rows, xlsx.insert_columns, xlsx.delete_columns; pptx.set_slide_title, pptx.replace_text, pptx.set_notes, pptx.set_shape_text, pptx.delete_slide, pptx.duplicate_slide, pptx.replace_chart_data, pptx.add_smartart_node, pptx.remove_smartart_node, pptx.set_smartart_node_text, pptx.set_smartart_layout; pdf.fill_form, pdf.rotate_pages, pdf.add_annotation, pdf.set_metadata, pdf.redact. The tool verifies that every untouched OOXML package part is byte-identical, then publishes a NEW artifact version. It never edits the original in place. Set dryRun=true to inspect the preservation report without writing.",
       "effect": null,
       "inputSchema": {
         "properties": {
