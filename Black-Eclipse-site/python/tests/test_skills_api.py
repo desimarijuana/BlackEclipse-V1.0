@@ -86,6 +86,35 @@ def test_evaluate_endpoint(client):
     assert detail["evaluation"]["dimensions"]
 
 
+def test_candidate_accept_creates_an_inert_skill(client):
+    from harness import main as main_module
+
+    store = main_module.service.memory.store
+    candidate_id = store.save_candidate({
+        "candidateType": "successful_procedure",
+        "title": "Reusable procedure: zzz_loop_accept",
+        "problem": "A repeatable procedure completed.",
+        "proposedLesson": "Use analysis_run for this repeatable computation.",
+        "proposedProcedure": [{"step": 1, "action": "call analysis_run"}],
+        "evidenceReferences": [
+            {"kind": "tool", "name": "analysis_run"},
+            {"kind": "tool", "name": "analysis_run"},
+        ],
+        "confidence": 0.7, "status": "detected",
+        "signature": "loop_accept_test", "sourceRunId": "run_accept",
+    })
+    response = client.post(
+        f"/learning/candidates/{candidate_id}/accept",
+        json={"operator": True},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "accepted"
+    assert body["resultingSkillId"]
+    assert store.get_candidate(candidate_id)["status"] == "accepted"
+    assert store.get_skill(body["resultingSkillId"])["status"] == "draft"
+
+
 def test_learning_candidates_endpoint_starts_empty_or_lists(client):
     body = client.get("/learning/candidates").json()
     assert body["success"] is True

@@ -45,6 +45,10 @@ def draft_ready(candidate: dict[str, Any]) -> bool:
         return False
     if not (candidate.get("proposedProcedure") or []):
         return False
+    # An explicit user correction is the highest-signal event: it may draft on
+    # the first occurrence. Inferred procedures still need recurrence >= 2.
+    if candidate_type == "user_correction":
+        return True
     occurrence = int(candidate.get("occurrenceCount") or 0)
     if occurrence >= 2:
         return True
@@ -100,6 +104,85 @@ def auto_draft_ready_candidates(
         "drafted": drafted,
         "skipped": skipped,
     }
+
+
+def evaluate_used_skills(
+    registry: Any, *, min_uses: int = 3, limit: int = 50,
+) -> dict[str, Any]:
+    """Evaluate learned skills after enough real uses; retire if non-discriminating.
+
+    Enabling is untouched. A failed discrimination test deprecates the skill
+    (retained for audit), never deletes it.
+    """
+    store = getattr(registry, "store", None)
+    if store is None:
+        return {"ok": False, "reason": "store_unavailable", "evaluated": []}
+    from .evaluation import evaluate_skill, retire_non_discriminating  # noqa: PLC0415
+
+    evaluated: list[dict[str, Any]] = []
+    for row in store.list_skills()[:limit]:
+        skill_id = str(row.get("id") or "")
+        if not skill_id.startswith("learned."):
+            continue
+        try:
+            executions = store.list_executions(skill_id, limit=200)
+        except Exception:  # noqa: BLE001
+            executions = []
+        uses = sum(
+            1 for execution in executions
+            if str(execution.get("status") or "") in ("completed", "ok", "passed")
+        )
+        if uses < min_uses:
+            continue
+        if registry.load_stored(skill_id) is None:
+            continue
+        result = evaluate_skill(skill_id, row.get("latestVersion"), registry)
+        retired = retire_non_discriminating(
+            store, skill_id, str(row.get("latestVersion") or ""), result,
+        )
+        evaluated.append({
+            "skillId": skill_id,
+            "uses": uses,
+            "status": result.get("status"),
+            "retired": retired,
+        })
+    return {"ok": True, "minUses": min_uses, "evaluated": evaluated}
+
+
+def evaluate_drafted_skills(registry: Any, *, limit: int = 50) -> dict[str, Any]:
+    """Run the deterministic evaluation for every learned draft (never enable).
+
+    This closes the creation → evaluation step automatically. Promotion remains
+    an operator action; a draft is not enabled by a passing evaluation here.
+    """
+    store = getattr(registry, "store", None)
+    if store is None:
+        return {"ok": False, "reason": "store_unavailable", "evaluated": []}
+    from .evaluation import evaluate_skill  # noqa: PLC0415 - avoid an import cycle
+
+    evaluated: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for row in store.list_skills(status="draft")[:limit]:
+        skill_id = str(row.get("id") or "")
+        if not skill_id.startswith("learned."):
+            continue
+        if registry.load_stored(skill_id) is None:
+            skipped.append({"skillId": skill_id, "reason": "manifest_unreadable"})
+            continue
+        try:
+            result = evaluate_skill(
+                skill_id, row.get("latestVersion"), registry,
+            )
+        except Exception as error:  # noqa: BLE001 - one bad draft never stops the sweep
+            skipped.append({"skillId": skill_id, "reason": f"{type(error).__name__}: {error}"})
+            continue
+        evaluated.append({
+            "skillId": skill_id,
+            "version": result.get("version"),
+            "status": result.get("status"),
+            "summary": result.get("summary"),
+        })
+    return {"ok": True, "evaluated": evaluated, "skipped": skipped}
 
 
 def _slug(text: str) -> str:
@@ -364,5 +447,7 @@ def propose_draft(
 __all__ = [
     "auto_draft_ready_candidates",
     "draft_ready",
+    "evaluate_drafted_skills",
+    "evaluate_used_skills",
     "propose_draft",
 ]

@@ -446,24 +446,29 @@ def _decide_incidental(
     ``automatic_selective`` a strong, low-risk fact may save without asking."""
     if _GREETING_RE.match(text):
         return _ignore("greeting — no durable content")
-    if looks_like_secret(text):
-        return MemoryDecision(
-            outcome="ignore", reason="content looks like a secret/credential — not stored",
-            content="", refused=True, provenance="explicit_user",
-        )
     # A direct user preference ("I prefer …", "my preference is …") is about the
     # user and low-risk; only that clause is considered, not the surrounding
     # task instructions. A project convention ("always / from now on / rule")
     # is a project-specific assertion that needs stronger evidence. A question
     # ("why do I prefer …?") is not a durable statement.
     preference_text = _preference_clause(text)
+    # Check the clause, not the whole prompt: a long audit prompt may mention a
+    # "token" or a credential word in its instructions without tainting a clear
+    # preference clause.
+    if preference_text:
+        if looks_like_secret(preference_text):
+            return MemoryDecision(
+                outcome="ignore",
+                reason="the preference clause looks like a secret/credential — not stored",
+                content="", refused=True, provenance="explicit_user",
+            )
+    elif looks_like_secret(text):
+        return MemoryDecision(
+            outcome="ignore", reason="content looks like a secret/credential — not stored",
+            content="", refused=True, provenance="explicit_user",
+        )
     if looks_like_financial_fact(preference_text or text):
         return _ignore("financial/market figure belongs to the run, not durable memory")
-    if preference_text and looks_like_secret(preference_text):
-        return _ignore(
-            "the preference clause contains a secret/credential — not stored",
-            content="", refused=True,
-        )
     # A task-scoped marker anywhere in a long prompt must not suppress a clear,
     # standalone preference clause. Only the clause is stored.
     if not preference_text and _matches(text, _ONE_OFF_PATTERNS):

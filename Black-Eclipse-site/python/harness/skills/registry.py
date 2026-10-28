@@ -572,6 +572,29 @@ class SkillRegistry:
     def get(self, skill_id: str) -> Optional[LoadedSkill]:
         return self._skills.get(skill_id)
 
+    def load_stored(self, skill_id: str) -> Optional[LoadedSkill]:
+        """Load a store-only skill (a learning draft) into the in-memory catalog.
+
+        Drafts have no installable instruction file, so `load_all` cannot see
+        them. This materializes the stored manifest/instructions on demand so
+        discovery, view and evaluation can operate on the same skill.
+        """
+        loaded = self._skills.get(skill_id)
+        if loaded is not None:
+            return loaded
+        record = self.store.get_skill(skill_id)
+        if not record:
+            return None
+        row = self.store.get_version(skill_id, str(record.get("latestVersion") or ""))
+        if not row:
+            return None
+        try:
+            manifest = SkillManifest.model_validate(row.get("manifest") or {})
+        except Exception:  # noqa: BLE001 - an unreadable draft is not loaded
+            return None
+        self._register_user_manifest(manifest, str(row.get("instructions") or ""))
+        return self._skills.get(skill_id)
+
     def manifest(self, skill_id: str) -> Optional[SkillManifest]:
         loaded = self._skills.get(skill_id)
         return loaded.manifest if loaded else None

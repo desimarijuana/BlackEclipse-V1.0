@@ -7,6 +7,19 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-28
+- **feat(learning): close the candidate→draft→accept→score→retire loop.**
+  The operator accept route now accepts `detected` and auto-drafted candidates,
+  re-validates the contract, creates/keeps the inert skill and records
+  `accepted` (never enables). Explicit corrections draft on the first
+  occurrence; inferred procedures still require recurrence. Startup evaluates
+  learned drafts and used learned skills, and deprecates a non-discriminating
+  skill instead of keeping it. Proposed memory promotes after recurrence ≥2 with
+  a clean conflict gate; conflicting proposals stay proposed. Legacy reviews are
+  marked `legacyUnscored` without rewriting history. All approval gates are
+  unchanged. Tests: 277 related learning/skills/memory/advisory tests passed;
+  `npx tsc --noEmit` passed. Docs:
+  `docs/self-improvement/LOOP_MAP.md`, `docs/self-improvement/CHANGES.md`,
+  `docs/self-improvement/loop-closure.md`.
 - **fix(chat): make the message rail legible when unselected.** Only the
   unselected ticks were lightened (`bg-muted-foreground/70`, was `/45`); their
   size and the active/hover states are unchanged, so the rail stays visible on
@@ -50,9 +63,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   auto-draft an inert `status=draft` skill; recorded user corrections become
   scoped candidates; startup consolidation merges duplicates but leaves
   contradictions for review; startup quarantines nonconforming legacy
-  candidates and drafts the ready ones; and startup backfills up to 200
-  historical runs into the session index. A preference inside a long prompt is
-  stored as its own clause, not the whole prompt. `skill_list`/`skill_view` now
+  candidates and drafts the ready ones; startup also runs the deterministic
+  evaluation for every `learned.*` draft (enabling stays operator-only); and
+  startup backfills up to 200 historical runs into the session index. A preference inside a long prompt is
+  stored as its own clause, not the whole prompt; a save proposed by the
+  model-facing `memory` tool or post-run analysis is labelled
+  `automatic_learning`/`automatic`, not explicit. `skill_list`/`skill_view` now
   expose store-only drafts, and `learning_candidate_list` prints the drafted
   skill id. `session_search` skips the local caller-id filter (indexed messages
   are unowned in single-user mode), retries a multi-token query with ANY terms,

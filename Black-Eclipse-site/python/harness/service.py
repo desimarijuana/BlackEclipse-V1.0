@@ -1023,6 +1023,21 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - drafting must never block boot
             log.warning("candidate auto-draft failed", exc_info=True)
             result["candidateDrafts"] = {"ok": False, "error": "draft failed"}
+        # Creation → deterministic evaluation is automatic; enabling is not.
+        try:
+            from .skills.draft import evaluate_drafted_skills  # noqa: PLC0415
+
+            result["learnedSkillEvaluation"] = evaluate_drafted_skills(
+                self.skill_registry, limit=50,
+            )
+            from .skills.draft import evaluate_used_skills  # noqa: PLC0415
+
+            result["learnedSkillUsageEvaluation"] = evaluate_used_skills(
+                self.skill_registry, min_uses=3, limit=50,
+            )
+        except Exception:  # noqa: BLE001 - evaluation must never block boot
+            log.warning("learned skill evaluation failed", exc_info=True)
+            result["learnedSkillEvaluation"] = {"ok": False, "error": "evaluation failed"}
         # Agent-curated memory: merge exact/near duplicates, but leave a genuine
         # contradiction for review (resolve_conflicts=False). Rows are retained.
         try:
@@ -1032,9 +1047,20 @@ class AgenticService:
                 self.memory.store, limit=200, dry_run=False,
                 resolve_conflicts=False,
             )
+            result["memoryPromotion"] = self.memory.promote_confirmed_proposals()
         except Exception:  # noqa: BLE001 - consolidation must never block boot
             log.warning("startup memory consolidation failed", exc_info=True)
             result["memoryConsolidation"] = {"ok": False, "error": "consolidation failed"}
+        # Legacy review debt: mark pre-contract rows once; never rewrite history.
+        try:
+            from .self_improvement.loop_health import CONTRACT_SINCE  # noqa: PLC0415
+
+            result["legacyReviewsMarked"] = self.store.mark_legacy_reviews(
+                CONTRACT_SINCE,
+            )
+        except Exception:  # noqa: BLE001 - marking must never block boot
+            log.warning("legacy review marking failed", exc_info=True)
+            result["legacyReviewsMarked"] = 0
         # Cross-session recall: index completed runs that predate indexing.
         try:
             from .session_index import backfill_run_index  # noqa: PLC0415

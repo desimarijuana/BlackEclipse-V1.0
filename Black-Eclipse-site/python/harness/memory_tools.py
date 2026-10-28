@@ -561,9 +561,11 @@ async def learning_candidate_list_handler(args: dict[str, Any], ctx: ToolContext
             f"run={candidate.get('sourceRunId')} confidence={candidate.get('confidence')} - {str(title)[:160]}"
         )
         if candidate.get("resultingSkillId"):
+            skill = store.get_skill(str(candidate.get("resultingSkillId")))
             lines.append(
                 f"    draftedSkill={candidate.get('resultingSkillId')} "
-                f"version={candidate.get('resultingSkillVersion') or '?'}"
+                f"version={candidate.get('resultingSkillVersion') or '?'} "
+                f"skillStatus={(skill or {}).get('status') or 'unknown'}"
             )
         stored_method = any(
             candidate.get(key)
@@ -666,10 +668,10 @@ async def learning_candidate_validate_handler(args: dict[str, Any], ctx: ToolCon
             "httpStatus": 404, "candidateId": candidate_id,
         }
     status = str(candidate.get("status") or "")
-    if status != "detected":
+    if status not in ("detected", "drafted"):
         return (
-            f"would return 409: only a `detected` candidate can be accepted; "
-            f"this one is {status!r}.",
+            f"would return 409: only a `detected` or `drafted` candidate can be "
+            f"accepted; this one is {status!r}.",
             {"httpStatus": 409, "candidateId": candidate_id, "status": status},
         )
     from .self_improvement.lesson_contract import candidate_problems  # noqa: PLC0415
@@ -681,10 +683,20 @@ async def learning_candidate_validate_handler(args: dict[str, Any], ctx: ToolCon
             + ", ".join(problems),
             {"httpStatus": 422, "candidateId": candidate_id, "problems": problems},
         )
+    resulting = str(candidate.get("resultingSkillId") or "")
+    if resulting and store.get_skill(resulting) is None:
+        return (
+            "would return 422: the candidate names a missing skill artifact.",
+            {"httpStatus": 422, "candidateId": candidate_id, "status": status},
+        )
     return (
-        "would return 200: candidate is falsifiable and could be accepted "
-        "(read-only dry-run; nothing was written).",
-        {"httpStatus": 200, "candidateId": candidate_id, "status": status},
+        "would return 200: candidate is falsifiable and can be accepted "
+        f"(status={status!r}; acceptance creates/keeps an inert draft, never "
+        "enables it; read-only dry-run, nothing was written).",
+        {
+            "httpStatus": 200, "candidateId": candidate_id, "status": status,
+            "resultingSkillId": resulting or None,
+        },
     )
 
 
@@ -755,14 +767,16 @@ async def skill_view_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[st
     loaded = registry.get(skill_id)
     manifest = None
     instructions = ""
+    evaluation_status = None
+    store = getattr(registry, "store", None)
     if loaded is not None:
         manifest = loaded.manifest
+        evaluation_status = manifest.evaluationStatus
         try:
             instructions = loaded.load_instructions()
         except OSError:
             instructions = ""
     else:
-        store = getattr(registry, "store", None)
         record = store.get_skill(skill_id) if store is not None else None
         if record is None:
             return (
@@ -780,9 +794,18 @@ async def skill_view_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[st
                 {"found": False},
             )
         instructions = str(row.get("instructions") or "")
+        evaluation_status = row.get("evaluationStatus") or manifest.evaluationStatus
+    if store is not None:
+        try:
+            latest = store.list_evaluations(skill_id, limit=1)
+            if latest:
+                evaluation_status = latest[0].get("status") or evaluation_status
+        except Exception:  # noqa: BLE001 - the manifest status is still useful
+            pass
     body = "\n".join([
         f"# {manifest.name} ({manifest.id} v{manifest.version})",
-        f"Status: {manifest.status} · Risk: {manifest.riskLevel}",
+        f"Status: {manifest.status} · Evaluation: {evaluation_status or 'unknown'} "
+        f"· Risk: {manifest.riskLevel}",
         f"Description: {manifest.description}",
         "",
         instructions or "(This skill has no prose procedure.)",
@@ -792,6 +815,7 @@ async def skill_view_handler(args: dict[str, Any], ctx: ToolContext) -> tuple[st
         "skillId": manifest.id,
         "version": manifest.version,
         "status": manifest.status,
+        "evaluationStatus": evaluation_status,
         "requiredTools": manifest.requiredTools,
         "permissions": manifest.permissions,
     }

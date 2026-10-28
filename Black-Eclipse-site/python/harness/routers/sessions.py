@@ -328,12 +328,13 @@ def accept_candidate(
     candidate = candidates.get_candidate(candidate_id)
     if candidate is None:
         raise HTTPException(status_code=404, detail="candidate not found")
-    if str(candidate.get("status")) != "detected":
+    status = str(candidate.get("status") or "")
+    if status not in ("detected", "drafted"):
         raise HTTPException(
             status_code=409,
             detail=(
-                "only a `detected` candidate can be accepted; "
-                f"this one is {candidate.get('status')!r}"
+                "only a `detected` or `drafted` candidate can be accepted; "
+                f"this one is {status!r}"
             ),
         )
     from ..self_improvement.lesson_contract import candidate_problems  # noqa: PLC0415
@@ -344,8 +345,37 @@ def accept_candidate(
             status_code=422,
             detail="candidate is not falsifiable: " + ", ".join(problems),
         )
+    resulting_skill = str(candidate.get("resultingSkillId") or "")
+    if not resulting_skill:
+        # Acceptance is the operator's approval to author. It creates the inert
+        # draft through the same deterministic path the background uses, then
+        # records the acceptance. It never enables the skill.
+        from ..skills.draft import propose_draft  # noqa: PLC0415
+
+        available = [
+            str(ref["name"]) for ref in (candidate.get("evidenceReferences") or [])
+            if isinstance(ref, dict) and ref.get("kind") == "tool" and ref.get("name")
+        ]
+        drafted = propose_draft(candidate_id, candidates, available_tools=available)
+        if not drafted.get("ok"):
+            raise HTTPException(
+                status_code=422,
+                detail=f"the candidate could not be drafted: {drafted.get('error')}",
+            )
+        candidate = candidates.get_candidate(candidate_id) or candidate
+        resulting_skill = str(candidate.get("resultingSkillId") or "")
+    if not resulting_skill or candidates.get_skill(resulting_skill) is None:
+        raise HTTPException(
+            status_code=422,
+            detail="the accepted candidate has no stored skill artifact",
+        )
     candidates.update_candidate(candidate_id, status="accepted", reviewedAt=now_iso())
-    return {"success": True, "candidateId": candidate_id, "status": "accepted"}
+    return {
+        "success": True,
+        "candidateId": candidate_id,
+        "status": "accepted",
+        "resultingSkillId": resulting_skill,
+    }
 
 
 @router.get("/learning-review")

@@ -368,6 +368,34 @@ def evaluate_skill(
     }
 
 
+def retire_non_discriminating(
+    store: Any, skill_id: str, version: str, result: dict[str, Any],
+) -> bool:
+    """Deprecate a skill whose discrimination test failed (never delete it)."""
+    failed = any(
+        str(d.get("name")) == "discrimination" and str(d.get("status")) == "failed"
+        for d in (result.get("dimensions") or [])
+        if isinstance(d, dict)
+    )
+    if not failed:
+        return False
+    store.set_version_status(skill_id, version, "deprecated")
+    record = store.get_skill(skill_id)
+    if record:
+        store.upsert_skill(
+            skill_id=skill_id, name=record.get("name") or skill_id,
+            description=record.get("description") or "",
+            category=record.get("category") or "quality",
+            latest_version=version, status="deprecated",
+            tags=list(record.get("tags") or []),
+        )
+    store.append_event(
+        "skill.retired_no_discrimination", skill_id=skill_id,
+        version=version,
+    )
+    return True
+
+
 def _run_cases(manifest: SkillManifest, cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for case in cases:

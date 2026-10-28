@@ -199,7 +199,10 @@ granting a capability:
   `explicit_user`, so the Control Room always reported `automatic = 0` even when
   the loop had learned the fact. A preference embedded in a long prompt is
   extracted as its own clause (task instructions are not stored), and a
-  task-scoped marker elsewhere in the prompt no longer suppresses it.
+  task-scoped marker elsewhere in the prompt no longer suppresses it. A save
+  proposed by the model-facing `memory` tool or post-run analysis is labelled
+  `automatic_learning` as well; only a human/UI/explicit-command source is
+  explicit.
 - **Gate-approved model preferences are saved, not merely surfaced.** Under
   `memory_mode=automatic_selective`, a model proposal whose re-check returns
   `save` and whose type is `preference`/`constraint` is committed as an
@@ -214,10 +217,12 @@ granting a capability:
   maintenance also quarantines nonconforming legacy candidates and drafts the
   remaining ready ones, so old rows are not stranded. `skill_list`/`skill_view`
   now also read store-only drafts (a learning draft has no installable file),
-  and `learning_candidate_list` prints the drafted skill id. Nothing is
-  evaluated, enabled or promoted automatically. Construction candidates keep
-  their dedicated recurrence gate (`maybe_draft_construction`). Migration 33
-  restores `LearningCandidate.occurrenceCount` on stores created before it.
+  and `learning_candidate_list` prints the drafted skill id and status. Startup
+  also runs the deterministic evaluation for every `learned.*` draft, so the
+  creation → evaluation step closes automatically; enabling remains an operator
+  action. Construction candidates keep their dedicated recurrence gate
+  (`maybe_draft_construction`). Migration 33 restores
+  `LearningCandidate.occurrenceCount` on stores created before it.
 - **User corrections are candidates.** A run whose memory blob records
   `action=correct` now produces a scoped `user_correction` candidate (condition,
   method, evidence, replay test); a single correction stays `detected`.

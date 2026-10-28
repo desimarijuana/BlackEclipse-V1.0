@@ -327,6 +327,9 @@ _ADDED_COLUMNS: dict[str, list[tuple[str, str]]] = {
         ("profileId", "TEXT"),
         ("priority", "TEXT NOT NULL DEFAULT 'normal'"),
         ("scheduling", "TEXT"),
+        # Reviews written before the justified-null contract are history, not
+        # current defects. Marked once; never rewritten.
+        ("legacyUnscored", "INTEGER NOT NULL DEFAULT 0"),
     ],
     # Session-search index scope + filter columns (M3). Additive; NULL = unknown.
     "SessionMessage": [
@@ -1207,6 +1210,17 @@ class AgentMemoryStore:
                 "SELECT * FROM LearningReview ORDER BY createdAt DESC LIMIT ?", (limit,)
             ).fetchall()
         return [_learning_review_row(r) for r in rows]
+
+    def mark_legacy_reviews(self, since: str) -> int:
+        """Mark pre-contract reviews as legacy_unscored (history, not rewrites)."""
+        cursor = self._db.execute(
+            "UPDATE LearningReview SET legacyUnscored=1 "
+            "WHERE status='completed' AND legacyUnscored=0 "
+            "AND COALESCE(finishedAt, createdAt) < ?",
+            (since,),
+        )
+        self._db.commit()
+        return int(cursor.rowcount or 0)
 
     def learning_review_health(self) -> dict[str, Any]:
         counts: dict[str, int] = {}

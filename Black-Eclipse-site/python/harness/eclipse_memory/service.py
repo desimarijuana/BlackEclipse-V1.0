@@ -840,6 +840,59 @@ class EclipseMemoryService:
             pass
         return decision
 
+    def promote_confirmed_proposals(self) -> dict[str, Any]:
+        """Promote a proposed memory only after recurrence + a clean dedup/conflict gate.
+
+        This is the deterministic memory-promotion trigger. A row that was
+        proposed because of a conflict never promotes here; it stays reviewable.
+        """
+        from .conflicts import detect_conflict  # noqa: PLC0415
+        from .decision import content_signature  # noqa: PLC0415
+
+        promoted: list[str] = []
+        kept: list[dict[str, Any]] = []
+        try:
+            proposed = self.store.list_memories(status="proposed", limit=500)
+            active = self.store.list_memories(status="active", limit=500)
+        except Exception as exc:  # noqa: BLE001 - promotion must never break a write
+            return {"promoted": [], "kept": [], "error": str(exc)}
+        for row in proposed:
+            reason = str(row.get("statusReason") or "")
+            if "conflict" in reason.lower():
+                kept.append({"id": row["id"], "reason": "conflict"})
+                continue
+            signature = content_signature(str(row.get("content") or ""))
+            try:
+                occurrences = self.store.recurrence_count(signature)
+            except Exception:  # noqa: BLE001
+                occurrences = 0
+            if occurrences < 2:
+                kept.append({"id": row["id"], "reason": "recurrence"})
+                continue
+            assessment = detect_conflict(
+                memory_type=str(row.get("memoryType") or "semantic"),
+                scope=str(row.get("scope") or "general"),
+                scope_id=row.get("scopeId"),
+                subject=row.get("subject"),
+                content=str(row.get("content") or ""),
+                existing=active,
+                new_authority="automatic",
+            )
+            if assessment.conflict:
+                kept.append({"id": row["id"], "reason": assessment.reason})
+                continue
+            self.store.update_memory(
+                row["id"], status="active",
+                statusReason="promoted: recurrence>=2 and no conflict",
+                lastConfirmedAt=_now(), lastReviewedAt=_now(),
+            )
+            self.store.append_memory_event(
+                "memory.promoted", memory_id=row["id"],
+                data={"recurrence": occurrences, "reason": "recurrence>=2"},
+            )
+            promoted.append(row["id"])
+        return {"promoted": promoted, "kept": kept}
+
     def create_suggestion(
         self,
         decision: Any,
@@ -1098,6 +1151,26 @@ class EclipseMemoryService:
         from dataclasses import replace  # noqa: PLC0415
 
         from .decision import resolve_owner_scope  # noqa: PLC0415
+
+        # A second confirming observation can promote an earlier proposal. This
+        # is deterministic and still subject to the conflict/dedup gate.
+        try:
+            self.promote_confirmed_proposals()
+        except Exception:  # noqa: BLE001 - promotion never blocks a write
+            pass
+
+        # A save proposed by the model-facing tool or post-run analysis is
+        # agent-curated, not a human statement. Label it automatic so it ranks
+        # below explicit memory and is retention-eligible.
+        provenance = str(getattr(decision, "provenance", "") or "")
+        metadata = dict(getattr(decision, "metadata", {}) or {})
+        if (
+            decision.outcome == "save"
+            and provenance in ("memory_tool", "run_analysis", "skill_lesson")
+            and not metadata.get("automatic")
+        ):
+            metadata["automatic"] = True
+            decision = replace(decision, metadata=metadata)
 
         if getattr(decision, "scope", None):
             owner_scope, owner_id = resolve_owner_scope(
