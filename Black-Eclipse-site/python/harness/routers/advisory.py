@@ -89,6 +89,22 @@ async def advisory_backfill(body: Optional[dict[str, Any]] = Body(default=None),
     }
 
 
+@router.get("/advisory/cadence")
+async def advisory_cadence(
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Status of the unattended advisory-outcome scorer."""
+    return {"success": True, **service.advisory_cadence_status()}
+
+
+@router.post("/advisory/cadence/run")
+async def advisory_cadence_run(
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Run one bounded scoring tick now (operator-visible, idempotent)."""
+    return {"success": True, "result": await service.run_advisory_cadence_once()}
+
+
 @router.post("/advisory/evaluate")
 async def advisory_evaluate(body: dict[str, Any] = Body(...),
                             _: bool = Depends(require_operator)) -> dict[str, Any]:

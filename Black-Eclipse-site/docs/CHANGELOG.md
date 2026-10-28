@@ -25,8 +25,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   skips no-price/not-due rows with named counts, makes no market request when
   nothing is due, and is disabled by `HARNESS_ADVISORY_AUTO_EVALUATE=0`.
   Operator surfaces `GET /advisory/cadence` and `POST /advisory/cadence/run`
-  expose the last tick. No approval gate is touched; no legacy score is
-  invented. Tests: `test_advisory_cadence.py`.
+  expose the last tick; the runtime lifespan starts/stops the single bounded
+  task. No approval gate is touched; no legacy score is invented. Tests:
+  `test_advisory_cadence.py`.
 - **fix(learning): reconcile advisory scoring and make lesson keys structural.**
   The advisory gate and scorecard now share one canonical definition
   (`advisory/scoring.py`: evaluated / scorable / no_entry_price / unscored /

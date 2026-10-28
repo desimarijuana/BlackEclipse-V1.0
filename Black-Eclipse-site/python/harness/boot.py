@@ -167,6 +167,10 @@ async def _boot() -> None:
     # Native Automation Engine (ADR-H152): one durable scheduler/trigger router
     # beside the three TS refresh loops, which stay exactly as they are.
     await service.start_automation()
+    # Advisory outcome scoring: a bounded interval that records how past
+    # recommendations turned out. It never issues advice and never touches an
+    # approval gate. Disabled with HARNESS_ADVISORY_AUTO_EVALUATE=0.
+    await service.start_advisory_cadence()
     # The gallery: a local catalogue of published strategies. Registered here so
     # the agent and the UI share ONE catalogue.
     from .gallery.bootstrap import install_gallery_layer
@@ -319,6 +323,7 @@ async def _shutdown() -> None:
     if session_watch is not None:
         await session_watch.stop()
     await stop_events(service)
+    await service.stop_advisory_cadence()
     await service.stop_automation()
     orchestration = getattr(service, "orchestration", None)
     if orchestration is not None:

@@ -1058,9 +1058,15 @@ class AgenticService:
             result["legacyReviewsMarked"] = self.store.mark_legacy_reviews(
                 CONTRACT_SINCE,
             )
+            advisory = getattr(self, "advisory", None)
+            if advisory is not None and hasattr(advisory.store, "mark_legacy_unscored"):
+                result["legacyAdviceMarked"] = advisory.store.mark_legacy_unscored(
+                    CONTRACT_SINCE,
+                )
         except Exception:  # noqa: BLE001 - marking must never block boot
-            log.warning("legacy review marking failed", exc_info=True)
+            log.warning("legacy review/advice marking failed", exc_info=True)
             result["legacyReviewsMarked"] = 0
+            result["legacyAdviceMarked"] = 0
         # Cross-session recall: index completed runs that predate indexing.
         try:
             from .session_index import backfill_run_index  # noqa: PLC0415
@@ -1457,6 +1463,49 @@ class AgenticService:
             await engine.stop()
         except Exception:  # noqa: BLE001
             log.warning("automation engine shutdown failed", exc_info=True)
+
+    async def start_advisory_cadence(self) -> None:
+        """Start the bounded advisory-outcome scorer. Never blocks boot."""
+        try:
+            if getattr(self, "_advisory_cadence", None) is None:
+                from .advisory.cadence import AdvisoryCadence  # noqa: PLC0415
+
+                self._advisory_cadence = AdvisoryCadence(self)
+            await self._advisory_cadence.start()
+        except Exception:  # noqa: BLE001 - a cadence failure must not block boot
+            log.warning("advisory cadence failed to start", exc_info=True)
+
+    async def stop_advisory_cadence(self) -> None:
+        cadence = getattr(self, "_advisory_cadence", None)
+        if cadence is None:
+            return
+        try:
+            await cadence.stop()
+        except Exception:  # noqa: BLE001
+            log.warning("advisory cadence shutdown failed", exc_info=True)
+
+    def advisory_cadence_status(self) -> dict[str, Any]:
+        cadence = getattr(self, "_advisory_cadence", None)
+        if cadence is None:
+            from .advisory.cadence import AdvisoryCadenceConfig  # noqa: PLC0415
+
+            config = AdvisoryCadenceConfig.from_env()
+            return {
+                "enabled": bool(config.enabled),
+                "intervalSeconds": int(config.interval_seconds),
+                "running": False,
+                "lastRunAt": None,
+                "lastResult": {},
+                "lastError": None,
+            }
+        return cadence.status()
+
+    async def run_advisory_cadence_once(self) -> dict[str, Any]:
+        if getattr(self, "_advisory_cadence", None) is None:
+            from .advisory.cadence import AdvisoryCadence  # noqa: PLC0415
+
+            self._advisory_cadence = AdvisoryCadence(self)
+        return await self._advisory_cadence.run_now()
 
     async def start_jobs(self) -> None:
         """Deprecated alias — jobs are now automations (ADR-H114). Starts the engine."""
