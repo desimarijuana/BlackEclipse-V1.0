@@ -10717,3 +10717,67 @@ no-invention rule.
 `clarification.requested`/`clarification.answered` events; the
 `clarification-card.tsx` surface; the `run_watchdog.py` exemption. Docs:
 `docs/harness/architecture.md`, `docs/NAVIGATION.md`, this ADR.
+
+## ADR-H329 - Learned preferences are repeated evidence, staged inert, and gated by the same memory decision
+
+**Decision.** A personal preference is inferred only from repeated style/format
+behaviour across distinct runs, using a closed deterministic vocabulary
+(`answer_format`, `answer_length`, `tone`, `research_depth`). Observations are
+append-only `PreferenceObservation` rows with a bounded trigger-phrase excerpt,
+not transcripts. A preference is proposed only after 3 observations across 3
+distinct runs at 60% consistency; the proposal is an inert `MemorySuggestion`
+carrying its evidence counts in `structuredData`. Accepting it writes a
+user-scoped `preference` `MemoryRecord` through the existing suggestion route and
+the ONE `eclipse_memory/decision.py` gate. Dismissing suppresses the same
+inference for 30 days. Explicit preferences win; memory/preference-learning off
+collects no evidence; secrets and current financial facts are never inferred.
+
+**Why.** A single request ("show me a table") is a task instruction, not a stable
+preference. Staging an inert suggestion keeps the user in control and prevents
+the system from silently personalizing itself. Reusing the existing suggestion,
+lifecycle, profile and decision-gate machinery avoids a second memory engine, a
+second database and a second authorization path. The evidence counts make the
+inference explainable rather than magical.
+
+**Consequences.** `python/harness/eclipse_memory/preferences.py`; migration 34
+(`PreferenceObservation`, `MemorySuggestion.structuredData`); service
+`observe_turn_preferences`/`observe_run_preferences`/`learn_preferences`; policy
+`preference_*` keys with per-dimension switches; routes
+`/eclipse-memory/preferences` and `/eclipse-memory/preferences/learn`; `memory`
+tool action `preferences`; the Eclipse Memory ? Preferences tab. Docs:
+`docs/harness/personal-memory.md`, `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
+
+## ADR-H330 - The Institution preset is one cast, four materialisations
+
+**Decision.** The investment-committee preset (`analyst -> debate -> trader ->
+risk -> PM`) is defined once as role data in
+`python/harness/institution/cast.py`, and materialised into four existing
+contracts: `AgentConfig` presets, A2A `AgentDefinition`s, a `TeamDefinition`
+task graph, and bot specs consumed by the Bots workspace seeder. The pipeline is
+always a Team run; a bot/group chat is never the orchestrator. Downstream stages
+read a completed prerequisite memo through the read-only `read_run_output`
+tool, keyed by the run id the task context already renders. The debate produces a
+structured record of agreement and unresolved disagreement and never votes or
+averages. The preset adds the `run_team` automation action so a scheduled run
+opens a team run and waits for its terminal synthesis. Nothing executes an order.
+
+**Why.** Bots are automations and team members are agent ids. Letting a team
+reference automation ids would create a second identity system and let the two
+drift. Generating every view from one spec keeps the seats, prompts and tool
+surfaces identical everywhere. Reusing the existing team/A2A/Task layers keeps
+the one-runtime rule (ADR-H1/H2/H155). The read-only handoff is necessary because
+the task context intentionally renders only direct prerequisites, and silently
+injecting a prior agent's full prose into another agent would blur provenance.
+A dedicated action is required because a `run_agent` bot cannot reliably start a
+team graph.
+
+**Consequences.** New code lives in `python/harness/institution/`; routes extend
+`routers/team.py`; the automation layer gains one action kind; the Bots
+workspace gains a run dialog and a bot seeder. Per-seat model overrides remain
+unsupported (one `modelSettings` per team run), and edited bots do not rewrite
+the preset — the cast stays authoritative. The preset is opt-in and still
+subject to ADR-H213's measured-adoption gate. A supporting fix makes
+`tasks.manager.recompute_plan` keep a plan `RUNNING` while queued `TODO` work
+remains, so a multi-level DAG is not marked `BLOCKED` after its first stage.
+Docs: `docs/harness/institution-preset.md`, `docs/harness/bot-team-orchestration.md`,
+`docs/NAVIGATION.md`, this ADR.

@@ -7,6 +7,95 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-28
+- **feat(agents): Institution multi-agent preset (analyst → debate → trader → risk → PM).**
+  Added one cast spec in `python/harness/institution/` that materialises into
+  `AgentConfig` presets, A2A definitions, a validated `TeamDefinition` task graph
+  and Bots-workspace bot specs. The debate produces a structured record (agreement,
+  unresolved disagreements, missing facts) and never votes or averages; the
+  read-only `read_run_output` tool hands a completed prerequisite memo to the next
+  stage by run id. Added `/team/presets*` routes, the `run_team` automation action,
+  a Bots-screen run dialog with a live stage timeline, and an idempotent bot seeder.
+  Fixed `tasks.manager.recompute_plan` so a multi-level DAG stays `RUNNING` while
+  queued work remains instead of being marked `BLOCKED` after its first stage.
+  Tests: `test_institution_preset.py` (8), `preset-client.test.ts` (2).
+  Docs updated: `docs/harness/institution-preset.md`,
+  `docs/harness/bot-team-orchestration.md`, `docs/NAVIGATION.md`,
+  `docs/harness/decisions.md` (ADR-H330).
+- **feat(hardening): production guards for edits and model builds.** Artifact
+  versions now accept `expectedChecksum` and refuse a stale edit with
+  `ARTIFACT_CONFLICT`; `document_edit` confines path sources to authorized roots,
+  refuses XML DTD/entities (`EDIT_XML_UNSAFE`) and macro packages when policy is
+  off (`EDIT_MACRO_REFUSED`), logs `document.edit`, and is idempotent per
+  plan/source; `financial_model_build` is idempotent per spec hash/format and
+  logs `financial_model.build`; chart data replacement requires an exact series
+  count. Docs: `docs/harness/office-edit.md`,
+  `docs/harness/financial-modeling.md`, `docs/harness/artifact-center.md`.
+- **feat(memory): Personal Memory — learned preferences with evidence, not guesses.**
+  Added `python/harness/eclipse_memory/preferences.py`: a closed style/format
+  vocabulary (answer format, length, tone, research depth), deterministic
+  inference with bounded trigger-phrase evidence, and a learner that proposes a
+  preference only after 3 consistent observations across 3 distinct runs.
+  Migration 34 adds `PreferenceObservation` and `MemorySuggestion.structuredData`;
+  proposals stay inert until accepted through the existing suggestion route and
+  the ONE memory gate. Dismissals suppress the inference (30-day cooling-off);
+  explicit preferences win; memory/preference-learning off collects no evidence;
+  secrets and current financial facts are never inferred. Wired into every turn
+  and post-run analysis, exposed as `memory action="preferences"`,
+  `/eclipse-memory/preferences` + operator-gated `/preferences/learn`, and the
+  Eclipse Memory → Preferences tab (pending, remembered, evidence, scan).
+  Tests: `test_preference_learning.py` (14), `test_preference_api.py` (3),
+  `test_memory_tools.py` preferences surface, and the browser client contract.
+  docs updated: `docs/harness/personal-memory.md`, `docs/NAVIGATION.md`,
+  `docs/ARCHITECTURE.md`.
+- **feat(modeling): mid-year DCF, rollover returns and comps FX/calendarization.**
+  `DcfInputs.mid_year` discounts explicit FCF at `t+0.5` (default unchanged);
+  LBO management rollover is a separate equity contribution with sponsor/
+  management exit split and sponsor-only IRR/MOIC; comps translate non-target
+  currencies via `comps.fx`/`fxRate` and calendarize fiscal periods to the target
+  year end with an explicit approximate warning. Docs:
+  `docs/harness/financial-modeling.md`.
+- **feat(documents): structural XLSX edits rewrite references.** Row/column
+  insert/delete now rewrites formulas, defined names, merged ranges, conditional
+  formats, data validations, hyperlinks, auto-filters and column ranges instead of
+  refusing any formula workbook; tables/charts/pivots/OLE are still refused.
+  Docs: `docs/harness/office-edit.md`.
+- **feat(documents): structural SmartArt, tables and chart refs.** PPTX now has
+  `add_smartart_node` / `remove_smartart_node` / `set_smartart_node_text`;
+  structural XLSX edits also rewrite table references/table formulas and chart
+  series formulas (pivots/OLE remain refused). Docs:
+  `docs/harness/office-edit.md`.
+- **feat(modeling): exact quarterly comps calendarization.** A peer with
+  `quarterly` periods is calendarized by a four-quarter TTM ending at the target
+  fiscal year end (`quarterly_ttm`). Incomplete quarterly data now requires an
+  explicit `calendarizationFactor`; otherwise the peer is excluded. Docs:
+  `docs/harness/financial-modeling.md`.
+- **feat(documents): editable PPTX chart data and SmartArt labels.**
+  `pptx.replace_chart_data` replaces an embedded chart's categories and series
+  caches while preserving chart type, axes and styling; `pptx.replace_text` also
+  scans SmartArt diagram data so labels are editable without changing node
+  structure. Docs: `docs/harness/office-edit.md`.
+- **feat(pdf): optional incremental PDF editing.** When PyMuPDF is installed
+  (`python/requirements-pdf-incremental.txt`, optional because AGPL/commercial),
+  `document_edit` appends an incremental update and reports
+  `preservationMode: "incremental"`; redaction then removes the text objects in
+  place (`incremental_true_removal`). Without it, the pypdf rewrite/rasterized
+  redaction path is used and labelled honestly. Docs: `docs/harness/office-edit.md`.
+- **feat(modeling): comps peer auto-retrieval.** `financial_model_build` accepts
+  `comps.peerSymbols` and resolves each through the same read-only
+  `market_snapshot` + `financial_statements` bridge as every market tool; a peer
+  with no usable price/share count is excluded with a note. Docs:
+  `docs/harness/financial-modeling.md`.
+- **feat(documents): the edit limits are now features.** Added DOCX image
+  insertion and deterministic accept/reject tracked revisions; XLSX
+  insert/delete rows and columns (conservatively refused on formula/merge/chart
+  sheets rather than breaking references); PPTX slide duplicate/delete with
+  relationship + notes remapping; and true PDF redaction that rasterizes the
+  page so the covered text object is removed, not just painted over. Docs:
+  `docs/harness/office-edit.md`.
+- **feat(modeling): reports + LBO leverage.** `financial_model_build` now exports
+  PDF/Word/PowerPoint deliverables alongside the workbook; LBO models support
+  PIK tranches, a revolver with capacity/rate/minimum cash and a cash sweep that
+  preserves the minimum. Docs: `docs/harness/financial-modeling.md`.
 - **feat(guardrails): money-movement guardrails + confirm gate.** Added
   `python/harness/finance_guardrails/`: a deterministic, model-free layer that
   normalizes every money-shaped tool call into a `MoneyIntent` and evaluates
@@ -24,6 +113,22 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Docs updated: `docs/harness/money-guardrails.md` (new),
   `docs/harness/security.md`, `docs/NAVIGATION.md`, `docs/DECISIONS.md` +
   `skills/ARCHITECT.md` (ADR-055).
+- **feat(documents): preservation-first Office/PDF editing.** Added
+  `document_edit` (`python/harness/documents/edit/`): a closed `EditPlan`
+  (DOCX text/table/core props, XLSX cells/formulas/rows/sheet rename, PPTX
+  title/notes/text, PDF forms/rotate/annotate/metadata), an `OoxmlPackage` that
+  copies untouched ZIP parts verbatim, `verify_ooxml` proving every non-target
+  part is unchanged (and refusing on a relationship/XML/expected-text failure),
+  and artifact-version publishing (originals are never edited in place). Adds
+  `pypdf` for the PDF rewrite path (honest `PDF_LIBRARY_MISSING` when absent).
+  Docs: `docs/harness/office-edit.md`, `docs/NAVIGATION.md`, ADR-054.
+- **feat(modeling): deterministic 3-statement/DCF/LBO/comps + Excel model.**
+  Added `python/harness/modeling/` and tools `financial_model_build` /
+  `financial_model_audit`: validated `ModelSpec`, integrated IS/CF/BS/debt with
+  balance and tie checks, DCF composed over `finance_facts.valuation`, LBO
+  sources/uses/debt/IRR/MOIC, comps peer multiples/stats/implied ranges, and a
+  formula-bearing workbook (Assumptions, Three Statement, Values, Checks).
+  Docs: `docs/harness/financial-modeling.md`, `docs/NAVIGATION.md`, ADR-054.
 - **feat(ui): crypto alt-data surfaces over the market pack.** Added the
   read-only `GET /api/crypto/alt-data` front door (same TS adapters as the agent,
   30s cache, honest UNAVAILABLE envelope), a `CryptoAltData` panel on Market
