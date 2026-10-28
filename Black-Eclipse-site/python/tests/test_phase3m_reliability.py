@@ -355,8 +355,14 @@ def test_repeated_successful_workflow_yields_a_candidate(env):
         env["run_store"].update_run(run_id, status="completed", output="done", modelSteps=3, toolCalls=1)
     result = env["memory"].analyze_run("run_rep_b", env["run_store"])
     assert result["candidatesCreated"] >= 1
-    for candidate in env["memory"].store.list_candidates():
-        assert candidate["resultingSkillId"] is None  # inert, not enabled
+    drafted = [
+        candidate for candidate in env["memory"].store.list_candidates()
+        if candidate["resultingSkillId"]
+    ]
+    assert drafted  # a recurring procedure is auto-drafted
+    for candidate in drafted:
+        skill = env["memory"].store.get_skill(candidate["resultingSkillId"])
+        assert skill["status"] == "draft"  # inert, not enabled
 
 
 def test_explicit_skill_candidate_marks_no_evidence(env):

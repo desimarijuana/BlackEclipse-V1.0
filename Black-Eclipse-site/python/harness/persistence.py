@@ -1024,10 +1024,10 @@ class AgentMemoryStore:
 
         results: list[dict[str, Any]] = []
         engine = "like"
+        match_mode = "all"
         has_more = False
         if tokens and self._ensure_fts_index():
             try:
-                fts_query = " AND ".join(tokens)
                 sql = (
                     "SELECT m.id, m.runId, m.userId, m.role, m.kind, m.content, m.createdAt,"
                     " snippet(SessionMessageFts, 3, '', '', '…', 12) AS snip,"
@@ -1036,29 +1036,52 @@ class AgentMemoryStore:
                     f"WHERE SessionMessageFts MATCH ?{filter_clause} "
                     "ORDER BY score LIMIT ?"
                 )
-                rows = self._db.execute(sql, [fts_query, *params, max(limit * 4, 50)]).fetchall()
+                rows = self._db.execute(
+                    sql, [" AND ".join(tokens), *params, max(limit * 4, 50)],
+                ).fetchall()
+                # A natural-language query often has no single message containing
+                # every token. Retry with OR and let the hybrid rank the phrase
+                # hits first; a single-token query is unchanged.
+                if not rows and len(tokens) > 1:
+                    match_mode = "any"
+                    rows = self._db.execute(
+                        sql, [" OR ".join(tokens), *params, max(limit * 4, 50)],
+                    ).fetchall()
                 engine = "fts5"
                 hits = [_session_result(r, score=-float(r["score"])) for r in rows]
                 hits.sort(key=_hybrid_key)
                 results = hits[:limit]
                 has_more = len(hits) > limit
-                return {"available": True, "engine": engine, "results": results, "hasMore": has_more}
+                return {
+                    "available": True, "engine": engine, "matchMode": match_mode,
+                    "results": results, "hasMore": has_more,
+                }
             except Exception:  # noqa: BLE001 - fall through to the LIKE scan
                 results = []
         # LIKE fallback (deterministic, bounded).
         if tokens:
-            like = " AND ".join(["m.content LIKE ?"] * len(tokens))
-            rows = self._db.execute(
-                "SELECT m.id, m.runId, m.userId, m.role, m.kind, m.content, m.createdAt"
-                f" FROM SessionMessage m WHERE {like}{filter_clause}"
-                " ORDER BY m.createdAt DESC LIMIT ?",
-                [*(f"%{t}%" for t in tokens), *params, max(limit * 4, 50)],
-            ).fetchall()
+            def _like_rows(mode: str) -> list[Any]:
+                joiner = " AND " if mode == "all" else " OR "
+                like = joiner.join(["m.content LIKE ?"] * len(tokens))
+                return self._db.execute(
+                    "SELECT m.id, m.runId, m.userId, m.role, m.kind, m.content, m.createdAt"
+                    f" FROM SessionMessage m WHERE {like}{filter_clause}"
+                    " ORDER BY m.createdAt DESC LIMIT ?",
+                    [*(f"%{t}%" for t in tokens), *params, max(limit * 4, 50)],
+                ).fetchall()
+
+            rows = _like_rows("all")
+            if not rows and len(tokens) > 1:
+                match_mode = "any"
+                rows = _like_rows("any")
             hits = [_session_result(r, score=None) for r in rows]
             hits.sort(key=_hybrid_key)
             results = hits[:limit]
             has_more = len(hits) > limit
-        return {"available": True, "engine": engine, "results": results, "hasMore": has_more}
+        return {
+            "available": True, "engine": engine, "matchMode": match_mode,
+            "results": results, "hasMore": has_more,
+        }
 
     def open_session(
         self,

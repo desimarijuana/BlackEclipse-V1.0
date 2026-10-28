@@ -208,9 +208,12 @@ granting a capability:
   signature recurs, its `occurrenceCount` is updated on the existing row (it is
   no longer discarded as a duplicate). Once it reaches two observations and
   carries a real `proposedProcedure`, `analyze_run` calls `propose_draft`: a
-  `status=draft`, `evaluationStatus=not_evaluated` skill is stored. Nothing is
-  evaluated, enabled or promoted automatically. Construction candidates keep
-  their dedicated recurrence gate (`maybe_draft_construction`).
+  `status=draft`, `evaluationStatus=not_evaluated` skill is stored. Startup
+  maintenance also quarantines nonconforming legacy candidates and drafts the
+  remaining ready ones, so old rows are not stranded. Nothing is evaluated,
+  enabled or promoted automatically. Construction candidates keep their
+  dedicated recurrence gate (`maybe_draft_construction`). Migration 33 restores
+  `LearningCandidate.occurrenceCount` on stores created before it.
 - **User corrections are candidates.** A run whose memory blob records
   `action=correct` now produces a scoped `user_correction` candidate (condition,
   method, evidence, replay test); a single correction stays `detected`.
@@ -218,9 +221,11 @@ granting a capability:
   `consolidate_active(resolve_conflicts=False)`: exact/near duplicates are
   superseded (rows retained), while a genuine contradiction is reported and
   both records stay active for review.
-- **Historical recall is backfilled.** Startup indexes up to 200 completed runs
-  that predate `session_indexing_enabled`, so `session_search` works for old
-  sessions, not only new ones.
+- **Historical recall is backfilled and reachable.** Startup indexes up to 200
+  completed runs that predate `session_indexing_enabled`. In a single-user local
+  runtime, `session_search` no longer filters on the local caller id (indexed
+  messages have no `userId`), and a multi-token query that matches no single
+  message retries with ANY terms (`matchMode=any`) instead of returning nothing.
 
 The human gate is unchanged: candidates can be accepted, drafts evaluated and
 skills enabled only through the existing operator routes. These changes make

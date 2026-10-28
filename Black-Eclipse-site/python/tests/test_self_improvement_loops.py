@@ -204,6 +204,14 @@ async def test_local_session_search_does_not_filter_out_unowned_history():
         )
         assert data["results"], text
         assert data["results"][0]["runId"] == "run_old"
+
+        # A natural-language query with an unmatched token falls back to ANY
+        # terms instead of returning an empty result set.
+        text, data = await session_search_handler(
+            {"query": "consolidated zzzznomatch"}, ctx,
+        )
+        assert data["results"], text
+        assert data.get("matchMode") == "any"
     finally:
         store.close()
 

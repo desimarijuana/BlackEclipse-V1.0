@@ -44,11 +44,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `automatic_selective`; recurring candidates update their occurrence count and
   auto-draft an inert `status=draft` skill; recorded user corrections become
   scoped candidates; startup consolidation merges duplicates but leaves
-  contradictions for review; and startup backfills up to 200 historical runs into
-  the session index. Nothing is auto-enabled: operator acceptance, evaluation
-  and promotion remain the only activation path. The usage report now separates
-  `automaticSaved` from explicit saves. Tests: 355 related memory / skills /
-  learning / session tests passed; `npx tsc --noEmit` passed. Docs:
+  contradictions for review; startup quarantines nonconforming legacy
+  candidates and drafts the ready ones; and startup backfills up to 200
+  historical runs into the session index. `session_search` now skips the local
+  caller-id filter (indexed messages are unowned in single-user mode) and retries
+  a multi-token query with ANY terms instead of returning nothing. Migration 33
+  restores `LearningCandidate.occurrenceCount` on older stores. Nothing is
+  auto-enabled: operator acceptance, evaluation and promotion remain the only
+  activation path. The usage report now separates `automaticSaved` from explicit
+  saves. Tests: 358 related memory / skills / learning / session tests passed;
+  `npx tsc --noEmit` passed. Docs:
   `docs/self-improvement/loop-closure.md` (Autonomy update).
 - **feat(rsl): add an evidence-gated tool-widening safety-case builder and
   freeze the mechanism it protects.** `self_improvement/widening.py` assembles a
