@@ -180,7 +180,9 @@ export function MessageRail({
                 // Expand the tap target on touch without changing the visual
                 // footprint (the visible tick stays 1px tall).
                 "before:absolute before:-inset-x-2 before:-inset-y-[4px] before:content-['']",
-                active || hovering ? "bg-foreground/75" : "bg-muted-foreground/45",
+                // Unselected ticks stay light enough to be seen on both light
+                // and dark glass without changing their resting size.
+                active || hovering ? "bg-foreground/75" : "bg-muted-foreground/70",
                 hovering && "bg-foreground/85",
               )}
             />

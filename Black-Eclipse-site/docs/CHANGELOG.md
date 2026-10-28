@@ -7,6 +7,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-28
+- **fix(chat): make the message rail legible when unselected.** Only the
+  unselected ticks were lightened (`bg-muted-foreground/70`, was `/45`); their
+  size and the active/hover states are unchanged, so the rail stays visible on
+  both light and dark glass without getting heavier. no doc change — visual
+  contrast fix.
 - **feat(learning,graph): tool-widening safety case, boot-time recall, graph UI
   polish.** Added the evidence-gated `self_improvement/widening.py` ratification
   package (read/compute only, refusal by default) with its spec and tests; startup
