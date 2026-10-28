@@ -97,6 +97,39 @@ def widening_stage(
     }
 
 
+@router.post("/evolution/widening/{proposal_id}/evidence")
+def widening_evidence(
+    proposal_id: str,
+    body: dict[str, Any],
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..self_improvement.widening_queue import WideningProposalStore  # noqa: PLC0415
+
+    key = str(body.get("key") or "").strip()
+    proposal = WideningProposalStore(service.store).attach_evidence(
+        proposal_id, key, body.get("detail") if isinstance(body.get("detail"), dict) else {},
+    )
+    return {
+        "success": proposal is not None,
+        "proposal": proposal,
+        "note": "evidence only; no tool is granted or applied",
+    }
+
+
+@router.post("/evolution/widening/{proposal_id}/approve")
+def widening_approve(
+    proposal_id: str, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..self_improvement.widening_queue import WideningProposalStore  # noqa: PLC0415
+
+    proposal = WideningProposalStore(service.store).approve(proposal_id)
+    return {
+        "success": proposal is not None,
+        "proposal": proposal,
+        "note": "approved for application; no runtime surface changed by this route",
+    }
+
+
 @router.post("/evolution/widening/{proposal_id}/withdraw")
 def widening_withdraw(
     proposal_id: str, _: bool = Depends(require_operator),

@@ -56,6 +56,54 @@ class WideningProposalStore:
         self._db.commit()
         return self.find(tool_name) or {"id": proposal_id, "toolName": tool_name}
 
+    def attach_evidence(
+        self, proposal_id: str, key: str, detail: Optional[dict[str, Any]] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Mark one checklist item complete. No permission/grant is created."""
+        allowed = {"historicalReplay", "denyPath", "conclusionStability"}
+        if key not in allowed:
+            return None
+        row = self._db.execute(
+            "SELECT * FROM WideningProposal WHERE id=?", (proposal_id,),
+        ).fetchone()
+        if row is None or row["status"] not in ("needs_evidence", "ready_for_ratification"):
+            return None
+        evidence = json.loads(row["evidence"] or "{}")
+        required = dict(evidence.get("required") or {})
+        required[key] = True
+        details = dict(evidence.get("details") or {})
+        details[key] = dict(detail or {})
+        evidence["required"] = required
+        evidence["details"] = details
+        ready = all(bool(required.get(item)) for item in allowed)
+        status = "ready_for_ratification" if ready else "needs_evidence"
+        self._db.execute(
+            "UPDATE WideningProposal SET evidence=?, status=? WHERE id=?",
+            (json.dumps(evidence), status, proposal_id),
+        )
+        self._db.commit()
+        return self.find_by_id(proposal_id)
+
+    def find_by_id(self, proposal_id: str) -> Optional[dict[str, Any]]:
+        row = self._db.execute(
+            "SELECT * FROM WideningProposal WHERE id=?", (proposal_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def approve(self, proposal_id: str) -> Optional[dict[str, Any]]:
+        """Record operator approval. Application is a separate, later action."""
+        row = self._db.execute(
+            "SELECT * FROM WideningProposal WHERE id=?", (proposal_id,),
+        ).fetchone()
+        if row is None or row["status"] != "ready_for_ratification":
+            return None
+        self._db.execute(
+            "UPDATE WideningProposal SET status='approved_pending_application' WHERE id=?",
+            (proposal_id,),
+        )
+        self._db.commit()
+        return self.find_by_id(proposal_id)
+
     def withdraw(self, proposal_id: str) -> bool:
         cursor = self._db.execute(
             "UPDATE WideningProposal SET status='withdrawn' WHERE id=? AND status='needs_evidence'",

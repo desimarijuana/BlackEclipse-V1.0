@@ -52,8 +52,13 @@ def test_stage_eligible_tools_without_granting(tmp_path):
         again = stage_proposals(store, registry, granted_tools=())
         assert any(item["reason"] == "already_staged" for item in again["skipped"])
 
-        assert WideningProposalStore(store).withdraw(proposal["id"]) is True
-        saved = WideningProposalStore(store).find("market_read_test")
-        assert saved["status"] == "withdrawn"
+        proposals = WideningProposalStore(store)
+        assert proposals.attach_evidence(proposal["id"], "historicalReplay", {"runs": 5})["status"] == "needs_evidence"
+        assert proposals.attach_evidence(proposal["id"], "denyPath", {"refused": True})["status"] == "needs_evidence"
+        ready = proposals.attach_evidence(proposal["id"], "conclusionStability", {"stable": True})
+        assert ready["status"] == "ready_for_ratification"
+        approved = proposals.approve(proposal["id"])
+        assert approved["status"] == "approved_pending_application"
+        assert proposals.withdraw(proposal["id"]) is False
     finally:
         store.close()
