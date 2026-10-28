@@ -68,6 +68,45 @@ def decide_rsl_autonomy(
     return {"success": True, "decision": decision, "activates": False}
 
 
+@router.get("/evolution/widening")
+def widening_list(
+    limit: int = 100, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..self_improvement.widening_queue import WideningProposalStore  # noqa: PLC0415
+
+    return {"success": True, "proposals": WideningProposalStore(service.store).list(limit=limit)}
+
+
+@router.post("/evolution/widening/stage")
+def widening_stage(
+    body: Optional[dict[str, Any]] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..agents import get_agent  # noqa: PLC0415
+    from ..self_improvement.widening_queue import stage_proposals  # noqa: PLC0415
+
+    agent = get_agent("eclipse-agent")
+    return {
+        "success": True,
+        **stage_proposals(
+            service.store, service.registry, agent.tools or (),
+            limit=int((body or {}).get("limit") or 5),
+            staged_by="operator",
+            ttl_days=int((body or {}).get("ttlDays") or 14),
+        ),
+    }
+
+
+@router.post("/evolution/widening/{proposal_id}/withdraw")
+def widening_withdraw(
+    proposal_id: str, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    from ..self_improvement.widening_queue import WideningProposalStore  # noqa: PLC0415
+
+    ok = WideningProposalStore(service.store).withdraw(proposal_id)
+    return {"success": ok, "proposalId": proposal_id, "withdrawn": ok}
+
+
 @router.get("/evolution/tool-contracts")
 def tool_contract_shadow(
     _: bool = Depends(require_operator),
