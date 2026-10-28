@@ -16,6 +16,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from ..deps import require_operator, service
+from ..advisory.backfill import backfill_entry_prices, legacy_report
 
 router = APIRouter(tags=["advisory"])
 
@@ -95,6 +96,32 @@ async def advisory_cadence(
 ) -> dict[str, Any]:
     """Status of the unattended advisory-outcome scorer."""
     return {"success": True, **service.advisory_cadence_status()}
+
+
+@router.get("/advisory/legacy")
+async def advisory_legacy(
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Read-only reasons the legacy rows cannot be scored."""
+    return {"success": True, **legacy_report(_ledger().store)}
+
+
+@router.post("/advisory/backfill-entry-prices")
+async def advisory_backfill_entry_prices(
+    body: Optional[dict[str, Any]] = Body(default=None),
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Provenance-bound historical entry-price backfill (dry-run first)."""
+    gateway = None
+    getter = getattr(service, "server_market_gateway", None)
+    if callable(getter):
+        gateway = getter()
+    result = await backfill_entry_prices(
+        _ledger(), gateway,
+        dry_run=bool((body or {}).get("dryRun", True)),
+        limit=int((body or {}).get("limit") or 50),
+    )
+    return {"success": bool(result.get("ok")), **result}
 
 
 @router.post("/advisory/cadence/run")

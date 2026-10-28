@@ -18,8 +18,9 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `POST /advisory/backfill-entry-prices` (operator-gated, dry-run first) fetches
   a real historical bar at the decision's creation time and stores it with
   source/as-of provenance; a missing bar is a named skip, and existing prices
-  are never overwritten. The live 14 legacy rows stay unscorable (no horizon, no
-  price, non-tradable symbols). Tests: `test_advisory_backfill.py`.
+  are never overwritten; dry-run is the default and applying requires an
+  explicit `dryRun:false`. The live 14 legacy rows stay unscorable (no horizon,
+  no price, non-tradable symbols). Tests: `test_advisory_backfill.py`.
 - **feat(advisory): add a bounded unattended outcome-scoring cadence.**
   `advisory/cadence.py` scores due, priced recommendations on an interval,
   skips no-price/not-due rows with named counts, makes no market request when

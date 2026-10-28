@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS AdvisoryDecision (
   truthReason    TEXT,
   method         TEXT,
   horizon        TEXT,
-  dueAt          TEXT
+  dueAt          TEXT,
+  legacyUnscored INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_advisory_decision_created ON AdvisoryDecision(createdAt);
 CREATE INDEX IF NOT EXISTS idx_advisory_decision_portfolio ON AdvisoryDecision(portfolioId);
@@ -96,7 +97,22 @@ class AdvisoryStore:
                 self._db.execute(
                     f"ALTER TABLE AdvisoryDecision ADD COLUMN {column} TEXT"
                 )
+        if "legacyUnscored" not in existing:
+            self._db.execute(
+                "ALTER TABLE AdvisoryDecision ADD COLUMN legacyUnscored "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
         self._db.commit()
+
+    def mark_legacy_unscored(self, since: str) -> int:
+        """Mark pre-contract recommendations as history; never invent outcomes."""
+        cursor = self._db.execute(
+            "UPDATE AdvisoryDecision SET legacyUnscored=1 "
+            "WHERE legacyUnscored=0 AND createdAt < ?",
+            (since,),
+        )
+        self._db.commit()
+        return int(cursor.rowcount or 0)
 
     # ── Decisions ────────────────────────────────────────────────────────────
     def upsert_decision(self, decision: dict[str, Any]) -> dict[str, Any]:
@@ -288,6 +304,11 @@ class AdvisoryStore:
             "method": row["method"] if "method" in row.keys() else None,
             "horizon": row["horizon"] if "horizon" in row.keys() else None,
             "dueAt": row["dueAt"] if "dueAt" in row.keys() else None,
+            "legacyUnscored": (
+                int(row["legacyUnscored"])
+                if "legacyUnscored" in row.keys() and row["legacyUnscored"] is not None
+                else 0
+            ),
         }
 
     @staticmethod
