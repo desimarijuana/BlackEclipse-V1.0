@@ -22,7 +22,7 @@ from typing import Any, Callable, Optional
 from ..schemas import ModelSettings, RunInput, RunRequest
 from . import commands
 from .config import channel_model_settings, confirmation_ttl_seconds, resolve_secret_like
-from .model import ChannelBinding, DispatchResult, new_id, scope_allows
+from .model import Attachment, ChannelBinding, DispatchResult, new_id, scope_allows
 from .store import ChannelStore
 
 log = logging.getLogger("harness.channels.dispatch")
@@ -60,11 +60,17 @@ class ChannelDispatcher:
         self._config_for = config_for
 
     # ── entry ────────────────────────────────────────────────────────────────
-    async def dispatch(self, binding: ChannelBinding, message_text: str) -> DispatchResult:
+    async def dispatch(
+        self,
+        binding: ChannelBinding,
+        message_text: str,
+        *,
+        attachments: Optional[list[Attachment]] = None,
+    ) -> DispatchResult:
         parsed = commands.parse(message_text)
         if parsed.is_command:
             return await self._dispatch_command(binding, parsed)
-        return await self._agent_turn(binding, parsed.raw)
+        return await self._agent_turn(binding, parsed.raw, attachments=attachments)
 
     async def _dispatch_command(self, binding: ChannelBinding, parsed: commands.ParsedCommand) -> DispatchResult:
         spec = commands.spec_for(parsed.verb)
@@ -140,7 +146,13 @@ class ChannelDispatcher:
             api_key=resolve_secret_like(self._secrets(), override.get("apiKey")) or base.api_key,
         )
 
-    async def _agent_turn(self, binding: ChannelBinding, text: str) -> DispatchResult:
+    async def _agent_turn(
+        self,
+        binding: ChannelBinding,
+        text: str,
+        *,
+        attachments: Optional[list[Attachment]] = None,
+    ) -> DispatchResult:
         if not scope_allows(binding.scope, "assistant"):
             return DispatchResult(
                 status="denied",
@@ -150,14 +162,20 @@ class ChannelDispatcher:
                 ),
             )
         query = str(text or "").strip()
+        attachment_block = _attachment_context(attachments or [])
+        if attachment_block:
+            query = f"{query}\n\n{attachment_block}".strip()
         if not query:
             return DispatchResult(status="error", reply="Send a question or /help.")
         run_id = new_id("chr")
+        context: dict[str, Any] = {"channel": binding.kind, "bindingId": binding.id}
+        if attachments:
+            context["attachments"] = [attachment.to_dict() for attachment in attachments]
         request = RunRequest(
             runId=run_id,
             input=RunInput(
                 query=query[:4000],
-                context={"channel": binding.kind, "bindingId": binding.id},
+                context=context,
             ),
             agentId=str(self._config_for(binding.kind).get("agentId") or "eclipse-agent"),
             modelSettings=self._model_settings(binding),
@@ -362,6 +380,32 @@ def _is_expired(iso: str) -> bool:
         return when <= datetime.now(timezone.utc)
     except (TypeError, ValueError):
         return True
+
+
+def _attachment_context(attachments: list[Attachment]) -> str:
+    """A compact, honest note about files the user attached.
+
+    The channel never silently downloads or executes an attachment. The agent
+    gets metadata and a provider reference so it can ask the user or use an
+    authenticated tool; it must not invent file contents.
+    """
+    if not attachments:
+        return ""
+    lines = ["Attachments (metadata only — do not invent their contents):"]
+    for attachment in attachments:
+        label = attachment.name or attachment.id or "attachment"
+        details: list[str] = []
+        if attachment.mime_type:
+            details.append(attachment.mime_type)
+        if attachment.size is not None:
+            details.append(f"{attachment.size} bytes")
+        reference = attachment.url or attachment.provider_data.get("file_key") or attachment.provider_data.get(
+            "resource_name"
+        )
+        if reference:
+            details.append(f"ref={reference}")
+        lines.append(f"- {label}" + (f": {', '.join(details)}" if details else ""))
+    return "\n".join(lines)
 
 
 __all__ = ["ChannelDispatcher"]

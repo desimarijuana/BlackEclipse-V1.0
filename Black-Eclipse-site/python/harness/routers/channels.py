@@ -11,17 +11,23 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+import hmac
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from ..channels import verify as channel_verify
+from ..channels.attachments import attachment_from_api
+from ..channels.providers import google_chat as channel_google_chat
+from ..channels.providers import lark as channel_lark
+from ..channels.providers import teams as channel_teams
 from ..channels.providers import webhooks as channel_webhooks
 
 from ..channels.bootstrap import channel_service, install_channel_layer
 from ..channels.model import CHANNEL_KINDS, CONTROL_SCOPES, InboundMessage
+from ..channels.registry import PUSH_KINDS
 from ..deps import identity_for, require_operator, service
 
 router = APIRouter(tags=["channels"], prefix="/channels")
@@ -46,10 +52,18 @@ class BindingScopeRequest(BaseModel):
     scope: str
 
 
+class SendAttachmentRequest(BaseModel):
+    name: str = ""
+    mimeType: str = ""  # noqa: N815
+    url: str = ""
+    contentBase64: str = ""  # noqa: N815
+
+
 class SendRequest(BaseModel):
     kind: str
     chat: str
-    text: str = Field(..., min_length=1, max_length=4000)
+    text: str = Field("", max_length=4000)
+    attachments: list[SendAttachmentRequest] = Field(default_factory=list, max_length=10)
 
 
 class InboundRequest(BaseModel):
@@ -148,7 +162,26 @@ async def send_outbound(body: SendRequest, _: bool = Depends(require_operator)) 
         raise HTTPException(status_code=503, detail="channel gateway unavailable")
     if body.kind not in CHANNEL_KINDS:
         raise HTTPException(status_code=400, detail=f"unknown channel kind: {body.kind}")
-    result = await svc.send_outbound(body.kind, body.chat, body.text)
+    attachments = [
+        attachment_from_api(
+            name=item.name,
+            mime_type=item.mimeType,
+            url=item.url,
+            content_base64=item.contentBase64,
+        )
+        for item in body.attachments
+    ]
+    for attachment in attachments:
+        if attachment.data is None and not attachment.url.startswith("https://"):
+            raise HTTPException(
+                status_code=400,
+                detail="each attachment needs valid contentBase64 or an https URL",
+            )
+    if not body.text.strip() and not attachments:
+        raise HTTPException(status_code=400, detail="send requires text or an attachment")
+    result = await svc.send_outbound(
+        body.kind, body.chat, body.text, attachments=attachments or None
+    )
     return {"success": True, **result}
 
 
@@ -199,8 +232,21 @@ def revoke_binding(binding_id: str, _: bool = Depends(require_operator)) -> dict
 # ── public webhook receivers (signature-verified, NOT operator-gated) ─────────
 # A push provider (Slack/WhatsApp/generic) is an EXTERNAL service; it cannot send
 # the operator token. Authenticity is proven by an HMAC over the RAW body under a
-# per-channel secret. A missing/mismatched signature is refused.
-_PUSH_KINDS = {"slack", "whatsapp", "webhook"}
+# per-channel secret. A missing/mismatched signature is refused. The set is
+# registry-derived so a new push provider cannot be silently unreachable.
+_PUSH_KINDS = PUSH_KINDS
+
+
+def _enqueue(svc: Any, message: InboundMessage, background: BackgroundTasks) -> bool:
+    """Claim synchronously, process after the ACK.
+
+    External providers retry when an ACK is slow, and an agent turn can take
+    seconds. The claim is the idempotency gate; the turn runs after the 200.
+    """
+    accepted = svc.accept_inbound(message)
+    if accepted:
+        background.add_task(svc.process_inbound, message)
+    return accepted
 
 
 @router.get("/webhook/{kind}")
@@ -224,7 +270,9 @@ async def webhook_verify(kind: str, request: Request) -> PlainTextResponse:
 
 
 @router.post("/webhook/{kind}")
-async def webhook_inbound(kind: str, request: Request) -> dict[str, Any]:
+async def webhook_inbound(
+    kind: str, request: Request, background: BackgroundTasks
+) -> dict[str, Any]:
     if kind not in _PUSH_KINDS:
         raise HTTPException(status_code=404, detail=f"unknown webhook channel: {kind}")
     svc = _channels()
@@ -247,9 +295,8 @@ async def webhook_inbound(kind: str, request: Request) -> dict[str, Any]:
         if payload.get("type") == "url_verification":
             return {"challenge": payload.get("challenge", "")}
         message = channel_webhooks.parse_slack(payload)
-        if message is not None:
-            await svc.handle_inbound(message)
-        return {"ok": True}
+        accepted = _enqueue(svc, message, background)
+        return {"ok": True, "duplicate": message is not None and not accepted}
 
     if kind == "whatsapp":
         secret = svc.secret_value("whatsapp", "appSecret")
@@ -257,9 +304,69 @@ async def webhook_inbound(kind: str, request: Request) -> dict[str, Any]:
             secret, body=body, signature=headers.get("x-hub-signature-256")
         ):
             raise HTTPException(status_code=403, detail="invalid whatsapp signature")
-        for message in channel_webhooks.parse_whatsapp(_safe_json(body)):
-            await svc.handle_inbound(message)
-        return {"ok": True}
+        messages = channel_webhooks.parse_whatsapp(_safe_json(body))
+        accepted = 0
+        for message in messages:
+            if _enqueue(svc, message, background):
+                accepted += 1
+        return {"ok": True, "accepted": accepted, "duplicate": bool(messages) and accepted == 0}
+
+    if kind == "teams":
+        app_id = svc.secret_value("teams", "appId")
+        token = _bearer(headers.get("authorization"))
+        if not channel_verify.verify_teams(token, app_id=app_id):
+            raise HTTPException(status_code=403, detail="invalid teams token")
+        message = channel_teams.parse_activity(_safe_json(body))
+        accepted = _enqueue(svc, message, background) if message is not None else False
+        return {"ok": True, "duplicate": message is not None and not accepted}
+
+    if kind == "google_chat":
+        audience = svc.secret_value("google_chat", "projectNumber") or svc.secret_value(
+            "google_chat", "pubsubAudience"
+        )
+        if not audience:
+            raise HTTPException(status_code=503, detail="google chat inbound requires a project number / audience")
+        token = _bearer(headers.get("authorization"))
+        if not channel_verify.verify_google_chat(token, audience=audience):
+            raise HTTPException(status_code=403, detail="invalid google chat token")
+        message = channel_google_chat.parse_event(_safe_json(body))
+        accepted = _enqueue(svc, message, background) if message is not None else False
+        return {"ok": True, "duplicate": message is not None and not accepted}
+
+    if kind == "lark":
+        payload = _safe_json(body)
+        encrypt_key = svc.secret_value("lark", "encryptKey")
+        if payload.get("encrypt"):
+            if not encrypt_key:
+                raise HTTPException(status_code=403, detail="lark payload is encrypted but no encrypt key is configured")
+            if not channel_verify.verify_lark(
+                encrypt_key,
+                timestamp=headers.get("x-lark-request-timestamp"),
+                nonce=headers.get("x-lark-request-nonce"),
+                body=body,
+                signature=headers.get("x-lark-signature"),
+            ):
+                raise HTTPException(status_code=403, detail="invalid lark signature")
+            decrypted = channel_verify.decrypt_lark(encrypt_key, str(payload.get("encrypt")))
+            if decrypted is None:
+                raise HTTPException(status_code=403, detail="invalid lark ciphertext")
+            payload = decrypted
+        else:
+            expected = svc.secret_value("lark", "verificationToken")
+            if not expected and not encrypt_key:
+                raise HTTPException(
+                    status_code=403,
+                    detail="lark inbound requires a verification token or encrypt key",
+                )
+            provided = (payload.get("header") or {}).get("token") or payload.get("token") or ""
+            if expected and not hmac.compare_digest(str(expected), str(provided)):
+                raise HTTPException(status_code=403, detail="invalid lark verification token")
+
+        if payload.get("type") == "url_verification":
+            return {"challenge": payload.get("challenge", "")}
+        message = channel_lark.parse_event(payload)
+        accepted = _enqueue(svc, message, background) if message is not None else False
+        return {"ok": True, "duplicate": message is not None and not accepted}
 
     # generic webhook
     secret = svc.secret_value("webhook", "webhookSecret")
@@ -270,8 +377,13 @@ async def webhook_inbound(kind: str, request: Request) -> dict[str, Any]:
     message = channel_webhooks.parse_generic(_safe_json(body))
     if message is None:
         raise HTTPException(status_code=400, detail="webhook body must include externalId and text")
-    result = await svc.handle_inbound(message)
-    return {"ok": True, "duplicate": result is None}
+    accepted = _enqueue(svc, message, background)
+    return {"ok": True, "duplicate": not accepted}
+
+
+def _bearer(value: Optional[str]) -> str:
+    raw = str(value or "").strip()
+    return raw[7:].strip() if raw.lower().startswith("bearer ") else ""
 
 
 def _safe_json(body: bytes) -> dict[str, Any]:

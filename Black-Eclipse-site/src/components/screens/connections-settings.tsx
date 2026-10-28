@@ -12,8 +12,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  Activity, AlertCircle, Check, ChatsCircle, Copy, DiscordLogo, Link2, Loader2, Mail,
-  RefreshCcw, ShieldCheck, SlackLogo, TelegramLogo, Trash2, Webhook, WhatsappLogo,
+  Activity, AlertCircle, Check, ChatsCircle, Copy, DiscordLogo, GoogleLogo, Link2, Loader2, Mail,
+  MicrosoftTeamsLogo, RefreshCcw, ShieldCheck, SlackLogo, TelegramLogo, Trash2, Webhook, WhatsappLogo,
 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -48,7 +48,7 @@ interface FieldSpec {
 interface KindSpec {
   kind: ChannelKind;
   label: string;
-  inbound: "poll" | "push";
+  inbound: "poll" | "push" | "both";
   note: string;
   fields: FieldSpec[];
 }
@@ -88,11 +88,13 @@ const KINDS: KindSpec[] = [
   {
     kind: "slack",
     label: "Slack",
-    inbound: "push",
-    note: "A Slack app with Event Subscriptions pointing at the webhook URL below; paste the bot token and signing secret.",
+    inbound: "both",
+    note: "Socket Mode needs a bot token + app-level token and no public URL. For the Events webhook path, add the signing secret and point Event Subscriptions at the webhook URL below.",
     fields: [
       { key: "botToken", label: "Bot token (xoxb-…)", secret: true },
+      { key: "appToken", label: "App-level token (xapp-…)", secret: true },
       { key: "signingSecret", label: "Signing secret", secret: true },
+      { key: "defaultChannel", label: "Default channel ID" },
     ],
   },
   {
@@ -105,6 +107,47 @@ const KINDS: KindSpec[] = [
       { key: "phoneNumberId", label: "Phone number id" },
       { key: "appSecret", label: "App secret", secret: true },
       { key: "verifyToken", label: "Verify token", secret: true },
+    ],
+  },
+  {
+    kind: "teams",
+    label: "Microsoft Teams",
+    inbound: "push",
+    note: "Register an Azure Bot, paste the app id + password, and point the Bot Framework messaging endpoint at the webhook URL below.",
+    fields: [
+      { key: "appId", label: "Bot app ID" },
+      { key: "appPassword", label: "Bot app password", secret: true },
+      { key: "tenantId", label: "Tenant ID (common = multi-tenant)" },
+      { key: "defaultConversationId", label: "Default conversation ID" },
+      { key: "defaultServiceUrl", label: "Default service URL" },
+    ],
+  },
+  {
+    kind: "google_chat",
+    label: "Google Chat",
+    inbound: "push",
+    note: "A Chat app with HTTP endpoint delivery. Paste service-account JSON (or enable ADC) and the project number used as the JWT audience.",
+    fields: [
+      { key: "credentialsJson", label: "Service-account JSON / key path", secret: true },
+      { key: "useAdc", label: "Use ADC (true/false)" },
+      { key: "projectNumber", label: "Project number" },
+      { key: "defaultSpaceId", label: "Default space ID (spaces/…)" },
+      { key: "pubsubAudience", label: "Pub/Sub audience (optional)" },
+    ],
+  },
+  {
+    kind: "lark",
+    label: "Lark / Feishu",
+    inbound: "both",
+    note: "WebSocket mode needs only the app id + secret (install the optional lark-oapi extra) and no public URL. For webhook delivery, subscribe to im.message.receive_v1 and set the verification token / encrypt key.",
+    fields: [
+      { key: "appId", label: "App ID" },
+      { key: "appSecret", label: "App secret", secret: true },
+      { key: "defaultChatId", label: "Default chat ID" },
+      { key: "verificationToken", label: "Verification token", secret: true },
+      { key: "encryptKey", label: "Encrypt key", secret: true },
+      { key: "domain", label: "Domain (open.feishu.cn / open.larksuite.com)" },
+      { key: "useWebsocket", label: "Use WebSocket (true/false)" },
     ],
   },
   {
@@ -127,6 +170,9 @@ const CHANNEL_META: Record<ChannelKind, { icon: React.ElementType; accent: strin
   email: { icon: Mail, accent: "text-amber-400", tint: "border-amber-400/20 bg-amber-400/10" },
   slack: { icon: SlackLogo, accent: "text-violet-400", tint: "border-violet-400/20 bg-violet-400/10" },
   whatsapp: { icon: WhatsappLogo, accent: "text-emerald-400", tint: "border-emerald-400/20 bg-emerald-400/10" },
+  teams: { icon: MicrosoftTeamsLogo, accent: "text-indigo-400", tint: "border-indigo-400/20 bg-indigo-400/10" },
+  google_chat: { icon: GoogleLogo, accent: "text-sky-400", tint: "border-sky-400/20 bg-sky-400/10" },
+  lark: { icon: ChatsCircle, accent: "text-cyan-400", tint: "border-cyan-400/20 bg-cyan-400/10" },
   webhook: { icon: Webhook, accent: "text-rose-400", tint: "border-rose-400/20 bg-rose-400/10" },
 };
 
@@ -404,7 +450,7 @@ function ChannelCard({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <span className="hidden rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground sm:inline">
-            {entry.inbound === "push" ? "webhook" : "poll"}
+            {entry.inbound === "push" ? "webhook" : entry.inbound === "both" ? "socket + webhook" : "poll"}
           </span>
           {configured && (
             <Button variant="ghost" size="sm" onClick={() => void disable()} disabled={busy}>
@@ -430,7 +476,7 @@ function ChannelCard({
         </div>
       )}
 
-      {entry.inbound === "push" && (
+      {entry.inbound !== "poll" && (
         <div className="mt-3">
           <p className="mb-1 text-xs font-medium text-muted-foreground">Inbound webhook URL</p>
           <WebhookUrl kind={entry.kind} />

@@ -10,10 +10,14 @@ export const dynamic = "force-dynamic";
 // configured secret, so the body must be forwarded byte-for-byte — never parsed
 // or re-serialized here. The middleware exempts this prefix from the session gate.
 const FORWARD_HEADERS = [
+  "authorization",
   "x-slack-signature",
   "x-slack-request-timestamp",
   "x-hub-signature-256",
   "x-eclipse-signature",
+  "x-lark-request-timestamp",
+  "x-lark-request-nonce",
+  "x-lark-signature",
   "content-type",
 ];
 

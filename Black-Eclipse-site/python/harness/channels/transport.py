@@ -11,10 +11,10 @@ never inspects or stores it beyond the platform's own history.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Awaitable, Callable, Protocol, runtime_checkable
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable, Optional, Protocol, runtime_checkable
 
-from .model import InboundMessage
+from .model import Attachment, InboundMessage
 
 MessageHandler = Callable[[InboundMessage], Awaitable[None]]
 
@@ -24,6 +24,9 @@ class OutboundMessage:
     kind: str
     external_chat: str
     text: str
+    thread_id: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    attachments: list[Attachment] = field(default_factory=list)
 
 
 @runtime_checkable

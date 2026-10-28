@@ -55,7 +55,11 @@ def test_health_and_list(client):
     assert health["success"] and health["available"]
     listed = http.get("/channels").json()
     assert len(listed["channels"]) >= 1
-    assert any(c["channel"] == "telegram" for c in listed["channels"])
+    kinds = {c["channel"] for c in listed["channels"]}
+    assert {"telegram", "slack", "whatsapp", "teams", "google_chat", "lark"} <= kinds
+    team = next(c for c in listed["channels"] if c["channel"] == "teams")
+    assert team["label"] == "Microsoft Teams"
+    assert team["inboundMode"] == "push"
 
 
 def test_configure_and_redaction(client):
@@ -189,3 +193,92 @@ def test_whatsapp_verification_handshake(client):
         params={"hub.mode": "subscribe", "hub.verify_token": "wrong", "hub.challenge": "CH"},
     )
     assert bad.status_code == 403
+
+
+# -- push providers added from Minara (Teams / Google Chat / Lark) ----------
+def test_teams_webhook_accepts_valid_activity(client, monkeypatch):
+    from harness.routers import channels as channels_router
+
+    http, stub = client
+    stub.channels.store.set_config("teams", enabled=True, config={"appId": "app"})
+    monkeypatch.setattr(channels_router.channel_verify, "verify_teams", lambda *a, **k: True)
+    payload = {
+        "type": "message",
+        "id": "a1",
+        "text": "hi",
+        "from": {"id": "29:u", "aadObjectId": "aad"}, 
+        "recipient": {"id": "28:bot"},
+        "conversation": {"id": "conv-1"},
+        "serviceUrl": "https://smba.trafficmanager.net/emea/",
+    }
+    first = http.post("/channels/webhook/teams", json=payload, headers={"Authorization": "Bearer t"})
+    assert first.status_code == 200 and first.json()["ok"]
+    assert first.json()["duplicate"] is False
+    second = http.post("/channels/webhook/teams", json=payload, headers={"Authorization": "Bearer t"})
+    assert second.json()["duplicate"] is True
+
+
+def test_google_chat_webhook_accepts_valid_event(client, monkeypatch):
+    from harness.routers import channels as channels_router
+
+    http, stub = client
+    stub.channels.store.set_config("google_chat", enabled=True, config={"projectNumber": "123"})
+    monkeypatch.setattr(channels_router.channel_verify, "verify_google_chat", lambda *a, **k: True)
+    payload = {
+        "type": "MESSAGE",
+        "user": {"name": "users/1", "displayName": "Sam"},
+        "space": {"name": "spaces/A"},
+        "message": {"name": "spaces/A/messages/1", "argumentText": "hi"},
+    }
+    res = http.post("/channels/webhook/google_chat", json=payload, headers={"Authorization": "Bearer t"})
+    assert res.status_code == 200 and res.json()["ok"]
+
+
+def test_lark_webhook_verifies_token_and_parses(client):
+    http, stub = client
+    stub.channels.store.set_config("lark", enabled=True, config={"appId": "a", "verificationToken": "vt"})
+    payload = {
+        "schema": "2.0",
+        "header": {"event_type": "im.message.receive_v1", "token": "vt"},
+        "event": {
+            "sender": {"sender_id": {"open_id": "ou_1"}, "sender_type": "user"},
+            "message": {"message_id": "om_1", "chat_id": "oc_1", "message_type": "text", "content": "{\"text\":\"hi\"}"},
+        },
+    }
+    ok = http.post("/channels/webhook/lark", json=payload)
+    assert ok.status_code == 200 and ok.json()["ok"]
+
+    bad_payload = {**payload, "header": {**payload["header"], "token": "wrong"}}
+    assert http.post("/channels/webhook/lark", json=bad_payload).status_code == 403
+
+
+def test_lark_encrypted_without_key_is_refused(client):
+    http, stub = client
+    stub.channels.store.set_config("lark", enabled=True, config={"appId": "a"})
+    assert http.post("/channels/webhook/lark", json={"encrypt": "abc"}).status_code == 403
+
+def test_send_accepts_attachment_without_text(client):
+    http, _ = client
+    res = http.post("/channels/send", json={
+        "kind": "telegram",
+        "chat": "1",
+        "attachments": [{"name": "a.pdf", "mimeType": "application/pdf", "contentBase64": "cGRm"}],
+    })
+    assert res.status_code == 200
+    assert res.json()["ok"] is False  # not configured, but the request is valid
+
+
+def test_send_requires_text_or_attachment(client):
+    http, _ = client
+    res = http.post("/channels/send", json={"kind": "telegram", "chat": "1"})
+    assert res.status_code == 400
+
+def test_send_rejects_unsafe_attachment_url(client):
+    http, _ = client
+    res = http.post("/channels/send", json={
+        "kind": "telegram",
+        "chat": "1",
+        "text": "x",
+        "attachments": [{"name": "a.pdf", "mimeType": "application/pdf", "url": "http://insecure/a.pdf"}],
+    })
+    assert res.status_code == 400

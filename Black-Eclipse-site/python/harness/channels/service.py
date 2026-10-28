@@ -26,16 +26,18 @@ from .config import (
 from .secrets import ChannelSecrets, SecretUnavailable
 from .dispatch import ChannelDispatcher
 from .identity import claim_link_code, create_link_code
-from .model import CHANNEL_KINDS, ChannelBinding, DispatchResult, InboundMessage, new_id
+from .model import Attachment, CHANNEL_KINDS, ChannelBinding, DispatchResult, InboundMessage, new_id
+from .provider import ProviderContext
+from .registry import POLL_KINDS, build_provider, is_configured, spec_for
 from .store import ChannelStore
 from .transport import OutboundMessage
 
 log = logging.getLogger("harness.channels.service")
 
-# Kinds that own a background poll/stream task. Push providers (slack, whatsapp,
-# webhook) receive inbound at the webhook route and need only an outbound
-# transport, so they are registered without a task.
-_POLL_KINDS = {"telegram", "discord", "email"}
+# Registry-derived: kinds that own a background poll/stream task. Push
+# providers (slack, whatsapp, webhook) receive inbound at the webhook route and
+# need only an outbound transport, so they are registered without a task.
+_POLL_KINDS = POLL_KINDS
 
 # Bound for an outbound send via the one-sender primitive.
 _MAX_OUTBOUND = 4000
@@ -101,8 +103,27 @@ class ChannelService:
         # Sensitive keys present in the vault are echoed as a redacted PRESENCE
         # marker, so the UI can say "configured" without ever seeing a value.
         view = {**plain, **{name: REDACTED for name in names}}
+        spec = spec_for(kind)
         return {
             "channel": kind,
+            "label": spec.label if spec else kind,
+            "description": spec.description if spec else "",
+            "inboundMode": spec.inbound_mode if spec else "none",
+            "fields": (
+                [
+                    {
+                        "key": field.key,
+                        "label": field.label,
+                        "secret": field.secret,
+                        "required": field.required,
+                        "placeholder": field.placeholder,
+                        "hint": field.hint,
+                    }
+                    for field in spec.config_fields
+                ]
+                if spec
+                else []
+            ),
             "enabled": bool(row and row["enabled"]),
             "configured": self._is_configured(kind, view),
             "config": redact_config(view),
@@ -115,18 +136,13 @@ class ChannelService:
         return [self.describe_config(kind) for kind in CHANNEL_KINDS]
 
     def _is_configured(self, kind: str, config: Optional[dict[str, Any]] = None) -> bool:
-        def _has(key: str) -> bool:
-            return bool(self.secret_value(kind, key))
+        """Registry-driven: every required field must resolve to a value.
 
-        if kind in ("telegram", "discord", "slack"):
-            return _has("botToken")
-        if kind == "email":
-            return _has("imapHost")
-        if kind == "whatsapp":
-            return _has("accessToken") and _has("phoneNumberId")
-        if kind == "webhook":
-            return _has("replyUrl")
-        return bool(config)
+        `config` is accepted for backward compatibility with callers that pass
+        the described view; presence is always proven through the vault-aware
+        resolver, never by trusting a redacted value.
+        """
+        return is_configured(kind, lambda key: self.secret_value(kind, key))
 
     def delete_config(self, kind: str) -> bool:
         self._stop_provider(kind)
@@ -180,17 +196,37 @@ class ChannelService:
         return self.store.revoke_binding(binding_id)
 
     # ── inbound ──────────────────────────────────────────────────────────────
-    async def handle_inbound(self, message: InboundMessage) -> Optional[DispatchResult]:
-        """Process one inbound message end-to-end. Returns None for a duplicate."""
+    def accept_inbound(self, message: InboundMessage) -> bool:
+        """Claim one inbound message idempotently.
+
+        The claim is synchronous and cheap, so a webhook can acknowledge a
+        provider immediately (providers retry on a slow ACK) and then hand the
+        message to `process_inbound` in the background. Returns False when this
+        platform message id was already claimed.
+        """
         if not message.platform_message_id:
             message.platform_message_id = new_id("chpm")
-        if not self.store.mark_seen(message.kind, message.platform_message_id):
-            return None  # idempotent: a re-delivered update is ignored
+        return self.store.mark_seen(message.kind, message.platform_message_id)
 
+    async def handle_inbound(self, message: InboundMessage) -> Optional[DispatchResult]:
+        """Process one inbound message end-to-end. Returns None for a duplicate."""
+        if not self.accept_inbound(message):
+            return None  # idempotent: a re-delivered update is ignored
+        return await self.process_inbound(message)
+
+    async def process_inbound(self, message: InboundMessage) -> DispatchResult:
+        """Process a message already claimed by `accept_inbound`."""
         binding = self.store.find_binding(message.kind, message.external_id)
         if binding is None or binding.status != "active":
             result = self._handle_unlinked(message)
-            await self._deliver(message.kind, message.external_chat, result.reply, binding_id=None)
+            await self._deliver(
+                message.kind,
+                message.external_chat,
+                result.reply,
+                binding_id=None,
+                thread_id=message.thread_id,
+                metadata=message.metadata,
+            )
             self._record(message, binding=None, result=result)
             return result
 
@@ -199,18 +235,34 @@ class ChannelService:
                 status="rate_limited",
                 reply="You're sending messages too quickly — please wait a moment.",
             )
-            await self._deliver(message.kind, message.external_chat, result.reply, binding_id=binding.id)
+            await self._deliver(
+                message.kind,
+                message.external_chat,
+                result.reply,
+                binding_id=binding.id,
+                thread_id=message.thread_id,
+                metadata=message.metadata,
+            )
             self._record(message, binding=binding, result=result)
             return result
 
         self.store.touch_binding(binding.id)
         try:
-            result = await self._dispatcher.dispatch(binding, message.text)
+            result = await self._dispatcher.dispatch(
+                binding, message.text, attachments=message.attachments
+            )
         except Exception as exc:  # noqa: BLE001 - a dispatch failure is an honest error
             log.warning("channel dispatch failed", exc_info=True)
             result = DispatchResult(status="error", reply=f"Something went wrong: {exc}")
 
-        await self._deliver(message.kind, message.external_chat, result.reply, binding_id=binding.id)
+        await self._deliver(
+            message.kind,
+            message.external_chat,
+            result.reply,
+            binding_id=binding.id,
+            thread_id=message.thread_id,
+            metadata=message.metadata,
+        )
         self._record(message, binding=binding, result=result)
         return result
 
@@ -250,14 +302,31 @@ class ChannelService:
         )
 
     # ── reply delivery ───────────────────────────────────────────────────────
-    async def _deliver(self, kind: str, chat: str, text: str, *, binding_id: Optional[str]) -> None:
+    async def _deliver(
+        self,
+        kind: str,
+        chat: str,
+        text: str,
+        *,
+        binding_id: Optional[str],
+        thread_id: Optional[str] = None,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> None:
         if not text:
             return
         transport = self._outbound.get(kind)
         delivered = False
         if transport is not None:
             try:
-                delivered = await transport.send(OutboundMessage(kind=kind, external_chat=chat, text=text))
+                delivered = await transport.send(
+                    OutboundMessage(
+                        kind=kind,
+                        external_chat=chat,
+                        text=text,
+                        thread_id=thread_id,
+                        metadata=metadata or {},
+                    )
+                )
             except Exception:  # noqa: BLE001 - a delivery failure is logged, not raised
                 log.warning("channel delivery failed for %s", kind, exc_info=True)
         self._record_outbound(kind, chat, binding_id, text, delivered)
@@ -305,7 +374,14 @@ class ChannelService:
             log.debug("channel audit failed", exc_info=True)
 
     # ── one-sender primitive ─────────────────────────────────────────────────
-    async def send_outbound(self, kind: str, external_chat: str, text: str) -> dict[str, Any]:
+    async def send_outbound(
+        self,
+        kind: str,
+        external_chat: str,
+        text: str,
+        *,
+        attachments: Optional[list[Attachment]] = None,
+    ) -> dict[str, Any]:
         """Send one outbound message through a configured channel's transport.
 
         This is the ONE outbound sender: any subsystem (or the operator API) can
@@ -316,7 +392,8 @@ class ChannelService:
         if kind not in CHANNEL_KINDS:
             raise ValueError(f"unknown channel kind: {kind}")
         body = str(text or "").strip()
-        if not body:
+        files = list(attachments or [])
+        if not body and not files:
             return {"ok": False, "reason": "empty message"}
         if not external_chat:
             return {"ok": False, "reason": "no destination"}
@@ -325,12 +402,17 @@ class ChannelService:
             return {"ok": False, "reason": "channel is not configured"}
         try:
             sent = await provider.send(
-                OutboundMessage(kind=kind, external_chat=external_chat, text=body[:_MAX_OUTBOUND])
+                OutboundMessage(
+                    kind=kind,
+                    external_chat=external_chat,
+                    text=body[:_MAX_OUTBOUND],
+                    attachments=files,
+                )
             )
         except Exception:  # noqa: BLE001 - a send failure is reported, not raised
             log.warning("channel outbound send failed", exc_info=True)
             sent = False
-        self._record_outbound(kind, external_chat, None, body, bool(sent))
+        self._record_outbound(kind, external_chat, None, body or f"[{len(files)} attachment(s)]", bool(sent))
         return {"ok": bool(sent)}
 
     # ── provider lifecycle ───────────────────────────────────────────────────
@@ -393,74 +475,13 @@ class ChannelService:
             self._start_provider(kind)
 
     def _build_provider(self, kind: str) -> Any:
-        cfg = self.config_for(kind)
-
-        def _s(key: str) -> str:
-            return self.secret_value(kind, key)
-
-        if kind == "telegram":
-            token = _s("botToken")
-            if not token:
-                log.info("telegram channel enabled but no bot token configured")
-                return None
-            from .providers.telegram import TelegramProvider  # noqa: PLC0415
-
-            return TelegramProvider(bot_token=token)
-        if kind == "discord":
-            token = _s("botToken")
-            if not token:
-                log.info("discord channel enabled but no bot token configured")
-                return None
-            from .providers.discord import DiscordProvider  # noqa: PLC0415
-
-            return DiscordProvider(bot_token=token)
-        if kind == "email":
-            host = _s("imapHost")
-            if not host:
-                log.info("email channel enabled but no IMAP host configured")
-                return None
-            from .providers.email import EmailProvider  # noqa: PLC0415
-
-            return EmailProvider(
-                imap_host=host,
-                imap_user=_s("imapUser"),
-                imap_pass=_s("imapPass"),
-                imap_port=int(cfg.get("imapPort") or 993),
-                smtp_host=_s("smtpHost"),
-                smtp_port=int(cfg.get("smtpPort") or 587),
-                smtp_user=_s("smtpUser"),
-                smtp_pass=_s("smtpPass"),
-                from_address=_s("fromAddress"),
-                poll_seconds=int(cfg.get("pollSeconds") or 60),
+        return build_provider(
+            ProviderContext(
+                kind=kind,
+                config=self.config_for(kind),
+                secret=lambda key: self.secret_value(kind, key),
             )
-        if kind == "slack":
-            token = _s("botToken")
-            if not token:
-                log.info("slack channel enabled but no bot token configured")
-                return None
-            from .providers.webhooks import SlackProvider  # noqa: PLC0415
-
-            return SlackProvider(bot_token=token)
-        if kind == "whatsapp":
-            token, phone = _s("accessToken"), _s("phoneNumberId")
-            if not token or not phone:
-                log.info("whatsapp channel enabled but no access token / phone number id configured")
-                return None
-            from .providers.webhooks import WhatsappProvider  # noqa: PLC0415
-
-            return WhatsappProvider(
-                access_token=token, phone_number_id=phone,
-                api_version=str(cfg.get("apiVersion") or "v21.0"),
-            )
-        if kind == "webhook":
-            url = _s("replyUrl")
-            if not url:
-                log.info("webhook channel enabled but no reply URL configured")
-                return None
-            from .providers.webhooks import WebhookProvider  # noqa: PLC0415
-
-            return WebhookProvider(reply_url=url, token=_s("replyToken"))
-        return None
+        )
 
     # ── introspection ────────────────────────────────────────────────────────
     def list_messages(self, *, kind: Optional[str] = None, binding_id: Optional[str] = None, limit: int = 100) -> list[dict[str, Any]]:

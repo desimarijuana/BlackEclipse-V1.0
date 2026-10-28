@@ -1,8 +1,9 @@
 """Channel Gateway contracts — the vocabulary for remote control.
 
 A *channel* is an external messaging surface (Telegram, Discord, Email, Slack,
-WhatsApp, a generic webhook) that a user can connect to Eclipse so they can see
-and drive the application from where they already are.
+WhatsApp, Microsoft Teams, Google Chat, Lark/Feishu, a generic webhook) that a
+user can connect to Eclipse so they can see and drive the application from
+where they already are.
 
 The trust model is the whole point of this module:
 
@@ -20,16 +21,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-# The closed vocabulary of supported channel kinds. Adding a provider means
-# adding its kind here and shipping a transport adapter under `providers/`.
-CHANNEL_KINDS: tuple[str, ...] = (
-    "telegram",
-    "discord",
-    "email",
-    "slack",
-    "whatsapp",
-    "webhook",
-)
+# The closed vocabulary of supported channel kinds is derived from the provider
+# registry, so a kind and its contract can never drift apart.
+from .registry import KINDS as CHANNEL_KINDS  # noqa: E402
 
 # Control scopes, ordered least → most privileged. A binding carries exactly one.
 CONTROL_SCOPES: tuple[str, ...] = ("viewer", "assistant", "operator")
@@ -89,6 +83,36 @@ class ChannelBinding:
 
 
 @dataclass
+class Attachment:
+    """Provider-neutral attachment metadata.
+
+    A channel surfaces what the platform sent; it does not silently download or
+    execute a file. The agent sees the name, type, size and (when available) a
+    provider reference so it can ask the user or use an authenticated tool.
+    """
+
+    id: str = ""
+    name: str = ""
+    mime_type: str = ""
+    size: Optional[int] = None
+    url: str = ""
+    provider_data: dict[str, Any] = field(default_factory=dict)
+    # Bytes are only present for an outbound send; never serialized into a
+    # message history or an API response.
+    data: Optional[bytes] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "mimeType": self.mime_type,
+            "size": self.size,
+            "url": self.url,
+            "providerData": self.provider_data,
+        }
+
+
+@dataclass
 class InboundMessage:
     """A normalized inbound message from a provider adapter."""
 
@@ -99,6 +123,9 @@ class InboundMessage:
     platform_message_id: str
     display_name: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
+    thread_id: Optional[str] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    attachments: list[Attachment] = field(default_factory=list)
 
 
 @dataclass
@@ -179,6 +206,7 @@ class DispatchResult:
 
 
 __all__ = [
+    "Attachment",
     "BINDING_STATUSES",
     "CHANNEL_KINDS",
     "CONFIRMATION_STATUSES",

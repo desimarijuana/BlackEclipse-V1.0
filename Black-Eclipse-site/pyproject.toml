@@ -39,6 +39,15 @@ providers = [
   "langchain-groq>=0.2",
 ]
 mcp = ["mcp>=2,<3"]
+# Channel Gateway extras: Socket Mode/WebSocket inbound, encrypted channel
+# secrets, and the Google/Microsoft JWT + token flows used by the adapters.
+channels = [
+  "cryptography>=42",
+  "PyJWT[crypto]>=2.8",
+  "google-auth>=2.30",
+  "websockets>=12",
+  "lark-oapi>=1.4",
+]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
 
 [project.urls]

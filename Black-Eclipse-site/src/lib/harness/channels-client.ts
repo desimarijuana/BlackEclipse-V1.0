@@ -9,11 +9,33 @@ import { runtimeCallbackToken } from "./runtime-auth";
 import { HarnessRuntimeUnavailable } from "./python-client";
 import { redactSecrets } from "./errors";
 
-export type ChannelKind = "telegram" | "discord" | "email" | "slack" | "whatsapp" | "webhook";
+export type ChannelKind =
+  | "telegram"
+  | "discord"
+  | "email"
+  | "slack"
+  | "whatsapp"
+  | "teams"
+  | "google_chat"
+  | "lark"
+  | "webhook";
 export type ControlScope = "viewer" | "assistant" | "operator";
+
+export interface ChannelFieldView {
+  key: string;
+  label: string;
+  secret: boolean;
+  required: boolean;
+  placeholder: string;
+  hint: string;
+}
 
 export interface ChannelConfigView {
   channel: ChannelKind;
+  label?: string;
+  description?: string;
+  inboundMode?: "poll" | "push" | "both" | "none";
+  fields?: ChannelFieldView[];
   enabled: boolean;
   configured: boolean;
   config: Record<string, unknown>;

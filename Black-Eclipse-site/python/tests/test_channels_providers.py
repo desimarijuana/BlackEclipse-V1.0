@@ -119,3 +119,75 @@ def test_email_ignores_own_and_bulk():
     raw = _raw_email() + b""
     bulk = b"From: a@b.com\r\nPrecedence: bulk\r\nMessage-ID: <m2>\r\n\r\nx\r\n"
     assert provider._to_inbound(bulk) is None  # noqa: SLF001
+
+def test_parse_whatsapp_media():
+    payload = {
+        "entry": [{"changes": [{"value": {
+            "contacts": [{"wa_id": "1555", "profile": {"name": "Sam"}}],
+            "messages": [{
+                "from": "1555", "id": "wamid.2", "type": "document",
+                "document": {"id": "media-1", "filename": "a.pdf", "mime_type": "application/pdf", "caption": "see this"},
+            }],
+        }}]}],
+    }
+    messages = parse_whatsapp(payload)
+    assert len(messages) == 1
+    assert messages[0].text == "see this"
+    assert messages[0].attachments[0].id == "media-1"
+    assert messages[0].attachments[0].mime_type == "application/pdf"
+
+class _WaResp:
+    def __init__(self, payload: dict, status: int = 200) -> None:
+        self._payload = payload
+        self.status_code = status
+
+    @property
+    def content(self) -> bytes:
+        return b"x"
+
+    def json(self) -> dict:
+        return self._payload
+
+
+class _WaClient:
+    calls: list[dict] = []
+
+    def __init__(self, **kwargs) -> None:  # noqa: ANN003
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):  # noqa: ANN002
+        return False
+
+    async def post(self, url, **kwargs):  # noqa: ANN003
+        _WaClient.calls.append({"url": url, **kwargs})
+        if url.endswith("/media"):
+            return _WaResp({"id": "media-1"})
+        return _WaResp({"messages": [{"id": "wamid.1"}]})
+
+
+async def test_whatsapp_send_attachment_uploads_media(monkeypatch):
+    from harness.channels.model import Attachment
+    from harness.channels.providers import webhooks as webhooks_mod
+    from harness.channels.providers.webhooks import WhatsappProvider
+    from harness.channels.transport import OutboundMessage
+
+    monkeypatch.setattr(webhooks_mod.httpx, "AsyncClient", _WaClient)
+    _WaClient.calls = []
+    provider = WhatsappProvider(access_token="t", phone_number_id="p")
+    ok = await provider.send(
+        OutboundMessage(
+            kind="whatsapp",
+            external_chat="1555",
+            text="see attached",
+            attachments=[Attachment(name="a.pdf", mime_type="application/pdf", data=b"pdf")],
+        )
+    )
+    assert ok is True
+    assert any(call["url"].endswith("/media") for call in _WaClient.calls)
+    message = next(call for call in _WaClient.calls if call["url"].endswith("/messages"))
+    assert message["json"]["type"] == "document"
+    assert message["json"]["document"]["id"] == "media-1"
+    assert message["json"]["document"]["caption"] == "see attached"

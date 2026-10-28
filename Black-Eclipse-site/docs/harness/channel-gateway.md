@@ -92,9 +92,17 @@ Providers split by transport (ADR-H200):
 | `telegram` | pull | `getUpdates` long-poll + `sendMessage` | **No** |
 | `discord` | pull | Gateway WebSocket bot + REST | **No** |
 | `email` | pull | IMAP poll + SMTP replies | **No** |
-| `slack` | push | Events API (signed) + Web API replies | **Yes** |
+| `slack` | both | Socket Mode (no public URL) or Events API (signed) + Web API replies | **No / Yes** |
+| `lark` | both | WebSocket long connection (`lark-oapi`) or event webhook (verified/decrypted) + IM API replies | **No / Yes** |
+| `teams` | push | Bot Framework webhook (JWT verified) + connector replies | **Yes** |
+| `google_chat` | push | Chat app webhook (Google JWT verified) + Chat API replies | **Yes** |
 | `whatsapp` | push | Cloud API (signed) + Graph API replies | **Yes** |
 | `webhook` | push | signed generic inbound + HTTP reply | **Yes** |
+
+The provider contract is declared once in `channels/provider.py` +
+`channels/registry.py`: kind, label, inbound mode, config fields, required
+credentials and capabilities. The service, webhook router and Connections UI all
+read from that registry, so adding a provider is a spec + a factory.
 
 **Pull channels** need no public endpoint, so `npm install && npm run dev` stays
 zero-config. **Push channels** receive inbound at the ONE public route
@@ -107,10 +115,77 @@ The Next.js middleware exempts `/api/channels/webhook/` from the session gate; t
 front-door route forwards the raw body byte-for-byte plus only the signature
 headers.
 
-Push config fields: Slack `botToken` + `signingSecret`; WhatsApp `accessToken` +
-`phoneNumberId` + `appSecret` + `verifyToken`; generic `replyUrl` +
-`replyToken` + `webhookSecret`. Pull config: Telegram/Discord `botToken`; Email
-IMAP/SMTP host/user/pass + `fromAddress`.
+Config fields (all visible in Settings → Connections):
+
+- Telegram / Discord: `botToken`.
+- Email: IMAP/SMTP host/user/pass + `fromAddress`.
+- Slack: `botToken`, `appToken` (Socket Mode), `signingSecret` (webhook only),
+  `defaultChannel`.
+- Lark: `appId`, `appSecret`, `defaultChatId`, `verificationToken`,
+  `encryptKey`, `domain`, `useWebsocket`.
+- Teams: `appId`, `appPassword`, `tenantId`, `defaultConversationId`,
+  `defaultServiceUrl`.
+- Google Chat: `credentialsJson` (or `useAdc`), `projectNumber`,
+  `defaultSpaceId`, `pubsubAudience`.
+- WhatsApp: `accessToken`, `phoneNumberId`, `appSecret`, `verifyToken`.
+- Webhook: `replyUrl`, `replyToken`, `webhookSecret`.
+
+### Provider setup guide
+
+| Provider | Required credentials | Inbound setup |
+|---|---|---|
+| Slack | bot token + app-level token | Enable Socket Mode; subscribe to `message`/`app_mention`. Webhook fallback needs the signing secret + Event Subscriptions URL. |
+| Lark | app id + app secret | Preferred: install `lark-oapi` (the `channels` extra) and keep `useWebsocket=true`. Webhook fallback: subscribe to `im.message.receive_v1`, set verification token and optional encrypt key. |
+| Teams | bot app id + app password | Azure Bot messaging endpoint = `/api/channels/webhook/teams`. JWT is validated against Bot Framework OpenID metadata; `serviceUrl` must be a Microsoft host. |
+| Google Chat | service-account JSON (or ADC) | Chat app HTTP endpoint = `/api/channels/webhook/google_chat`; `projectNumber` is the expected JWT audience. |
+| WhatsApp | access token + phone number id + app secret + verify token | Meta webhook URL = `/api/channels/webhook/whatsapp`. |
+
+The public webhook base is the app origin, e.g.
+`https://your-host/api/channels/webhook/{kind}`. Slack Socket Mode and Lark
+WebSocket need **no** public URL.
+
+### Public URL (Teams / Google Chat / WhatsApp)
+
+Eclipse is local-first; these three providers need a public HTTPS origin that
+forwards to the Next.js app (default `http://127.0.0.1:3000`). A tunnel is
+enough for a single user:
+
+```bash
+cloudflared tunnel --url http://127.0.0.1:3000
+# or: ngrok http 3000
+```
+
+Use the tunnel's HTTPS origin as the webhook base in each provider console:
+`https://<tunnel-host>/api/channels/webhook/teams` (and likewise
+`/google_chat`, `/whatsapp`). Do **not** point providers at the Python runtime
+port `8765`; the Next.js route is the signature-preserving entry point.
+`HARNESS_CALLBACK_URL` is a different setting (runtime → app callback), not the
+public webhook origin.
+
+### Attachments
+
+Inbound attachments are normalized into provider-neutral metadata
+(`Attachment`: name, MIME type, size, reference). The agent receives that
+metadata in the turn context (plus a compact note in the query) and is told not
+to invent contents; the channel never silently downloads or executes a file.
+
+Outbound files are supported by `POST /channels/send`:
+
+```json
+{
+  "kind": "slack",
+  "chat": "C123",
+  "text": "see attached",
+  "attachments": [
+    {"name": "report.pdf", "mimeType": "application/pdf", "contentBase64": "..."},
+    {"name": "chart.png", "mimeType": "image/png", "url": "https://..."}
+  ]
+}
+```
+
+Limits: 10 files per send, 10 MB per file, HTTPS-only URLs, no redirects.
+Slack, Lark, Google Chat, Teams, WhatsApp and the generic webhook upload or
+attach natively; other providers currently send text only.
 
 (WhatsApp ships the official Cloud API path; the unofficial local
 Baileys/WhatsApp Web path is deliberately not included.)
@@ -161,10 +236,10 @@ exactly like `jobs` and `automation`. See `channels/config.py`.
 | POST | `/channels/bindings/{id}/scope` | Change a binding's scope |
 | DELETE | `/channels/bindings/{id}` | Revoke a binding |
 | POST | `/channels/inbound` | Ingest a normalized message (operator; UI/tests) |
-| POST | `/channels/send` | Send one outbound message through a configured channel (the ONE sender) |
+| POST | `/channels/send` | Send text and/or up to 10 files through a configured channel (the ONE sender) |
 | GET | `/channels/messages` | Recent inbound/outbound history |
 | GET | `/channels/webhook/{kind}` | Public provider handshake (WhatsApp `hub.challenge`) |
-| POST | `/channels/webhook/{kind}` | Public signed inbound (slack/whatsapp/webhook) |
+| POST | `/channels/webhook/{kind}` | Public signed inbound (slack/lark/teams/google_chat/whatsapp/webhook) |
 
 ### The one-sender primitive
 
@@ -197,4 +272,11 @@ history; outbound replies are never announced.
 ## Tests
 
 `python/tests/test_channels_core.py` (store/identity/dispatch/confirmation),
-`python/tests/test_channels_api.py` (the `/channels/*` surface).
+`python/tests/test_channels_api.py` (the `/channels/*` surface),
+`python/tests/test_channels_registry.py` (registry + fast ACK),
+`test_channels_{slack,lark,teams,google_chat}.py` (provider parsing, signatures,
+token caching and outbound payloads).
+
+`python/scripts/channels_smoke.py` is the live smoke runner (`--health`,
+`--list`, `--link KIND`, `--send KIND CHAT TEXT`). It talks to a running runtime
+with `HARNESS_PY_URL` (default `http://127.0.0.1:8765`) and `CRON_SECRET`.
