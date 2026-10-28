@@ -49,11 +49,14 @@ from .models import (
     FXRate,
     FundingRate,
     HistoricalPriceSeries,
+    LiquidationStats,
+    LongShortRatio,
     MarketCap,
     MarketMeta,
     OpenInterest,
     OptionsChain,
     OptionContract,
+    OnchainMetric,
     OrderBook,
     OrderBookLevel,
     OHLCVBar,
@@ -61,6 +64,7 @@ from .models import (
     Supply,
     Trade,
     TradeTape,
+    TvlSnapshot,
     VolumeStats,
 )
 from .quality import evaluate
@@ -752,6 +756,84 @@ class MarketDataGateway:
             enrich_bond(result)
         return result
 
+    async def get_tvl(
+        self, symbol: str, market: Optional[str] = None, *, chain: Optional[str] = None,
+        freshness: str = "daily",
+    ) -> Any:
+        """DeFi total value locked for a protocol ticker or a chain name.
+
+        A protocol/chain is a self-describing identity (like FX/crypto), so this
+        does not require a JDDS instrument row. An unknown identifier is a
+        structured error, never a zero.
+        """
+        clean = (symbol or "").strip().upper()
+        if not clean:
+            return MarketError(INVALID_REQUEST, "a protocol ticker or chain name is required")
+        instrument = CanonicalInstrument(
+            instrument_id=f"TVL:{clean}", symbol=clean, asset_type="crypto",
+            market=(market or "CRYPTO").upper(), bridge_resolved=False,
+        )
+        return await self._dispatch(
+            "tvl", instrument, {"chain": chain}, freshness=freshness,
+            normalize=_normalize_tvl,
+        )
+
+    async def get_onchain_metric(
+        self, address: str, *, chain: str = "ethereum", freshness: str = "intraday",
+    ) -> Any:
+        """Account-scoped on-chain metrics for an EVM address.
+
+        The address is the identity; there is no instrument-master lookup. The
+        adapter validates the address and the chain, so a malformed request is
+        reported rather than silently returning zeros.
+        """
+        clean = (address or "").strip()
+        if not clean:
+            return MarketError(INVALID_REQUEST, "an on-chain address is required")
+        instrument = CanonicalInstrument(
+            instrument_id=f"ONCHAIN:{chain}:{clean}", symbol=clean, asset_type="crypto",
+            market="CRYPTO", bridge_resolved=False,
+        )
+        return await self._dispatch(
+            "onchain", instrument, {"address": clean, "chain": chain},
+            freshness=freshness, normalize=_normalize_onchain,
+        )
+
+    async def get_liquidations(
+        self, symbol: str, market: Optional[str] = None, *, exchange: Optional[str] = None,
+        window: str = "24h", freshness: str = "intraday",
+    ) -> Any:
+        """Forced-liquidation totals for a coin on one futures exchange."""
+        clean = (symbol or "").strip().upper()
+        if not clean:
+            return MarketError(INVALID_REQUEST, "a coin symbol is required")
+        instrument = CanonicalInstrument(
+            instrument_id=f"LIQ:{clean}", symbol=clean, asset_type="crypto",
+            market=(market or "CRYPTO").upper(), bridge_resolved=False,
+        )
+        return await self._dispatch(
+            "liquidations", instrument, {"exchange": exchange, "window": window},
+            freshness=freshness, normalize=_normalize_liquidations,
+        )
+
+    async def get_long_short_ratio(
+        self, symbol: str, market: Optional[str] = None, *, exchange: Optional[str] = None,
+        interval: str = "1h", limit: int = 48, freshness: str = "intraday",
+    ) -> Any:
+        """Global long/short account ratio history for a futures pair."""
+        clean = (symbol or "").strip().upper()
+        if not clean:
+            return MarketError(INVALID_REQUEST, "a coin symbol is required")
+        instrument = CanonicalInstrument(
+            instrument_id=f"LS:{clean}", symbol=clean, asset_type="crypto",
+            market=(market or "CRYPTO").upper(), bridge_resolved=False,
+        )
+        return await self._dispatch(
+            "long_short", instrument,
+            {"exchange": exchange, "interval": interval, "limit": limit},
+            freshness=freshness, normalize=_normalize_long_short,
+        )
+
 
 # ── Normalizers (bridge payload → canonical record) ──────────────────────────
 def _normalize_for(capability: str, payload: Any, instrument: CanonicalInstrument,
@@ -1026,6 +1108,61 @@ def _normalize_bond(payload, instrument, provider, freshness) -> BondData:
         convexity=payload.get("convexity"), spread=payload.get("spread"),
         rating=payload.get("rating"), issuer=payload.get("issuer"),
         tenor=payload.get("tenor"), series_type=payload.get("seriesType"), raw=payload,
+    )
+
+
+def _normalize_tvl(payload, instrument, provider, freshness) -> TvlSnapshot:
+    event_time, obs = _observation(payload)
+    meta = _meta("tvl", instrument, payload, provider=provider, event_time=event_time,
+                 observation_source=obs, freshness=freshness)
+    chain_tvls = payload.get("chainTvls") or {}
+    return TvlSnapshot(
+        meta=meta, protocol=payload.get("protocol"), chain=payload.get("chain"),
+        tvl_usd=payload.get("tvlUsd"), change_24h_pct=payload.get("change24hPct"),
+        change_7d_pct=payload.get("change7dPct"),
+        chain_tvls={str(k): float(v) for k, v in chain_tvls.items()
+                    if isinstance(v, (int, float))} if isinstance(chain_tvls, dict) else {},
+        timestamp=event_time, raw=payload,
+    )
+
+
+def _normalize_onchain(payload, instrument, provider, freshness) -> OnchainMetric:
+    event_time, obs = _observation(payload)
+    meta = _meta("onchain", instrument, payload, provider=provider, event_time=event_time,
+                 observation_source=obs, freshness=freshness)
+    return OnchainMetric(
+        meta=meta, address=payload.get("address"), chain=payload.get("chain"),
+        native_balance=payload.get("nativeBalance"), tx_count=payload.get("txCount"),
+        latest_block=payload.get("latestBlock"),
+        account_type=payload.get("accountType"), owner_program=payload.get("ownerProgram"),
+        executable=payload.get("executable"), timestamp=event_time, raw=payload,
+    )
+
+
+def _normalize_liquidations(payload, instrument, provider, freshness) -> LiquidationStats:
+    event_time, obs = _observation(payload)
+    meta = _meta("liquidations", instrument, payload, provider=provider, event_time=event_time,
+                 observation_source=obs, freshness=freshness)
+    windows = payload.get("windows") or {}
+    return LiquidationStats(
+        meta=meta, exchange=payload.get("exchange"), window=payload.get("window"),
+        total_usd=payload.get("totalUsd"), long_usd=payload.get("longUsd"),
+        short_usd=payload.get("shortUsd"),
+        windows={str(k): v for k, v in windows.items() if isinstance(v, dict)}
+        if isinstance(windows, dict) else {},
+        timestamp=event_time, raw=payload,
+    )
+
+
+def _normalize_long_short(payload, instrument, provider, freshness) -> LongShortRatio:
+    event_time, obs = _observation(payload)
+    meta = _meta("long_short", instrument, payload, provider=provider, event_time=event_time,
+                 observation_source=obs, freshness=freshness)
+    return LongShortRatio(
+        meta=meta, exchange=payload.get("exchange"), interval=payload.get("interval"),
+        long_percent=payload.get("longPercent"), short_percent=payload.get("shortPercent"),
+        long_short_ratio=payload.get("longShortRatio"),
+        series=payload.get("series") or [], timestamp=event_time, raw=payload,
     )
 
 

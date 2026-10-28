@@ -1,11 +1,12 @@
 """Agent-facing market-data tools.
 
-Fourteen tools, each calling the Market Data Gateway — never a provider. Names
+Eighteen tools, each calling the Market Data Gateway — never a provider. Names
 match the directive exactly:
 
     get_quote, get_historical_prices, get_ohlcv, get_volume, get_orderbook,
     get_trades, get_market_cap, get_supply, get_funding_rate,
     get_open_interest, get_options_chain, get_fx_rate, get_bond_data,
+    get_tvl, get_onchain_metric, get_liquidations, get_long_short_ratio,
     stream_market_data
 
 Every tool:
@@ -390,6 +391,43 @@ async def get_bond_data(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     return _finish(ctx, result, "bonds")
 
 
+async def get_tvl(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    result = await _gateway(ctx).get_tvl(
+        str(args.get("symbol", "")), args.get("market"),
+        chain=args.get("chain"),
+        freshness=_parse_freshness(args.get("freshness") or "daily"),
+    )
+    return _finish(ctx, result, "tvl")
+
+
+async def get_onchain_metric(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    result = await _gateway(ctx).get_onchain_metric(
+        str(args.get("address") or args.get("symbol") or ""),
+        chain=str(args.get("chain") or "ethereum"),
+        freshness=_parse_freshness(args.get("freshness") or "intraday"),
+    )
+    return _finish(ctx, result, "onchain")
+
+
+async def get_liquidations(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    result = await _gateway(ctx).get_liquidations(
+        str(args.get("symbol", "")), args.get("market"),
+        exchange=args.get("exchange"), window=str(args.get("window") or "24h"),
+        freshness=_parse_freshness(args.get("freshness") or "intraday"),
+    )
+    return _finish(ctx, result, "liquidations")
+
+
+async def get_long_short_ratio(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    result = await _gateway(ctx).get_long_short_ratio(
+        str(args.get("symbol", "")), args.get("market"),
+        exchange=args.get("exchange"), interval=str(args.get("interval") or "1h"),
+        limit=int(args.get("limit") or 48),
+        freshness=_parse_freshness(args.get("freshness") or "intraday"),
+    )
+    return _finish(ctx, result, "long_short")
+
+
 async def stream_market_data(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     """Subscribe to / sample / inspect a real-time market stream.
 
@@ -673,7 +711,7 @@ async def history_catalog(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
 
 
 def register_market_tools(registry: Any) -> None:
-    """Register the fourteen market-data tools on the shared registry."""
+    """Register the eighteen market-data tools on the shared registry."""
     from ..tools import ToolDefinition
 
     def _def(name: str, description: str, handler: Any, schema: dict[str, Any], timeout: int) -> None:
@@ -873,6 +911,63 @@ def register_market_tools(registry: Any) -> None:
             "freshness": {"type": "string"},
         }, "required": ["symbol"]},
         20_000,
+    )
+    _def(
+        "get_tvl",
+        "Get DeFi total value locked (TVL) for a protocol ticker (AAVE, UNI, LDO…) or a "
+        "chain name (Ethereum, Solana, Arbitrum…). Per-chain breakdown is returned when "
+        "the provider supplies it; an unknown identifier is UNAVAILABLE, never zero.",
+        get_tvl,
+        {"type": "object", "properties": {
+            "symbol": {"type": "string", "description": "Protocol ticker or chain name."},
+            "market": {"type": "string"},
+            "chain": {"type": "string", "description": "Explicit chain when requesting chain TVL."},
+            "freshness": {"type": "string"},
+        }, "required": ["symbol"]},
+        15_000,
+    )
+    _def(
+        "get_onchain_metric",
+        "Get account-scoped on-chain metrics for an EVM address (native balance, "
+        "transaction count, latest block). Chain defaults to ethereum. Requires an "
+        "Etherscan key; without one the result is an honest UNAVAILABLE.",
+        get_onchain_metric,
+        {"type": "object", "properties": {
+            "address": {"type": "string", "description": "0x… EVM address."},
+            "chain": {"type": "string", "description": "ethereum | arbitrum | optimism | polygon | base | bsc | avalanche."},
+            "freshness": {"type": "string"},
+        }, "required": ["address"]},
+        15_000,
+    )
+    _def(
+        "get_liquidations",
+        "Get futures forced-liquidation totals for a coin on one exchange (1h/4h/12h/24h "
+        "long vs short, USD). Requires a CoinGlass key; without one the result is an "
+        "honest UNAVAILABLE, never a zero.",
+        get_liquidations,
+        {"type": "object", "properties": {
+            "symbol": {"type": "string", "description": "Coin symbol, e.g. BTC."},
+            "market": {"type": "string"},
+            "exchange": {"type": "string", "description": "Futures exchange, default Binance."},
+            "window": {"type": "string", "description": "Reported window (24h is the headline)."},
+            "freshness": {"type": "string"},
+        }, "required": ["symbol"]},
+        15_000,
+    )
+    _def(
+        "get_long_short_ratio",
+        "Get the global long/short account ratio history for a futures pair (long %, "
+        "short %, ratio, series). Requires a CoinGlass key; absent it is UNAVAILABLE.",
+        get_long_short_ratio,
+        {"type": "object", "properties": {
+            "symbol": {"type": "string", "description": "Coin symbol, e.g. BTC (mapped to BTCUSDT)."},
+            "market": {"type": "string"},
+            "exchange": {"type": "string", "description": "Futures exchange, default Binance."},
+            "interval": {"type": "string", "description": "1m,5m,15m,30m,1h,4h,12h,1d,1w."},
+            "limit": {"type": "integer", "description": "Points to return (default 48, max 1000)."},
+            "freshness": {"type": "string"},
+        }, "required": ["symbol"]},
+        15_000,
     )
     _def(
         "stream_market_data",

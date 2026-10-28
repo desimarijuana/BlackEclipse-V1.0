@@ -90,6 +90,8 @@ export const WIDGET_MIN_HEIGHT: Record<string, number> = {
   'commodities': 260,
   'forex-pairs': 260,
   'crypto-markets': 260,
+  'crypto-tvl': 260,
+  'crypto-liquidations': 240,
   'polymarket': 300,
   'portfolio-summary': 280,
   'performance': 300,

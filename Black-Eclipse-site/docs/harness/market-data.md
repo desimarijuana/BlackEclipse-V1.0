@@ -1,7 +1,7 @@
 ---
 title: Market Data Layer
 status: Current
-last-verified: 2026-10-23
+last-verified: 2026-10-28
 ---
 
 # Market Data Layer
@@ -49,7 +49,7 @@ store, and ONE instrument master (the bridge's `market_snapshot`).
 
 ## Tools
 
-All fourteen tools are registered by `register_market_tools` and exposed on the
+All sixteen tools are registered by `register_market_tools` and exposed on the
 `eclipse-agent` allowlist. Each returns a text summary + a structured `data`
 dict and records provenance into the run's source collector.
 
@@ -68,6 +68,10 @@ dict and records provenance into the run's source collector.
 | `get_options_chain` | options | missing Greek = unavailable, never 0 |
 | `get_fx_rate` | fx | cross conversion labelled |
 | `get_bond_data` | bonds | Treasury yields via FRED |
+| `get_tvl` | tvl | protocol ticker or chain name; per-chain breakdown labelled |
+| `get_onchain_metric` | onchain | EVM or Solana account balance/metrics |
+| `get_liquidations` | liquidations | 1h/4h/12h/24h long vs short, USD |
+| `get_long_short_ratio` | long_short | global account long/short history |
 | `stream_market_data` | stream | real WebSocket, action=sample/subscribe/unsubscribe/snapshot |
 
 ## Providers
@@ -86,6 +90,47 @@ an adapter exists; catalogued-only providers are recorded honestly.
 | `stooq` | `providers/stooq.ts` | historical, ohlcv, quote | keyless |
 | `treasury` | `providers/treasury.ts` | bonds (Treasury tenors + ICE BofA corporate indices) | `FRED_API_KEY` (optional) |
 | `fx` (ECB) | `providers/ecb-fx.ts` | fx | keyless |
+| `defillama` | `providers/defillama.ts` | tvl (protocol + chain) | keyless |
+| `etherscan` | `providers/etherscan.ts` | onchain (EVM account metrics) | `ETHERSCAN_API_KEY` |
+| `hyperliquid` | `providers/hyperliquid.ts` | funding, open_interest (perps) | keyless |
+| `coinglass` | `providers/coinglass.ts` | liquidations, long_short | `COINGLASS_API_KEY` |
+| `solscan` | `providers/solscan.ts` | onchain (Solana account detail) | `SOLSCAN_API_KEY` |
+
+### Crypto / on-chain / alt-data pack
+
+The pack extends the market layer with two runnable adapters and catalogues the
+rest honestly (`implemented=False`, so the router never routes a call to a
+provider with no adapter):
+
+- **DefiLlama** (`tvl`, keyless): resolves a protocol ticker (`AAVE`, `UNI`…) or
+  a chain name (`Ethereum`, `Solana`) and returns protocol TVL, per-chain
+  breakdown and 24h change, dated from the provider's own series.
+- **Etherscan** (`onchain`, `ETHERSCAN_API_KEY`): EVM account balance, outbound
+  transaction count and latest block for one address. An absent key is
+  `AUTHENTICATION_FAILED`; a malformed address is `SYMBOL_NOT_FOUND` — never
+  zeros.
+- **CoinGlass** (`liquidations`, `long_short`, `COINGLASS_API_KEY`): futures
+  forced-liquidation totals per coin/exchange (1h/4h/12h/24h) and the global
+  long/short account-ratio history. Verified against the V4 docs; a non-`"0"`
+  envelope code is an honest error.
+- **Solscan** (`onchain`, `SOLSCAN_API_KEY`): Solana account detail (lamports,
+  account type, owner program). An EVM address is refused before any call, so
+  `etherscan → solscan` fallback is deterministic by address shape. Solscan does
+  not expose a tx count or block height on this endpoint, so those stay `None`.
+- **Hyperliquid** (`funding`, `open_interest`, keyless): public perps funding and
+  open interest via the read-only `info` endpoint. That endpoint is POST-only, so
+  the bridge gained one hardened `safePost` transport
+  (`connectors/security.ts`) with the same https-only / DNS-pinning / timeout /
+  response-size-cap guarantees as `safeGet`, plus a request-body cap and no
+  redirect following. It never signs, deposits or trades. Hyperliquid funds
+  hourly; the gateway's annualized figure is labelled derived. It deliberately
+  does not serve quote/order book: the instrument master has no spot/perp stamp,
+  so a perp book would masquerade as a spot fallback.
+
+New capabilities (`tvl`, `onchain`, `liquidations`, `long_short`) participate in
+the same router/quality/provenance path as every other capability; they have no
+bespoke bypass. `MarketDataRequest` carries the optional `address` and `chain`
+fields the on-chain/tvl adapters read.
 
 Equity **order books** (top-of-book NBBO) and **trades** are served by the keyed
 Polygon/Finnhub adapters; **equity streaming** is served by the keyed Finnhub
@@ -97,6 +142,22 @@ The Python runtime never holds a key for REST (the TS adapter does). For a KEYED
 *stream*, the socket URL/token is resolved by the `market_stream_config` bridge
 capability and handed to the authenticated runtime — the same trust boundary as
 `mcp_secret_resolve`; the token is never persisted or logged by Python.
+
+## UI surfaces for the pack
+
+The pack is reachable from the app without a chat round-trip through ONE
+read-only route: `GET /api/crypto/alt-data?capability=…&symbol=…` in
+`src/app/api/crypto/alt-data/route.ts`. It calls the SAME TS adapters as the
+agent (`fetchMarketData`), accepts `tvl | liquidations | long_short | onchain`,
+and returns the bridge envelope unchanged (an `UNAVAILABLE` is shown as such,
+never as zero). A 30s in-memory cache handles the UI's handful of symbols.
+
+- **Market Overview › Crypto** renders `CryptoAltData`
+  (`src/components/screens/crypto-alt-data.tsx`): cards for 24h liquidations,
+  long/short accounts and protocol TVL.
+- **Command Center catalog** adds `crypto-tvl` and `crypto-liquidations`
+  (`src/lib/dashboard/crypto-widgets.tsx`, registered in `registry.tsx`) so a
+  user can place them on any board.
 
 ## A chart fetches through this gateway too
 
@@ -345,3 +406,7 @@ no per-ticker special case.
   reported honestly as unavailable when no keyed provider supplies it.
 - **Polygon/Finnhub are keyed**: absent a credential their routes report
   `AUTHENTICATION_FAILED` (never fake data).
+- **On-chain/alt-data**: DefiLlama (keyless TVL), Etherscan (EVM account),
+  Solscan (Solana account), CoinGlass (liquidations/long-short, keyed) and
+  Hyperliquid (perps funding/OI, keyless) are runnable. Keyed providers report
+  `AUTHENTICATION_FAILED` without a credential, never fake data.

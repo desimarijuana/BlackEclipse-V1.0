@@ -19,6 +19,7 @@ from typing import Any, Optional
 CAPABILITIES: tuple[str, ...] = (
     "quote", "historical", "ohlcv", "volume", "orderbook", "trades",
     "market_cap", "supply", "funding", "open_interest", "options", "fx", "bonds",
+    "tvl", "onchain", "liquidations", "long_short",
 )
 
 
@@ -199,6 +200,66 @@ def default_providers() -> list[ProviderDescriptor]:
             intervals=("1m", "5m", "15m", "30m", "1h", "1d", "1w"),
             adjustments=True, timeliness="realtime", entitlement="freemium", upstream="finnhub",
             notes="Keyed equities + real-time trades over WebSocket.",
+        ),
+        # ── Crypto / on-chain / alt-data pack ────────────────────────────────
+        ProviderDescriptor(
+            id="defillama", label="DefiLlama (keyless)",
+            capabilities=("tvl",),
+            asset_types=("crypto",),
+            realtime=False, historical=True, streaming=False,
+            rate_limit=RateLimit(requests_per_minute=60, concurrency=2, cost_tier="free"),
+            intervals=("1d",), adjustments=False, timeliness="eod",
+            entitlement="keyless", upstream="defillama",
+            notes="Keyless protocol + chain TVL; a protocol is resolved from a "
+                  "ticker or chain name. No fabricated value when absent.",
+        ),
+        ProviderDescriptor(
+            id="etherscan", label="Etherscan V2 (multichain)",
+            capabilities=("onchain",),
+            asset_types=("crypto",),
+            realtime=True, historical=False, streaming=False,
+            credential_ref="ETHERSCAN_API_KEY",
+            rate_limit=RateLimit(requests_per_minute=60, concurrency=2, cost_tier="freemium"),
+            intervals=(), adjustments=False, timeliness="realtime",
+            entitlement="freemium", upstream="etherscan",
+            notes="Account balance / nonce / latest block for an EVM address. "
+                  "Requires ETHERSCAN_API_KEY; keyless requests fail honestly.",
+        ),
+        # Catalogued only: the credential exists, the native adapter does not.
+        # `implemented=False` makes the router skip them rather than fail a call.
+        ProviderDescriptor(
+            id="coinglass", label="CoinGlass (V4)",
+            capabilities=("liquidations", "long_short", "open_interest", "funding"),
+            asset_types=("crypto", "derivative"),
+            realtime=True, historical=True, streaming=False,
+            credential_ref="COINGLASS_API_KEY",
+            rate_limit=RateLimit(requests_per_minute=30, concurrency=2, cost_tier="paid"),
+            timeliness="realtime", entitlement="paid", upstream="coinglass",
+            notes="Liquidation coin list + global long/short account ratio. "
+                  "Requires COINGLASS_API_KEY; an absent key fails honestly.",
+        ),
+        ProviderDescriptor(
+            id="solscan", label="Solscan Pro API V2",
+            capabilities=("onchain",),
+            asset_types=("crypto",),
+            realtime=True, historical=False, streaming=False,
+            credential_ref="SOLSCAN_API_KEY",
+            rate_limit=RateLimit(requests_per_minute=30, concurrency=2, cost_tier="freemium"),
+            timeliness="realtime", entitlement="freemium", upstream="solscan",
+            notes="Solana account detail (lamports, account type, owner program). "
+                  "Requires SOLSCAN_API_KEY; EVM addresses are refused by the adapter.",
+        ),
+        ProviderDescriptor(
+            id="hyperliquid", label="Hyperliquid (read-only perps funding/OI)",
+            capabilities=("funding", "open_interest"),
+            asset_types=("crypto", "derivative"),
+            realtime=True, historical=True, streaming=False,
+            rate_limit=RateLimit(concurrency=2, cost_tier="free"),
+            timeliness="realtime", entitlement="keyless", upstream="hyperliquid",
+            notes="Perps funding and open interest via the read-only POST `info` "
+                  "endpoint (hardened `safePost`, no signing/trading). Funding is "
+                  "hourly; annualized is derived and labelled. Quote/order book are "
+                  "deliberately not served (would be a perp book as a spot fallback).",
         ),
     ]
 

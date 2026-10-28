@@ -38,6 +38,7 @@ import {
   ActiveAlertsWidget, AlertCountWidget, JournalPerformanceWidget,
   GlobalMarketsWidget, MarketStatusWidget,
 } from './widgets';
+import { CryptoTvlWidget, CryptoLiquidationsWidget } from './crypto-widgets';
 import {
   AssetChartWidget, EconomicDataChartWidget, FundPerformanceChartWidget, FundsComparisonChartWidget, MacroSnapshotWidget,
   TradingViewChartWidget, EclipseChartWidget,
@@ -139,6 +140,8 @@ const CORE_WIDGETS: WidgetDefinition[] = [
   mdef('market-indices', 'markets', 'Market Indices', 'Headline index quotes for the chosen market.', 'line-chart', ['medium', 'large'], (p) => <MarketIndicesWidget placement={p} />),
   def('forex-pairs', 'markets', 'Forex Pairs', 'EURUSD, GBPUSD, USDJPY and more.', 'droplets', ['medium', 'large'], () => <ForexPairsWidget />, ['market:forex']),
   def('crypto-markets', 'markets', 'Crypto Markets', 'BTC, ETH, BNB, SOL live prices.', 'coins', ['medium', 'large'], () => <CryptoMarketsWidget />, ['market:indices:CRYPTO']),
+  def('crypto-tvl', 'markets', 'DeFi TVL', 'Protocol total value locked (AAVE, UNI, LDO…) from DefiLlama.', 'layers', ['medium', 'large'], () => <CryptoTvlWidget />),
+  def('crypto-liquidations', 'markets', 'Crypto Liquidations', '24h long vs short forced liquidations for BTC/ETH/SOL (CoinGlass).', 'flame', ['medium', 'large'], () => <CryptoLiquidationsWidget />),
   def('commodities', 'markets', 'Commodities', 'Gold, Oil, Natural Gas, Copper.', 'flame', ['medium', 'large'], () => <CommoditiesWidget />, ['market:commodities']),
   mdef('sector-heatmap', 'markets', 'Sector Heatmap', 'Sector performance for the chosen market.', 'pie', ['medium', 'large'], (p) => <SectorHeatmapWidget placement={p} />),
   mdef('top-movers', 'markets', 'Top Movers', 'Biggest gainers and losers for the chosen market.', 'trending', ['medium', 'large'], (p) => <TopMoversWidget placement={p} />),

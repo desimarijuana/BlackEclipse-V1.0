@@ -27,7 +27,7 @@ import { useForex, useCommodities } from './use-market-tabs';
 import { GlobalMarketsOverview } from './market-overview-global-markets';
 import { MarketTables } from './market-tables';
 import { EarningsCalendar } from './earnings-calendar';
-import { StockCryptoTables } from './market-stock-tables';
+import { StockCryptoTables } from './market-stock-tables'; import { CryptoAltData } from './crypto-alt-data';
 import { FundEtfTables } from './market-fund-etf-tables';
 import { TableLoading } from './market-loaders';
 import { currencyCodeFor as currencyFor } from '@/lib/market-currency';
@@ -2650,7 +2650,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
           loadingCommodities={loadingCommodities}
           filteredCommodities={filteredCommodities}
         />
-
+        {screenerTab === 'crypto' && <CryptoAltData />}
         <StockCryptoTables
           screenerTab={screenerTab}
           sectionVisible={sectionVisible}

@@ -33,6 +33,10 @@ export interface MarketDataRequest {
   greeks?: boolean;
   seriesType?: string;
   history?: number;
+  /** On-chain account (EVM address) for the `onchain` capability. */
+  address?: string;
+  /** Chain name (ethereum, arbitrum…) for `onchain` / `tvl`. */
+  chain?: string;
 }
 
 /** A provider adapter. `fetch` returns the normalized payload or throws. */

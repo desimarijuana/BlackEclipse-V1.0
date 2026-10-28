@@ -140,6 +140,10 @@ export const PROVIDER_KEYS: ProviderKeyDef[] = [
     test: { url: 'https://api.coingecko.com/api/v3/ping', auth: { kind: 'header', name: 'x-cg-demo-api-key' } } },
   { envVar: 'COINMARKETCAP_API_KEY', label: 'CoinMarketCap', provider: 'CoinMarketCap', category: 'crypto', description: 'Crypto listings and quotes.', docsUrl: 'https://pro.coinmarketcap.com/account',
     test: { url: 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest?limit=1', auth: { kind: 'header', name: 'X-CMC_PRO_API_KEY' } } },
+  { envVar: 'ETHERSCAN_API_KEY', label: 'Etherscan', provider: 'Etherscan', category: 'crypto', description: 'On-chain balances, transactions and contract data (Etherscan V2 multichain).', docsUrl: 'https://etherscan.io/myapikey',
+    test: { url: 'https://api.etherscan.io/v2/api?chainid=1&module=stats&action=ethsupply', auth: { kind: 'query', name: 'apikey' } } },
+  { envVar: 'COINGLASS_API_KEY', label: 'CoinGlass', provider: 'CoinGlass', category: 'crypto', description: 'Liquidations, open interest, funding and long/short ratios. Catalogued; no native adapter yet.', docsUrl: 'https://www.coinglass.com/pricing' },
+  { envVar: 'SOLSCAN_API_KEY', label: 'Solscan', provider: 'Solscan', category: 'crypto', description: 'Solana accounts, tokens and transactions. Catalogued; no native adapter yet.', docsUrl: 'https://pro-api.solscan.io/' },
 
   // ── Economics & Macro ─────────────────────────────────────────────────────
   { envVar: 'FRED_API_KEY', label: 'FRED', provider: 'St. Louis Fed', category: 'economics', description: 'Full macro series access (public CSV works without a key).', docsUrl: 'https://fredaccount.stlouisfed.org/apikeys',

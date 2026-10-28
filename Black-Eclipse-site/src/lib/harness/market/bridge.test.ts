@@ -6,7 +6,7 @@ vi.mock("@/lib/scraper/fetchers/yfinance", () => ({
   fetchYahooBatchRaw: vi.fn(),
 }));
 vi.mock("@/lib/scraper/yahoo-chart", () => ({ fetchYahooChartSeries: vi.fn() }));
-vi.mock("@/lib/connectors/security", () => ({ safeGet: vi.fn() }));
+vi.mock("@/lib/connectors/security", () => ({ safeGet: vi.fn(), safePost: vi.fn() }));
 vi.mock("@/lib/provider-keys", () => ({ resolveProviderKey: vi.fn(async () => null) }));
 
 import { fetchYahooBatchRaw } from "@/lib/scraper/fetchers/yfinance";
@@ -29,6 +29,15 @@ describe("market adapter registry", () => {
     expect(ids).toContain("treasury");
     const binance = providers.find((p) => p.id === "binance");
     expect(binance?.capabilities).toContain("orderbook");
+    const defillama = providers.find((p) => p.id === "defillama");
+    expect(defillama?.capabilities).toContain("tvl");
+    const hyperliquid = providers.find((p) => p.id === "hyperliquid");
+    expect(hyperliquid?.capabilities).toContain("funding");
+    expect(providers.find((p) => p.id === "etherscan")?.capabilities).toContain("onchain");
+    expect(providers.find((p) => p.id === "solscan")?.capabilities).toContain("onchain");
+    expect(providers.find((p) => p.id === "coinglass")?.capabilities).toEqual(
+      expect.arrayContaining(["liquidations", "long_short"]),
+    );
   });
 
   it("rejects a request with no symbol", async () => {

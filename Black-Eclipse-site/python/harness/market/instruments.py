@@ -325,6 +325,7 @@ def provider_symbols_for(
         out["coingecko"] = b.lower()
         out["yahoo"] = f"{b}-{q}"
         out["crypto"] = b
+        out["hyperliquid"] = b
     elif kind == "fx":
         bare = f"{base.upper()}{quote.upper()}"
         out["yahoo"] = f"{bare}=X"

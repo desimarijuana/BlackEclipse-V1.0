@@ -8,6 +8,8 @@ import {
   readCappedBody,
   createPinnedLookup,
   safeGet,
+  safePost,
+  MAX_REQUEST_BYTES,
   OutboundError,
   DEFAULT_MAX_BYTES,
   type LookupAllFn,
@@ -243,6 +245,54 @@ describe("safeGet redirect handling", () => {
     await expect(
       safeGet({ url: "https://example.com/a", maxRedirects: 3 }, { lookupAll, request })
     ).rejects.toBeInstanceOf(OutboundError);
+  });
+});
+
+describe("safePost", () => {
+  const lookupAll: LookupAllFn = (_h, _o, cb) => cb(null, [{ address: "93.184.216.34", family: 4 }]);
+
+  it("sends a POST with the caller body and a content-length", async () => {
+    let seenMethod = "";
+    let written = "";
+    const request = ((_u: unknown, opts: { method?: string }, cb: (r: unknown) => void) => {
+      seenMethod = String(opts.method);
+      const req = new EventEmitter() as unknown as { write: (b: unknown) => void; end: () => void };
+      req.write = (b: unknown) => { written = String(b); };
+      req.end = () => cb(fakeResponse(200, { "content-type": "application/json" }, '{"ok":true}'));
+      return req;
+    }) as never;
+    const result = await safePost(
+      { url: "https://api.hyperliquid.xyz/info", body: '{"type":"l2Book","coin":"BTC"}' },
+      { lookupAll, request }
+    );
+    expect(seenMethod).toBe("POST");
+    expect(written).toContain("l2Book");
+    expect(result.status).toBe(200);
+    expect(result.text).toBe('{"ok":true}');
+  });
+
+  it("does not follow a redirect", async () => {
+    const request = ((_u: unknown, _o: unknown, cb: (r: unknown) => void) => {
+      const req = new EventEmitter() as unknown as { write: () => void; end: () => void };
+      req.write = () => undefined;
+      req.end = () => cb(fakeResponse(307, { location: "https://example.com/next" }, ""));
+      return req;
+    }) as never;
+    await expect(
+      safePost({ url: "https://example.com/a", body: "{}" }, { lookupAll, request })
+    ).rejects.toMatchObject({ code: "redirect" });
+  });
+
+  it("refuses an oversized request body before any connection", async () => {
+    let called = false;
+    const request = (() => { called = true; throw new Error("should not connect"); }) as never;
+    await expect(
+      safePost(
+        { url: "https://example.com/a", body: Buffer.alloc(MAX_REQUEST_BYTES + 1) },
+        { lookupAll, request }
+      )
+    ).rejects.toMatchObject({ code: "too_large" });
+    expect(called).toBe(false);
   });
 });
 

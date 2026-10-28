@@ -16,6 +16,11 @@ import { treasuryProvider } from "./providers/treasury";
 import { ecbFxProvider } from "./providers/ecb-fx";
 import { polygonProvider } from "./providers/polygon";
 import { finnhubProvider } from "./providers/finnhub";
+import { defillamaProvider } from "./providers/defillama";
+import { etherscanProvider } from "./providers/etherscan";
+import { hyperliquidProvider } from "./providers/hyperliquid";
+import { coinglassProvider } from "./providers/coinglass";
+import { solscanProvider } from "./providers/solscan";
 
 const PROVIDERS: MarketProvider[] = [
   yahooProvider,
@@ -23,6 +28,11 @@ const PROVIDERS: MarketProvider[] = [
   polygonProvider,
   finnhubProvider,
   coingeckoProvider,
+  defillamaProvider,
+  etherscanProvider,
+  solscanProvider,
+  coinglassProvider,
+  hyperliquidProvider,
   stooqProvider,
   treasuryProvider,
   ecbFxProvider,
@@ -41,9 +51,13 @@ function toRequest(params: Record<string, unknown>): MarketDataRequest {
     params.providerSymbols && typeof params.providerSymbols === "object"
       ? (params.providerSymbols as Record<string, string>)
       : undefined;
+  const capability = String(params.capability ?? "quote");
+  const rawSymbol = String(params.symbol ?? "");
   return {
-    capability: String(params.capability ?? "quote"),
-    symbol: String(params.symbol ?? "").toUpperCase(),
+    capability,
+    // Account addresses are case-sensitive to some explorers (`0X…` is not the
+    // same as `0x…`), so an on-chain request keeps the caller's casing.
+    symbol: capability === "onchain" ? rawSymbol : rawSymbol.toUpperCase(),
     instrumentId: typeof params.instrumentId === "string" ? params.instrumentId : undefined,
     assetType: typeof params.assetType === "string" ? params.assetType : undefined,
     market: typeof params.market === "string" ? params.market : undefined,
@@ -59,6 +73,8 @@ function toRequest(params: Record<string, unknown>): MarketDataRequest {
     greeks: params.greeks === true,
     seriesType: typeof params.seriesType === "string" ? params.seriesType : undefined,
     history: typeof params.history === "number" ? params.history : undefined,
+    address: typeof params.address === "string" ? params.address : undefined,
+    chain: typeof params.chain === "string" ? params.chain : undefined,
   };
 }
 

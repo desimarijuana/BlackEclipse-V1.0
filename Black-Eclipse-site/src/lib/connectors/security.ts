@@ -500,6 +500,106 @@ export async function safeGet(
 
 export const MAX_REDIRECTS = 5;
 
+// ── Safe POST ────────────────────────────────────────────────────────────────
+
+/** Hard ceiling for an outbound POST body (a read API never needs more). */
+export const MAX_REQUEST_BYTES = 1 * 1024 * 1024;
+
+export interface SafePostOptions {
+  url: string;
+  /** JSON/body payload. Serialized by the caller; never mutated here. */
+  body: string | Buffer | Uint8Array;
+  headers?: Record<string, string>;
+  timeoutMs?: number;
+  maxBytes?: number;
+  /** Defaults to `application/json; charset=utf-8` when absent. */
+  contentType?: string;
+}
+
+/**
+ * Perform a single, fully-guarded outbound POST.
+ *
+ * Same posture as `safeGet`: https only, DNS resolved and validated then pinned,
+ * strict timeout, streamed response-size cap, and a request-body cap. Redirects
+ * are NEVER followed (a 3xx is returned as-is) — a redirected write is refused.
+ * The caller owns the body bytes; this adds no retry, no auth and no secret
+ * handling.
+ */
+export async function safePost(
+  options: SafePostOptions,
+  deps: SafeGetDeps = {}
+): Promise<SafeGetResult> {
+  const check = validateOutboundUrl(options.url);
+  if (!check.safe || !check.hostname) {
+    throw new OutboundError(check.code ?? "invalid_url", check.reason ?? "Blocked URL");
+  }
+  const hostname = check.hostname;
+  if (net.isIP(hostname)) {
+    if (isBlockedAddress(hostname)) {
+      throw new OutboundError("blocked_host", `Blocked address: ${hostname}`);
+    }
+  } else {
+    await assertPublicHost(hostname, deps.lookupAll);
+  }
+
+  const payload = Buffer.isBuffer(options.body)
+    ? options.body
+    : Buffer.from(options.body as string | Uint8Array);
+  if (payload.byteLength > MAX_REQUEST_BYTES) {
+    throw new OutboundError("too_large", `Request body exceeded ${MAX_REQUEST_BYTES} bytes`);
+  }
+
+  const timeoutMs = Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
+  const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
+  const request = deps.request ?? https.request;
+  const parsed = new URL(options.url);
+
+  return new Promise<SafeGetResult>((resolve, reject) => {
+    const reqOptions = {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/plain;q=0.9, */*;q=0.5",
+        "content-type": options.contentType ?? "application/json; charset=utf-8",
+        "content-length": String(payload.byteLength),
+        ...(options.headers ?? {}),
+      },
+      lookup: createPinnedLookup(deps.lookupAll) as unknown as https.RequestOptions["lookup"],
+      signal: AbortSignal.timeout(timeoutMs),
+    } as https.RequestOptions;
+
+    const req = request(parsed, reqOptions, (res) => {
+      const status = res.statusCode ?? 0;
+      const contentType = (res.headers["content-type"] as string | undefined) ?? null;
+      if (status >= 300 && status < 400) {
+        res.destroy();
+        reject(new OutboundError("redirect", `Redirect not followed (HTTP ${status})`));
+        return;
+      }
+      readCappedBody(res as unknown as AsyncIterable<Uint8Array>, maxBytes, false)
+        .then((body) => resolve({
+          status,
+          contentType,
+          text: body.text,
+          bytes: body.bytes,
+          url: options.url,
+          headers: lowercasedHeaders(res.headers),
+        }))
+        .catch(reject);
+    });
+    req.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.name === "AbortError" || err.code === "ABORT_ERR") {
+        reject(new OutboundError("timeout", `Request timed out after ${timeoutMs} ms`));
+      } else if (err.code === "EBLOCKEDHOST") {
+        reject(new OutboundError("blocked_host", err.message));
+      } else {
+        reject(new OutboundError("network", `Request failed for ${redactUrl(options.url)}: ${err.code ?? err.message}`));
+      }
+    });
+    req.write(payload);
+    req.end();
+  });
+}
+
 /** Flatten Node response headers into a lowercased string map (first value). */
 function lowercasedHeaders(headers: import("node:http").IncomingHttpHeaders): Record<string, string> {
   const out: Record<string, string> = {};

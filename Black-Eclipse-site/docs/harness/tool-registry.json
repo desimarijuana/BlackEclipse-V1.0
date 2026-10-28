@@ -1,7 +1,7 @@
 {
-  "digest": "20fcad46fa369648",
+  "digest": "fec3d551dd4cffbf",
   "manifestVersion": "1",
-  "toolCount": 960,
+  "toolCount": 964,
   "tools": [
     {
       "deprecated": false,
@@ -12023,6 +12023,82 @@
     },
     {
       "deprecated": false,
+      "description": "Get futures forced-liquidation totals for a coin on one exchange (1h/4h/12h/24h long vs short, USD). Requires a CoinGlass key; without one the result is an honest UNAVAILABLE, never a zero.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "exchange": {
+            "description": "Futures exchange, default Binance.",
+            "type": "string"
+          },
+          "freshness": {
+            "type": "string"
+          },
+          "market": {
+            "type": "string"
+          },
+          "symbol": {
+            "description": "Coin symbol, e.g. BTC.",
+            "type": "string"
+          },
+          "window": {
+            "description": "Reported window (24h is the headline).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "name": "get_liquidations",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Get the global long/short account ratio history for a futures pair (long %, short %, ratio, series). Requires a CoinGlass key; absent it is UNAVAILABLE.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "exchange": {
+            "description": "Futures exchange, default Binance.",
+            "type": "string"
+          },
+          "freshness": {
+            "type": "string"
+          },
+          "interval": {
+            "description": "1m,5m,15m,30m,1h,4h,12h,1d,1w.",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Points to return (default 48, max 1000).",
+            "type": "integer"
+          },
+          "market": {
+            "type": "string"
+          },
+          "symbol": {
+            "description": "Coin symbol, e.g. BTC (mapped to BTCUSDT).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "name": "get_long_short_ratio",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Get an instrument's market capitalisation, price and shares outstanding. The share basis (basic/diluted/current/float) is stated; it is never mixed silently.",
       "effect": null,
       "inputSchema": {
@@ -12206,6 +12282,35 @@
         "type": "object"
       },
       "name": "get_ohlcv",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Get account-scoped on-chain metrics for an EVM address (native balance, transaction count, latest block). Chain defaults to ethereum. Requires an Etherscan key; without one the result is an honest UNAVAILABLE.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "address": {
+            "description": "0x… EVM address.",
+            "type": "string"
+          },
+          "chain": {
+            "description": "ethereum | arbitrum | optimism | polygon | base | bsc | avalanche.",
+            "type": "string"
+          },
+          "freshness": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "address"
+        ],
+        "type": "object"
+      },
+      "name": "get_onchain_metric",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -12483,6 +12588,38 @@
         "type": "object"
       },
       "name": "get_trading_calendar",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Get DeFi total value locked (TVL) for a protocol ticker (AAVE, UNI, LDO…) or a chain name (Ethereum, Solana, Arbitrum…). Per-chain breakdown is returned when the provider supplies it; an unknown identifier is UNAVAILABLE, never zero.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "chain": {
+            "description": "Explicit chain when requesting chain TVL.",
+            "type": "string"
+          },
+          "freshness": {
+            "type": "string"
+          },
+          "market": {
+            "type": "string"
+          },
+          "symbol": {
+            "description": "Protocol ticker or chain name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "name": "get_tvl",
       "permission": "read",
       "replacement": null,
       "risk": "low",

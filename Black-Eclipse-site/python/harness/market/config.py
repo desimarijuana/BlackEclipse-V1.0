@@ -62,11 +62,15 @@ DEFAULT_PRIORITY: dict[str, tuple[str, ...]] = {
     "trades": ("binance", "polygon", "finnhub", "yahoo"),
     "market_cap": ("yahoo", "coingecko"),
     "supply": ("coingecko",),
-    "funding": ("binance",),
-    "open_interest": ("binance",),
+    "funding": ("binance", "hyperliquid"),
+    "open_interest": ("binance", "hyperliquid"),
     "options": ("yahoo", "polygon", "finnhub"),
     "fx": ("yahoo",),
     "bonds": ("treasury",),
+    "tvl": ("defillama",),
+    "onchain": ("etherscan", "solscan"),
+    "liquidations": ("coinglass",),
+    "long_short": ("coinglass",),
 }
 
 
@@ -105,6 +109,10 @@ class MarketConfig:
             "options": 300,
             "fx": 60,
             "bonds": 6 * 3600,
+            "tvl": 300,
+            "onchain": 60,
+            "liquidations": 60,
+            "long_short": 60,
         }
     )
     # ── Data quality thresholds ─────────────────────────────────────────────

@@ -7,6 +7,23 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-28
+- **feat(ui): crypto alt-data surfaces over the market pack.** Added the
+  read-only `GET /api/crypto/alt-data` front door (same TS adapters as the agent,
+  30s cache, honest UNAVAILABLE envelope), a `CryptoAltData` panel on Market
+  Overview › Crypto (liquidations, long/short, TVL cards), and two catalog
+  widgets `crypto-tvl` / `crypto-liquidations` in a dedicated
+  `dashboard/crypto-widgets.tsx` (kept separate to respect the source-size
+  budget; `market-overview.tsx` stays at its pinned 2760 lines). Docs:
+  `docs/harness/market-data.md`.
+- **feat(market): CoinGlass + Solscan adapters — the pack is now fully runnable.**
+  Added `providers/coinglass.ts` (V4 liquidation coin-list + global long/short
+  account ratio, `CG-API-KEY`) and `providers/solscan.ts` (V2 account detail,
+  `token` header, Solana lamports). New records `LiquidationStats`/`LongShortRatio`,
+  normalizers, gateway methods, and tools `get_liquidations`/`get_long_short_ratio`;
+  `get_onchain_metric` now routes `etherscan → solscan` (EVM vs base58 address
+  shape decides deterministically). Endpoints verified against official docs
+  before implementation. Docs: `docs/harness/market-data.md`, ADR-053 in
+  `docs/DECISIONS.md` + `skills/ARCHITECT.md`.
 - **feat(market): Hyperliquid read-only perps adapter + hardened POST transport.**
   Added `safePost` to `connectors/security.ts` (https-only, DNS-pinned, timeout,
   response/request-size caps, no redirects) so the GET-only bridge can carry

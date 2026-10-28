@@ -300,7 +300,76 @@ class BondData(MarketRecord):
     model_config = {"populate_by_name": True}
 
 
-# ── 14. Streaming event ──────────────────────────────────────────────────────
+# ── 14. DeFi TVL ─────────────────────────────────────────────────────────────
+
+class TvlSnapshot(MarketRecord):
+    """Total value locked for a protocol or a chain.
+
+    `chain_tvls` is the provider's per-chain breakdown; it is never summed into
+    `tvl_usd` here — a caller can see exactly which figure came from where.
+    """
+
+    protocol: Optional[str] = None
+    chain: Optional[str] = None
+    tvl_usd: Optional[float] = None
+    change_24h_pct: Optional[float] = None
+    change_7d_pct: Optional[float] = None
+    chain_tvls: dict[str, float] = Field(default_factory=dict)
+    timestamp: Optional[str] = None
+
+
+# ── 15. On-chain account metrics ─────────────────────────────────────────────
+
+class OnchainMetric(MarketRecord):
+    """Account-scoped on-chain metrics (balance, nonce, latest block).
+
+    These are chain facts, not market prices: the observation source is stated
+    so an operator can tell a provider as-of time from our retrieval clock.
+    """
+
+    address: Optional[str] = None
+    chain: Optional[str] = None
+    native_balance: Optional[float] = None   # in native units (ETH, SOL…)
+    tx_count: Optional[int] = None            # outbound transaction count
+    latest_block: Optional[int] = None
+    account_type: Optional[str] = None
+    owner_program: Optional[str] = None
+    executable: Optional[bool] = None
+    timestamp: Optional[str] = None
+
+
+# ── 16. Futures liquidations ─────────────────────────────────────────────────
+
+class LiquidationStats(MarketRecord):
+    """Forced-liquidation totals for one coin on one futures exchange.
+
+    `windows` keeps the provider's per-window breakdown (1h/4h/12h/24h) as
+    supplied; the top-level fields are the 24h figures and are never summed from
+    a different window.
+    """
+
+    exchange: Optional[str] = None
+    window: Optional[str] = None
+    total_usd: Optional[float] = None
+    long_usd: Optional[float] = None
+    short_usd: Optional[float] = None
+    windows: dict[str, dict[str, Optional[float]]] = Field(default_factory=dict)
+    timestamp: Optional[str] = None
+
+
+# ── 17. Long/short account ratio ─────────────────────────────────────────────
+
+class LongShortRatio(MarketRecord):
+    exchange: Optional[str] = None
+    interval: Optional[str] = None
+    long_percent: Optional[float] = None
+    short_percent: Optional[float] = None
+    long_short_ratio: Optional[float] = None
+    series: list[dict[str, Any]] = Field(default_factory=list)
+    timestamp: Optional[str] = None
+
+
+# ── 18. Streaming event ──────────────────────────────────────────────────────
 
 MarketEventType = Literal[
     "market.quote", "market.trade", "market.orderbook", "market.ohlcv",
@@ -333,12 +402,15 @@ __all__ = [
     "FundingRate",
     "HistoricalPriceSeries",
     "Interval",
+    "LiquidationStats",
+    "LongShortRatio",
     "MarketCap",
     "MarketDataEvent",
     "MarketEventType",
     "MarketMeta",
     "MarketRecord",
     "OHLCVBar",
+    "OnchainMetric",
     "OpenInterest",
     "OptionContract",
     "OptionsChain",
@@ -349,5 +421,6 @@ __all__ = [
     "Supply",
     "Trade",
     "TradeTape",
+    "TvlSnapshot",
     "VolumeStats",
 ]
