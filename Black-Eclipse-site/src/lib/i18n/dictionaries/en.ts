@@ -514,6 +514,7 @@ export const en = {
 
   // Sidebar
   'sidebar.chatHistory': 'Chat History',
+  'sidebar.apps': 'Apps',
   'sidebar.newChat': 'New Chat',
   'sidebar.noSessions': 'No active sessions',
   'sidebar.untitledSession': 'Untitled Session',

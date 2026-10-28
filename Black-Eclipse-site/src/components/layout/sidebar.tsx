@@ -211,6 +211,79 @@ export function Sidebar({
     onCloseMobile?.();
   };
 
+  // Chat history and the app navigation are two independent panes, each with
+  // its own scroll position. While the history is open it takes the flexible
+  // space and the app list is capped to a scrollable strip below it, so a long
+  // conversation list never pushes the apps out of reach (and vice versa).
+  const showHistory = activeTab === 'chat' && !isCollapsed;
+
+  const renderNav = (extraClassName = '') => (
+    <nav
+      aria-label={t('a11y.mainNavigation')}
+      className={`flex-1 min-h-0 overflow-y-auto flex flex-col gap-1.5 w-full ${
+        isCollapsed ? 'items-center px-2' : ''
+      } ${extraClassName}`}
+    >
+      {navItems.map((tab) => {
+        const isSelected = activeTab === tab.id;
+        const Icon = tab.icon;
+        const unreadCount = unreadByTab[tab.id] ?? 0;
+
+        return (
+          <a
+            key={tab.id}
+            href={destinationToHref({ tab: tab.id })}
+            data-sound="tick"
+            aria-current={isSelected ? 'page' : undefined}
+            onClick={(e) => {
+              // Let Ctrl/Cmd/Shift/middle-click open in a new tab (or window)
+              // via the href; only a plain left-click is handled in-page.
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+              e.preventDefault();
+              handleTabClick(tab.id);
+            }}
+            title={isCollapsed
+              ? `${tab.shortcut ? `${tab.label} (${tab.shortcut})` : tab.label}${unreadCount ? ` · ${unreadCount} unread` : ''}`
+              : undefined}
+            className={`h-8 flex items-center px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer overflow-hidden no-underline outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${
+              isSelected
+                ? 'rounded-lg bg-white/[0.07] text-foreground'
+                : 'rounded-lg bg-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground'
+            } ${isCollapsed ? 'justify-center w-9 px-0 gap-0' : 'justify-start w-full gap-2.5'}`}
+          >
+            <span className="relative shrink-0 flex items-center justify-center">
+              <Icon size={15} className="transition-colors duration-300" />
+              {unreadCount > 0 && isCollapsed && (
+                <span className="absolute -right-1.5 -top-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-background" />
+              )}
+            </span>
+            <span className={`shrink-0 whitespace-nowrap transition-all duration-300 overflow-hidden flex-1 text-left ${
+              isCollapsed ? 'opacity-0 -translate-x-2 w-0' : 'opacity-100 translate-x-0 w-auto'
+            }`}>{tab.label}</span>
+            {unreadCount > 0 && !isCollapsed && (
+              <span
+                title={`${unreadCount} unread`}
+                className="shrink-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-none text-white"
+              >
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+            {tab.shortcut && !isCollapsed && (
+                <span className={`shrink-0 rounded-md border px-1 py-0.5 text-[9px] font-mono font-bold leading-none transition-colors duration-300 ${
+                  isSelected ? 'border-border/40 text-foreground' : 'border-border/40 text-muted-foreground'
+                }`}>{tab.shortcut}</span>
+              )}
+            </a>
+        );
+      })}
+      <SavedPagesNav
+        collapsed={isCollapsed}
+        active={activeTab === 'pages'}
+        onNavigate={onCloseMobile}
+      />
+    </nav>
+  );
+
   const sidebarContent = (
     <div 
       className={`sidebar-root h-full flex flex-col glass-card-strong border-r-0 shrink-0 justify-between select-none text-foreground font-sans relative transition-all duration-300 group/sidebar ${
@@ -261,11 +334,15 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Sidebar Content (Chat History at Top, followed by Navigation Tabs) */}
-      <div className={`flex-1 flex flex-col gap-5 py-4 overflow-y-auto scrollbar-hide w-full ${
+      {/* Sidebar Content: a fixed control strip (mode + launchers) above two
+          independently scrolling panes — chat history and the app list. Each
+          pane keeps its own scroll position instead of one long sidebar scroll. */}
+      <div className={`flex-1 min-h-0 flex flex-col gap-4 py-4 w-full ${
         isCollapsed ? 'items-center' : ''
       }`}>
 
+        {!isCollapsed && (
+        <div className="flex w-full shrink-0 flex-col gap-2">
         {/* Top-level mode switcher: Terminal (market tools), Agentic (chat,
             skills, memory), Graph Studio or Bots. A glass dropdown keeps the
             top-level menus in one place without crowding the sidebar. Hidden
@@ -341,7 +418,7 @@ export function Sidebar({
             Discord, WhatsApp, …) and the relation/skills graph browser. Shares
             the control-strip tier and the same subtle border as the switcher. */}
         {!isCollapsed && (
-          <div className="-mt-3 flex items-center justify-start gap-1.5">
+          <div className="flex items-center justify-start gap-1.5">
             <button
               type="button"
               onClick={() => setGatewayOpen(true)}
@@ -362,10 +439,14 @@ export function Sidebar({
             </button>
           </div>
         )}
+        </div>
+        )}
 
-        {/* Chat History Panel on Top of the menu list */}
-        {activeTab === 'chat' && !isCollapsed && (
+        {/* Chat History Panel on Top of the menu list. `fill` lets it own the
+            flexible pane so its list scrolls in place, above the app list. */}
+        {showHistory && (
           <ChatHistoryPanel
+            fill
             conversations={conversations}
             organization={organization}
             activeConversationId={activeConversationId}
@@ -379,78 +460,26 @@ export function Sidebar({
             instead of the generic nav list. Every other mode — including Graph
             Studio — shows the SAME standard navigation. */}
         {navMode === 'bots' ? (
-          <BotsSidebarPanel
-            collapsed={isCollapsed}
-            onActivate={() => {
-              onChangeTab('bots');
-              onCloseMobile?.();
-            }}
-          />
+          <div className="flex-1 min-h-0 overflow-y-auto w-full">
+            <BotsSidebarPanel
+              collapsed={isCollapsed}
+              onActivate={() => {
+                onChangeTab('bots');
+                onCloseMobile?.();
+              }}
+            />
+          </div>
+        ) : showHistory ? (
+          /* History open: the app list gets its own bounded, scrollable strip
+             below the history pane, so neither pane can push the other away. */
+          <div className="flex shrink-0 flex-col min-h-0 max-h-[40%] w-full border-t border-border/10 pt-3">
+            <span className="shrink-0 px-2 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              {t('sidebar.apps')}
+            </span>
+            {renderNav()}
+          </div>
         ) : (
-          <nav
-            aria-label={t('a11y.mainNavigation')}
-            className={`flex flex-col gap-1.5 pt-4 border-t border-border/10 w-full ${
-              isCollapsed ? 'items-center px-2' : ''
-            }`}
-          >
-          {navItems.map((tab) => {
-            const isSelected = activeTab === tab.id;
-            const Icon = tab.icon;
-            const unreadCount = unreadByTab[tab.id] ?? 0;
-
-            return (
-              <a
-                key={tab.id}
-                href={destinationToHref({ tab: tab.id })}
-                data-sound="tick"
-                aria-current={isSelected ? 'page' : undefined}
-                onClick={(e) => {
-                  // Let Ctrl/Cmd/Shift/middle-click open in a new tab (or window)
-                  // via the href; only a plain left-click is handled in-page.
-                  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-                  e.preventDefault();
-                  handleTabClick(tab.id);
-                }}
-                title={isCollapsed
-                  ? `${tab.shortcut ? `${tab.label} (${tab.shortcut})` : tab.label}${unreadCount ? ` · ${unreadCount} unread` : ''}`
-                  : undefined}
-                className={`h-8 flex items-center px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer overflow-hidden no-underline outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${
-                  isSelected
-                    ? 'rounded-lg bg-white/[0.07] text-foreground'
-                    : 'rounded-lg bg-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground'
-                } ${isCollapsed ? 'justify-center w-9 px-0 gap-0' : 'justify-start w-full gap-2.5'}`}
-              >
-                <span className="relative shrink-0 flex items-center justify-center">
-                  <Icon size={15} className="transition-colors duration-300" />
-                  {unreadCount > 0 && isCollapsed && (
-                    <span className="absolute -right-1.5 -top-1.5 h-2 w-2 rounded-full bg-rose-500 ring-2 ring-background" />
-                  )}
-                </span>
-                <span className={`shrink-0 whitespace-nowrap transition-all duration-300 overflow-hidden flex-1 text-left ${
-                  isCollapsed ? 'opacity-0 -translate-x-2 w-0' : 'opacity-100 translate-x-0 w-auto'
-                }`}>{tab.label}</span>
-                {unreadCount > 0 && !isCollapsed && (
-                  <span
-                    title={`${unreadCount} unread`}
-                    className="shrink-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold leading-none text-white"
-                  >
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
-                )}
-                {tab.shortcut && !isCollapsed && (
-                    <span className={`shrink-0 rounded-md border px-1 py-0.5 text-[9px] font-mono font-bold leading-none transition-colors duration-300 ${
-                      isSelected ? 'border-border/40 text-foreground' : 'border-border/40 text-muted-foreground'
-                    }`}>{tab.shortcut}</span>
-                  )}
-                </a>
-            );
-          })}
-          <SavedPagesNav
-            collapsed={isCollapsed}
-            active={activeTab === 'pages'}
-            onNavigate={onCloseMobile}
-          />
-          </nav>
+          renderNav('pt-4 border-t border-border/10')
         )}
       </div>
 
