@@ -95,6 +95,12 @@ Producers wired today:
   Word/Excel/PowerPoint/Markdown/CSV/JSON files and registers the bytes here
   (`register_bytes`, explicit MIME so the category/preview resolve correctly). See
   `docs/harness/document-intelligence.md` › *Authoring*, ADR-H192.
+- `python/harness/documents/edit/` — `document_edit` publishes a targeted edit as a
+  NEW version through `add_version`. It passes `expectedChecksum` (the source's
+  sha256); `ArtifactService.add_version` refuses with `ARTIFACT_CONFLICT` when the
+  current artifact checksum no longer matches, so a concurrent edit cannot silently
+  overwrite a newer version. Its idempotency key is
+  `edit:<artifactId>:<planHash>:<sourceSha>`.
 
 Terminal/filesystem discovery is the backstop: the bounded reconciler plus
 explicit `artifact_register` cover files a command wrote, without ever scanning

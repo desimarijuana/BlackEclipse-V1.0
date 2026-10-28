@@ -1,0 +1,14 @@
+# Optional PDF incremental-editing backend.
+#
+# `pypdf` (in the default requirements) edits PDFs by rewriting them. PyMuPDF can
+# append an incremental update instead: original objects and the xref chain stay
+# in place, and redaction removes the covered text objects rather than replacing
+# the page with an image.
+#
+# Licensing: PyMuPDF is AGPL-3.0 or commercial. It is therefore OPTIONAL and not
+# part of the default install; the app is MIT-licensed. `document_edit` detects
+# `fitz` lazily and falls back to the pypdf rewrite path with an honest report.
+#
+# Install only if you accept the licence:
+#   python -m pip install -r python/requirements-pdf-incremental.txt
+pymupdf>=1.24,<2

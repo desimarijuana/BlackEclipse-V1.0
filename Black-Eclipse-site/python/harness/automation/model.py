@@ -32,6 +32,7 @@ ActionKind = Literal[
     "execute_task",
     "execute_workflow",
     "run_agent",
+    "run_team",
     "delegate_agent",
     "call_tool",
     "create_task",
@@ -69,8 +70,8 @@ TRIGGER_KINDS: tuple[str, ...] = (
     "cron", "interval", "one_time", "event", "condition", "manual",
 )
 ACTION_KINDS: tuple[str, ...] = (
-    "execute_task", "execute_workflow", "run_agent", "delegate_agent", "call_tool",
-    "create_task", "send_notification", "generate_report", "run_code",
+    "execute_task", "execute_workflow", "run_agent", "run_team", "delegate_agent",
+    "call_tool", "create_task", "send_notification", "generate_report", "run_code",
     "browser_action", "custom_action",
 )
 EXECUTION_STATES: tuple[str, ...] = (

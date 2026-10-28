@@ -1,7 +1,7 @@
 {
-  "digest": "741cd01da4188f55",
+  "digest": "c982965483df8fe1",
   "manifestVersion": "1",
-  "toolCount": 966,
+  "toolCount": 969,
   "tools": [
     {
       "deprecated": false,
@@ -9948,6 +9948,89 @@
     },
     {
       "deprecated": false,
+      "description": "Edit an existing Word, Excel, PowerPoint or PDF file without rebuilding it. Supply an artifactId (preferred), the name of a file attached to this conversation (`sessionFile`), or a source path, plus a small `edits` array. Supported operations: docx.replace_text, docx.set_paragraph_text, docx.set_table_cell, docx.set_core_property, docx.insert_image, docx.accept_revisions, docx.reject_revisions; xlsx.set_cell, xlsx.set_formula, xlsx.set_number_format, xlsx.rename_sheet, xlsx.append_rows, xlsx.insert_rows, xlsx.delete_rows, xlsx.insert_columns, xlsx.delete_columns; pptx.set_slide_title, pptx.replace_text, pptx.set_notes, pptx.set_shape_text, pptx.delete_slide, pptx.duplicate_slide, pptx.replace_chart_data, pptx.add_smartart_node, pptx.remove_smartart_node, pptx.set_smartart_node_text; pdf.fill_form, pdf.rotate_pages, pdf.add_annotation, pdf.set_metadata, pdf.redact. The tool verifies that every untouched OOXML package part is byte-identical, then publishes a NEW artifact version. It never edits the original in place. Set dryRun=true to inspect the preservation report without writing.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "artifactId": {
+            "description": "The artifact to edit (preferred).",
+            "type": "string"
+          },
+          "changeNote": {
+            "type": "string"
+          },
+          "deterministic": {
+            "description": "Normalise ZIP timestamps for reproducible output (default true).",
+            "type": "boolean"
+          },
+          "dryRun": {
+            "description": "Apply in memory and return the report without publishing.",
+            "type": "boolean"
+          },
+          "edits": {
+            "description": "Ordered, validated edit operations. One format per plan.",
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "expectedSha256": {
+            "description": "Refuse if the source changed since it was read.",
+            "type": "string"
+          },
+          "filename": {
+            "description": "Name for a new artifact when editing a path.",
+            "type": "string"
+          },
+          "format": {
+            "enum": [
+              "docx",
+              "xlsx",
+              "pptx",
+              "pdf"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "description": "Alias for source.",
+            "type": "string"
+          },
+          "sessionFile": {
+            "description": "A file name attached to THIS conversation (the context folder), used when no artifactId exists yet.",
+            "type": "string"
+          },
+          "sessionKind": {
+            "description": "Which conversation folder holds sessionFile (default context).",
+            "enum": [
+              "context",
+              "output"
+            ],
+            "type": "string"
+          },
+          "source": {
+            "description": "A local path, used only when artifactId/sessionFile are absent.",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "edits"
+        ],
+        "type": "object"
+      },
+      "name": "document_edit",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Extract a document's text, tables and structure. Deterministic extraction first; OCR/vision only where required.",
       "effect": null,
       "inputSchema": {
@@ -11435,6 +11518,73 @@
         "type": "object"
       },
       "name": "finance_valuation",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Recompute a financial model and return its checks, key metrics and warnings without writing a file. Use this before presenting model outputs.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "spec": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "name": "financial_model_audit",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Build a deterministic financial model and save its deliverables to the Artifact Center: a formula-bearing Excel workbook and/or a PDF/Word memo or PowerPoint deck. Kinds: three_statement, dcf, lbo, comps, integrated. Supply `history` (years + series, or facts with period/value/source), explicit `assumptions`, and — for LBO/comps — an `lbo` or `comps` block. For comps, `comps.peers` may be supplied explicitly or `comps.peerSymbols` may name tickers to resolve through the read-only market bridge (a peer with no usable price or share count is excluded with a note). Every required input is refused by name when missing; no financial value is defaulted. The workbook carries live formulas plus a Values sheet and a Checks sheet.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "formats": {
+            "items": {
+              "enum": [
+                "xlsx",
+                "pdf",
+                "docx",
+                "pptx"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "spec": {
+            "description": "The validated ModelSpec.",
+            "type": "object"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "spec"
+        ],
+        "type": "object"
+      },
+      "name": "financial_model_build",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -17407,7 +17557,7 @@
     },
     {
       "deprecated": false,
-      "description": "Persistent agent memory across sessions. action='save' stores a durable fact (type: preference|semantic|procedural|episodic|constraint|observation|summary); action='search' retrieves relevant memories; action='list' lists stored memory; action='inventory' returns whole-store counts by status/lifecycle (no content). Save only durable, reusable facts — not every sentence. User preferences are user-scoped; never turn them into universal rules.",
+      "description": "Persistent agent memory across sessions. action='save' stores a durable fact (type: preference|semantic|procedural|episodic|constraint|observation|summary); action='search' retrieves relevant memories; action='list' lists stored memory; action='inventory' returns whole-store counts by status/lifecycle (no content); action='preferences' lists learned preferences, pending inferences and their evidence. Save only durable, reusable facts — not every sentence. User preferences are user-scoped; never turn them into universal rules.",
       "effect": null,
       "inputSchema": {
         "properties": {
@@ -17417,7 +17567,8 @@
               "save",
               "search",
               "list",
-              "inventory"
+              "inventory",
+              "preferences"
             ],
             "type": "string"
           },

@@ -198,6 +198,19 @@ offline scripted tier, 3 trials × 2 tasks) found equal quality (1.0 vs 1.0) wit
 to a team**; the harness is the gate for re-measuring on the live tier. See
 `docs/harness/agent-evaluation.md` §13.1.
 
+## Preset composition: the Institution committee
+
+The first shipped preset is the Institution (`docs/harness/institution-preset.md`),
+an analyst -> debate -> trader -> risk -> PM graph. It is a thin layer over this
+service: one role spec in `institution/cast.py` produces the agent presets, A2A
+definitions, `TeamDefinition` and bot specs. Downstream stages read a completed
+prerequisite memo by run id with the read-only `read_run_output` tool. The
+debate record discloses unresolved disagreements and never votes or averages.
+A scheduled preset run uses the `run_team` automation action, which opens a team
+run and waits for its terminal synthesis. `POST /team/runs` still starts any
+team; the preset routes are `GET /team/presets`,
+`GET /team/presets/institution`, `POST /team/presets/institution/run`.
+
 ## Known limitations (with exact cause + remediation)
 
 - **Cost and runtime are set but not metered.** The run result carries no

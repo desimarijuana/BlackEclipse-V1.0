@@ -64,6 +64,7 @@ class DcfInputs:
     net_debt: float = 0.0                          # subtracted to reach equity
     shares_outstanding: Optional[float] = None    # to reach per-share value
     currency: Optional[str] = None
+    mid_year: bool = False                         # discount FCF at t+0.5
 
 
 def wacc(inputs: WaccInputs, *, now: Optional[str] = None) -> DerivedMetric:
@@ -152,6 +153,8 @@ def dcf(inputs: DcfInputs, *, now: Optional[str] = None) -> DerivedMetric:
             f"terminal value via {b.terminal_desc}",
             "a DCF is an ESTIMATE/OPINION driven by the forecast and discount rate, not a reported fact",
             *b.terminal_assumptions,
+            *(["mid-year convention discounts explicit FCF at t+0.5; terminal value is discounted at n"]
+              if inputs.mid_year else []),
         ),
         detail={
             "schedule": b.schedule,
@@ -223,11 +226,13 @@ def dcf_breakdown(inputs: DcfInputs) -> DcfBreakdown:
     schedule: list[dict] = []
     pv_explicit = 0.0
     for t, cf in enumerate(fcf):
-        discount_factor = 1.0 / ((1.0 + rate) ** (t + 1))
+        exponent = t + (0.5 if inputs.mid_year else 1.0)
+        discount_factor = 1.0 / ((1.0 + rate) ** exponent)
         pv = cf * discount_factor
         pv_explicit += pv
         schedule.append({
             "period": t + 1,
+            "discountExponent": exponent,
             "freeCashFlow": cf,
             "discountFactor": discount_factor,
             "presentValue": pv,

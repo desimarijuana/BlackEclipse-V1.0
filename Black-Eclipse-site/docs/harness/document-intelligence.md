@@ -95,6 +95,9 @@ backend (`documents/reporting.py`), using the same block vocabulary. See
   reports `ARTIFACT_UNAVAILABLE`.
 - It is the answer to "Word/Excel/PowerPoint cannot be created" — the read path
   stays stdlib-only.
+- Editing an EXISTING file is a separate, preservation-first subsystem:
+  `python/harness/documents/edit/` and the `document_edit` tool. See
+  `docs/harness/office-edit.md`.
 
 ## Reuse (no forks)
 

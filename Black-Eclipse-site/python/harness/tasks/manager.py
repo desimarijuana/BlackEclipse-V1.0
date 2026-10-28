@@ -840,7 +840,13 @@ class TaskManager:
             target = PlanStatus.FAILED
         elif _all(TaskStatus.CANCELLED):
             target = PlanStatus.CANCELLED
-        elif any(s in (TaskStatus.IN_PROGRESS, TaskStatus.WAITING) for s in statuses):
+        elif any(
+            s in (TaskStatus.IN_PROGRESS, TaskStatus.WAITING, TaskStatus.TODO)
+            for s in statuses
+        ):
+            # Work that is still queued (even behind a dependency) means the plan
+            # is live. BLOCKED is reserved for "no task can make progress", not
+            # for "this level of a multi-level DAG is waiting on the level above".
             target = PlanStatus.RUNNING
         elif any(s == TaskStatus.BLOCKED for s in statuses):
             target = PlanStatus.BLOCKED

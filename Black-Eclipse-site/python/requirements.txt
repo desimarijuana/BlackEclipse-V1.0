@@ -120,6 +120,12 @@ pandas>=2.1
 # picture (honest degradation, no broken chart).
 plotly>=5.20
 
+# PDF editing (preservation-first Office/PDF edit path). OPTIONAL in effect:
+# a missing pypdf makes `document_edit` report an honest PDF_LIBRARY_MISSING
+# for PDF operations while DOCX/XLSX/PPTX editing keeps working. pypdf is the
+# BSD-licensed rewrite backend; OOXML editing needs no extra dependency.
+pypdf>=4.2,<6
+
 # Vision / Multimodal subsystem.
 # * pypdfium2: self-contained PDFium binding (no system binary) used to render
 #   PDF pages to images for document/PDF vision. Imported lazily; when absent,

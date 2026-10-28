@@ -170,6 +170,14 @@ DOCUMENT_TOOLS = [
     "eclipse_report",
 ]
 
+#: Preservation-first editing of existing Office/PDF files. Output is a new
+#: artifact version; an untouched OOXML part that changed aborts the publish.
+DOCUMENT_EDIT_TOOLS = ["document_edit"]
+
+#: Deterministic financial modeling: 3-statement, DCF, LBO and comps, plus a
+#: formula-bearing Excel workbook and model checks.
+MODELING_TOOLS = ["financial_model_build", "financial_model_audit"]
+
 
 #: Unified Retrieval / Search Intelligence tools. All READ-ONLY and routed
 #: through the ONE search service (vector + FTS + rerank); they never touch the
@@ -385,7 +393,7 @@ ECLIPSE_AGENT = AgentConfig(
         # (read-only; the ledger is written by the runtime, not a model call).
         *ADVISORY_TOOLS,
         # Money guardrails: read the active caps/state and ask what would happen
-        # to a hypothetical intent. Read-only by construction - the agent can
+        # to a hypothetical intent. Read-only by construction — the agent can
         # never change the limits, declare impairment, or clear crisis/panic.
         *FINANCE_GUARDRAIL_TOOLS,
         # ML Research Lab: leakage-safe dataset construction, chronological/walk-
@@ -547,6 +555,8 @@ ECLIPSE_AGENT = AgentConfig(
         # Document intelligence: open/understand/search/query/compare/render
         # documents (PDF/DOCX/PPTX/XLSX/CSV/JSON/HTML/...). Read-only.
         *DOCUMENT_TOOLS,
+        *DOCUMENT_EDIT_TOOLS,
+        *MODELING_TOOLS,
         # UI Engineering: inspect the live UI (application map, current page,
         # component catalog, layout, capabilities) and compose/modify the user's
         # saved UI blueprints (create page, add/move/resize/configure widgets,

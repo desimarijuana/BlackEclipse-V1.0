@@ -349,6 +349,15 @@ export const BOT_AGENTS: ReadonlyArray<{ id: string; label: string }> = [
   { id: 'eclipse-agent', label: 'Eclipse' },
   { id: 'code-navigator', label: 'Code Navigator' },
   { id: 'code-agent', label: 'Code Agent' },
+  // Institution committee seats. Their prompts/tool surfaces live in the Python
+  // `institution` preset, which registers these ids at boot.
+  { id: 'institution-analyst', label: 'Institution · Analyst' },
+  { id: 'institution-bull', label: 'Institution · Bull' },
+  { id: 'institution-bear', label: 'Institution · Bear' },
+  { id: 'institution-chair', label: 'Institution · Chair' },
+  { id: 'institution-trader', label: 'Institution · Trader' },
+  { id: 'institution-risk', label: 'Institution · Risk' },
+  { id: 'institution-pm', label: 'Institution · PM' },
 ];
 
 export type ScheduleChoice =

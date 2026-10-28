@@ -32,6 +32,7 @@ _ACTION_REQUIRES = {
     "execute_workflow": "workflow_id",
     "call_tool": "tool_name",
     "run_agent": "objective",
+    "run_team": "objective",
     "execute_task": None,  # objective OR skill
     "delegate_agent": "objective",
     "send_notification": "notification_template",

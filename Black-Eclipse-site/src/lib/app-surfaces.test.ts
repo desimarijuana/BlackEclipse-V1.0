@@ -25,8 +25,13 @@ describe('appSurfaces', () => {
 
   it('lists every RENDERED Memory tab, not just the palette registry', () => {
     const memory = surfaces.find((s) => s.id === 'memory');
-    expect(memory?.tabs).toHaveLength(15);
+    expect(memory?.tabs).toHaveLength(MEMORY_TABS.length);
     expect(memory?.tabs.map((t) => t.id)).toEqual(MEMORY_TABS.map((t) => `memory.${t.id}`));
+    expect(memory?.tabs).toContainEqual({
+      id: 'memory.preferences',
+      label: 'Preferences',
+      deepLink: '/?tab=memory&sub=memory.preferences',
+    });
     expect(memory?.tabs).toContainEqual({
       id: 'memory.memories',
       label: 'Facts',

@@ -14,7 +14,7 @@ export type AutomationState =
 export type TriggerKind =
   | "cron" | "interval" | "one_time" | "event" | "condition" | "manual";
 export type ActionKind =
-  | "execute_task" | "execute_workflow" | "run_agent" | "delegate_agent"
+  | "execute_task" | "execute_workflow" | "run_agent" | "run_team" | "delegate_agent"
   | "call_tool" | "create_task" | "send_notification" | "generate_report"
   | "run_code" | "browser_action" | "custom_action";
 export type ExecutionState =

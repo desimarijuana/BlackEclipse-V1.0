@@ -834,6 +834,12 @@ def register_finance_tools(registry: ToolRegistry) -> None:
             risk="low",
         )
     )
+    try:
+        from .modeling.tools import register_modeling_tools  # noqa: PLC0415
+
+        register_modeling_tools(registry)
+    except Exception:  # noqa: BLE001 - modeling is optional; never block finance tools
+        pass
 
 
 __all__ = ["register_finance_tools", "DataBridge"]

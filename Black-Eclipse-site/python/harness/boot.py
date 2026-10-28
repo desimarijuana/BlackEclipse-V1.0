@@ -235,6 +235,12 @@ async def _boot() -> None:
     from .team.bootstrap import install_team_layer
 
     install_team_layer(service)
+    # Institution multi-agent preset: registers the committee's role presets, its
+    # A2A definitions and the `read_run_output` handoff tool on the SAME registry.
+    # A composition over the team layer above, never a second runtime.
+    from .institution.bootstrap import install_institution_layer
+
+    install_institution_layer(service)
     # Execution Fabric (ADR-H156): the durable queue + worker pool + execution-mode
     # router. Installed AFTER the subsystems it workers over (agent runtime,
     # tools, automation, events, plugins) so its event rules can subscribe to a

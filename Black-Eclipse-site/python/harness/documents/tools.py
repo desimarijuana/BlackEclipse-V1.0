@@ -121,7 +121,13 @@ async def _create(args: dict[str, Any], ctx: ToolContext) -> Any:
 def register_document_authoring_tools(registry: ToolRegistry) -> list[str]:
     """Register the authoring tool on the shared registry. Returns the names."""
     if registry.get("document_create") is not None:
-        return []
+        from .report_tools import register_report_tools  # noqa: PLC0415
+        from .edit.tools import register_document_edit_tools  # noqa: PLC0415
+
+        return [
+            *register_report_tools(registry),
+            *register_document_edit_tools(registry),
+        ]
     registry.register(ToolDefinition(
         name="document_create",
         description=(
@@ -201,8 +207,13 @@ def register_document_authoring_tools(registry: ToolRegistry) -> list[str]:
         timeout_ms=30_000,
     ))
     from .report_tools import register_report_tools  # noqa: PLC0415
+    from .edit.tools import register_document_edit_tools  # noqa: PLC0415
 
-    return ["document_create", *register_report_tools(registry)]
+    return [
+        "document_create",
+        *register_report_tools(registry),
+        *register_document_edit_tools(registry),
+    ]
 
 
 __all__ = ["register_document_authoring_tools"]

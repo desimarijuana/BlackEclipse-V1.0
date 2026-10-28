@@ -18,6 +18,7 @@ import { BotChat } from '@/components/bots/bot-chat';
 import { CreateBotDialog } from '@/components/bots/create-bot-dialog';
 import { GroupChatDialog } from '@/components/bots/group-chat-dialog';
 import { GroupChatRoom } from '@/components/bots/group-chat-room';
+import { InstitutionRunDialog } from '@/components/bots/institution-run-dialog';
 import {
   deleteAutomation, runAutomationNow,
   type AutomationView,
@@ -56,6 +57,7 @@ export function BotsScreen({ active = true }: { active?: boolean }) {
   const createGroup = useBotGroupsStore((s) => s.createGroup);
 
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [institutionOpen, setInstitutionOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<AutomationView | null>(null);
   const [runKey, setRunKey] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -221,7 +223,11 @@ export function BotsScreen({ active = true }: { active?: boolean }) {
             onDelete={(bot) => setDeleteTarget(bot)}
           />
         ) : (
-          <CenterEmpty onCreate={openCreate} onCreateGroup={openGroupCreate} />
+          <CenterEmpty
+            onCreate={openCreate}
+            onCreateGroup={openGroupCreate}
+            onInstitution={() => setInstitutionOpen(true)}
+          />
         )}
       </div>
 
@@ -231,6 +237,14 @@ export function BotsScreen({ active = true }: { active?: boolean }) {
         onOpenChange={setCreateOpen}
         existingNames={bots.map((b) => b.name)}
         onCreated={handleCreated}
+      />
+
+      {/* Institution committee — seeds the seats and runs the durable pipeline. */}
+      <InstitutionRunDialog
+        open={institutionOpen}
+        onOpenChange={setInstitutionOpen}
+        existingBots={bots}
+        onSeeded={() => void hydrate()}
       />
 
       {/* New group chat — pick 2–6 bots. */}
@@ -268,10 +282,11 @@ function recency(bot: AutomationView): number {
 }
 
 function CenterEmpty({
-  onCreate, onCreateGroup,
+  onCreate, onCreateGroup, onInstitution,
 }: {
   onCreate: () => void;
   onCreateGroup: () => void;
+  onInstitution: () => void;
 }) {
   const t = useT();
   const { seed, busy, error } = useSeedFinancePack();
@@ -291,6 +306,9 @@ function CenterEmpty({
         <Button variant="outline" onClick={() => void seed()} disabled={busy}>
           {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
           {busy ? t('bots.finance.seeding') : t('bots.finance.seed')}
+        </Button>
+        <Button variant="outline" onClick={onInstitution}>
+          <Users size={14} /> Institution committee
         </Button>
       </div>
       <p className="mt-3 max-w-sm text-[11px] text-muted-foreground">{t('bots.finance.hint')}</p>

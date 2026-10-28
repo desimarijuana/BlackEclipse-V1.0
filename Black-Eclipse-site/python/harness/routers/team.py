@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from ..deps import require_operator, service
+from ..institution.preset import bot_specs, build_team, descriptor as preset_descriptor
 from ..team.model import TeamDefinition
 from ..team.service import TeamError, TeamService
 
@@ -52,6 +53,57 @@ class TeamRunBody(BaseModel):
 
 class ReviewBody(BaseModel):
     reviewerAgentId: str = "qa-agent"  # noqa: N815
+
+
+class InstitutionRunBody(BaseModel):
+    objective: str = ""
+    universe: str = ""
+    horizon: str = ""
+    constraints: list[str] = []
+    modelSettings: Optional[dict[str, Any]] = None  # noqa: N815
+
+
+@router.get("/team/presets")
+async def list_presets(_: Any = Depends(require_operator)) -> dict[str, Any]:
+    """The stable preset catalogue (no objective required)."""
+    return {"success": True, "presets": [preset_descriptor()]}
+
+
+@router.get("/team/presets/institution")
+async def get_institution_preset(
+    objective: str = "",
+    universe: str = "",
+    horizon: str = "",
+    constraints: str = "",
+    _: Any = Depends(require_operator),
+) -> dict[str, Any]:
+    """The filled team definition + bot specs for one committee run."""
+    parsed = [part.strip() for part in constraints.split(",") if part.strip()]
+    team = build_team(
+        objective, universe=universe, horizon=horizon, constraints=parsed,
+    )
+    return {
+        "success": True,
+        "preset": preset_descriptor(),
+        "team": team.model_dump(by_alias=True),
+        "bots": bot_specs(),
+    }
+
+
+@router.post("/team/presets/institution/run")
+async def run_institution_preset(
+    body: InstitutionRunBody, _: Any = Depends(require_operator),
+) -> dict[str, Any]:
+    """Build and start the committee in one call (thin shell over TeamService)."""
+    team = build_team(
+        body.objective, universe=body.universe, horizon=body.horizon,
+        constraints=body.constraints,
+    )
+    try:
+        run = await _team().run(team, model_settings=body.modelSettings)
+        return {"success": True, "teamRun": run.model_dump(by_alias=True)}
+    except Exception as exc:  # noqa: BLE001
+        _raise(exc)
 
 
 @router.post("/team/runs")

@@ -144,6 +144,79 @@ export interface TeamReviewResult {
   unsupportedFindingIds: string[];
 }
 
+// -- Institution preset -------------------------------------------------------
+
+export interface InstitutionRoleView {
+  key: string;
+  agentId: string;
+  name: string;
+  label: string;
+  role: string;
+  stage: string;
+  description: string;
+  capabilities: string[];
+}
+
+export interface InstitutionPresetView {
+  id: string;
+  name: string;
+  version: number;
+  stages: string[];
+  roles: InstitutionRoleView[];
+  rules: string;
+}
+
+export interface InstitutionBotSpecView {
+  name: string;
+  description: string;
+  agentId: string;
+  role: string;
+  stage: string;
+  objective: string;
+  tags: string[];
+}
+
+export interface InstitutionPresetResponse {
+  preset: InstitutionPresetView;
+  team: TeamDefinitionView;
+  bots: InstitutionBotSpecView[];
+}
+
+export interface InstitutionRunInput {
+  objective: string;
+  universe?: string;
+  horizon?: string;
+  constraints?: string[];
+  modelSettings?: Record<string, unknown>;
+}
+
+/** The stable preset catalogue (one entry today: the Institution). */
+export async function listTeamPresets(): Promise<InstitutionPresetView[]> {
+  const data = await call<{ presets: InstitutionPresetView[] }>("/presets");
+  return data.presets ?? [];
+}
+
+/** The filled team graph + bot specs for one objective. */
+export async function getInstitutionPreset(
+  input: Omit<InstitutionRunInput, "modelSettings"> = { objective: "" },
+): Promise<InstitutionPresetResponse> {
+  const params = new URLSearchParams();
+  params.set("objective", input.objective ?? "");
+  if (input.universe) params.set("universe", input.universe);
+  if (input.horizon) params.set("horizon", input.horizon);
+  if (input.constraints?.length) params.set("constraints", input.constraints.join(","));
+  return call<InstitutionPresetResponse>(`/presets/institution?${params.toString()}`);
+}
+
+/** Build and start the committee in one call. */
+export async function runInstitution(input: InstitutionRunInput): Promise<TeamRunView> {
+  const data = await call<{ teamRun: TeamRunView }>("/presets/institution/run", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return data.teamRun;
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api/team${path}`, {
     headers: { "Content-Type": "application/json" },

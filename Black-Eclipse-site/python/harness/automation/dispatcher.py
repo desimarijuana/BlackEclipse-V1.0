@@ -64,6 +64,12 @@ def plan_actions(definition: AutomationDefinition) -> list[str]:
         steps.append(f"run skill {action.skill_id}@{action.skill_version or 'latest'}")
     elif action.type in ("execute_task", "run_agent", "create_task", "generate_report"):
         steps.append(f"run agent {action.agent_id or 'eclipse-agent'}: {(action.objective or definition.name)[:120]}")
+    elif action.type == "run_team":
+        steps.append(
+            "run team preset "
+            f"{action.config.get('presetId') or 'institution'}: "
+            f"{(action.objective or definition.name)[:120]}"
+        )
     elif action.type == "delegate_agent":
         steps.append(f"delegate to {action.agent_id or 'eclipse-agent'}: {(action.objective or definition.name)[:120]}")
     elif action.type == "execute_workflow":
@@ -180,6 +186,8 @@ class Dispatcher:
                 return await self._run_skill(definition, run_id)
             if action.type == "create_task":
                 return self._create_task(definition, execution_id)
+            if action.type == "run_team":
+                return await self._run_team(definition)
             if action.type in ("execute_task", "run_agent", "generate_report", "delegate_agent"):
                 if action.config.get("tasks"):
                     return await self._run_parallel(definition, run_id)
@@ -263,6 +271,82 @@ class Dispatcher:
             error_class=error.get("code") if isinstance(error, dict) else None,
             tokens=int(dumped.get("totalTokens") or 0) or None,
         )
+
+    async def _run_team(self, definition: AutomationDefinition) -> DispatchResult:
+        """Start the Institution committee and wait for its terminal decision.
+
+        A scheduled institution run is one automation execution: it opens a team
+        run, waits (bounded by the automation's own runtime budget) for the task
+        graph to finish, then finalises and returns the deterministic synthesis.
+        It never places an order.
+        """
+        action = definition.action
+        preset_id = str(action.config.get("presetId") or "institution")
+        if preset_id != "institution":
+            return DispatchResult(
+                state=FAILED, error=f"unknown team preset {preset_id!r}",
+                error_class="INVALID_CONFIGURATION",
+            )
+        team_service = getattr(self._service, "team", None)
+        if team_service is None:
+            try:
+                from ..team.bootstrap import install_team_layer  # noqa: PLC0415
+
+                install_team_layer(self._service)
+            except Exception:  # noqa: BLE001 - reported honestly below
+                team_service = None
+            team_service = getattr(self._service, "team", None)
+        if team_service is None:
+            return DispatchResult(
+                state=FAILED, error="the team runtime is unavailable",
+                error_class="RUNTIME_UNAVAILABLE",
+            )
+        try:
+            from ..institution.preset import build_team  # noqa: PLC0415
+
+            raw_constraints = action.config.get("constraints")
+            constraints = (
+                [str(c) for c in raw_constraints if str(c).strip()]
+                if isinstance(raw_constraints, list) else []
+            )
+            team = build_team(
+                action.objective or definition.name,
+                universe=str(action.config.get("universe") or ""),
+                horizon=str(action.config.get("horizon") or ""),
+                constraints=constraints,
+            )
+            settings = self._model_settings_for(definition)
+            run = await team_service.run(
+                team, model_settings=settings.model_dump(by_alias=True),
+            )
+            timeout_s = max(5, min(int(definition.execution.max_runtime_s), 86_400))
+            try:
+                await team_service.wait(run.id, timeout_s=timeout_s)
+            except Exception:  # noqa: BLE001 - a timeout is finalised below
+                pass
+            final = await team_service.finalize(run.id)
+            status = str(final.get("status") or "")
+            output = team_service.synthesize(run.id)
+            return DispatchResult(
+                state=COMPLETED if status in ("COMPLETED", "PARTIAL") else FAILED,
+                run_id=run.root_run_id,
+                output=output,
+                error=None if status in ("COMPLETED", "PARTIAL") else (
+                    f"team finished with status {status or 'unknown'}"
+                ),
+                error_class=None if status in ("COMPLETED", "PARTIAL") else "TEAM_INCOMPLETE",
+                detail={
+                    "teamRunId": run.id,
+                    "presetId": preset_id,
+                    "teamStatus": status,
+                    "reviewOutcome": final.get("reviewOutcome"),
+                    "conflicts": len(final.get("conflicts") or []),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - a dispatched failure is recorded
+            return DispatchResult(
+                state=FAILED, error=str(exc)[:2000], error_class="TEAM_ERROR",
+            )
 
     def _task_start(self, definition: AutomationDefinition, execution_id: str, run_id: str) -> Any:
         """Create + start a Task System task for this execution (best-effort)."""
