@@ -69,9 +69,11 @@ works through the turn gate.
 - REST: `GET /eclipse-memory/preferences?scopeId=` and
   `POST /eclipse-memory/preferences/learn` (operator-gated). Next.js proxies:
   `/api/eclipse-memory/preferences` and `/api/eclipse-memory/preferences/learn`.
-- UI: Eclipse Memory → **Preferences** (`eclipse-memory-screen.tsx`): pending
-  inferences, remembered preferences with Forget, evidence groups, thresholds and
-  a "Scan evidence" action.
+- UI: Eclipse Memory → **Preferences** (`preferences-panel.tsx`): pending
+  inferences, remembered preferences with Forget, evidence groups, thresholds, a
+  "Scan evidence" action, the learning-mode switch (off / ask / auto) and
+  per-dimension on/off switches. Generic policy controls for these keys are
+  hidden from the Policies tab because the Preferences tab owns them.
 - Durable facts and transcript search keep their existing surfaces
   (Facts / Session Search).
 
