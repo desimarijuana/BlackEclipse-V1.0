@@ -194,16 +194,14 @@ def effectful_widening_propose(
     from ..self_improvement.effectful_widening import propose  # noqa: PLC0415
 
     agent = get_agent("eclipse-agent")
-    return {
-        "success": True,
-        **propose(
-            service.store, service.registry, str(body.get("toolName") or ""),
-            justification=str(body.get("justification") or ""),
-            caps=body.get("caps") if isinstance(body.get("caps"), dict) else {},
-            ttl_hours=int(body.get("ttlHours") or 4),
-            already_allowed=tuple(agent.tools or ()),
-        ),
-    }
+    result = propose(
+        service.store, service.registry, str(body.get("toolName") or ""),
+        justification=str(body.get("justification") or ""),
+        caps=body.get("caps") if isinstance(body.get("caps"), dict) else {},
+        ttl_hours=int(body.get("ttlHours") or 4),
+        already_allowed=tuple(agent.tools or ()),
+    )
+    return {"success": bool(result.get("ok")), **result}
 
 
 @router.post("/evolution/effectful-widening/{proposal_id}/approve")
@@ -214,10 +212,8 @@ def effectful_widening_approve(
 ) -> dict[str, Any]:
     from ..self_improvement.effectful_widening import approve  # noqa: PLC0415
 
-    return {
-        "success": True,
-        **approve(service.store, proposal_id, str(body.get("token") or "")),
-    }
+    result = approve(service.store, proposal_id, str(body.get("token") or ""))
+    return {"success": bool(result.get("ok")), **result}
 
 
 @router.get("/evolution/effectful-widening/grants")
@@ -235,7 +231,8 @@ def effectful_widening_revoke(
 ) -> dict[str, Any]:
     from ..self_improvement.effectful_widening import revoke_grant  # noqa: PLC0415
 
-    return {"success": True, **revoke_grant(service.store, grant_id)}
+    result = revoke_grant(service.store, grant_id)
+    return {"success": bool(result.get("ok")), **result}
 
 
 @router.get("/evolution/tool-contracts")
