@@ -20,6 +20,7 @@ Outcomes: passed | failed | needs_review | blocked.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any, Optional
 
@@ -212,6 +213,33 @@ def _discrimination_dimension(
     }
 
 
+EVALUATOR_VERSION = "deterministic-v1"
+
+
+def evaluation_fingerprint(
+    manifest: SkillManifest, registry: SkillRegistry, version: str,
+) -> str:
+    """What a passing evaluation was measured against.
+
+    A change in the version, manifest (including instructions), evaluator, or
+    registered tool set requires a new evaluation. Nothing else does.
+    """
+    try:
+        tools = sorted(str(name) for name in registry.names())
+    except Exception:  # noqa: BLE001 - an unreadable registry changes the input
+        tools = ["<registry-unavailable>"]
+    payload = json.dumps(
+        {
+            "version": version,
+            "manifest": manifest.content_hash(),
+            "evaluator": EVALUATOR_VERSION,
+            "tools": tools,
+        },
+        sort_keys=True, separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
+
+
 def evaluate_skill(
     skill_id: str,
     version: Optional[str],
@@ -240,6 +268,21 @@ def evaluate_skill(
                 manifest = SkillManifest(**stored_version["manifest"])
             except Exception:  # noqa: BLE001 - fall back to the in-memory manifest
                 pass
+
+    fingerprint = evaluation_fingerprint(manifest, registry, resolved_version)
+    stored_version = registry.store.get_version(skill_id, resolved_version) or {}
+    if (
+        stored_version.get("evaluationStatus") == "passed"
+        and stored_version.get("evalFingerprint") == fingerprint
+    ):
+        # An unchanged passed version is held. No row is appended and the
+        # previous evaluation is not superseded.
+        return {
+            "ok": True, "skipped": True, "reason": "unchanged_passed",
+            "skillId": skill_id, "version": resolved_version,
+            "status": "passed", "summary": "unchanged passed version",
+            "dimensions": [], "cases": [], "fingerprint": fingerprint,
+        }
 
     dimensions: list[dict[str, Any]] = []
 
@@ -346,6 +389,7 @@ def evaluate_skill(
         dimensions=dimensions,
         summary=summary,
         cases=None,
+        fingerprint=fingerprint,
     )
     try:
         registry.store.supersede_evaluations(
@@ -365,6 +409,7 @@ def evaluate_skill(
         "summary": summary,
         "dimensions": dimensions,
         "cases": case_results,
+        "fingerprint": fingerprint,
     }
 
 

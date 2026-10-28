@@ -233,6 +233,12 @@ class SelfModificationExecutor:
     def _skip(self, kind: str, subject: str, reason: str) -> None:
         self._skips.append({"kind": kind, "subject": subject, "reason": reason})
 
+    def _non_activation(self, skill_id: str, cause: str, detail: Optional[dict[str, Any]] = None) -> None:
+        row = self.store.get_skill(skill_id) or {}
+        version = str(row.get("latestVersion") or "")
+        if version:
+            self.store.set_non_activation(skill_id, version, cause, detail or {})
+
     def _disable(self, skill_id: str, reason: str) -> None:
         version = _skill_version(self.store, skill_id)
         if not version:
@@ -328,27 +334,37 @@ class SelfModificationExecutor:
         self, skill_row: dict[str, Any], *, apply: bool = True,
     ) -> Optional[dict[str, Any]]:
         skill_id = str(skill_row.get("id") or "")
+        version = str(skill_row.get("latestVersion") or "")
         if not skill_id.startswith("learned."):
             self._skip("enable_skill", skill_id, "not_learned")
+            self._non_activation(skill_id, "not_learned")
             return None
         loaded = self.registry.load_stored(skill_id)
         if loaded is None:
             self._skip("enable_skill", skill_id, "manifest_unreadable")
+            self._non_activation(skill_id, "manifest_unreadable")
             return None
         manifest = loaded.manifest
+        version = version or manifest.version
         if any(p not in ALLOWED_SKILL_PERMISSIONS for p in manifest.permissions):
             self._skip("enable_skill", skill_id, "permission_not_read_only")
+            self._non_activation(skill_id, "effectful", {"permissions": list(manifest.permissions)})
             return None
         tools_ok, detail = self.registry.check_tools(skill_id, manifest.version)
         if not tools_ok:
             self._skip("enable_skill", skill_id, f"tools_unavailable: {detail}")
+            self._non_activation(skill_id, "tool_unavailable", {"detail": detail})
             return None
         evaluations = self.store.list_evaluations(skill_id, limit=1)
         if not evaluations or evaluations[0].get("status") != "passed":
             self._skip("enable_skill", skill_id, "evaluation_not_passed")
+            self._non_activation(skill_id, "evaluation_not_passed", {
+                "evaluationId": (evaluations or [{}])[0].get("id"),
+                "evaluationStatus": (evaluations or [{}])[0].get("status"),
+            })
             return None
-        version = str(skill_row.get("latestVersion") or manifest.version)
         if not apply:
+            self._non_activation(skill_id, "shadow_mode", {"version": version})
             self.audit.record(
                 kind="shadow_enable_skill", subject=skill_id,
                 evidence=str(evaluations[0].get("id") or ""),
@@ -356,6 +372,7 @@ class SelfModificationExecutor:
             )
             return {"skillId": skill_id, "version": version, "shadow": True}
         self.store.set_version_status(skill_id, version, "enabled", "passed")
+        self.store.clear_non_activation(skill_id, version)
         self.store.append_event(
             "skill.auto_enabled", skill_id=skill_id, version=version,
             data={"mode": self.policy.mode, "ttlDays": self.policy.ttl_days},
@@ -409,21 +426,42 @@ class SelfModificationExecutor:
                     if result:
                         accepted.append(result)
         enabled: list[dict[str, Any]] = []
-        if self.policy.auto_enable and self.policy.max_active_skills > 0:
+        learned_drafts = [
+            skill for skill in self.store.list_skills(status="draft")
+            if str(skill.get("id") or "").startswith("learned.")
+        ]
+        if not self.policy.auto_enable:
+            for skill in learned_drafts:
+                self._non_activation(
+                    str(skill.get("id") or ""), "auto_enable_off",
+                    {"mode": self.policy.mode},
+                )
+        elif self.policy.max_active_skills <= 0:
+            for skill in learned_drafts:
+                self._non_activation(
+                    str(skill.get("id") or ""), "active_skill_cap",
+                    {"maxActiveSkills": 0},
+                )
+        else:
             active = [
                 row for row in self.store.list_skills(status="enabled")
                 if str(row.get("id") or "").startswith("learned.")
             ]
             remaining = max(0, self.policy.max_active_skills - len(active))
-            learned_drafts = [
-                skill for skill in self.store.list_skills(status="draft")
-                if str(skill.get("id") or "").startswith("learned.")
-            ]
             for skill in learned_drafts[:MAX_SKILLS_PER_TICK]:
                 if remaining <= 0:
-                    break
+                    self._non_activation(
+                        str(skill.get("id") or ""), "active_skill_cap",
+                        {"maxActiveSkills": self.policy.max_active_skills,
+                         "active": len(active)},
+                    )
+                    continue
                 if self.audit.count_today("enable_skill") >= self.policy.max_actions_per_day:
-                    break
+                    self._non_activation(
+                        str(skill.get("id") or ""), "daily_action_cap",
+                        {"maxActionsPerDay": self.policy.max_actions_per_day},
+                    )
+                    continue
                 result = self._enable_skill(skill, apply=apply)
                 if result:
                     enabled.append(result)

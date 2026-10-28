@@ -103,6 +103,23 @@ def test_version_history_rejects_an_unknown_skill() -> None:
     assert data["found"] is False and data["versions"] == []
 
 
+def test_version_history_reports_non_activation_cause() -> None:
+    class _CauseStore(_Store):
+        def list_versions(self, skill_id: str) -> list[dict[str, Any]]:
+            rows = super().list_versions(skill_id)
+            rows[0]["nonActivationCause"] = "active_skill_cap"
+            rows[0]["nonActivationDetail"] = '{"maxActiveSkills": 0}'
+            return rows
+
+    registry = _Registry()
+    registry.store = _CauseStore()
+    text, data = asyncio.run(skill_version_history_handler(
+        {"skill_id": "demo.skill"}, _ctx(registry),
+    ))
+    assert "notActivated=active_skill_cap" in text
+    assert data["versions"][0]["nonActivationCause"] == "active_skill_cap"
+
+
 def test_version_history_loads_a_store_only_skill() -> None:
     class _StoreOnly(_Registry):
         def __init__(self) -> None:

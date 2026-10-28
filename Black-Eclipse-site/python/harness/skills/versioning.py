@@ -430,6 +430,8 @@ def version_history(registry: SkillRegistry, skill_id: str) -> list[dict[str, An
             "canaryState": stored.get("canaryState"),
             "activatedAt": stored.get("activatedAt"),
             "rolledBackAt": stored.get("rolledBackAt"),
+            "nonActivationCause": stored.get("nonActivationCause"),
+            "nonActivationDetail": stored.get("nonActivationDetail"),
             "createdAt": stored.get("createdAt"),
             "patch": stored.get("patch"),
         })

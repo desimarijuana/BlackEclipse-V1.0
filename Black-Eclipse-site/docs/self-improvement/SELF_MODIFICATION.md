@@ -42,6 +42,18 @@ The generated draft output schema carries an `evidence` field; quality
 procedure drafts may also report `limitations` and `missingData`. That makes the
 evidence contract pass without weakening the mandatory checks.
 
+An unchanged **passed** version is evaluated once: the version stores the
+manifest/version/evaluator/tool-set fingerprint, and a later evaluation with the
+same fingerprint is skipped without writing a `SkillEvaluation` row. A manifest,
+version, evaluator, or registered-tool change produces a new fingerprint and a
+new evaluation.
+
+A version that is not enabled records a machine-readable
+`nonActivationCause` (`active_skill_cap`, `daily_action_cap`, `evaluation_not_passed`,
+`effectful`, `tool_unavailable`, `shadow_mode`, `auto_enable_off`,
+`manifest_unreadable`, `not_learned`). `skill_version_history` prints it as
+`notActivated=<cause>`.
+
 `skill_version_history` materialises store-only learned skills with
 `registry.load_stored()` before declaring one missing.
 

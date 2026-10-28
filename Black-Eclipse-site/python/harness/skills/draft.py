@@ -176,11 +176,22 @@ def evaluate_drafted_skills(registry: Any, *, limit: int = 50) -> dict[str, Any]
         except Exception as error:  # noqa: BLE001 - one bad draft never stops the sweep
             skipped.append({"skillId": skill_id, "reason": f"{type(error).__name__}: {error}"})
             continue
+        version = str(result.get("version") or row.get("latestVersion") or "")
+        version_row = store.get_version(skill_id, version) or {}
+        if str(version_row.get("status") or "") != "enabled":
+            cause = "pending_activation" if result.get("status") == "passed" else "evaluation_not_passed"
+            if not version_row.get("nonActivationCause"):
+                store.set_non_activation(
+                    skill_id, version, cause,
+                    {"evaluationId": result.get("evaluationId"),
+                     "evaluationStatus": result.get("status")},
+                )
         evaluated.append({
             "skillId": skill_id,
-            "version": result.get("version"),
+            "version": version,
             "status": result.get("status"),
             "summary": result.get("summary"),
+            "skipped": bool(result.get("skipped")),
         })
     return {"ok": True, "evaluated": evaluated, "skipped": skipped}
 

@@ -150,6 +150,9 @@ MIGRATIONS: list[tuple[int, list[str]]] = [
               sourceRunId          TEXT,
               originCandidateId    TEXT,
               limitations          TEXT,
+              evalFingerprint      TEXT,
+              nonActivationCause   TEXT,
+              nonActivationDetail  TEXT,
               createdAt            TEXT NOT NULL,
               updatedAt            TEXT NOT NULL,
               publishedAt          TEXT,
@@ -1166,6 +1169,20 @@ MIGRATIONS.append(
         33,
         [
             "ALTER TABLE LearningCandidate ADD COLUMN occurrenceCount INTEGER NOT NULL DEFAULT 1;",
+        ],
+    )
+)
+
+# Migration 35 — evaluation loop guard + non-activation cause. A version records
+# the fingerprint of its last evaluation, so an unchanged passed version is held
+# instead of re-evaluated. A draft that passed but is not enabled records WHY.
+MIGRATIONS.append(
+    (
+        35,
+        [
+            "ALTER TABLE SkillVersion ADD COLUMN evalFingerprint TEXT;",
+            "ALTER TABLE SkillVersion ADD COLUMN nonActivationCause TEXT;",
+            "ALTER TABLE SkillVersion ADD COLUMN nonActivationDetail TEXT;",
         ],
     )
 )

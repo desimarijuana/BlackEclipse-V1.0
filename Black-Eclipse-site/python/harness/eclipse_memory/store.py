@@ -923,6 +923,7 @@ class EclipseMemoryStore:
         self, *, skill_id: str, version: str, status: str, dimensions: list[dict[str, Any]],
         evaluator: str = "deterministic-v1", summary: Optional[str] = None,
         cases: Optional[list[dict[str, Any]]] = None,
+        fingerprint: Optional[str] = None,
     ) -> str:
         evaluation_id = new_id("eval")
         self._db.execute(
@@ -942,11 +943,32 @@ class EclipseMemoryStore:
                  case.get("status"), now_iso()),
             )
         self._db.execute(
-            "UPDATE SkillVersion SET evaluationStatus=?, updatedAt=? WHERE skillId=? AND version=?",
-            (status, now_iso(), skill_id, version),
+            "UPDATE SkillVersion SET evaluationStatus=?, evalFingerprint=?, updatedAt=? "
+            "WHERE skillId=? AND version=?",
+            (status, fingerprint, now_iso(), skill_id, version),
         )
         self._db.commit()
         return evaluation_id
+
+    def set_non_activation(
+        self, skill_id: str, version: str, cause: str,
+        detail: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Record why a version is not enabled. Never changes status."""
+        self._db.execute(
+            "UPDATE SkillVersion SET nonActivationCause=?, nonActivationDetail=?, "
+            "updatedAt=? WHERE skillId=? AND version=?",
+            (cause, json.dumps(detail or {}), now_iso(), skill_id, version),
+        )
+        self._db.commit()
+
+    def clear_non_activation(self, skill_id: str, version: str) -> None:
+        self._db.execute(
+            "UPDATE SkillVersion SET nonActivationCause=NULL, nonActivationDetail=NULL, "
+            "updatedAt=? WHERE skillId=? AND version=?",
+            (now_iso(), skill_id, version),
+        )
+        self._db.commit()
 
     def supersede_evaluations(
         self, skill_id: str, version: str, keep_id: str

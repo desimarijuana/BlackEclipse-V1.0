@@ -11,7 +11,9 @@ from harness.self_improvement.self_modification import (
     SelfModificationExecutor,
     SelfModificationPolicy,
 )
+from harness.skills.evaluation import evaluate_skill
 from harness.skills.registry import SkillRegistry
+from harness.skills.versioning import version_history
 
 
 class _Tools:
@@ -208,5 +210,33 @@ def test_off_mode_and_cap_refuse_enablement(tmp_path):
         executor.run_once()
         skill_id = service.skill_registry.store.get_candidate(cid)["resultingSkillId"]
         assert service.skill_registry.store.get_skill(skill_id)["status"] == "draft"
+        version = service.skill_registry.store.get_skill(skill_id)["latestVersion"]
+        stored = service.skill_registry.store.get_version(skill_id, version)
+        assert stored["nonActivationCause"] == "active_skill_cap"
+        history = version_history(service.skill_registry, skill_id)
+        assert history[0]["nonActivationCause"] == "active_skill_cap"
+        assert history[0]["nonActivationDetail"]
+    finally:
+        service.store.close()
+
+
+def test_unchanged_passed_version_is_evaluated_once(tmp_path):
+    service = _service(tmp_path)
+    try:
+        cid = _candidate(service.skill_registry.store)
+        executor = SelfModificationExecutor(
+            service, SelfModificationPolicy(mode="enable"),
+        )
+        executor.run_once()
+        skill_id = service.skill_registry.store.get_candidate(cid)["resultingSkillId"]
+        version = service.skill_registry.store.get_skill(skill_id)["latestVersion"]
+        before = len(service.skill_registry.store.list_evaluations(skill_id, limit=50))
+
+        result = evaluate_skill(skill_id, version, service.skill_registry)
+
+        after = len(service.skill_registry.store.list_evaluations(skill_id, limit=50))
+        assert result["skipped"] is True
+        assert result["reason"] == "unchanged_passed"
+        assert after == before
     finally:
         service.store.close()

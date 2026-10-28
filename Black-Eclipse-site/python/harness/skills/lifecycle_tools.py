@@ -96,6 +96,8 @@ async def skill_version_history_handler(args: dict[str, Any], ctx: Any) -> tuple
         bits.append(f"base={base}")
         bits.append(f"canary={item.get('canaryState') or 'none'}")
         bits.append(f"activated={item.get('activatedAt') or 'none'}")
+        if item.get("nonActivationCause"):
+            bits.append(f"notActivated={item['nonActivationCause']}")
         if item.get("rolledBackAt"):
             bits.append(f"rolledBack={item['rolledBackAt']}")
         if item.get("patchSummary"):
