@@ -103,6 +103,29 @@ def test_version_history_rejects_an_unknown_skill() -> None:
     assert data["found"] is False and data["versions"] == []
 
 
+def test_version_history_loads_a_store_only_skill() -> None:
+    class _StoreOnly(_Registry):
+        def __init__(self) -> None:
+            super().__init__()
+            self.loaded = False
+
+        def manifest(self, skill_id: str) -> Optional[Any]:
+            return SimpleNamespace(id=skill_id) if self.loaded else None
+
+        def load_stored(self, skill_id: str) -> Optional[Any]:
+            if skill_id == "learned.demo":
+                self.loaded = True
+                return SimpleNamespace(manifest=SimpleNamespace(id=skill_id))
+            return None
+
+    registry = _StoreOnly()
+    _text, data = asyncio.run(skill_version_history_handler(
+        {"skill_id": "learned.demo"}, _ctx(registry),
+    ))
+    assert data["found"] is True
+    assert data["latestVersion"] == "1.0.0"
+
+
 def test_reviews_combine_reviews_and_evaluations_and_filter_by_version() -> None:
     registry = _Registry(
         reviews=[

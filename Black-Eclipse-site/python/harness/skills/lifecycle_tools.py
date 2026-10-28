@@ -63,6 +63,13 @@ async def skill_version_history_handler(args: dict[str, Any], ctx: Any) -> tuple
     if not skill_id:
         return "A skill id is required.", {"found": False, "versions": []}
     if registry.manifest(skill_id) is None:
+        # Store-only learned skills are not in the in-memory catalog until a
+        # reader materialises them. Try that before declaring the skill missing.
+        try:
+            registry.load_stored(skill_id)
+        except Exception:  # noqa: BLE001 - an unreadable row is not a missing name
+            pass
+    if registry.manifest(skill_id) is None:
         return f"No skill named {skill_id!r}. Use skill_list to see available skills.", {
             "found": False, "versions": [],
         }

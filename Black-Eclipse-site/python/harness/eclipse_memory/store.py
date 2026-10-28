@@ -979,11 +979,15 @@ class EclipseMemoryStore:
         limit = max(1, min(int(limit), 500))
         if skill_id:
             rows = self._db.execute(
-                "SELECT * FROM SkillEvaluation WHERE skillId=? ORDER BY createdAt DESC LIMIT ?",
+                "SELECT * FROM SkillEvaluation WHERE skillId=? "
+                "ORDER BY createdAt DESC, rowid DESC LIMIT ?",
                 (skill_id, limit),
             ).fetchall()
         else:
-            rows = self._db.execute("SELECT * FROM SkillEvaluation ORDER BY createdAt DESC LIMIT ?", (limit,)).fetchall()
+            rows = self._db.execute(
+                "SELECT * FROM SkillEvaluation ORDER BY createdAt DESC, rowid DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
         out = []
         for row in rows:
             record = dict(row)

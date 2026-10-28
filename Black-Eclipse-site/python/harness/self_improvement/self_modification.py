@@ -270,11 +270,15 @@ class SelfModificationExecutor:
     def _accept_candidate(
         self, candidate: dict[str, Any], *, apply: bool = True,
     ) -> Optional[dict[str, Any]]:
+        from ..skills.draft import draft_ready  # noqa: PLC0415
         from .lesson_contract import candidate_problems  # noqa: PLC0415
 
         if candidate_problems(candidate):
             return None
         candidate_id = str(candidate.get("id") or "")
+        if not draft_ready(candidate):
+            self._skip("accept_candidate", candidate_id, "insufficient_recurrence_or_evidence")
+            return None
         if not apply:
             skill_id = str(candidate.get("resultingSkillId") or "")
             if not skill_id:
@@ -382,6 +386,14 @@ class SelfModificationExecutor:
         effectful_expired = expire_effectful(self.service.store)
         refresh(self.service.store)
         refresh_effectful(self.service.store)
+        # Keep the autonomous path moving without a restart: draft newly ready
+        # candidates, then measure learned skills that have real usage.
+        from ..skills.draft import auto_draft_ready_candidates, evaluate_used_skills  # noqa: PLC0415
+
+        drafted = auto_draft_ready_candidates(self.store, limit=20)
+        usage_evaluation = evaluate_used_skills(
+            self.registry, min_uses=3, limit=20,
+        )
         expired: list[dict[str, Any]] = []
         for row in self.audit.expire_due(now):
             self._disable(str(row.get("subject") or ""), "self-modification TTL expired")
@@ -418,6 +430,8 @@ class SelfModificationExecutor:
                     remaining -= 1
         self._last_result = {
             "accepted": accepted, "enabled": enabled,
+            "drafted": drafted,
+            "usageEvaluation": usage_evaluation,
             "expired": [row.get("id") for row in expired],
             "expiredWidenGrants": widen_expired,
             "expiredEffectfulGrants": effectful_expired,

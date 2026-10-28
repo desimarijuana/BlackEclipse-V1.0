@@ -23,6 +23,8 @@ target denylist prevents the loop from proposing a code change to it.
 
 1. **Accept a candidate** only when:
    - `candidate_problems()` is empty;
+   - `draft_ready()` accepts its recurrence/evidence (a single-occurrence
+     `failure_recovery` is not enough);
    - a draft exists (or can be created);
    - `evaluate_skill()` returns `passed`.
 2. **Enable a skill** only when:
@@ -32,6 +34,16 @@ target denylist prevents the loop from proposing a code change to it.
    - the latest evaluation is `passed`;
    - under the active-skill cap and daily-action cap.
 3. **Disable** a skill when its grant expires or is revoked.
+4. **Keep the loop moving without a restart**: every tick runs
+   `auto_draft_ready_candidates()` and then `evaluate_used_skills()` for learned
+   skills with at least 3 successful executions.
+
+The generated draft output schema carries an `evidence` field; quality
+procedure drafts may also report `limitations` and `missingData`. That makes the
+evidence contract pass without weakening the mandatory checks.
+
+`skill_version_history` materialises store-only learned skills with
+`registry.load_stored()` before declaring one missing.
 
 It never enables an effectful skill. Skills are declarative; the permission set
 is the effect boundary.
@@ -59,7 +71,11 @@ Every action is a durable `SelfModificationAction` row:
 - TTL expiry disables it;
 - `off` and `max_active_skills=0` refuse enablement;
 - `shadow` records `shadow_enable_skill` but leaves the skill `draft`;
-- a later failed evaluation disables the granted skill and revokes the grant.
+- a later failed evaluation disables the granted skill and revokes the grant;
+- a single-occurrence recovery candidate is not auto-accepted.
+
+`test_skill_lifecycle_tools.py` pins the store-only history fallback;
+`test_learning_loop_closure.py` pins the quality evidence shape.
 
 ## Still operator-only
 

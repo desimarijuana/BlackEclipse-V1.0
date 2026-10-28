@@ -379,6 +379,11 @@ def propose_draft(
                 "summary": {"type": "string", "description": "The result of the procedure."},
                 "limitations": {"type": "array", "items": {"type": "string"}},
                 "missingData": {"type": "array", "items": {"type": "string"}},
+                "evidence": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tool results or observations that support the result.",
+                },
             },
             "required": ["summary"],
         },

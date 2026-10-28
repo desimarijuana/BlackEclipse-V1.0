@@ -9,6 +9,7 @@ active memory must not hold two truths.
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 from harness.advisory.service import AdvisoryService, due_at
 from harness.eclipse_memory.consolidation import consolidate_active
@@ -31,12 +32,27 @@ from harness.self_improvement.loop_health import (
 )
 from harness.skills.evaluation import (
     _discrimination_dimension,
+    _evidence_shape,
     _metric_deltas,
     _regression_dimension,
 )
 
 
 # ── typed lessons / justified null ──────────────────────────────────────────
+
+
+def test_quality_recovery_output_passes_evidence_shape():
+    manifest = SimpleNamespace(
+        category="quality",
+        outputSchema={"properties": {
+            "summary": {"type": "string"},
+            "limitations": {"type": "array"},
+            "missingData": {"type": "array"},
+        }},
+    )
+    ok, reason = _evidence_shape(manifest)
+    assert ok is True
+    assert "limitations" in reason and "missing data" in reason
 
 
 def test_generic_action_is_not_a_lesson():

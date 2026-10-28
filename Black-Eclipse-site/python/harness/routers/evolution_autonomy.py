@@ -68,6 +68,42 @@ def decide_rsl_autonomy(
     return {"success": True, "decision": decision, "activates": False}
 
 
+@router.get("/evolution/learning-loop")
+def learning_loop_status(
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """One read-only view of the autonomous read-only learning loop."""
+    candidates = service.skill_store.list_candidates(limit=1000)
+    candidate_counts: dict[str, int] = {}
+    for row in candidates:
+        status = str(row.get("status") or "unknown")
+        candidate_counts[status] = candidate_counts.get(status, 0) + 1
+    skills = service.skill_store.list_skills()
+    learned = [row for row in skills if str(row.get("id") or "").startswith("learned.")]
+    learned_counts: dict[str, int] = {}
+    for row in learned:
+        status = str(row.get("status") or "unknown")
+        learned_counts[status] = learned_counts.get(status, 0) + 1
+    executor = getattr(service, "_self_modification", None)
+    self_mod = executor.status() if executor is not None else {"running": False}
+    return {
+        "success": True,
+        "mode": self_mod.get("mode"),
+        "selfModification": self_mod,
+        "candidates": candidate_counts,
+        "learnedSkills": learned_counts,
+        "enabledLearnedSkills": [
+            row.get("id") for row in learned if str(row.get("status") or "") == "enabled"
+        ],
+        "automatic": {
+            "drafts": "self-modification tick: auto_draft_ready_candidates",
+            "evaluation": "candidate accept path + usage evaluation after 3 uses",
+            "enable": "read-only learned skills only, with TTL/audit",
+            "effectful": "operator-approved only",
+        },
+    }
+
+
 @router.get("/evolution/widening")
 def widening_list(
     limit: int = 100, _: bool = Depends(require_operator),

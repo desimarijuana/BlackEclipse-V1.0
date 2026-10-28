@@ -43,6 +43,52 @@ def _candidate(store, candidate_id="cand_selfmod"):
     })
 
 
+def _recovery_candidate(store, *, occurrence=1):
+    return store.save_candidate({
+        "candidateType": "failure_recovery",
+        "title": "Retry analysis_run after a transient TOOL_ERROR",
+        "problem": "analysis_run failed with TOOL_ERROR; it recovered.",
+        "condition": "analysis_run returns TOOL_ERROR",
+        "action": "retry analysis_run once after TOOL_ERROR and verify the result",
+        "proposedLesson": "When analysis_run fails with TOOL_ERROR, retry it once.",
+        "proposedProcedure": [
+            {"step": 1, "action": "classify", "detail": "recognize TOOL_ERROR"},
+            {"step": 2, "action": "recover", "detail": "retry analysis_run"},
+        ],
+        "failedCall": "analysis_run",
+        "recoveredCall": "analysis_run",
+        "precondition": "TOOL_ERROR",
+        "replayTest": "Replay run_selfmod forcing analysis_run to TOOL_ERROR.",
+        "evidenceReferences": [
+            {"kind": "tool", "name": "analysis_run", "phase": "failed"},
+            {"kind": "tool", "name": "analysis_run", "phase": "recovered"},
+        ],
+        "occurrenceCount": occurrence,
+        "confidence": 0.5,
+        "status": "detected",
+        "signature": f"recovery-{occurrence}",
+        "sourceRunId": "run_selfmod",
+    })
+
+
+def test_single_occurrence_recovery_is_not_auto_accepted(tmp_path):
+    service = _service(tmp_path)
+    try:
+        cid = _recovery_candidate(service.skill_registry.store, occurrence=1)
+        executor = SelfModificationExecutor(
+            service, SelfModificationPolicy(mode="enable"),
+        )
+        result = executor.run_once()
+        assert result["accepted"] == []
+        assert service.skill_registry.store.get_candidate(cid)["status"] == "detected"
+        assert any(
+            item.get("reason") == "insufficient_recurrence_or_evidence"
+            for item in result["skipped"]
+        )
+    finally:
+        service.store.close()
+
+
 def test_accept_mode_accepts_but_does_not_enable(tmp_path):
     service = _service(tmp_path)
     try:

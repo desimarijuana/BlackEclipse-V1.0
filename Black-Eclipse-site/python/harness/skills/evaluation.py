@@ -480,6 +480,11 @@ def _evidence_shape(manifest: SkillManifest) -> tuple[bool, str]:
         findings_fields = {"findings", "claims", "results", "reported", "facts"}
         if not (findings_fields & set(props)):
             return True, "research output is plan-like and carries no measured facts"
+    if manifest.category == "quality" and {"limitations", "missingData"} <= set(props):
+        # A procedure skill reports what it did, what it could not do, and the
+        # source calls it used. The recovery evidence is in the procedure; the
+        # output still has an honest place for limitations and missing data.
+        return True, "quality output can report limitations and missing data"
     return False, "output schema has no evidence/references field"
 
 
