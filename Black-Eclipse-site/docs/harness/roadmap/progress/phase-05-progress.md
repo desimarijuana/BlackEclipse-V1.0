@@ -141,3 +141,19 @@ No `*.db` appears; no `*.db` staged.
   shifted to match).
 - **`main.py` growth.** 1039 â†’ 1041 lines: +2 (import + `include_router`), per
   README Â§3.7 (the only permitted growth).
+
+## Re-audit 2026-10-28
+
+- Code-agent/finance separation holds: code-agent contains no finance tools and
+  llowMcpTools is absent/false; finance contains no external code action
+  (code_commit/code_push/code_open_pr/code_deploy).
+- The allowlist boundary is structural: all 389 tools allowed at plan_only are
+  permission=read and effect read/None across the real registry; edit_verify`n  removes every EXTERNAL_ACTION_TOOLS; unknown autonomy equals plan_only.
+- Single-use claim is shared (mcp.approvals.claim_guarded; code/actions.py uses
+  consume_kind). Task lifecycle reuses RunLineage checkpoints.
+- Targeted gates: 38 passed (	est_phase5_audit.py + code agent/approvals/tasks).
+- Correction: G4's literal 'finance has NO code tool' is stale. Later phases
+  deliberately added scaffold_kit, capability_* and python_env_* to the
+  finance agent; those are effect/approval-gated. The Phase 5 boundary that
+  matters — no external code action on finance — still holds.
+

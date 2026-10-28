@@ -7,6 +7,16 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-28
+- **test(harness): re-audit roadmap Phase 5 (coding agent/approvals).**
+  Added `test_phase5_audit.py`: code-agent/finance separation, `allowMcpTools`
+  false, all 389 `plan_only` tools read-only against the real registry,
+  `edit_verify` external-action removal, unknown-autonomy fail-closed, shared
+  `claim_guarded`, and `RunLineage` task checkpoints. Targeted gates: 38 passed.
+  Correction recorded: the roadmap's literal "finance has no code tool" is stale
+  after later phases (`scaffold_kit`, `capability_*`, `python_env_*` are now
+  effect/approval-gated); no external code action reaches finance. Docs:
+  `docs/harness/roadmap/progress/phase-05-progress.md` and the Phase 5 roadmap
+  `last-verified`.
 - **test(learning): pin the operator gates.**
   Added `test_learning_gates.py` and an accept-route 403 test: candidate
   acceptance, skill authoring, skill lifecycle writes, and effectful capability

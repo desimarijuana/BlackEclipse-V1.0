@@ -4,7 +4,7 @@ status: Done
 phase: 5
 depends_on: [4]
 unlocks: [6, 7, 8, 9]
-last-verified: 2026-10-01
+last-verified: 2026-10-28
 ---
 
 # Phase 5 — The Coding Agent, Autonomy Profiles and Approvals
