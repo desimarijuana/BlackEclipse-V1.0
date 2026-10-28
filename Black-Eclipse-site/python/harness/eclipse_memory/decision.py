@@ -116,6 +116,14 @@ _ONE_OFF_PATTERNS = (
     r"\bfor this (task|run|turn|one|request|time|analysis)\b",
     r"\b(for now|this time|today only|just this once|in this run)\b",
 )
+# A task brief is not a durable memory. Automatic/run-analysis proposals must
+# not turn implementation instructions into long-term preferences.
+_TASK_INSTRUCTION_PATTERNS = (
+    r"^\s*HARNESS CHANGE\b",
+    r"^\s*(TARGET|OWNER|SCOPE|DELIVERABLE|ACCEPTANCE)\s*:",
+    r"\bReplace the .{0,120}? at (?:the )?marker\b",
+    r"\b(?:fix|implement|refactor|change|edit)\b[^.\n]{0,80}\b(?:file|module|function|class|python|typescript|repo|repository)\b",
+)
 
 # A durable preference inside a longer prompt ("First: I prefer ..."). Only the
 # preference clause is stored; the surrounding task instructions are not.
@@ -187,6 +195,11 @@ def looks_like_dump(text: str) -> bool:
     if len(stripped) > _MAX_DURABLE_CHARS:
         return True
     return _matches(stripped, _DUMP_INDICATORS)
+
+
+def looks_like_task_instruction(text: str) -> bool:
+    """True for a run-scoped implementation brief, not a durable fact."""
+    return _matches(text or "", _TASK_INSTRUCTION_PATTERNS)
 
 
 def looks_like_financial_fact(text: str) -> bool:
@@ -603,6 +616,11 @@ def authorize_proposal(
         return MemoryDecision(
             outcome="ignore", reason="refused: content looks like a raw conversation dump rather than a durable fact",
             content="", refused=True, provenance=provenance,
+        )
+    if provenance in ("run_analysis", "automatic_learning") and looks_like_task_instruction(text_value):
+        return _history_only(
+            "task instruction is run-scoped, not durable memory",
+            content=text_value, provenance=provenance,
         )
     if looks_like_financial_fact(text_value):
         return MemoryDecision(

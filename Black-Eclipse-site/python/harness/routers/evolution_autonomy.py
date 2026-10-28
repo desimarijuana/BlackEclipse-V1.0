@@ -68,6 +68,43 @@ def decide_rsl_autonomy(
     return {"success": True, "decision": decision, "activates": False}
 
 
+@router.get("/evolution/capabilities")
+def capability_contract(
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """The truthful autonomy matrix. Marketing and agents read the same contract."""
+    executor = getattr(service, "_self_modification", None)
+    status = executor.status() if executor is not None else {}
+    return {
+        "success": True,
+        "selfImproving": True,
+        "mode": status.get("mode"),
+        "autonomous": {
+            "readOnlySkillCreation": True,
+            "memoryPolicyLearning": True,
+            "crossSessionRecall": True,
+            "codePatchSandbox": True,
+            "codeMerge": False,
+            "readOnlyToolWidening": False,
+            "effectfulToolUse": False,
+            "financialActions": False,
+            "policyChanges": False,
+        },
+        "operatorRequired": [
+            "effectful/financial actions",
+            "tool widening",
+            "code promotion/merge",
+            "policy and guardrail changes",
+            "skill_create and skill_update",
+        ],
+        "statement": (
+            "Eclipse is a bounded self-improving agent: autonomous read-only skill "
+            "creation, policy-governed memory, and cross-session recall; effectful "
+            "and financial actions and code merges remain operator-approved."
+        ),
+    }
+
+
 @router.get("/evolution/learning-loop")
 def learning_loop_status(
     _: bool = Depends(require_operator),

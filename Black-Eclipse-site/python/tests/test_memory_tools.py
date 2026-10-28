@@ -450,8 +450,10 @@ def test_prompt_char_ceiling():
     # and the in-flight interactive-block clause. Both are guidance the runtime
     # needs; re-pinned to the measured size, and it may only shrink from here.
     # Re-pinned 40067->40358 to the measured tree (pre-existing prompt growth).
+    # Re-pinned 40358->40850 for the capability-scope rule (bounded
+    # self-improvement; effects/code merges/policy stay operator-approved).
     # May only shrink from here.
-    assert len(prompt) <= 40358, f"prompt grew to {len(prompt)} chars"
+    assert len(prompt) <= 40850, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

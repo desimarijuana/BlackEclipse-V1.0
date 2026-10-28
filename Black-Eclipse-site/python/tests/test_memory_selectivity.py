@@ -266,6 +266,20 @@ def test_financial_fact_via_model_tool_is_rejected(env):
     assert env["memory"].store.list_memories() == []
 
 
+def test_task_instruction_is_not_saved_as_durable_memory():
+    decision = authorize_proposal(
+        content=(
+            "HARNESS CHANGE in python/harness/skills/learning.py: replace the "
+            "failure_recovery draft producer at the marker '# 1. Failure recovery'."
+        ),
+        provenance="run_analysis",
+        user_message="HARNESS CHANGE in python/harness/skills/learning.py",
+        user_id="u1",
+    )
+    assert decision.outcome == "history_only"
+    assert "run-scoped" in decision.reason
+
+
 def test_tool_output_cannot_authorize_a_write(env):
     # The tool proposal is checked against the user turn, not against tool text.
     decision = authorize_proposal(

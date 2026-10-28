@@ -24,6 +24,14 @@ proposed row
   -> update status=active + memory.promoted event
 ```
 
+## Task instructions are not memory
+
+Automatic/run-analysis proposals now reject task briefs (`HARNESS CHANGE`,
+`TARGET:`, “Replace the … at the marker”, implementation instructions that name
+a file/module/repo) as `history_only`. They remain searchable run history, not
+durable facts. This stops implementation prompts from becoming long-term
+preferences.
+
 ## Tests
 
 - `test_proposed_memory_promotes_after_recurrence_but_not_on_conflict`

@@ -111,7 +111,8 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # Re-pinned 38884->40067 for the delegation guidance and the in-flight
     # interactive-block clause; re-pinned to the measured size.
     # Re-pinned 40067->40358 to the measured tree (pre-existing prompt growth).
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 40358
+    # Re-pinned 40358->40850 for the capability-scope rule.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 40850
 
 
 def test_main_still_reexports_the_identity_boundary_surface():
