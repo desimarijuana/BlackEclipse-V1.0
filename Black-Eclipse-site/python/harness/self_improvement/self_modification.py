@@ -243,6 +243,30 @@ class SelfModificationExecutor:
             data={"reason": reason},
         )
 
+    def _enforce_grants(self) -> list[dict[str, Any]]:
+        """Canary check: a granted skill that later fails is disabled + revoked."""
+        rolled_back: list[dict[str, Any]] = []
+        for grant in self.audit.active("enable_skill"):
+            skill_id = str(grant.get("subject") or "")
+            record = self.store.get_skill(skill_id)
+            if record is None or str(record.get("status") or "") != "enabled":
+                self.audit.revoke(str(grant.get("id") or ""))
+                rolled_back.append({"grantId": grant.get("id"), "skillId": skill_id, "reason": "not_enabled"})
+                continue
+            evaluations = self.store.list_evaluations(skill_id, limit=1)
+            if evaluations and str(evaluations[0].get("status")) != "passed":
+                self._disable(skill_id, "canary: latest evaluation is no longer passing")
+                self.audit.revoke(str(grant.get("id") or ""))
+                self.store.append_event(
+                    "skill.auto_rolled_back", skill_id=skill_id,
+                    data={"evaluationId": evaluations[0].get("id"), "grantId": grant.get("id")},
+                )
+                rolled_back.append({
+                    "grantId": grant.get("id"), "skillId": skill_id,
+                    "reason": "evaluation_not_passed",
+                })
+        return rolled_back
+
     def _accept_candidate(
         self, candidate: dict[str, Any], *, apply: bool = True,
     ) -> Optional[dict[str, Any]]:
@@ -354,6 +378,7 @@ class SelfModificationExecutor:
         for row in self.audit.expire_due(now):
             self._disable(str(row.get("subject") or ""), "self-modification TTL expired")
             expired.append(row)
+        rolled_back = self._enforce_grants()
         accepted: list[dict[str, Any]] = []
         if self.policy.auto_accept and self.audit.count_today("accept_candidate") < self.policy.max_actions_per_day:
             for status in ("detected", "drafted"):
@@ -386,6 +411,7 @@ class SelfModificationExecutor:
         self._last_result = {
             "accepted": accepted, "enabled": enabled,
             "expired": [row.get("id") for row in expired],
+            "rolledBack": rolled_back,
             "skipped": list(self._skips),
         }
         return dict(self._last_result)

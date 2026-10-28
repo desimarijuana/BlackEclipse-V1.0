@@ -98,6 +98,30 @@ def test_ttl_expiry_disables_the_skill(tmp_path):
         service.store.close()
 
 
+def test_canary_rolls_back_a_granted_skill_when_evaluation_fails(tmp_path):
+    service = _service(tmp_path)
+    try:
+        _candidate(service.skill_registry.store)
+        executor = SelfModificationExecutor(
+            service, SelfModificationPolicy(mode="enable", ttl_days=7),
+        )
+        executor.run_once()
+        grant = executor.audit.active("enable_skill")[0]
+        skill_id = grant["subject"]
+        version = service.skill_registry.store.get_skill(skill_id)["latestVersion"]
+        service.skill_registry.store.save_evaluation(
+            skill_id=skill_id, version=version, status="failed",
+            dimensions=[{"name": "discrimination", "status": "failed"}],
+            summary="canary failure",
+        )
+        result = executor.run_once()
+        assert result["rolledBack"], result
+        assert service.skill_registry.store.get_skill(skill_id)["status"] == "disabled"
+        assert executor.audit.active("enable_skill") == []
+    finally:
+        service.store.close()
+
+
 def test_shadow_mode_records_but_does_not_enable(tmp_path):
     service = _service(tmp_path)
     try:

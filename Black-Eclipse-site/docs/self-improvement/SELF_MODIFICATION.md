@@ -43,6 +43,8 @@ Every action is a durable `SelfModificationAction` row:
 `id, kind, subject, evidence, status, createdAt, expiresAt, revokedAt, detail`
 
 - `expiresAt` is set on enablement; the executor disables the skill when due.
+- Canary: on every tick, an active grant whose latest evaluation is no longer
+  `passed` (or whose skill is no longer enabled) is disabled and revoked.
 - `POST /evolution/self-modification/revoke/{action_id}` disables immediately.
 - `POST /evolution/self-modification/pause` stops all Tier B actions.
 - `GET /evolution/self-modification` shows mode, caps, last result, active grants.
@@ -56,7 +58,8 @@ Every action is a durable `SelfModificationAction` row:
 - enable mode enables a read-only skill with audit + expiry;
 - TTL expiry disables it;
 - `off` and `max_active_skills=0` refuse enablement;
-- `shadow` records `shadow_enable_skill` but leaves the skill `draft`.
+- `shadow` records `shadow_enable_skill` but leaves the skill `draft`;
+- a later failed evaluation disables the granted skill and revokes the grant.
 
 ## Still operator-only
 
