@@ -43,7 +43,8 @@ existing suggestion route and the shared gate, writing a user-scoped
 `MemoryRecord` of type `preference`; the compact profile then recalls it like any
 other standing preference. Dismissing it suppresses the same inference for
 `preference_suppression_days` (default 30). An explicit user preference always
-wins over an inferred one.
+wins over an inferred one, and while any preference for a dimension is active the
+learner does not propose a competing value for that dimension.
 
 ### Policy
 

@@ -30,6 +30,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   logs `financial_model.build`; chart data replacement requires an exact series
   count. Docs: `docs/harness/office-edit.md`,
   `docs/harness/financial-modeling.md`, `docs/harness/artifact-center.md`.
+- **fix(memory): preference proposals are deduped and never conflict with an active dimension.**
+  `preferences.learn` now treats a pending suggestion as already-asked (no
+  duplicate on every scan), skips any dimension that already has an active
+  preference, and records a gate-staged suggestion exactly once in auto mode.
+  Tests cover double-scan dedupe, active-dimension conflict, auto+ask staging,
+  and the memory-off floor. Docs updated: `docs/harness/personal-memory.md`.
 - **feat(memory): Personal Memory — learned preferences with evidence, not guesses.**
   Added `python/harness/eclipse_memory/preferences.py`: a closed style/format
   vocabulary (answer format, length, tone, research depth), deterministic

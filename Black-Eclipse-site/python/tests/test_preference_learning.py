@@ -89,6 +89,15 @@ def test_same_run_is_idempotent(service):
     assert groups[0]["distinctRuns"] == 1
 
 
+def test_learning_twice_does_not_duplicate_a_pending_suggestion(service):
+    _three_runs(service)
+    first = service.learn_preferences(user_id="u1")
+    second = service.learn_preferences(user_id="u1")
+    assert len(first["created"]) == 1
+    assert second["created"] == []
+    assert len(service.store.list_suggestions(status="pending", scope_id="u1")) == 1
+
+
 def test_accepting_writes_user_scoped_preference_and_profile_recalls_it(service):
     _three_runs(service)
     service.learn_preferences(user_id="u1")
@@ -122,6 +131,17 @@ def test_explicit_preference_wins_over_inference(service):
     _three_runs(service)
     result = service.learn_preferences(user_id="u1")
     assert result["created"] == []
+
+
+def test_active_preference_blocks_a_conflicting_inference(service):
+    service.write_memory(
+        memory_type="preference", content="User prefers answers formatted as tables.",
+        source="explicit_user", scope="user", scope_id="u1",
+    )
+    _three_runs(service, "Use bullet points")
+    result = service.learn_preferences(user_id="u1")
+    assert result["created"] == []
+    assert service.store.list_suggestions(status="pending", scope_id="u1") == []
 
 
 def test_policy_off_disables_learning(service):
@@ -159,6 +179,17 @@ def test_auto_mode_saves_only_when_the_memory_gate_permits(service):
     )
     assert len(active) == 1
     assert active[0]["structuredData"]["value"] == "tables"
+
+
+def test_auto_mode_with_ask_gate_stages_exactly_one_suggestion(service):
+    _three_runs(service)
+    service.policy.set("preference_learning_mode", "auto")
+    service.policy.set("memory_mode", "ask_before_saving")
+    result = service.learn_preferences(user_id="u1")
+    assert len(result["created"]) == 1
+    pending = service.store.list_suggestions(status="pending", scope_id="u1")
+    assert len(pending) == 1
+    assert pending[0]["structuredData"]["value"] == "tables"
 
 
 def test_summary_reports_dimensions_thresholds_and_evidence(service):

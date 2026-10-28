@@ -338,7 +338,8 @@ def _suppressed(
     if not existing:
         return False
     status = str(existing.get("status") or "")
-    if status == "accepted":
+    if status in ("pending", "accepted"):
+        # Already asked, or already an active preference: do not ask twice.
         return True
     if status != "dismissed":
         return False
@@ -390,6 +391,7 @@ def learn(
 
     groups = service.store.preference_observation_groups(user_id=user_id)
     active = _active_preference_keys(service, user_id)
+    active_dimensions = {dimension for dimension, _value in active}
     created: list[dict[str, Any]] = []
     saved: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -406,9 +408,12 @@ def learn(
             if "unknown" not in reason:
                 skipped.append({"dimension": dimension, "value": value, "reason": reason})
             continue
-        if (dimension, value) in active:
+        if dimension in active_dimensions:
             seen_dimensions.add(dimension)
-            skipped.append({"dimension": dimension, "value": value, "reason": "already an active preference"})
+            skipped.append({
+                "dimension": dimension, "value": value,
+                "reason": "the dimension already has an active preference",
+            })
             continue
         suggestion_signature = signature(user_id, dimension, value)
         if _suppressed(service, user_id=user_id, suggestion_signature=suggestion_signature, settings=settings_alive):
@@ -458,8 +463,18 @@ def learn(
                 saved.append({"dimension": dimension, "value": value, "memoryId": (outcome.get("memory") or {}).get("id")})
                 seen_dimensions.add(dimension)
                 continue
-            # The gate may ask or refuse; fall through to an inert suggestion so
-            # the user still sees the evidence instead of silent learning.
+            if outcome.get("action") == "suggested":
+                # The gate itself staged the suggestion (memory_mode=ask). Do not
+                # create a second one below.
+                staged = outcome.get("suggestion") or {}
+                created.append({
+                    "dimension": dimension, "value": value,
+                    "suggestionId": staged.get("id"),
+                })
+                seen_dimensions.add(dimension)
+                continue
+            # A refusal (full / disabled / conflict) falls through to an inert
+            # suggestion so the user still sees the evidence instead of silence.
         suggestion_id = service.store.save_suggestion({
             "runId": run_id,
             "scope": "user",
