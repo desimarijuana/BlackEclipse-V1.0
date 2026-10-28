@@ -60,6 +60,8 @@ Every action is a durable `SelfModificationAction` row:
 - `POST /evolution/self-modification/revoke/{action_id}` disables immediately.
 - `POST /evolution/self-modification/pause` stops all Tier B actions.
 - `GET /evolution/self-modification` shows mode, caps, last result, active grants.
+- `GET /evolution/learning-loop` shows candidate/learned-skill counts, active
+  grants, and whether the autonomous tick is running.
 - `POST /evolution/self-modification/run` runs one bounded tick.
 
 ## Tests
