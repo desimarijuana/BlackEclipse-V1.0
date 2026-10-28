@@ -10,6 +10,13 @@ import {
   ArrowRight, ChevronDown, Clock, GitBranch, Plus, Search, Sparkles, Trash2,
 } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useWorkflowCatalog } from '@/lib/graph-studio/catalog-store';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
 import { WORKFLOW_TEMPLATES } from '@/lib/graph-studio/templates';
@@ -135,31 +142,28 @@ export function GraphHome({
             >
               <Sparkles size={13} /> Generate from prompt
             </Button>
-            <div className="relative">
-              <Button
-                type="button"
-                size="sm"
-                disabled={busy}
-                onClick={() => setTemplatesOpen((value) => !value)}
+            <DropdownMenu open={templatesOpen} onOpenChange={setTemplatesOpen}>
+              <DropdownMenuTrigger
+                render={
+                  <Button type="button" size="sm" disabled={busy} className="gap-1.5" />
+                }
               >
-                <Plus size={13} /> New workflow <ChevronDown size={11} />
-              </Button>
-              {templatesOpen && (
-                <div className="glass-tooltip absolute right-0 top-10 z-30 w-[300px] rounded-xl border border-white/10 p-1.5">
-                  {WORKFLOW_TEMPLATES.map((template) => (
-                    <button
-                      key={template.id}
-                      type="button"
-                      onClick={() => void beginFromTemplate(template.id)}
-                      className="block w-full rounded-lg px-2.5 py-2 text-left hover:bg-white/5"
-                    >
-                      <span className="block text-[12px] font-medium text-foreground">{template.name}</span>
-                      <span className="mt-0.5 block text-[10.5px] leading-snug text-muted-foreground">{template.description}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+                <Plus size={13} /> New workflow <ChevronDown size={11} className="opacity-70" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72 p-1.5">
+                <DropdownMenuLabel className="px-2 pb-1 pt-0.5">Start from a template</DropdownMenuLabel>
+                {WORKFLOW_TEMPLATES.map((template) => (
+                  <DropdownMenuItem
+                    key={template.id}
+                    onClick={() => void beginFromTemplate(template.id)}
+                    className="flex-col items-start gap-0.5 rounded-lg px-2 py-2"
+                  >
+                    <span className="text-[12px] font-medium text-foreground">{template.name}</span>
+                    <span className="text-[10.5px] leading-snug text-muted-foreground">{template.description}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 

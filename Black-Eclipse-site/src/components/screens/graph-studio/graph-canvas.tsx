@@ -98,8 +98,6 @@ function sameNodeData(a: EclipseNodeData, b: EclipseNodeData): boolean {
     && a.warningCount === b.warningCount
     && a.runStatus === b.runStatus
     && a.accent === b.accent
-    && a.hasIncoming === b.hasIncoming
-    && a.hasOutgoing === b.hasOutgoing
     && a.onConfigCommit === b.onConfigCommit
     && a.onAddNext === b.onAddNext
     && a.onDuplicate === b.onDuplicate
@@ -118,14 +116,8 @@ function buildNodes(
   const counts = diagnosticCounts(diagnostics);
   const statuses = runStatuses(run);
   const prevNodes = new Map(prev.map((n) => [n.id, n]));
-  // Wiring topology only. Colour comes from the live theme (`--primary`), so a
-  // theme switch re-tints every node, wire and aurora together.
-  const incomingCount = new Map<string, number>();
-  const outgoingCount = new Map<string, number>();
   const wiredInputs = new Map<string, string[]>();
   for (const edge of ir.edges) {
-    incomingCount.set(edge.target, (incomingCount.get(edge.target) ?? 0) + 1);
-    outgoingCount.set(edge.source, (outgoingCount.get(edge.source) ?? 0) + 1);
     const handles = wiredInputs.get(edge.target);
     if (handles) handles.push(edge.targetHandle);
     else wiredInputs.set(edge.target, [edge.targetHandle]);
@@ -151,8 +143,6 @@ function buildNodes(
       warningCount: count.warning,
       runStatus: statuses.get(node.id),
       accent: 'var(--primary)',
-      hasIncoming: (incomingCount.get(node.id) ?? 0) > 0,
-      hasOutgoing: (outgoingCount.get(node.id) ?? 0) > 0,
       ...callbacks,
     };
     const position = previous?.dragging ? previous.position : node.layout;

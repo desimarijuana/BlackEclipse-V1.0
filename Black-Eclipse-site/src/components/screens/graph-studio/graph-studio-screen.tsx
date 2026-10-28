@@ -414,12 +414,27 @@ export function GraphStudioScreen({
           <Button
             type="button"
             size="sm"
-            disabled={!canRun}
-            onClick={() => void startRun()}
-            title={runBlockReason ?? 'Run a test execution of the saved version'}
+            disabled={!workflowId || errorCount > 0 || runBusy || run?.status === 'running'}
+            onClick={() => {
+              if (dirty) {
+                void save().then((ok) => { if (ok) void startRun(); });
+              } else {
+                void startRun();
+              }
+            }}
+            title={
+              !workflowId
+                ? 'Save the workflow once before running it'
+                : errorCount > 0
+                  ? 'Fix the validation errors before running'
+                  : dirty
+                    ? 'Save the current changes and run the workflow'
+                    : runBlockReason ?? 'Run a test execution of the saved version'
+            }
             className="gap-1.5"
           >
-            <Play size={11} /> Test
+            <Play size={11} />
+            {runBusy ? 'Starting…' : run?.status === 'running' ? 'Running…' : dirty ? 'Save & run' : 'Start workflow'}
           </Button>
 
           <DropdownMenu>
@@ -458,36 +473,6 @@ export function GraphStudioScreen({
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1">
             <GraphCanvas onSave={save} onInspectNode={setInspectedNodeId} />
-
-            {/* Center-stage run control: the primary way to execute the graph. */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-6 z-10 flex justify-center px-4">
-              <button
-                type="button"
-                disabled={!workflowId || errorCount > 0 || runBusy || run?.status === 'running'}
-                onClick={() => {
-                  if (dirty) {
-                    void save().then((ok) => { if (ok) void startRun(); });
-                  } else {
-                    void startRun();
-                  }
-                }}
-                title={
-                  !workflowId
-                    ? 'Save the workflow once before running it'
-                    : errorCount > 0
-                      ? 'Fix the validation errors before running'
-                      : dirty
-                        ? 'Save the current changes and run the workflow'
-                        : runBlockReason ?? 'Run a test execution of the saved version'
-                }
-                className="graph-accent pointer-events-auto flex items-center gap-2.5 rounded-full border px-5 py-2.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed"
-              >
-                <span className="graph-accent-chip flex h-6 w-6 items-center justify-center rounded-full">
-                  <Play size={12} />
-                </span>
-                {runBusy ? 'Starting…' : run?.status === 'running' ? 'Running…' : dirty ? 'Save & run' : 'Start workflow'}
-              </button>
-            </div>
           </div>
           <ExecutionDock
             onStart={() => void startRun()}

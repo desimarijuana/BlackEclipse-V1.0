@@ -236,10 +236,10 @@ modes, node id) and **Output** (the last run's bounded inputs/outputs for that
 node, read from the persisted run record). Issues, History and Health are
 reachable from the header instead of sharing five cramped tabs.
 
-**Execution.** A center-stage **Start workflow** button at the bottom of the
-canvas is the primary run control; when there are unsaved edits it becomes
-**Save & run** (save, then execute the persisted version). The header's **Test**
-action does the same without the save step. The bottom
+**Execution.** The header's **Start workflow** button is the primary run control,
+inline with the other editor actions; when there are unsaved edits it becomes
+**Save & run** (save, then execute the persisted version). The execution dock's
+**Test run** action does the same without the save step. The bottom
 **execution dock** collapses to a status strip and expands into the existing
 run console; node statuses also render on the canvas (border tint, status badge,
 animated edges while running). Operator runs open an explicit authorization

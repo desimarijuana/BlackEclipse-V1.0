@@ -1,11 +1,11 @@
 'use client';
 
-// ── Custom React Flow node ────────────────────────────────────────────────────
+// â”€â”€ Custom React Flow node â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Compact, icon-led card: a 46px identity header (icon, title, category, run
 // state) plus up to two inline config fields. Ports are handles on the card's
 // edge midpoints (fanned when a side has several); their names live in the
 // handle tooltip so the surface stays clean. Inline fields edit the SAME
-// validated config the inspector does — one renderer, two densities.
+// validated config the inspector does â€” one renderer, two densities.
 
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { cn } from '@/lib/utils';
@@ -28,15 +28,13 @@ export interface EclipseNodeData extends Record<string, unknown> {
   config: Record<string, unknown>;
   /** At most two scalar fields shown on the card. */
   inlineFields: ConfigFieldDef[];
-  /** Input handles currently supplied by an edge — those fields show "From wire". */
+  /** Input handles currently supplied by an edge â€” those fields show "From wire". */
   wiredInputHandles: string[];
   errorCount: number;
   warningCount: number;
   runStatus?: NodeRunStatus;
-  /** Hue shared by the border, the aurora and every wire leaving this node. */
+  /** Hue shared by the selected outline and every wire leaving this node. */
   accent: string;
-  hasIncoming: boolean;
-  hasOutgoing: boolean;
   onConfigCommit?: (nodeId: string, key: string, value: unknown) => void;
   onAddNext?: (nodeId: string, handle: string) => void;
   onDuplicate?: (nodeId: string) => void;
@@ -89,22 +87,15 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
         selected && 'node-selected',
       )}
     >
-      {/* Connection aurora: a small live glow on whichever side is wired. */}
-      {data.hasIncoming && <span className="node-aurora node-aurora--left" aria-hidden />}
-      {data.hasOutgoing && <span className="node-aurora node-aurora--right" aria-hidden />}
-
-      {/* Identity: filled icon, title + category, quiet run-state dot. */}
+      {/* Identity: plain outline icon, title + category, quiet run-state dot. */}
       <div className="relative z-10 flex h-[46px] items-center gap-2.5 px-3">
-        <span
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset ring-white/10"
-          style={{ color: accent, background: `color-mix(in srgb, ${accent} 14%, transparent)` }}
-        >
-          <Icon size={20} weight="fill" />
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center text-muted-foreground">
+          <Icon size={19} />
         </span>
         <span className="min-w-0 flex-1">
           <span
             className="block truncate text-[13px] font-semibold leading-tight tracking-tight text-foreground"
-            title={`${data.label} · ${data.type}@${data.version}`}
+            title={`${data.label} Â· ${data.type}@${data.version}`}
           >
             {data.label}
           </span>
@@ -126,7 +117,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
         )}
       </div>
 
-      {/* Inline parameters — the values you most often change, editable in place. */}
+      {/* Inline parameters â€” the values you most often change, editable in place. */}
       {data.inlineFields.length > 0 && (
         <div
           className="nodrag nopan nowheel relative z-10 space-y-1 border-t border-black/10 px-2.5 py-1.5 dark:border-white/10"
@@ -146,7 +137,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
         </div>
       )}
 
-      {/* Handles on the edge midpoints — left = incoming, right = outgoing —
+      {/* Handles on the edge midpoints â€” left = incoming, right = outgoing â€”
           fanned only when a side has several ports. Names stay in the tooltip. */}
       {data.inputs.map((port, index) => (
         <Handle
@@ -157,10 +148,9 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
           style={{
             top: handleTop(index, data.inputs.length),
             background: accent,
-            boxShadow: `0 0 6px ${accent}`,
           }}
           className="!z-10 !h-2.5 !w-2.5 !border-2 !border-background !left-[-5px]"
-          title={`${port.name} · ${port.type}`}
+          title={`${port.name} Â· ${port.type}`}
         />
       ))}
       {data.outputs.map((port, index) => (
@@ -172,10 +162,9 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
           style={{
             top: handleTop(index, data.outputs.length),
             background: accent,
-            boxShadow: `0 0 6px ${accent}`,
           }}
           className="!z-10 !h-2.5 !w-2.5 !border-2 !border-background !right-[-5px]"
-          title={`${port.name} · ${port.type}`}
+          title={`${port.name} Â· ${port.type}`}
         />
       ))}
 

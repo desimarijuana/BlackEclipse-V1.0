@@ -1,10 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-/* ── Portfolio builder layout flow ─────────────────────────────────────────
+/* â”€â”€ Portfolio builder layout flow â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * Fund-page widgets can have extra min-height (height customizer). CSS Grid
  * with dense flow packs them side-by-side into a 4-col layout, so a widget
- * that grows taller than its row-neighbour leaves no vertical gaps — the
+ * that grows taller than its row-neighbour leaves no vertical gaps â€” the
  * next widgets flow up to fill the space. Falls back to 1-col on mobile.
  * When customizing, single-column stacking keeps drag targets predictable. */
 .fund-widget-flow {
@@ -19,7 +19,7 @@
 .fund-widget-flow > * {
   min-width: 0;
 /* Don't stretch cards to fill a row made taller by a height-boosted
- * neighbour — that's what caused uneven vertical gaps between rows. */
+ * neighbour â€” that's what caused uneven vertical gaps between rows. */
   align-self: start;
 }
 .fund-widget-flow > * > * {
@@ -48,7 +48,7 @@
   }
 }
 /* Edit-mode banner: a slim dark frosted strip shown above the customize
- * panel. Backdrop blur hides the page behind it — content blurs out, not
+ * panel. Backdrop blur hides the page behind it â€” content blurs out, not
  * shows through. (Kept for backwards compatibility.) */
 .edit-mode-banner {
   background: rgba(24, 24, 27, 0.72);
@@ -57,12 +57,12 @@
   backdrop-filter: blur(14px) saturate(1.1);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
-/* ── Frosted glass utility (menus, strips, floating panels) ────────────────
+/* â”€â”€ Frosted glass utility (menus, strips, floating panels) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * The "proper" frosted recipe: translucent dark tint + strong backdrop blur +
  * subtle saturation boost + hairline light border + soft shadow. Because the
  * app shell itself is a backdrop-filter layer, nested elements must use
  * backdrop-filter (NOT just low-opacity bg) or nothing behind them is
- * actually blurred — which is exactly the "no frost" look.
+ * actually blurred â€” which is exactly the "no frost" look.
  * Light mode flips to a white frost via a .dark override below. */
 .ws-glass {
   background: rgb(var(--card-rgb, 20 20 22) / 0.62);
@@ -77,7 +77,7 @@ html:not(.dark) .ws-glass {
 }
 @custom-variant dark (&:is(.dark *));
 :root {
-/* Brand + market tokens. Defaults here; Settings › Customization overrides
+/* Brand + market tokens. Defaults here; Settings â€º Customization overrides
  * them through the managed `#eclipse-theme-overrides` stylesheet. Everything
  * below (scrollbars, hover borders, sliders, legacy color remaps) reads
  * these instead of hard-coded greens so one theme recolors the whole UI. */
@@ -294,7 +294,7 @@ html:not(.dark) .ws-glass {
 .animate-fade-in {
   animation: fadeIn 0.4s ease-out backwards;
 }
-/* Structured-response block entrance — a small, ONE-SHOT fade+rise as a block   appears (including a block that streams in mid-answer). It uses `backwards`   fill only (never `forwards`/`both`), so it cannot create a persistent backdrop   root above a glass surface. Reduced-motion users get no motion. */
+/* Structured-response block entrance â€” a small, ONE-SHOT fade+rise as a block   appears (including a block that streams in mid-answer). It uses `backwards`   fill only (never `forwards`/`both`), so it cannot create a persistent backdrop   root above a glass surface. Reduced-motion users get no motion. */
 .response-block-enter {
   animation: fadeInUp 0.42s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
@@ -303,18 +303,18 @@ html:not(.dark) .ws-glass {
     animation: none;
   }
 }
-/* ── Live ghost avatar — ambient life ─────────────────────────────────────────
+/* â”€â”€ Live ghost avatar â€” ambient life â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * `GhostAvatar` is a pure SVG drawing; `LiveGhostAvatar` adds motion without
  * changing it. Three layers:
- *   • breathe — the body gently rises and falls            (ghostBreathe)
- *   • blink   — the eyes close for a beat                  (ghostBlink)
- *   • gaze    — the eyes ease toward the cursor, driven by  --look-x / --look-y
+ *   â€¢ breathe â€” the body gently rises and falls            (ghostBreathe)
+ *   â€¢ blink   â€” the eyes close for a beat                  (ghostBlink)
+ *   â€¢ gaze    â€” the eyes ease toward the cursor, driven by  --look-x / --look-y
  *               custom properties set in JS (no re-render)
- *   • poke    — a small squash-and-rebound on click        (ghostPoke)
+ *   â€¢ poke    â€” a small squash-and-rebound on click        (ghostPoke)
  * Everything is scoped under `.be-ghost-live[data-active]`, so the static
  * `GhostAvatar` used in lists and rows never animates, and off-screen faces are
  * inert. All of it sits inside the standard reduce-motion / animations-off kill
- * switches below — there is no exemption for the face. */
+ * switches below â€” there is no exemption for the face. */
 .be-ghost-live[data-active] .be-ghost__body {
   transform-box: fill-box;
   transform-origin: 50% 100%;
@@ -370,39 +370,39 @@ html:not(.dark) .ws-glass {
     transform: scale(1, 1);
   }
 }
-/* ── Live ghost avatar — moods ────────────────────────────────────────────────
+/* â”€â”€ Live ghost avatar â€” moods â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * The face expression for the agent's turn, driven by `data-mood` (see
  * `lib/bots/ghost-mood.ts`). Only the live, active wrapper is affected. The
  * gaze/eye transforms for a mood are scoped with :not([data-interactive]) so a
  * cursor-tracking face keeps following the pointer instead of snapping to a pose. */
-/* thinking — eyes lift, a slow ponder */
+/* thinking â€” eyes lift, a slow ponder */
 .be-ghost-live[data-active]:not([data-interactive]) .be-ghost[data-mood="thinking"] .be-ghost__gaze {
   transform: translateY(-2.6px);
 }
 .be-ghost-live[data-active] .be-ghost[data-mood="thinking"] .be-ghost__body {
   animation: ghostBreathe 3.4s ease-in-out infinite;
 }
-/* working — eyes dart side to side */
+/* working â€” eyes dart side to side */
 .be-ghost-live[data-active]:not([data-interactive]) .be-ghost[data-mood="working"] .be-ghost__gaze {
   animation: ghostDart 1.15s ease-in-out infinite;
 }
 .be-ghost-live[data-active] .be-ghost[data-mood="working"] .be-ghost__eyes {
   animation: ghostBlink 2.6s ease-in-out infinite;
 }
-/* speaking — the mouth moves */
+/* speaking â€” the mouth moves */
 .be-ghost-live[data-active] .be-ghost[data-mood="speaking"] .be-ghost__mouth {
   transform-box: fill-box;
   transform-origin: 50% 45%;
   animation: ghostTalk 0.44s ease-in-out infinite;
 }
-/* waiting — eyes up and patient */
+/* waiting â€” eyes up and patient */
 .be-ghost-live[data-active]:not([data-interactive]) .be-ghost[data-mood="waiting"] .be-ghost__gaze {
   transform: translateY(-2px);
 }
 .be-ghost-live[data-active] .be-ghost[data-mood="waiting"] .be-ghost__eyes {
   animation: ghostBlink 6s ease-in-out infinite;
 }
-/* happy — a little hop and a squint */
+/* happy â€” a little hop and a squint */
 .be-ghost-live[data-active] .be-ghost[data-mood="happy"] {
   transform-origin: 50% 100%;
   animation: ghostHop 0.62s cubic-bezier(0.16, 1, 0.3, 1);
@@ -412,7 +412,7 @@ html:not(.dark) .ws-glass {
   transform-origin: 50% 55%;
   animation: ghostSquint 0.62s ease-in-out;
 }
-/* sad — a droop */
+/* sad â€” a droop */
 .be-ghost-live[data-active] .be-ghost[data-mood="sad"] .be-ghost__body {
   transform-box: fill-box;
   transform-origin: 50% 100%;
@@ -470,21 +470,21 @@ html:not(.dark) .ws-glass {
     transform: translateY(1.6px) scaleY(0.985);
   }
 }
-/* ── Effort slider "Ultra" stop — an ENERGY fill ──────────────────────────────
+/* â”€â”€ Effort slider "Ultra" stop â€” an ENERGY fill â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * The top stop of the composer's model-intelligence slider. Everything is drawn
  * from the theme's `--primary` token so it reads as the app accent, never a
  * foreign palette. Layered effect:
- *   • the WHOLE fill flows as a travelling gradient  (effortUltraFlow)
- *   • a laser beam sweeps over it                    (effortUltraBeam)
- *   • a soft outer glow that pulses                  (effortUltraGlow)
- *   • a rotating plasma ring                         (effortUltraSpin)
- *   • two expanding energy shockwaves                (effortUltraShock)
- *   • the brain core throbbing with energy           (effortUltraCore)
+ *   â€¢ the WHOLE fill flows as a travelling gradient  (effortUltraFlow)
+ *   â€¢ a laser beam sweeps over it                    (effortUltraBeam)
+ *   â€¢ a soft outer glow that pulses                  (effortUltraGlow)
+ *   â€¢ a rotating plasma ring                         (effortUltraSpin)
+ *   â€¢ two expanding energy shockwaves                (effortUltraShock)
+ *   â€¢ the brain core throbbing with energy           (effortUltraCore)
  *
  * Every element carries `--ultra-dur` so one exemption rule (near the a11y kill
  * switches) can restore its own timing. DELIBERATE EXCEPTION: unlike the rest of
  * the app, the Ultra energy is NOT silenced by the reduce-motion / animations-off
- * switches — it is the explicit "maximum effort" affordance and must always read
+ * switches â€” it is the explicit "maximum effort" affordance and must always read
  * as alive, the same intent the price ticker carries. */
 @keyframes effortUltraFlow {
   0% {
@@ -562,7 +562,7 @@ html:not(.dark) .ws-glass {
   --ultra-dur: 4.5s;
   animation: effortUltraSpin var(--ultra-dur) linear infinite;
 }
-/* A laser beam that sweeps left→right across the Ultra fill, with a soft
+/* A laser beam that sweeps leftâ†’right across the Ultra fill, with a soft
  * leading edge and a trailing streak. */
 @keyframes effortUltraBeam {
   0% {
@@ -587,7 +587,7 @@ html:not(.dark) .ws-glass {
   filter: blur(1px) drop-shadow(0 0 6px var(--primary));
   animation: effortUltraBeam var(--ultra-dur) ease-in-out infinite;
 }
-/* Hover-revealed controls (message actions, copy buttons, edit).   Components keep their Tailwind `opacity-0 group-hover:opacity-100   focus-within:opacity-100` classes for pointer devices; `.hover-reveal` adds   the two behaviors Tailwind cannot express per-media-query:     • on touch (no hover) the control is always visible and tappable, and     • reduced-motion users get no opacity transition. */
+/* Hover-revealed controls (message actions, copy buttons, edit).   Components keep their Tailwind `opacity-0 group-hover:opacity-100   focus-within:opacity-100` classes for pointer devices; `.hover-reveal` adds   the two behaviors Tailwind cannot express per-media-query:     â€¢ on touch (no hover) the control is always visible and tappable, and     â€¢ reduced-motion users get no opacity transition. */
 .hover-reveal {
   transition: opacity 0.15s ease;
 }
@@ -601,7 +601,7 @@ html:not(.dark) .ws-glass {
     transition: none;
   }
 }
-/* Header price ribbon — a seamless, continuously scrolling quote marquee.   The track holds two identical copies of the quote list; translating from   -50% (the start of the second copy) back to 0 gives continuous LEFT→RIGHT   motion with no visible jump. There is deliberately NO background: the strip   is bare text so it reads as live market chrome, not a card. Edge fade via a   mask so quotes dissolve into the header instead of clipping at the border.   The loop is NOT gated on prefers-reduced-motion — motion is the whole point   of a ticker, so it always runs (it is slow and subtle). */
+/* Header price ribbon â€” a seamless, continuously scrolling quote marquee.   The track holds two identical copies of the quote list; translating from   -50% (the start of the second copy) back to 0 gives continuous LEFTâ†’RIGHT   motion with no visible jump. There is deliberately NO background: the strip   is bare text so it reads as live market chrome, not a card. Edge fade via a   mask so quotes dissolve into the header instead of clipping at the border.   The loop is NOT gated on prefers-reduced-motion â€” motion is the whole point   of a ticker, so it always runs (it is slow and subtle). */
 @keyframes priceRibbonScroll {
   from {
  transform: translateX(-50%);
@@ -629,7 +629,7 @@ html:not(.dark) .ws-glass {
 .scrollbar-hide::-webkit-scrollbar {
   display: none !important;
 }
-/* ── Mobile ergonomics ─────────────────────────────────────────────────────
+/* â”€â”€ Mobile ergonomics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * safe-bottom: clear the iOS home indicator / Android gesture bar on fixed
  * bottom chrome (bottom nav, chat dock, sheets). touch-target: guarantee the
  * 44px minimum hit area for icon-only controls on touch devices. */
@@ -647,7 +647,7 @@ html:not(.dark) .ws-glass {
   }
 }
 /* The chat transcript no longer styles a native scrollbar: the full-height bar   read as a long band running under the header, so the bar is hidden and   `ChatHistory` renders a short capped thumb instead. */
-/* Global premium scrollbar — neutral, low-contrast. Deliberately NOT   brand-coloured: a saturated brand thumb (especially on hover) reads as a   loud yellow/green streak on dark glass. Neutral grey keeps it professional   and lets the content, not the chrome, carry the colour. */
+/* Global premium scrollbar â€” neutral, low-contrast. Deliberately NOT   brand-coloured: a saturated brand thumb (especially on hover) reads as a   loud yellow/green streak on dark glass. Neutral grey keeps it professional   and lets the content, not the chrome, carry the colour. */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -669,7 +669,7 @@ html:not(.dark) .ws-glass {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
 }
-/* Chat composer: the only visible scrollbar sits inside the glass input, so it   needs its own inset, low-contrast treatment — otherwise the 6px global thumb   crowds the text and the action buttons. Keep it short and hugging the right   edge with breathing room above/below. */
+/* Chat composer: the only visible scrollbar sits inside the glass input, so it   needs its own inset, low-contrast treatment â€” otherwise the 6px global thumb   crowds the text and the action buttons. Keep it short and hugging the right   edge with breathing room above/below. */
 .chat-composer-scroll {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
@@ -925,7 +925,7 @@ main, .min-h-screen {
 aside.group\/sidebar,div.group\/sidebar,[class*="group/sidebar"] {
   border-radius: 0px !important;
 }
-/* Custom scrollbar styling for Chrome, Safari, Edge, Opera — the final cascade   layer, so it wins over the earlier global block. Neutral grey, theme-agnostic   so no theme can turn the scrollbar a saturated yellow/green. */
+/* Custom scrollbar styling for Chrome, Safari, Edge, Opera â€” the final cascade   layer, so it wins over the earlier global block. Neutral grey, theme-agnostic   so no theme can turn the scrollbar a saturated yellow/green. */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -1050,7 +1050,7 @@ input[type="range"]::-moz-range-thumb:hover {
   outline-offset: 2px;
   border-radius: 0.75rem;
 }
-/* Fund-page tabs strip — true frosted glass menu. The old bg-accent/40 +
+/* Fund-page tabs strip â€” true frosted glass menu. The old bg-accent/40 +
  * backdrop-blur-md combo rendered as a flat bar: it sits inside an ancestor
  * that is itself a backdrop-filter layer, so low-opacity fills had nothing
  * meaningful to sample. Give it the real recipe instead. */
@@ -1064,7 +1064,7 @@ html:not(.dark) .fund-tabs-glass {
   background: rgba(255, 255, 255, 0.62);
   box-shadow:    0 8px 30px rgba(0, 0, 0, 0.08),    inset 0 1px 0 rgba(255, 255, 255, 0.55),    inset -1px 0 0 rgba(0, 0, 0, 0.08);
 }
-/* Unified tab strip — frosted glass menu shared across every page's tabs.   Same recipe as the portfolio fund tabs so all tab bars look identical. */
+/* Unified tab strip â€” frosted glass menu shared across every page's tabs.   Same recipe as the portfolio fund tabs so all tab bars look identical. */
 .tab-bar-glass {
   background: rgb(var(--card-rgb, 18 18 20) / 0.55);
   backdrop-filter: blur(18px) saturate(1.35);
@@ -1074,7 +1074,7 @@ html:not(.dark) .tab-bar-glass {
   background: rgba(255, 255, 255, 0.62);
   box-shadow:    0 8px 30px rgba(0, 0, 0, 0.08),    inset 0 1px 0 rgba(255, 255, 255, 0.55),    inset -1px 0 0 rgba(0, 0, 0, 0.08);
 }
-/* Restrained tab strip — the control-strip tier. Same family as   .glass-card-subtle so a tab row reads as chrome, not as a hero card. */
+/* Restrained tab strip â€” the control-strip tier. Same family as   .glass-card-subtle so a tab row reads as chrome, not as a hero card. */
 .tab-bar-subtle {
   background: rgb(var(--card-rgb, 18 18 20) / 0.40);
   backdrop-filter: blur(16px) saturate(1.3);
@@ -1084,7 +1084,7 @@ html:not(.dark) .tab-bar-subtle {
   background: rgba(255, 255, 255, 0.50);
   box-shadow:    0 4px 16px rgba(0, 0, 0, 0.06),    inset 0 1px 0 rgba(255, 255, 255, 0.50);
 }
-/* On-chart candle timer — black frosted-glass pill. ALWAYS keeps a real   backdrop blur (frosted glass), never a flat translucent fill. */
+/* On-chart candle timer â€” black frosted-glass pill. ALWAYS keeps a real   backdrop blur (frosted glass), never a flat translucent fill. */
 .glass-ticker {
   background: rgb(var(--card-rgb, 18 18 20) / 0.55);
   backdrop-filter: blur(18px) saturate(1.35);
@@ -1094,7 +1094,7 @@ html:not(.dark) .glass-ticker {
   background: rgba(255, 255, 255, 0.62);
   box-shadow:    0 8px 30px rgba(0, 0, 0, 0.08),    inset 0 1px 0 rgba(255, 255, 255, 0.55),    inset -1px 0 0 rgba(0, 0, 0, 0.08);
 }
-/* Floating fund-actions popover — matches the frosted menu recipe. */
+/* Floating fund-actions popover â€” matches the frosted menu recipe. */
 .fund-menu-glass {
   background: rgb(var(--card-rgb, 16 16 18) / 0.78);
   backdrop-filter: blur(22px) saturate(1.4);
@@ -1127,7 +1127,7 @@ html:not(.dark) .command-glass-bar {
   background: rgba(255, 255, 255, 0.62);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
-/* ── Frosted-glass cards ────────────────────────────────────────────────
+/* â”€â”€ Frosted-glass cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * The site-wide card recipe, matching the tab strip: translucent tint +
  * strong blur + saturation boost + inset top/right highlight lines + soft
  * drop shadow. Three opacity tiers for different surfaces. */
@@ -1140,7 +1140,7 @@ html:not(.dark) .glass-card {
   background: rgba(255, 255, 255, 0.62);
   box-shadow:    0 8px 30px rgba(0, 0, 0, 0.08),    inset 0 1px 0 rgba(255, 255, 255, 0.55),    inset -1px 0 0 rgba(0, 0, 0, 0.08);
 }
-/* Stronger tier — modals, drawers, popovers, overlays. */
+/* Stronger tier â€” modals, drawers, popovers, overlays. */
 .glass-card-strong {
   background: rgb(var(--card-rgb, 16 16 18) / 0.85);
   backdrop-filter: blur(22px) saturate(1.4);
@@ -1150,7 +1150,7 @@ html:not(.dark) .glass-card-strong {
   background: rgba(255, 255, 255, 0.85);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.60);
 }
-/* Subtle tier — small tiles, table headers, chips. */
+/* Subtle tier â€” small tiles, table headers, chips. */
 .glass-card-subtle {
   background: rgb(var(--card-rgb, 18 18 20) / 0.40);
   backdrop-filter: blur(16px) saturate(1.3);
@@ -1160,7 +1160,7 @@ html:not(.dark) .glass-card-subtle {
   background: rgba(255, 255, 255, 0.50);
   box-shadow:    0 4px 16px rgba(0, 0, 0, 0.06),    inset 0 1px 0 rgba(255, 255, 255, 0.50);
 }
-/* Frosted-glass tooltip / popover — the SAME recipe the chart/HUD tooltips use
+/* Frosted-glass tooltip / popover â€” the SAME recipe the chart/HUD tooltips use
  * (ECharts `extraCssText` in eclipse-provider.ts), so a hover popup over the
  * chat transcript matches the chart tooltips exactly. Translucent tint (0.5),
  * blur 18 + saturate 1.35, soft drop shadow + inset highlight.
@@ -1179,7 +1179,7 @@ html:not(.dark) .glass-tooltip {
   border-color: rgba(0, 0, 0, 0.10);
   box-shadow:    0 8px 30px rgba(0, 0, 0, 0.14),    inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
-/* Sidebar mode-switcher dropdown — the shared dropdown tier (`.glass-tooltip`)
+/* Sidebar mode-switcher dropdown â€” the shared dropdown tier (`.glass-tooltip`)
  * reads too flat over the already-frosted rail, so the menu is cut from the
  * SAME material as the nav bar it belongs to: the sidebar's own glass tokens
  * (tint + blur), plus a hairline and a soft shadow so it still reads as a
@@ -1197,18 +1197,18 @@ html:not(.dark) .nav-menu-glass {
   border-color: rgba(0, 0, 0, 0.08);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.60);
 }
-/* Compact selects in the chat-history controls (sort / tag filter) — the shared
+/* Compact selects in the chat-history controls (sort / tag filter) â€” the shared
  * 16px chevron is oversized for the 28px trigger, so shrink it to 12px. */
 [data-slot="select-trigger"].history-select svg {
   width: 12px;
   height: 12px;
 }
-/* Side drawer / large panel — a deliberately LOW-opacity, HIGH-blur tier so the
+/* Side drawer / large panel â€” a deliberately LOW-opacity, HIGH-blur tier so the
  * page behind is clearly visible and frosted (the standard card tier is too
  * opaque to read as glass on a dark page). Used by the workspace widget
  * library + config panel. Rendered via a portal at <body> so the blur samples
  * the real page instead of a transformed ancestor's scoped backdrop root.
- * IMPORTANT: keep the tint translucent (<=0.55) — a high-opacity fill hides
+ * IMPORTANT: keep the tint translucent (<=0.55) â€” a high-opacity fill hides
  * the blur entirely and reads as a flat panel, which is NOT frosted glass. */
 .glass-drawer {
   background: linear-gradient(180deg, rgb(var(--card-rgb, 26 26 30) / 0.48), rgb(var(--card-rgb, 14 14 16) / 0.58));
@@ -1219,7 +1219,7 @@ html:not(.dark) .glass-drawer {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.70));
   box-shadow:    0 16px 48px rgba(0, 0, 0, 0.14),    inset 0 1px 0 rgba(255, 255, 255, 0.60),    inset -1px 0 0 rgba(0, 0, 0, 0.06);
 }
-/* React Flow node surface — a deliberate node material rather than page glass.
+/* React Flow node surface â€” a deliberate node material rather than page glass.
  * Nodes live inside the transformed canvas viewport, where `backdrop-filter`
  * cannot sample the page (the transform is a backdrop root). This layers a
  * translucent gradient, an inset top highlight and a soft lift so the card
@@ -1253,72 +1253,6 @@ html:not(.dark) .node-card {
   outline: 2px solid color-mix(in srgb, var(--node-accent, #94a3b8) 70%, transparent);
   outline-offset: 3px;
 }
-/* Connection aurora — a small live glow on the side of a node that is wired.
- * Sits inside the card's bezel (behind the z-10 content) so it reads as light
- * bleeding from the port rather than a decorative stripe. A hot core plus a
- * wide soft bleed, both in the node accent, breathing and drifting slowly. */
-.node-aurora {
-  position: absolute;
-  top: 16%;
-  height: 68%;
-  width: 3px;
-  z-index: 0;
-  border-radius: 999px;
-  pointer-events: none;
-  background: linear-gradient(
-    180deg,
-    transparent,
-    color-mix(in srgb, var(--node-accent, #94a3b8) 70%, white) 50%,
-    transparent
-  );
-  box-shadow:
-    0 0 6px 1px var(--node-accent, #94a3b8),
-    0 0 16px 3px color-mix(in srgb, var(--node-accent, #94a3b8) 45%, transparent);
-  filter: saturate(1.3);
-  opacity: 0.85;
-  animation: nodeAuroraBreathe 8s ease-in-out infinite;
-}
-/* Wide soft bleed behind the core — the actual "aurora" haze. */
-.node-aurora::after {
-  content: '';
-  position: absolute;
-  inset: -6px -8px;
-  border-radius: inherit;
-  background: inherit;
-  filter: blur(10px);
-  opacity: 0.6;
-}
-html:not(.dark) .node-aurora {
-  opacity: 0.7;
-}
-.node-aurora--left {
-  left: 1px;
-  animation-delay: -2s;
-}
-.node-aurora--right {
-  right: 1px;
-  animation-delay: -6s;
-}
-@keyframes nodeAuroraBreathe {
-  0%,
-  100% {
-    opacity: 0.45;
-    transform: translateY(-6%) scaleY(0.9);
-  }
-  50% {
-    opacity: 1;
-    transform: translateY(6%) scaleY(1.05);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .node-aurora {
-    animation: none;
-    opacity: 0.7;
-  }
-}
-.theme-no-glow .node-aurora {
-  display: none;
-}
 /* Theme-accent action control for Graph Studio. Colour comes from `--primary`
  * (the live theme), never a hardcoded hue, and carries NO glow. */
 .graph-accent {
@@ -1342,11 +1276,11 @@ html.dark .graph-accent:disabled {
 .graph-accent-chip {
   background-color: color-mix(in srgb, var(--primary) 20%, transparent);
 }
-/* Chat slash-command popover — a deliberately NEAR-TRANSPARENT frosted panel
+/* Chat slash-command popover â€” a deliberately NEAR-TRANSPARENT frosted panel
  * (the solid background is removed; only the blur remains). Low tint (0.14),
  * high blur + saturation so the content behind stays visible through real
  * glass. Rendered via a portal at <body> so the blur samples the page instead
- * of a scoped backdrop root. Keep the tint low — a higher alpha hides the blur. */
+ * of a scoped backdrop root. Keep the tint low â€” a higher alpha hides the blur. */
 .glass-command-popover {
   background: rgb(var(--card-rgb, 18 18 20) / 0.14);
   backdrop-filter: blur(26px) saturate(1.5);
@@ -1358,9 +1292,9 @@ html:not(.dark) .glass-command-popover {
   border-color: rgba(0, 0, 0, 0.08);
   box-shadow:    0 16px 48px rgba(0, 0, 0, 0.12),    inset 0 1px 0 rgba(255, 255, 255, 0.60);
 }
-/* Chat composer — a NEAR-TRANSPARENT frosted panel: the solid fill is removed
+/* Chat composer â€” a NEAR-TRANSPARENT frosted panel: the solid fill is removed
  * and only the blur remains, so the transcript behind reads through real glass.
- * Low tint (0.16), high blur + saturation. Keep the tint low — a higher alpha
+ * Low tint (0.16), high blur + saturation. Keep the tint low â€” a higher alpha
  * hides the blur (see hard rule #2). */
 .glass-composer {
   background: rgb(var(--card-rgb, 18 18 20) / 0.16);
@@ -1371,7 +1305,7 @@ html:not(.dark) .glass-composer {
   background: rgba(255, 255, 255, 0.22);
   box-shadow:    0 8px 30px rgba(0, 0, 0, 0.10),    inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
-/* Frosted-glass button — translucent tint + real backdrop blur, no border.
+/* Frosted-glass button â€” translucent tint + real backdrop blur, no border.
  * Used by the workspace toolbar / drawers. */
 .glass-button {
   background: rgb(var(--card-rgb, 18 18 20) / 0.45);
@@ -1388,7 +1322,7 @@ html:not(.dark) .glass-button {
 html:not(.dark) .glass-button:hover {
   background: rgba(255, 255, 255, 0.75);
 }
-/* Primary-action variant — same frosted recipe, tinted with the brand green so
+/* Primary-action variant â€” same frosted recipe, tinted with the brand green so
  * an "add"/"transaction" button stays emphasised while remaining real glass. */
 .glass-button-add {
   background: rgb(var(--brand-rgb) / 0.28);
@@ -1403,9 +1337,9 @@ html:not(.dark) .glass-button-add {
   background: rgb(var(--brand-rgb) / 0.14);
   box-shadow:    0 4px 16px rgba(0, 0, 0, 0.08),    inset 0 1px 0 rgba(255, 255, 255, 0.50);
 }
-/* ── Trading-calendar shell + day cells ─────────────────────────────────
+/* â”€â”€ Trading-calendar shell + day cells â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * The grid sits on a slightly darker shell so the uniform date cells read as
- * tiles on a single surface. Cells are one neutral wash (no per-day fill —
+ * tiles on a single surface. Cells are one neutral wash (no per-day fill â€”
  * the sign is carried by the coloured net R / symbol R text), with NO per-cell
  * backdrop blur (35 blurred cells is a needless memory cost; the parent card
  * already frosts the backdrop). The `.cal-cell--pos` / `--neg` tints remain for
@@ -1450,7 +1384,7 @@ html:not(.dark) .cal-shell {
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.13);
 }
-/* Weekend / out-of-month cells recede — a translucent dim, never a black
+/* Weekend / out-of-month cells recede â€” a translucent dim, never a black
  * overlay (which muddied light mode). */
 .cal-cell--muted {
  opacity: 0.5;
@@ -1467,8 +1401,8 @@ html:not(.dark) .cal-cell--empty:hover {
 html:not(.dark) .glass-button-add:hover {
   background: rgb(var(--brand-rgb) / 0.22);
 }
-/* ── Customization-driven glass surfaces ─────────────────────────────────────
- * Settings › Customization › Glass writes --glass-* tokens on <html> and adds
+/* â”€â”€ Customization-driven glass surfaces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ * Settings â€º Customization â€º Glass writes --glass-* tokens on <html> and adds
  * `theme-glass-active`. These rules are scoped so the shipped tier hierarchy in
  * the hardcoded recipes is untouched until the user opts into customization.
  * `theme-glass-off` (glass disabled) removes the blur entirely and makes the
@@ -1500,10 +1434,10 @@ html.theme-glass-off .glass-card,html.theme-glass-off .glass-card-strong,html.th
 html:not(.dark).theme-glass-off .glass-card,html:not(.dark).theme-glass-off .glass-card-strong,html:not(.dark).theme-glass-off .glass-card-subtle,html:not(.dark).theme-glass-off .glass-drawer,html:not(.dark).theme-glass-off .glass-command-popover,html:not(.dark).theme-glass-off .glass-composer,html:not(.dark).theme-glass-off .glass-button,html:not(.dark).theme-glass-off .tab-bar-glass,html:not(.dark).theme-glass-off .tab-bar-subtle,html:not(.dark).theme-glass-off .fund-tabs-glass,html:not(.dark).theme-glass-off .glass-ticker,html:not(.dark).theme-glass-off .fund-menu-glass,html:not(.dark).theme-glass-off .command-glass,html:not(.dark).theme-glass-off .command-glass-bar,html:not(.dark).theme-glass-off .nav-menu-glass {
   background-color: rgb(var(--glass-tint-light) / 0.92) !important;
 }
-/* ── Sidebar surface ─────────────────────────────────────────────────────────
+/* â”€â”€ Sidebar surface â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * The navigation rail has its OWN tint separate from the page/card glass, so it
  * can ship as a soft grey while the page stays black (and be re-tinted in
- * Settings › Customization › Sidebar). Declared after the glass recipes so it
+ * Settings â€º Customization â€º Sidebar). Declared after the glass recipes so it
  * overrides `.glass-card-strong` at equal specificity. Light mode keeps a soft
  * white frost. */
 .sidebar-root {
@@ -1532,9 +1466,9 @@ html.theme-glass-off .sidebar-root {
 html:not(.dark).theme-glass-off .sidebar-root {
   background-color: rgba(255, 255, 255, 0.92) !important;
 }
-/* Page background treatment (Settings › General › Background). The theme's
+/* Page background treatment (Settings â€º General â€º Background). The theme's
  * pattern (`--page-bg-image`) paints on the shell (body + .app-page-bg) so it
- * covers every tab. A chosen wallpaper is NOT painted on the shell — it is
+ * covers every tab. A chosen wallpaper is NOT painted on the shell â€” it is
  * rendered by the `.app-bg-layer` inside the main content panel (see below).
  * The background store writes these vars inline; when mode is `none`/`pattern`
  * it removes them and the theme's own `--page-bg-image` (or the shipped
@@ -1554,7 +1488,7 @@ body {
 /* ChatBot wallpaper layer. Fills the main content panel (right of the sidebar)
  * and resizes with it, so opening/closing the sidebar keeps the image fully
  * visible rather than cropping it. Deliberately NOT `background-attachment:
- * fixed` — a fixed attachment sizes the image to the viewport, so the narrower
+ * fixed` â€” a fixed attachment sizes the image to the viewport, so the narrower
  * panel would show only a cropped slice. Rendered only on the chat landing
  * (gated in stock-chat.tsx), below the panel's content (z-index 0).
  *
@@ -1591,7 +1525,7 @@ html.dark .app-bg-layer {
   transform: scale(var(--app-bg-zoom, 1));
   transform-origin: var(--app-bg-position, center);
 }
-/* Chat-conversation surface (Settings › Customization › ChatBot Page › Chat
+/* Chat-conversation surface (Settings â€º Customization â€º ChatBot Page â€º Chat
  * background). On by default: fills the chat panel behind the transcript +
  * composer with a flat color or gradient, so messages sit on a surface of your
  * choosing instead of the raw wallpaper. Sits at z-0 (same tier as the
@@ -1613,8 +1547,8 @@ html.dark .app-bg-layer {
 html.dark .chat-surface-layer {
   background: var(--chat-surface-bg-dark, transparent);
 }
-/* Prompt-bubble fill (Settings › Customization › ChatBot Page › Chat background
- * › Prompt bubble). The user bubble's background is a scheme-aware var pair,
+/* Prompt-bubble fill (Settings â€º Customization â€º ChatBot Page â€º Chat background
+ * â€º Prompt bubble). The user bubble's background is a scheme-aware var pair,
  * defaulting to a neutral foreground tint so it reads clearly on both the light
  * and dark chat surfaces. The store writes `--chat-bubble-bg-light/-dark`. */
 .chat-bubble {
@@ -1650,9 +1584,9 @@ html.dark .chat-bubble {
   transform: translateY(-50%);
   text-shadow: 0 2px 24px rgb(0 0 0 / 0.28);
 }
-/* ── Accessibility preferences ───────────────────────────────────────────────
- * Classes toggled on <html> by the locale/a11y store (Settings › Accessibility).
- * Kept here so components never read the preference — the document root adapts.
+/* â”€â”€ Accessibility preferences â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ * Classes toggled on <html> by the locale/a11y store (Settings â€º Accessibility).
+ * Kept here so components never read the preference â€” the document root adapts.
  * Motion is also honoured from the OS via the media query below. */
 .a11y-reduce-motion *,.a11y-reduce-motion *::before,.a11y-reduce-motion *::after,.theme-no-anim *,.theme-no-anim *::before,.theme-no-anim *::after {
   animation-duration: 0.001ms !important;
@@ -1660,7 +1594,7 @@ html.dark .chat-bubble {
   transition-duration: 0.001ms !important;
   scroll-behavior: auto !important;
 }
-/* The price ticker is live market chrome — motion is its entire purpose, so it
+/* The price ticker is live market chrome â€” motion is its entire purpose, so it
  * is deliberately EXEMPT from the reduce-motion / animations-off rules above
  * (which would otherwise freeze it). It is slow and subtle; keeping it running
  * is the documented intent (see .price-ribbon-track). Higher specificity + the
@@ -1670,7 +1604,7 @@ html.dark .chat-bubble {
   animation-iteration-count: infinite !important;
 }
 /* The composer's Ultra ("maximum effort") energy is deliberately EXEMPT from the
- * reduce-motion / animations-off kill switches — the same intent the price
+ * reduce-motion / animations-off kill switches â€” the same intent the price
  * ticker carries. It is the explicit "this is the strongest" affordance; frozen,
  * it reads as a broken static band. Every layer carries `--ultra-dur`, so one
  * rule restores its own timing against BOTH the class rules and the OS media
@@ -1680,7 +1614,7 @@ html.dark .chat-bubble {
   animation-duration: var(--ultra-dur, 2.6s) !important;
   animation-iteration-count: infinite !important;
 }
-/* Customization › Glow off — hide the ambient Aurora glow without unmounting
+/* Customization â€º Glow off â€” hide the ambient Aurora glow without unmounting
  * it, so the preference needs no prop drilling into the app shell. */
 .theme-no-glow [data-aurora-glow] {
   display: none !important;
@@ -1717,12 +1651,12 @@ html:not(.dark) .a11y-high-contrast .glass-card,html:not(.dark) .a11y-high-contr
 html.a11y-large-text {
   font-size: calc(118% * var(--font-scale, 1));
 }
-/* Customization › Text size. Defaults to 1, so this is a no-op until the user
- * changes it in Settings › Customization. */
+/* Customization â€º Text size. Defaults to 1, so this is a no-op until the user
+ * changes it in Settings â€º Customization. */
 html {
   font-size: calc(100% * var(--font-scale, 1));
 }
-/* Skip link — visible only when keyboard-focused (first Tab on a page). */
+/* Skip link â€” visible only when keyboard-focused (first Tab on a page). */
 .skip-to-content {
   position: fixed;
   top: 0.75rem;
@@ -1744,12 +1678,12 @@ html {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
-/* ── Light-scheme compatibility layer ────────────────────────────────────────
+/* â”€â”€ Light-scheme compatibility layer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * Many components were authored against the dark-only app and hardcode
- * white-on-dark hairlines/fills (border-white/5, bg-black/40, text-white…).
+ * white-on-dark hairlines/fills (border-white/5, bg-black/40, text-whiteâ€¦).
  * Rather than edit ~100 files, remap those neutral utilities to their light
  * counterparts when the `dark` class is absent. Only pure white/black
- * neutrals are touched — colored tokens (primary, rose, emerald…), the glass
+ * neutrals are touched â€” colored tokens (primary, rose, emeraldâ€¦), the glass
  * recipes, and the aurora glow are deliberately left alone. Scoped to
  * `html:not(.dark)` so dark mode is byte-for-byte unchanged. Kept `!important`
  * -free with enough specificity to win by source order. */
@@ -1871,7 +1805,7 @@ html:not(.dark) .via-\[\#0f0f0f\]\/60 {
 html:not(.dark) [data-aurora-glow] {
  opacity: 0.42;
  }
-/* ── Boot overlay auto-dismiss ────────────────────────────────────────────────
+/* â”€â”€ Boot overlay auto-dismiss â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * `GlobalLoader` normally unmounts itself from a JS timer. That timer shares the
  * main thread with hydration and dev-chunk compilation, so on a loaded machine
  * it can be delayed while the overlay sits at its last percentage (the
@@ -1894,7 +1828,7 @@ html:not(.dark) [data-aurora-glow] {
   animation: beBootOverlayDismiss 1.1s ease forwards;
 }
 
-/* Graph Studio — running edges march so a live run is legible on the canvas. */
+/* Graph Studio â€” running edges march so a live run is legible on the canvas. */
 @keyframes graphEdgeDash {
   to {
     stroke-dashoffset: -12;
