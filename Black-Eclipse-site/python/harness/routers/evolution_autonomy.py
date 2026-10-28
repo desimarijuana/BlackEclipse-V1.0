@@ -68,6 +68,41 @@ def decide_rsl_autonomy(
     return {"success": True, "decision": decision, "activates": False}
 
 
+@router.get("/evolution/self-modification")
+def self_modification_status(
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    return {"success": True, **service.self_modification_status()}
+
+
+@router.post("/evolution/self-modification/run")
+async def self_modification_run(
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    return {"success": True, "result": await service.run_self_modification_once()}
+
+
+@router.post("/evolution/self-modification/pause")
+def self_modification_pause(
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    return {"success": True, **service.pause_self_modification()}
+
+
+@router.post("/evolution/self-modification/resume")
+def self_modification_resume(
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    return {"success": True, **service.resume_self_modification()}
+
+
+@router.post("/evolution/self-modification/revoke/{action_id}")
+def self_modification_revoke(
+    action_id: str, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    return {"success": True, **service.revoke_self_modification(action_id)}
+
+
 @router.post("/evolution/states/{state_id}/autonomy-apply")
 async def auto_apply_surface_state(
     state_id: str, _: bool = Depends(require_operator),

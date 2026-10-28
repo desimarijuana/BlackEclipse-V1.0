@@ -171,6 +171,10 @@ async def _boot() -> None:
     # recommendations turned out. It never issues advice and never touches an
     # approval gate. Disabled with HARNESS_ADVISORY_AUTO_EVALUATE=0.
     await service.start_advisory_cadence()
+    # Class-authorized self-modification: auto-accept contract-clean candidates
+    # and auto-enable only read-only learned skills (TTL + cap + audit). Effectful
+    # and financial actions remain operator-only.
+    await service.start_self_modification()
     # The gallery: a local catalogue of published strategies. Registered here so
     # the agent and the UI share ONE catalogue.
     from .gallery.bootstrap import install_gallery_layer
@@ -324,6 +328,7 @@ async def _shutdown() -> None:
         await session_watch.stop()
     await stop_events(service)
     await service.stop_advisory_cadence()
+    await service.stop_self_modification()
     await service.stop_automation()
     orchestration = getattr(service, "orchestration", None)
     if orchestration is not None:

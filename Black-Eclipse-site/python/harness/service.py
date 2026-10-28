@@ -1507,6 +1507,68 @@ class AgenticService:
             self._advisory_cadence = AdvisoryCadence(self)
         return await self._advisory_cadence.run_now()
 
+    async def start_self_modification(self) -> None:
+        """Start the class-authorized auto-accept/read-only-enable executor."""
+        try:
+            if getattr(self, "_self_modification", None) is None:
+                from .self_improvement.self_modification import (  # noqa: PLC0415
+                    SelfModificationExecutor,
+                )
+
+                self._self_modification = SelfModificationExecutor(self)
+            await self._self_modification.start()
+        except Exception:  # noqa: BLE001 - never block boot
+            log.warning("self-modification executor failed to start", exc_info=True)
+
+    async def stop_self_modification(self) -> None:
+        executor = getattr(self, "_self_modification", None)
+        if executor is None:
+            return
+        try:
+            await executor.stop()
+        except Exception:  # noqa: BLE001
+            log.warning("self-modification shutdown failed", exc_info=True)
+
+    def self_modification_status(self) -> dict[str, Any]:
+        executor = getattr(self, "_self_modification", None)
+        if executor is None:
+            from .self_improvement.self_modification import (  # noqa: PLC0415
+                SelfModificationPolicy,
+            )
+
+            policy = SelfModificationPolicy.from_env()
+            return {
+                "mode": policy.mode, "enabled": policy.enabled,
+                "autoAccept": policy.auto_accept, "autoEnable": policy.auto_enable,
+                "ttlDays": policy.ttl_days,
+                "maxActiveSkills": policy.max_active_skills,
+                "running": False, "lastRunAt": None, "lastResult": {},
+            }
+        return executor.status()
+
+    async def run_self_modification_once(self) -> dict[str, Any]:
+        if getattr(self, "_self_modification", None) is None:
+            from .self_improvement.self_modification import (  # noqa: PLC0415
+                SelfModificationExecutor,
+            )
+
+            self._self_modification = SelfModificationExecutor(self)
+        return await self._self_modification.run_now()
+
+    def pause_self_modification(self) -> dict[str, Any]:
+        executor = getattr(self, "_self_modification", None)
+        return executor.pause() if executor is not None else {"paused": True}
+
+    def resume_self_modification(self) -> dict[str, Any]:
+        executor = getattr(self, "_self_modification", None)
+        return executor.resume() if executor is not None else {"paused": False}
+
+    def revoke_self_modification(self, action_id: str) -> dict[str, Any]:
+        executor = getattr(self, "_self_modification", None)
+        if executor is None:
+            return {"ok": False, "reason": "executor_unavailable"}
+        return executor.revoke(action_id)
+
     async def start_jobs(self) -> None:
         """Deprecated alias — jobs are now automations (ADR-H114). Starts the engine."""
         await self.start_automation()
