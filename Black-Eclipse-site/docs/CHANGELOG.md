@@ -59,10 +59,11 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   formats, data validations, hyperlinks, auto-filters and column ranges instead of
   refusing any formula workbook; tables/charts/pivots/OLE are still refused.
   Docs: `docs/harness/office-edit.md`.
-- **feat(documents): structural SmartArt, tables and chart refs.** PPTX now has
-  `add_smartart_node` / `remove_smartart_node` / `set_smartart_node_text`;
-  structural XLSX edits also rewrite table references/table formulas and chart
-  series formulas (pivots/OLE remain refused). Docs:
+- **feat(documents): full structural document edits.** PPTX now has
+  `add_smartart_node` / `remove_smartart_node` / `set_smartart_node_text` and
+  `set_smartart_layout` (donor diagram in the same deck); structural XLSX edits
+  rewrite table/chart references, pivot table locations + cache sources
+  (refresh-on-load), and OLE/legacy VML anchors. Docs:
   `docs/harness/office-edit.md`.
 - **feat(modeling): exact quarterly comps calendarization.** A peer with
   `quarterly` periods is calendarized by a four-quarter TTM ending at the target
