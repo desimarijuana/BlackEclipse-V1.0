@@ -53,6 +53,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   `src/components/layout/chat-history-panel.tsx` (`fill` prop),
   `src/lib/i18n/dictionaries/en.ts` (`sidebar.apps`, ratchet re-pinned).
   no doc change beyond this entry — presentation only; nav contracts unchanged.
+- **fix(sidebar): put pages above chat history and stop the app rows shrinking.**
+  Corrects the previous layout: on ChatBot only, the app list is the top
+  scrollable strip and chat history fills the space below it, separated by a
+  divider. Nav anchors are now `shrink-0` (also in `saved-pages-nav.tsx`) so rows
+  keep their 32px height and spacing inside a constrained scroll pane instead of
+  compressing. no doc change beyond this entry.
 - **feat(learning): add class-authorized self-modification (Tier B).**
   `self_improvement/self_modification.py` auto-accepts contract-clean,
   evaluated candidates and auto-enables **read-only** learned skills under an

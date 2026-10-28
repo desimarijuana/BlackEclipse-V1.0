@@ -245,7 +245,7 @@ export function Sidebar({
             title={isCollapsed
               ? `${tab.shortcut ? `${tab.label} (${tab.shortcut})` : tab.label}${unreadCount ? ` · ${unreadCount} unread` : ''}`
               : undefined}
-            className={`h-8 flex items-center px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer overflow-hidden no-underline outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${
+            className={`h-8 shrink-0 flex items-center px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer overflow-hidden no-underline outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${
               isSelected
                 ? 'rounded-lg bg-white/[0.07] text-foreground'
                 : 'rounded-lg bg-transparent text-muted-foreground hover:bg-white/[0.04] hover:text-foreground'
@@ -442,20 +442,6 @@ export function Sidebar({
         </div>
         )}
 
-        {/* Chat History Panel on Top of the menu list. `fill` lets it own the
-            flexible pane so its list scrolls in place, above the app list. */}
-        {showHistory && (
-          <ChatHistoryPanel
-            fill
-            conversations={conversations}
-            organization={organization}
-            activeConversationId={activeConversationId}
-            onSelectConversation={handleSelectChat}
-            onNewChat={onNewChat}
-            onDeleteConversation={onDeleteConversation}
-          />
-        )}
-
         {/* Bots is the one DEDICATED mode: the sidebar lists the user's bots
             instead of the generic nav list. Every other mode — including Graph
             Studio — shows the SAME standard navigation. */}
@@ -470,14 +456,28 @@ export function Sidebar({
             />
           </div>
         ) : showHistory ? (
-          /* History open: the app list gets its own bounded, scrollable strip
-             below the history pane, so neither pane can push the other away. */
-          <div className="flex shrink-0 flex-col min-h-0 max-h-[40%] w-full border-t border-border/10 pt-3">
-            <span className="shrink-0 px-2 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              {t('sidebar.apps')}
-            </span>
-            {renderNav()}
-          </div>
+          <>
+            {/* ChatBot only: pages sit on TOP in their own scrollable strip;
+                chat history sits BELOW and takes the remaining height. Each
+                pane scrolls independently, with a divider between them. */}
+            <div className="flex shrink-0 flex-col min-h-0 max-h-[45%] w-full">
+              <span className="shrink-0 px-2 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                {t('sidebar.apps')}
+              </span>
+              {renderNav()}
+            </div>
+            <div className="flex flex-1 min-h-0 flex-col w-full border-t border-border/10 pt-3">
+              <ChatHistoryPanel
+                fill
+                conversations={conversations}
+                organization={organization}
+                activeConversationId={activeConversationId}
+                onSelectConversation={handleSelectChat}
+                onNewChat={onNewChat}
+                onDeleteConversation={onDeleteConversation}
+              />
+            </div>
+          </>
         ) : (
           renderNav('pt-4 border-t border-border/10')
         )}
