@@ -74,6 +74,7 @@ The guardrail is called from the points where a real action would occur:
 | MCP | `mcp/approvals.py` `make_effect_authorizer` | evaluated **before** grants/approvals; a standing grant cannot bypass a deny; confirm adds a cooling check |
 | Shell / terminal | `code/authorizers.py` `_wrap_with_money_guardrails` | a command naming a broker/payment surface plus a money verb is gated before its own command approval |
 | Native tools | `finance_guardrail_status` / `finance_guardrail_check` | read-only: the agent may ask, never change |
+| Native broker orders (P1 demo) | `trade/authorizer.py` | evaluated before the single-use `trade_order` approval; a deny refuses; the approval is required even for an allow |
 
 The generic `computer_use` click gate is deliberate: a prompt telling the model
 not to click Submit was never enforcement.

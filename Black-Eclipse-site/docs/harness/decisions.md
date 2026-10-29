@@ -10781,3 +10781,179 @@ subject to ADR-H213's measured-adoption gate. A supporting fix makes
 remains, so a multi-level DAG is not marked `BLOCKED` after its first stage.
 Docs: `docs/harness/institution-preset.md`, `docs/harness/bot-team-orchestration.md`,
 `docs/NAVIGATION.md`, this ADR.
+
+## ADR-H331 — Broker connectivity is one read-only adapter contract, attach-first, with no order path
+
+**Decision.** Broker connectivity lives in `python/harness/trade/` and is split
+into five seams: a `BrokerAdapter` read contract, a kind registry, a durable
+`BrokerConnection` store on the ONE `agent-memory.db`, one `BrokerService`, and
+operator-gated `/trading/*` routes with a front-door allowlist. The first adapter
+attaches to an already-logged-in MetaTrader 5 terminal over local IPC. P0 is
+read-only: account, positions, working orders, quotes. `POST /trading/orders`
+returns an honest 501. Paper fills remain Graph Studio's `trading.paper_order`;
+live execution is a later phase.
+
+**Why.** The app already has a single-use, digest-bound approval store, the money
+guardrails and the quant risk engine; the missing piece was a broker edge, not a
+second trading engine. MetaTrader's official Python API is local IPC, so the
+attach path needs no credential in Eclipse — the smallest possible secret surface.
+A kind is a registration, so Alpaca/IBKR/MT4 bridges and plugin brokers add a
+class instead of touching callers. Refusing secrets at write time is stronger than
+redacting them at read time. A named `unavailable` reason is the only honest
+answer when the terminal is missing, logged out or disconnected.
+
+**Consequences.** New package `trade/` and route group `/trading/*`; new tables on
+`agent-memory.db`; new read-only `broker_*` tools; no execution surface and no
+`Trade` write. The dashboard `trading` widgets may now read a real connection but
+must render the named reason when there is none. MT5 is Windows-only and requires
+a running terminal; the Python package stays out of `requirements.txt` so
+Linux/macOS installs are unaffected. Adding an order path requires a new ADR, the
+P1/P2 gates in `docs/trading.md`, and the existing approval store — never a second
+approval mechanism.
+
+## ADR-H332 — Demo execution is one policy→guardrail→approval→send seam, gated twice as demo
+
+**Decision.** P1 adds demo order submission only. `trade/policy.py` applies
+deterministic connection limits (margin, volume, spread, open positions, symbol
+allowlist). `trade/authorizer.py` evaluates the order as a `MoneyIntent` through
+`FinanceGuardrailService`, creates a single-use `trade_order` approval whose
+digest covers the exact `OrderIntent`, and consumes that approval atomically
+before `order_send`. Demo is checked twice: the connection record must say `demo`
+and the adapter's `account_info().trade_mode` must report demo at both preview and
+submit. `order_send` is called once; a timeout or unknown result marks the ledger
+`unknown` and is never retried. There is no agent `order_submit` tool.
+
+**Why.** The approval store, money guardrails and quant risk rules already exist;
+the missing piece was the demo execution edge, not a second trading engine. Two
+independent demo gates mean a mislabelled connection cannot move real money: the
+broker's own account mode is authoritative. Re-using `trade_order` as an approval
+kind keeps one single-use mechanism and one audit trail. Refusing to retry is the
+only honest choice because MetaTrader has no client order id; a blind retry after a
+lost IPC reply can double a position. Keeping submission operator-only preserves
+the existing rule that an agent may propose and preview, never execute.
+
+**Consequences.** New `TradingAdapter` contract, `BrokerOrder` ledger, policy and
+authorizer modules; `trade_order` joins the reviewable approval kinds; the MT5
+adapter gains `order_preview`/`submit_order`/`cancel_order` with a full retcode
+map. `BrokerKind.executionModes` states `("demo",)`, so the UI cannot imply live
+execution. Live submission (P2) still requires a REAL-mode arm switch, a typed
+confirmation, caps and a kill switch; it must extend this seam rather than add a
+parallel one. Docs: `docs/trading.md`, `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`,
+this ADR.
+
+## ADR-H333 — Live execution is an armed, magic-scoped extension of the same trade seam
+
+**Decision.** P2 enables live order submission only through a time-boxed arm on the
+connection. Arming requires: connection mode `live`; `account_info().trade_mode`
+`real`; Algo Trading enabled in the terminal; a non-zero `magic`; and a positive
+`maxMargin` cap. The operator types `ARM LIVE <login>`; the arm expires in 60 s to
+8 h and is cleared by a mode/config change, a failed probe, expiry, or the kill
+switch. Every live order still uses `trade/authorizer.py`: policy → money
+guardrails → single-use `trade_order` approval → `order_send`. In addition, the
+preview always returns `requiresTypedConfirmation` with a `LIVE <SIDE> <volume>
+<symbol>` phrase that submit must repeat. The kill switch cancels all working
+orders with the connection's magic and disarms; it refuses magic 0 and does not
+close positions. `order_send` is never retried on an ambiguous result.
+
+**Why.** A global "live enabled" flag would be one mistake away from an unintended
+order. A per-connection, expiring arm ties the permission to one account and one
+short window. A non-zero magic is the only reliable ownership marker in MT5, so
+the kill switch can be both effective and safe. A mandatory `maxMargin` means a
+live connection cannot be armed without an explicit risk cap. The per-order typed
+phrase is a second, human-speed decision after the approval card, not a replacement
+for the digest-bound approval. Refusing to close positions in the kill switch keeps
+this phase's blast radius to cancellations; closing is a distinct, risk-reducing
+action that needs its own design (netting vs hedging, partial fills).
+
+**Consequences.** `BrokerConnection` gains `armedUntil`/`armedAt`/`armedBy`;
+`TradingAdapter` gains `cancel_all(magic)`; the MT5 adapter gains a magic-filtered
+cancel-all; `BrokerKind.executionModes` becomes `("demo", "live")`; new routes
+`/trading/connections/{id}/arm|disarm|kill`; the client gains arm/disarm/kill.
+`_assert_account_mode` checks the terminal's Algo Trading flag as well as the
+account's. The arm is not a substitute for the per-order approval, and no
+automation may arm a connection. P3 must build on this seam. Docs:
+`docs/trading.md`, `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, this ADR.
+
+## ADR-H334 — Unattended graph orders use a bounded demo mandate, never a live mandate
+
+**Decision.** Graph Studio's `trading.broker_order` is paper-mode only and requires
+an operator-created `TradingMandate`: a demo connection, an allowed-symbol set, a
+per-order `maxMargin`, a `maxOrders` count and an expiry (60 s to 7 days). Creation
+requires the typed phrase `MANDATE DEMO <label>`. Each use is counted atomically, so
+a looping graph cannot exceed the mandate. Revocation is immediate. The node calls
+the SAME `BrokerService.submit_order` path as manual orders, so connection policy,
+money guardrails, the demo/real account check and the no-retry rule still apply. The
+ledger records `mandateId`. Live mandates are not implemented: `create_mandate`
+refuses a live connection, and the compiler/front door still refuse a live trading
+node.
+
+**Why.** A graph run has no approval card, so "unattended" needs an explicit
+operator authorization that is bounded in every dimension that matters (symbols,
+margin, count, time) and revocable. Making it demo-only keeps the worst case a
+simulated fill on a demo account while the node contract and UI are proven. Reusing
+`submit_order` is the only way to avoid a second execution path with its own
+account checks and retry semantics. Keeping live graphs refused is defense in depth:
+even a forged run grant cannot reach live execution.
+
+**Consequences.** New `TradingMandate` table on `agent-memory.db`; routes for mandate
+create/list/revoke; a `mandateId` column on the broker-order ledger; the
+`trading.broker_order` node in both the Python registry and the TS graph registry.
+P4 (unattended live) needs a separate ADR, a live mandate with stricter limits, and
+a review of position reconciliation and partial fills. Docs: `docs/trading.md`,
+`docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, this ADR.
+
+## ADR-H335 — Reconciliation is a durable copy of broker truth, not a second source
+
+**Decision.** `trade/reconcile.py` reads broker positions, working orders and deal
+history and writes a durable local copy: `BrokerFill` (deduped by connection + deal
+ticket), `BrokerPositionSnapshot` (replaced atomically), and `BrokerSyncState`
+(cursor, status, counts, last error). It updates in-flight ledger orders only when
+broker history is definitive (`filled`/`partial`/`cancelled`/`rejected`/`expired`);
+a working ticket is `placed`. A failed sync records an error and keeps the last good
+data. The background loop is opt-in (`TRADING_RECONCILE_SECONDS`, default 0);
+manual `POST .../sync` always works.
+
+**Why.** A read-on-demand is not a record: after a restart the app cannot explain a
+fill, and the UI cannot show what happened while the agent was idle. Broker history
+is the only authority, so it must be copied, not inferred. Deduping by deal ticket
+makes an overlapping cursor safe; replacing the position snapshot avoids stale
+positions; an explicit error state avoids the tempting "empty list means flat"
+lie. Keeping the background loop opt-in respects the cost of IPC to a desktop
+terminal and the fact that most installs do not have MT5.
+
+**Consequences.** Adapter gains `deals_since`/`order_status`; `BrokerOrder` retains
+`mandateId` alongside `approvalId`; new routes for sync/reconciliation/fills and
+read-only `broker_reconciliation`/`broker_fills` tools; the loop starts/stops in
+`boot.py`. Reconciliation does not close positions, mark to market, or authorize
+anything. P5 (close/flatten, unattended live) remains a separate decision. Docs:
+`docs/trading.md`, `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, this ADR.
+
+## ADR-H336 — Agent trade submission is mandate-authorized, not approval-authorized
+
+**Decision.** Add `order_submit` as the ONE effectful agent broker tool. It is
+admitted by an active, operator-created **demo** mandate (symbols, `maxMargin`,
+`maxOrders`, expiry) and calls the SAME `BrokerService.submit_order` path as the
+operator. The tool is registered with the registry's `read` permission so the
+generic per-call approval card does not double-gate an unattended mandate; the
+handler/service still enforces demo account mode, policy, money guardrails, symbol
+scope, margin cap, order count and the no-retry rule. There is no agent path to
+create/revoke a mandate, arm live, cancel, or submit live. A `broker_mandates` read
+tool and a Settings mandate panel let the operator create/revoke the authorization.
+The agent prompt tells it to keep analysis brief and call `order_submit` directly.
+
+**Why.** A per-order approval card makes "ask Eclipse to analyze and trade"
+impossible; an unattended mandate is the operator's explicit, bounded consent and
+already has a digest/usage/expiry contract. Marking the tool `write` would require
+a second authorization for the same decision and still fail. The handler/service is
+the authority that matters: it can only submit one bounded demo order, uses the
+same ledger/approval-free mandate path, and never reaches live. The explicit
+`read` label is a deliberate exception; the effect metadata (`trading`, high risk)
+and the audit trail preserve the real effect class.
+
+**Consequences.** `order_submit` and `broker_mandates` join the agent allowlist; the
+Settings panel gains mandate create/revoke; the prompt gains a short trading
+instruction. A verified demo run placed ticket **11164809214** (EURUSD BUY 0.01,
+SL 1.11125, TP 1.12260) under mandate `mnd_c82ba003d785`. The generic effect
+authorizer wrapper remains as defense in depth if the permission label changes.
+Live is still unreachable: no live mandate, and the account-mode checks reject a
+real account. Docs: `docs/trading.md`, `docs/NAVIGATION.md`, this ADR.

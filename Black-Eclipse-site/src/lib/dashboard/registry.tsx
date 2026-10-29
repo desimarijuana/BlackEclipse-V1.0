@@ -66,6 +66,10 @@ import { SOURCE_WIDGETS } from '@/lib/workspace/generic-widgets';
 import { getSdkWidgetDefinition } from '@/lib/sdk/widgets';
 import { registerWidget, getWidget } from '@/lib/workspace/widget-registry';
 import { ClockWidget, DEFAULT_CLOCK_CONFIG } from './clock-widget';
+import {
+  BrokerMarginUsageWidget, BrokerOpenPositionsWidget, BrokerTodayPnlWidget,
+  BrokerWorkingOrdersWidget, QuickTradeWidget,
+} from './trading-widgets';
 
 // Register the data topics the dashboard widgets depend on. The hub batches
 // fetches per topic and only subscribes for visible widgets.
@@ -174,11 +178,11 @@ const CORE_WIDGETS: WidgetDefinition[] = [
   def('holdings', 'portfolio', 'Holdings', 'Long-term broker holdings.', 'layers', ['large', 'full'], () => <HoldingsWidget />),
 
   // ── Trading ──
-  def('quick-trade', 'trading', 'Quick Trade', 'Fast order entry (crypto + equities).', 'zap', ['medium', 'large'], () => UnavailableStub('Quick Trade')),
-  def('open-positions', 'trading', 'Open Positions', 'Live broker positions.', 'briefcase', ['medium', 'large'], () => UnavailableStub('Open Positions')),
-  def('working-orders', 'trading', 'Working Orders', 'Pending orders (click × to cancel).', 'bell', ['medium', 'large'], () => UnavailableStub('Working Orders')),
-  def('margin-usage', 'trading', 'Margin Usage', 'Available/used margin, total, usage %.', 'gauge', ['small', 'medium'], () => UnavailableStub('Margin Usage')),
-  def('today-pnl', 'trading', 'Today P&L', 'Aggregate broker P&L.', 'trending', ['small', 'medium'], () => UnavailableStub('Today P&L')),
+  def('quick-trade', 'trading', 'Quick Trade', 'Fast order entry (crypto + equities).', 'zap', ['medium', 'large'], () => <QuickTradeWidget />),
+  def('open-positions', 'trading', 'Open Positions', 'Live broker positions.', 'briefcase', ['medium', 'large'], () => <BrokerOpenPositionsWidget />),
+  def('working-orders', 'trading', 'Working Orders', 'Pending orders (click × to cancel).', 'bell', ['medium', 'large'], () => <BrokerWorkingOrdersWidget />),
+  def('margin-usage', 'trading', 'Margin Usage', 'Available/used margin, total, usage %.', 'gauge', ['small', 'medium'], () => <BrokerMarginUsageWidget />),
+  def('today-pnl', 'trading', 'Today P&L', 'Aggregate broker P&L.', 'trending', ['small', 'medium'], () => <BrokerTodayPnlWidget />),
 
   // ── Tools ──
   // `live-tv` is the ORIGINAL registry slot; it now renders the real Live

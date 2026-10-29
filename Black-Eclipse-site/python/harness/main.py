@@ -94,6 +94,7 @@ from .routers.sessions import router as sessions_router
 from .routers.skills import router as skills_router
 from .routers.tasks import router as tasks_router
 from .routers.terminal import router as terminal_router
+from .routers.trading import router as trading_router
 from .routers.ui import router as ui_router
 from .routers.video import router as video_router
 from .routers.workspace import router as workspace_router
@@ -150,6 +151,7 @@ app.include_router(observability_router)
 app.include_router(orchestration_router)
 app.include_router(plugins_router)
 app.include_router(portfolio_router)
+app.include_router(trading_router)
 app.include_router(quant_router)
 app.include_router(quant_reports_router)
 app.include_router(projects_router)

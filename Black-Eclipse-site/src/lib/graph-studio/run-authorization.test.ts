@@ -130,6 +130,29 @@ describe('run authorization', () => {
     expect(refused.error).toContain('Live trading is not available');
   });
 
+  it('allows the demo broker-order node in paper and refuses it live', () => {
+    const paper = graph('wf_broker_paper', [
+      { id: 'trig', type: 'trigger.manual' },
+      { id: 'order', type: 'trading.broker_order', config: { connectionId: 'brk_1', mandateId: 'mnd_1' } },
+      { id: 'out', type: 'output.result' },
+    ]);
+    paper.settings.executionMode = 'paper';
+    expect(authorizeGraphRun(paper, [], { operator: true }).error).toContain('confirm paper trading');
+    const allowed = authorizeGraphRun(paper, [], { operator: true, allowPaperTrading: true });
+    expect(allowed.ok).toBe(true);
+    expect(allowed.authorization.allowTrading).toBe(true);
+
+    const live = graph('wf_broker_live', [
+      { id: 'trig', type: 'trigger.manual' },
+      { id: 'order', type: 'trading.broker_order', config: { connectionId: 'brk_1', mandateId: 'mnd_1' } },
+      { id: 'out', type: 'output.result' },
+    ]);
+    live.settings.executionMode = 'live';
+    const refused = authorizeGraphRun(live, [], { operator: true, allowPaperTrading: true });
+    expect(refused.ok).toBe(false);
+    expect(refused.error).toContain('Live trading is not available');
+  });
+
   it('allows only a whitelisted local video render write', () => {
     const video = graph('wf_video', [
       { id: 'trig', type: 'trigger.manual' },

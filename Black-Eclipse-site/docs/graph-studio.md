@@ -1,7 +1,7 @@
 ---
 title: Graph Studio — Visual Workflow Engineering
 status: Current
-last-verified: 2026-10-27
+last-verified: 2026-10-29
 ---
 
 # Graph Studio
@@ -487,6 +487,14 @@ mark-to-market valuation, and the fill price is always the one the graph
 supplied. It never contacts a broker, never reads a live quote, and only runs
 in PAPER mode behind the operator's paper-trading confirmation. There is no
 live adapter; LIVE mode is refused.
+
+`trading.broker_order` is the demo-broker adapter added in P3. It takes an
+`intent` plus a `connectionId` and `mandateId`, runs only in PAPER mode, and calls
+the SAME `BrokerService.submit_order` path as a manual order. The operator-created
+mandate is the authorization (allowed symbols, per-order `maxMargin`, `maxOrders`,
+expiry; immediate revoke), and each use is counted atomically. The connection must
+be a demo MT5 connection; live trading nodes remain refused by the compiler and the
+front door. See `docs/trading.md`.
 
 **Planner and delegate.** `agent.plan` makes ONE bounded model call with a strict
 step schema and returns 1–8 steps (stable ids, optional `dependsOn` on earlier

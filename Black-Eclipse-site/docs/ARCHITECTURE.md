@@ -422,11 +422,28 @@ Two mechanisms:
       skip no-op writes.
 3. **Portfolio engine** (`src/hooks/use-portfolio-engine.ts`) — pure FIFO/LIFO
    cost-basis and stats logic, consumed by both the portfolio screens and the
-   dashboard portfolio widgets. There is **no broker integration yet**: every
-   `trading`-category widget (Quick Trade, Open Positions, Working Orders, Margin
-   Usage, Today P&L) renders the shared `UNAVAILABLE` stub in
-   `src/lib/dashboard/registry.tsx`. Do not fabricate fills — wire a real broker
-   adapter first.
+   dashboard portfolio widgets.
+4. **Broker connectivity (demo + armed live, P2)** - `python/harness/trade/`
+   owns a broker-kind registry, a durable `BrokerConnection` / `BrokerOrder` store
+   on `agent-memory.db`, and a `BrokerAdapter` contract (with `TradingAdapter` as
+   the execution extension). The first adapter attaches to a running, logged-in
+   **MetaTrader 5** terminal over local IPC and reads account, positions, working
+   orders and quotes. `trade/authorizer.py` runs every order through
+   `trade/policy.py`, the money guardrails and a single-use, digest-bound approval
+   before `order_send`. Demo and live are separate gates: the connection record and
+   the broker's `account_info()` must agree, live also requires a real account, a
+   time-boxed operator arm, a non-zero magic, a positive `maxMargin` and a typed
+   per-order `LIVE …` phrase, and the kill switch cancels only Eclipse's working
+   orders (by magic) before disarming. An ambiguous send is recorded as `unknown`
+   and never retried. P3 adds Graph Studio's `trading.broker_order` (paper mode only)
+   under a bounded, revocable demo mandate; unattended live trading remains refused.
+   P4 adds durable reconciliation (`trade/reconcile.py`) of broker deals, positions
+   and order state; the background pass is opt-in and a failed sync is an error,
+   never a fabricated fill. Paper fills remain Graph Studio's `trading.paper_order`. The
+   `trading`-category widgets (Quick Trade, Open Positions, Working Orders, Margin
+   Usage, Today P&L) read the first saved connection and poll it every 15 s; a
+   missing or logged-out connection renders the named reason, never a fabricated
+   fill. See `docs/trading.md`.
 
 ## Layer 3 — API routes
 

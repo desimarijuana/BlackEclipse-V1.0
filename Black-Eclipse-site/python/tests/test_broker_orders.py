@@ -1,0 +1,528 @@
+"""P1 demo execution: preview → single-use approval → submit.
+
+Every test is synthetic. The fake adapter proves the authorization seam; it
+cannot prove MetaTrader's wire behaviour, which is why the MT5 request builder is
+also unit-tested separately.
+"""
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+
+from harness.finance_guardrails.service import FinanceGuardrailService
+from harness.graph_runtime.trading_nodes import exec_broker_order
+from harness.mcp.approvals import ApprovalStore
+from harness.persistence import AgentMemoryStore
+from harness.trade.adapter import TradingAdapter
+from harness.trade.bootstrap import set_service
+from harness.trade.model import BrokerKind, OrderIntent, TradeRefused
+from harness.trade.registry import register_kind
+from harness.trade.service import BrokerService
+
+
+class FakeTradingAdapter(TradingAdapter):
+    kind = "fake-trade"
+    ACCOUNT_MODE = "demo"
+    SPREAD_POINTS = 2.0
+    MARGIN = 11.0
+    OPEN_POSITIONS = 0
+
+    @classmethod
+    def availability(cls):
+        return True, None
+
+    def probe(self):
+        return {"available": True, "connected": True, "code": None, "reason": None,
+                "terminalPath": "/fake",
+                "terminal": {"connected": True, "tradeAllowed": True},
+                "account": self._account(), "warnings": []}
+
+    def _account(self):
+        return {
+            "login": 7, "mode": self.ACCOUNT_MODE,
+            "server": "Fake", "company": "Fake", "currency": "USD",
+            "balance": 10_000.0, "equity": 10_000.0, "margin": 0.0,
+            "marginFree": 10_000.0, "marginLevel": 0.0, "profit": 0.0,
+            "leverage": 100, "marginMode": "hedging",
+            "tradeAllowed": True, "expertAllowed": True,
+        }
+
+    def account(self):
+        return self._account()
+
+    def positions(self):
+        return []
+
+    def orders(self):
+        return []
+
+    def quote(self, symbol):
+        return {"symbol": symbol.upper(), "bid": 1.1, "ask": 1.1002,
+                "spreadPoints": self.SPREAD_POINTS, "provider": "fake"}
+
+    def order_preview(self, intent):
+        return {
+            "ok": True,
+            "symbol": intent.symbol.upper(),
+            "requestedSymbol": intent.symbol,
+            "side": intent.side,
+            "type": intent.order_type,
+            "volume": intent.volume,
+            "price": 1.1002,
+            "notional": 1_100.2,
+            "margin": self.MARGIN,
+            "marginFree": 10_000.0,
+            "spreadPoints": self.SPREAD_POINTS,
+            "openPositions": self.OPEN_POSITIONS,
+            "account": self._account(),
+            "terminalTradeAllowed": True,
+            "quote": self.quote(intent.symbol),
+            "request": {"symbol": intent.symbol.upper(), "volume": intent.volume},
+            "retcode": 0,
+            "retcodeName": "DONE",
+            "reasons": [],
+        }
+
+    def submit_order(self, intent):
+        return {
+            "ok": True, "status": "FILLED", "symbol": intent.symbol.upper(),
+            "side": intent.side, "type": intent.order_type, "volume": intent.volume,
+            "price": 1.1002, "ticket": 4242, "deal": 99,
+            "retcode": 10009, "retcodeName": "DONE", "comment": "done",
+            "requestId": 1, "reasons": [], "account": self._account(),
+        }
+
+    def cancel_order(self, ticket):
+        return {"ok": True, "ticket": ticket, "retcode": 10009,
+                "retcodeName": "DONE", "reasons": []}
+
+    def cancel_all(self, magic):
+        type(self).LAST_CANCEL_MAGIC = magic
+        return {"ok": True, "magic": magic, "matched": 1, "cancelled": 1,
+                "failed": 0, "results": []}
+
+
+def _service(tmp_path, adapter_cls=FakeTradingAdapter) -> BrokerService:
+    store = AgentMemoryStore(os.path.join(str(tmp_path), "orders.db"))
+    approvals = ApprovalStore(store)
+    guardrails = FinanceGuardrailService(store, approvals=approvals)
+    register_kind(
+        BrokerKind(id="fake-trade", label="Fake trade", auth="attach",
+                   execution=True, execution_modes=("demo", "live")),
+        adapter_cls,
+        replace=True,
+    )
+    service = BrokerService(store, approvals=approvals, guardrails=guardrails)
+    service.create_connection(kind="fake-trade", label="Fake demo", mode="demo", config={})
+    return service
+
+
+class RealLiveAdapter(FakeTradingAdapter):
+    ACCOUNT_MODE = "real"
+
+
+def _live_service(tmp_path, adapter_cls=RealLiveAdapter, config=None) -> BrokerService:
+    root = Path(tmp_path)
+    root.mkdir(parents=True, exist_ok=True)
+    store = AgentMemoryStore(os.path.join(str(root), "orders-live.db"))
+    approvals = ApprovalStore(store)
+    guardrails = FinanceGuardrailService(store, approvals=approvals)
+    register_kind(
+        BrokerKind(id="fake-trade", label="Fake trade", auth="attach",
+                   execution=True, execution_modes=("demo", "live")),
+        adapter_cls,
+        replace=True,
+    )
+    service = BrokerService(store, approvals=approvals, guardrails=guardrails)
+    service.create_connection(
+        kind="fake-trade",
+        label="Fake live",
+        mode="live",
+        config={"maxMargin": 500, "magic": 99, **(config or {})},
+    )
+    return service
+
+
+def _intent(**overrides):
+    payload = {"symbol": "EURUSD", "side": "buy", "type": "market", "volume": 0.1}
+    payload.update(overrides)
+    return payload
+
+
+def _connection_id(service: BrokerService) -> str:
+    return service.list_connections()[0]["id"]
+
+
+def test_preview_creates_a_pending_approval_and_sends_nothing(tmp_path):
+    service = _service(tmp_path)
+    result = service.preview_order(_connection_id(service), _intent())
+    assert result["allowed"] is True
+    assert result["approval"]["status"] == "pending"
+    assert result["guardrail"]["decision"] in ("allow", "confirm")
+    assert service.ledger_orders(_connection_id(service)) == []
+    assert service.list_approvals("pending")
+
+
+def test_submit_consumes_the_approval_exactly_once(tmp_path):
+    service = _service(tmp_path)
+    connection_id = _connection_id(service)
+    preview = service.preview_order(connection_id, _intent())
+    approval_id = preview["approval"]["id"]
+    service.decide_approval(approval_id, approve=True)
+
+    result = service.submit_order(connection_id, _intent(), approval_id)
+    assert result["sent"] is True
+    assert result["filled"] is True
+    assert result["status"] == "filled"
+    assert result["ledger"]["ticket"] == 4242
+    assert service.ledger_orders(connection_id)[0]["status"] == "filled"
+
+    with pytest.raises(TradeRefused) as exc:
+        service.submit_order(connection_id, _intent(), approval_id)
+    assert exc.value.code in ("APPROVAL_NOT_APPROVED", "APPROVAL_USED")
+
+
+def test_approval_is_bound_to_the_exact_order(tmp_path):
+    service = _service(tmp_path)
+    connection_id = _connection_id(service)
+    preview = service.preview_order(connection_id, _intent())
+    approval_id = preview["approval"]["id"]
+    service.decide_approval(approval_id, approve=True)
+
+    with pytest.raises(TradeRefused) as exc:
+        service.submit_order(connection_id, _intent(volume=0.2), approval_id)
+    assert exc.value.code == "APPROVAL_ORDER_MISMATCH"
+
+
+def test_unapproved_order_is_refused(tmp_path):
+    service = _service(tmp_path)
+    connection_id = _connection_id(service)
+    preview = service.preview_order(connection_id, _intent())
+    with pytest.raises(TradeRefused) as exc:
+        service.submit_order(connection_id, _intent(), preview["approval"]["id"])
+    assert exc.value.code == "APPROVAL_NOT_APPROVED"
+
+
+def test_live_connection_is_refused_before_any_broker_call(tmp_path):
+    service = _live_service(tmp_path)
+    result = service.preview_order(_connection_id(service), _intent())
+    assert result["allowed"] is False
+    assert result["status"] == "REFUSED"
+    assert result["error"]["code"] == "LIVE_NOT_ARMED"
+
+
+def test_a_real_account_is_refused_when_the_record_says_demo(tmp_path):
+    class RealAccountAdapter(FakeTradingAdapter):
+        ACCOUNT_MODE = "real"
+
+    service = _service(tmp_path, RealAccountAdapter)
+    result = service.preview_order(_connection_id(service), _intent())
+    assert result["allowed"] is False
+    assert result["error"]["code"] == "DEMO_ACCOUNT_REQUIRED"
+
+
+def test_spread_cap_refuses_without_creating_an_approval(tmp_path):
+    class WideSpreadAdapter(FakeTradingAdapter):
+        SPREAD_POINTS = 5.0
+
+    service = _service(tmp_path, WideSpreadAdapter)
+    connection_id = _connection_id(service)
+    service.update_connection(connection_id, {"config": {"maxSpreadPoints": 1}})
+    result = service.preview_order(connection_id, _intent())
+    assert result["allowed"] is False
+    assert "policy.max-spread" in result["policy"]["rules"]
+    assert result["approval"] is None
+    assert service.list_approvals("pending") == []
+
+
+def test_money_guardrail_denies_the_order(tmp_path):
+    service = _service(tmp_path)
+    service.guardrails.update_config({"perTxnCap": 1})
+    result = service.preview_order(_connection_id(service), _intent())
+    assert result["allowed"] is False
+    assert any("limit.per-transaction" in rule for rule in result["guardrail"]["rules"])
+    assert result["approval"] is None
+
+
+def test_guardrail_cooling_off_delays_the_send(tmp_path):
+    service = _service(tmp_path)
+    connection_id = _connection_id(service)
+    service.guardrails.update_config({"highValue": 1})
+    preview = service.preview_order(connection_id, _intent())
+    assert preview["allowed"] is True
+    assert preview["requiresTypedConfirmation"] is True
+    phrase = preview["confirmPhrase"]
+    assert phrase
+    approval_id = preview["approval"]["id"]
+    service.decide_approval(approval_id, approve=True)
+
+    early = service.submit_order(connection_id, _intent(), approval_id, confirmation=phrase)
+    assert early["status"] == "COOLING_OFF"
+    assert early["sent"] is False
+    assert early["remainingSeconds"] > 0
+
+    past = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat().replace("+00:00", "Z")
+    service.approvals._db.execute(
+        "UPDATE McpApproval SET createdAt=? WHERE id=?", (past, approval_id)
+    )
+    service.approvals._db.commit()
+    later = service.submit_order(connection_id, _intent(), approval_id, confirmation=phrase)
+    assert later["status"] == "filled"
+
+
+def test_high_value_requires_the_typed_phrase(tmp_path):
+    service = _service(tmp_path)
+    connection_id = _connection_id(service)
+    service.guardrails.update_config({"highValue": 1})
+    preview = service.preview_order(connection_id, _intent())
+    approval_id = preview["approval"]["id"]
+    service.decide_approval(approval_id, approve=True)
+
+    refused = service.submit_order(connection_id, _intent(), approval_id)
+    assert refused["status"] == "CONFIRMATION_REQUIRED"
+    assert refused["requiredPhrase"] == preview["confirmPhrase"]
+    assert refused["sent"] is False
+    # The approval is not consumed by a missing phrase.
+    assert service.approvals.get(approval_id)["status"] == "approved"
+
+
+def test_cancel_is_allowed_without_a_trade_approval(tmp_path):
+    service = _service(tmp_path)
+    result = service.cancel_order(_connection_id(service), 4242)
+    assert result["cancelled"] is True
+    assert result["result"]["retcode"] == 10009
+
+
+def test_order_intent_digest_is_stable_and_covers_every_field():
+    one = OrderIntent.from_payload(_intent(), connection_id="brk_1")
+    two = OrderIntent.from_payload(_intent(), connection_id="brk_1")
+    other = OrderIntent.from_payload(_intent(volume=0.2), connection_id="brk_1")
+    assert one.digest == two.digest
+    assert one.digest != other.digest
+    assert one.request_key == "trade:brk_1"
+
+
+def test_order_intent_rejects_bad_orders():
+    with pytest.raises(TradeRefused):
+        OrderIntent.from_payload(_intent(side="hold"), connection_id="brk_1")
+    with pytest.raises(TradeRefused):
+        OrderIntent.from_payload(_intent(type="limit"), connection_id="brk_1")  # no price
+    with pytest.raises(TradeRefused):
+        OrderIntent.from_payload(_intent(volume=0), connection_id="brk_1")
+
+
+# ── P2: armed live ───────────────────────────────────────────────────────────
+def test_arming_requires_a_typed_phrase_a_cap_and_a_magic(tmp_path):
+    service = _live_service(tmp_path)
+    connection_id = _connection_id(service)
+    with pytest.raises(TradeRefused) as exc:
+        service.arm_connection(connection_id, confirmation="ARM LIVE wrong")
+    assert exc.value.code == "LIVE_CONFIRMATION_MISMATCH"
+
+    no_cap = _live_service(tmp_path / "nocap", config={"maxMargin": 0})
+    with pytest.raises(TradeRefused) as exc:
+        no_cap.arm_connection(_connection_id(no_cap), confirmation="ARM LIVE 7")
+    assert exc.value.code == "LIVE_CAP_REQUIRED"
+
+    no_magic = _live_service(tmp_path / "nomagic", config={"magic": 0})
+    with pytest.raises(TradeRefused) as exc:
+        no_magic.arm_connection(_connection_id(no_magic), confirmation="ARM LIVE 7")
+    assert exc.value.code == "LIVE_MAGIC_REQUIRED"
+
+
+def test_armed_live_submit_requires_the_live_phrase(tmp_path):
+    service = _live_service(tmp_path)
+    connection_id = _connection_id(service)
+    armed = service.arm_connection(
+        connection_id, confirmation="ARM LIVE 7", ttl_seconds=600
+    )
+    assert armed["armed"] is True
+
+    preview = service.preview_order(connection_id, _intent())
+    assert preview["mode"] == "live"
+    assert preview["allowed"] is True
+    assert preview["requiresTypedConfirmation"] is True
+    assert preview["confirmPhrase"] == "LIVE BUY 0.1 EURUSD"
+    approval_id = preview["approval"]["id"]
+    service.decide_approval(approval_id, approve=True)
+
+    missing = service.submit_order(connection_id, _intent(), approval_id)
+    assert missing["status"] == "CONFIRMATION_REQUIRED"
+    assert missing["requiredPhrase"] == "LIVE BUY 0.1 EURUSD"
+
+    sent = service.submit_order(
+        connection_id, _intent(), approval_id,
+        confirmation="LIVE BUY 0.1 EURUSD",
+    )
+    assert sent["status"] == "filled"
+    assert sent["ledger"]["ticket"] == 4242
+
+
+def test_disarm_and_kill_switch(tmp_path):
+    service = _live_service(tmp_path)
+    connection_id = _connection_id(service)
+    service.arm_connection(connection_id, confirmation="ARM LIVE 7", ttl_seconds=600)
+    service.disarm_connection(connection_id)
+    refused = service.preview_order(connection_id, _intent())
+    assert refused["allowed"] is False
+    assert refused["error"]["code"] == "LIVE_NOT_ARMED"
+
+    service.arm_connection(connection_id, confirmation="ARM LIVE 7", ttl_seconds=600)
+    killed = service.kill_switch(connection_id)
+    assert killed["kill"]["magic"] == 99
+    assert killed["armed"] is False
+    assert RealLiveAdapter.LAST_CANCEL_MAGIC == 99
+    assert service.get_connection(connection_id)["armedUntil"] is None
+
+
+def test_arm_expiry_is_enforced(tmp_path):
+    service = _live_service(tmp_path)
+    connection_id = _connection_id(service)
+    service.arm_connection(connection_id, confirmation="ARM LIVE 7", ttl_seconds=60)
+    past = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+    service.connections.set_arm(connection_id, until=past)
+    refused = service.preview_order(connection_id, _intent())
+    assert refused["allowed"] is False
+    assert refused["error"]["code"] == "LIVE_ARM_EXPIRED"
+    assert service.get_connection(connection_id)["armedUntil"] is None
+
+
+def test_live_connection_refuses_a_demo_account(tmp_path):
+    class DemoAdapter(FakeTradingAdapter):
+        ACCOUNT_MODE = "demo"
+
+    service = _live_service(tmp_path, DemoAdapter)
+    with pytest.raises(TradeRefused) as exc:
+        service.arm_connection(_connection_id(service), confirmation="ARM LIVE 7")
+    assert exc.value.code == "LIVE_ACCOUNT_REFUSED"
+
+
+# ── P3: bounded demo mandates / unattended graph order ──────────────────────
+def _mandate(service: BrokerService, connection_id: str, **overrides):
+    payload = {
+        "symbols": ["EURUSD"],
+        "maxOrders": 1,
+        "maxMargin": 100,
+        "ttlSeconds": 600,
+        "confirmation": f"MANDATE DEMO {service.get_connection(connection_id)['label']}",
+    }
+    payload.update(overrides)
+    return service.create_mandate(connection_id, payload)
+
+
+def test_mandate_requires_demo_and_the_typed_phrase(tmp_path):
+    service = _service(tmp_path)
+    connection_id = _connection_id(service)
+    with pytest.raises(TradeRefused) as exc:
+        _mandate(service, connection_id, confirmation="MANDATE DEMO wrong")
+    assert exc.value.code == "MANDATE_CONFIRMATION_MISMATCH"
+
+    live = _live_service(tmp_path / "live")
+    live_id = _connection_id(live)
+    with pytest.raises(TradeRefused) as exc:
+        _mandate(live, live_id, confirmation="MANDATE DEMO Fake live")
+    assert exc.value.code == "LIVE_MANDATES_DISABLED"
+
+
+def test_mandate_submits_without_an_approval_and_is_exhausted(tmp_path):
+    service = _service(tmp_path)
+    connection_id = _connection_id(service)
+    mandate = _mandate(service, connection_id)
+    result = service.submit_order(
+        connection_id, _intent(), mandate_id=mandate["id"], run_id="run_graph_1"
+    )
+    assert result["status"] == "filled"
+    assert result["ledger"]["mandateId"] == mandate["id"]
+    assert result["ledger"]["approvalId"] is None
+
+    with pytest.raises(TradeRefused) as exc:
+        service.submit_order(connection_id, _intent(), mandate_id=mandate["id"])
+    assert exc.value.code in ("MANDATE_INACTIVE", "MANDATE_EXHAUSTED")
+
+
+def test_mandate_limits_symbol_and_margin(tmp_path):
+    service = _service(tmp_path)
+    connection_id = _connection_id(service)
+    wrong_symbol = _mandate(service, connection_id, symbols=["GBPUSD"])
+    with pytest.raises(TradeRefused) as exc:
+        service.submit_order(connection_id, _intent(), mandate_id=wrong_symbol["id"])
+    assert exc.value.code == "MANDATE_SYMBOL_NOT_ALLOWED"
+
+    small_cap = _mandate(service, connection_id, maxMargin=1)
+    with pytest.raises(TradeRefused) as exc:
+        service.submit_order(connection_id, _intent(), mandate_id=small_cap["id"])
+    assert exc.value.code == "MANDATE_MARGIN_EXCEEDED"
+
+
+def test_mandate_revocation_is_immediate(tmp_path):
+    service = _service(tmp_path)
+    connection_id = _connection_id(service)
+    mandate = _mandate(service, connection_id)
+    service.revoke_mandate(mandate["id"])
+    with pytest.raises(TradeRefused) as exc:
+        service.submit_order(connection_id, _intent(), mandate_id=mandate["id"])
+    assert exc.value.code == "MANDATE_INACTIVE"
+
+
+def test_authorization_must_be_exactly_one_kind(tmp_path):
+    service = _service(tmp_path)
+    connection_id = _connection_id(service)
+    preview = service.preview_order(connection_id, _intent())
+    mandate = _mandate(service, connection_id)
+    with pytest.raises(TradeRefused) as exc:
+        service.submit_order(
+            connection_id, _intent(),
+            approval_id=preview["approval"]["id"], mandate_id=mandate["id"],
+        )
+    assert exc.value.code == "AMBIGUOUS_AUTHORIZATION"
+    with pytest.raises(TradeRefused) as exc:
+        service.submit_order(connection_id, _intent())
+    assert exc.value.code == "AUTHORIZATION_REQUIRED"
+
+
+class _NodeContext:
+    def __init__(self, intent, config):
+        self.inputs = {"intent": intent}
+        self.config = config
+        self.run_id = "run_graph_1"
+        self.node_id = "broker-order-1"
+        self.messages: list[str] = []
+
+    def emit(self, message):
+        self.messages.append(message)
+
+
+def test_graph_broker_order_node_submits_under_a_mandate(tmp_path):
+    service = _service(tmp_path)
+    connection_id = _connection_id(service)
+    mandate = _mandate(service, connection_id)
+    set_service(service)
+    try:
+        context = _NodeContext(
+            {"symbol": "EURUSD", "side": "buy", "type": "market", "quantity": 0.1},
+            {"connectionId": connection_id, "mandateId": mandate["id"]},
+        )
+        result = exec_broker_order(context)
+    finally:
+        set_service(None)
+    assert result["status"] == "filled"
+    assert result["orderId"]
+    assert any("broker order filled" in message for message in context.messages)
+
+
+def test_graph_broker_order_node_requires_a_mandate(tmp_path):
+    service = _service(tmp_path)
+    set_service(service)
+    try:
+        context = _NodeContext(
+            {"symbol": "EURUSD", "side": "buy", "type": "market", "quantity": 0.1},
+            {"connectionId": _connection_id(service), "mandateId": ""},
+        )
+        with pytest.raises(ValueError):
+            exec_broker_order(context)
+    finally:
+        set_service(None)

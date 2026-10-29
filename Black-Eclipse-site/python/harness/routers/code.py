@@ -356,6 +356,7 @@ def list_workspaces(
 # the user has no way to approve it.
 _REVIEWABLE_APPROVAL_KINDS = (
     "code_action", "terminal_command", "shell_command", "code_promote", "scraper_domain",
+    "trade_order",
 )
 
 

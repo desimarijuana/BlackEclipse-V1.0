@@ -94,4 +94,29 @@ export const TRADING_DEFINITIONS: NodeDefinition[] = [
     allowedModes: ['paper'],
     docs: 'Fills at the supplied price with slippage/commission and (by default) records it in the durable paper account. No broker is contacted and no live order is placed; requires an explicit operator paper-trading grant.',
   },
+  {
+    type: 'trading.broker_order',
+    version: '1.0.0',
+    category: 'trading',
+    label: 'Broker order (demo mandate)',
+    description: 'Submit one order to a demo broker connection under a bounded, revocable mandate.',
+    icon: 'activity',
+    inputs: [
+      port({ id: 'intent', name: 'Order intent', type: 'order_intent' }),
+    ],
+    outputs: [
+      port({ id: 'result', name: 'Result', type: 'object' }),
+      port({ id: 'status', name: 'Status', type: 'string' }),
+      port({ id: 'orderId', name: 'Order id', type: 'string' }),
+    ],
+    configSchema: z.object({
+      connectionId: z.string().max(80).default(''),
+      mandateId: z.string().max(80).default(''),
+    }),
+    defaultConfig: () => ({ connectionId: '', mandateId: '' }),
+    capabilities: ['trading.broker'],
+    sideEffects: 'trading',
+    allowedModes: ['paper'],
+    docs: 'Submits ONE order to a DEMO broker connection under an operator-created, bounded, revocable mandate. There is no per-order approval card; the mandate is the authorization. The connection must be demo, and live trading nodes are refused. The broker service still applies policy, money guardrails and the account-mode check, and consumes one mandate use atomically.',
+  },
 ];

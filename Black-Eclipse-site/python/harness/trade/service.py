@@ -1,0 +1,1046 @@
+"""The broker connection service (P0, read-only).
+
+One service over the adapter registry and the durable connection store. It has
+no order path: every method here reads. A missing broker is an envelope with
+`available: false` and a named reason, never an empty portfolio that looks real.
+
+Writes are limited to the connection's own status/audit row.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
+
+from .adapter import AdapterUnavailable, TradingAdapter
+from .authorizer import (
+    APPROVAL_KIND,
+    consume_approval,
+    cooling_remaining,
+    evaluate_guardrails,
+    money_intent_for,
+    request_approval,
+    verify_approval,
+)
+from .mandates import TradingMandateStore
+from .model import (
+    BrokerConfigError,
+    BrokerConnection,
+    ConnectionMode,
+    OrderIntent,
+    TradeRefused,
+    normalise_mode,
+    validate_config,
+)
+from .policy import TradePolicy
+from .reconcile import BrokerReconciler, ReconcilerLoop, interval_from_env
+from .registry import get_kind, list_kinds, make_adapter
+from .store import BrokerConnectionStore
+
+
+class BrokerService:
+    def __init__(
+        self,
+        store: Any,
+        *,
+        approvals: Any = None,
+        guardrails: Any = None,
+    ) -> None:
+        self._store = store
+        self.connections = BrokerConnectionStore(store)
+        self.mandates = TradingMandateStore(store)
+        self.approvals = approvals
+        self.guardrails = guardrails
+        self._reconciler_loop: Optional[ReconcilerLoop] = None
+
+    # ── kinds ────────────────────────────────────────────────────────────────
+    def kinds(self) -> list[dict[str, Any]]:
+        return list_kinds()
+
+    # ── connection records ───────────────────────────────────────────────────
+    def list_connections(self) -> list[dict[str, Any]]:
+        return [connection.to_dict() for connection in self.connections.list()]
+
+    def get_connection(self, connection_id: str) -> dict[str, Any]:
+        connection = self.connections.get(connection_id)
+        if connection is None:
+            raise KeyError(f"no broker connection {connection_id!r}")
+        return connection.to_dict()
+
+    def create_connection(
+        self,
+        *,
+        kind: str,
+        label: str,
+        mode: Any = ConnectionMode.DEMO,
+        config: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        get_kind(kind)  # unknown kind is a caller error, not a stored row
+        connection = self.connections.create(
+            kind=kind, label=label, mode=mode, config=config
+        )
+        self.connections.record_event(
+            connection.id, "create", "ok",
+            {"kind": connection.kind, "mode": connection.mode.value},
+        )
+        return connection.to_dict()
+
+    def update_connection(self, connection_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        current = self.connections.get(connection_id)
+        if current is None:
+            raise KeyError(f"no broker connection {connection_id!r}")
+        updated = self.connections.update(connection_id, patch or {})
+        if updated is None:
+            raise KeyError(f"no broker connection {connection_id!r}")
+        if "mode" in (patch or {}) or "config" in (patch or {}):
+            # A changed mode or cap invalidates any live arm.
+            self.connections.clear_arm(connection_id)
+            self.connections.record_event(connection_id, "disarm", "config-changed")
+            updated = self.connections.get(connection_id) or updated
+        self.connections.record_event(connection_id, "update", "ok", {"fields": sorted(patch)})
+        return updated.to_dict()
+
+    def delete_connection(self, connection_id: str) -> bool:
+        deleted = self.connections.delete(connection_id)
+        if deleted:
+            self.connections.record_event(connection_id, "delete", "ok")
+        return deleted
+
+    # ── reads ────────────────────────────────────────────────────────────────
+    def _connection(self, connection_id: str) -> BrokerConnection:
+        connection = self.connections.get(connection_id)
+        if connection is None:
+            raise KeyError(f"no broker connection {connection_id!r}")
+        return connection
+
+    def _unavailable(self, connection: BrokerConnection, failure: AdapterUnavailable) -> dict[str, Any]:
+        self.connections.set_status(
+            connection.id, status="unavailable", reason=failure.reason
+        )
+        self.connections.record_event(
+            connection.id, "read", "unavailable", failure.to_dict()
+        )
+        return {
+            "available": False,
+            "status": "UNAVAILABLE",
+            "connectionId": connection.id,
+            "kind": connection.kind,
+            "mode": connection.mode.value,
+            "error": failure.to_dict(),
+        }
+
+    def _read(self, connection_id: str, operation: str) -> dict[str, Any]:
+        connection = self._connection(connection_id)
+        adapter: Any = None
+        try:
+            adapter = make_adapter(connection.kind, connection.config)
+        except KeyError as exc:
+            raise AdapterUnavailable("BROKER_KIND_UNKNOWN", str(exc)) from exc
+        try:
+            if operation == "account":
+                payload = adapter.account()
+            elif operation == "positions":
+                payload = adapter.positions()
+            elif operation == "orders":
+                payload = adapter.orders()
+            else:  # pragma: no cover - guarded by the router
+                raise ValueError(f"unknown read operation {operation!r}")
+        except AdapterUnavailable as exc:
+            return self._unavailable(connection, exc)
+        except Exception as exc:  # noqa: BLE001 - an adapter bug is not a broker fact
+            failure = AdapterUnavailable(
+                "ADAPTER_ERROR", f"{connection.kind} adapter failed: {exc}"
+            )
+            return self._unavailable(connection, failure)
+        finally:
+            try:
+                if adapter is not None:
+                    adapter.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+        if operation == "account" and isinstance(payload, dict):
+            self.connections.set_status(
+                connection.id,
+                status="connected",
+                reason=None,
+                account=payload,
+                mark_seen=True,
+            )
+        else:
+            self.connections.set_status(
+                connection.id, status="connected", reason=None, mark_seen=True
+            )
+        self.connections.record_event(connection.id, operation, "ok")
+        return {
+            "available": True,
+            "status": "connected",
+            "connectionId": connection.id,
+            "kind": connection.kind,
+            "mode": connection.mode.value,
+            "data": payload,
+        }
+
+    def account(self, connection_id: str) -> dict[str, Any]:
+        return self._read(connection_id, "account")
+
+    def positions(self, connection_id: str) -> dict[str, Any]:
+        return self._read(connection_id, "positions")
+
+    def orders(self, connection_id: str) -> dict[str, Any]:
+        return self._read(connection_id, "orders")
+
+    def quote(self, connection_id: str, symbol: str) -> dict[str, Any]:
+        connection = self._connection(connection_id)
+        adapter: Any = None
+        try:
+            adapter = make_adapter(connection.kind, connection.config)
+        except KeyError as exc:
+            raise AdapterUnavailable("BROKER_KIND_UNKNOWN", str(exc)) from exc
+        try:
+            payload = adapter.quote(symbol)
+        except AdapterUnavailable as exc:
+            return self._unavailable(connection, exc)
+        except Exception as exc:  # noqa: BLE001
+            failure = AdapterUnavailable(
+                "ADAPTER_ERROR", f"{connection.kind} adapter failed: {exc}"
+            )
+            return self._unavailable(connection, failure)
+        finally:
+            try:
+                if adapter is not None:
+                    adapter.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self.connections.set_status(
+            connection.id, status="connected", reason=None, mark_seen=True
+        )
+        self.connections.record_event(
+            connection.id, "quote", "ok", {"symbol": payload.get("symbol")}
+        )
+        return {
+            "available": True,
+            "status": "connected",
+            "connectionId": connection.id,
+            "kind": connection.kind,
+            "mode": connection.mode.value,
+            "data": payload,
+        }
+
+    # ── demo automation mandates (P3) ────────────────────────────────────────
+    def create_mandate(self, connection_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        connection = self._connection(connection_id)
+        expected = f"MANDATE DEMO {connection.label}"
+        if str(payload.get("confirmation") or "").strip() != expected:
+            raise TradeRefused(
+                "MANDATE_CONFIRMATION_MISMATCH",
+                f"type {expected!r} exactly to create this mandate",
+                status_code=400,
+            )
+        mandate = self.mandates.create(
+            connection=connection,
+            symbols=list(payload.get("symbols") or ["*"]),
+            max_orders=int(payload.get("maxOrders") or 20),
+            max_margin=float(payload.get("maxMargin") or 0),
+            ttl_seconds=int(payload.get("ttlSeconds") or 0),
+            note=str(payload.get("note") or ""),
+        )
+        self.connections.record_event(
+            connection.id, "mandate", "created",
+            {"mandateId": mandate["id"], "expiresAt": mandate["expiresAt"]},
+        )
+        return mandate
+
+    def list_mandates(
+        self, connection_id: Optional[str] = None, limit: int = 50, *, active_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        if active_only:
+            return self.mandates.list_active(connection_id, limit=limit)
+        return self.mandates.list(connection_id, limit=limit)
+
+    def revoke_mandate(self, mandate_id: str) -> dict[str, Any]:
+        mandate = self.mandates.revoke(mandate_id)
+        if mandate is None:
+            raise TradeRefused("MANDATE_NOT_FOUND", "that mandate does not exist", status_code=404)
+        self.connections.record_event(
+            mandate["connectionId"], "mandate", "revoked", {"mandateId": mandate_id}
+        )
+        return mandate
+
+    # ── execution (P1 demo + P2 armed live) ──────────────────────────────────
+    def _execution_connection(self, connection_id: str) -> tuple[BrokerConnection, str]:
+        connection = self._connection(connection_id)
+        if connection.mode == ConnectionMode.DEMO:
+            return connection, "demo"
+        if connection.mode == ConnectionMode.LIVE:
+            self._assert_live_armed(connection)
+            return connection, "live"
+        raise TradeRefused(
+            "EXECUTION_DISABLED",
+            "this connection has no execution mode; set it to demo or live",
+            status_code=403,
+        )
+
+    def _trading_adapter(self, connection: BrokerConnection) -> TradingAdapter:
+        try:
+            adapter = make_adapter(connection.kind, connection.config)
+        except KeyError as exc:
+            raise TradeRefused("BROKER_KIND_UNKNOWN", str(exc)) from exc
+        if not isinstance(adapter, TradingAdapter):
+            raise TradeRefused(
+                "BROKER_READ_ONLY",
+                f"the {connection.kind} adapter has no execution methods",
+            )
+        return adapter
+
+    @staticmethod
+    def _assert_account_mode(preview: dict[str, Any], expected: str) -> None:
+        account = preview.get("account") or {}
+        mode = str(account.get("mode") or "unknown")
+        want = "demo" if expected == "demo" else "real"
+        if mode != want:
+            raise TradeRefused(
+                "DEMO_ACCOUNT_REQUIRED" if expected == "demo" else "LIVE_ACCOUNT_REFUSED",
+                f"the broker account reports mode {mode!r}; this connection is {expected}",
+                status_code=403,
+            )
+        if not bool(account.get("tradeAllowed")):
+            raise TradeRefused(
+                "TRADING_DISABLED",
+                "the broker account has trading disabled",
+                status_code=403,
+            )
+        if preview.get("terminalTradeAllowed") is False:
+            raise TradeRefused(
+                "ALGO_TRADING_DISABLED",
+                "enable Algo Trading in the terminal before submitting an order",
+                status_code=403,
+            )
+        if expected == "live" and not bool(account.get("expertAllowed")):
+            raise TradeRefused(
+                "ALGO_TRADING_DISABLED",
+                "enable Algo Trading in the terminal before submitting a live order",
+                status_code=403,
+            )
+
+    def _assert_live_armed(self, connection: BrokerConnection) -> None:
+        raw = str(connection.armed_until or "")
+        if not raw:
+            raise TradeRefused(
+                "LIVE_NOT_ARMED",
+                "live execution is not armed; arm the connection in Settings › Trading",
+                status_code=403,
+            )
+        try:
+            until = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            self.connections.clear_arm(connection.id)
+            raise TradeRefused(
+                "LIVE_NOT_ARMED",
+                "the live arm is invalid; arm the connection again",
+                status_code=403,
+            ) from None
+        if datetime.now(timezone.utc) >= until:
+            self.connections.clear_arm(connection.id)
+            raise TradeRefused(
+                "LIVE_ARM_EXPIRED",
+                "the live arm expired; arm the connection again",
+                status_code=403,
+            )
+
+    def _live_cap(self, connection: BrokerConnection) -> float:
+        try:
+            return float(connection.config.get("maxMargin") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def arm_connection(
+        self,
+        connection_id: str,
+        *,
+        confirmation: str = "",
+        ttl_seconds: int = 1800,
+    ) -> dict[str, Any]:
+        connection = self._connection(connection_id)
+        if connection.mode != ConnectionMode.LIVE:
+            raise TradeRefused(
+                "ARM_REQUIRES_LIVE",
+                "only a connection set to live can be armed",
+                status_code=400,
+            )
+        if self._magic(connection) <= 0:
+            raise TradeRefused(
+                "LIVE_MAGIC_REQUIRED",
+                "set a non-zero magic on the connection before arming live; it scopes "
+                "the kill switch to Eclipse's own orders",
+                status_code=400,
+            )
+        if self._live_cap(connection) <= 0:
+            raise TradeRefused(
+                "LIVE_CAP_REQUIRED",
+                "set a positive maxMargin on the connection before arming live",
+                status_code=400,
+            )
+        adapter = self._trading_adapter(connection)
+        try:
+            probe = adapter.probe()
+        except AdapterUnavailable as exc:
+            raise TradeRefused(exc.code, exc.reason, status_code=503) from exc
+        finally:
+            try:
+                adapter.close()
+            except Exception:  # noqa: BLE001
+                pass
+        account = (probe or {}).get("account") or {}
+        terminal = (probe or {}).get("terminal") or {}
+        if not (probe or {}).get("available") or not account:
+            raise TradeRefused(
+                "LIVE_ACCOUNT_UNAVAILABLE",
+                "connect the terminal to a live account before arming",
+                status_code=503,
+            )
+        if not bool(terminal.get("tradeAllowed")):
+            raise TradeRefused(
+                "ALGO_TRADING_DISABLED",
+                "enable Algo Trading in the terminal before arming live",
+                status_code=403,
+            )
+        self._assert_account_mode({"account": account}, "live")
+        expected = f"ARM LIVE {account.get('login')}"
+        if str(confirmation or "").strip() != expected:
+            raise TradeRefused(
+                "LIVE_CONFIRMATION_MISMATCH",
+                f"type {expected!r} exactly to arm this account",
+                status_code=400,
+            )
+        ttl = max(60, min(int(ttl_seconds or 1800), 28_800))
+        until = (datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat().replace(
+            "+00:00", "Z"
+        )
+        self.connections.set_arm(connection.id, until=until, by="operator")
+        self.connections.record_event(
+            connection.id, "arm", "ok", {"until": until, "ttlSeconds": ttl}
+        )
+        return {
+            "available": True,
+            "armed": True,
+            "connectionId": connection.id,
+            "armedUntil": until,
+            "ttlSeconds": ttl,
+            "account": account,
+        }
+
+    def disarm_connection(self, connection_id: str) -> dict[str, Any]:
+        connection = self._connection(connection_id)
+        self.connections.clear_arm(connection.id)
+        self.connections.record_event(connection.id, "disarm", "ok")
+        return {"available": True, "armed": False, "connectionId": connection.id}
+
+    def kill_switch(self, connection_id: str) -> dict[str, Any]:
+        """Cancel every working order Eclipse owns, then disarm."""
+        connection = self._connection(connection_id)
+        magic = self._magic(connection)
+        if magic <= 0:
+            raise TradeRefused(
+                "MAGIC_REQUIRED",
+                "set a non-zero magic on the connection before using the kill switch",
+                status_code=400,
+            )
+        adapter = self._trading_adapter(connection)
+        try:
+            try:
+                result = adapter.cancel_all(magic)
+            except AdapterUnavailable as exc:
+                raise TradeRefused(exc.code, exc.reason, status_code=503) from exc
+        finally:
+            try:
+                adapter.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self.connections.clear_arm(connection.id)
+        self.connections.record_event(
+            connection.id, "kill", "ok" if result.get("ok") else "partial", result
+        )
+        return {
+            "available": True,
+            "connectionId": connection.id,
+            "armed": False,
+            "magic": magic,
+            "kill": result,
+        }
+
+    @staticmethod
+    def _magic(connection: BrokerConnection) -> int:
+        try:
+            return int(connection.config.get("magic") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _public_approval(approval: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if not approval:
+            return None
+        return {
+            "id": approval.get("id"),
+            "kind": approval.get("kind"),
+            "status": approval.get("status"),
+            "actionSummary": approval.get("actionSummary"),
+            "risk": approval.get("risk"),
+            "expiresAt": approval.get("expiresAt"),
+            "createdAt": approval.get("createdAt"),
+        }
+
+    def preview_order(self, connection_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Validate, price-check and request a single-use approval. Sends nothing."""
+        try:
+            connection, execution_mode = self._execution_connection(connection_id)
+        except TradeRefused as exc:
+            return {
+                "available": True,
+                "allowed": False,
+                "status": "REFUSED",
+                "mode": None,
+                "connectionId": connection_id,
+                "approval": None,
+                "error": exc.to_dict(),
+                "reasons": [exc.message],
+            }
+        intent = OrderIntent.from_payload(
+            payload, connection_id=connection.id, magic_default=self._magic(connection)
+        )
+        adapter = self._trading_adapter(connection)
+        try:
+            preview = adapter.order_preview(intent)
+        except AdapterUnavailable as exc:
+            raise TradeRefused(exc.code, exc.reason, status_code=503) from exc
+        except TradeRefused:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise TradeRefused(
+                "ADAPTER_ERROR", f"{connection.kind} adapter failed: {exc}", status_code=502
+            ) from exc
+        finally:
+            try:
+                adapter.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+        try:
+            self._assert_account_mode(preview, execution_mode)
+        except TradeRefused as exc:
+            self.connections.record_event(
+                connection.id, "preview", "refused",
+                {"digest": intent.digest, "code": exc.code},
+            )
+            return {
+                "available": True,
+                "allowed": False,
+                "status": "REFUSED",
+                "mode": execution_mode,
+                "connectionId": connection.id,
+                "intent": intent.to_dict(),
+                "digest": intent.digest,
+                "preview": preview,
+                "policy": None,
+                "guardrail": None,
+                "approval": None,
+                "requiresTypedConfirmation": False,
+                "confirmPhrase": None,
+                "error": exc.to_dict(),
+                "reasons": [exc.message],
+            }
+        policy = TradePolicy.from_connection(connection).evaluate(preview)
+        money_intent = money_intent_for(connection, intent, preview)
+        verdict = evaluate_guardrails(self.guardrails, money_intent, record=False)
+        reasons = (
+            list(preview.get("reasons") or [])
+            + list(policy.get("reasons") or [])
+            + list(getattr(verdict, "reasons", []) or [])
+        )
+        allowed = (
+            bool(preview.get("ok"))
+            and bool(policy.get("allowed"))
+            and str(verdict.decision) not in ("deny", "escalate")
+        )
+        if execution_mode == "live":
+            requires_typed = True
+            confirm_phrase = (
+                f"LIVE {intent.side.upper()} "
+                f"{float(preview.get('volume') or intent.volume):g} "
+                f"{preview.get('symbol') or intent.symbol}"
+            )
+        else:
+            requires_typed = bool(verdict.requires_typed_confirmation)
+            confirm_phrase = (
+                str(verdict.confirm_phrase) if requires_typed else None
+            )
+        approval = None
+        if allowed:
+            approval = request_approval(
+                self.approvals,
+                connection,
+                intent,
+                preview,
+                verdict,
+                risk="critical" if execution_mode == "live" else "high",
+            )
+            if str(approval.get("status")) == "denied":
+                allowed = False
+                reasons.append(
+                    "this exact order was denied; change the order to request a new decision"
+                )
+        self.connections.record_event(
+            connection.id,
+            "preview",
+            "allowed" if allowed else "refused",
+            {"digest": intent.digest, "rules": policy.get("rules") or []},
+        )
+        return {
+            "available": True,
+            "allowed": allowed,
+            "mode": execution_mode,
+            "connectionId": connection.id,
+            "intent": intent.to_dict(),
+            "digest": intent.digest,
+            "preview": preview,
+            "policy": policy,
+            "guardrail": verdict.to_dict(),
+            "approval": self._public_approval(approval),
+            "requiresTypedConfirmation": requires_typed,
+            "confirmPhrase": confirm_phrase,
+            "reasons": reasons,
+        }
+
+    def submit_order(
+        self,
+        connection_id: str,
+        payload: dict[str, Any],
+        approval_id: str = "",
+        confirmation: str = "",
+        mandate_id: str = "",
+        run_id: str = "",
+    ) -> dict[str, Any]:
+        """Consume the authorization and send exactly one order. Never retries."""
+        if approval_id and mandate_id:
+            raise TradeRefused(
+                "AMBIGUOUS_AUTHORIZATION",
+                "provide either an approvalId or a mandateId, not both",
+                status_code=400,
+            )
+        if not approval_id and not mandate_id:
+            raise TradeRefused(
+                "AUTHORIZATION_REQUIRED",
+                "an approvalId (manual) or mandateId (unattended demo) is required",
+                status_code=400,
+            )
+        connection, execution_mode = self._execution_connection(connection_id)
+        intent = OrderIntent.from_payload(
+            payload, connection_id=connection.id, magic_default=self._magic(connection)
+        )
+        approval_row: dict[str, Any] = {}
+        if approval_id:
+            verify_approval(self.approvals, approval_id, intent)
+            approval_row = self.approvals.get(approval_id) or {}
+        adapter = self._trading_adapter(connection)
+        try:
+            try:
+                preview = adapter.order_preview(intent)
+            except AdapterUnavailable as exc:
+                raise TradeRefused(exc.code, exc.reason, status_code=503) from exc
+            self._assert_account_mode(preview, execution_mode)
+            policy = TradePolicy.from_connection(connection).evaluate(preview)
+            if not preview.get("ok") or not policy.get("allowed"):
+                reasons = list(preview.get("reasons") or []) + list(policy.get("reasons") or [])
+                self.connections.record_event(
+                    connection.id, "submit", "refused",
+                    {"digest": intent.digest, "stage": "preview"},
+                )
+                return {
+                    "available": True,
+                    "sent": False,
+                    "filled": False,
+                    "status": "REFUSED",
+                    "stage": "preview",
+                    "connectionId": connection.id,
+                    "preview": preview,
+                    "policy": policy,
+                    "reasons": reasons,
+                }
+
+            mandate: Optional[dict[str, Any]] = None
+            if mandate_id:
+                if execution_mode != "demo":
+                    raise TradeRefused(
+                        "LIVE_MANDATES_DISABLED",
+                        "unattended mandates are demo-only in this build",
+                        status_code=403,
+                    )
+                mandate = self.mandates.verify(
+                    mandate_id,
+                    connection_id=connection.id,
+                    symbol=str(preview.get("symbol") or intent.symbol),
+                    margin=float(preview.get("margin") or 0),
+                )
+
+            money_intent = money_intent_for(connection, intent, preview)
+            verdict = evaluate_guardrails(self.guardrails, money_intent, record=False)
+            if str(verdict.decision) in ("deny", "escalate"):
+                self.connections.record_event(
+                    connection.id, "submit", "refused",
+                    {"digest": intent.digest, "stage": "guardrails"},
+                )
+                return {
+                    "available": True,
+                    "sent": False,
+                    "filled": False,
+                    "status": "REFUSED",
+                    "stage": "guardrails",
+                    "connectionId": connection.id,
+                    "preview": preview,
+                    "guardrail": verdict.to_dict(),
+                    "reasons": list(getattr(verdict, "reasons", []) or []),
+                }
+
+            if execution_mode == "live":
+                expected = (
+                    f"LIVE {intent.side.upper()} "
+                    f"{float(preview.get('volume') or intent.volume):g} "
+                    f"{preview.get('symbol') or intent.symbol}"
+                )
+                required = True
+                phrase_reason = "live orders require the typed order phrase"
+            else:
+                expected = str(verdict.confirm_phrase or "")
+                required = bool(verdict.requires_typed_confirmation)
+                phrase_reason = "the money guardrails require the typed confirmation phrase"
+            if required and str(confirmation or "").strip() != expected:
+                self.connections.record_event(
+                    connection.id, "submit", "confirmation-required",
+                    {"digest": intent.digest},
+                )
+                return {
+                    "available": True,
+                    "sent": False,
+                    "filled": False,
+                    "status": "CONFIRMATION_REQUIRED",
+                    "connectionId": connection.id,
+                    "preview": preview,
+                    "requiredPhrase": expected,
+                    "reasons": [f"{phrase_reason} before this order can be sent"],
+                }
+
+            remaining = cooling_remaining(approval_row, verdict)
+            if remaining > 0:
+                self.connections.record_event(
+                    connection.id, "submit", "cooling",
+                    {"digest": intent.digest, "remainingSeconds": remaining},
+                )
+                return {
+                    "available": True,
+                    "sent": False,
+                    "filled": False,
+                    "status": "COOLING_OFF",
+                    "connectionId": connection.id,
+                    "preview": preview,
+                    "remainingSeconds": remaining,
+                    "reasons": [
+                        f"the money guardrails require {remaining} more second(s) of "
+                        "cooling-off before this order can be sent"
+                    ],
+                }
+
+            # Record the intent only once the order is about to be authorized.
+            verdict = evaluate_guardrails(self.guardrails, money_intent, record=True)
+            if str(verdict.decision) in ("deny", "escalate"):
+                self.connections.record_event(
+                    connection.id, "submit", "refused",
+                    {"digest": intent.digest, "stage": "guardrails-final"},
+                )
+                return {
+                    "available": True,
+                    "sent": False,
+                    "filled": False,
+                    "status": "REFUSED",
+                    "stage": "guardrails",
+                    "connectionId": connection.id,
+                    "preview": preview,
+                    "guardrail": verdict.to_dict(),
+                    "reasons": list(getattr(verdict, "reasons", []) or []),
+                }
+
+            if approval_id:
+                if execution_mode == "live":
+                    self._assert_live_armed(connection)
+                consume_approval(self.approvals, approval_id, intent)
+            else:
+                self.mandates.consume(mandate_id)
+            ledger = self.connections.create_order(
+                connection_id=connection.id,
+                intent=intent.to_dict(),
+                digest=intent.digest,
+                approval_id=approval_id,
+                mandate_id=mandate_id,
+            )
+            self.connections.record_event(
+                connection.id, "submit", "sent",
+                {
+                    "digest": intent.digest,
+                    "orderId": ledger["id"],
+                    "mandateId": mandate_id or None,
+                    "runId": run_id or None,
+                },
+            )
+            try:
+                result = adapter.submit_order(intent)
+            except AdapterUnavailable as exc:
+                self.connections.update_order(
+                    ledger["id"], status="unknown", error=exc.reason
+                )
+                return {
+                    "available": True,
+                    "sent": None,
+                    "filled": False,
+                    "status": "UNKNOWN",
+                    "connectionId": connection.id,
+                    "orderId": ledger["id"],
+                    "error": exc.to_dict(),
+                    "reasons": [
+                        "the broker did not return a definitive result; check the "
+                        "terminal before retrying"
+                    ],
+                }
+            except Exception as exc:  # noqa: BLE001
+                self.connections.update_order(
+                    ledger["id"], status="unknown", error=str(exc)
+                )
+                return {
+                    "available": True,
+                    "sent": None,
+                    "filled": False,
+                    "status": "UNKNOWN",
+                    "connectionId": connection.id,
+                    "orderId": ledger["id"],
+                    "error": {"code": "ADAPTER_ERROR", "message": str(exc)},
+                    "reasons": [
+                        "the adapter failed after the order may have been sent; check "
+                        "the terminal before retrying"
+                    ],
+                }
+
+            status = _order_status(result)
+            code = result.get("retcode")
+            self.connections.update_order(
+                ledger["id"],
+                status=status,
+                ticket=result.get("ticket"),
+                retcode=code,
+                retcodeName=result.get("retcodeName"),
+                filledVolume=result.get("volume"),
+                avgPrice=result.get("price"),
+                error=None if status in ("filled", "placed") else (
+                    "; ".join(result.get("reasons") or []) or None
+                ),
+            )
+            self.connections.record_event(
+                connection.id, "submit", status,
+                {"digest": intent.digest, "orderId": ledger["id"], "retcode": code},
+            )
+            return {
+                "available": True,
+                "sent": True,
+                "filled": status in ("filled", "placed"),
+                "status": status,
+                "connectionId": connection.id,
+                "orderId": ledger["id"],
+                "ledger": self.connections.get_order(ledger["id"]),
+                "result": result,
+                "reasons": list(result.get("reasons") or []),
+            }
+        finally:
+            try:
+                adapter.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def cancel_order(self, connection_id: str, ticket: int) -> dict[str, Any]:
+        """Cancel a working order. Risk-reducing, so no trade approval is required."""
+        connection = self._connection(connection_id)
+        adapter = self._trading_adapter(connection)
+        try:
+            try:
+                result = adapter.cancel_order(int(ticket))
+            except AdapterUnavailable as exc:
+                raise TradeRefused(exc.code, exc.reason, status_code=503) from exc
+        finally:
+            try:
+                adapter.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self.connections.record_event(
+            connection.id,
+            "cancel",
+            "ok" if result.get("ok") else "rejected",
+            {"ticket": int(ticket), "retcode": result.get("retcode")},
+        )
+        return {
+            "available": True,
+            "cancelled": bool(result.get("ok")),
+            "connectionId": connection.id,
+            "result": result,
+        }
+
+    def ledger_orders(
+        self, connection_id: Optional[str] = None, limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        return self.connections.list_orders(connection_id, limit=limit)
+
+    def get_ledger_order(self, order_id: str) -> dict[str, Any]:
+        order = self.connections.get_order(order_id)
+        if order is None:
+            raise KeyError(f"no broker order {order_id!r}")
+        return order
+
+    # ── trade approvals ──────────────────────────────────────────────────────
+    def list_approvals(self, status: Optional[str] = None, limit: int = 50) -> list[dict[str, Any]]:
+        if self.approvals is None:
+            return []
+        return self.approvals.list_kind(APPROVAL_KIND, status, limit=limit)
+
+    def decide_approval(self, approval_id: str, *, approve: bool, reason: str = "") -> dict[str, Any]:
+        if self.approvals is None:
+            raise TradeRefused("APPROVALS_UNAVAILABLE", "the approval store is unavailable", status_code=503)
+        current = self.approvals.get(approval_id)
+        if not current or current.get("kind") != APPROVAL_KIND:
+            raise TradeRefused("APPROVAL_NOT_FOUND", "that trade approval does not exist", status_code=404)
+        decided = self.approvals.decide(
+            approval_id, approve=approve, decided_by="operator", reason=reason
+        )
+        self.connections.record_event(
+            current.get("serverId", "").removeprefix("trade:"),
+            "approval",
+            "approved" if approve else "denied",
+            {"approvalId": approval_id},
+        )
+        return decided or {}
+
+    # ── reconciliation ───────────────────────────────────────────────────────
+    def sync_connection(self, connection_id: str) -> dict[str, Any]:
+        self._connection(connection_id)
+        return BrokerReconciler(self).sync(connection_id)
+
+    def list_fills(self, connection_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        self._connection(connection_id)
+        return self.connections.list_fills(connection_id, limit=limit)
+
+    def reconciliation(self, connection_id: str, limit: int = 100) -> dict[str, Any]:
+        self._connection(connection_id)
+        return {
+            "available": True,
+            "connectionId": connection_id,
+            "state": self.connections.get_sync_state(connection_id),
+            "positions": self.connections.list_positions(connection_id),
+            "fills": self.connections.list_fills(connection_id, limit=limit),
+        }
+
+    async def start_reconciler(self, interval: Optional[int] = None) -> None:
+        seconds = interval_from_env() if interval is None else int(interval)
+        if seconds <= 0 or self._reconciler_loop is not None:
+            return
+        self._reconciler_loop = ReconcilerLoop(BrokerReconciler(self), seconds)
+        self._reconciler_loop.start()
+
+    async def stop_reconciler(self) -> None:
+        loop = self._reconciler_loop
+        self._reconciler_loop = None
+        if loop is not None:
+            await loop.stop()
+
+    # ── probe ────────────────────────────────────────────────────────────────
+    def test_connection(self, connection_id: str) -> dict[str, Any]:
+        connection = self._connection(connection_id)
+        adapter: Any = None
+        try:
+            adapter = make_adapter(connection.kind, connection.config)
+            probe = adapter.probe()
+        except KeyError as exc:
+            failure = AdapterUnavailable("BROKER_KIND_UNKNOWN", str(exc))
+            return self._unavailable(connection, failure)
+        except AdapterUnavailable as exc:
+            return self._unavailable(connection, exc)
+        except Exception as exc:  # noqa: BLE001
+            failure = AdapterUnavailable(
+                "ADAPTER_ERROR", f"{connection.kind} adapter failed: {exc}"
+            )
+            return self._unavailable(connection, failure)
+        finally:
+            try:
+                if adapter is not None:
+                    adapter.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+        available = bool(probe.get("available"))
+        account = probe.get("account")
+        if available and isinstance(account, dict):
+            self.connections.set_status(
+                connection.id,
+                status="connected",
+                reason=None,
+                account=account,
+                mark_seen=True,
+            )
+        else:
+            self.connections.set_status(
+                connection.id,
+                status="unavailable",
+                reason=str(probe.get("reason") or "the broker did not answer"),
+            )
+            if connection.mode == ConnectionMode.LIVE:
+                # A disconnected live terminal must not stay armed.
+                self.connections.clear_arm(connection.id)
+        self.connections.record_event(
+            connection.id,
+            "test",
+            "ok" if available else "unavailable",
+            {
+                "code": probe.get("code"),
+                "warnings": probe.get("warnings") or [],
+            },
+        )
+        return {
+            "available": available,
+            "status": "connected" if available else "UNAVAILABLE",
+            "connectionId": connection.id,
+            "kind": connection.kind,
+            "mode": connection.mode.value,
+            "probe": probe,
+        }
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+    def events(self, connection_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        return self.connections.list_events(connection_id, limit=limit)
+
+    @staticmethod
+    def validate_mode(value: Any) -> str:
+        return normalise_mode(value).value
+
+    @staticmethod
+    def validate_config(config: Optional[dict[str, Any]]) -> dict[str, Any]:
+        return validate_config(config)
+
+
+_UNKNOWN_RETCODES = {10012, 10031}
+
+
+def _order_status(result: dict[str, Any]) -> str:
+    code = result.get("retcode")
+    if code == 10008:
+        return "placed"
+    if result.get("ok"):
+        return "filled"
+    if code in _UNKNOWN_RETCODES:
+        return "unknown"
+    return "rejected"
+
+
+__all__ = ["BrokerService", "BrokerConfigError"]

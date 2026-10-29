@@ -423,6 +423,13 @@ class AgenticService:
         from .finance_guardrails.bootstrap import install_finance_guardrail_layer  # noqa: PLC0415
 
         install_finance_guardrail_layer(self)
+        # Broker connectivity (P0, read-only): the adapter registry, the durable
+        # connection store and the read-only broker tools. Boot wiring lives in
+        # `trade/bootstrap.py`; nothing connects to a broker at boot and there is
+        # no order-submission path here.
+        from .trade.bootstrap import install_broker_layer  # noqa: PLC0415
+
+        install_broker_layer(self)
         # The Security subsystem (ADR-H159): the ONE decision path (Security
         # Gateway + Permission/Policy/Risk/Approval/Capability engines + Security
         # Floor + secrets + network policy + audit) over every privileged effect.

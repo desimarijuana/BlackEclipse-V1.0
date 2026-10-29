@@ -134,6 +134,54 @@ def exec_risk_check(context: NodeExecContext) -> dict[str, Any]:
     }
 
 
+def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
+    """Submit ONE demo order through the broker service under a bounded mandate.
+
+    The graph is unattended, so there is no per-order approval card. The
+    operator-created mandate is the authorization; the broker service still
+    applies the connection's policy, the money guardrails and the demo-account
+    check, and consumes one mandate use atomically.
+    """
+    intent = _intent(context)
+    connection_id = str(context.config.get("connectionId") or "").strip()
+    mandate_id = str(context.config.get("mandateId") or "").strip()
+    if not connection_id:
+        raise ValueError("connectionId is required for a broker order")
+    if not mandate_id:
+        raise ValueError(
+            "a mandateId is required for an unattended broker order; create one in "
+            "Settings › Trading"
+        )
+    from ..trade.bootstrap import get_service  # noqa: PLC0415 - avoids an import cycle
+
+    service = get_service()
+    if service is None:
+        raise ValueError("broker connectivity is unavailable in this runtime")
+
+    payload = dict(intent)
+    if "volume" not in payload:
+        payload["volume"] = payload.get("quantity")
+    if "type" not in payload and "orderType" not in payload:
+        payload["type"] = "market"
+    result = service.submit_order(
+        connection_id,
+        payload,
+        mandate_id=mandate_id,
+        run_id=context.run_id,
+    )
+    status = str(result.get("status") or "UNKNOWN")
+    if status in ("filled", "placed", "unknown"):
+        context.emit(f"broker order {status} ({result.get('orderId')})")
+    else:
+        reasons = "; ".join(result.get("reasons") or []) or status
+        context.emit(f"broker order {status}: {reasons}")
+    return {
+        "result": result,
+        "status": status,
+        "orderId": str(result.get("orderId") or ""),
+    }
+
+
 def exec_paper_order(context: NodeExecContext) -> dict[str, Any]:
     intent = _intent(context)
     decision = context.inputs.get("decision")
@@ -283,12 +331,45 @@ def build_trading_nodes() -> list[NodeDef]:
                 ),
             },
         ),
+        NodeDef(
+            type="trading.broker_order", version="1.0.0",
+            label="Broker order (demo mandate)",
+            category="trading",
+            inputs=(
+                PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
+            ),
+            outputs=(
+                PortDef(id="result", name="Result", type=PortType.OBJECT),
+                PortDef(id="status", name="Status", type=PortType.STRING),
+                PortDef(id="orderId", name="Order id", type=PortType.STRING),
+            ),
+            config_fields=(
+                ConfigField("connectionId", "string", "", max_length=80),
+                ConfigField("mandateId", "string", "", max_length=80),
+            ),
+            capabilities=("trading.broker",),
+            side_effects=SideEffect.TRADING,
+            allowed_modes=_PAPER,
+            timeout_ms=45_000,
+            executor=exec_broker_order,
+            metadata={
+                "docs": (
+                    "Submits ONE order to a DEMO broker connection under an operator-"
+                    "created, bounded, revocable mandate. No per-order approval card: "
+                    "the mandate is the authorization. The connection must be demo; "
+                    "live trading nodes are refused by the compiler. The broker service "
+                    "still applies policy, money guardrails and the account-mode check, "
+                    "and consumes one mandate use atomically."
+                ),
+            },
+        ),
     ]
 
 
 __all__ = [
     "build_trading_nodes",
     "set_paper_store",
+    "exec_broker_order",
     "exec_risk_check",
     "exec_paper_order",
 ]

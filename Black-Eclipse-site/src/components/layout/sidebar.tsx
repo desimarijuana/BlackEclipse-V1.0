@@ -13,6 +13,7 @@ import { useT, navLabelKey } from '@/lib/i18n';
 import { useIsMobile } from '@/hooks/use-media-query';
 import { useThemeStore, BRAND_MARK_SRC, BRAND_WORDMARK_SRC } from '@/lib/theme';
 import { ChatHistoryPanel } from '@/components/layout/chat-history-panel';
+import { SidebarBrokerButton } from '@/components/layout/sidebar-broker-dialog';
 import { BotsSidebarPanel } from '@/components/bots/bots-sidebar-panel';
 import { SavedPagesNav } from '@/components/layout/saved-pages-nav';
 import {
@@ -360,6 +361,7 @@ export function Sidebar({
             >
               <Network size={15} className="shrink-0" />
             </button>
+            <SidebarBrokerButton variant="launcher" />
           </div>
         )}
 
@@ -459,7 +461,8 @@ export function Sidebar({
         isCollapsed ? 'items-center' : ''
       }`}>
         {isCollapsed ? (
-          <div className="flex justify-center">
+          <div className="flex flex-col items-center gap-2">
+            <SidebarBrokerButton collapsed />
             <button
               onClick={onOpenSettings}
               className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent border border-border text-foreground text-xs font-bold hover:bg-accent/70 transition-colors cursor-pointer"

@@ -16,7 +16,7 @@ import {
   ChevronRight, Cpu,
   CircleDashed, RefreshCcw, Boxes, PanelLeft, Eye as EyeIcon,
   Loader2, Search, AlertCircle, Volume2, BarChart3,
-  GitBranch, Plug, ChatsCircle, Wallet,
+  GitBranch, Plug, Handshake, ChatsCircle, Wallet,
 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { GitPanel } from "./git-panel";
@@ -30,6 +30,7 @@ import { FinancialDataConsole } from "./financial-data-console";
 import { MCPSettingsPanel } from "./mcp-settings";
 import { SecuritySettingsPanel } from "./security-settings";
 import { MoneyGuardrailsSettings } from "./money-guardrails-settings";
+import { TradingSettingsPanel } from "./trading-settings";
 import { ConnectionsSettingsPanel } from "./connections-settings";
 import { CustomizationSettingsPanel } from "./customization-settings";
 import { GeneralSettingsPanel } from "./general-settings";
@@ -160,13 +161,13 @@ const DEFAULT_LLM: LLMConfig = {
 export type SectionId =
   | "general" | "sound" | "ai" | "investor-eye" | "economics" | "market" | "news"
   | "analytics" | "sidebar" | "alerts" | "data" | "git" | "mcp" | "system" | "security"
-  | "money-guardrails" | "connections";
+  | "money-guardrails" | "connections" | "trading";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
   "general", "sound", "ai", "investor-eye", "economics", "market", "news",
   "analytics", "sidebar", "alerts", "data", "git", "mcp", "system", "security",
-  "money-guardrails", "connections",
+  "money-guardrails", "connections", "trading",
 ] as const;
 
 /**
@@ -443,6 +444,7 @@ export function Settings({
     { id: "git", label: "Git", desc: "Plan, commit & push", icon: GitBranch, group: "System", terms: ["git", "commit", "push", "branch", "stage", "diff", "version control", "repo"] },
     { id: "security", label: "Security", desc: "Approvals, capabilities & audit", icon: ShieldCheck, group: "System", terms: ["security", "approvals", "permissions", "capabilities", "audit", "floor", "policy", "network", "secrets", "sandbox", "gateway"] },
     { id: "money-guardrails", label: "Money Guardrails", desc: "Scam, impaired, crisis & limits", icon: Wallet, group: "System", terms: ["money", "guardrails", "scam", "coercion", "fraud", "impaired", "crisis", "panic", "pause", "spend", "limit", "velocity", "transfer", "withdraw", "payment", "confirm"] },
+    { id: "trading", label: "Broker connection", desc: "MetaTrader 5 broker & execution", icon: Handshake, group: "System", terms: ["trading", "broker", "connection", "mt5", "metatrader", "forex", "cfd", "account", "positions", "orders", "live", "demo", "arm", "kill", "sync", "fills"] },
     { id: "system", label: "System", desc: "Health & integrations", icon: Cpu, group: "System", terms: ["system", "health", "database", "jdds", "integrations", "status", "diagnostics"] },
   ];
 
@@ -935,6 +937,7 @@ export function Settings({
                 configuration lives here. */}
             {section === "security" && <SecuritySettingsPanel />}
             {section === "money-guardrails" && <MoneyGuardrailsSettings />}
+            {section === "trading" && <TradingSettingsPanel />}
             {section === "connections" && <ConnectionsSettingsPanel />}
             {section === "system" && (
               <div className="animate-fade-in-up">

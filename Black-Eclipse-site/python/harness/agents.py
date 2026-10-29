@@ -55,6 +55,11 @@ from .advisory.tools import ADVISORY_TOOLS
 # `finance_guardrails/bootstrap.py` on the SAME registry; imported as the ONE
 # canonical list so the allowlist cannot drift.
 from .finance_guardrails.tools import FINANCE_GUARDRAIL_TOOLS
+# The broker-connectivity tools (`broker_*`, read-only reads + `order_review` +
+# `order_submit`). Registered by `trade/bootstrap.py` on the SAME registry;
+# imported as the ONE canonical list. `order_submit` is authorized ONLY by an
+# active operator-created demo mandate; there is no live path.
+from .trade.tools import BROKER_TOOLS
 # The ML Research Lab tools (`ml_*`). Registered by `ml/bootstrap.py` on the SAME
 # registry; imported as the ONE canonical list so the allowlist cannot drift.
 from .ml.tools import ML_TOOLS
@@ -403,6 +408,12 @@ ECLIPSE_AGENT = AgentConfig(
         # to a hypothetical intent. Read-only by construction — the agent can
         # never change the limits, declare impairment, or clear crisis/panic.
         *FINANCE_GUARDRAIL_TOOLS,
+        # Broker connectivity: read the MT5 account/positions/orders/quotes,
+        # preview an order, and submit ONE demo order under an active mandate.
+        # The mandate is the authorization; the service still enforces policy,
+        # guardrails, demo mode and the mandate caps. Arm/kill/cancel are
+        # operator routes, not agent tools.
+        *BROKER_TOOLS,
         # ML Research Lab: leakage-safe dataset construction, chronological/walk-
         # forward/purged splits, native + optional model adapters, experiment runs,
         # metric evaluation and a versioned model registry with reproduction.

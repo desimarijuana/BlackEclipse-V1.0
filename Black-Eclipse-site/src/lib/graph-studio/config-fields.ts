@@ -211,6 +211,10 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'slippagePct', label: 'Slippage %', kind: 'number', min: 0, max: 10 },
     { key: 'persist', label: 'Persist fill', kind: 'boolean' },
   ],
+  'trading.broker_order': [
+    { key: 'connectionId', label: 'Broker connection id', kind: 'text', inline: true },
+    { key: 'mandateId', label: 'Mandate id', kind: 'text', inline: true },
+  ],
   'output.result': [
     { key: 'label', label: 'Result label', kind: 'text', inline: true },
   ],

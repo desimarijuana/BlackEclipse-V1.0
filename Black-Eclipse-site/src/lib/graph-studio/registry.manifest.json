@@ -3035,6 +3035,69 @@
       "terminal": false
     },
     {
+      "type": "trading.broker_order",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Broker order (demo mandate)",
+      "description": "Submit one order to a demo broker connection under a bounded, revocable mandate.",
+      "inputs": [
+        {
+          "id": "intent",
+          "name": "Order intent",
+          "type": "order_intent",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "name": "Result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "orderId",
+          "name": "Order id",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "mandateId",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "trading.broker"
+      ],
+      "sideEffects": "trading",
+      "allowedModes": [
+        "paper"
+      ],
+      "terminal": false
+    },
+    {
       "type": "trading.paper_order",
       "version": "1.0.0",
       "category": "trading",

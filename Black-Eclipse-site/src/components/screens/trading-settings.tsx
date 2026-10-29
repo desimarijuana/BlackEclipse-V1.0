@@ -1,0 +1,479 @@
+"use client";
+
+// ── Trading & brokers settings ───────────────────────────────────────────────
+// Connect a MetaTrader 5 terminal, probe it, read the account and manage the
+// live arm / kill switch. Trading actions themselves stay on the existing
+// operator routes and Graph Studio; this panel never places an order.
+
+import { useCallback, useEffect, useState } from "react";
+import { Handshake, Loader2, RefreshCw, Trash2, Wallet } from "@/lib/icons";
+import { cn } from "@/lib/utils";
+import { Field, Panel, SectionHeader } from "./settings-ui";
+import {
+  armBrokerConnection,
+  createBrokerConnection,
+  createTradingMandate,
+  deleteBrokerConnection,
+  disarmBrokerConnection,
+  getBrokerAccount,
+  killBrokerConnection,
+  listBrokerConnections,
+  listBrokerKinds,
+  listTradingMandates,
+  revokeTradingMandate,
+  syncBrokerConnection,
+  testBrokerConnection,
+  type BrokerConnection,
+  type BrokerKind,
+  type TradingMandate,
+} from "@/lib/harness/trading-client";
+
+const DEFAULT_TERMINAL = "C:\\Program Files\\MetaTrader 5\\terminal64.exe";
+
+export function TradingSettingsPanel() {
+  const [kinds, setKinds] = useState<BrokerKind[]>([]);
+  const [connections, setConnections] = useState<BrokerConnection[]>([]);
+  const [mandates, setMandates] = useState<TradingMandate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const [label, setLabel] = useState("MT5 demo");
+  const [mode, setMode] = useState<"demo" | "live">("demo");
+  const [terminalPath, setTerminalPath] = useState(DEFAULT_TERMINAL);
+  const [magic, setMagic] = useState("0");
+  const [maxMargin, setMaxMargin] = useState("0");
+  const [phrases, setPhrases] = useState<Record<string, string>>({});
+  const [mandateSymbols, setMandateSymbols] = useState("EURUSD");
+  const [mandateOrders, setMandateOrders] = useState("2");
+  const [mandateMargin, setMandateMargin] = useState("50");
+  const [mandateTtl, setMandateTtl] = useState("3600");
+  const [mandatePhrase, setMandatePhrase] = useState("");
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const [nextKinds, nextConnections, nextMandates] = await Promise.all([
+        listBrokerKinds(),
+        listBrokerConnections(),
+        listTradingMandates(),
+      ]);
+      setKinds(nextKinds);
+      setConnections(nextConnections);
+      setMandates(nextMandates);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "broker settings unavailable");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const run = async (key: string, action: () => Promise<unknown>, done?: string) => {
+    setBusy(key);
+    setError(null);
+    setNotice(null);
+    try {
+      await action();
+      await load();
+      if (done) setNotice(done);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "the action failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const add = async () => {
+    await run("create", async () => {
+      const config: Record<string, unknown> = { terminalPath: terminalPath.trim() };
+      const magicNumber = Number(magic);
+      const marginNumber = Number(maxMargin);
+      if (Number.isFinite(magicNumber) && magicNumber > 0) config.magic = magicNumber;
+      if (Number.isFinite(marginNumber) && marginNumber > 0) config.maxMargin = marginNumber;
+      const connection = await createBrokerConnection({
+        kind: "mt5",
+        label: label.trim() || "MT5",
+        mode,
+        config,
+      });
+      await testBrokerConnection(connection.id);
+    }, "Connection added.");
+  };
+
+  const test = (connection: BrokerConnection) =>
+    run(`test:${connection.id}`, async () => {
+      await testBrokerConnection(connection.id);
+      await getBrokerAccount(connection.id).catch(() => null);
+    }, "Connection tested.");
+
+  const sync = (connection: BrokerConnection) =>
+    run(`sync:${connection.id}`, () => syncBrokerConnection(connection.id), "Sync complete.");
+
+  const remove = (connection: BrokerConnection) => {
+    if (!window.confirm(`Remove ${connection.label}? This does not close anything at the broker.`)) {
+      return;
+    }
+    void run(`delete:${connection.id}`, () => deleteBrokerConnection(connection.id), "Connection removed.");
+  };
+
+  const arm = (connection: BrokerConnection) =>
+    run(
+      `arm:${connection.id}`,
+      () => armBrokerConnection(connection.id, phrases[connection.id] ?? "", 1800),
+      "Live execution armed for 30 minutes.",
+    );
+
+  const disarm = (connection: BrokerConnection) =>
+    run(`disarm:${connection.id}`, () => disarmBrokerConnection(connection.id), "Live execution disarmed.");
+
+  const kill = (connection: BrokerConnection) => {
+    if (!window.confirm("Cancel every working order Eclipse owns on this connection?")) return;
+    void run(`kill:${connection.id}`, () => killBrokerConnection(connection.id), "Kill switch fired.");
+  };
+
+  const createMandate = () => {
+    const connection = connections[0];
+    if (!connection) return;
+    void run(
+      "mandate:create",
+      () =>
+        createTradingMandate(connection.id, {
+          symbols: mandateSymbols
+            .split(",")
+            .map((symbol) => symbol.trim().toUpperCase())
+            .filter(Boolean),
+          maxOrders: Number(mandateOrders) || 1,
+          maxMargin: Number(mandateMargin) || 0,
+          ttlSeconds: Number(mandateTtl) || 3600,
+          confirmation: mandatePhrase,
+          note: "Settings demo autopilot mandate",
+        }),
+      "Mandate created. Ask Eclipse to analyze and trade under it.",
+    );
+  };
+
+  const revokeMandate = (mandate: TradingMandate) => {
+    if (!window.confirm(`Revoke mandate ${mandate.id}?`)) return;
+    void run(`mandate:revoke:${mandate.id}`, () => revokeTradingMandate(mandate.id), "Mandate revoked.");
+  };
+
+  const mt5 = kinds.find((kind) => kind.id === "mt5");
+  const inputClass =
+    "w-full rounded-xl border border-border/40 bg-transparent px-2.5 py-1.5 text-xs text-foreground focus:border-primary/40 focus:outline-none";
+
+  return (
+    <div className="max-w-3xl space-y-6">
+      <SectionHeader
+        icon={Handshake}
+        title="Broker connection"
+        description="Attach Eclipse to a running MetaTrader 5 terminal. Reads are always safe; live execution requires a typed arm and a per-order confirmation."
+      />
+
+      {error && <p className="text-xs text-rose-300">{error}</p>}
+      {notice && <p className="text-xs text-emerald-300">{notice}</p>}
+
+      <Panel className="p-5 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-foreground">MetaTrader 5 bridge</p>
+            <p className="text-[11px] text-muted-foreground">
+              {mt5?.available
+                ? "Package available. The terminal must be running and logged in."
+                : mt5?.unavailableReason ?? "Checking the runtime…"}
+            </p>
+          </div>
+          <span
+            className={cn(
+              "rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+              mt5?.available
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                : "border-amber-500/30 bg-amber-500/10 text-amber-300",
+            )}
+          >
+            {mt5?.available ? "ready" : "unavailable"}
+          </span>
+        </div>
+      </Panel>
+
+      {loading ? (
+        <Panel className="p-6">
+          <p className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 size={14} className="animate-spin" /> Loading connections…
+          </p>
+        </Panel>
+      ) : (
+        connections.map((connection) => {
+          const account = connection.account;
+          const armed = Boolean(connection.armedUntil);
+          return (
+            <Panel key={connection.id} className="p-5 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-foreground">{connection.label}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {connection.kind.toUpperCase()} · {connection.mode.toUpperCase()} ·{" "}
+                    {connection.status}
+                    {connection.statusReason ? ` — ${connection.statusReason}` : ""}
+                  </p>
+                </div>
+                <span
+                  className={cn(
+                    "rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                    account?.mode === "real"
+                      ? "border-rose-500/30 bg-rose-500/10 text-rose-300"
+                      : "border-sky-500/30 bg-sky-500/10 text-sky-300",
+                  )}
+                >
+                  {account?.mode ?? "unknown"}
+                </span>
+              </div>
+
+              {account ? (
+                <div className="grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
+                  <Stat label="Login" value={String(account.login)} />
+                  <Stat label="Balance" value={`${account.balance.toLocaleString()} ${account.currency}`} />
+                  <Stat label="Equity" value={account.equity.toLocaleString()} />
+                  <Stat label="Free margin" value={account.marginFree.toLocaleString()} />
+                  <Stat label="Server" value={account.server || "—"} />
+                  <Stat label="Leverage" value={`1:${account.leverage}`} />
+                  <Stat label="Margin mode" value={account.marginMode} />
+                  <Stat label="Trading" value={account.tradeAllowed ? "allowed" : "disabled"} />
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  No account read yet. Test the connection.
+                </p>
+              )}
+
+              {connection.mode === "live" && (
+                <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-3 space-y-2">
+                  <p className="text-[11px] text-rose-200">
+                    Live execution is off until armed. Type{" "}
+                    <span className="font-mono">ARM LIVE {account?.login ?? "<login>"}</span> to arm
+                    for 30 minutes. Every order also needs its own <span className="font-mono">LIVE …</span>{" "}
+                    confirmation and a single-use approval.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      value={phrases[connection.id] ?? ""}
+                      onChange={(event) =>
+                        setPhrases((current) => ({ ...current, [connection.id]: event.target.value }))
+                      }
+                      placeholder={`ARM LIVE ${account?.login ?? ""}`}
+                      className={inputClass}
+                    />
+                    <button
+                      type="button"
+                      disabled={busy === `arm:${connection.id}`}
+                      onClick={() => void arm(connection)}
+                      className="shrink-0 rounded-xl border border-rose-500/40 px-3 py-1.5 text-[11px] text-rose-200 hover:bg-rose-500/10 disabled:opacity-60"
+                    >
+                      Arm
+                    </button>
+                  </div>
+                  {armed && (
+                    <p className="text-[10px] text-rose-200/80">
+                      Armed until {connection.armedUntil}. Disarm or fire the kill switch at any time.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Action busy={busy === `test:${connection.id}`} onClick={() => void test(connection)}>
+                  Test
+                </Action>
+                <Action busy={busy === `sync:${connection.id}`} onClick={() => void sync(connection)}>
+                  <RefreshCw size={12} /> Sync
+                </Action>
+                {connection.mode === "live" && armed && (
+                  <Action busy={busy === `disarm:${connection.id}`} onClick={() => void disarm(connection)}>
+                    Disarm
+                  </Action>
+                )}
+                {connection.mode === "live" && (
+                  <Action busy={busy === `kill:${connection.id}`} onClick={() => kill(connection)}>
+                    Kill switch
+                  </Action>
+                )}
+                <Action busy={busy === `delete:${connection.id}`} onClick={() => remove(connection)}>
+                  <Trash2 size={12} /> Remove
+                </Action>
+              </div>
+            </Panel>
+          );
+        })
+      )}
+
+      {connections[0] && (
+        <Panel className="p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <Handshake size={14} className="text-muted-foreground" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">Demo autopilot mandates</p>
+              <p className="text-[10px] text-muted-foreground">
+                A bounded authorization the agent can submit under. Demo only; live is never available.
+              </p>
+            </div>
+          </div>
+
+          {mandates.filter((m) => !m.revokedAt && m.remainingOrders > 0).length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              No active mandate. Create one below, then ask Eclipse to analyze and trade under it.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {mandates
+                .filter((m) => !m.revokedAt && m.remainingOrders > 0)
+                .map((mandate) => (
+                  <div
+                    key={mandate.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/20 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-[10px] text-foreground">{mandate.id}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {mandate.symbols.join(", ")} · {mandate.remainingOrders}/{mandate.maxOrders} orders ·{" "}
+                        max margin {mandate.maxMargin} · expires {new Date(mandate.expiresAt).toLocaleString()}
+                      </p>
+                    </div>
+                    <Action
+                      busy={busy === `mandate:revoke:${mandate.id}`}
+                      onClick={() => revokeMandate(mandate)}
+                    >
+                      Revoke
+                    </Action>
+                  </div>
+                ))}
+            </div>
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Symbols" hint="Comma-separated, e.g. EURUSD, GBPUSD.">
+              <input value={mandateSymbols} onChange={(event) => setMandateSymbols(event.target.value)} className={inputClass} />
+            </Field>
+            <Field label="Max orders">
+              <input value={mandateOrders} onChange={(event) => setMandateOrders(event.target.value)} className={inputClass} />
+            </Field>
+            <Field label="Max margin per order">
+              <input value={mandateMargin} onChange={(event) => setMandateMargin(event.target.value)} className={inputClass} />
+            </Field>
+            <Field label="TTL (seconds)">
+              <input value={mandateTtl} onChange={(event) => setMandateTtl(event.target.value)} className={inputClass} />
+            </Field>
+            <Field
+              label="Typed confirmation"
+              hint={`Type MANDATE DEMO ${connections[0].label} exactly.`}
+            >
+              <input
+                value={mandatePhrase}
+                onChange={(event) => setMandatePhrase(event.target.value)}
+                placeholder={`MANDATE DEMO ${connections[0].label}`}
+                className={inputClass}
+              />
+            </Field>
+          </div>
+          <button
+            type="button"
+            disabled={busy === "mandate:create"}
+            onClick={createMandate}
+            className="inline-flex items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3 py-1.5 text-[11px] font-medium text-primary hover:bg-primary/15 disabled:opacity-60"
+          >
+            {busy === "mandate:create" ? <Loader2 size={12} className="animate-spin" /> : <Handshake size={12} />}
+            Create demo mandate
+          </button>
+        </Panel>
+      )}
+
+      <Panel className="p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <Wallet size={14} className="text-muted-foreground" />
+          <p className="text-xs font-semibold text-foreground">Add a MetaTrader 5 connection</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Label">
+            <input value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} />
+          </Field>
+          <Field label="Mode">
+            <select
+              value={mode}
+              onChange={(event) => setMode(event.target.value === "live" ? "live" : "demo")}
+              className={inputClass}
+            >
+              <option value="demo">Demo</option>
+              <option value="live">Live (requires arming)</option>
+            </select>
+          </Field>
+          <Field label="Terminal path" hint="terminal64.exe of the installed MT5 terminal.">
+            <input
+              value={terminalPath}
+              onChange={(event) => setTerminalPath(event.target.value)}
+              className={inputClass}
+            />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Magic" hint="Non-zero for live; scopes the kill switch.">
+              <input value={magic} onChange={(event) => setMagic(event.target.value)} className={inputClass} />
+            </Field>
+            <Field label="Max margin" hint="Required for live; a per-order cap.">
+              <input
+                value={maxMargin}
+                onChange={(event) => setMaxMargin(event.target.value)}
+                className={inputClass}
+              />
+            </Field>
+          </div>
+        </div>
+        <button
+          type="button"
+          disabled={busy === "create"}
+          onClick={() => void add()}
+          className="inline-flex items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3 py-1.5 text-[11px] font-medium text-primary hover:bg-primary/15 disabled:opacity-60"
+        >
+          {busy === "create" ? <Loader2 size={12} className="animate-spin" /> : <Handshake size={12} />}
+          Add & test connection
+        </button>
+        <p className="text-[10px] text-muted-foreground">
+          No password is stored: Eclipse attaches to the account already logged into the terminal.
+          Enable <span className="font-medium">Algo Trading</span> in MT5 before placing any order.
+        </p>
+      </Panel>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border/30 px-2 py-1.5">
+      <p className="text-[9px] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="truncate text-[11px] text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function Action({
+  children,
+  onClick,
+  busy,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  busy?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 rounded-xl border border-border/40 px-2.5 py-1.5 text-[11px] text-muted-foreground hover:bg-white/[0.05] hover:text-foreground disabled:opacity-60"
+    >
+      {busy ? <Loader2 size={12} className="animate-spin" /> : null}
+      {children}
+    </button>
+  );
+}

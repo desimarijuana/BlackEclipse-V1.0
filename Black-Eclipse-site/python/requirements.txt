@@ -60,6 +60,12 @@ ptyprocess>=0.7; sys_platform != "win32"
 pg8000>=1.31,<2
 duckdb>=1.0
 
+# Broker bridge — MetaTrader 5 (optional; Windows x64 only). The MetaTrader
+# terminal is a SEPARATE install owned by the operator; this package talks to a
+# running, logged-in terminal over local IPC. It is not needed on other platforms,
+# and its absence is reported honestly by `broker_status` rather than failing boot.
+MetaTrader5>=5.0.45; sys_platform == "win32" and platform_machine == "AMD64"
+
 # Tests
 pytest>=8.0
 pytest-asyncio>=0.24

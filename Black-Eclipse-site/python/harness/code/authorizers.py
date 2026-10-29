@@ -207,8 +207,11 @@ def build_effect_authorizer(
             return bool(await code_authorizer(tool, args, ctx))
         return bool(await code_authorizer(tool, args, ctx))
 
+    from ..trade.authorizers import wrap_trade_authorizer  # noqa: PLC0415
+
     return _wrap_with_security(
-        _wrap_with_money_guardrails(authorize, run_id), run_id, workspace_id,
+        _wrap_with_money_guardrails(wrap_trade_authorizer(authorize), run_id),
+        run_id, workspace_id,
     )
 
 

@@ -167,6 +167,15 @@ async def _boot() -> None:
     # Native Automation Engine (ADR-H152): one durable scheduler/trigger router
     # beside the three TS refresh loops, which stay exactly as they are.
     await service.start_automation()
+    # Broker reconciliation: an OPT-IN loop (TRADING_RECONCILE_SECONDS, default 0)
+    # that syncs fills/positions/order state from the broker. It never places an
+    # order and never fabricates a fill.
+    brokers = getattr(service, "brokers", None)
+    if brokers is not None:
+        try:
+            await brokers.start_reconciler()
+        except Exception:  # noqa: BLE001 - never block boot
+            log.warning("broker reconciler did not start", exc_info=True)
     # Advisory outcome scoring: a bounded interval that records how past
     # recommendations turned out. It never issues advice and never touches an
     # approval gate. Disabled with HARNESS_ADVISORY_AUTO_EVALUATE=0.
@@ -336,6 +345,12 @@ async def _shutdown() -> None:
     await service.stop_advisory_cadence()
     await service.stop_self_modification()
     await service.stop_automation()
+    brokers = getattr(service, "brokers", None)
+    if brokers is not None:
+        try:
+            await brokers.stop_reconciler()
+        except Exception:  # noqa: BLE001 - shutdown must never raise
+            log.warning("broker reconciler shutdown failed", exc_info=True)
     orchestration = getattr(service, "orchestration", None)
     if orchestration is not None:
         await orchestration.primary.shutdown()

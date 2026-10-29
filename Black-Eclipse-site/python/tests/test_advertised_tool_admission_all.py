@@ -125,6 +125,33 @@ def test_every_advertised_non_read_tool_is_admitted_or_pinned(service_registry: 
     auth = build_effect_authorizer(approvals=store, run_id="r", emitter=None, workspace_id="ws1")
     args = _args_for(service_registry)
 
+    # `order_submit` is effectful by design. Admit it with a real (unconnected)
+    # demo mandate in the temp runtime, then prove it is not advertised-but-dead.
+    from harness.trade.bootstrap import get_service
+
+    brokers = get_service()
+    if brokers is not None:
+        connections = brokers.list_connections()
+        if not connections:
+            connections = [brokers.create_connection(
+                kind="mt5", label="Admission demo", mode="demo", config={},
+            )]
+        connection = connections[0]
+        mandate = brokers.create_mandate(connection["id"], {
+            "confirmation": f"MANDATE DEMO {connection['label']}",
+            "symbols": ["EURUSD"],
+            "maxOrders": 1,
+            "maxMargin": 100,
+            "ttlSeconds": 60,
+        })
+        args.update({
+            "connectionId": connection["id"],
+            "mandateId": mandate["id"],
+            "intent": {
+                "symbol": "EURUSD", "side": "buy", "type": "market", "volume": 0.01,
+            },
+        })
+
     dead: set[str] = set()
     for name in sorted(_advertised_non_read(service_registry)):
         if name in PINNED_INFRA:
