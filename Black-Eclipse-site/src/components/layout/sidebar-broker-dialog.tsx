@@ -30,6 +30,13 @@ import {
 } from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { TabBar } from "@/components/ui/tab-bar";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -887,14 +894,18 @@ function ConnectionForm({
         </label>
         <label className="space-y-1">
           <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Mode</span>
-          <select
+          <Select
             value={mode}
-            onChange={(event) => setMode(event.target.value === "live" ? "live" : "demo")}
-            className={inputClass}
+            onValueChange={(value) => setMode(value === "live" ? "live" : "demo")}
           >
-            <option value="demo">Demo</option>
-            <option value="live">Live (arm in Settings)</option>
-          </select>
+            <SelectTrigger className={cn(inputClass, "h-auto w-full justify-between py-1.5")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="min-w-[var(--anchor-width)]">
+              <SelectItem value="demo">Demo</SelectItem>
+              <SelectItem value="live">Live (arm in Settings)</SelectItem>
+            </SelectContent>
+          </Select>
         </label>
         <label className="space-y-1">
           <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Magic</span>

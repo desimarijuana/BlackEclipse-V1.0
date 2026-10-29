@@ -20,7 +20,6 @@ import {
 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { GitPanel } from "./git-panel";
-import { TopLoader } from "@/components/ui/top-loader";
 import { cn } from "@/lib/utils";
 import { AlertNotificationsPanel } from "./alert-notifications-settings";
 import { AnalyticsSettingsPanel } from "./analytics-settings";
@@ -47,6 +46,7 @@ import {
   DEFAULT_GENERAL_PREFS, loadGeneralPrefs,
   type GeneralPrefs,
 } from "@/lib/general-prefs";
+import { getSettingsSnapshot, saveSettingsSnapshot } from "@/lib/settings-cache";
 
 
 // ─── Types ──────────────────────────────────────────────────────────────
@@ -124,11 +124,10 @@ interface MarketInfo {
 }
 
 /**
- * Module-level snapshot of the last successful settings fetch. The settings
- * dialog is unmounted when closed (base-ui drops the popup), so without this
- * every open paid the full `/api/settings` + `/api/markets` round-trip behind a
- * skeleton. Reopening now paints instantly from cache and revalidates quietly
- * in the background.
+ * The settings dialog is unmounted when closed (base-ui drops the popup), so
+ * the last successful payload lives in `@/lib/settings-cache`: memory for the
+ * current session plus a localStorage snapshot so even a fresh page load paints
+ * the real values instantly while `/api/settings` revalidates in the background.
  */
 interface SettingsSnapshot {
   llm: LLMConfig;
@@ -137,7 +136,6 @@ interface SettingsSnapshot {
   integrations: IntegrationStatus | null;
   markets: MarketInfo[];
 }
-let settingsCache: SettingsSnapshot | null = null;
 /** Markets resolve independently of the settings snapshot; remember them too. */
 let marketsCache: MarketInfo[] | null = null;
 
@@ -145,6 +143,27 @@ const DEFAULT_LLM: LLMConfig = {
   provider: "auto", baseUrl: "https://api.openai.com/v1", apiKey: "", model: "gpt-4o-mini",
   contextWindow: undefined,
 };
+
+const DEFAULT_PREFS: AppPreferences = { defaultMarket: "US", refreshMs: 15000 };
+
+function readCachedSnapshot(): SettingsSnapshot | null {
+  const cached = getSettingsSnapshot();
+  if (!cached) return null;
+  const llm = cached.llm as LLMConfig | undefined;
+  const feeds = cached.newsFeeds as NewsFeed[] | undefined;
+  const prefs = cached.preferences as AppPreferences | undefined;
+  const integrations = cached.integrations as IntegrationStatus | null | undefined;
+  if (!llm && !feeds && !prefs && !integrations) return null;
+  return {
+    llm: llm ? { ...llm, apiKey: "" } : DEFAULT_LLM,
+    feeds: feeds ?? [],
+    prefs: prefs ?? DEFAULT_PREFS,
+    integrations: integrations ?? null,
+    markets: marketsCache ?? [],
+  };
+}
+
+let settingsCache: SettingsSnapshot | null = readCachedSnapshot();
 
 // The Settings information architecture. Sections are named for WHAT the user
 // is configuring, never for how the backend is implemented:
@@ -264,9 +283,9 @@ export function Settings({
   );
 
   // Settings and markets are fetched independently: `/api/markets` can be slow
-  // on a cold JDDS cache, and Promise.all made the whole modal wait on it (the
-  // "settings never loads until refresh" hang). Settings paints as soon as it
-  // lands; markets fill in afterwards.
+  // on a cold JDDS cache and its SQLite work used to queue ahead of the settings
+  // read, making the modal sit on a skeleton. Settings is the critical path and
+  // now starts first; markets fill in afterwards (and only warm the Market tab).
   const applySettings = (s: {
     llm?: LLMConfig; newsFeeds?: NewsFeed[]; preferences?: AppPreferences;
     integrations?: IntegrationStatus;
@@ -285,10 +304,17 @@ export function Settings({
     settingsCache = {
       llm: s.llm ? { ...s.llm, apiKey: "" } : settingsCache?.llm ?? DEFAULT_LLM,
       feeds: s.newsFeeds ?? settingsCache?.feeds ?? [],
-      prefs: s.preferences ?? settingsCache?.prefs ?? { defaultMarket: "US", refreshMs: 15000 },
+      prefs: s.preferences ?? settingsCache?.prefs ?? DEFAULT_PREFS,
       integrations: s.integrations ?? settingsCache?.integrations ?? null,
       markets: marketsCache ?? settingsCache?.markets ?? [],
     };
+    // Persist the non-market payload so the next page load is instant too.
+    saveSettingsSnapshot({
+      llm: settingsCache.llm,
+      newsFeeds: settingsCache.feeds,
+      preferences: settingsCache.prefs,
+      integrations: settingsCache.integrations,
+    });
   };
 
   const applyMarkets = (list: MarketInfo[]) => {
@@ -299,14 +325,14 @@ export function Settings({
     if (settingsCache) settingsCache.markets = list;
   };
 
+  const [marketsLoading, setMarketsLoading] = useState(
+    () => (settingsCache?.markets ?? marketsCache ?? []).length === 0,
+  );
+
   const fetchAll = async () => {
     if (!settingsCache) setLoading(true);
-    // Markets — independent, may be slow. Never blocks the settings paint.
-    void fetch("/api/markets")
-      .then((r) => r.json())
-      .then((m) => { if (Array.isArray(m.markets)) applyMarkets(m.markets); })
-      .catch(() => { /* leave whatever we had */ });
-    // Settings — the critical path. Clears the skeleton the moment it lands.
+    // Settings first — the critical path. Clears the data-pending hint as soon
+    // as it lands.
     try {
       const s = await fetch("/api/settings").then((r) => r.json());
       applySettings(s);
@@ -315,6 +341,14 @@ export function Settings({
     } finally {
       setLoading(false);
     }
+    // Markets — independent and slower; never blocks the settings paint. Fetch
+    // after settings so JDDS/Prisma work cannot queue ahead of the critical read.
+    setMarketsLoading((marketsCache ?? []).length === 0);
+    void fetch("/api/markets")
+      .then((r) => r.json())
+      .then((m) => { if (Array.isArray(m.markets)) applyMarkets(m.markets); })
+      .catch(() => { /* leave whatever we had */ })
+      .finally(() => setMarketsLoading(false));
   };
 
   useEffect(() => {
@@ -351,6 +385,11 @@ export function Settings({
         if (Array.isArray(data.newsFeeds)) settingsCache.feeds = data.newsFeeds;
         if (data.preferences) settingsCache.prefs = data.preferences;
       }
+      saveSettingsSnapshot({
+        ...(data.llm ? { llm: { ...data.llm, apiKey: "" } } : {}),
+        ...(Array.isArray(data.newsFeeds) ? { newsFeeds: data.newsFeeds } : {}),
+        ...(data.preferences ? { preferences: data.preferences } : {}),
+      });
       setToast({ kind: "ok", text: "Saved" });
       sound.success();
     } catch {
@@ -503,19 +542,9 @@ export function Settings({
     return () => clearTimeout(t);
   }, [loading, initialAnchor]);
 
-  // All hooks run before this early return (rules of hooks).
-  if (loading) {
-    return (
-      <div className="w-full h-full flex items-center justify-center p-8">
-        <TopLoader />
-        <div className="animate-pulse space-y-4 w-full max-w-md">
-          <div className="h-9 w-52 rounded-2xl bg-muted/15" />
-          <div className="h-44 w-full rounded-2xl bg-muted/5 border border-white/5" />
-          <div className="h-44 w-full rounded-2xl bg-muted/5 border border-white/5" />
-        </div>
-      </div>
-    );
-  }
+  // Paint the full shell immediately from the snapshot (or defaults on the very
+  // first visit) and let `/api/settings` fill it in — a blocking skeleton made
+  // the modal feel slow even when the payload was already cached.
 
   return (
     <div ref={modalRef} className="flex h-full w-full overflow-hidden" tabIndex={-1}>
@@ -763,7 +792,9 @@ export function Settings({
                     <Panel className="p-8 text-center">
                       <Boxes className="mx-auto text-muted-foreground w-8 h-8 mb-3" />
                       <p className="text-xs text-muted-foreground">
-                        No markets found in JDDS yet. Import or scrape market data to populate the database.
+                        {marketsLoading
+                          ? "Loading markets from JDDS…"
+                          : "No markets found in JDDS yet. Import or scrape market data to populate the database."}
                       </p>
                     </Panel>
                   ) : (
@@ -971,7 +1002,11 @@ export function Settings({
             instantly. This line reports the real save state (or the last
             error) so the user always knows whether their change persisted. */}
         <div className="shrink-0 border-t border-border/10 glass-card px-4 md:px-8 py-3 flex flex-wrap items-center justify-between gap-2">
-          {toast ? (
+          {loading ? (
+            <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" /> Loading settings…
+            </span>
+          ) : toast ? (
             <span
               className={cn(
                 "text-xs flex items-center gap-1.5 min-w-0",

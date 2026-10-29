@@ -11,6 +11,7 @@ import { destinationToHref } from '@/lib/search/deep-link';
 import { useNotificationsStore, unreadCountsByTab, totalUnread } from '@/lib/notifications/store';
 import { useT, navLabelKey } from '@/lib/i18n';
 import { useIsMobile } from '@/hooks/use-media-query';
+import { useSettingsPrefetch } from '@/hooks/use-settings-prefetch';
 import { useThemeStore, BRAND_MARK_SRC, BRAND_WORDMARK_SRC } from '@/lib/theme';
 import { ChatHistoryPanel } from '@/components/layout/chat-history-panel';
 import { SidebarBrokerButton } from '@/components/layout/sidebar-broker-dialog';
@@ -101,6 +102,7 @@ export function Sidebar({
   hidden = false,
 }: SidebarProps) {
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
+  const prefetchSettings = useSettingsPrefetch();
   // Quick launchers below the mode switcher: the Channel Gateway (Telegram,
   // Discord, WhatsApp, …) and the relationship/skills graph browser.
   const [gatewayOpen, setGatewayOpen] = useState(false);
@@ -465,6 +467,8 @@ export function Sidebar({
             <SidebarBrokerButton collapsed />
             <button
               onClick={onOpenSettings}
+              onPointerEnter={prefetchSettings}
+              onFocus={prefetchSettings}
               className="flex h-9 w-9 items-center justify-center rounded-xl bg-accent border border-border text-foreground text-xs font-bold hover:bg-accent/70 transition-colors cursor-pointer"
               title={t('sidebar.openSettings')}
               aria-label={t('sidebar.openSettings')}
@@ -481,6 +485,8 @@ export function Sidebar({
             {/* Settings gear button — bottom-right of the Terminal footer */}
             <button
               onClick={onOpenSettings}
+              onPointerEnter={prefetchSettings}
+              onFocus={prefetchSettings}
               className={`shrink-0 rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors cursor-pointer ${
                 activeTab === 'settings' ? 'text-foreground bg-white/[0.08]' : ''
               }`}

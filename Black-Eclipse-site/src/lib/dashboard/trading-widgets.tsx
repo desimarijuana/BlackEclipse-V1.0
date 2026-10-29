@@ -8,6 +8,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   cancelBrokerOrder,
   closeAllBrokerPositions,
   closeBrokerPosition,
@@ -645,18 +652,28 @@ export function QuickTradeWidget() {
         </label>
         <label className="space-y-1">
           <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Side</span>
-          <select value={side} onChange={(event) => setSide(event.target.value as 'buy' | 'sell')} className={inputClass}>
-            <option value="buy">Buy</option>
-            <option value="sell">Sell</option>
-          </select>
+          <Select value={side} onValueChange={(value) => value && setSide(value as 'buy' | 'sell')}>
+            <SelectTrigger className={cn(inputClass, 'h-auto w-full justify-between py-1.5')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="buy">Buy</SelectItem>
+              <SelectItem value="sell">Sell</SelectItem>
+            </SelectContent>
+          </Select>
         </label>
         <label className="space-y-1">
           <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Type</span>
-          <select value={type} onChange={(event) => setType(event.target.value as typeof type)} className={inputClass}>
-            <option value="market">Market</option>
-            <option value="limit">Limit</option>
-            <option value="stop">Stop</option>
-          </select>
+          <Select value={type} onValueChange={(value) => value && setType(value as typeof type)}>
+            <SelectTrigger className={cn(inputClass, 'h-auto w-full justify-between py-1.5')}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="market">Market</SelectItem>
+              <SelectItem value="limit">Limit</SelectItem>
+              <SelectItem value="stop">Stop</SelectItem>
+            </SelectContent>
+          </Select>
         </label>
         <label className="space-y-1">
           <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Volume</span>

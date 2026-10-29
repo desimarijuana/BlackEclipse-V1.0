@@ -7,6 +7,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-29
+- **fix(ui): frosted-glass dropdowns in the broker + quick-trade surfaces.** Replaced
+  the native `<select>` mode/side/type pickers in Settings › Broker connection, the
+  sidebar broker dialog, and the Quick Trade widget with the shared Base UI
+  `Select` (`glass-tooltip`). Native OS popups cannot be blurred; the portalled
+  select can. No contract change.
+  no doc change — visual-only component swap.
 - **feat(trading): read-only broker connectivity, attach-first MetaTrader 5.**
   New `python/harness/trade/` package: a `BrokerAdapter` read contract, a kind
   registry with honest dependency availability, a durable
@@ -284,6 +290,19 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   an entry order, and mandates/approvals stay in Settings. Tests: `npm run test`
   (425 files / 4094) + `npx tsc --noEmit` + broker Python tests (56) pass.
   Docs updated: `docs/trading.md`.
+- **perf(settings): the Settings modal opens instantly.** Three changes remove the
+  cold-open wait. (1) The shell no longer blocks on a full skeleton: it paints the
+  real nav + section immediately with the last-known snapshot and shows a slim
+  "Loading settings…" line while `/api/settings` revalidates. (2) A new
+  dependency-free `src/lib/settings-cache.ts` persists the non-secret payload
+  (`hasApiKey` only, never a key) to localStorage, so even a fresh page load has
+  values before the request starts; `src/hooks/use-settings-prefetch.ts` fetches
+  them 2.5 s after first paint and warms the lazy Settings chunk on gear
+  hover/focus or after 12 s (skipped on metered connections). (3) `/api/markets`
+  now starts only after the settings read, so JDDS/Prisma work cannot queue
+  ahead of the critical path; the Market tab shows "Loading markets…" instead of
+  a false empty state. `stock-chat.tsx` stayed at its pinned size budget.
+  Docs: no doc change — internal performance/UX only (contracts unchanged).
 
 ## 2026-10-28
 - **fix(desktop): one launcher at a time, so repeated icon clicks cannot break boot.**

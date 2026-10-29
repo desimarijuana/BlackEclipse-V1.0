@@ -8,6 +8,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Handshake, Loader2, RefreshCw, Trash2, Wallet } from "@/lib/icons";
 import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Field, Panel, SectionHeader } from "./settings-ui";
 import {
   armBrokerConnection,
@@ -402,14 +409,18 @@ export function TradingSettingsPanel() {
             <input value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} />
           </Field>
           <Field label="Mode">
-            <select
+            <Select
               value={mode}
-              onChange={(event) => setMode(event.target.value === "live" ? "live" : "demo")}
-              className={inputClass}
+              onValueChange={(value) => setMode(value === "live" ? "live" : "demo")}
             >
-              <option value="demo">Demo</option>
-              <option value="live">Live (requires arming)</option>
-            </select>
+              <SelectTrigger className={cn(inputClass, "h-auto w-full justify-between py-1.5")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="demo">Demo</SelectItem>
+                <SelectItem value="live">Live (requires arming)</SelectItem>
+              </SelectContent>
+            </Select>
           </Field>
           <Field label="Terminal path" hint="terminal64.exe of the installed MT5 terminal.">
             <input
