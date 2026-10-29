@@ -10,7 +10,10 @@ last-verified: 2026-10-14
 **Tools:** `document_open`, `document_inspect`, `document_search`,
 `document_extract`, `document_analyze`, `document_query`, `document_compare`,
 `document_render`, `document_capabilities`
-(registered by `document_intelligence/tools.py:register_document_tools`)
+(registered by `document_intelligence/tools.py:register_document_tools`).
+`document_open`/`inspect`/`extract`/`analyze`/`render` also accept an
+`artifactId`, so a generated workbook or deck can be read back without knowing
+its confined filesystem path.
 **Config:** `document_intelligence/config.py` (`document.json` override +
 `HARNESS_DOCUMENT_*` / `DOCUMENT_*` / `OCR_*` env)
 **ADR:** `docs/harness/decisions.md` ADR-H147

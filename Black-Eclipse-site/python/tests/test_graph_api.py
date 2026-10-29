@@ -6,20 +6,45 @@ import os
 import tempfile
 import time
 
-os.environ.setdefault(
-    "AGENT_MEMORY_DB_PATH",
-    os.path.join(tempfile.mkdtemp(prefix="be-graph-api-"), "agent-memory.db"),
+os.environ["AGENT_MEMORY_DB_PATH"] = os.path.join(
+    tempfile.mkdtemp(prefix="be-graph-api-"), "agent-memory.db",
 )
-os.environ.setdefault(
-    "HARNESS_ARTIFACT_ROOT",
-    os.path.join(tempfile.mkdtemp(prefix="be-graph-files-"), "artifacts"),
+os.environ["HARNESS_ARTIFACT_ROOT"] = os.path.join(
+    tempfile.mkdtemp(prefix="be-graph-files-"), "artifacts",
 )
 
+import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from harness.main import app  # noqa: E402
 
 client = TestClient(app)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _isolated_graph_service():
+    """Give the graph router its own service.
+
+    `harness.deps.service` is a process-wide singleton built from whichever test
+    module imported it first. In a full-suite run another module's fixture can
+    close or repoint that store, which made the stateful run tests fail while
+    they passed in isolation. The router imports `service` by value, so patching
+    that binding for this module is enough and leaves every other test alone.
+    """
+    import harness.routers.graphs as graphs_router
+    from harness.service import AgenticService
+
+    fresh = AgenticService()
+    previous = graphs_router.service
+    graphs_router.service = fresh
+    try:
+        yield fresh
+    finally:
+        graphs_router.service = previous
+        try:
+            fresh.close()
+        except Exception:  # noqa: BLE001 - teardown must not fail the module
+            pass
 
 
 def _node(node_id, node_type, config=None):

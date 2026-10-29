@@ -30,6 +30,13 @@ The model spec is closed and validated. A missing input is refused by name
 | `comps` | Explicit peer set, EV/multiple table, percentile statistics and implied valuation range |
 | `integrated` | Three-statement plus whichever of DCF/LBO/comps the spec supplies |
 
+For an `integrated` model, a DCF is built when `assumptions.wacc` (or
+`assumptions.waccInputs`, or a top-level `dcf.wacc`) is present. WACC fields accept
+snake_case or camelCase (`market_cap`/`marketCap`); `comps.target` and peer rows
+accept both `net_debt`/`netDebt`, `shares`/`sharesOutstanding`, `debt`/`totalDebt`
+and `net_income`/`netIncome`. Duplicate statement checks are collapsed when the
+DCF/LBO/comps results are merged into an integrated model.
+
 ## Spec shape
 
 ```json
@@ -124,8 +131,10 @@ cash balance presented as clean.
   share count is excluded with a note.
 - **Bounded models.** Forecast years, peers, table rows and export sections are
   capped; the workbook and reports are written only through the Artifact Center.
-- **Checks are a gate, not a caption.** The summary exposes every PASS/FAIL/WARN;
-  a model with a FAIL is still returned for inspection but is clearly marked.
+- **Checks are a gate, not a caption.** The summary exposes every PASS/FAIL/WARN
+  and the key computed metrics (`enterpriseValue`, `equityValue`, `valuePerShare`,
+  `wacc`, `irr`, `moic` where applicable), including for an `integrated` model; a
+  model with a FAIL is still returned for inspection but is clearly marked.
 
 ## Deliverables
 

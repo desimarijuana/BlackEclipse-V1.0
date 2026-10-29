@@ -75,7 +75,7 @@ def test_auto_evaluate_scores_only_due_rows_with_a_price(tmp_path):
                 return {"price": 110.0}
 
         service = AdvisoryService(store)
-        result = asyncio.run(service.auto_evaluate(_Gateway()))
+        result = asyncio.run(service.auto_evaluate(_Gateway(), now="2026-10-28T00:00:00Z"))
         assert result["evaluated"] == 1
         assert result["skippedNoPrice"] == 1
         assert result["skippedNotDue"] == 1

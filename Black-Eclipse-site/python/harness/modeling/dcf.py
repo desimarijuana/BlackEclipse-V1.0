@@ -15,18 +15,34 @@ from .contracts import Check, ModelError, ModelResult, number, require
 from .three_statement import build_three_statement
 
 
+def _pick(block: dict[str, Any], *names: str) -> Any:
+    for name in names:
+        if block.get(name) is not None:
+            return block[name]
+    return None
+
+
+def _required_pick(block: dict[str, Any], names: tuple[str, ...], label: str) -> float:
+    value = _pick(block, *names)
+    if value is None:
+        raise ModelError("INPUT_UNAVAILABLE", f"wacc.{label} is required")
+    return number(value, f"wacc.{label}")
+
+
 def _wacc_rate(assumptions: dict[str, Any]) -> float:
-    block = assumptions.get("wacc")
+    block = _pick(assumptions, "wacc", "waccInputs", "wacc_inputs")
     if not isinstance(block, dict):
         raise ModelError("INPUT_UNAVAILABLE", "assumptions.wacc is required for a DCF")
+    cost_of_debt = _pick(block, "cost_of_debt", "costOfDebt")
+    tax_rate = _pick(block, "tax_rate", "taxRate")
     inputs = WaccInputs(
-        market_cap=number(require(block, "market_cap", "assumptions.wacc"), "wacc.market_cap"),
-        total_debt=number(require(block, "total_debt", "assumptions.wacc"), "wacc.total_debt"),
-        risk_free_rate=number(require(block, "risk_free_rate", "assumptions.wacc"), "wacc.risk_free_rate"),
-        beta=number(require(block, "beta", "assumptions.wacc"), "wacc.beta"),
-        equity_risk_premium=number(require(block, "equity_risk_premium", "assumptions.wacc"), "wacc.equity_risk_premium"),
-        cost_of_debt=(number(block["cost_of_debt"], "wacc.cost_of_debt") if block.get("cost_of_debt") is not None else None),
-        tax_rate=(number(block["tax_rate"], "wacc.tax_rate") if block.get("tax_rate") is not None else None),
+        market_cap=_required_pick(block, ("market_cap", "marketCap"), "market_cap"),
+        total_debt=_required_pick(block, ("total_debt", "totalDebt"), "total_debt"),
+        risk_free_rate=_required_pick(block, ("risk_free_rate", "riskFreeRate"), "risk_free_rate"),
+        beta=_required_pick(block, ("beta",), "beta"),
+        equity_risk_premium=_required_pick(block, ("equity_risk_premium", "equityRiskPremium"), "equity_risk_premium"),
+        cost_of_debt=(number(cost_of_debt, "wacc.cost_of_debt") if cost_of_debt is not None else None),
+        tax_rate=(number(tax_rate, "wacc.tax_rate") if tax_rate is not None else None),
         currency=block.get("currency"),
     )
     metric = wacc(inputs)
@@ -34,7 +50,11 @@ def _wacc_rate(assumptions: dict[str, Any]) -> float:
 
 
 def build_dcf(spec: dict[str, Any], statement: ModelResult | None = None) -> ModelResult:
-    assumptions = spec.get("assumptions") or {}
+    assumptions = dict(spec.get("assumptions") or {})
+    dcf_block = spec.get("dcf")
+    if isinstance(dcf_block, dict):
+        for key, value in dcf_block.items():
+            assumptions.setdefault(key, value)
     statement = statement or build_three_statement(spec)
     fcff = statement.meta.get("freeCashFlowToFirm") or []
     if not fcff:

@@ -102,8 +102,39 @@ def _context(ctx: ToolContext, *, force: bool = False) -> DocumentContext:
     )
 
 
-def _resolve_source(args: dict[str, Any]) -> tuple[Optional[bytes], Optional[str], str, str]:
+def _artifact_source(ctx: ToolContext, artifact_id: str) -> Optional[tuple[bytes, str]]:
+    service = getattr(ctx, "artifact_service", None)
+    if service is None:
+        from ..artifacts.bootstrap import get_artifact_service  # noqa: PLC0415
+
+        service = get_artifact_service()
+    if service is None:
+        return None
+    owner = str(getattr(ctx, "workspace_id", None) or "local")
+    try:
+        artifact = service.get(artifact_id, owner_id=owner)
+        handle, artifact = service.open_content(artifact_id, owner_id=owner)
+        try:
+            data = handle.read()
+        finally:
+            try:
+                handle.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return data, artifact.name
+    except Exception:  # noqa: BLE001 - an unavailable artifact is a normal refusal
+        return None
+
+
+def _resolve_source(args: dict[str, Any], ctx: Optional[ToolContext] = None) -> tuple[Optional[bytes], Optional[str], str, str]:
     """Return `(data, path, name, kind)`. URL is fetched through the SSRF guard."""
+    artifact_id = str(args.get("artifactId") or "").strip()
+    if artifact_id and ctx is not None:
+        found = _artifact_source(ctx, artifact_id)
+        if found is None:
+            return None, None, artifact_id, str(args.get("kind") or "").lower()
+        data, name = found
+        return data, None, name, str(args.get("kind") or "").lower()
     source = str(args.get("source") or args.get("path") or args.get("url") or "").strip()
     if not source:
         return None, None, "", ""
@@ -136,7 +167,7 @@ def _err_text(exc: DocumentError) -> str:
 # ── handlers ──────────────────────────────────────────────────────────────────
 
 async def document_open(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    data, path, name, kind = _resolve_source(args)
+    data, path, name, kind = _resolve_source(args, ctx)
     if data is None and path is None:
         return ("A document path or URL is required.", {"status": "ERROR", "error": "source required"})
     include_ir = bool(args.get("include_ir", False))
@@ -173,7 +204,7 @@ async def document_inspect(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
         }
         return (_inspect_summary(doc, versions), data)
     # Otherwise inspect a source by parsing metadata only (no full index).
-    data, path, name, kind = _resolve_source(args)
+    data, path, name, kind = _resolve_source(args, ctx)
     if data is None and path is None:
         return ("A document_id or source is required.", {"status": "ERROR", "error": "document_id or source required"})
     from .security import read_local_file, validate_source
@@ -211,7 +242,7 @@ async def document_search(args: dict[str, Any], ctx: ToolContext) -> tuple[str, 
 
 
 async def document_extract(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
-    data, path, name, kind = _resolve_source(args)
+    data, path, name, kind = _resolve_source(args, ctx)
     if data is None and path is None:
         return ("A document path or URL is required.", {"status": "ERROR", "error": "source required"})
     try:
@@ -234,7 +265,7 @@ async def document_analyze(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
     from .query import engine_available
     from .ocr import ocr_available
 
-    data, path, name, kind = _resolve_source(args)
+    data, path, name, kind = _resolve_source(args, ctx)
     if data is None and path is None:
         return ("A document path or URL is required.", {"status": "ERROR", "error": "source required"})
     question = str(args.get("question") or "").strip()
@@ -318,7 +349,7 @@ async def document_compare(args: dict[str, Any], ctx: ToolContext) -> tuple[str,
 async def document_render(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     from .render import render_page, renderer_available
 
-    data, path, name, kind = _resolve_source(args)
+    data, path, name, kind = _resolve_source(args, ctx)
     if data is None and path is None:
         return ("A document path or URL is required.", {"status": "ERROR", "error": "source required"})
     from .security import read_local_file, validate_source
@@ -522,22 +553,22 @@ def _obj(props: dict[str, Any], required: Optional[list[str]] = None) -> dict[st
     return schema
 
 
-_SOURCE = {**_STR, "description": "A local file path or an http(s) URL."}
+_SOURCE = {**_STR, "description": "A local file path, an artifactId, or an http(s) URL."}
 
 _SCHEMAS: dict[str, dict[str, Any]] = {
-    "document_open": _obj({"source": _SOURCE, "path": _STR, "url": _STR, "kind": _STR,
-                           "force": _BOOL, "include_ir": _BOOL}, ["source"]),
-    "document_inspect": _obj({"document_id": _STR, "source": _SOURCE, "kind": _STR}),
+    "document_open": _obj({"source": _SOURCE, "artifactId": _STR, "path": _STR, "url": _STR, "kind": _STR,
+                           "force": _BOOL, "include_ir": _BOOL}),
+    "document_inspect": _obj({"document_id": _STR, "artifactId": _STR, "source": _SOURCE, "kind": _STR}),
     "document_search": _obj({
         "query": _STR, "document_id": _STR, "version": _INT, "page": _INT, "sheet": _STR,
         "section": _STR, "kinds": {"type": "array", "items": _STR}, "limit": _INT,
     }, ["query"]),
-    "document_extract": _obj({"source": _SOURCE, "kind": _STR, "max_chars": _INT, "force": _BOOL}, ["source"]),
-    "document_analyze": _obj({"source": _SOURCE, "kind": _STR, "question": _STR, "force": _BOOL}, ["source"]),
+    "document_extract": _obj({"source": _SOURCE, "artifactId": _STR, "kind": _STR, "max_chars": _INT, "force": _BOOL}),
+    "document_analyze": _obj({"source": _SOURCE, "artifactId": _STR, "kind": _STR, "question": _STR, "force": _BOOL}),
     "document_query": _obj({"document_id": _STR, "sql": _STR, "sheet": _STR}, ["document_id"]),
     "document_compare": _obj({"document_a": _STR, "document_b": _STR, "source_a": _STR, "source_b": _STR,
                               "kind_a": _STR, "kind_b": _STR}),
-    "document_render": _obj({"source": _SOURCE, "kind": _STR, "page": _INT, "scale": _NUM}, ["source"]),
+    "document_render": _obj({"source": _SOURCE, "artifactId": _STR, "kind": _STR, "page": _INT, "scale": _NUM}),
     "document_capabilities": _obj({}),
 }
 

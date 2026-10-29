@@ -59,6 +59,12 @@ def test_advanced_quant_routes_registered():
         "/quant/implied-volatility",
         "/quant/option-strategy",
         "/quant/continuous-contract",
+        "/quant/strategy-approvals",
+        "/quant/strategies/{strategy_id}/approvals",
+        "/quant/approvals/{approval_id}/decide",
+        "/quant/strategies/{strategy_id}/deployments",
+        "/quant/deployments/{deployment_id}/paper-runs",
+        "/quant/paper-runs",
         "/quant/regime-monte-carlo",
         "/quant/edge-verdict",
         "/quant/trade-log",
@@ -76,6 +82,55 @@ def test_advanced_quant_routes_registered():
         "/projects/auto/run",
     ):
         assert path in paths, path
+
+
+def test_paper_governance_routes(tmp_path, monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import harness.routers.quant as quant_router
+    from harness.deps import require_operator
+    from harness.persistence import AgentMemoryStore
+    from harness.quant import strategy as S
+    from harness.quant.store import QuantStore
+
+    store = QuantStore(AgentMemoryStore(str(tmp_path / "am.db")),
+                       artifact_root=str(tmp_path / "artifacts"))
+    spec = S.parse_strategy({
+        "strategy": {"id": "gov-route", "name": "Gov Route", "version": "1.0.0"},
+        "universe": {"symbols": ["X"]},
+        "indicators": [{"id": "ema", "type": "ema", "params": {"period": 5}}],
+        "rules": {"entry": {"long": {"conditions": [
+            {"left": {"ref": "close"}, "op": ">", "right": {"ref": "ema"}}]}}, "exit": {}},
+        "position_sizing": {"type": "percent_equity", "value": 50},
+    })
+    store.save_strategy(spec)
+    monkeypatch.setattr(quant_router.service, "quant_store", store, raising=False)
+
+    app = FastAPI()
+    app.include_router(quant_router.router)
+    app.dependency_overrides[require_operator] = lambda: True
+    client = TestClient(app)
+
+    requested = client.post("/quant/strategies/gov-route/approvals",
+                            json={"version": "1.0.0", "actor": "studio"}).json()
+    approval = requested["approval"]
+    assert approval["status"] == "requested"
+
+    decided = client.post(f"/quant/approvals/{approval['id']}/decide",
+                          json={"approve": True, "actor": "studio"}).json()
+    assert decided["approval"]["status"] == "approved"
+
+    deployment = client.post("/quant/strategies/gov-route/deployments",
+                             json={"version": "1.0.0", "mode": "paper"}).json()
+    assert deployment["deployment"]["status"] == "active"
+    assert deployment["deployment"]["liveExecution"] is False
+
+    listed = client.get("/quant/strategies/gov-route/deployments").json()
+    assert len(listed["deployments"]) == 1
+
+    approvals = client.get("/quant/strategy-approvals?strategyId=gov-route").json()
+    assert approvals["approvals"][0]["status"] == "approved"
 
 
 def test_the_report_routes_are_mounted_on_the_running_app():

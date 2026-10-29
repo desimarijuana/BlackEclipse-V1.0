@@ -4,7 +4,7 @@ import io
 
 import pytest
 
-from harness.modeling import build_model, build_model_report, build_workbook_bytes
+from harness.modeling import build_model, build_model_report, build_summary, build_workbook_bytes
 from harness.modeling.contracts import ModelError
 
 
@@ -96,6 +96,77 @@ def test_dcf_mid_year_convention():
     schedule = result.sections["DCF Schedule"]["rows"]
     assert schedule[0]["values"][2] == pytest.approx(1.0 / (1.0 + result.meta["wacc"]) ** 0.5)
     assert any("mid-year" in warning.lower() for warning in result.warnings)
+
+
+def test_integrated_model_exposes_dcf_key_metrics_to_the_audit():
+    spec = {
+        "kind": "integrated",
+        "company": {"name": "Example Co", "currency": "USD", "units": "millions"},
+        "history": _history(),
+        "assumptions": _assumptions(),
+    }
+    result = build_model(spec)
+    assert result.meta.get("enterpriseValue") is not None
+    assert result.meta.get("equityValue") is not None
+    assert result.meta.get("valuePerShare") is not None
+    summary = build_summary(result)
+    assert summary["keyMetrics"]["enterpriseValue"] == result.meta["enterpriseValue"]
+    assert summary["keyMetrics"]["valuePerShare"] == result.meta["valuePerShare"]
+
+
+def test_integrated_accepts_wacc_aliases_and_deduplicates_checks():
+    spec = {
+        "kind": "integrated",
+        "company": {"name": "Example Co", "currency": "USD", "units": "millions"},
+        "history": _history(),
+        "assumptions": _assumptions(),
+    }
+    wacc = spec["assumptions"].pop("wacc")
+    spec["assumptions"]["waccInputs"] = {
+        "marketCap": wacc["market_cap"],
+        "totalDebt": wacc["total_debt"],
+        "riskFreeRate": wacc["risk_free_rate"],
+        "beta": wacc["beta"],
+        "equityRiskPremium": wacc["equity_risk_premium"],
+        "costOfDebt": wacc["cost_of_debt"],
+        "taxRate": wacc["tax_rate"],
+    }
+    spec["dcf"] = {"midYear": True}
+    result = build_model(spec)
+    assert "DCF" in result.sections
+    assert result.meta.get("enterpriseValue") is not None
+    assert result.meta.get("valuePerShare") is not None
+    check_keys = [(check.name, check.detail, check.value) for check in result.checks]
+    assert len(check_keys) == len(set(check_keys))
+    summary = build_summary(result)
+    assert summary["keyMetrics"]["enterpriseValue"] is not None
+
+
+def test_comps_accepts_camel_case_target_and_peer_fields():
+    peer = _peer("Alias Co", 100.0)
+    peer.pop("debt", None)
+    peer.pop("cash", None)
+    peer.pop("shares", None)
+    peer.pop("net_income", None)
+    peer.update({
+        "totalDebt": 200.0,
+        "cashAndCashEquivalents": 50.0,
+        "sharesOutstanding": 100.0,
+        "netIncome": 50.0,
+    })
+    spec = {
+        "kind": "comps",
+        "company": {"name": "Example Co", "currency": "USD"},
+        "comps": {
+            "peers": [peer, _peer("Alias Co 2", 110.0), _peer("Alias Co 3", 90.0)],
+            "target": {"metric": "ebitda", "value": 150.0, "netDebt": 300.0, "sharesOutstanding": 100.0},
+        },
+    }
+    result = build_model(spec)
+    assert result.checks_pass(), [check.to_dict() for check in result.checks]
+    row = result.sections["Implied Valuation"]["rows"][0]["values"]
+    assert row[4] == pytest.approx(row[3] - 300.0)
+    assert row[5] == pytest.approx((row[3] - 300.0) / 100.0)
 
 
 def test_lbo_sources_uses_and_returns():

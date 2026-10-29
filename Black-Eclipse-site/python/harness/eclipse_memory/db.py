@@ -27,6 +27,26 @@ _ADD_COLUMN = re.compile(
 )
 
 
+def add_column_already_present(db: sqlite3.Connection, statement: str) -> bool:
+    """Whether an `ALTER TABLE ... ADD COLUMN` statement is a no-op.
+
+    Migrations are append-only and normally run exactly once, but a database can
+    already carry an additive column without the migration being recorded (a
+    partially applied upgrade, a copied store, or a base CREATE that already
+    declares the column). SQLite has no `ADD COLUMN IF NOT EXISTS`, so the check
+    lives here and is used by BOTH the runner and the migration-matrix test.
+    """
+    match = _ADD_COLUMN.match(statement or "")
+    if match is None:
+        return False
+    table, column = match.group(1), match.group(2)
+    try:
+        rows = db.execute(f"PRAGMA table_info({table})").fetchall()
+    except sqlite3.Error:
+        return False
+    return any(str(row["name"]).lower() == column.lower() for row in rows)
+
+
 def now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + f".{int(time.time() % 1 * 1000):03d}Z"
 
@@ -97,23 +117,8 @@ class EclipseMemoryDb:
             self._db.commit()
 
     def _add_column_already_present(self, statement: str) -> bool:
-        """Whether an `ALTER TABLE ... ADD COLUMN` statement is a no-op.
-
-        Migrations are append-only and normally run exactly once, but a database
-        can already carry an additive column without the migration being recorded
-        (a partially applied upgrade, or a copied store). SQLite has no
-        `ADD COLUMN IF NOT EXISTS`, so the migration runner performs the check
-        here instead of failing the whole boot on a duplicate column.
-        """
-        match = _ADD_COLUMN.match(statement or "")
-        if match is None:
-            return False
-        table, column = match.group(1), match.group(2)
-        try:
-            rows = self._db.execute(f"PRAGMA table_info({table})").fetchall()
-        except sqlite3.Error:
-            return False
-        return any(str(row["name"]).lower() == column.lower() for row in rows)
+        """Delegates to the module helper (one guard for runner and tests)."""
+        return add_column_already_present(self._db, statement)
 
     def migration_status(self) -> dict[str, Any]:
         applied = [

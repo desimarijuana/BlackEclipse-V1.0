@@ -104,6 +104,13 @@ def _quarterly_ttm(peer: dict[str, Any], *, target_fye: Any) -> Optional[dict[st
     return result
 
 
+def _peer_pick(peer: dict[str, Any], *names: str) -> Any:
+    for name in names:
+        if peer.get(name) is not None:
+            return peer[name]
+    return None
+
+
 def _peer_rows(
     peers: list[dict[str, Any]],
     *,
@@ -161,10 +168,10 @@ def _peer_rows(
                 factor = 1.0
                 method = "none"
 
-        price = number(peer.get("price"), f"comps.peers[{index}].price") * rate
-        shares = number(peer.get("shares"), f"comps.peers[{index}].shares")
-        debt = number(peer.get("debt", 0.0), f"comps.peers[{index}].debt") * rate
-        cash = number(peer.get("cash", 0.0), f"comps.peers[{index}].cash") * rate
+        price = number(_peer_pick(peer, "price", "sharePrice", "share_price"), f"comps.peers[{index}].price") * rate
+        shares = number(_peer_pick(peer, "shares", "sharesOutstanding", "shares_outstanding"), f"comps.peers[{index}].shares")
+        debt = number(_peer_pick(peer, "debt", "totalDebt", "total_debt") or 0.0, f"comps.peers[{index}].debt") * rate
+        cash = number(_peer_pick(peer, "cash", "cashAndCashEquivalents", "cash_and_cash_equivalents") or 0.0, f"comps.peers[{index}].cash") * rate
         minority = number(peer.get("minority", 0.0), f"comps.peers[{index}].minority") * rate
         preferred = number(peer.get("preferred", 0.0), f"comps.peers[{index}].preferred") * rate
         market_cap = price * shares
@@ -173,8 +180,8 @@ def _peer_rows(
             "name": name,
             "marketCap": market_cap,
             "enterpriseValue": enterprise_value,
-            "period": str(peer.get("period") or ""),
-            "source": str(peer.get("source") or ""),
+            "period": str(_peer_pick(peer, "period", "endDate", "end_date") or ""),
+            "source": str(_peer_pick(peer, "source", "statementSource", "statement_source") or ""),
             "currency": target,
             "sourceCurrency": currency,
             "fxRate": rate,
@@ -182,15 +189,21 @@ def _peer_rows(
             "calendarizationMethod": method,
             "multiples": {},
         }
-        for metric in ("revenue", "ebitda", "ebit", "net_income"):
+        aliases = {
+            "revenue": ("revenue", "totalRevenue", "total_revenue"),
+            "ebitda": ("ebitda",),
+            "ebit": ("ebit", "operatingIncome", "operating_income"),
+            "net_income": ("net_income", "netIncome"),
+        }
+        for metric, names in aliases.items():
             value = quarterly.get(metric) if quarterly else None
             if value is None:
-                value = peer.get(metric)
+                value = _peer_pick(peer, *names)
             if value is not None:
                 row[metric] = number(value, f"comps.peers[{index}].{metric}") * rate * (1.0 if quarterly else factor)
         eps = quarterly.get("eps") if quarterly else None
         if eps is None:
-            eps = peer.get("eps")
+            eps = _peer_pick(peer, "eps", "epsDiluted", "eps_diluted")
         if eps is not None:
             row["eps"] = number(eps, f"comps.peers[{index}].eps") * rate * (1.0 if quarterly else factor)
 
@@ -229,9 +242,18 @@ def build_comps(spec: dict[str, Any]) -> ModelResult:
     target_metric = str(target.get("metric") or "").strip().lower()
     if target_metric not in ("revenue", "ebitda", "ebit", "net_income"):
         raise ModelError("INPUT_INVALID", "comps.target.metric must be revenue, ebitda, ebit or net_income")
-    target_value = number(target.get("value"), "comps.target.value")
-    net_debt = number(target.get("net_debt", 0.0), "comps.target.net_debt")
-    shares = number(target.get("shares"), "comps.target.shares")
+    target_value = number(
+        target.get("value", target.get("metricValue", target.get("metric_value"))),
+        "comps.target.value",
+    )
+    net_debt = number(
+        target.get("net_debt", target.get("netDebt", 0.0)),
+        "comps.target.net_debt",
+    )
+    shares = number(
+        target.get("shares", target.get("sharesOutstanding", target.get("shares_outstanding"))),
+        "comps.target.shares",
+    )
     if shares <= 0:
         raise ModelError("INPUT_INVALID", "comps.target.shares must be positive")
     selected = comps.get("multiples") or list(METRICS)

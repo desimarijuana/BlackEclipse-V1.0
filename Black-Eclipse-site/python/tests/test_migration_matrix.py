@@ -15,7 +15,7 @@ import tempfile
 import pytest
 
 from harness.eclipse_memory import EclipseMemoryService, EclipseMemoryStore
-from harness.eclipse_memory.db import now_iso
+from harness.eclipse_memory.db import add_column_already_present, now_iso
 from harness.eclipse_memory.schema import MIGRATIONS, SCHEMA_VERSION
 
 
@@ -40,6 +40,10 @@ def test_every_prior_version_reopens_without_error():
             if v > version:
                 break
             for statement in statements:
+                # Mirror the production runner: a base CREATE may already declare
+                # a column a later migration adds.
+                if add_column_already_present(db, statement):
+                    continue
                 db.executescript(statement)
             db.execute(
                 "INSERT OR REPLACE INTO SchemaMigration (version, appliedAt) VALUES (?, ?)",

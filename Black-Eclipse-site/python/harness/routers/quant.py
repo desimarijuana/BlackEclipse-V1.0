@@ -157,6 +157,124 @@ async def list_versions(strategy_id: str, _: bool = Depends(require_operator)) -
     return {"versions": _store().list_versions(strategy_id)}
 
 
+class ApprovalBody(BaseModel):
+    version: Optional[str] = None
+    actor: Optional[str] = None
+    note: Optional[str] = None
+
+
+class ApprovalDecisionBody(BaseModel):
+    approve: bool = True
+    actor: Optional[str] = None
+    note: Optional[str] = None
+
+
+class DeploymentBody(BaseModel):
+    version: Optional[str] = None
+    mode: str = "paper"
+    note: Optional[str] = None
+    requireApproval: bool = True
+
+
+class PaperRunBody(BaseModel):
+    start: Optional[str] = None
+    end: Optional[str] = None
+    symbols: Optional[list[str]] = None
+    initialCapital: float = 100_000.0
+    riskFreeRate: float = 0.0
+    randomSeed: int = 42
+
+
+@router.get("/quant/strategy-approvals")
+async def list_strategy_approvals(strategyId: Optional[str] = None,
+                                  _: bool = Depends(require_operator)) -> dict:
+    try:
+        return {"approvals": _store().list_approvals(strategyId)}
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.post("/quant/strategies/{strategy_id}/approvals")
+async def request_strategy_approval(strategy_id: str, body: ApprovalBody,
+                                    _: bool = Depends(require_operator)) -> dict:
+    try:
+        record = _store().request_approval(
+            strategy_id, body.version or "1.0.0", actor=body.actor, note=body.note)
+        return {"approval": record}
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.post("/quant/approvals/{approval_id}/decide")
+async def decide_strategy_approval(approval_id: str, body: ApprovalDecisionBody,
+                                   _: bool = Depends(require_operator)) -> dict:
+    try:
+        record = _store().decide_approval(
+            approval_id, approve=body.approve, actor=body.actor, note=body.note)
+        return {"approval": record}
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.get("/quant/strategies/{strategy_id}/deployments")
+async def list_strategy_deployments(strategy_id: str,
+                                    _: bool = Depends(require_operator)) -> dict:
+    try:
+        return {"deployments": _store().list_deployments(strategy_id)}
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.post("/quant/strategies/{strategy_id}/deployments")
+async def create_strategy_deployment(strategy_id: str, body: DeploymentBody,
+                                     _: bool = Depends(require_operator)) -> dict:
+    try:
+        record = _store().create_deployment(
+            strategy_id, body.version or "1.0.0", mode=body.mode,
+            note=body.note, require_approval=body.requireApproval)
+        return {"deployment": record}
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.post("/quant/deployments/{deployment_id}/paper-runs")
+async def run_paper_shadow(deployment_id: str, body: PaperRunBody,
+                           _: bool = Depends(require_operator)) -> dict:
+    try:
+        store = _store()
+        deployment = store.get_deployment(deployment_id)
+        if deployment["status"] != "active":
+            raise HTTPException(status_code=409, detail={
+                "code": "DEPLOYMENT_INACTIVE", "message": "deployment is not active"})
+        record = store.get_strategy(deployment["strategyId"], deployment["version"])
+        spec = StrategySpec.model_validate(record["spec"])
+        dataset = await dataset_from_strategy(
+            _market_gateway(), spec, start=body.start, end=body.end, symbols=body.symbols)
+        result = run_backtest(spec, dataset, BacktestConfig(
+            initial_capital=body.initialCapital, start=body.start, end=body.end,
+            risk_free_rate=body.riskFreeRate, random_seed=body.randomSeed,
+        ))
+        run = store.save_paper_run(
+            result, deployment_id=deployment["id"],
+            strategy_id=deployment["strategyId"], version=deployment["version"])
+        return {"paperRun": run, "experimentId": run["experimentId"]}
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.get("/quant/paper-runs")
+async def list_paper_runs(strategyId: Optional[str] = None,
+                          deploymentId: Optional[str] = None,
+                          _: bool = Depends(require_operator)) -> dict:
+    try:
+        return {"paperRuns": _store().list_paper_runs(
+            deployment_id=deploymentId, strategy_id=strategyId)}
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
 @router.get("/quant/strategies/{strategy_id}/export")
 async def export_strategy_bundle(strategy_id: str, version: Optional[str] = None,
                                  format: str = "zip",

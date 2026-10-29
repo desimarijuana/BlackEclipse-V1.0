@@ -31,6 +31,7 @@ export type AppTab =
   | 'ui-builder'
   | 'sdk'
   | 'backtest'
+  | 'strategy-studio'
   | 'research-data'
   | 'factor-lab'
   | 'ml-lab'

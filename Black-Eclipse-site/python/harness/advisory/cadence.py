@@ -110,6 +110,7 @@ async def run_once(
             gateway,
             benchmark_return=config.benchmark_return,
             limit=config.max_per_tick,
+            now=now,
         )
     except Exception as exc:  # noqa: BLE001 - one tick must never kill the loop
         return {"checked": len(due), "evaluated": 0, "reason": "evaluate_failed", "error": str(exc)}

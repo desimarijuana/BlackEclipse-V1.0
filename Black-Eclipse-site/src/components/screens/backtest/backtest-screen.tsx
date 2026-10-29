@@ -6,15 +6,15 @@
 // trades and execution assumptions. Every displayed number comes from the
 // runtime's result artifact — an empty result is shown honestly, never faked.
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import type { EChartsOption } from 'echarts';
+import React, { useCallback, useEffect, useState } from 'react';
 import { DesktopOnlyNotice } from '@/components/ui/desktop-only-notice';
-import { useEChart, baseChartOption } from '@/components/screens/portfolio/use-echart';
 import { useBacktestScreen } from '@/lib/backtest/use-backtest-screen';
 import { ResearchPanel } from './research-panel';
+import { EquityChart, DrawdownChart } from './shared/charts';
+import { MetricGrid } from './shared/metric-grid';
+import { TradeTable } from './shared/trade-table';
 import {
   formatMetric,
-  type BacktestResult,
   type ExperimentSummary,
 } from '@/lib/backtest/backtest-client';
 import {
@@ -52,103 +52,22 @@ const SAMPLE_STRATEGY = {
   },
 };
 
-const METRIC_CARDS: Array<{ key: string; label: string; icon: 'return' | 'risk' | 'ratio' }> = [
-  { key: 'total_return', label: 'Total Return', icon: 'return' },
-  { key: 'cagr', label: 'CAGR', icon: 'return' },
-  { key: 'max_drawdown', label: 'Max Drawdown', icon: 'risk' },
-  { key: 'volatility', label: 'Volatility', icon: 'risk' },
-  { key: 'sharpe', label: 'Sharpe', icon: 'ratio' },
-  { key: 'sortino', label: 'Sortino', icon: 'ratio' },
-  { key: 'calmar', label: 'Calmar', icon: 'ratio' },
-  { key: 'win_rate', label: 'Win Rate', icon: 'return' },
-  { key: 'profit_factor', label: 'Profit Factor', icon: 'ratio' },
-  { key: 'trade_count', label: 'Trades', icon: 'ratio' },
-  { key: 'expectancy', label: 'Expectancy', icon: 'return' },
-  { key: 'avg_gross_exposure', label: 'Avg Exposure', icon: 'risk' },
-];
-
-function EquityChart({ result }: { result: BacktestResult }) {
-  const deps = useMemo(() => [result.equityCurve, result.drawdownCurve], [result]);
-  const ref = useEChart((): EChartsOption => {
-    const option = baseChartOption();
-    const x = result.equityCurve.map((p) => p.ts ?? String(p.index));
-    return {
-      ...option,
-      grid: { left: 56, right: 16, top: 24, bottom: 40 },
-      xAxis: { type: 'category', data: x, axisLabel: { color: '#9ca3af', fontSize: 10 }, boundaryGap: false },
-      yAxis: { type: 'value', scale: true, axisLabel: { color: '#9ca3af', fontSize: 10 },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } } },
-      series: [{
-        name: 'Equity', type: 'line', showSymbol: false, smooth: false,
-        data: result.equityCurve.map((p) => p.equity),
-        lineStyle: { color: '#22d3ee', width: 2 }, itemStyle: { color: '#22d3ee' },
-        areaStyle: { color: 'rgba(34,211,238,0.12)' },
-      }],
-    } as EChartsOption;
-  }, deps);
-  return <div ref={ref} className="h-[260px] w-full" />;
-}
-
-function DrawdownChart({ result }: { result: BacktestResult }) {
-  const deps = useMemo(() => [result.drawdownCurve], [result]);
-  const ref = useEChart((): EChartsOption => {
-    const option = baseChartOption();
-    const x = result.drawdownCurve.map((p) => p.ts ?? String(p.index));
-    return {
-      ...option,
-      grid: { left: 56, right: 16, top: 20, bottom: 40 },
-      xAxis: { type: 'category', data: x, axisLabel: { color: '#9ca3af', fontSize: 10 }, boundaryGap: false },
-      yAxis: { type: 'value', axisLabel: { color: '#9ca3af', fontSize: 10, formatter: '{value}%' },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } } },
-      series: [{
-        name: 'Drawdown', type: 'line', showSymbol: false,
-        data: result.drawdownCurve.map((p) => p.drawdown),
-        lineStyle: { color: '#f87171', width: 1.5 }, itemStyle: { color: '#f87171' },
-        areaStyle: { color: 'rgba(248,113,113,0.15)' },
-      }],
-    } as EChartsOption;
-  }, deps);
-  return <div ref={ref} className="h-[200px] w-full" />;
-}
-
-function TradeTable({ result }: { result: BacktestResult }) {
-  if (!result.trades.length) {
-    return <p className="text-xs text-muted-foreground">No trades were generated for this configuration.</p>;
-  }
-  return (
-    <div className="max-h-[280px] overflow-auto">
-      <table className="w-full text-left font-mono text-[11px]">
-        <thead className="sticky top-0 bg-black/30 text-muted-foreground">
-          <tr>
-            <th className="px-2 py-1">Symbol</th>
-            <th className="px-2 py-1">Dir</th>
-            <th className="px-2 py-1">Entry</th>
-            <th className="px-2 py-1">Exit</th>
-            <th className="px-2 py-1 text-right">Net P&L</th>
-            <th className="px-2 py-1 text-right">%</th>
-            <th className="px-2 py-1">Reason</th>
-          </tr>
-        </thead>
-        <tbody>
-          {result.trades.map((t) => (
-            <tr key={t.id} className="border-t border-white/5">
-              <td className="px-2 py-1">{t.symbol}</td>
-              <td className={cn('px-2 py-1', t.direction === 'long' ? 'text-emerald-400' : 'text-rose-400')}>
-                {t.direction}
-              </td>
-              <td className="px-2 py-1">{t.entryPrice.toFixed(2)}</td>
-              <td className="px-2 py-1">{t.exitPrice.toFixed(2)}</td>
-              <td className={cn('px-2 py-1 text-right', t.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-                {t.netPnl.toFixed(2)}
-              </td>
-              <td className="px-2 py-1 text-right">{t.pnlPct.toFixed(2)}%</td>
-              <td className="px-2 py-1 text-muted-foreground">{t.exitReason || '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+/** Copy the spec and stamp the execution costs the form controls. */
+function withCosts(
+  spec: Record<string, unknown>,
+  commission: number,
+  slippage: number,
+  spread: number,
+): Record<string, unknown> {
+  const next = JSON.parse(JSON.stringify(spec)) as Record<string, unknown>;
+  const exec = (next.execution as Record<string, unknown>) ?? {};
+  next.execution = {
+    ...exec,
+    commission: { type: 'percentage', value: commission },
+    slippage: { type: 'percentage', value: slippage },
+    spread: { type: 'bps', value: spread },
+  };
+  return next;
 }
 
 function ExperimentRow({ exp, onOpen, onDelete }: {
@@ -213,23 +132,12 @@ export function BacktestScreen() {
     return null;
   }, [editorOpen, editorText, state.selected]);
 
-  const applyCosts = (spec: Record<string, unknown>): Record<string, unknown> => {
-    const exec = (spec.execution as Record<string, unknown>) ?? {};
-    spec.execution = {
-      ...exec,
-      commission: { type: 'percentage', value: commission },
-      slippage: { type: 'percentage', value: slippage },
-      spread: { type: 'bps', value: spread },
-    };
-    return spec;
-  };
-
   const handleRun = useCallback(async () => {
     setFormError(null);
     setNotice(null);
-    const spec = parseSpec();
-    if (!spec) return;
-    applyCosts(spec);
+    const parsed = parseSpec();
+    if (!parsed) return;
+    const spec = withCosts(parsed, commission, slippage, spread);
     const syms = symbols.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
     const result = await state.run({
       strategy: spec,
@@ -449,11 +357,7 @@ export function BacktestScreen() {
                     {result.experimentId ? ` · ${result.experimentId}` : ''}
                   </span>
                 </div>
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-                  {METRIC_CARDS.map((c) => (
-                    <MetricCardWrapper key={c.key} name={c.key} label={c.label} value={result.metrics[c.key]} />
-                  ))}
-                </div>
+                <MetricGrid metrics={result.metrics} definitions={result.metricDefinitions} />
               </div>
 
               <div className="glass-card rounded-2xl p-4">
@@ -470,7 +374,7 @@ export function BacktestScreen() {
                 <h3 className="mb-2 text-xs font-semibold text-foreground">
                   Trades <span className="text-muted-foreground">({result.trades.length})</span>
                 </h3>
-                <TradeTable result={result} />
+                <TradeTable result={result} maxRows={result.trades.length} newestFirst={false} />
               </div>
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -533,18 +437,3 @@ export function BacktestScreen() {
   );
 }
 
-function MetricCardWrapper({ name, label, value }: { name: string; label: string; value: number | null | undefined }) {
-  return (
-    <div className="glass-card-subtle rounded-xl px-3 py-2" data-metric={name}>
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={cn(
-        'font-mono text-sm text-foreground',
-        name.includes('drawdown') && value != null && value < 0 && 'text-rose-400',
-        name.includes('return') && value != null && value < 0 && 'text-rose-400',
-        name.includes('return') && value != null && value > 0 && 'text-emerald-400',
-      )}>
-        {formatMetric(name, value)}
-      </div>
-    </div>
-  );
-}

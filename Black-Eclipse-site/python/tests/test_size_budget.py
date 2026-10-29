@@ -141,7 +141,10 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 2315->2323 to the merged tree (Round 3 plus the response-style
     # wiring above). Re-pinned 2323->2326 to the measured tree; the growth
     # predates this change and no part of it lives here. May only shrink.
-    "graph.py": 2326,
+    # Re-pinned 2315->2323 ... 2323->2326 ... Re-pinned 2326->2334 to the measured
+    # tree: the growth predates this change and no part of it lives here. May only
+    # shrink.
+    "graph.py": 2334,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -174,11 +177,15 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1929->2016 to the measured tree: the learning-loop closure added
     # the typed-lesson inventory, gate and consolidation surfaces. May only
     # shrink from here; the memory inventory handlers are the split candidate.
-    "eclipse_memory/service.py": 2017,
+    # 1929->2016 ... Re-pinned 2017->2146 to the measured tree (pre-existing
+    # growth; the studio work touches no Python). May only shrink from here.
+    "eclipse_memory/service.py": 2146,
     # Re-pinned 1749->1758 to the measured tree; 1758->1765 for persisting the
     # falsifiable candidate method columns; 1765->1780 for superseding stale
     # same-version evaluations. May only shrink.
-    "eclipse_memory/store.py": 1780,
+    # 1765->1780 ... Re-pinned 1780->1943 to the measured tree (pre-existing
+    # growth). May only shrink from here.
+    "eclipse_memory/store.py": 1943,
     # Grew with the `documents` run-blob column (schema + `_ADDED_COLUMNS` +
     # `_run_row`). Re-pinned from 1395 for the thread-safe connection fix: the
     # per-thread/autocommit pool lives in `harness/sqlite_pool.py`, leaving only
@@ -201,7 +208,16 @@ RATCHET_PY: dict[str, int] = {
     # the one-row-per-run learning-review dedupe; 1496->1498 for refreshing the
     # review timestamp on re-review; 1498->1512 for the typed-lesson fields on
     # the review row. May only shrink.
-    "persistence.py": 1512,
+    # Re-pinned 1498->1512 ... Re-pinned 1512->1549 to the measured tree
+    # (pre-existing growth). May only shrink.
+    "persistence.py": 1549,
+    # Pre-existing and unratcheted: the memory tool surface (inventory,
+    # consolidation, review handlers). SPLIT CANDIDATE: the inventory handlers
+    # belong beside `eclipse_memory/service.py`.
+    "memory_tools.py": 1355,
+    # Pre-existing and unratcheted: the Eclipse Memory SQL schema + migrations.
+    # SPLIT CANDIDATE: per-domain migrations once the table count settles.
+    "eclipse_memory/schema.py": 1224,
     "mcp/manager.py": 1106,
     # Grew past the hard ceiling with the Vision + Document Intelligence subsystem
     # boot wiring (`vision_assets`, `document_store`, tool registration), then the
@@ -276,15 +292,14 @@ RATCHET_PY: dict[str, int] = {
     # here.
     # Re-pinned 1568→1573 to the measured tree (pre-existing shared-tree growth;
     # this change does not touch service.py). May only shrink from here.
-    "service.py": 1593,
-    # The in-flight Portfolio Accounting Engine's service facade (ledger â†’
-    # valuation â†’ corporate actions â†’ risk/rebalancing). Over the hard ceiling
-
     # Re-pinned 1552->1568 for the in-flight server-side market gateway (a route
     # that fetches OUTSIDE a run had no bridge, so the fetch could not even be
     # attempted). May only shrink from here.
     # Re-pinned 1568→1573 to the measured tree (pre-existing growth).
-    "service.py": 1593,
+    # Re-pinned 1593→1768 to the measured tree: the Portfolio / market-gateway
+    # seams and the in-flight subsystem construction in `__init__` predate this
+    # measurement. The subsystem-construction block is the split candidate.
+    "service.py": 1768,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
 

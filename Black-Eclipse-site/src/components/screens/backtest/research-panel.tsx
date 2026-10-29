@@ -187,7 +187,7 @@ export function ResearchPanel({ selected, running, research, progress, onRun, on
   );
 }
 
-function ResearchResultView({ research }: { research: ResearchResult }) {
+export function ResearchResultView({ research }: { research: ResearchResult }) {
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-white/10 p-3">
       <div className="flex items-center gap-2 font-mono text-[11px]">

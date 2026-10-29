@@ -130,6 +130,16 @@ export const projectClient = {
       `/${encodeURIComponent(id)}/proposals/${encodeURIComponent(proposalId)}/run`,
       { method: "POST" },
     ),
+
+  /** Attach a strategy/experiment/artifact/note to a project. */
+  addMember: (
+    id: string,
+    body: { kind: string; ref: string; label?: string; meta?: Record<string, unknown> },
+  ) =>
+    jsonFetch<{ member: ProjectMember }>(`/${encodeURIComponent(id)}/members`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }).then((r) => r.member),
 };
 
 /**

@@ -132,6 +132,10 @@ const BacktestScreen = dynamic(
   () => import('@/components/screens/backtest/backtest-screen').then((m) => m.BacktestScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const StrategyStudioScreen = dynamic(
+  () => import('@/components/screens/strategy-studio/strategy-studio-screen').then((m) => m.StrategyStudioScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 const ResearchDataScreen = dynamic(
   () => import('@/components/screens/research-data/research-data-screen').then((m) => m.ResearchDataScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
@@ -1429,6 +1433,14 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'backtest' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
                 <BacktestScreen />
+              </div>
+            </div>
+          )}
+
+          {visited.has('strategy-studio') && (
+            <div className={cn('w-full h-full', activeTab === 'strategy-studio' ? '' : 'hidden')}>
+              <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto">
+                <StrategyStudioScreen />
               </div>
             </div>
           )}

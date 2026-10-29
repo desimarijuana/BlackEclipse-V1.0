@@ -29,6 +29,7 @@ export const navigation = {
   'nav.pages': 'Pages',
   'nav.uiBuilder': 'Capability Studio',
   'nav.backtest': 'Quant Research',
+  'nav.strategyStudio': 'Strategy Studio',
   'nav.researchData': 'Research Data',
   'nav.graphStudio': 'Graph Studio',
   'nav.tables': 'Tables',

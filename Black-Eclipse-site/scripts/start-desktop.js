@@ -30,6 +30,14 @@ const HOME_URL =
 const PROXY_STOP = path.join(__dirname, "local-proxy-stop.js");
 const SESSION_FILE = path.join(ROOT, ".black-eclipse", "desktop-session.json");
 const LOG_FILE = path.join(ROOT, ".black-eclipse", "desktop-launch.log");
+// One launcher at a time. Double-clicking the icon while a cold build is still
+// running used to start a second (and third, and fourth...) launcher, and every
+// one of them killed the port and started its own `next build`. Concurrent
+// builds delete and rewrite the same `.next` folder, so they corrupt each
+// other's output and the app never comes up. This lock makes extra clicks
+// no-ops while the first launcher owns the boot.
+const LOCK_FILE = path.join(ROOT, ".black-eclipse", "desktop-launcher.lock");
+const MAX_LOCK_MS = 2 * 60 * 60 * 1000;
 const POLL_MS = 1_000;
 const LEAVE_GRACE_MS = 8_000;
 // Chrome/Edge throttle timers in a background tab to ~1/min after a few
@@ -96,6 +104,72 @@ function desktopUrl(url) {
     return u.toString();
   } catch {
     return url;
+  }
+}
+
+let lockHeld = false;
+
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means the process exists but belongs to someone else.
+    return Boolean(err && err.code === "EPERM");
+  }
+}
+
+function readLock() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(LOCK_FILE, "utf8"));
+    if (parsed && Number.isFinite(parsed.pid) && Number.isFinite(parsed.at)) return parsed;
+  } catch {
+    /* no lock, or a half-written one */
+  }
+  return null;
+}
+
+function acquireLock(retried = false) {
+  try {
+    fs.mkdirSync(path.dirname(LOCK_FILE), { recursive: true });
+    const fd = fs.openSync(LOCK_FILE, "wx");
+    fs.writeSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() }));
+    fs.closeSync(fd);
+    lockHeld = true;
+    return true;
+  } catch (err) {
+    if (!err || err.code !== "EEXIST") {
+      // The lock is a safety net, not a prerequisite: if the filesystem refuses
+      // it, still boot rather than leaving the user with no app at all.
+      log(`launcher lock unavailable (${err && err.message}); continuing`);
+      lockHeld = false;
+      return true;
+    }
+  }
+
+  const held = readLock();
+  const alive = held && held.pid !== process.pid && pidAlive(held.pid);
+  const fresh = held && Date.now() - held.at < MAX_LOCK_MS;
+  if (alive && fresh) return false;
+
+  // The owner is gone (crash, force-quit, or a PID that has since been reused
+  // by an unrelated process after the lock aged out). Take the lock over.
+  try {
+    fs.rmSync(LOCK_FILE, { force: true });
+  } catch {
+    /* best effort */
+  }
+  return retried ? false : acquireLock(true);
+}
+
+function releaseLock() {
+  if (!lockHeld) return;
+  lockHeld = false;
+  try {
+    const held = readLock();
+    if (held && held.pid === process.pid) fs.rmSync(LOCK_FILE, { force: true });
+  } catch {
+    /* best effort */
   }
 }
 
@@ -217,6 +291,24 @@ let serverChild = null;
 
 async function main() {
   log(`launcher start (node ${process.version}, cwd ${process.cwd()})`);
+
+  // The owning launcher both boots the app and opens the browser, so an extra
+  // click has nothing left to do. Without this guard each click spawned its own
+  // build against the same `.next` directory.
+  if (!acquireLock()) {
+    const existing = readSession();
+    if (existing && existing.event === "alive" && (await probeOnce(PROBE_URL))) {
+      // The owner is up already; just bring the tab back. While it is still
+      // building this probe fails and we leave silently so the owner can open
+      // the browser itself (no duplicate tabs, no second build).
+      log("app is already running under another launcher; opening it");
+      openBrowser(desktopUrl(HOME_URL));
+    } else {
+      log("another launcher is already booting the app — leaving it to finish");
+    }
+    return;
+  }
+  process.on("exit", releaseLock);
 
   // A second click while another launcher is watching should just bring the
   // browser back, not restart the app under it.

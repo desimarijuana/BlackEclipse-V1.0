@@ -187,8 +187,11 @@ const RATCHET: Record<string, number> = {
   // `components/screens/tables/tables-screen.tsx`.
   // Re-pinned 1572→1584 for the Agentic Overview tab (same small mount pattern;
   // the gallery lives in `components/screens/overview/overview-screen.tsx`).
+  // Re-pinned 1584→1589 for the Strategy Studio keep-alive mount (dynamic import
+  // + mount block); the page itself lives in
+  // `components/screens/strategy-studio/strategy-studio-screen.tsx`.
   // May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1584,
+  "src/components/screens/stock-chat.tsx": 1589,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

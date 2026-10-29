@@ -15,8 +15,34 @@ def _merge_statements(base: ModelResult, extra: ModelResult, *, include_statemen
     for name, section in extra.sections.items():
         if include_statement_sections or name not in base.sections:
             base.sections[name] = section
-    base.checks.extend(extra.checks)
-    base.warnings.extend(extra.warnings)
+    existing_checks = {(check.name, check.detail, check.value) for check in base.checks}
+    for check in extra.checks:
+        key = (check.name, check.detail, check.value)
+        if key not in existing_checks:
+            base.checks.append(check)
+            existing_checks.add(key)
+    existing_warnings = set(base.warnings)
+    for warning in extra.warnings:
+        if warning not in existing_warnings:
+            base.warnings.append(warning)
+            existing_warnings.add(warning)
+    for key, value in extra.meta.items():
+        if key in ("kind", "company", "specHash", "engine"):
+            continue
+        base.meta.setdefault(key, value)
+
+
+def _dcf_requested(spec: dict[str, Any]) -> bool:
+    assumptions = spec.get("assumptions") if isinstance(spec.get("assumptions"), dict) else {}
+    dcf = spec.get("dcf") if isinstance(spec.get("dcf"), dict) else {}
+    return bool(
+        assumptions.get("wacc")
+        or assumptions.get("waccInputs")
+        or assumptions.get("wacc_inputs")
+        or dcf.get("wacc")
+        or dcf.get("waccInputs")
+        or dcf.get("wacc_inputs")
+    )
 
 
 def build_model(payload: Any) -> ModelResult:
@@ -45,9 +71,13 @@ def build_model(payload: Any) -> ModelResult:
         assert statement is not None
         result = statement
         result.kind = "integrated"
-        if spec.get("assumptions", {}).get("wacc"):
+        if _dcf_requested(spec):
             dcf = build_dcf(spec, statement)
             _merge_statements(result, dcf)
+        else:
+            result.warnings.append(
+                "DCF was not built: the spec has no assumptions.wacc (or dcf.wacc) block"
+            )
         if spec.get("lbo"):
             lbo = build_lbo(spec, statement)
             _merge_statements(result, lbo)

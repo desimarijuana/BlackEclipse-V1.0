@@ -214,6 +214,7 @@ class AdvisoryService:
         horizon: Optional[str] = None,
         decision_ids: Optional[set[str]] = None,
         limit: int = 5000,
+        now: Optional[str] = None,
     ) -> dict[str, Any]:
         """Fetch current prices for open decisions and record their outcomes.
 
@@ -227,7 +228,10 @@ class AdvisoryService:
         open_decisions = []
         skipped_no_price: list[str] = []
         skipped_not_due: list[str] = []
-        moment = now_iso()
+        # The caller's clock is authoritative: `run_once` already decided which
+        # rows are due at `now`, so re-deriving the moment here would let a row
+        # that is not yet due be evaluated.
+        moment = now or now_iso()
         for row in self.store.list_decisions(limit=limit):
             decision = self.store.get_decision(row["id"])
             if decision is None or decision.get("outcome"):

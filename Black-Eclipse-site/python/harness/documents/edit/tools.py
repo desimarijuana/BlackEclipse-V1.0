@@ -214,11 +214,13 @@ async def _edit(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         return _err(exc)
 
     if plan.dry_run:
+        report = outcome.report
         return (
-            f"DRY RUN: {len(plan.edits)} edit(s) on {name} would preserve all "
-            f"{outcome.report.get('unchangedParts', 0)} untouched package parts. "
-            "No artifact was written.",
-            {"status": "DRY_RUN", "name": name, "report": outcome.report, "bytes": len(outcome.data)},
+            f"DRY RUN: {len(plan.edits)} edit(s) on {name}. Package parts: "
+            f"{report.get('sourceParts', 0)} total, {len(report.get('targetedParts', []))} targeted, "
+            f"{report.get('changedPartsCount', 0)} changed, "
+            f"{report.get('unchangedParts', 0)} untouched preserved. No artifact was written.",
+            {"status": "DRY_RUN", "name": name, "report": report, "bytes": len(outcome.data)},
         )
 
     mime = _MIME.get(outcome.format, "application/octet-stream")
@@ -260,10 +262,14 @@ async def _edit(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     except Exception as exc:  # noqa: BLE001
         return _err(exc)
 
+    report = outcome.report
     return (
         f"Edited {name}: {verb} artifact {updated.id} "
         f"(v{updated.version_number}) with {len(plan.edits)} targeted edit(s). "
-        f"Untouched parts preserved: {outcome.report.get('unchangedParts', 0)}.",
+        f"Package parts: {report.get('sourceParts', 0)} total, "
+        f"{len(report.get('targetedParts', []))} targeted, "
+        f"{report.get('changedPartsCount', 0)} changed, "
+        f"{report.get('unchangedParts', 0)} untouched preserved.",
         {
             "status": "OK",
             "artifact": updated.model_dump(by_alias=True),

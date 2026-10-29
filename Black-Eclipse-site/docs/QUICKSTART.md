@@ -49,7 +49,9 @@ after ~2.5 minutes (kept above browser background-tab timer throttling so an
 ordinary hidden tab is not mistaken for a closed one). There is no window to
 close by hand; stop a stuck launcher with Task Manager. If an unmanaged
 production instance is already running, the launcher restarts it under its own
-lifecycle.
+lifecycle. Only one launcher boots at a time: clicking the icon again while the
+first is still building is ignored (and reopens the tab once it is up), so
+repeated clicks cannot start competing builds against the same `.next` folder.
 
 The icon starts the existing build directly (`local-host`), never rebuilding:
 startup is about two seconds. The only slow launch is the first one on a fresh

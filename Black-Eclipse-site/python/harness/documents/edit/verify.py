@@ -87,6 +87,7 @@ def verify_ooxml(
     unchanged = source_parts & output_parts
     changed = sorted(name for name in unchanged if source_hashes[name] != output_hashes[name])
     untouched_changed = sorted(name for name in changed if name not in targeted)
+    untouched_parts = source_parts - targeted - removals
     missing_targets = sorted(name for name in targeted if name not in output_parts and name not in removals)
     unexpected_new = sorted(name for name in new_parts if name not in targeted)
 
@@ -137,7 +138,8 @@ def verify_ooxml(
         "sourceParts": len(source_parts),
         "outputParts": len(output_parts),
         "targetedParts": sorted(targeted),
-        "unchangedParts": len(unchanged) - len(changed),
+        "unchangedParts": len(untouched_parts),
+        "changedPartsCount": len(changed),
         "changedParts": changed,
         "missingParts": missing_parts,
         "removedParts": removed_parts,

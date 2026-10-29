@@ -1,6 +1,6 @@
-'use client';
+﻿'use client';
 
-// ── MobileBottomNav — thumb-reach primary navigation for phones ──────────────
+// â”€â”€ MobileBottomNav â€” thumb-reach primary navigation for phones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // A fixed bottom bar whose tabs FOLLOW THE ACTIVE MENU MODE (Terminal /
 // Agentic / Bots), mirroring the desktop sidebar: the first four enabled tabs
 // of the mode sit in the bar, the rest (plus the desktop-only labs) live in the
@@ -26,7 +26,7 @@ interface TabMeta { icon: LucideIcon; label?: string }
 
 // Keyed by AppTab so a typo'd id is a compile error; `Partial` because some tabs
 // are not nav-bar destinations (settings, chart). The coverage guard test
-// (`mobile-bottom-nav.test.ts`) enforces an entry for every tab a mode lists —
+// (`mobile-bottom-nav.test.ts`) enforces an entry for every tab a mode lists â€”
 // a missing one used to render `undefined.icon` and blank the whole shell.
 export const TAB_META: Partial<Record<AppTab, TabMeta>> = {
   chat: { icon: Bot },
@@ -51,6 +51,7 @@ export const TAB_META: Partial<Record<AppTab, TabMeta>> = {
   bots: { icon: Ghost },
   'ui-builder': { icon: LayoutGrid },
   backtest: { icon: ChartLine },
+  'strategy-studio': { icon: FlaskConical },
   'research-data': { icon: Database },
   'factor-lab': { icon: Sigma, label: 'Factor Lab' },
   'ml-lab': { icon: FlaskConical, label: 'ML Lab' },
@@ -60,7 +61,7 @@ export const TAB_META: Partial<Record<AppTab, TabMeta>> = {
 /** Tab order per menu mode. `bots` lists no sidebar sections, so its entries are
  *  declared here (bots first, then the shared agent surface). */
 export const MODE_TABS: Record<NavGroup, AppTab[]> = {
-  terminal: ['chat', 'home', 'dashboard', 'discovery', 'portfolio', 'investor-eye', 'market-workspace', 'journal', 'news', 'heatmap', 'economics', 'alerts'],
+  terminal: ['chat', 'home', 'dashboard', 'discovery', 'portfolio', 'strategy-studio', 'investor-eye', 'market-workspace', 'journal', 'news', 'heatmap', 'economics', 'alerts'],
   agentic: ['chat', 'skills', 'memory', 'artifacts', 'tasks', 'pages'],
   bots: ['bots', 'chat', 'tasks', 'artifacts', 'memory', 'skills'],
   graph: ['chat', 'overview', 'tables'],
@@ -80,7 +81,7 @@ const MODE_LABEL_KEY: Record<NavGroup, 'sidebar.terminal' | 'sidebar.agentic' | 
   graph: 'sidebar.graphStudio',
 };
 
-export const LABS: AppTab[] = ['ui-builder', 'backtest', 'research-data', 'factor-lab', 'ml-lab'];
+export const LABS: AppTab[] = ['ui-builder', 'strategy-studio', 'backtest', 'research-data', 'factor-lab', 'ml-lab'];
 
 function useTabLabel() {
   const t = useT();
@@ -114,7 +115,7 @@ export function MobileBottomNav({
   if (hidden) return null;
 
   const enabled = (id: AppTab) => cfgMap.get(id)?.enabled !== false;
-  // A persisted mode from an older build may not be in the table — fall back
+  // A persisted mode from an older build may not be in the table â€” fall back
   // rather than crash the whole shell.
   const modeTabs = (MODE_TABS[mode] ?? MODE_TABS.terminal).filter(enabled);
   const primary = modeTabs.slice(0, 4);
@@ -189,7 +190,7 @@ export function MobileBottomNav({
           </SheetHeader>
 
           <div className="flex flex-col gap-4 p-4">
-            {/* Mode switcher — rebuilds the whole menu for the chosen mode. */}
+            {/* Mode switcher â€” rebuilds the whole menu for the chosen mode. */}
             <div className="flex items-center gap-1 rounded-2xl border border-border/30 glass-card-subtle p-1">
               {MODES.map(({ id, icon: Icon }) => {
                 const active = mode === id;
@@ -224,10 +225,10 @@ export function MobileBottomNav({
               </div>
             )}
 
-            {/* Desktop-grade labs — reachable but flagged. */}
+            {/* Desktop-grade labs â€” reachable but flagged. */}
             <div>
               <p className="mb-2 px-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60">
-                Labs · best on desktop
+                Labs Â· best on desktop
               </p>
               <div className="grid grid-cols-3 gap-2">
                 {LABS.map((id) => (
@@ -261,3 +262,4 @@ function MoreTile({ id, label, active, onClick }: { id: AppTab; label: string; a
     </button>
   );
 }
+

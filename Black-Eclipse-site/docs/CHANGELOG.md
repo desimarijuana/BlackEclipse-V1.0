@@ -7,6 +7,30 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-28
+- **fix(desktop): one launcher at a time, so repeated icon clicks cannot break boot.**
+  `scripts/start-desktop.js` now takes an exclusive lock
+  (`.black-eclipse/desktop-launcher.lock`, stale locks recovered by PID
+  liveness). Before this, clicking the icon again during a cold build started
+  another launcher that killed the port and ran its own `next build`; concurrent
+  builds rewrote the same `.next` folder, failed with exit 1, and left the
+  desktop log spinning for ~18 minutes. Extra clicks now no-op (and reopen the
+  tab once the owner is up) instead of starting competing builds.
+  Docs updated: `docs/QUICKSTART.md`.
+- **fix(modeling): integrated DCF detection, aliases and honest check counts.**
+  `integrated` now builds a DCF when `wacc`/`waccInputs`/`dcf.wacc` is present
+  (snake_case or camelCase), merges DCF/LBO/comps metadata into the audit summary,
+  deduplicates statement checks, counts WARN checks in the audit text, and accepts
+  camelCase comps target/peer fields (`netDebt`, `totalDebt`, `sharesOutstanding`,
+  `netIncome`). Preservation reports now count targeted parts separately from
+  changed/untouched parts.
+- **fix(verification): read back generated artifacts and audit values.** Document
+  tools accept `artifactId`, so a generated XLSX/PPTX can be opened and queried
+  without a filesystem path. `integrated` models now merge DCF/LBO/comps meta, so
+  `financial_model_audit` returns `enterpriseValue`/`equityValue`/`valuePerShare`
+  etc. instead of only PASS/FAIL. The edit result now spells out “N total /
+  M targeted / K untouched” parts so the preservation count cannot be misread.
+  Docs: `docs/harness/document-intelligence.md`,
+  `docs/harness/financial-modeling.md`.
 - **fix(institution): keep the run dialog polling when review queues repairs.**
   `finalize` can return `status: "repairing"` after queueing bounded repairs; the
   dialog now resumes polling instead of stopping on the first terminal task state.
@@ -296,6 +320,96 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   styling were tightened. `npx tsc --noEmit` passed. Docs:
   `docs/self-improvement/loop-closure.md`, `docs/self-improvement/tool-widening/`,
   `docs/graph-studio.md`, `docs/harness/tool-registry.json`.
+- **feat(strategy-studio): make the studio a workspace you can come back to.**
+  The tab was a JSON sandbox with amnesia: a refresh lost the thesis, spec,
+  strategy and result, and saved strategies/experiments were never listed. It now
+  has a saved-strategy library, schema-versioned `localStorage` persistence with
+  `?strategy=&experiment=` deep links, this strategy's experiment history with
+  `/quant/compare`, a data-coverage preflight against the stored-series catalogue
+  (absent ≠ impossible; unreadable = unknown), debounced inline validation with
+  copyable spec paths, and metric definitions from the runtime. Also fixed the
+  strategy record's description being passed as its name, and the paper approval
+  recording the same actor for request and decision. Shared `EquityChart`,
+  `DrawdownChart`, `TradeTable` and `MetricGrid` were extracted to
+  `src/components/screens/backtest/shared/` and the Backtest bench now imports
+  them (net −118 lines there). Honest labelling: the paper button replays the
+  research window and says so. Docs updated: `docs/strategy-studio.md` (new),
+  `docs/NAVIGATION.md`.
+- **feat(strategy-studio): research without hand-written JSON.** Robustness is
+  now derived from the spec: `src/lib/strategy-studio/param-space.ts` proposes
+  the engine-supported dotted paths (indicator params, sizing, stop/target and
+  risk limits) and builds `paramSpace`/`paramRanges` from min/max/step rows. A
+  "Run the robustness suite" button runs walk-forward → Monte-Carlo → robustness
+  into one page, and `research-verdict.ts` calls it `robust` ONLY when the whole
+  suite ran and every scored check passed (partial = inconclusive, any failure =
+  fragile; every threshold is printed in its check label, and `info` rows are
+  never scored). The Edge Report now renders in full through the shared
+  `EdgeReportView` (grade, axes, flags, Artifact Center figures, markdown) used
+  by both the Studio and the Backtest bench. Added six starter templates labelled
+  as examples, not recommendations, and an on-demand runtime research plan
+  (hypothesis, assumptions, acceptance criteria, potential biases). Tests:
+  `param-space`, `research-verdict`, `templates`, `research-studio`,
+  `edge-report-view`. Docs updated: `docs/strategy-studio.md`,
+  `docs/NAVIGATION.md`.
+- **feat(strategy-studio): no-code builder, forward paper, versions and
+  publishing.** The spec card now has a Builder view over the same JSON
+  (`src/lib/strategy-studio/spec-edit.ts` deep-clones; unknown fields survive;
+  nested/expression rules are marked `advanced` and left to the JSON tab instead
+  of being silently rewritten). Paper got two explicit modes
+  (`paper-window.ts`): **forward** from the day after the research window ends,
+  or a **replay**; a forward window with no forward period is refused, never
+  downgraded. Every paper run is listed in a track record with its window and
+  drift against the latest backtest (never against another paper run). Added a
+  versions panel with structural diff (`/quant/strategies/{id}/diff`) and JSON
+  bundle export (`format=json`), plus a grade-gated publish into the local
+  gallery. Tests: `spec-edit`, `paper-window`, `spec-builder`, `paper-panel`.
+  Docs updated: `docs/strategy-studio.md`, `docs/NAVIGATION.md`.
+- **chore(test): green the JS suite after the studio work.** Normalised the one
+  stray CRLF line in `mobile-bottom-nav.tsx`, `sidebar/config.ts` and
+  `sidebar/config.test.ts`, and re-pinned the `stock-chat.tsx` line budget
+  1584→1589 for the Strategy Studio keep-alive mount (the page lives in
+  `components/screens/strategy-studio/`). Full Vitest run: 4065/4065.
+  no doc change — test/hygiene only.
+- **feat(strategy-studio): connect the studio to Projects, the dashboard and a
+  share link.** `ProjectLink` attaches the current strategy to a project
+  (`kind: "strategy"`, `ref: strategy.id`, version/symbols in `meta`) through a
+  new `projectClient.addMember`; the dashboard gains a `strategy-studio` widget
+  that lists saved strategies and deep-links each workspace; the header copies
+  the exact `?strategy=&experiment=` link. Docs updated:
+  `docs/strategy-studio.md`, `docs/NAVIGATION.md`.
+- **fix(harness): close eleven pre-existing Python suite failures; add paper
+  health.** Advisory cadence/scoring now honour the caller's clock
+  (`auto_evaluate(now=…)`, forwarded by `run_once`) instead of re-deriving
+  `now_iso()`, so a not-yet-due row can no longer be scored after 00:00 UTC; a
+  regression re-check no longer short-circuits to an unchanged-passed record
+  with no dimensions; the migration-matrix test uses the production
+  `add_column_already_present` guard (now a shared module helper); the four
+  DeFi/derivatives tools are allowlisted for the finance agent; the graph API
+  tests bind their own service instead of the process-wide singleton; the Python
+  size ratchet is re-pinned to the measured tree and its duplicate `service.py`
+  entry removed. The studio also gained a pure paper-health badge (fresh /
+  stale >30 days / drifting ≥10 return points or ≥0.5 Sharpe, thresholds
+  printed). Docs updated: `docs/strategy-studio.md`, `docs/NAVIGATION.md`.
+- **feat(strategy-studio): share card, portfolio runs, import, provider check,
+  mobile summary.** The studio now exports/imports portable bundles (import
+  validates before saving), offers an opt-in 30-day provider check beside the
+  stored-catalogue preflight, runs two or more SAVED strategies through
+  `/quant/portfolio-backtest` with the shared result panels, produces a
+  read-only Markdown share card (identity, metrics, grade, paper state,
+  disclaimer), and shows a compact read-only summary under `md`. The dashboard
+  widget joins the local gallery so each strategy shows the grade its published
+  version earned. Fixed the last two lint warnings (`withCosts` extracted,
+  artifact `<img>` documented). Full Python suite: 8707 passed, 29 skipped, 0
+  failed. Docs updated: `docs/strategy-studio.md`, `docs/NAVIGATION.md`.
+- **feat(strategy-studio): recursive rule builder + mobile summary.** The
+  builder now edits nested rule groups (`rule-tree.tsx`) through the pure tree
+  API in `spec-edit.ts` (`readTree`/`addTreeNode`/`updateTreeNode`/
+  `removeTreeNode`/`setTreeCombine`); expression operands and nesting deeper
+  than three levels stay read-only with a pointer to JSON. Added a compact
+  read-only summary under `md`, a Markdown share card, bundle import, an opt-in
+  provider check, portfolio backtests over saved strategies, and a dashboard
+  widget that shows the grade a published version earned. Docs updated:
+  `docs/strategy-studio.md`, `docs/NAVIGATION.md`.
 
 ## 2026-10-27
 - **ui(graph): align the New workflow button with the shared menu system.** The

@@ -107,6 +107,17 @@ export interface RunBacktestInput {
   background?: boolean;
 }
 
+export interface PortfolioBacktestInput {
+  strategyIds: string[];
+  start?: string;
+  end?: string;
+  initialCapital?: number;
+  riskFreeRate?: number;
+  randomSeed?: number;
+  save?: boolean;
+  background?: boolean;
+}
+
 export interface QuantRun {
   runId: string;
   kind: string;
@@ -246,6 +257,91 @@ export interface EdgeReport {
   reportArtifactId?: string | null;
 }
 
+/** Side-by-side experiment comparison from `POST /quant/compare`. */
+export interface ExperimentComparison {
+  metrics: string[];
+  experiments: Array<{
+    experimentId: string;
+    kind?: string;
+    symbols?: string[];
+    interval?: string | null;
+    start?: string | null;
+    end?: string | null;
+    initialCapital?: number | null;
+    metrics: Record<string, number | null>;
+  }>;
+  comparability?: Array<{ code: string; message: string }>;
+}
+
+/** A stored strategy version's immutable metadata. */
+export interface StrategyVersionMeta {
+  version: string;
+  contentHash: string;
+  schemaVersion: string;
+  createdAt: string;
+}
+
+/** One structural change between two strategy versions. */
+export interface StrategyDiffChange {
+  path: string;
+  kind: "added" | "removed" | "changed";
+  a?: unknown;
+  b?: unknown;
+}
+
+export interface StrategyDiff {
+  strategyId: string;
+  a: string;
+  b: string;
+  sameContent: boolean;
+  hashA?: string | null;
+  hashB?: string | null;
+  changeCount: number;
+  bySection: Record<string, number>;
+  changes: StrategyDiffChange[];
+}
+
+/** The result of validating/importing a portable strategy bundle. */
+export interface ImportBundleResult {
+  valid: boolean;
+  strategy?: Record<string, unknown>;
+  issues?: Array<{ code: string; message: string; path?: string }>;
+  warnings?: string[];
+  saved?: unknown;
+}
+
+/** A recorded paper shadow run (a real backtest over a paper window). */
+export interface PaperRunRecord {
+  id: string;
+  deploymentId: string;
+  strategyId: string;
+  version: string;
+  experimentId: string;
+  status: string;
+  symbols: string[];
+  metrics: Record<string, number | null>;
+  createdAt: string;
+  liveExecution: boolean;
+}
+
+/** The deterministic research specification from `POST /strategies/{id}/research-plan`. */
+export interface ResearchPlan {
+  strategyId?: string;
+  strategyVersion?: string;
+  hypothesis?: string;
+  assumptions?: string[];
+  acceptanceCriteria?: string[];
+  potentialBiases?: string[];
+  benchmark?: string;
+  parameterSearch?: {
+    space?: Record<string, unknown>;
+    objective?: string;
+    maxEvaluations?: number;
+    method?: string;
+  };
+  notFinancialAdvice?: boolean;
+}
+
 export interface ResearchRequest {
   strategyId: string;
   version?: string;
@@ -320,8 +416,22 @@ export const backtestClient = {
       { method: "POST", body: JSON.stringify({ strategy }) },
     ),
 
+  /** A deterministic research specification the copilot can execute and cite. */
+  researchPlan: (strategyId: string, body: Record<string, unknown> = {}) =>
+    jsonFetch<{ plan: ResearchPlan }>(
+      `/strategies/${encodeURIComponent(strategyId)}/research-plan`,
+      { method: "POST", body: JSON.stringify(body) },
+    ).then((r) => r.plan),
+
   runBacktest: (input: RunBacktestInput) =>
     jsonFetch<BacktestResult>("/backtest", { method: "POST", body: JSON.stringify(input) }),
+
+  /** Run several saved strategies together over one shared window. */
+  portfolioBacktest: (input: PortfolioBacktestInput) =>
+    jsonFetch<BacktestResult>("/portfolio-backtest", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
 
   listExperiments: (strategyId?: string, limit = 50) => {
     const params = new URLSearchParams();
@@ -330,6 +440,37 @@ export const backtestClient = {
     return jsonFetch<{ experiments: ExperimentSummary[] }>(`/experiments?${params}`)
       .then((r) => r.experiments);
   },
+
+  listPaperRuns: (strategyId?: string) => {
+    const params = new URLSearchParams();
+    if (strategyId) params.set("strategyId", strategyId);
+    const query = params.toString();
+    return jsonFetch<{ paperRuns: PaperRunRecord[] }>(`/paper-runs${query ? `?${query}` : ""}`)
+      .then((r) => r.paperRuns);
+  },
+
+  listVersions: (strategyId: string) =>
+    jsonFetch<{ versions: StrategyVersionMeta[] }>(
+      `/strategies/${encodeURIComponent(strategyId)}/versions`,
+    ).then((r) => r.versions),
+
+  diffVersions: (strategyId: string, a: string, b: string) =>
+    jsonFetch<StrategyDiff>(
+      `/strategies/${encodeURIComponent(strategyId)}/diff?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
+    ),
+
+  /** The portable strategy bundle as JSON (the zip form is for download). */
+  exportBundle: (strategyId: string, version?: string) =>
+    jsonFetch<{ bundle: Record<string, unknown> }>(
+      `/strategies/${encodeURIComponent(strategyId)}/export?format=json${version ? `&version=${encodeURIComponent(version)}` : ""}`,
+    ).then((r) => r.bundle),
+
+  /** Validate (and optionally save) a portable bundle. */
+  importBundle: (bundle: Record<string, unknown>, save = true) =>
+    jsonFetch<ImportBundleResult>("/strategies/import", {
+      method: "POST",
+      body: JSON.stringify({ bundle, save }),
+    }),
 
   getExperiment: (id: string, artifact = false) =>
     jsonFetch<ExperimentSummary & { artifact?: BacktestResult }>(
@@ -350,7 +491,7 @@ export const backtestClient = {
     jsonFetch<{ deleted: boolean }>(`/experiments/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   compare: (experimentIds: string[]) =>
-    jsonFetch<{ metrics: string[]; experiments: Array<Record<string, unknown>> }>("/compare", {
+    jsonFetch<ExperimentComparison>("/compare", {
       method: "POST",
       body: JSON.stringify({ experimentIds }),
     }),

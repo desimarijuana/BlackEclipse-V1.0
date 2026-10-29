@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+﻿import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { defaultSidebarConfig, loadSidebarConfig, saveSidebarConfig, shortcutTab, DEFAULT_SIDEBAR_SECTIONS, SIDEBAR_CONFIG_KEY, navGroupsFor, modeForTab, NAV_GROUPS, PANEL_MODES, isNavGroup } from './config';
 
 const memory = new Map<string, string>();
@@ -18,10 +18,10 @@ describe('defaultSidebarConfig', () => {
     const config = defaultSidebarConfig();
     expect(config.shortcutVersion).toBe(2);
     // 12 shortcut slots exist; sections past the 12th get no default. This is
-    // the explicit expected list — not a count derived from the source under
-    // test — so adding/removing a section fails here on purpose.
+    // the explicit expected list â€” not a count derived from the source under
+    // test â€” so adding/removing a section fails here on purpose.
     expect(config.sections.map((s) => s.shortcut)).toEqual([
-      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', ''
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', '', ''
     ]);
     expect(config.sections.map((s) => s.id)).toEqual(DEFAULT_SIDEBAR_SECTIONS.map((s) => s.id));
   });
@@ -60,7 +60,7 @@ describe('v1 migration', () => {
     // (only the first 12 get F1..F12). This is the explicit expected list, so a
     // change to the canonical section count fails here.
     expect(loadSidebarConfig().sections.map((s) => s.shortcut)).toEqual([
-      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', ''
+      'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12', '', '', '', '', '', '', ''
     ]);
   });
 
@@ -69,7 +69,7 @@ describe('v1 migration', () => {
     expect(loadSidebarConfig().sections[0].shortcut).toBe('F1');
   });
 
-  it('preserves explicit shortcuts and None through the v1→v2 upgrade', () => {
+  it('preserves explicit shortcuts and None through the v1â†’v2 upgrade', () => {
     const custom = {
       sections: [
         { id: 'chat', enabled: true, shortcut: 'F3' },
@@ -233,4 +233,5 @@ describe('nav groups (Terminal / Agentic)', () => {
     expect(DEFAULT_SIDEBAR_SECTIONS.some((s) => s.id === 'bots')).toBe(false);
   });
 });
+
 

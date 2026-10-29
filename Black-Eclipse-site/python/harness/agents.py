@@ -355,6 +355,13 @@ ECLIPSE_AGENT = AgentConfig(
         "get_options_chain",
         "get_fx_rate",
         "get_bond_data",
+        # DeFi / derivatives positioning: TVL, account on-chain metrics,
+        # liquidation flow and the long/short ratio. An absent provider is an
+        # honest UNAVAILABLE, never a zero.
+        "get_tvl",
+        "get_onchain_metric",
+        "get_liquidations",
+        "get_long_short_ratio",
         "stream_market_data",
         # Shared quantitative-research data surface: instrument resolution,
         # provider capability/health introspection, cross-source verification,

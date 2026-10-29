@@ -6,7 +6,7 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
-from harness.documents.edit import EditPlan, OoxmlPackage, apply_edit_plan
+from harness.documents.edit import EditPlan, OoxmlPackage, apply_edit_plan, verify_ooxml
 from harness.documents.edit.plan import EditError
 
 
@@ -311,6 +311,16 @@ def _pptx_fixture() -> bytes:
     buffer = io.BytesIO()
     presentation.save(buffer)
     return buffer.getvalue()
+
+
+def test_preservation_report_counts_targeted_parts_separately():
+    package = OoxmlPackage.from_bytes(_docx_fixture())
+    hashes = package.part_hashes()
+    report = verify_ooxml(hashes, package, {"word/document.xml"})
+    assert report["ok"], report
+    assert report["sourceParts"] == len(hashes)
+    assert report["changedPartsCount"] == 0
+    assert report["unchangedParts"] == len(hashes) - 1
 
 
 def test_docx_edit_preserves_untouched_parts():
@@ -717,6 +727,32 @@ def test_pdf_incremental_mode_when_pymupdf_is_installed():
     assert outcome.report["redactionMode"] == "incremental_true_removal"
     reader = PdfReader(io.BytesIO(outcome.data))
     assert "SECRET" not in (reader.pages[0].extract_text() or "")
+
+
+def test_document_open_can_read_a_generated_artifact(tmp_path):
+    import asyncio
+
+    from harness.artifacts import ArtifactService, ArtifactStore, LocalArtifactStorage
+    from harness.document_intelligence.tools import register_document_tools
+    from harness.persistence import AgentMemoryStore
+    from harness.tools import ToolContext, ToolRegistry
+
+    store = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
+    try:
+        service = ArtifactService(ArtifactStore(store), LocalArtifactStorage(tmp_path / "files"))
+        artifact = service.register_bytes(_xlsx_fixture(), name="model.xlsx", owner_id="local")
+        registry = ToolRegistry()
+        register_document_tools(registry)
+        context = ToolContext(
+            run_id="run_test", log=lambda *args, **kwargs: None,
+            memory_store=store, artifact_service=service, agent_id="eclipse-agent",
+        )
+        result = asyncio.run(registry.execute("document_open", "c1", {"artifactId": artifact.id}, context))
+        assert result.ok, result.text
+        assert result.data["documentId"]
+        assert result.data["state"] in ("READY", "PARTIALLY_READY")
+    finally:
+        store.close()
 
 
 def test_document_edit_refuses_a_macro_package():

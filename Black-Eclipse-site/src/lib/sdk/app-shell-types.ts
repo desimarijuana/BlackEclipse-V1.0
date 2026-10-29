@@ -46,6 +46,7 @@ export const APP_NAV_SECTIONS: readonly AppNavManifestSection[] = [
   { id: 'heatmap', label: 'Market Bubbles', group: 'terminal' },
   { id: 'economics', label: 'Economics', group: 'terminal' },
   { id: 'alerts', label: 'Price Alerts', group: 'terminal' },
+  { id: 'strategy-studio', label: 'Strategy Studio', group: 'terminal' },
   { id: 'overview', label: 'Overview', group: 'graph' },
   { id: 'skills', label: 'Skills', group: 'agentic' },
   { id: 'sdk', label: 'Eclipse SDK', group: 'agentic' },

@@ -63,7 +63,8 @@ def test_document_open_rejects_missing_source(tmp_path):
     registry = ToolRegistry()
     register_document_tools(registry)
     result = asyncio.run(registry.execute("document_open", "c1", {}, _ctx(tmp_path)))
-    assert result.ok is False  # schema requires source
+    assert result.data["status"] == "ERROR"
+    assert result.data["error"] == "source required"
 
 
 def test_document_open_security_macro(tmp_path):

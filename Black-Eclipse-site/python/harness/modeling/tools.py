@@ -222,9 +222,10 @@ async def _audit(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         return _err(exc)
     summary = build_summary(result)
     verdict = "PASS" if result.checks_pass() else "FAIL"
+    warning_count = sum(1 for check in result.checks if check.status == "WARN") + len(result.warnings)
     return (
         f"Model audit {verdict}: {len(result.checks)} check(s), "
-        f"{len(summary.get('failures') or [])} failure(s), {len(result.warnings)} warning(s).",
+        f"{len(summary.get('failures') or [])} failure(s), {warning_count} warning(s).",
         {"status": "OK", "summary": summary, "checks": [check.to_dict() for check in result.checks]},
     )
 

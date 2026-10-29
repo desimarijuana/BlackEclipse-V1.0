@@ -111,6 +111,17 @@ export const researchDataClient = {
     ),
   quality: (limit = 50) =>
     jsonFetch<{ events: QualityEvent[]; storedSeries: StoredSeries[] }>(`/quality?limit=${limit}`),
+  /**
+   * The stored-series catalogue (symbol, interval, bar count, range, provider).
+   * `null` means the runtime could not answer — distinct from "no series".
+   */
+  storedSeries: async (limit = 200): Promise<StoredSeries[] | null> => {
+    const payload = await jsonFetch<{ available?: boolean; series?: StoredSeries[] }>(
+      `/series?limit=${limit}`,
+    );
+    if (payload.available === false) return null;
+    return payload.series ?? [];
+  },
   datasets: (limit = 100) => jsonFetch<{ datasets: DatasetSummary[] }>(`/datasets?limit=${limit}`),
   manifest: (datasetId: string, version?: string) =>
     jsonFetch<{ manifest: DatasetManifest }>(

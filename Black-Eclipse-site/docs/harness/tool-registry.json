@@ -1,5 +1,5 @@
 {
-  "digest": "6a67d1a0bf2cd2d1",
+  "digest": "7b4fb144c17a9c9e",
   "manifestVersion": "1",
   "toolCount": 969,
   "tools": [
@@ -9696,6 +9696,9 @@
       "effect": null,
       "inputSchema": {
         "properties": {
+          "artifactId": {
+            "type": "string"
+          },
           "force": {
             "type": "boolean"
           },
@@ -9706,13 +9709,10 @@
             "type": "string"
           },
           "source": {
-            "description": "A local file path or an http(s) URL.",
+            "description": "A local file path, an artifactId, or an http(s) URL.",
             "type": "string"
           }
         },
-        "required": [
-          "source"
-        ],
         "type": "object"
       },
       "name": "document_analyze",
@@ -10035,6 +10035,9 @@
       "effect": null,
       "inputSchema": {
         "properties": {
+          "artifactId": {
+            "type": "string"
+          },
           "force": {
             "type": "boolean"
           },
@@ -10045,13 +10048,10 @@
             "type": "integer"
           },
           "source": {
-            "description": "A local file path or an http(s) URL.",
+            "description": "A local file path, an artifactId, or an http(s) URL.",
             "type": "string"
           }
         },
-        "required": [
-          "source"
-        ],
         "type": "object"
       },
       "name": "document_extract",
@@ -10066,6 +10066,9 @@
       "effect": null,
       "inputSchema": {
         "properties": {
+          "artifactId": {
+            "type": "string"
+          },
           "document_id": {
             "type": "string"
           },
@@ -10073,7 +10076,7 @@
             "type": "string"
           },
           "source": {
-            "description": "A local file path or an http(s) URL.",
+            "description": "A local file path, an artifactId, or an http(s) URL.",
             "type": "string"
           }
         },
@@ -10091,6 +10094,9 @@
       "effect": null,
       "inputSchema": {
         "properties": {
+          "artifactId": {
+            "type": "string"
+          },
           "force": {
             "type": "boolean"
           },
@@ -10104,16 +10110,13 @@
             "type": "string"
           },
           "source": {
-            "description": "A local file path or an http(s) URL.",
+            "description": "A local file path, an artifactId, or an http(s) URL.",
             "type": "string"
           },
           "url": {
             "type": "string"
           }
         },
-        "required": [
-          "source"
-        ],
         "type": "object"
       },
       "name": "document_open",
@@ -10155,6 +10158,9 @@
       "effect": null,
       "inputSchema": {
         "properties": {
+          "artifactId": {
+            "type": "string"
+          },
           "kind": {
             "type": "string"
           },
@@ -10165,13 +10171,10 @@
             "type": "number"
           },
           "source": {
-            "description": "A local file path or an http(s) URL.",
+            "description": "A local file path, an artifactId, or an http(s) URL.",
             "type": "string"
           }
         },
-        "required": [
-          "source"
-        ],
         "type": "object"
       },
       "name": "document_render",

@@ -272,7 +272,11 @@ def evaluate_skill(
     fingerprint = evaluation_fingerprint(manifest, registry, resolved_version)
     stored_version = registry.store.get_version(skill_id, resolved_version) or {}
     if (
-        stored_version.get("evaluationStatus") == "passed"
+        # An explicit regression re-check must actually re-run: the whole point
+        # is to compare against the declared base again, not to return a held
+        # record with no dimensions.
+        not run_regression
+        and stored_version.get("evaluationStatus") == "passed"
         and stored_version.get("evalFingerprint") == fingerprint
     ):
         # An unchanged passed version is held. No row is appended and the

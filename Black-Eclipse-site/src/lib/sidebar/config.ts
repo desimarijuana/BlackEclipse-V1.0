@@ -1,9 +1,9 @@
-// ── Sidebar customization ─────────────────────────────────────────────────
+﻿// â”€â”€ Sidebar customization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Canonical list of the SPA's primary navigation items, plus the user's
 // per-item customization (order, visibility, keyboard shortcut). The sidebar
-// and the Settings › Sidebar panel both read from here so they never drift.
+// and the Settings â€º Sidebar panel both read from here so they never drift.
 //
-// Persistence is client-side (localStorage) — deliberately presentation-layer
+// Persistence is client-side (localStorage) â€” deliberately presentation-layer
 // only, matching the currency + search-recents conventions in this repo.
 
 'use client';
@@ -11,13 +11,13 @@
 import {
   LayoutDashboard, ChartCandlestick, GlobeStand, ChartPie, Bot, Home,
   BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain, FolderOpen,
-  Wrench, Database,
+  Wrench, Database, FlaskConical,
   type LucideIcon,
 } from '@/lib/icons';
 import type { AppTab } from '@/components/layout/sidebar';
 
 /** The top-level sidebar modes. A section belongs to one, or to both. `bots` is
- *  a mode with no nav SECTIONS — it renders its own panel (the bot list) instead
+ *  a mode with no nav SECTIONS â€” it renders its own panel (the bot list) instead
  *  of a generic nav list. Graph Studio is its own mode but uses the standard nav
  *  list filtered to graph sections (plus the shared ChatBot/Tables items). */
 export type NavGroup = 'terminal' | 'agentic' | 'bots' | 'graph';
@@ -41,7 +41,7 @@ export interface SidebarSectionDef {
  *  its own mode (a switcher tab) that lists the user's actual bots in the panel,
  *  so it is deliberately NOT a static nav section. The other agentic capabilities
  *  (Code, Editor, Jobs, Tasks, Pages, UI Builder, Plugins, Model Control Center,
- *  Search, Research, Backtest) are deliberately NOT sidebar tabs — ChatBot
+ *  Search, Research, Backtest) are deliberately NOT sidebar tabs â€” ChatBot
  *  reaches them through its tools. */
 export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'chat', label: 'ChatBot', icon: Bot, group: 'both' },
@@ -56,6 +56,7 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'heatmap', label: 'Market Bubbles', icon: Orbit, group: 'terminal' },
   { id: 'economics', label: 'Economics', icon: Globe, group: 'terminal' },
   { id: 'alerts', label: 'Price Alerts', icon: Bell, group: 'terminal' },
+  { id: 'strategy-studio', label: 'Strategy Studio', icon: FlaskConical, group: 'terminal' },
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, group: 'graph' },
   { id: 'skills', label: 'Skills', icon: Blocks, group: 'agentic' },
   { id: 'sdk', label: 'Eclipse SDK', icon: Wrench, group: 'agentic' },
@@ -70,7 +71,7 @@ export function navGroupsFor(def: SidebarSectionDef): NavGroup[] {
 }
 
 /** The mode a tab id belongs to, for syncing the switcher to the active tab.
- *  `'both'` tabs (ChatBot) never force a switch — the user's choice stands.
+ *  `'both'` tabs (ChatBot) never force a switch â€” the user's choice stands.
  *  Bots is a mode of its own even though it has no static nav section. */
 export function modeForTab(id: AppTab): NavGroup | null {
   if (id === 'bots') return 'bots';
@@ -181,7 +182,7 @@ export function saveSidebarConfig(cfg: SidebarConfig) {
   try {
     localStorage.setItem(SIDEBAR_CONFIG_KEY, JSON.stringify({ ...cfg, shortcutVersion: 2 }));
   } catch {
-    /* quota / private mode — in-memory only */
+    /* quota / private mode â€” in-memory only */
   }
 }
 
@@ -194,7 +195,7 @@ export function resetSidebarConfig() {
   }
 }
 
-/** Build the id → config lookup the sidebar consumes. */
+/** Build the id â†’ config lookup the sidebar consumes. */
 export function configMap(cfg: SidebarConfig): Map<string, SidebarSectionConfig> {
   return new Map(cfg.sections.map((s) => [s.id, s]));
 }
@@ -204,3 +205,4 @@ export function shortcutTab(cfg: SidebarConfig, code: string): AppTab | null {
   const hit = cfg.sections.find((s) => s.enabled && s.shortcut && s.shortcut === code);
   return hit ? hit.id : null;
 }
+

@@ -11,6 +11,7 @@ import {
   backtestClient,
   type BacktestResult,
   type ExperimentSummary,
+  type PortfolioBacktestInput,
   type ResearchRequest,
   type ResearchResult,
   type RunBacktestInput,
@@ -130,6 +131,30 @@ export function useBacktestScreen() {
     }
   }, [refresh]);
 
+  const runPortfolio = useCallback(async (input: PortfolioBacktestInput) => {
+    setState((s) => ({ ...s, running: true, error: null, notice: null, progress: null }));
+    try {
+      const raw = (await backtestClient.portfolioBacktest(input)) as unknown as
+        | BacktestResult
+        | { runId: string };
+      const result =
+        "runId" in raw
+          ? await pollRun<BacktestResult>(raw.runId, (p) => setState((s) => ({ ...s, progress: p })))
+          : raw;
+      setState((s) => ({ ...s, running: false, result, progress: null }));
+      void refresh();
+      return result;
+    } catch (err) {
+      setState((s) => ({
+        ...s,
+        running: false,
+        progress: null,
+        error: err instanceof Error ? err.message : "portfolio run failed",
+      }));
+      return null;
+    }
+  }, [refresh]);
+
   const runResearch = useCallback(async (kind: ResearchKind, body: ResearchRequest) => {
     setState((s) => ({ ...s, running: true, error: null, research: null, progress: null }));
     const call = {
@@ -156,7 +181,9 @@ export function useBacktestScreen() {
   const openExperiment = useCallback(async (id: string) => {
     setState((s) => ({ ...s, running: true, error: null }));
     try {
-      const result = await backtestClient.getArtifact(id);
+      const artifact = await backtestClient.getArtifact(id);
+      // A stored artifact does not carry its own id; the caller does.
+      const result = artifact.experimentId ? artifact : { ...artifact, experimentId: id };
       setState((s) => ({ ...s, running: false, result }));
     } catch (err) {
       setState((s) => ({ ...s, running: false, error: err instanceof Error ? err.message : 'open failed' }));
@@ -172,6 +199,11 @@ export function useBacktestScreen() {
     }
   }, []);
 
+  /** Clear the shown result without touching the saved experiments. */
+  const clearResult = useCallback(() => {
+    setState((s) => ({ ...s, result: null, research: null, progress: null }));
+  }, []);
+
   const saveStrategy = useCallback(async (strategy: Record<string, unknown>, description?: string) => {
     const { strategy: saved } = await backtestClient.createStrategy(strategy, description);
     await refresh();
@@ -184,7 +216,7 @@ export function useBacktestScreen() {
   }, []);
 
   return {
-    ...state, refresh, selectStrategy, run, runResearch, openExperiment,
-    removeExperiment, saveStrategy, validate,
+    ...state, refresh, selectStrategy, run, runPortfolio, runResearch, openExperiment,
+    removeExperiment, saveStrategy, validate, clearResult,
   };
 }

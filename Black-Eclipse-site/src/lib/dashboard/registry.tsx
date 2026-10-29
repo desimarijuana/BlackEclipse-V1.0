@@ -53,6 +53,7 @@ import { DriftStatusWidget } from './drift-status-widget';
 import { ProjectScopeWidget } from './project-widget';
 import { HistoryWidget } from './history-widget';
 import { GalleryWidget } from './gallery-widget';
+import { StrategyStudioWidget } from './strategy-studio-widget';
 import {
   InvestorEyeWidget, INVESTOR_EYE_RANGE_FIELD, INVESTOR_EYE_LENS_FIELD,
 } from './investor-eye-widget';
@@ -163,6 +164,7 @@ const CORE_WIDGETS: WidgetDefinition[] = [
   def('project-scope', 'research', 'Project Scope', 'The project the chat is scoped to: its strategies, backtests and artifacts.', 'folder-plus', ['small', 'medium'], () => <ProjectScopeWidget />),
   def('local-history', 'research', 'Local History', 'The market history this machine already holds: the local copy Eclipse has already paid for.', 'database', ['medium', 'large'], () => <HistoryWidget />),
   def('strategy-gallery', 'research', 'Strategy Gallery', 'Published strategies with the grade their evidence earned. Clone one back into the quant store.', 'star', ['medium', 'large'], () => <GalleryWidget />),
+  def('strategy-studio', 'research', 'Strategy Studio', 'Your saved strategies, newest first — each opens its workspace.', 'activity', ['medium', 'large'], () => <StrategyStudioWidget />),
 
   // ── Portfolio ──
   def('watchlist', 'portfolio', 'Watchlist', 'Your symbols with live prices and favourites.', 'bar-chart', ['medium', 'large'], () => <WatchlistWidget />, ['market:quote:AAPL,MSFT,NVDA,TSLA,AMZN']),
