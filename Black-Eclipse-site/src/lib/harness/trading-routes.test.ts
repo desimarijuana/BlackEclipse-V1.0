@@ -33,6 +33,9 @@ describe("trading route allowlist", () => {
     expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "orders", "preview"])).toBe(true);
     expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "orders", "submit"])).toBe(true);
     expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "orders", "12345", "cancel"])).toBe(true);
+    expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "positions", "12345", "close"])).toBe(true);
+    expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "positions", "12345", "modify"])).toBe(true);
+    expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "positions", "close"])).toBe(true);
     expect(isAllowedTradingRoute("GET", ["connections", "brk_abc123", "orders", "ledger"])).toBe(true);
     expect(isAllowedTradingRoute("GET", ["orders", "ord_abc123"])).toBe(true);
     expect(isAllowedTradingRoute("GET", ["approvals"])).toBe(true);
@@ -46,6 +49,8 @@ describe("trading route allowlist", () => {
     expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "orders"])).toBe(false);
     expect(isAllowedTradingRoute("DELETE", ["connections"])).toBe(false);
     expect(isAllowedTradingRoute("GET", ["connections", "brk_abc123", "password"])).toBe(false);
+    expect(isAllowedTradingRoute("DELETE", ["connections", "brk_abc123", "positions", "12345", "close"])).toBe(false);
+    expect(isAllowedTradingRoute("GET", ["connections", "brk_abc123", "positions", "close"])).toBe(false);
   });
 
   it("rejects path traversal and unknown ids", () => {

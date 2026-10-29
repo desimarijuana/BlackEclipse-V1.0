@@ -42,6 +42,20 @@ _TERMINAL_CANDIDATES = (
 
 _TRADE_MODE = {0: "demo", 1: "contest", 2: "real"}
 _MARGIN_MODE = {0: "netting", 1: "exchange", 2: "hedging"}
+
+#: MT5 exposes timeframes as `TIMEFRAME_*` attributes; this is the one place the
+#: tool vocabulary maps onto them. Anything else is refused, never guessed.
+_TIMEFRAMES = {
+    "M1": "TIMEFRAME_M1",
+    "M5": "TIMEFRAME_M5",
+    "M15": "TIMEFRAME_M15",
+    "M30": "TIMEFRAME_M30",
+    "H1": "TIMEFRAME_H1",
+    "H4": "TIMEFRAME_H4",
+    "D1": "TIMEFRAME_D1",
+    "W1": "TIMEFRAME_W1",
+}
+
 _ORDER_TYPE = {
     0: "buy", 1: "sell", 2: "buy_limit", 3: "sell_limit",
     4: "buy_stop", 5: "sell_stop", 6: "buy_stop_limit", 7: "sell_stop_limit",
@@ -427,6 +441,43 @@ def _notional(volume: float, info: Any, price: float) -> float:
     return round(float(volume) * contract * float(price), 6)
 
 
+def _own_margin(account_margin: Any, check_margin: Any) -> float:
+    """The margin THIS order adds, not the account total after it.
+
+    `order_check().margin` is reported as the account's margin once the order
+    fills. Comparing that total with a mandate's cap refuses a valid small order
+    whenever other positions are already open (on this demo: 113.74 total for a
+    0.01 XAUUSD lot that only needed 40.00). A reducing order adds nothing, so
+    the increment is floored at zero and can never turn negative.
+    """
+    before = _num(account_margin, 0)
+    after = _num(check_margin, 0)
+    return round(max(after - before, 0.0), 2)
+
+
+def _tick(mt5: Any, symbol: str) -> Any:
+    """A live tick, subscribing the symbol on demand.
+
+    MT5 returns an all-zero tick for a symbol that exists but is not in Market
+    Watch (XAUUSD on this demo did exactly that). `symbol_select` subscribes it;
+    a short bounded retry covers the feed's first update. Selecting a symbol is a
+    local terminal subscription, not an order or account mutation.
+    """
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is not None and (_num(getattr(tick, "bid", 0)) > 0 or _num(getattr(tick, "ask", 0)) > 0):
+        return tick
+    try:
+        mt5.symbol_select(symbol, True)
+    except Exception:  # noqa: BLE001 - selection is best-effort
+        pass
+    for _ in range(10):
+        time.sleep(0.2)
+        tick = mt5.symbol_info_tick(symbol)
+        if tick is not None and (_num(getattr(tick, "bid", 0)) > 0 or _num(getattr(tick, "ask", 0)) > 0):
+            return tick
+    return tick
+
+
 def _symbol_quote_dict(symbol: str, info: Any, tick: Any) -> dict[str, Any]:
     bid = _num(getattr(tick, "bid", 0))
     ask = _num(getattr(tick, "ask", 0))
@@ -445,10 +496,76 @@ def _symbol_quote_dict(symbol: str, info: Any, tick: Any) -> dict[str, Any]:
         "volumeStep": _num(getattr(info, "volume_step", 0)),
         "stopsLevelPoints": _int(getattr(info, "trade_stops_level", 0)),
         "tradeMode": _symbol_trade_mode(info),
+        "contractSize": _num(getattr(info, "trade_contract_size", 0)),
+        "tickSize": _num(getattr(info, "trade_tick_size", 0)),
         "serverTimeMs": _int(getattr(tick, "time_msc", 0)),
         "retrievedAt": time.time(),
         "provider": "metatrader5",
     }
+
+
+def _row_value(row: Any, key: str, default: Any = 0) -> Any:
+    """Read a `copy_rates_*` field from a numpy record, dict or object."""
+    try:
+        return row[key]
+    except Exception:  # noqa: BLE001
+        return getattr(row, key, default)
+
+
+def _verify_fill(mt5: Any, payload: dict[str, Any], intent: Any) -> dict[str, Any]:
+    """Read the filled position back and confirm the bracket the broker stored.
+
+    A market order's reply says what was accepted; it does not prove the stop is
+    on the position. This closes that gap: `verified` is only true when the
+    stored SL/TP match the requested ones (or none were requested).
+    """
+    if payload.get("status") != "FILLED":
+        return {}
+    if str(getattr(intent, "order_type", "market")) != "market":
+        return {}
+    want_sl = _num(getattr(intent, "stop_loss", 0) or 0)
+    want_tp = _num(getattr(intent, "take_profit", 0) or 0)
+    if not want_sl and not want_tp:
+        return {"verified": True, "verifyNote": None}
+    ticket = int(payload.get("ticket") or 0)
+    rows = mt5.positions_get(ticket=ticket) or ()
+    if not rows:
+        return {
+            "verified": False,
+            "verifyNote": "the position could not be read back after the fill",
+        }
+    actual_sl = _num(getattr(rows[0], "sl", 0))
+    actual_tp = _num(getattr(rows[0], "tp", 0))
+    sl_ok = not want_sl or abs(actual_sl - want_sl) < 1e-6
+    tp_ok = not want_tp or abs(actual_tp - want_tp) < 1e-6
+    ok = sl_ok and tp_ok
+    return {
+        "verified": ok,
+        "verifyNote": None if ok else (
+            f"stored bracket is SL {actual_sl:g} / TP {actual_tp:g}, requested "
+            f"SL {want_sl:g} / TP {want_tp:g}"
+        ),
+        "storedStopLoss": actual_sl,
+        "storedTakeProfit": actual_tp,
+    }
+
+
+def _bars_from_rates(rates: Any) -> list[dict[str, Any]]:
+    """Normalize MT5's structured OHLCV rows into plain JSON-safe bars."""
+    bars: list[dict[str, Any]] = []
+    if rates is None:
+        return bars
+    for row in rates:
+        bars.append({
+            "time": _int(_row_value(row, "time")),
+            "open": _num(_row_value(row, "open")),
+            "high": _num(_row_value(row, "high")),
+            "low": _num(_row_value(row, "low")),
+            "close": _num(_row_value(row, "close")),
+            "tickVolume": _int(_row_value(row, "tick_volume")),
+            "spreadPoints": _int(_row_value(row, "spread")),
+        })
+    return bars
 
 
 class MT5Adapter(TradingAdapter):
@@ -644,7 +761,7 @@ class MT5Adapter(TradingAdapter):
             self._require_account(mt5)
             resolved = self._resolve_symbol(mt5, symbol)
             info = mt5.symbol_info(resolved)
-            tick = mt5.symbol_info_tick(resolved)
+            tick = _tick(mt5, resolved)
             if info is None or tick is None:
                 raise AdapterUnavailable(
                     "SYMBOL_NOT_FOUND",
@@ -654,6 +771,61 @@ class MT5Adapter(TradingAdapter):
             payload["requestedSymbol"] = symbol
             return payload
 
+    def bars(
+        self, symbol: str, timeframe: str = "H1", count: int = 120,
+    ) -> dict[str, Any]:
+        """The broker's OWN OHLCV series for a symbol (server time, no guessing).
+
+        This is the accuracy path for instruments the market universe does not
+        cover (XAUUSD). The timeframe vocabulary is fixed; a count is clamped to
+        1..500 so one call cannot pull an unbounded series. A symbol that is not
+        in Market Watch is subscribed once and retried, exactly like `_tick`.
+        """
+        key = str(timeframe or "H1").strip().upper()
+        if key not in _TIMEFRAMES:
+            raise AdapterUnavailable(
+                "INVALID_TIMEFRAME",
+                f"timeframe {timeframe!r} is not one of {', '.join(_TIMEFRAMES)}",
+            )
+        wanted = max(1, min(int(count or 120), 500))
+        with self._session() as mt5:
+            self._require_account(mt5)
+            resolved = self._resolve_symbol(mt5, symbol)
+            info = mt5.symbol_info(resolved)
+            tf = _int(getattr(mt5, _TIMEFRAMES[key], 0), 0)
+            rates = mt5.copy_rates_from_pos(resolved, tf, 0, wanted)
+            if rates is None or len(rates) == 0:
+                try:
+                    mt5.symbol_select(resolved, True)
+                except Exception:  # noqa: BLE001 - subscription is best-effort
+                    pass
+                for _ in range(5):
+                    time.sleep(0.2)
+                    rates = mt5.copy_rates_from_pos(resolved, tf, 0, wanted)
+                    if rates is not None and len(rates) > 0:
+                        break
+            if rates is None:
+                raise _ipc_error(
+                    mt5, f"copy_rates_from_pos returned no series for {resolved}"
+                )
+            bars = _bars_from_rates(rates)
+            if not bars:
+                raise AdapterUnavailable(
+                    "BARS_UNAVAILABLE", f"no bars for {resolved!r} on {key}"
+                )
+            return {
+                "symbol": resolved,
+                "requestedSymbol": symbol,
+                "timeframe": key,
+                "count": len(bars),
+                "bars": bars,
+                "timeBasis": "broker server time",
+                "contractSize": _num(getattr(info, "trade_contract_size", 0)),
+                "tickSize": _num(getattr(info, "trade_tick_size", 0)),
+                "retrievedAt": time.time(),
+                "provider": "metatrader5",
+            }
+
     # ── P1 demo execution ────────────────────────────────────────────────────
     def order_preview(self, intent: Any) -> dict[str, Any]:
         """Normalize, validate and run the broker's own `order_check` (no send)."""
@@ -661,7 +833,7 @@ class MT5Adapter(TradingAdapter):
             account = _account_dict(self._require_account(mt5))
             resolved = self._resolve_symbol(mt5, intent.symbol)
             info = mt5.symbol_info(resolved)
-            tick = mt5.symbol_info_tick(resolved)
+            tick = _tick(mt5, resolved)
             if info is None or tick is None:
                 raise AdapterUnavailable(
                     "SYMBOL_NOT_FOUND", f"no live tick for {resolved!r}"
@@ -689,6 +861,9 @@ class MT5Adapter(TradingAdapter):
                 "volume": volume,
                 "price": price,
                 "notional": _notional(volume, info, price),
+                "stopLoss": intent.stop_loss,
+                "takeProfit": intent.take_profit,
+                "contractSize": _num(getattr(info, "trade_contract_size", 0)),
                 "margin": None,
                 "marginFree": account.get("marginFree"),
                 "spreadPoints": quote.get("spreadPoints"),
@@ -712,11 +887,21 @@ class MT5Adapter(TradingAdapter):
             ok = code in _OK_CHECK_RETCODES
             if not ok:
                 reasons.append(message)
+            # `check.margin` is the ACCOUNT margin AFTER this order, not the
+            # margin this order asks for. On this demo the two were 113.74 and
+            # 40.00 for a 0.01 XAUUSD lot (three EURUSD positions were already
+            # open), and comparing the total against a mandate's cap refused a
+            # valid order. Charge the order its own increment, never the account
+            # total; a reducing order needs no new margin.
+            account_margin = _num(account.get("margin", 0))
+            check_margin = _num(getattr(check, "margin", 0))
+            own_margin = _own_margin(account_margin, check_margin)
             preview.update({
                 "ok": ok,
                 "retcode": code,
                 "retcodeName": name,
-                "margin": _num(getattr(check, "margin", 0)),
+                "margin": own_margin,
+                "accountMarginAfter": check_margin,
                 "marginFree": _num(getattr(check, "margin_free", account.get("marginFree", 0))),
                 "balance": _num(getattr(check, "balance", account.get("balance", 0))),
                 "equity": _num(getattr(check, "equity", account.get("equity", 0))),
@@ -731,7 +916,7 @@ class MT5Adapter(TradingAdapter):
             account = _account_dict(self._require_account(mt5))
             resolved = self._resolve_symbol(mt5, intent.symbol)
             info = mt5.symbol_info(resolved)
-            tick = mt5.symbol_info_tick(resolved)
+            tick = _tick(mt5, resolved)
             if info is None or tick is None:
                 raise AdapterUnavailable(
                     "SYMBOL_NOT_FOUND", f"no live tick for {resolved!r}"
@@ -762,7 +947,7 @@ class MT5Adapter(TradingAdapter):
                 raise _ipc_error(mt5, "order_send returned no result")
             code = _int(getattr(result, "retcode", -1), -1)
             name, message = _retcode(code)
-            return {
+            payload = {
                 "ok": code in _FILLED_RETCODES,
                 "status": "FILLED" if code in _FILLED_RETCODES else "REJECTED",
                 "symbol": resolved,
@@ -779,6 +964,8 @@ class MT5Adapter(TradingAdapter):
                 "reasons": [] if code in _FILLED_RETCODES else [message],
                 "account": account,
             }
+            payload.update(_verify_fill(mt5, payload, intent))
+            return payload
 
     def cancel_order(self, ticket: int) -> dict[str, Any]:
         with self._session() as mt5:
@@ -799,6 +986,224 @@ class MT5Adapter(TradingAdapter):
                 "retcode": code,
                 "retcodeName": name,
                 "reasons": [] if ok else [message],
+            }
+
+    def close_position(
+        self, ticket: int, deviation: int = 20, volume: float | None = None,
+    ) -> dict[str, Any]:
+        """Close all or part of one position with the opposite market deal.
+
+        The position ticket is the join key (`position` in the request), so the
+        close can only ever hit the position the operator named. The magic is
+        carried over so the deal still belongs to Eclipse. A send is attempted
+        once: an ambiguous reply is reported, never retried. After a successful
+        send the position is read back, so "closed" is verified, not assumed.
+        """
+        with self._session() as mt5:
+            account = _account_dict(self._require_account(mt5))
+            rows = mt5.positions_get(ticket=int(ticket)) or ()
+            if not rows:
+                return {
+                    "ok": False,
+                    "ticket": int(ticket),
+                    "retcode": None,
+                    "retcodeName": "POSITION_NOT_FOUND",
+                    "reasons": [f"no open position with ticket {int(ticket)}"],
+                    "account": account,
+                }
+            position = rows[0]
+            symbol = str(getattr(position, "symbol", "") or "")
+            info = mt5.symbol_info(symbol)
+            tick = _tick(mt5, symbol)
+            if info is None or tick is None:
+                raise AdapterUnavailable(
+                    "SYMBOL_NOT_FOUND", f"no live tick for {symbol!r}"
+                )
+            held = _num(getattr(position, "volume", 0))
+            wanted = held if volume is None else _num(volume)
+            if wanted <= 0:
+                return {
+                    "ok": False, "ticket": int(ticket), "symbol": symbol,
+                    "retcode": None, "retcodeName": "INVALID_VOLUME",
+                    "reasons": ["the close volume must be greater than zero"],
+                    "account": account,
+                }
+            if wanted - held > 1e-8:
+                return {
+                    "ok": False, "ticket": int(ticket), "symbol": symbol,
+                    "retcode": None, "retcodeName": "INVALID_VOLUME",
+                    "reasons": [
+                        f"cannot close {wanted:g} of a {held:g}-volume position"
+                    ],
+                    "account": account,
+                }
+            normalised, volume_reasons = _normalise_volume(info, wanted)
+            if volume_reasons or abs(normalised - wanted) > 1e-8:
+                return {
+                    "ok": False, "ticket": int(ticket), "symbol": symbol,
+                    "retcode": None, "retcodeName": "INVALID_VOLUME",
+                    "reasons": volume_reasons or [
+                        f"{wanted:g} is not a multiple of the symbol's volume step"
+                    ],
+                    "account": account,
+                }
+            partial = held - normalised > 1e-8
+            closing_buy = _int(getattr(position, "type", 1), 1) == 0
+            side = "sell" if closing_buy else "buy"
+            price = (
+                _num(getattr(tick, "bid", 0)) if closing_buy
+                else _num(getattr(tick, "ask", 0))
+            )
+            filling, fill_reasons = _filling_mode(mt5, info, "market")
+            if fill_reasons:
+                return {
+                    "ok": False,
+                    "ticket": int(ticket),
+                    "symbol": symbol,
+                    "retcode": None,
+                    "retcodeName": "PREVIEW_REJECTED",
+                    "reasons": fill_reasons,
+                    "account": account,
+                }
+            request = {
+                "action": _int(getattr(mt5, "TRADE_ACTION_DEAL", 1), 1),
+                "symbol": symbol,
+                "volume": normalised,
+                "type": (
+                    _int(getattr(mt5, "ORDER_TYPE_SELL", 1), 1) if closing_buy
+                    else _int(getattr(mt5, "ORDER_TYPE_BUY", 0), 0)
+                ),
+                "position": int(ticket),
+                "price": price,
+                "deviation": max(int(deviation or 0), 0),
+                "magic": _int(getattr(position, "magic", 0), 0),
+                "comment": "eclipse close",
+                "type_time": _int(getattr(mt5, "ORDER_TIME_GTC", 0), 0),
+                "type_filling": filling,
+            }
+            result = mt5.order_send(request)
+            if result is None:
+                raise _ipc_error(mt5, "close returned no result")
+            code = _int(getattr(result, "retcode", -1), -1)
+            name, message = _retcode(code)
+            ok = code in _FILLED_RETCODES
+            closed_volume = _num(getattr(result, "volume", normalised))
+            after = mt5.positions_get(ticket=int(ticket)) or ()
+            remaining = _num(getattr(after[0], "volume", 0)) if after else 0.0
+            expected = held - closed_volume if partial else 0.0
+            verified = ok and abs(remaining - expected) <= 1e-8
+            return {
+                "ok": ok,
+                "ticket": int(ticket),
+                "symbol": symbol,
+                "side": side,
+                "partial": partial,
+                "volume": closed_volume,
+                "remainingVolume": remaining,
+                "price": _num(getattr(result, "price", price)),
+                "order": _int(getattr(result, "order", 0)),
+                "deal": _int(getattr(result, "deal", 0)),
+                "retcode": code,
+                "retcodeName": name,
+                "comment": str(getattr(result, "comment", "") or ""),
+                "reasons": [] if ok else [message],
+                "verified": verified,
+                "verifyNote": None if verified else (
+                    f"broker reported {closed_volume:g} closed but the position "
+                    f"shows {remaining:g} remaining"
+                ),
+                "account": account,
+            }
+
+    def modify_position(
+        self, ticket: int, stop_loss: float | None = None,
+        take_profit: float | None = None,
+    ) -> dict[str, Any]:
+        """Move a position's stop/target with `TRADE_ACTION_SLTP`, then verify.
+
+        `None` keeps the existing value; 0 removes it (MT5's convention). The
+        broker's own stops distance is enforced before the send, and the position
+        is read back afterwards so the reported bracket is the stored bracket.
+        """
+        if stop_loss is None and take_profit is None:
+            return {
+                "ok": False, "ticket": int(ticket), "retcode": None,
+                "retcodeName": "INVALID_STOPS",
+                "reasons": ["pass stopLoss and/or takeProfit"],
+            }
+        with self._session() as mt5:
+            account = _account_dict(self._require_account(mt5))
+            rows = mt5.positions_get(ticket=int(ticket)) or ()
+            if not rows:
+                return {
+                    "ok": False, "ticket": int(ticket), "retcode": None,
+                    "retcodeName": "POSITION_NOT_FOUND",
+                    "reasons": [f"no open position with ticket {int(ticket)}"],
+                    "account": account,
+                }
+            position = rows[0]
+            symbol = str(getattr(position, "symbol", "") or "")
+            info = mt5.symbol_info(symbol)
+            tick = _tick(mt5, symbol)
+            if info is None or tick is None:
+                raise AdapterUnavailable(
+                    "SYMBOL_NOT_FOUND", f"no live tick for {symbol!r}"
+                )
+            closing_buy = _int(getattr(position, "type", 1), 1) == 0
+            side = "buy" if closing_buy else "sell"
+            price = (
+                _num(getattr(tick, "bid", 0)) if closing_buy
+                else _num(getattr(tick, "ask", 0))
+            )
+            current_sl = _num(getattr(position, "sl", 0))
+            current_tp = _num(getattr(position, "tp", 0))
+            new_sl = current_sl if stop_loss is None else _num(stop_loss)
+            new_tp = current_tp if take_profit is None else _num(take_profit)
+            reasons = _stops_reasons(
+                side, price, _num(getattr(info, "point", 0)),
+                _int(getattr(info, "trade_stops_level", 0)),
+                new_sl or None, new_tp or None,
+            )
+            if reasons:
+                return {
+                    "ok": False, "ticket": int(ticket), "symbol": symbol,
+                    "retcode": None, "retcodeName": "PREVIEW_REJECTED",
+                    "reasons": reasons, "account": account,
+                }
+            request = {
+                "action": _int(getattr(mt5, "TRADE_ACTION_SLTP", 6), 6),
+                "symbol": symbol,
+                "position": int(ticket),
+                "sl": new_sl,
+                "tp": new_tp,
+                "magic": _int(getattr(position, "magic", 0), 0),
+            }
+            result = mt5.order_send(request)
+            if result is None:
+                raise _ipc_error(mt5, "modify returned no result")
+            code = _int(getattr(result, "retcode", -1), -1)
+            name, message = _retcode(code)
+            ok = code in _FILLED_RETCODES
+            after = mt5.positions_get(ticket=int(ticket)) or ()
+            actual_sl = _num(getattr(after[0], "sl", 0)) if after else 0.0
+            actual_tp = _num(getattr(after[0], "tp", 0)) if after else 0.0
+            verified = ok and abs(actual_sl - new_sl) < 1e-6 and abs(actual_tp - new_tp) < 1e-6
+            return {
+                "ok": ok,
+                "ticket": int(ticket),
+                "symbol": symbol,
+                "stopLoss": actual_sl,
+                "takeProfit": actual_tp,
+                "requestedStopLoss": new_sl,
+                "requestedTakeProfit": new_tp,
+                "retcode": code,
+                "retcodeName": name,
+                "reasons": [] if ok else [message],
+                "verified": verified,
+                "verifyNote": None if verified else (
+                    "the broker accepted the request but the stored bracket differs"
+                ),
+                "account": account,
             }
 
     def cancel_all(self, magic: int) -> dict[str, Any]:

@@ -24,6 +24,14 @@ class TradePolicy:
     max_open_positions: int = 20
     max_spread_points: float = 50.0
     symbol_allowlist: tuple[str, ...] = ()
+    #: Percent of account equity a single order may risk at its stop (0 = off).
+    #: When set, an order without a stop is refused: undefined risk is not small.
+    risk_per_trade_pct: float = 0.0
+    #: Absolute notional cap for one symbol (account currency, 0 = off).
+    max_symbol_notional: float = 0.0
+    #: Rolling 24 h loss brake (percent of equity, 0 = off). Enforced in the
+    #: service because it needs the broker's own deal history.
+    max_daily_loss_pct: float = 0.0
 
     @classmethod
     def from_connection(cls, connection: BrokerConnection) -> "TradePolicy":
@@ -50,6 +58,9 @@ class TradePolicy:
             max_open_positions=integer("maxOpenPositions", 20),
             max_spread_points=number("maxSpreadPoints", 50.0),
             symbol_allowlist=tuple(str(item).strip().upper() for item in allowlist if str(item).strip()),
+            risk_per_trade_pct=number("riskPerTradePct", 0.0),
+            max_symbol_notional=number("maxSymbolNotional", 0.0),
+            max_daily_loss_pct=number("maxDailyLossPct", 0.0),
         )
 
     def evaluate(self, preview: dict[str, Any]) \
@@ -96,6 +107,44 @@ class TradePolicy:
                 f"There are already {int(open_positions)} open positions "
                 f"(cap {self.max_open_positions})."
             )
+
+        notional = _num(preview.get("notional"))
+        if (
+            self.max_symbol_notional > 0
+            and notional is not None
+            and notional > self.max_symbol_notional
+        ):
+            rules.append("policy.max-symbol-notional")
+            reasons.append(
+                f"The order's {symbol or 'symbol'} notional is {notional:,.2f}, above "
+                f"the {self.max_symbol_notional:,.2f} per-symbol cap."
+            )
+
+        if self.risk_per_trade_pct > 0:
+            account = preview.get("account") or {}
+            equity = _num(account.get("equity"))
+            price = _num(preview.get("price"))
+            stop = _num(preview.get("stopLoss"))
+            contract = _num(preview.get("contractSize"))
+            units = (volume or 0.0) * (contract or 0.0)
+            if equity and equity > 0:
+                if not stop or not price or not units:
+                    rules.append("policy.risk-stop-required")
+                    reasons.append(
+                        "A stop loss is required: the connection has a "
+                        f"{self.risk_per_trade_pct:g}% risk-per-trade cap and this "
+                        "order has no defined risk."
+                    )
+                else:
+                    risk = abs(price - stop) * units
+                    cap = equity * self.risk_per_trade_pct / 100.0
+                    if risk > cap + 1e-9:
+                        rules.append("policy.risk-per-trade")
+                        reasons.append(
+                            f"The order risks {risk:,.2f} at its stop, above the "
+                            f"{self.risk_per_trade_pct:g}% cap ({cap:,.2f} of "
+                            f"{equity:,.2f} equity)."
+                        )
 
         return {"allowed": not reasons, "reasons": reasons, "rules": rules}
 

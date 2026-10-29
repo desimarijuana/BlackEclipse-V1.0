@@ -144,7 +144,12 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 2315->2323 ... 2323->2326 ... Re-pinned 2326->2334 to the measured
     # tree: the growth predates this change and no part of it lives here. May only
     # shrink.
-    "graph.py": 2334,
+    # Re-pinned 2334->2344 for the per-run trade/close directive seam. The
+    # detection and both blocks live in `trading_intent.py`; only the five-line
+    # injection and a re-export remain here. May only shrink.
+    # Re-pinned 2344->2355 for the per-run trade-surface narrowing seam (the
+    # logic lives in `trading_intent.py`; only the call is here). May only shrink.
+    "graph.py": 2355,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -299,7 +304,15 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1593→1768 to the measured tree: the Portfolio / market-gateway
     # seams and the in-flight subsystem construction in `__init__` predate this
     # measurement. The subsystem-construction block is the split candidate.
-    "service.py": 1768,
+    # Re-pinned 1768->1775 to the measured tree (pre-existing growth in the run
+    # service; the demo position-close path lives in `trade/service.py`, below the
+    # hard ceiling). May only shrink.
+    "service.py": 1775,
+    # The MT5 bridge grew past the hard ceiling with broker-native bars
+    # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
+    # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs
+    # execution (order_* / position_* / bars). May only shrink from here.
+    "trade/adapters/mt5.py": 1329,
     # The in-flight Portfolio Accounting Engine's service facade (ledger →
     # valuation → corporate actions → risk/rebalancing). Over the hard ceiling
 

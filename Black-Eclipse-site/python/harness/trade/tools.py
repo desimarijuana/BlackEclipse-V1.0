@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .analysis import bar_summary
 from .model import TradeRefused
 
 READ = "read"
@@ -41,6 +42,24 @@ def _pick(service: Any, args: dict[str, Any]) -> str:
             f"({', '.join(c.id for c in connections)})"
         )
     return connections[0].id
+
+
+def _known_connection(service: Any, connection_id: str) -> str:
+    """Ignore a connection id that no longer exists.
+
+    A remembered or copied id from another profile/DB is the classic cause of
+    "no active mandate" on an account that has one: the id is stale, the mandate
+    list for it is empty, and the user is told to create a mandate they already
+    own. With a single saved connection the only honest interpretation is that
+    id, so a stale one is dropped and resolved normally.
+    """
+    if not connection_id:
+        return ""
+    try:
+        known = {str(item.get("id")) for item in service.list_connections()}
+    except Exception:  # noqa: BLE001 - a read failure must not silently rewrite
+        return connection_id
+    return connection_id if connection_id in known else ""
 
 
 def _unavailable_text(result: dict[str, Any]) -> str:
@@ -112,9 +131,9 @@ async def broker_positions(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
         stop = f"{row['stopLoss']:g}" if row.get("stopLoss") is not None else "—"
         target = f"{row['takeProfit']:g}" if row.get("takeProfit") is not None else "—"
         lines.append(
-            f"- {row['symbol']} {row['side']} {row['volume']:g} @ {row['openPrice']:g} "
-            f"(now {row['currentPrice']:g}, SL {stop}, TP {target}, "
-            f"P&L {row['profit']:,.2f})"
+            f"- #{row.get('ticket')} {row['symbol']} {row['side']} {row['volume']:g} "
+            f"@ {row['openPrice']:g} (now {row['currentPrice']:g}, SL {stop}, "
+            f"TP {target}, P&L {row['profit']:,.2f})"
         )
     return "\n".join(lines), result
 
@@ -248,26 +267,94 @@ async def broker_mandates(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     return "\n".join(lines), {"mandates": mandates}
 
 
+def _select_mandate(service: Any, connection_id: str, symbol: str) -> str:
+    """Resolve the one mandate that applies, without requiring an id from the user."""
+    try:
+        active = service.list_mandates(connection_id, active_only=True)
+    except Exception:  # noqa: BLE001
+        return ""
+    if len(active) == 1:
+        return str(active[0].get("id") or "")
+    wanted = str(symbol or "").upper()
+    matches = [
+        mandate for mandate in active
+        if any(str(item).strip().upper() in ("*", wanted) for item in (mandate.get("symbols") or []))
+    ]
+    if len(matches) == 1:
+        return str(matches[0].get("id") or "")
+    return ""
+
+
+async def broker_bars(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """The broker's own OHLCV series, with ATR computed deterministically."""
+    service = _service(ctx)
+    symbol = str(args.get("symbol") or "").strip()
+    if not symbol:
+        return "A `symbol` is required (e.g. XAUUSD).", {"status": "INVALID_SYMBOL"}
+    connection_id = _known_connection(
+        service, str(args.get("connectionId") or "").strip()
+    )
+    try:
+        if not connection_id:
+            connection_id = _pick(service, {})
+        timeframe = str(args.get("timeframe") or "H1").strip().upper()
+        count = int(args.get("count") or 120)
+        result = service.bars(connection_id, symbol, timeframe=timeframe, count=count)
+    except ValueError as exc:
+        return str(exc), {"status": "CONNECTION_REQUIRED"}
+    if not result.get("available"):
+        return _unavailable_text(result), result
+    data = result.get("data") or {}
+    bars = data.get("bars") or []
+    summary = bar_summary(bars)
+    if not bars or summary.get("atr") is None:
+        return (
+            f"{data.get('symbol') or symbol} {data.get('timeframe') or timeframe}: "
+            f"{len(bars)} bars; not enough history for ATR(14).",
+            {**result, "summary": summary},
+        )
+    contract = data.get("contractSize") or 0
+    lines = [
+        f"{data.get('symbol')} {data.get('timeframe')}: {len(bars)} bars from "
+        "MetaTrader 5 (broker server time).",
+        f"Last close {summary['lastClose']:g} "
+        f"(high {summary['lastHigh']:g} / low {summary['lastLow']:g}), "
+        f"change {summary['changePct'] if summary['changePct'] is not None else 'n/a'}%.",
+        f"ATR({summary['atrPeriod']}) {summary['atr']:g} over the last "
+        f"{summary['lookback']} bars; range "
+        f"{summary['lookbackLow']:g}–{summary['lookbackHigh']:g}.",
+    ]
+    if contract:
+        lines.append(
+            f"Contract size {contract:g}; a 0.01 lot is {contract / 100:g} units."
+        )
+    return "\n".join(lines), {**result, "summary": summary}
+
+
 async def order_submit(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
-    """Submit a demo order under an active mandate (the only agent write path)."""
+    """Submit a demo order under the active mandate that covers its symbol."""
     service = _service(ctx)
     connection_id = str(args.get("connectionId") or "").strip()
     mandate_id = str(args.get("mandateId") or "").strip()
     intent = args.get("intent")
     if not isinstance(intent, dict):
         return "An `intent` object is required.", {"status": "INVALID_ORDER"}
+    connection_id = _known_connection(service, connection_id)
     if not connection_id:
-        connection_id = _pick(service, args)
+        try:
+            connection_id = _pick(service, {})
+        except ValueError as exc:
+            return str(exc), {"status": "CONNECTION_REQUIRED"}
+    if not mandate_id:
+        mandate_id = _select_mandate(service, connection_id, str(intent.get("symbol") or ""))
     if not mandate_id:
         active = service.list_mandates(connection_id, active_only=True)
-        if len(active) == 1:
-            mandate_id = active[0]["id"]
-        else:
-            return (
-                "A mandateId is required when zero or multiple active mandates exist. "
-                "Call broker_mandates first.",
-                {"status": "MANDATE_REQUIRED"},
-            )
+        return (
+            "No single active demo mandate covers this symbol. Active mandates: "
+            f"{', '.join(m['id'] for m in active) or 'none'}. Ask the operator to "
+            "create one in Settings → Broker connection.",
+            {"status": "MANDATE_REQUIRED", "mandates": active},
+        )
     try:
         result = service.submit_order(
             connection_id,
@@ -283,13 +370,145 @@ async def order_submit(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     status = str(result.get("status") or "UNKNOWN")
     ledger = result.get("ledger") or {}
     if status in ("filled", "placed"):
+        detail = result.get("result") or {}
+        verify = "" if detail.get("verified", True) else (
+            " WARNING: the broker's stored bracket does not match the request — "
+            f"{detail.get('verifyNote') or 'verify the position manually'}."
+        )
         return (
             f"Order {status}. Ticket {ledger.get('ticket') or 'n/a'}, "
-            f"order {ledger.get('id') or result.get('orderId') or 'n/a'}.",
+            f"order {ledger.get('id') or result.get('orderId') or 'n/a'}.{verify}",
             result,
         )
     reasons = "; ".join(result.get("reasons") or []) or status
     return f"Order not sent ({status}): {reasons}", result
+
+
+async def position_close(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Close one demo position, or every open one, without an approval.
+
+    Closing reduces exposure, so it follows the cancel rule: no mandate and no
+    approval card. The service still refuses a live connection or a real account.
+    """
+    service = _service(ctx)
+    connection_id = _known_connection(
+        service, str(args.get("connectionId") or "").strip()
+    )
+    try:
+        if not connection_id:
+            connection_id = _pick(service, {})
+        ticket = args.get("ticket")
+        tickets = args.get("tickets")
+        close_all = bool(args.get("all"))
+        symbol = str(args.get("symbol") or "").strip().upper()
+        volume = args.get("volume")
+        if ticket is not None:
+            result = service.close_position(
+                connection_id, int(ticket),
+                volume=float(volume) if volume is not None else None,
+            )
+            closed = bool(result.get("closed"))
+            detail = result.get("result") or {}
+            if closed:
+                suffix = (
+                    f" Partial close; {detail.get('remainingVolume'):g} still open."
+                    if detail.get("partial") else ""
+                )
+                verify = "" if detail.get("verified") else (
+                    " WARNING: the broker's position did not read back as expected."
+                )
+                return (
+                    f"Closed position {ticket} ({detail.get('symbol', '?')} "
+                    f"{detail.get('volume', '?')} at {detail.get('price', '?')})."
+                    f"{suffix}{verify}",
+                    result,
+                )
+            reasons = "; ".join(detail.get("reasons") or []) or detail.get("retcodeName")
+            return f"Position {ticket} not closed: {reasons}", result
+        if symbol:
+            positions = service.positions(connection_id)
+            rows = (positions.get("data") or []) if positions.get("available") else []
+            wanted = [
+                int(row.get("ticket") or 0)
+                for row in rows
+                if str(row.get("symbol") or "").upper() == symbol
+            ]
+            if not wanted:
+                return f"No open {symbol} position to close.", {
+                    "status": "NO_POSITION", "symbol": symbol
+                }
+            result = service.close_positions(connection_id, tickets=wanted)
+        elif close_all or tickets:
+            wanted = [int(item) for item in tickets] if isinstance(tickets, list) else None
+            result = service.close_positions(connection_id, tickets=wanted)
+        else:
+            return (
+                'Pass `ticket` to close one position, `symbol` to close that '
+                'instrument, or `all: true` to close every open demo position.',
+                {"status": "INVALID_ARGUMENTS"},
+            )
+    except ValueError as exc:
+        return str(exc), {"status": "CONNECTION_REQUIRED"}
+    except TradeRefused as exc:
+        return f"Close refused ({exc.code}): {exc.message}", {
+            "status": "REFUSED",
+            "error": exc.to_dict(),
+        }
+    closed = int(result.get("closed") or 0)
+    failed = int(result.get("failed") or 0)
+    if not result.get("requested"):
+        return "No open demo positions to close.", result
+    summary = f"Closed {closed} of {result.get('requested')} position(s)"
+    if failed:
+        summary += f"; {failed} failed"
+    return summary + ".", result
+
+
+async def position_modify(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Move a demo position's stop and/or target (no mandate, no approval)."""
+    service = _service(ctx)
+    ticket = args.get("ticket")
+    stop_loss = args.get("stopLoss")
+    take_profit = args.get("takeProfit")
+    if ticket is None:
+        return "Pass `ticket` for the position to modify.", {"status": "INVALID_ARGUMENTS"}
+    if stop_loss is None and take_profit is None:
+        return (
+            "Pass `stopLoss` and/or `takeProfit` (a number, or 0 to remove it).",
+            {"status": "INVALID_STOPS"},
+        )
+    connection_id = _known_connection(
+        service, str(args.get("connectionId") or "").strip()
+    )
+    try:
+        if not connection_id:
+            connection_id = _pick(service, {})
+        result = service.modify_position(
+            connection_id, int(ticket),
+            stop_loss=float(stop_loss) if stop_loss is not None else None,
+            take_profit=float(take_profit) if take_profit is not None else None,
+        )
+    except ValueError as exc:
+        return str(exc), {"status": "CONNECTION_REQUIRED"}
+    except TradeRefused as exc:
+        return f"Modify refused ({exc.code}): {exc.message}", {
+            "status": "REFUSED",
+            "error": exc.to_dict(),
+        }
+    detail = result.get("result") or {}
+    if result.get("modified"):
+        verify = "" if detail.get("verified") else (
+            " WARNING: the broker accepted the request but the stored bracket "
+            "did not read back as requested."
+        )
+        return (
+            f"Position {ticket} updated: stop loss "
+            f"{detail.get('stopLoss', 'n/a')}, take profit "
+            f"{detail.get('takeProfit', 'n/a')}.{verify}",
+            result,
+        )
+    reasons = "; ".join(detail.get("reasons") or []) or detail.get("retcodeName")
+    return f"Position {ticket} not modified: {reasons}", result
 
 
 async def order_ledger(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
@@ -450,14 +669,36 @@ def register_broker_tools(registry: Any) -> None:
         {"type": "object", "properties": {"connectionId": connection_id}},
     )
     _def(
+        "broker_bars",
+        "Read the broker's OWN OHLCV bars for a symbol (server time) and the "
+        "deterministic ATR(14) / 20-bar range computed from them. Use this for "
+        "any instrument the stored market history does not cover (XAUUSD): it is "
+        "the accurate series for a bracket, unlike a proxy ETF. Read-only.",
+        broker_bars,
+        {
+            "type": "object",
+            "properties": {
+                "connectionId": connection_id,
+                "symbol": {"type": "string"},
+                "timeframe": {
+                    "type": "string",
+                    "enum": ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1"],
+                },
+                "count": {"type": "integer", "minimum": 1, "maximum": 500},
+            },
+            "required": ["symbol"],
+        },
+    )
+    _def(
         "order_submit",
         "Submit ONE demo order under an active operator-created mandate. REQUIRED "
-        "arguments: connectionId, mandateId, and intent {symbol, side, type, volume, "
-        "stopLoss?, takeProfit?}. This call performs its own preview and submission; "
-        "do not call order_preview first and never call it with empty arguments. It "
-        "cannot create a mandate, arm live, or submit live. The broker service still "
-        "enforces policy, money guardrails, the demo account check, the mandate margin "
-        "cap and the mandate order count.",
+        "arguments: connectionId and intent {symbol, side, type, volume, stopLoss?, "
+        "takeProfit?}. `connectionId` and `mandateId` are optional: the one saved "
+        "connection and the one active mandate covering the symbol are resolved for "
+        "you. Only an ambiguous multi-mandate symbol needs an id from broker_mandates. "
+        "This call performs "
+        "its own preview and submission; do not call order_preview first and never call "
+        "it with empty arguments. It cannot create a mandate, arm live, or submit live. ",
         order_submit,
         {
             "type": "object",
@@ -485,7 +726,7 @@ def register_broker_tools(registry: Any) -> None:
                     "required": ["symbol", "side", "type", "volume"],
                 },
             },
-            "required": ["connectionId", "mandateId", "intent"],
+            "required": ["intent"],
         },
         permission=READ,
         risk="high",
@@ -493,9 +734,70 @@ def register_broker_tools(registry: Any) -> None:
     )
 
 
+    _def(
+        "position_close",
+        "Close an open DEMO position (risk-reducing, so no approval or mandate is "
+        "needed). Pass `ticket` for one position, or `all: true` to step out of "
+        "every open position; `connectionId` resolves on its own when there is one "
+        "connection. Returns the broker's per-ticket result. Live close is refused; "
+        "close a live position in the terminal.",
+        position_close,
+        {
+            "type": "object",
+            "properties": {
+                "connectionId": connection_id,
+                "ticket": {"type": "integer"},
+                "tickets": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Close these tickets instead of every position.",
+                },
+                "symbol": {
+                    "type": "string",
+                    "description": "Close every open position in this instrument.",
+                },
+                "volume": {
+                    "type": "number",
+                    "description": "Partial close size; omit to close the whole ticket.",
+                },
+                "all": {
+                    "type": "boolean",
+                    "description": "Close every open position on the connection.",
+                },
+                "deviation": {"type": "integer"},
+            },
+        },
+        permission=READ,
+        risk="medium",
+        effect="trading",
+    )
+    _def(
+        "position_modify",
+        "Move a demo position's stop loss and/or take profit (risk-reducing; no "
+        "approval or mandate). Pass `ticket` and `stopLoss`/`takeProfit`; 0 removes "
+        "a level. The result is verified against the broker's stored bracket. A "
+        "wider stop increases risk — say so when you do it. Live modify is refused.",
+        position_modify,
+        {
+            "type": "object",
+            "properties": {
+                "connectionId": connection_id,
+                "ticket": {"type": "integer"},
+                "stopLoss": {"type": "number"},
+                "takeProfit": {"type": "number"},
+            },
+            "required": ["ticket"],
+        },
+        permission=READ,
+        risk="medium",
+        effect="trading",
+    )
+
+
 __all__ = [
     "BROKER_TOOLS",
     "broker_account",
+    "broker_bars",
     "broker_connections",
     "broker_fills",
     "broker_mandates",
@@ -506,19 +808,24 @@ __all__ = [
     "order_ledger",
     "order_preview",
     "order_submit",
+    "position_close",
+    "position_modify",
     "register_broker_tools",
 ]
 
-#: The canonical broker allowlist (imported by `agents.py`). `order_submit` is the
-#: ONE effectful entry; its authorizer requires an active demo mandate.
+#: The canonical broker allowlist (imported by `agents.py`). `order_submit` opens
+#: exposure under an active demo mandate; `position_close` only reduces exposure.
 BROKER_TOOLS = [
     "broker_connections",
     "broker_account",
     "broker_positions",
     "broker_orders",
     "broker_quote",
+    "broker_bars",
     "order_preview",
     "order_submit",
+    "position_close",
+    "position_modify",
     "broker_mandates",
     "order_ledger",
     "broker_reconciliation",

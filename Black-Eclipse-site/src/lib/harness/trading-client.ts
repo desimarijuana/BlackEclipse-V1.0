@@ -437,6 +437,49 @@ export async function cancelBrokerOrder(
   );
 }
 
+export async function closeBrokerPosition(
+  connectionId: string,
+  ticket: number,
+  volume?: number,
+  deviation = 20,
+): Promise<{ closed: boolean; result: Record<string, unknown> }> {
+  return api<{ closed: boolean; result: Record<string, unknown> }>(
+    `connections/${connectionId}/positions/${ticket}/close`,
+    { method: "POST", body: JSON.stringify({ deviation, volume }) },
+  );
+}
+
+export async function modifyBrokerPosition(
+  connectionId: string,
+  ticket: number,
+  levels: { stopLoss?: number; takeProfit?: number },
+): Promise<{ modified: boolean; result: Record<string, unknown> }> {
+  return api<{ modified: boolean; result: Record<string, unknown> }>(
+    `connections/${connectionId}/positions/${ticket}/modify`,
+    { method: "POST", body: JSON.stringify(levels) },
+  );
+}
+
+export async function closeAllBrokerPositions(
+  connectionId: string,
+  tickets?: number[],
+): Promise<{
+  closed: number;
+  failed: number;
+  requested: number;
+  results: Record<string, unknown>[];
+}> {
+  return api<{
+    closed: number;
+    failed: number;
+    requested: number;
+    results: Record<string, unknown>[];
+  }>(`connections/${connectionId}/positions/close`, {
+    method: "POST",
+    body: JSON.stringify(tickets ? { tickets } : {}),
+  });
+}
+
 export async function listLedgerOrders(
   connectionId: string,
   limit = 50,

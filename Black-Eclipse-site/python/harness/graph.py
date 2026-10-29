@@ -1,15 +1,15 @@
-"""LangGraph execution graph — the agent runtime.
+﻿"""LangGraph execution graph â€” the agent runtime.
 
 Flow (a StateGraph over a message list):
 
-    START → agent
-    agent  — the model is called with the tool schemas bound
-             • no tool calls  → END (final answer)
-             • tool calls     → tools
-    tools  — each call is validated, permission-checked, timed out and executed
+    START â†’ agent
+    agent  â€” the model is called with the tool schemas bound
+             â€¢ no tool calls  â†’ END (final answer)
+             â€¢ tool calls     â†’ tools
+    tools  â€” each call is validated, permission-checked, timed out and executed
              by the Python ToolRegistry (JDdS data via the bridge)
-             → back to agent
-    agent → … until max_steps, then a MAX_STEPS_EXCEEDED failure
+             â†’ back to agent
+    agent â†’ â€¦ until max_steps, then a MAX_STEPS_EXCEEDED failure
 
 Safety mirrors the Phase 1 design: max steps, per-tool timeout, duplicate-call
 suppression, run timeout, cooperative cancellation, and exactly one terminal
@@ -139,7 +139,7 @@ def _extract_usage(message: Any) -> tuple[int, int]:
     Providers expose usage differently: `usage_metadata` is the LangChain
     standard; OpenAI-compatible endpoints (incl. Ollama) put it in
     `response_metadata["token_usage"]`; Anthropic uses `response_metadata["usage"]`.
-    A missing block yields (0, 0) — the run honestly reports "usage not
+    A missing block yields (0, 0) â€” the run honestly reports "usage not
     reported" rather than inventing a count.
     """
     prompt = completion = 0
@@ -176,11 +176,11 @@ def chat_step_budget(agent: AgentConfig, request: Any) -> int:
 
     The ordinary chat agent defaults to 24 steps: 8 was too tight for a
     multi-tool navigation turn, and 12 was too tight for a request that carries
-    several deliverables (fetch → compute → chart → report → widget): the run
+    several deliverables (fetch â†’ compute â†’ chart â†’ report â†’ widget): the run
     spent its budget on the data work and never produced the file or the
     widget. An operator can override with `ECLIPSE_CHAT_MAX_STEPS` (clamped
     1..32). An
-    EXPLICIT per-run `agent` config wins over both — the caller asked for it.
+    EXPLICIT per-run `agent` config wins over both â€” the caller asked for it.
     """
     base = int(agent.maxSteps or 8)
     explicit = getattr(request, "agent", None) is not None
@@ -197,7 +197,7 @@ def chat_step_budget(agent: AgentConfig, request: Any) -> int:
 
 
 def _task_profile_of(request: RunRequest, agent: AgentConfig) -> str:
-    """The task profile the ModelRouter scores against for this run (spec §14)."""
+    """The task profile the ModelRouter scores against for this run (spec Â§14)."""
     from .model_runtime.integration import task_profile_of
 
     return task_profile_of(request, agent)
@@ -418,7 +418,7 @@ def build_graph(
     max_tool_calls: Optional[int] = agent.maxToolCalls
     # Phase 11: bounded replanning is FLAG-GATED and DEFAULT OFF. When enabled, a
     # failed or stalled tool step routes through ONE `replan` node (a revised
-    # approach) before the agent continues — never a second loop or registry.
+    # approach) before the agent continues â€” never a second loop or registry.
     from .replan import (  # noqa: PLC0415
         ReplanBudget,
         build_replan_instruction,
@@ -433,7 +433,7 @@ def build_graph(
     if allowed is None:
         allowed = effective_allowlist(agent, registry)
 
-    # ── Model runtime (provider-agnostic) ──────────────────────────────────
+    # â”€â”€ Model runtime (provider-agnostic) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # The agent no longer talks to a provider. It asks the ModelRuntime to
     # resolve the run's settings through the ModelRouter, then builds the model
     # THROUGH the runtime. The module-level `build_chat_model` is passed as the
@@ -492,7 +492,7 @@ def build_graph(
         task_manager=task_manager,
         authorize_effect=effect_authorizer,
         mcp_manager=mcp_manager,
-        # The read-only workspace binding for this run (Phase 1). Absent ⇒ no
+        # The read-only workspace binding for this run (Phase 1). Absent â‡’ no
         # code capability (the default-actor rule).
         workspace=resolve_workspace(request.workspace),
         # Phase 2: the run's autonomy profile and the code-workspace store.
@@ -501,7 +501,7 @@ def build_graph(
         # The process-wide CIUE runtime (LSP manager + code index/watcher), so the
         # `code_*` tools resolve one shared runtime instead of a global.
         code_intel_runtime=code_intel_runtime,
-        # Phase 4: the run's verification ledger — every command execution is
+        # Phase 4: the run's verification ledger â€” every command execution is
         # recorded here so the final answer can be checked against proven fact.
         code_ledger=code_ledger,
         # Phase 7: the resolved allowlist (a delegate narrows children against it)
@@ -542,7 +542,7 @@ def build_graph(
         # results here so they render inline in the chat (never fabricated).
         image_sink=image_sink,
         # The run's native-video job collector: `video_*` hands queued job
-        # handles here so the chat renders live job cards (progress → player).
+        # handles here so the chat renders live job cards (progress â†’ player).
         video_sink=video_sink,
         # The run's advisory collector: every `portfolio_*` tool call is recorded
         # here so the answer seam can verify actionable advice (the Fiduciary Gate).
@@ -578,7 +578,7 @@ def build_graph(
     registry.set_active_context(ctx)
 
     def _checkpoint_payload(state: GraphState) -> dict[str, Any]:
-        """A bounded checkpoint reference — enough to resume, never a trace."""
+        """A bounded checkpoint reference â€” enough to resume, never a trace."""
         last = state["messages"][-1] if state.get("messages") else None
         pending = [
             {"id": c.get("id"), "name": c.get("name"), "args": c.get("args")}
@@ -614,7 +614,7 @@ def build_graph(
         await emitter.emit("model.requested", {"step": step, "messages": len(state["messages"])})
         # On the last allowed step, forbid tools so the model MUST answer from the
         # evidence it already gathered. Without this a tool-calling model can loop
-        # until max steps and produce MAX_STEPS_EXCEEDED instead of an answer —
+        # until max steps and produce MAX_STEPS_EXCEEDED instead of an answer â€”
         # the exact failure that made the agent "unable to answer". The same
         # applies once a hard tool-call budget is spent.
         budget_spent = max_tool_calls is not None and state.get("tool_calls", 0) >= max_tool_calls
@@ -697,7 +697,7 @@ def build_graph(
             run_id=request.runId,
         )
         tool_calls = getattr(response, "tool_calls", None) or []
-        # On the final step we do NOT execute tools — the model must answer. If a
+        # On the final step we do NOT execute tools â€” the model must answer. If a
         # provider still returned tool calls, drop them so routing falls through
         # to the final answer instead of looping into MAX_STEPS_EXCEEDED.
         if finalizing and tool_calls:
@@ -773,7 +773,7 @@ def build_graph(
         tool_calls = state.get("tool_calls", 0)
         tool_errors = state.get("tool_errors", 0)
         out_messages: list[BaseMessage] = []
-        # The agent step that issued these calls — the resume idempotency key
+        # The agent step that issued these calls â€” the resume idempotency key
         # scopes a call to (runId, stepIndex, toolCallId).
         step_index = state.get("step", 0)
         # Phase 11 replanning signals: the keys of THIS turn, the failures in it,
@@ -785,13 +785,13 @@ def build_graph(
         # Duplicate suppression is scoped to THIS agent step (one model turn),
         # not the whole run. The guard exists to stop one turn from issuing the
         # same call twice; a run-scoped map also blocked a legitimate re-issue in
-        # a later turn — the next page of a listing, re-polling a price after new
+        # a later turn â€” the next page of a listing, re-polling a price after new
         # evidence, a retry after a transient failure. Keying on
         # `(name, canonical-args)` within a single `tools_node` invocation keeps
         # the intra-turn refusal exactly as before while letting a later turn
         # repeat a call. Do NOT key on the assistant message id: the same model
         # message can legitimately recur across steps, which would reintroduce
-        # the bug. A cross-turn re-issue does not multiply upstream calls — the
+        # the bug. A cross-turn re-issue does not multiply upstream calls â€” the
         # retrieval layer still deduplicates identical data fetches per run via
         # the shared `retrieval_cache` passed into `build_graph`.
         seen_calls: dict[str, int] = {}
@@ -822,7 +822,7 @@ def build_graph(
                 continue
 
             tool_calls += 1
-            # A safe, bounded "what" for the live stream — never file content.
+            # A safe, bounded "what" for the live stream â€” never file content.
             from .code.activity import tool_code_preview, tool_detail  # noqa: PLC0415
 
             safe_args = args if isinstance(args, dict) else {}
@@ -1153,7 +1153,7 @@ async def execute_run(
         if checkpoint is None:
             return _resume_error(
                 request.runId, "CHECKPOINT_NOT_FOUND",
-                "no checkpoint exists for this run — it cannot be resumed", store,
+                "no checkpoint exists for this run â€” it cannot be resumed", store,
             )
         if existing.get("status") in ("completed", "failed", "cancelled"):
             return _resume_error(
@@ -1237,7 +1237,7 @@ async def execute_run(
     # purely a function of the user's query, so one call suffices.
     #
     # A skill child-run's "query" is the rendered skill input, not the user's
-    # words — it never carries chat intent, so skip detection there.
+    # words â€” it never carries chat intent, so skip detection there.
     memory_outcome = (
         None if agent.id.startswith("skill:")
         else await _apply_memory_intent(request, memory_service, emitter)
@@ -1247,7 +1247,7 @@ async def execute_run(
     from .prompt_segments import build_prompt_plan, runtime_context_block  # noqa: PLC0415
 
     # Surface honesty (Milestone 4): resolve the tool surface AND the system
-    # prompt FROM POLICY per run — never at import or __init__ time. A disabled
+    # prompt FROM POLICY per run â€” never at import or __init__ time. A disabled
     # store drops its tool from the bound schema and its guidance from the
     # prompt. The resolved prompt is byte-stable for the whole run; a policy
     # change takes effect on the NEXT run.
@@ -1267,6 +1267,12 @@ async def execute_run(
         if surface_resolution.allowed is not None
         else None
     )
+    # A trade turn gets the trade surface, not the agent's ~700 tools. The
+    # narrowing can only remove; a run without an effect tool is untouched.
+    if allowed:
+        allowed, surface_resolution = apply_trade_surface(
+            request.input.query, allowed, surface_resolution
+        )
     # Round 3 / W2 (ADR-H280): publish the surface resolution on the run, so a
     # missing tool is always explainable - the run names what the surface added,
     # what the autonomy profile removed and what a disabled store removed. The
@@ -1280,7 +1286,7 @@ async def execute_run(
 
     # Response-contract schema digest: generated LIVE from the TS contract over
     # the read-only bridge, so a surface that may emit structured blocks is given
-    # the EXACT field names and enum values up front — the model no longer has to
+    # the EXACT field names and enum values up front â€” the model no longer has to
     # remember to call `response_block_schema` and cannot guess a drifted field
     # (e.g. `datasets` for `series`, or a semantic `tone`). It rides in the
     # byte-stable system head for the whole run. Best-effort: a bridge miss or a
@@ -1332,7 +1338,7 @@ async def execute_run(
 
     # A test/operator seam: allows a deterministic tighter budget to be injected
     # (used to exercise the overflow-recovery path without a live provider). It
-    # only narrows the derived allowance — it can never widen it.
+    # only narrows the derived allowance â€” it can never widen it.
     budget_overrides: dict[str, Any] = {}
     try:
         raw_override = (request.input.context or {}).get("_context_budget_override")
@@ -1353,6 +1359,12 @@ async def execute_run(
     app_control = _app_control_block(request.input.context)
     if app_control:
         runtime_context = f"{runtime_context}\n\n{app_control}"
+    # A "place a trade" turn is an execution request, not a research project.
+    # Only added when the broker surface (and therefore `order_submit`) is bound.
+    if allowed and ("order_submit" in allowed or "position_close" in allowed):
+        trading_intent = trading_intent_block(request.input.query)
+        if trading_intent:
+            runtime_context = f"{runtime_context}\n\n{trading_intent}"
     # The project this run is scoped to (its members and instruments). Per-run
     # and cache-key-excluded, exactly like the date and the UI focus.
     project_brief = _project_brief_block(getattr(request, "projectId", None),
@@ -1558,7 +1570,7 @@ async def execute_run(
         err = dict(final_state["error"])
         # An unrecovered CONTEXT_OVERFLOW is a specific, user-facing failure.
         # Rewrite the message to state whether the tighter retry was actually
-        # attempted (honest — no claim of a retry that did not happen), and emit
+        # attempted (honest â€” no claim of a retry that did not happen), and emit
         # the terminal event here (the classifier deliberately does not) so the
         # stream and the persisted run agree.
         context_blob = _context_budget_blob(
@@ -1587,7 +1599,7 @@ async def execute_run(
         return result
 
     # The user-visible trimming signal (Defect C): emitted on the SUCCESS path
-    # whenever history was actually trimmed, with counts and estimates only —
+    # whenever history was actually trimmed, with counts and estimates only â€”
     # never memory/dropped content. Nothing is emitted when nothing was dropped.
     # Re-derived with the FINAL budget so a tighter retry is reflected.
     final_budget = retry_budget or budget
@@ -1601,7 +1613,7 @@ async def execute_run(
     output = final_state.get("final") or ""
     # Phase 4: make the answer consistent with what the executor actually
     # recorded. A pass-claim with no zero-exit execution is marked, never
-    # asserted — the same discipline the finance renderer applies to claims.
+    # asserted â€” the same discipline the finance renderer applies to claims.
     from .code.verify import enforce_run_answer  # noqa: PLC0415
 
     # Round 3 / W1 (ADR-H281): the REAL repair outcome, not a hard-coded None.
@@ -1616,7 +1628,7 @@ async def execute_run(
     )
     # Phase 14: record the run's code profile ALONGSIDE the verification ledger, so
     # a reader (the chat capability panel) can name what Eclipse set out to do. The
-    # profile rides in the existing additive blob — no new persisted column, no
+    # profile rides in the existing additive blob â€” no new persisted column, no
     # migration. Only a coding turn carries one; an ordinary run's blob is
     # unchanged.
     if request.autonomy or request.workspaceId:
@@ -1701,7 +1713,7 @@ async def execute_run(
     images_blob = image_collector.to_blob()
     # Native-video jobs queued by this run's `video_*` tool calls (None when no
     # video tool ran), shaped for the chat's live job card. Deterministic from
-    # real submitted job handles only — a failed submission is never collected.
+    # real submitted job handles only â€” a failed submission is never collected.
     video_blob = video_collector.to_blob()
     # Surface guardrails (v3 P3): a measured, activated surface may require the
     # finished answer to satisfy deterministic rules. A violation FAILS the run
@@ -1747,7 +1759,7 @@ async def execute_run(
     await emitter.emit("run.completed", {"steps": final_state.get("step", 0)})
     eligibility = _learning_eligibility(run_id=request.runId, store=store, memory_outcome=memory_outcome)
     # An explicit "turn this into a skill" request is now turned into a real
-    # inert skill draft from the completed run's trace — through the same
+    # inert skill draft from the completed run's trace â€” through the same
     # candidate + draft persistence path, without a second click. It is never
     # enabled: evaluation + operator approval remain the only promotion gates.
     if memory_outcome and memory_outcome.get("action") == "skill_requested":
@@ -1757,7 +1769,7 @@ async def execute_run(
         if skill_draft:
             memory_outcome["skillDraft"] = skill_draft
             eligibility["skillDraftReady"] = bool(skill_draft.get("captured"))
-    # Automatic learning analysis runs for eligible completed runs — the user
+    # Automatic learning analysis runs for eligible completed runs â€” the user
     # should not have to ask. It creates ONLY inert candidates (never enables a
     # skill) and, for implicit procedures, only when recurrence evidence exists.
     analysis = await _post_run_analysis(request.runId, store, memory_service, skill_registry)
@@ -1804,7 +1816,7 @@ async def _maybe_research(
 
     # Classify BEFORE building anything heavy: an unsupported/uncertain request
     # must fall through untouched and must not pay a model-construction cost
-    # (which can raise for an unconfigured provider — that must not break chat).
+    # (which can raise for an unconfigured provider â€” that must not break chat).
     if not parse_mandate(
         request.input.query, ticker=request.input.ticker, market=request.input.market
     ).supported:
@@ -1867,7 +1879,7 @@ async def _finish_research(
     """Persist and return a gated research run's terminal result exactly once.
 
     The run status is `completed` when the gate produced an answer (even a
-    partial one — partial is honest, not a failure); `failed` only when the flow
+    partial one â€” partial is honest, not a failure); `failed` only when the flow
     itself could not run. Token usage reported by the synthesizer is added to the
     run (never estimated).
     """
@@ -1903,7 +1915,7 @@ async def _finish_research(
     await emitter.emit("run.completed", {"steps": 0, "research": True, "status": research.get("status")})
 
     result = _result(request.runId, "completed", store, None, output)
-    # Expose the full receipt on the run result (not persisted inline — the
+    # Expose the full receipt on the run result (not persisted inline â€” the
     # durable copy lives in ResearchReceipt and is read via the receipt route).
     result.research = {**research_blob, "receipt": research.get("receipt")}
     return result
@@ -1961,7 +1973,7 @@ async def _post_run_analysis(
 ) -> Optional[dict[str, Any]]:
     """Deterministic, policy-gated post-run analysis (mistakes + candidates).
     Never raises and never blocks the terminal result: analysis is diagnostics,
-    not control flow. It can only create inert records — it cannot enable a
+    not control flow. It can only create inert records â€” it cannot enable a
     skill or claim improvement. Returns a bounded summary for the run's memory
     blob (so the UI can show that automatic learning ran and what it produced).
     """
@@ -2008,7 +2020,7 @@ def _history_budget(
 
     Pure and local (no network). The window is the resolved model's declared
     context size; an unknown window yields an inert budget and the bound falls
-    back to the module constants. `overrides` is the test/operator seam — it may
+    back to the module constants. `overrides` is the test/operator seam â€” it may
     supply a known window or a reserved-output value, never fabricate one.
     """
     from .context_budget import DEFAULT_RESERVED_OUTPUT_TOKENS, compute_history_budget  # noqa: PLC0415
@@ -2095,7 +2107,7 @@ def _history_bounded_data(
 ) -> dict[str, Any]:
     """The bounded, content-free payload for `memory.history_bounded`.
 
-    Counts and estimated tokens only — never memory content or the dropped text.
+    Counts and estimated tokens only â€” never memory content or the dropped text.
     """
     from .eclipse_memory.profile import estimate_tokens  # noqa: PLC0415
 
@@ -2198,6 +2210,15 @@ from .history import (  # noqa: E402,F401
     _dropped_context_block,
     _history_messages,
     _model_extract_dropped,
+)
+
+# Deterministic per-run trade/close directive (kept out of the execution graph
+# and out of the byte-stable prompt head).
+from .trading_intent import (  # noqa: E402,F401
+    apply_trade_surface,
+    is_trade_turn,
+    narrow_trade_surface,
+    trading_intent_block,
 )
 
 

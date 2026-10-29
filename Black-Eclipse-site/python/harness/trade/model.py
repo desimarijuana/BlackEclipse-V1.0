@@ -47,6 +47,8 @@ ALLOWED_CONFIG_KEYS: frozenset[str] = frozenset({
     # P1 demo-execution limits (all optional; 0/empty = off).
     "maxMargin", "maxVolume", "maxOpenPositions", "maxSpreadPoints",
     "symbolAllowlist",
+    # Risk engine (all optional; 0 = off).
+    "riskPerTradePct", "maxDailyLossPct", "maxSymbolNotional",
 })
 
 

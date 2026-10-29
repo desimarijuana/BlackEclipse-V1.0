@@ -10,7 +10,7 @@ import {
   Activity, BarChart3, Bell, Briefcase, CalendarDays, CandlestickChart,
   Globe, LayoutDashboard, Newspaper, PieChart, TrendingUp, Wallet,
   LineChart, Coins, Droplets, Flame, Radio, FileText, Bot, Scissors,
-  StickyNote, Landmark, Ship, Gauge, Table2, Layers, HeartPulse, Brain, Zap, ScanEye, MapPin, Clock,
+  StickyNote, Landmark, Ship, Gauge, Table2, Layers, HeartPulse, Brain, Zap, ScanEye, MapPin, Clock, History,
 } from '@/lib/icons';
 import type { WidgetDefinition } from '@/lib/workspace/widget-def';
 import type { WidgetPlacement } from '@/lib/workspace/types';
@@ -67,8 +67,8 @@ import { getSdkWidgetDefinition } from '@/lib/sdk/widgets';
 import { registerWidget, getWidget } from '@/lib/workspace/widget-registry';
 import { ClockWidget, DEFAULT_CLOCK_CONFIG } from './clock-widget';
 import {
-  BrokerMarginUsageWidget, BrokerOpenPositionsWidget, BrokerTodayPnlWidget,
-  BrokerWorkingOrdersWidget, QuickTradeWidget,
+  BrokerMarginUsageWidget, BrokerOpenPositionsWidget, BrokerRecentTradesWidget,
+  BrokerTodayPnlWidget, BrokerWorkingOrdersWidget, QuickTradeWidget,
 } from './trading-widgets';
 
 // Register the data topics the dashboard widgets depend on. The hub batches
@@ -107,6 +107,7 @@ const ICONS: Record<string, React.ComponentType<{ size?: number; className?: str
   bot: Bot, scissors: Scissors, 'sticky-note': StickyNote, landmark: Landmark,
   ship: Ship, gauge: Gauge, table: Table2, layers: Layers, heart: HeartPulse,
   brain: Brain, zap: Zap, 'scan-eye': ScanEye, 'map-pin': MapPin, clock: Clock,
+  history: History,
 };
 export function widgetIcon(name: string) {
   return ICONS[name] ?? marketPanelIcon(name) ?? LayoutDashboard;
@@ -183,6 +184,7 @@ const CORE_WIDGETS: WidgetDefinition[] = [
   def('working-orders', 'trading', 'Working Orders', 'Pending orders (click × to cancel).', 'bell', ['medium', 'large'], () => <BrokerWorkingOrdersWidget />),
   def('margin-usage', 'trading', 'Margin Usage', 'Available/used margin, total, usage %.', 'gauge', ['small', 'medium'], () => <BrokerMarginUsageWidget />),
   def('today-pnl', 'trading', 'Today P&L', 'Aggregate broker P&L.', 'trending', ['small', 'medium'], () => <BrokerTodayPnlWidget />),
+  def('recent-trades', 'trading', 'Recent Trades', 'Submitted orders with ticket, fill and status.', 'history', ['medium', 'large'], () => <BrokerRecentTradesWidget />),
 
   // ── Tools ──
   // `live-tv` is the ORIGINAL registry slot; it now renders the real Live

@@ -23,12 +23,15 @@ import {
   revokeTradingMandate,
   syncBrokerConnection,
   testBrokerConnection,
+  updateBrokerConnection,
   type BrokerConnection,
   type BrokerKind,
   type TradingMandate,
 } from "@/lib/harness/trading-client";
 
 const DEFAULT_TERMINAL = "C:\\Program Files\\MetaTrader 5\\terminal64.exe";
+const inputClass =
+  "w-full rounded-xl border border-border/40 bg-transparent px-2.5 py-1.5 text-xs text-foreground focus:border-primary/40 focus:outline-none";
 
 export function TradingSettingsPanel() {
   const [kinds, setKinds] = useState<BrokerKind[]>([]);
@@ -163,9 +166,6 @@ export function TradingSettingsPanel() {
   };
 
   const mt5 = kinds.find((kind) => kind.id === "mt5");
-  const inputClass =
-    "w-full rounded-xl border border-border/40 bg-transparent px-2.5 py-1.5 text-xs text-foreground focus:border-primary/40 focus:outline-none";
-
   return (
     <div className="max-w-3xl space-y-6">
       <SectionHeader
@@ -283,6 +283,8 @@ export function TradingSettingsPanel() {
                   )}
                 </div>
               )}
+
+              <RiskLimits connection={connection} onSaved={load} />
 
               <div className="flex flex-wrap items-center gap-2">
                 <Action busy={busy === `test:${connection.id}`} onClick={() => void test(connection)}>
@@ -443,6 +445,70 @@ export function TradingSettingsPanel() {
           Enable <span className="font-medium">Algo Trading</span> in MT5 before placing any order.
         </p>
       </Panel>
+    </div>
+  );
+}
+
+function RiskLimits({
+  connection,
+  onSaved,
+}: {
+  connection: BrokerConnection;
+  onSaved: () => Promise<void>;
+}) {
+  const config = connection.config ?? {};
+  const [risk, setRisk] = useState(String(config.riskPerTradePct ?? 0));
+  const [daily, setDaily] = useState(String(config.maxDailyLossPct ?? 0));
+  const [notional, setNotional] = useState(String(config.maxSymbolNotional ?? 0));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const next: Record<string, unknown> = { ...config };
+      const fields: Array<[string, string]> = [
+        ["riskPerTradePct", risk],
+        ["maxDailyLossPct", daily],
+        ["maxSymbolNotional", notional],
+      ];
+      for (const [key, raw] of fields) {
+        const value = Number(raw);
+        if (Number.isFinite(value) && value > 0) next[key] = value;
+        else delete next[key];
+      }
+      await updateBrokerConnection(connection.id, { config: next });
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "could not save risk limits");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-xl border border-border/20 p-3">
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Risk limits</p>
+      <div className="grid grid-cols-3 gap-2">
+        <Field label="Risk / trade %" hint="Equity risk at the stop. 0 = off.">
+          <input value={risk} onChange={(event) => setRisk(event.target.value)} className={inputClass} />
+        </Field>
+        <Field label="Daily loss %" hint="Rolling 24h brake. 0 = off.">
+          <input value={daily} onChange={(event) => setDaily(event.target.value)} className={inputClass} />
+        </Field>
+        <Field label="Max notional" hint="Per-order symbol cap. 0 = off.">
+          <input
+            value={notional}
+            onChange={(event) => setNotional(event.target.value)}
+            className={inputClass}
+          />
+        </Field>
+      </div>
+      {error && <p className="text-[10px] text-rose-300">{error}</p>}
+      <Action busy={busy} onClick={() => void save()}>
+        Save limits
+      </Action>
     </div>
   );
 }

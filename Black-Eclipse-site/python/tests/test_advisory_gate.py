@@ -58,6 +58,20 @@ def test_stopword_acronyms_are_not_symbols():
     assert extract_claims("The AI sector beat EPS and USD estimates.") == []
 
 
+def test_a_trade_confirmation_table_is_not_advice():
+    answer = (
+        "Filled. Ticket 11166047327.\n"
+        "| Field | Value |\n"
+        "| Take profit | 4055.00 (2.02x ATR) |\n"
+        "| Stop loss | 4003.50 (1.46x ATR) |\n"
+    )
+    assert extract_claims(answer) == []
+
+
+def test_indicator_acronyms_are_not_symbols():
+    assert extract_claims("Take profit at 4055, about 2 ATR away.") == []
+
+
 # ── gate classification ───────────────────────────────────────────────────────
 
 

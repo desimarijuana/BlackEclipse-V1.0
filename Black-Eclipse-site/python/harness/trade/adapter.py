@@ -98,6 +98,27 @@ class TradingAdapter(BrokerAdapter):
     def cancel_all(self, magic: int) -> dict[str, Any]:
         """Cancel every working order that carries `magic` (never a blind all)."""
 
+    def close_position(self, ticket: int, deviation: int = 20) -> dict[str, Any]:
+        """Close one open position. Default: this broker has no close path.
+
+        Closing is risk-reducing, so it needs no trade approval — but it is still
+        a broker mutation and the service only calls it on a demo connection.
+        """
+        raise AdapterUnavailable(
+            "CLOSE_NOT_SUPPORTED",
+            f"{self.kind or 'this broker'} cannot close positions",
+        )
+
+    def modify_position(
+        self, ticket: int, stop_loss: float | None = None,
+        take_profit: float | None = None,
+    ) -> dict[str, Any]:
+        """Move a position's stop/target. Default: this broker cannot modify."""
+        raise AdapterUnavailable(
+            "MODIFY_NOT_SUPPORTED",
+            f"{self.kind or 'this broker'} cannot modify positions",
+        )
+
     def deals_since(self, since_ms: int) -> list[dict[str, Any]]:
         """Deals at/after `since_ms` (server epoch ms). Default: unsupported."""
         return []

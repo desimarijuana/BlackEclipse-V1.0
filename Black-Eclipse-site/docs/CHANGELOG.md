@@ -132,6 +132,10 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   dedupe; the cursor is advisory. Verified with a real demo fill (0.01 EURUSD,
   ticket 11164486049): `fillsAdded: 1`, position and ledger reconciled.
   Docs updated: `docs/trading.md`.
+- **feat(trading): `order_submit` may omit the mandate id when exactly one is active.**
+  The agent resolves the sole active demo mandate; with several active mandates it
+  must name one from `broker_mandates` (or the handler returns the available ids).
+  Docs updated: `docs/trading.md`.
 - **feat(trading): agent-driven demo execution under a mandate.** Adds
   `order_submit` (the one effectful agent broker tool) and `broker_mandates`, plus
   a Settings panel to create/revoke bounded demo mandates. `order_submit` is
@@ -144,6 +148,142 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   Tests: `test_broker_agent_trade.py`, updated broker tool test.
   Docs updated: `docs/trading.md`, `docs/NAVIGATION.md`,
   `docs/harness/decisions.md` (ADR-H336).
+- **fix(trading): subscribe an unlisted symbol on demand.** `XAUUSD` existed on
+  the demo but returned an all-zero tick until it was in Market Watch; the adapter
+  now calls `symbol_select` and retries the tick for up to ~2 s (a local
+  subscription, not an order). Verified live: XAUUSD bid 4010.87 / ask 4011.16,
+  spread 29 points, 0.01–100 lots. Docs updated: `docs/trading.md`.
+- **fix(trading): a plain "analyze gold and place a trade" prompt now executes.** Three
+  fixes for a user who never types a mandate id: (1) `order_submit` and its
+  authorizer resolve the one active mandate whose symbols cover the intent symbol
+  (the sole active mandate when it is the only one) and the only saved connection,
+  returning `MANDATE_REQUIRED` with the active ids only on real ambiguity;
+  (2) `graph.py` adds a per-run `# Trading request` block when the turn asks to
+  place/buy/sell an order — skip web/news/scrape, read the quote (plus at most one
+  bar source), call `order_submit` once, never ask for ids — while a refusal or a
+  question keeps the block out; (3) the mandate cap now sees the order's own margin
+  (`order_check().margin − account.margin`, floored at zero) instead of the
+  account total after the trade, which had refused a valid 0.01 XAUUSD lot at
+  113.74 vs a 100 cap when it only needed 40.00. Verified live with the bare prompt
+  “Analyze XAUUSD and place a small demo trade with a stop loss and take profit”:
+  4 model steps, one `order_submit`, ticket **11165187813** (XAUUSD BUY 0.01 @
+  4014.13, SL 3988.99, TP 4063.99) under mandate `mnd_c405bf889119`. Tests:
+  `test_trading_intent.py` (new), `test_broker_agent_trade.py`,
+  `test_mt5_adapter.py`. Docs updated: `docs/trading.md`.
+- **feat(trading): close a demo position (or every one) so a user can step out.**
+  Adds `TradingAdapter.close_position` (MT5 sends the exact opposite market deal,
+  position ticket as `position`, position magic, once, ambiguity reported not
+  retried), `BrokerService.close_position` / `close_positions`, routes
+  `POST .../positions/{ticket}/close` and `POST .../positions/close`, the agent tool
+  `position_close` (`ticket`, `tickets` or `all: true`), and Close / Close-all in the
+  Open Positions dashboard widget (both confirm first). Closing is risk-reducing, so
+  it needs no mandate and no approval and does not consume a mandate order; the
+  service refuses a live connection (`LIVE_NOT_ENABLED`) and a real account
+  (`DEMO_ACCOUNT_REQUIRED`). The per-run trading directive now has a
+  `# Close request` variant (`python/harness/trading_intent.py`, extracted from
+  `graph.py`) so “close my trade” never turns into research or a hedge. Tests:
+  `test_broker_orders.py` (close one/all/targeted/live-refused),
+  `test_broker_agent_trade.py` (no mandate, target required),
+  `test_trading_intent.py`, `trading-routes.test.ts`. Regenerated
+  `docs/harness/tool-registry.json` (981 tools) and the graph manifest; re-pinned
+  the `graph.py`/`service.py` and prompt-size ceilings to their measured values.
+  Docs updated: `docs/trading.md`, `docs/harness/decisions.md` (ADR-H337).
+- **fix(trading): a stale/missing connection id no longer hides a valid mandate.**
+  A remembered `connectionId` from another profile or database made the mandate
+  list for that id empty, so `order_submit` answered "no active mandate" on an
+  account that had one. Both the handler and the authorizer now drop an id that is
+  not a saved connection and resolve the single existing one (they still refuse
+  when several exist). Verified with the bare prompt “Analyze gold and place a
+  small demo trade with a stop loss and take profit”: one `order_submit`, ticket
+  **11165863645** (XAUUSD BUY 0.01 @ 4031.99, SL 4007.30, TP 4057.30). Tests:
+  `test_broker_agent_trade.py` (stale id resolves; unknown id with two connections
+  still refuses). Docs updated: `docs/trading.md`.
+- **feat(trading): broker-native bars and ATR for uncovered symbols.** Adds
+  `broker_bars` (and the `TradingAdapter.bars` / `BrokerService.bars` seam): MT5
+  `copy_rates_from_pos` on `M1…W1`, clamped to 500 bars, server time, with the
+  symbol's contract/tick size; a pure `trade/analysis.py` computes TR/ATR(14) and
+  the 20-bar range. This replaces the proxy-ETF workaround for XAUUSD, whose
+  history route returns `UNAVAILABLE`. Quote now also exposes `contractSize` and
+  `tickSize`, so "$ at risk" is exact. The per-run directive and the system prompt
+  prefer `broker_bars` for a broker symbol. Fixed the advisory gate's table-row
+  false positive (`| Take profit | … |` became a "sell" claim) and its indicator
+  acronyms (`ATR`, `SL`, `TP`, …). Verified live: XAUUSD H1 120 bars, contract
+  100, ATR(14) 14.82; the bare prompt filled ticket **11166047327** (BUY 0.01 @
+  4025.10, SL 4003.50 ≈ 1.46 ATR, TP 4055.00 ≈ 2.02 ATR) under mandate
+  `mnd_dc9477f30067`. Tests: `test_analysis.py` (new), `test_mt5_adapter.py`,
+  `test_advisory_gate.py`. Regenerated the graph manifest and tool registry (982
+  tools); re-pinned the prompt ceiling to its measured size.
+  Docs updated: `docs/trading.md`.
+- **feat(trading): partial close, SL/TP modify, and read-back verification.** Adds
+  `position_modify` (`TRADE_ACTION_SLTP`, 0 removes a level), a `volume` on
+  `position_close` for partial exits, close-by-`symbol`, and a `verified` flag on
+  every close/modify/market fill: the broker's stored position is read back and a
+  mismatch is reported (`verifyNote`), never assumed. The lifecycle moved to a new
+  `trade/positions.py` (the broker service was at its size ceiling) and keeps the
+  identical demo-only rule: no live connection (`LIVE_NOT_ENABLED`), no real account
+  (`DEMO_ACCOUNT_REQUIRED`), no mandate or approval for an exit. Adds routes
+  `.../positions/{ticket}/modify` and `volume` on close, the client calls, the
+  authorizer admission, and per-run `# Modify request` / partial-close guidance; the
+  positions text now includes the ticket. Verified live on ticket 11166047327: TP
+  moved to 4060.00, SL to 4010.00, both read back as stored. Tests:
+  `test_broker_orders.py` (partial, modify, live refusal, invalid stops),
+  `test_broker_agent_trade.py`, `test_trading_intent.py`, `trading-routes.test.ts`.
+  Ratcheted `trade/adapters/mt5.py` (bars + lifecycle in one wire bridge; split
+  candidate), regenerated registry (983 tools) and manifest, re-pinned the prompt
+  ceiling. Docs updated: `docs/trading.md`, `docs/harness/decisions.md` (ADR-H339).
+- **feat(trading): risk engine on the connection (per-trade risk, notional, 24 h
+  brake).** Adds `riskPerTradePct`, `maxDailyLossPct` and `maxSymbolNotional` to
+  the connection config (0 = off). Per-trade risk is `|entry − stop| × volume ×
+  contractSize` against a percentage of equity; with the cap set, an order without
+  a stop is refused. The daily brake sums the broker's realised deals over 24 h
+  and open P&L, blocks new entries and never blocks a close. A per-order symbol
+  notional cap and the existing spread/open-position caps round it out. Settings →
+  Broker connection gains a **Risk limits** editor. Verified live: at 0.02% a 0.01
+  XAUUSD order with a 100-point stop was refused (121.76 risk vs a 20.00 cap); at
+  0.5% with a 120-point spread cap the shape previews as allowed. Tests:
+  `test_trade_policy.py` (new), `test_broker_orders.py`. Docs updated:
+  `docs/trading.md`, `docs/harness/decisions.md` (ADR-H340).
+- **test(trading): a scripted MT5 terminal and wire-level chaos tests.** New
+  `python/tests/mt5_sim.py` implements the adapter's slice of the MetaTrader API
+  (account/symbols/ticks/positions/orders/`order_check`/`order_send`/deals/bars)
+  with knobs for a lost send reply, a disconnected terminal, a dropped bracket, a
+  partial fill and a modify the broker accepts but does not store. New
+  `test_mt5_simulated.py` proves: a fill is verified against the stored bracket; a
+  dropped stop is `verified:false` with a `verifyNote`; a lost reply raises and is
+  **not retried**; a disconnect is a named error; a partial close reports the
+  remaining volume; an ignored modify is unverified; bars normalize; deals read.
+  This closes the gap between request-builder unit tests and a live terminal.
+  no doc change — test-only (no contract or setup change).
+- **feat(chat): a trade turn binds the trade surface, not ~700 tools.** A run whose
+  prompt is a trade/close/modify request now narrows policy's allowlist to
+  `TRADE_SURFACE_TOOLS` (~18 broker/trade + response helpers). It runs after
+  surface resolution and can only remove; a run without an effect tool is
+  untouched. Measured live on a refused gold order: `allowedTools` 721 → **18**,
+  prompt tokens **47k** for 3 steps instead of ~228k, with exactly
+  `broker_quote` → `broker_bars` → `order_submit`. Tests:
+  `test_trading_intent.py`. Docs updated: `docs/trading.md`.
+- **feat(dashboard): modify/partial close and a Recent Trades card.** The Open
+  Positions widget now shows each ticket, an **SL/TP** action (prompts for the new
+  levels, calls `positions/{ticket}/modify`) and a **Close** action that accepts a
+  partial volume; an inline notice reports the verified result. A new
+  **Recent Trades** widget reads the ledger (`orders/ledger`) and lists the last
+  eight orders with ticket, fill and status. TypeScript clean; dashboard
+  registry/size tests pass. Docs updated: `docs/trading.md`.
+- **feat(trading): the sidebar broker popup becomes a full control center.** The
+  handshake popup now has a connection switcher and five tabs. **Overview** shows
+  every live `BrokerAccount` field (used/free margin, margin level, floating P/L,
+  leverage, margin mode, trade/algo flags), bridge health, connection timestamps
+  and a bid/ask quote lookup. **Positions** closes one or all positions;
+  **Orders** cancels a working ticket; **Activity** lists broker deals with an
+  `eclipse`/`manual` owner badge plus the Eclipse order ledger. **Settings**
+  edits label/mode/terminal path/magic/max-margin, carries the typed **arm**,
+  **disarm** and **kill switch** controls for live connections, and adds/removes
+  connections. All calls reuse `src/lib/harness/trading-client.ts`; no new
+  routes. Presentational panels split into
+  `src/components/layout/sidebar-broker-panels.tsx`. The popup still cannot place
+  an entry order, and mandates/approvals stay in Settings. Tests: `npm run test`
+  (425 files / 4094) + `npx tsc --noEmit` + broker Python tests (56) pass.
+  Docs updated: `docs/trading.md`.
 
 ## 2026-10-28
 - **fix(desktop): one launcher at a time, so repeated icon clicks cannot break boot.**

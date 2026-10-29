@@ -468,8 +468,13 @@ def test_prompt_char_ceiling():
     # Re-pinned 40067->40358 to the measured tree (pre-existing prompt growth).
     # Re-pinned 40358->40850 for the capability-scope rule (bounded
     # self-improvement; effects/code merges/policy stay operator-approved).
-    # May only shrink from here.
-    assert len(prompt) <= 40850, f"prompt grew to {len(prompt)} chars"
+    # Re-pinned 40850->41619 for the trade/close execution guidance: resolve the
+    # mandate and connection yourself, call `order_submit` once, and close with
+    # `position_close` (no mandate, no approval).
+    # Re-pinned 41619->41829 for the broker-data guidance (`broker_bars` and ATR
+    # for a symbol the stored universe does not cover). May only shrink from here.
+    # Re-pinned 41829->41967 for the partial-close / modify guidance.
+    assert len(prompt) <= 41967, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

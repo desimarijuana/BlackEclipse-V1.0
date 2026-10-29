@@ -1,7 +1,7 @@
 {
-  "digest": "7b4fb144c17a9c9e",
+  "digest": "cfc07c424ded4902",
   "manifestVersion": "1",
-  "toolCount": 969,
+  "toolCount": 983,
   "tools": [
     {
       "deprecated": false,
@@ -1436,6 +1436,208 @@
       "permission": "write",
       "replacement": null,
       "risk": "medium",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read the connected broker account (balance, equity, margin, leverage, demo/real mode). Read-only.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "connectionId": {
+            "description": "Saved connection id (optional when there is exactly one).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "broker_account",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read the broker's OWN OHLCV bars for a symbol (server time) and the deterministic ATR(14) / 20-bar range computed from them. Use this for any instrument the stored market history does not cover (XAUUSD): it is the accurate series for a bracket, unlike a proxy ETF. Read-only.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "connectionId": {
+            "description": "Saved connection id (optional when there is exactly one).",
+            "type": "string"
+          },
+          "count": {
+            "maximum": 500,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "timeframe": {
+            "enum": [
+              "M1",
+              "M5",
+              "M15",
+              "M30",
+              "H1",
+              "H4",
+              "D1",
+              "W1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "name": "broker_bars",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List the broker adapters Eclipse knows and the saved connections with their last known status. Read-only.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "broker_connections",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read the broker deals Eclipse has durably recorded (deduped by deal ticket). Read-only; the broker remains the source of truth.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "connectionId": {
+            "description": "Saved connection id (optional when there is exactly one).",
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "broker_fills",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List active demo mandates (symbols, remaining orders, margin cap, expiry). A mandate is the operator's authorization for unattended demo orders.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "connectionId": {
+            "description": "Saved connection id (optional when there is exactly one).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "broker_mandates",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read working (pending) broker orders. Read-only.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "connectionId": {
+            "description": "Saved connection id (optional when there is exactly one).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "broker_orders",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read open broker positions. Read-only; never invents a position.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "connectionId": {
+            "description": "Saved connection id (optional when there is exactly one).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "broker_positions",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read a live bid/ask quote from the connected broker feed.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "connectionId": {
+            "description": "Saved connection id (optional when there is exactly one).",
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "type": "object"
+      },
+      "name": "broker_quote",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read the last reconciled fills, positions snapshot and sync state for a broker connection. Read-only.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "connectionId": {
+            "description": "Saved connection id (optional when there is exactly one).",
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "broker_reconciliation",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
       "version": "1.0.0"
     },
     {
@@ -18321,6 +18523,190 @@
     },
     {
       "deprecated": false,
+      "description": "Read the local ledger of orders Eclipse submitted to a broker. This is an audit record; the broker remains the source of truth for fills.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "connectionId": {
+            "description": "Saved connection id (optional when there is exactly one).",
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "name": "order_ledger",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Validate a demo order against broker constraints, the connection's limits and the money guardrails, then request a single-use operator approval. This NEVER sends an order; submission is an operator action.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "connectionId": {
+            "description": "Saved connection id (optional when there is exactly one).",
+            "type": "string"
+          },
+          "intent": {
+            "properties": {
+              "comment": {
+                "type": "string"
+              },
+              "deviationPoints": {
+                "type": "integer"
+              },
+              "magic": {
+                "type": "integer"
+              },
+              "price": {
+                "type": "number"
+              },
+              "side": {
+                "enum": [
+                  "buy",
+                  "sell"
+                ],
+                "type": "string"
+              },
+              "stopLoss": {
+                "type": "number"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "takeProfit": {
+                "type": "number"
+              },
+              "timeInForce": {
+                "enum": [
+                  "gtc",
+                  "day"
+                ],
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "market",
+                  "limit",
+                  "stop"
+                ],
+                "type": "string"
+              },
+              "volume": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "symbol",
+              "side",
+              "type",
+              "volume"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "intent"
+        ],
+        "type": "object"
+      },
+      "name": "order_preview",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Submit ONE demo order under an active operator-created mandate. REQUIRED arguments: connectionId and intent {symbol, side, type, volume, stopLoss?, takeProfit?}. `connectionId` and `mandateId` are optional: the one saved connection and the one active mandate covering the symbol are resolved for you. Only an ambiguous multi-mandate symbol needs an id from broker_mandates. This call performs its own preview and submission; do not call order_preview first and never call it with empty arguments. It cannot create a mandate, arm live, or submit live. ",
+      "effect": "trading",
+      "inputSchema": {
+        "properties": {
+          "connectionId": {
+            "description": "Saved connection id (optional when there is exactly one).",
+            "type": "string"
+          },
+          "intent": {
+            "properties": {
+              "comment": {
+                "type": "string"
+              },
+              "deviationPoints": {
+                "type": "integer"
+              },
+              "magic": {
+                "type": "integer"
+              },
+              "price": {
+                "type": "number"
+              },
+              "side": {
+                "enum": [
+                  "buy",
+                  "sell"
+                ],
+                "type": "string"
+              },
+              "stopLoss": {
+                "type": "number"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "takeProfit": {
+                "type": "number"
+              },
+              "timeInForce": {
+                "enum": [
+                  "gtc",
+                  "day"
+                ],
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "market",
+                  "limit",
+                  "stop"
+                ],
+                "type": "string"
+              },
+              "volume": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "symbol",
+              "side",
+              "type",
+              "volume"
+            ],
+            "type": "object"
+          },
+          "mandateId": {
+            "description": "Active demo mandate id from broker_mandates.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "intent"
+        ],
+        "type": "object"
+      },
+      "name": "order_submit",
+      "permission": "read",
+      "replacement": null,
+      "risk": "high",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Add a dependency to the project.",
       "effect": "external_action",
       "inputSchema": {
@@ -19748,6 +20134,81 @@
       "permission": "read",
       "replacement": null,
       "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Close an open DEMO position (risk-reducing, so no approval or mandate is needed). Pass `ticket` for one position, or `all: true` to step out of every open position; `connectionId` resolves on its own when there is one connection. Returns the broker's per-ticket result. Live close is refused; close a live position in the terminal.",
+      "effect": "trading",
+      "inputSchema": {
+        "properties": {
+          "all": {
+            "description": "Close every open position on the connection.",
+            "type": "boolean"
+          },
+          "connectionId": {
+            "description": "Saved connection id (optional when there is exactly one).",
+            "type": "string"
+          },
+          "deviation": {
+            "type": "integer"
+          },
+          "symbol": {
+            "description": "Close every open position in this instrument.",
+            "type": "string"
+          },
+          "ticket": {
+            "type": "integer"
+          },
+          "tickets": {
+            "description": "Close these tickets instead of every position.",
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "volume": {
+            "description": "Partial close size; omit to close the whole ticket.",
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "name": "position_close",
+      "permission": "read",
+      "replacement": null,
+      "risk": "medium",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Move a demo position's stop loss and/or take profit (risk-reducing; no approval or mandate). Pass `ticket` and `stopLoss`/`takeProfit`; 0 removes a level. The result is verified against the broker's stored bracket. A wider stop increases risk — say so when you do it. Live modify is refused.",
+      "effect": "trading",
+      "inputSchema": {
+        "properties": {
+          "connectionId": {
+            "description": "Saved connection id (optional when there is exactly one).",
+            "type": "string"
+          },
+          "stopLoss": {
+            "type": "number"
+          },
+          "takeProfit": {
+            "type": "number"
+          },
+          "ticket": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ticket"
+        ],
+        "type": "object"
+      },
+      "name": "position_modify",
+      "permission": "read",
+      "replacement": null,
+      "risk": "medium",
       "version": "1.0.0"
     },
     {

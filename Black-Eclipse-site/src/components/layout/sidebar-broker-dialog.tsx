@@ -1,31 +1,81 @@
 "use client";
 
-// ── Sidebar broker button + connect dialog ───────────────────────────────────
-// A first-class “connect MT5” entry point in the shell footer. It creates,
-// probes and reads a broker connection; it never places an order. Live arming
-// and mandates stay in Settings → Broker connection.
+// ── Sidebar broker button + control-center dialog ────────────────────────────
+// A first-class “broker” entry point in the shell footer. The dialog is a full
+// read + control surface over the existing trading-client:
+//   Overview   — live account, bridge health, quote lookup, connection state
+//   Positions  — open positions, close one / close all
+//   Orders     — working orders, cancel one
+//   Activity   — broker deals + the Eclipse order ledger
+//   Settings   — edit connection, arm / disarm / kill switch, add / remove
+// Every action goes through the same operator-gated Python routes as
+// Settings → Broker connection. No passwords are stored; scalping the terminal
+// never bypasses the arm + kill-switch contract.
 
 import { useCallback, useEffect, useState } from "react";
-import { Handshake, Loader2, RefreshCw } from "@/lib/icons";
+import {
+  Activity,
+  Briefcase,
+  Handshake,
+  History,
+  LayoutDashboard,
+  List,
+  Loader2,
+  Plus,
+  Settings,
+  ShieldCheck,
+  ShieldOff,
+  Trash2,
+  Zap,
+} from "@/lib/icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { TabBar } from "@/components/ui/tab-bar";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog";
-import {
+  armBrokerConnection,
+  cancelBrokerOrder,
+  closeAllBrokerPositions,
+  closeBrokerPosition,
   createBrokerConnection,
+  deleteBrokerConnection,
+  disarmBrokerConnection,
+  getBrokerAccount,
+  getBrokerFills,
+  getBrokerOrders,
+  getBrokerPositions,
+  getBrokerQuote,
+  killBrokerConnection,
   listBrokerConnections,
   listBrokerKinds,
+  listLedgerOrders,
   syncBrokerConnection,
   testBrokerConnection,
+  updateBrokerConnection,
   type BrokerAccount,
   type BrokerConnection,
+  type BrokerFill,
   type BrokerKind,
+  type BrokerPosition,
+  type BrokerQuote,
+  type BrokerWorkingOrder,
+  type LedgerOrder,
 } from "@/lib/harness/trading-client";
+import {
+  BrokerActivityPanel,
+  BrokerOrdersPanel,
+  BrokerOverviewPanel,
+  BrokerPositionsPanel,
+  fmtStamp,
+  PanelBox,
+  StatTile,
+} from "./sidebar-broker-panels";
 
 const DEFAULT_TERMINAL = "C:\\Program Files\\MetaTrader 5\\terminal64.exe";
 const inputClass =
   "w-full rounded-xl border border-border/40 bg-transparent px-2.5 py-1.5 text-xs text-foreground focus:border-primary/40 focus:outline-none";
+
+type TabId = "overview" | "positions" | "orders" | "activity" | "settings";
 
 export function SidebarBrokerButton({
   collapsed = false,
@@ -90,20 +140,38 @@ function SidebarBrokerDialog({
 }) {
   const [kinds, setKinds] = useState<BrokerKind[]>([]);
   const [connections, setConnections] = useState<BrokerConnection[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [account, setAccount] = useState<BrokerAccount | null>(null);
+  const [positions, setPositions] = useState<BrokerPosition[]>([]);
+  const [orders, setOrders] = useState<BrokerWorkingOrder[]>([]);
+  const [fills, setFills] = useState<BrokerFill[]>([]);
+  const [ledger, setLedger] = useState<LedgerOrder[]>([]);
+
   const [loading, setLoading] = useState(false);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
+  const [tab, setTab] = useState<TabId>("overview");
+
+  const [quoteSymbol, setQuoteSymbol] = useState("EURUSD");
+  const [quote, setQuote] = useState<BrokerQuote | null>(null);
+  const [quoteBusy, setQuoteBusy] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
 
   const [label, setLabel] = useState("MT5 demo");
   const [mode, setMode] = useState<"demo" | "live">("demo");
   const [terminalPath, setTerminalPath] = useState(DEFAULT_TERMINAL);
   const [magic, setMagic] = useState("0");
   const [maxMargin, setMaxMargin] = useState("0");
+  const [editOpen, setEditOpen] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [armPhrase, setArmPhrase] = useState("");
 
-  const connection = connections[0] ?? null;
+  const selected = connections.find((c) => c.id === selectedId) ?? connections[0] ?? null;
+  const mt5 = kinds.find((kind) => kind.id === "mt5");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -115,10 +183,15 @@ function SidebarBrokerDialog({
       ]);
       setKinds(nextKinds);
       setConnections(nextConnections);
-      setShowForm(nextConnections.length === 0);
-      // Use the account snapshot the connection row already holds. A live
-      // account read is what Test is for; it must not block opening the dialog.
-      setAccount(nextConnections[0]?.account ?? null);
+      setShowForm((prev) => (nextConnections.length === 0 ? true : prev));
+      setSelectedId((prev) => {
+        if (prev && nextConnections.some((c) => c.id === prev)) return prev;
+        return (
+          nextConnections.find((c) => c.status === "connected")?.id ??
+          nextConnections[0]?.id ??
+          null
+        );
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "broker settings unavailable");
     } finally {
@@ -126,18 +199,110 @@ function SidebarBrokerDialog({
     }
   }, []);
 
+  const refreshLive = useCallback(async (connectionId: string) => {
+    setLiveLoading(true);
+    setLiveError(null);
+    const results = await Promise.allSettled([
+      getBrokerAccount(connectionId),
+      getBrokerPositions(connectionId),
+      getBrokerOrders(connectionId),
+      getBrokerFills(connectionId, 50),
+      listLedgerOrders(connectionId, 25),
+    ]);
+
+    const failures: string[] = [];
+    const [acct, pos, ord, fl, led] = results;
+
+    if (acct.status === "fulfilled") {
+      if (acct.value.available === false) {
+        failures.push(acct.value.error?.message ?? "account unavailable");
+      } else {
+        setAccount(acct.value.data ?? null);
+      }
+    } else {
+      failures.push(acct.reason instanceof Error ? acct.reason.message : "account unavailable");
+    }
+
+    if (pos.status === "fulfilled") {
+      if (pos.value.available === false) {
+        failures.push(pos.value.error?.message ?? "positions unavailable");
+      } else {
+        setPositions(pos.value.data ?? []);
+      }
+    } else {
+      failures.push(pos.reason instanceof Error ? pos.reason.message : "positions unavailable");
+    }
+
+    if (ord.status === "fulfilled") {
+      if (ord.value.available === false) {
+        failures.push(ord.value.error?.message ?? "orders unavailable");
+      } else {
+        setOrders(ord.value.data ?? []);
+      }
+    } else {
+      failures.push(ord.reason instanceof Error ? ord.reason.message : "orders unavailable");
+    }
+
+    if (fl.status === "fulfilled") setFills(fl.value);
+    else failures.push("deals unavailable");
+
+    if (led.status === "fulfilled") setLedger(led.value);
+    else failures.push("order ledger unavailable");
+
+    setRefreshedAt(new Date());
+    if (failures.length > 0) setLiveError(failures[0]);
+    setLiveLoading(false);
+  }, []);
+
   useEffect(() => {
-    if (open) void load();
+    if (!open) return;
+    void load();
   }, [open, load]);
 
-  const run = async (key: string, action: () => Promise<unknown>, done: string) => {
+  // On selection change, show the row snapshot immediately, then read live.
+  useEffect(() => {
+    if (!open) return;
+    const connection = connections.find((c) => c.id === selectedId) ?? connections[0] ?? null;
+    if (!connection) {
+      setAccount(null);
+      setPositions([]);
+      setOrders([]);
+      setFills([]);
+      setLedger([]);
+      return;
+    }
+    setAccount(connection.account ?? null);
+    setPositions([]);
+    setOrders([]);
+    setFills([]);
+    setLedger([]);
+    setQuote(null);
+    setQuoteError(null);
+    setLabel(connection.label);
+    setMode(connection.mode === "live" ? "live" : "demo");
+    setTerminalPath(String(connection.config?.terminalPath ?? DEFAULT_TERMINAL));
+    setMagic(String(connection.config?.magic ?? "0"));
+    setMaxMargin(String(connection.config?.maxMargin ?? "0"));
+    setEditOpen(false);
+    setArmPhrase("");
+    void refreshLive(connection.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, selectedId, connections.length]);
+
+  const run = async (
+    key: string,
+    action: () => Promise<unknown>,
+    done?: string,
+    refresh = true,
+  ) => {
     setBusy(key);
     setError(null);
     setNotice(null);
     try {
       await action();
       await load();
-      setNotice(done);
+      if (refresh && selected) await refreshLive(selected.id);
+      if (done) setNotice(done);
     } catch (err) {
       setError(err instanceof Error ? err.message : "the action failed");
     } finally {
@@ -145,230 +310,626 @@ function SidebarBrokerDialog({
     }
   };
 
+  const buildConfig = (): Record<string, unknown> => {
+    const config: Record<string, unknown> = { ...(selected?.config ?? {}), terminalPath: terminalPath.trim() };
+    const magicNumber = Number(magic);
+    const marginNumber = Number(maxMargin);
+    if (Number.isFinite(magicNumber) && magicNumber > 0) config.magic = magicNumber;
+    else delete config.magic;
+    if (Number.isFinite(marginNumber) && marginNumber > 0) config.maxMargin = marginNumber;
+    else delete config.maxMargin;
+    return config;
+  };
+
   const add = () => {
-    void run("create", async () => {
-      const config: Record<string, unknown> = { terminalPath: terminalPath.trim() };
-      const magicNumber = Number(magic);
-      const marginNumber = Number(maxMargin);
-      if (Number.isFinite(magicNumber) && magicNumber > 0) config.magic = magicNumber;
-      if (Number.isFinite(marginNumber) && marginNumber > 0) config.maxMargin = marginNumber;
-      const created = await createBrokerConnection({
-        kind: "mt5",
-        label: label.trim() || "MT5",
-        mode,
-        config,
-      });
-      await testBrokerConnection(created.id);
-    }, "Connection added and tested.");
+    void run(
+      "create",
+      async () => {
+        const created = await createBrokerConnection({
+          kind: "mt5",
+          label: label.trim() || "MT5",
+          mode,
+          config: buildConfig(),
+        });
+        setSelectedId(created.id);
+        await testBrokerConnection(created.id);
+      },
+      "Connection added and tested.",
+      false,
+    );
+  };
+
+  const saveEdit = () => {
+    if (!selected) return;
+    void run(
+      "save",
+      () =>
+        updateBrokerConnection(selected.id, {
+          label: label.trim() || "MT5",
+          mode,
+          config: buildConfig(),
+        }),
+      "Connection updated.",
+    );
+  };
+
+  const remove = () => {
+    if (!selected) return;
+    if (
+      !window.confirm(
+        `Remove ${selected.label} from Eclipse? This does not close anything at the broker.`,
+      )
+    ) {
+      return;
+    }
+    void run(
+      "delete",
+      async () => {
+        await deleteBrokerConnection(selected.id);
+        setSelectedId(null);
+      },
+      "Connection removed.",
+      false,
+    );
   };
 
   const test = () => {
-    if (!connection) return;
-    void run("test", () => testBrokerConnection(connection.id), "Connection tested.");
+    if (!selected) return;
+    void run("test", () => testBrokerConnection(selected.id), "Connection tested.");
   };
 
   const sync = () => {
-    if (!connection) return;
-    void run("sync", () => syncBrokerConnection(connection.id), "Fills and positions synced.");
+    if (!selected) return;
+    void run("sync", () => syncBrokerConnection(selected.id), "Fills and positions synced.");
   };
 
-  const mt5 = kinds.find((kind) => kind.id === "mt5");
+  const closeOne = (ticket: number) => {
+    if (!selected) return;
+    if (!window.confirm(`Close position #${ticket} at market? This cannot be undone.`)) return;
+    void run(`close:${ticket}`, () => closeBrokerPosition(selected.id, ticket), `Position #${ticket} closed.`);
+  };
+
+  const closeAll = () => {
+    if (!selected || positions.length === 0) return;
+    if (!window.confirm(`Close all ${positions.length} open positions at market? This cannot be undone.`)) {
+      return;
+    }
+    void run("close-all", () => closeAllBrokerPositions(selected.id), "Close-all sent to the broker.");
+  };
+
+  const cancel = (ticket: number) => {
+    if (!selected) return;
+    if (!window.confirm(`Cancel working order #${ticket}?`)) return;
+    void run(`cancel:${ticket}`, () => cancelBrokerOrder(selected.id, ticket), `Order #${ticket} cancelled.`);
+  };
+
+  const arm = () => {
+    if (!selected) return;
+    void run(
+      "arm",
+      () => armBrokerConnection(selected.id, armPhrase, 1800),
+      "Live execution armed for 30 minutes.",
+    );
+  };
+
+  const disarm = () => {
+    if (!selected) return;
+    void run("disarm", () => disarmBrokerConnection(selected.id), "Live execution disarmed.");
+  };
+
+  const kill = () => {
+    if (!selected) return;
+    if (!window.confirm("Cancel every working order Eclipse owns on this connection?")) return;
+    void run("kill", () => killBrokerConnection(selected.id), "Kill switch fired.");
+  };
+
+  const lookupQuote = async () => {
+    if (!selected || !quoteSymbol.trim()) return;
+    setQuoteBusy(true);
+    setQuoteError(null);
+    try {
+      const envelope = await getBrokerQuote(selected.id, quoteSymbol.trim().toUpperCase());
+      if (envelope.available && envelope.data) {
+        setQuote(envelope.data);
+      } else {
+        setQuote(null);
+        setQuoteError(envelope.error?.message ?? "no quote returned");
+      }
+    } catch (err) {
+      setQuote(null);
+      setQuoteError(err instanceof Error ? err.message : "quote unavailable");
+    } finally {
+      setQuoteBusy(false);
+    }
+  };
+
+  const armed = Boolean(selected?.armedUntil);
+  const armedUntil = selected?.armedUntil;
+
+  const tabs = [
+    { id: "overview", label: "Overview", icon: LayoutDashboard },
+    {
+      id: "positions",
+      label: "Positions",
+      icon: Briefcase,
+      badge: positions.length ? <CountBadge value={positions.length} /> : undefined,
+    },
+    {
+      id: "orders",
+      label: "Orders",
+      icon: List,
+      badge: orders.length ? <CountBadge value={orders.length} /> : undefined,
+    },
+    { id: "activity", label: "Activity", icon: History },
+    { id: "settings", label: "Settings", icon: Settings },
+  ];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(85dvh,800px)] w-[calc(100vw-2rem)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl border border-white/10 glass-card-strong p-0 text-foreground sm:max-w-lg">
+      <DialogContent className="flex max-h-[min(88dvh,860px)] w-[calc(100vw-2rem)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl border border-white/10 glass-card-strong p-0 text-foreground sm:max-w-3xl">
         <DialogHeader className="shrink-0 border-b border-border/10 px-5 py-3.5">
           <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
             <Handshake size={15} className="text-muted-foreground" /> Broker connection
             <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-300">
               MT5
             </span>
+            {selected && (
+              <span
+                className={cn(
+                  "rounded-full border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide",
+                  armed
+                    ? "border-rose-500/30 bg-rose-500/10 text-rose-300"
+                    : selected.status === "connected"
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                      : "border-amber-500/30 bg-amber-500/10 text-amber-300",
+                )}
+              >
+                {armed ? "armed" : selected.status}
+              </span>
+            )}
           </DialogTitle>
           <DialogDescription className="text-[11px] text-muted-foreground">
-            Attach Eclipse to a running MetaTrader 5 terminal. No password is stored;
-            the terminal must already be logged in.
+            Attach Eclipse to a running MetaTrader 5 terminal. No password is stored — the terminal
+            must already be logged in.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div className="space-y-4">
-          <div className="flex items-center justify-between gap-2 rounded-xl border border-border/20 px-3 py-2">
-            <div>
-              <p className="text-xs font-medium text-foreground">MetaTrader 5 bridge</p>
-              <p className="text-[10px] text-muted-foreground">
-                {mt5?.available
-                  ? "Ready — enable Algo Trading in MT5 before placing orders."
-                  : mt5?.unavailableReason ?? "Checking the runtime…"}
-              </p>
-            </div>
-            <span
-              className={cn(
-                "rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide",
-                !mt5
-                  ? "border-border/30 bg-white/[0.04] text-muted-foreground"
-                  : mt5.available
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                    : "border-amber-500/30 bg-amber-500/10 text-amber-300",
-              )}
-            >
-              {!mt5 ? "checking" : mt5.available ? "ready" : "unavailable"}
-            </span>
-          </div>
-
-          {error && <p className="text-[11px] text-rose-300">{error}</p>}
-          {notice && <p className="text-[11px] text-emerald-300">{notice}</p>}
-
-          {loading ? (
-            <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              <Loader2 size={13} className="animate-spin" /> Reading the broker…
-            </p>
-          ) : connection ? (
-            <div className="space-y-3">
-              <div className="rounded-xl border border-border/20 p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs font-semibold text-foreground">
-                    {connection.label} · {connection.kind.toUpperCase()}
-                  </p>
-                  {account && (
+        {connections.length > 0 && (
+          <div className="shrink-0 px-5 pt-3">
+            <div className="flex gap-1.5 overflow-x-auto scrollbar-hide">
+              {connections.map((connection) => {
+                const active = connection.id === selected?.id;
+                const connectionArmed = Boolean(connection.armedUntil);
+                return (
+                  <button
+                    key={connection.id}
+                    type="button"
+                    onClick={() => setSelectedId(connection.id)}
+                    className={cn(
+                      "flex shrink-0 items-center gap-1.5 rounded-xl border px-2.5 py-1 text-[10px] transition-colors",
+                      active
+                        ? "border-primary/40 bg-primary/10 text-primary"
+                        : "border-border/30 text-muted-foreground hover:bg-white/[0.04] hover:text-foreground",
+                    )}
+                  >
                     <span
                       className={cn(
-                        "rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase",
-                        account.mode === "real"
-                          ? "border-rose-500/30 bg-rose-500/10 text-rose-300"
-                          : "border-sky-500/30 bg-sky-500/10 text-sky-300",
+                        "h-1.5 w-1.5 rounded-full",
+                        connectionArmed
+                          ? "bg-rose-400"
+                          : connection.status === "connected"
+                            ? "bg-emerald-400"
+                            : "bg-amber-400",
                       )}
-                    >
-                      {account.mode}
-                    </span>
-                  )}
-                </div>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">
-                  {connection.status}
-                  {connection.statusReason ? ` — ${connection.statusReason}` : ""}
+                    />
+                    <span className="max-w-[10rem] truncate">{connection.label}</span>
+                    <span className="uppercase opacity-60">{connection.mode}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {connections.length > 0 && (
+          <div className="shrink-0 px-5 pt-2">
+            <TabBar
+              items={tabs}
+              activeId={tab}
+              onChange={(id) => setTab(id as TabId)}
+              variant="subtle"
+              className="mb-0"
+            />
+          </div>
+        )}
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="space-y-3">
+            {error && <p className="text-[11px] text-rose-300">{error}</p>}
+            {notice && <p className="text-[11px] text-emerald-300">{notice}</p>}
+            {liveError && <p className="text-[10px] text-amber-300">{liveError}</p>}
+
+            {loading ? (
+              <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                <Loader2 size={13} className="animate-spin" /> Reading the broker…
+              </p>
+            ) : !selected ? (
+              <div className="space-y-3">
+                <p className="text-[11px] text-muted-foreground">
+                  No broker connection yet. Add your MetaTrader 5 terminal below.
                 </p>
-                {account && (
-                  <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
-                    <span className="text-muted-foreground">
-                      Account <span className="font-mono text-foreground">{account.login}</span>
-                    </span>
-                    <span className="text-muted-foreground">
-                      {account.server || "—"}
-                    </span>
-                    <span className="text-muted-foreground">
-                      Balance{" "}
-                      <span className="font-mono text-foreground">
-                        {account.balance.toLocaleString()} {account.currency}
-                      </span>
-                    </span>
-                    <span className="text-muted-foreground">
-                      Equity{" "}
-                      <span className="font-mono text-foreground">
-                        {account.equity.toLocaleString()}
-                      </span>
-                    </span>
+                <ConnectionForm
+                  label={label}
+                  setLabel={setLabel}
+                  mode={mode}
+                  setMode={setMode}
+                  terminalPath={terminalPath}
+                  setTerminalPath={setTerminalPath}
+                  magic={magic}
+                  setMagic={setMagic}
+                  maxMargin={maxMargin}
+                  setMaxMargin={setMaxMargin}
+                  busy={busy === "create"}
+                  onSubmit={add}
+                  submitLabel="Add & test connection"
+                />
+              </div>
+            ) : (
+              <>
+                {tab === "overview" && (
+                  <BrokerOverviewPanel
+                    connection={selected}
+                    account={account}
+                    bridge={{
+                      available: mt5 ? mt5.available : null,
+                      reason: mt5?.unavailableReason ?? null,
+                    }}
+                    quote={quote}
+                    quoteSymbol={quoteSymbol}
+                    quoteBusy={quoteBusy}
+                    quoteError={quoteError}
+                    onQuoteSymbolChange={setQuoteSymbol}
+                    onQuote={lookupQuote}
+                    onRefresh={() => void refreshLive(selected.id)}
+                    refreshing={liveLoading}
+                    onTest={test}
+                    onSync={sync}
+                    busy={busy}
+                  />
+                )}
+
+                {tab === "positions" && (
+                  <BrokerPositionsPanel
+                    positions={positions}
+                    loading={liveLoading}
+                    busy={busy}
+                    onClose={closeOne}
+                    onCloseAll={closeAll}
+                    onRefresh={() => void refreshLive(selected.id)}
+                  />
+                )}
+
+                {tab === "orders" && (
+                  <BrokerOrdersPanel
+                    orders={orders}
+                    loading={liveLoading}
+                    busy={busy}
+                    onCancel={cancel}
+                    onRefresh={() => void refreshLive(selected.id)}
+                  />
+                )}
+
+                {tab === "activity" && (
+                  <BrokerActivityPanel
+                    fills={fills}
+                    ledger={ledger}
+                    loading={liveLoading}
+                    busy={busy}
+                    onRefresh={() => void refreshLive(selected.id)}
+                  />
+                )}
+
+                {tab === "settings" && (
+                  <div className="space-y-3">
+                    <PanelBox
+                      title="Connection"
+                      hint={`${selected.kind.toUpperCase()} · created ${fmtStamp(selected.createdAt)}`}
+                      action={
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setEditOpen((value) => !value)}
+                        >
+                          {editOpen ? "Close editor" : "Edit"}
+                        </Button>
+                      }
+                    >
+                      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                        <StatTile label="Label" value={selected.label} />
+                        <StatTile label="Mode" value={selected.mode.toUpperCase()} />
+                        <StatTile label="Status" value={selected.status} />
+                        <StatTile label="Last seen" value={fmtStamp(selected.lastSeenAt)} />
+                        <StatTile label="Armed until" value={fmtStamp(selected.armedUntil)} />
+                        <StatTile label="Armed by" value={selected.armedBy ?? "—"} />
+                        <StatTile label="Magic" value={String(selected.config?.magic ?? "—")} />
+                        <StatTile label="Max margin" value={String(selected.config?.maxMargin ?? "—")} />
+                      </div>
+                      <p className="truncate font-mono text-[9px] text-muted-foreground">
+                        {String(selected.config?.terminalPath ?? "no terminal path")}
+                      </p>
+                      {editOpen && (
+                        <div className="space-y-2 pt-1">
+                          <ConnectionForm
+                            label={label}
+                            setLabel={setLabel}
+                            mode={mode}
+                            setMode={setMode}
+                            terminalPath={terminalPath}
+                            setTerminalPath={setTerminalPath}
+                            magic={magic}
+                            setMagic={setMagic}
+                            maxMargin={maxMargin}
+                            setMaxMargin={setMaxMargin}
+                            busy={busy === "save"}
+                            onSubmit={saveEdit}
+                            submitLabel="Save changes"
+                            compact
+                          />
+                        </div>
+                      )}
+                    </PanelBox>
+
+                    {selected.mode === "live" && (
+                      <PanelBox
+                        title="Live execution"
+                        hint="Arming is time-boxed. Every order still needs its own confirmation."
+                        action={
+                          <span
+                            className={cn(
+                              "rounded-full border px-2 py-0.5 text-[8.5px] font-bold uppercase",
+                              armed
+                                ? "border-rose-500/30 bg-rose-500/10 text-rose-300"
+                                : "border-border/30 text-muted-foreground",
+                            )}
+                          >
+                            {armed ? "armed" : "disarmed"}
+                          </span>
+                        }
+                      >
+                        <p className="text-[10px] text-rose-200/90">
+                          Type{" "}
+                          <span className="font-mono">
+                            ARM LIVE {account?.login ?? "<login>"}
+                          </span>{" "}
+                          to arm for 30 minutes. The kill switch cancels every working order Eclipse
+                          owns.
+                        </p>
+                        <div className="flex gap-1.5">
+                          <input
+                            value={armPhrase}
+                            onChange={(event) => setArmPhrase(event.target.value)}
+                            placeholder={`ARM LIVE ${account?.login ?? ""}`}
+                            className={inputClass}
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="shrink-0 border border-rose-500/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/15"
+                            onClick={arm}
+                            disabled={busy !== null || armPhrase.trim().length === 0}
+                          >
+                            {busy === "arm" ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+                            Arm
+                          </Button>
+                        </div>
+                        {armed && armedUntil && (
+                          <p className="text-[9.5px] text-rose-200/80">
+                            Armed until {fmtStamp(armedUntil)}.
+                          </p>
+                        )}
+                        <div className="flex flex-wrap gap-1.5">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={disarm}
+                            disabled={busy !== null || !armed}
+                          >
+                            {busy === "disarm" ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <ShieldOff size={12} />
+                            )}
+                            Disarm
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={kill}
+                            disabled={busy !== null}
+                          >
+                            {busy === "kill" ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <ShieldCheck size={12} />
+                            )}
+                            Kill switch
+                          </Button>
+                        </div>
+                      </PanelBox>
+                    )}
+
+                    <PanelBox
+                      title="Connections"
+                      hint="Eclipse can hold several terminals; reads follow the selected one."
+                      action={
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowForm((value) => !value)}
+                        >
+                          <Plus size={12} /> {showForm ? "Hide" : "Add"}
+                        </Button>
+                      }
+                    >
+                      {showForm ? (
+                        <ConnectionForm
+                          label={label}
+                          setLabel={setLabel}
+                          mode={mode}
+                          setMode={setMode}
+                          terminalPath={terminalPath}
+                          setTerminalPath={setTerminalPath}
+                          magic={magic}
+                          setMagic={setMagic}
+                          maxMargin={maxMargin}
+                          setMaxMargin={setMaxMargin}
+                          busy={busy === "create"}
+                          onSubmit={add}
+                          submitLabel="Add & test connection"
+                          compact
+                        />
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground">
+                          Use Add to attach another MT5 terminal or account.
+                        </p>
+                      )}
+                    </PanelBox>
+
+                    <PanelBox title="Remove" hint="Leaves the broker account untouched.">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="border-rose-500/30 text-rose-300 hover:bg-rose-500/10"
+                        onClick={remove}
+                        disabled={busy !== null}
+                      >
+                        {busy === "delete" ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={12} />
+                        )}
+                        Remove connection
+                      </Button>
+                    </PanelBox>
+
+                    {refreshedAt && (
+                      <p className="flex items-center gap-1.5 text-[9.5px] text-muted-foreground">
+                        <Activity size={11} /> Last live read {refreshedAt.toLocaleTimeString()}
+                      </p>
+                    )}
                   </div>
                 )}
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={test}
-                  disabled={busy !== null}
-                >
-                  {busy === "test" ? <Loader2 size={12} className="animate-spin" /> : null}
-                  Test
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={sync}
-                  disabled={busy !== null}
-                >
-                  {busy === "sync" ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <RefreshCw size={12} />
-                  )}
-                  Sync
-                </Button>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowForm((value) => !value)}
-                className="text-[10px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-              >
-                {showForm ? "Hide connection form" : "Add another connection"}
-              </button>
-            </div>
-          ) : null}
+              </>
+            )}
 
-          {(showForm || !connection) && (
-            <div className="space-y-3 rounded-xl border border-border/20 p-3">
-              <p className="text-xs font-medium text-foreground">Connect MetaTrader 5</p>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="col-span-2 space-y-1">
-                  <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Label</span>
-                  <input value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} />
-                </label>
-                <label className="space-y-1">
-                  <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Mode</span>
-                  <select
-                    value={mode}
-                    onChange={(event) => setMode(event.target.value === "live" ? "live" : "demo")}
-                    className={inputClass}
-                  >
-                    <option value="demo">Demo</option>
-                    <option value="live">Live (arm in Settings)</option>
-                  </select>
-                </label>
-                <label className="space-y-1">
-                  <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Magic</span>
-                  <input value={magic} onChange={(event) => setMagic(event.target.value)} className={inputClass} />
-                </label>
-                <label className="col-span-2 space-y-1">
-                  <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Terminal path</span>
-                  <input
-                    value={terminalPath}
-                    onChange={(event) => setTerminalPath(event.target.value)}
-                    className={inputClass}
-                  />
-                </label>
-                <label className="col-span-2 space-y-1">
-                  <span className="text-[9px] uppercase tracking-widest text-muted-foreground">
-                    Max margin (live only)
-                  </span>
-                  <input
-                    value={maxMargin}
-                    onChange={(event) => setMaxMargin(event.target.value)}
-                    className={inputClass}
-                  />
-                </label>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                className="w-full"
-                onClick={add}
-                disabled={busy === "create"}
-              >
-                {busy === "create" ? <Loader2 size={12} className="animate-spin" /> : <Handshake size={12} />}
-                Add &amp; test connection
-              </Button>
-            </div>
-          )}
-
-          <p className="text-[10px] text-muted-foreground">
-            Live arming, limits and mandates live in <span className="font-medium text-foreground">Settings → Broker connection</span>.
-            Eclipse never stores your MT5 password.
-          </p>
-        </div>
+            <p className="text-[10px] text-muted-foreground">
+              Live arming, mandates and per-order approvals live in{" "}
+              <span className="font-medium text-foreground">Settings → Broker connection</span>. Eclipse
+              never stores your MT5 password.
+            </p>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function CountBadge({ value }: { value: number }) {
+  return (
+    <span className="ml-0.5 rounded-full border border-border/40 px-1 text-[8.5px] leading-4 text-muted-foreground">
+      {value}
+    </span>
+  );
+}
+
+function ConnectionForm({
+  label,
+  setLabel,
+  mode,
+  setMode,
+  terminalPath,
+  setTerminalPath,
+  magic,
+  setMagic,
+  maxMargin,
+  setMaxMargin,
+  busy,
+  onSubmit,
+  submitLabel,
+  compact = false,
+}: {
+  label: string;
+  setLabel: (value: string) => void;
+  mode: "demo" | "live";
+  setMode: (value: "demo" | "live") => void;
+  terminalPath: string;
+  setTerminalPath: (value: string) => void;
+  magic: string;
+  setMagic: (value: string) => void;
+  maxMargin: string;
+  setMaxMargin: (value: string) => void;
+  busy: boolean;
+  onSubmit: () => void;
+  submitLabel: string;
+  compact?: boolean;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        <label className="col-span-2 space-y-1">
+          <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Label</span>
+          <input value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} />
+        </label>
+        <label className="space-y-1">
+          <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Mode</span>
+          <select
+            value={mode}
+            onChange={(event) => setMode(event.target.value === "live" ? "live" : "demo")}
+            className={inputClass}
+          >
+            <option value="demo">Demo</option>
+            <option value="live">Live (arm in Settings)</option>
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Magic</span>
+          <input value={magic} onChange={(event) => setMagic(event.target.value)} className={inputClass} />
+        </label>
+        <label className="col-span-2 space-y-1">
+          <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Terminal path</span>
+          <input
+            value={terminalPath}
+            onChange={(event) => setTerminalPath(event.target.value)}
+            className={inputClass}
+          />
+        </label>
+        <label className="col-span-2 space-y-1">
+          <span className="text-[9px] uppercase tracking-widest text-muted-foreground">
+            Max margin (live only)
+          </span>
+          <input
+            value={maxMargin}
+            onChange={(event) => setMaxMargin(event.target.value)}
+            className={inputClass}
+          />
+        </label>
+      </div>
+      {!compact && (
+        <p className="text-[9.5px] text-muted-foreground">
+          No password is stored: Eclipse attaches to the account already logged into the terminal.
+          Enable <span className="font-medium text-foreground">Algo Trading</span> in MT5 before
+          placing any order.
+        </p>
+      )}
+      <Button type="button" size="sm" className="w-full" onClick={onSubmit} disabled={busy}>
+        {busy ? <Loader2 size={12} className="animate-spin" /> : <Handshake size={12} />}
+        {submitLabel}
+      </Button>
+    </div>
   );
 }

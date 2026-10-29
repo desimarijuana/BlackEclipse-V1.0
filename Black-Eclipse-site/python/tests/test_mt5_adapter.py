@@ -10,10 +10,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from harness.trade.adapters.mt5 import (
+    _bars_from_rates,
     _build_request,
     _filling_mode,
     _normalise_volume,
     _notional,
+    _own_margin,
     _retcode,
     _stops_reasons,
 )
@@ -137,3 +139,32 @@ def test_retcode_names_are_specific():
 
 def test_notional_uses_contract_size():
     assert _notional(0.1, _info(), 1.1) == 11_000.0
+
+
+def test_order_margin_is_the_increment_not_the_account_total():
+    # The demo's own numbers: 0.01 XAUUSD with three EURUSD positions open.
+    assert _own_margin(73.74, 113.74) == 40.0
+    # A fresh account: the check total IS the order's margin.
+    assert _own_margin(0, 40.0) == 40.0
+    # A reducing order commits no new margin and never goes negative.
+    assert _own_margin(80.0, 40.0) == 0.0
+
+
+def test_bars_are_normalized_from_mt5_records():
+    bars = _bars_from_rates([
+        {"time": 1_700_000_000, "open": 4010.0, "high": 4020.0, "low": 4005.0,
+         "close": 4018.0, "tick_volume": 1200, "spread": 28},
+    ])
+    assert bars == [{
+        "time": 1_700_000_000, "open": 4010.0, "high": 4020.0, "low": 4005.0,
+        "close": 4018.0, "tickVolume": 1200, "spreadPoints": 28,
+    }]
+
+
+def test_bars_reader_accepts_objects_as_well_as_dicts():
+    row = SimpleNamespace(
+        time=1, open=1.0, high=2.0, low=0.5, close=1.5, tick_volume=7, spread=1,
+    )
+    bars = _bars_from_rates([row])
+    assert bars[0]["close"] == 1.5
+    assert bars[0]["tickVolume"] == 7

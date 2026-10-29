@@ -13,6 +13,9 @@ const ORDER_LEDGER = new RegExp(`^connections/${ID}/orders/ledger$`);
 const ORDER_PREVIEW = new RegExp(`^connections/${ID}/orders/preview$`);
 const ORDER_SUBMIT = new RegExp(`^connections/${ID}/orders/submit$`);
 const ORDER_CANCEL = new RegExp(`^connections/${ID}/orders/\\d+/cancel$`);
+const POSITION_CLOSE = new RegExp(`^connections/${ID}/positions/\\d+/close$`);
+const POSITION_MODIFY = new RegExp(`^connections/${ID}/positions/\\d+/modify$`);
+const POSITIONS_CLOSE = new RegExp(`^connections/${ID}/positions/close$`);
 const ORDER_GET = new RegExp(`^orders/${ID}$`);
 const APPROVAL_DECIDE = new RegExp(`^approvals/${ID}/decide$`);
 
@@ -41,6 +44,9 @@ export function isAllowedTradingRoute(method: string, path: string[]): boolean {
       ORDER_PREVIEW.test(target) ||
       ORDER_SUBMIT.test(target) ||
       ORDER_CANCEL.test(target) ||
+      POSITION_CLOSE.test(target) ||
+      POSITION_MODIFY.test(target) ||
+      POSITIONS_CLOSE.test(target) ||
       APPROVAL_DECIDE.test(target)
     );
   }

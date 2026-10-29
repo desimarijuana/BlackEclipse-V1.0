@@ -227,6 +227,44 @@ class BrokerService:
             "data": payload,
         }
 
+    def bars(
+        self, connection_id: str, symbol: str, timeframe: str = "H1", count: int = 120,
+    ) -> dict[str, Any]:
+        """The broker's own OHLCV series, as a read envelope like `quote`."""
+        connection = self._connection(connection_id)
+        adapter: Any = None
+        try:
+            adapter = make_adapter(connection.kind, connection.config)
+        except KeyError as exc:
+            raise AdapterUnavailable("BROKER_KIND_UNKNOWN", str(exc)) from exc
+        try:
+            payload = adapter.bars(symbol, timeframe=timeframe, count=count)
+        except AdapterUnavailable as exc:
+            return self._unavailable(connection, exc)
+        except Exception as exc:  # noqa: BLE001
+            failure = AdapterUnavailable(
+                "ADAPTER_ERROR", f"{connection.kind} adapter failed: {exc}"
+            )
+            return self._unavailable(connection, failure)
+        finally:
+            try:
+                if adapter is not None:
+                    adapter.close()
+            except Exception:  # noqa: BLE001
+                pass
+        self.connections.set_status(
+            connection.id, status="connected", reason=None, mark_seen=True
+        )
+        self.connections.record_event(
+            connection.id, "bars", "ok",
+            {"symbol": payload.get("symbol"), "timeframe": payload.get("timeframe")},
+        )
+        return {
+            "available": True, "status": "connected",
+            "connectionId": connection.id, "kind": connection.kind,
+            "mode": connection.mode.value, "data": payload,
+        }
+
     # ── demo automation mandates (P3) ────────────────────────────────────────
     def create_mandate(self, connection_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         connection = self._connection(connection_id)
@@ -292,6 +330,47 @@ class BrokerService:
                 f"the {connection.kind} adapter has no execution methods",
             )
         return adapter
+
+    def _assert_daily_loss(
+        self, connection: BrokerConnection, adapter: Any, preview: dict[str, Any],
+    ) -> None:
+        """Rolling 24 h loss brake: block new exposure, never block an exit.
+
+        Realised P&L comes from the broker's own deals; open P&L comes from the
+        account snapshot. If the history read fails the guard still uses the open
+        P&L, so a dead history route can never disable the brake entirely.
+        """
+        policy = TradePolicy.from_connection(connection)
+        if policy.max_daily_loss_pct <= 0:
+            return
+        account = preview.get("account") or {}
+        equity = _to_float(account.get("equity"))
+        if equity <= 0:
+            return
+        open_pnl = _to_float(account.get("profit"))
+        realised = 0.0
+        if hasattr(adapter, "deals_since"):
+            since_ms = int(
+                (datetime.now(timezone.utc) - timedelta(hours=24)).timestamp() * 1000
+            )
+            try:
+                realised = sum(
+                    _to_float(deal.get("profit"))
+                    for deal in (adapter.deals_since(since_ms) or [])
+                )
+            except Exception:  # noqa: BLE001 - open P&L still applies
+                realised = 0.0
+        total = open_pnl + realised
+        cap = equity * policy.max_daily_loss_pct / 100.0
+        if total <= -cap:
+            raise TradeRefused(
+                "DAILY_LOSS_LIMIT",
+                f"rolling 24h P&L is {total:,.2f}, at or below the "
+                f"{policy.max_daily_loss_pct:g}% brake ({cap:,.2f} on "
+                f"{equity:,.2f} equity). New entries are blocked; closing "
+                "positions is still available.",
+                status_code=403,
+            )
 
     @staticmethod
     def _assert_account_mode(preview: dict[str, Any], expected: str) -> None:
@@ -668,6 +747,7 @@ class BrokerService:
                 }
 
             mandate: Optional[dict[str, Any]] = None
+            self._assert_daily_loss(connection, adapter, preview)
             if mandate_id:
                 if execution_mode != "demo":
                     raise TradeRefused(
@@ -889,6 +969,40 @@ class BrokerService:
             "result": result,
         }
 
+    def close_position(
+        self, connection_id: str, ticket: int, *, deviation: int = 20,
+        volume: Optional[float] = None,
+    ) -> dict[str, Any]:
+        """Close one demo position (full or partial). Risk-reducing: no approval."""
+        from .positions import close_position  # noqa: PLC0415
+
+        return close_position(
+            self, connection_id, ticket, deviation=deviation, volume=volume
+        )
+
+    def close_positions(
+        self, connection_id: str, *, tickets: Optional[list[int]] = None,
+        deviation: int = 20,
+    ) -> dict[str, Any]:
+        """Close every open demo position, or only the named tickets."""
+        from .positions import close_positions  # noqa: PLC0415
+
+        return close_positions(
+            self, connection_id, tickets=tickets, deviation=deviation
+        )
+
+    def modify_position(
+        self, connection_id: str, ticket: int, *,
+        stop_loss: Optional[float] = None, take_profit: Optional[float] = None,
+    ) -> dict[str, Any]:
+        """Move a demo position's stop/target. Risk-reducing: no approval."""
+        from .positions import modify_position  # noqa: PLC0415
+
+        return modify_position(
+            self, connection_id, ticket,
+            stop_loss=stop_loss, take_profit=take_profit,
+        )
+
     def ledger_orders(
         self, connection_id: Optional[str] = None, limit: int = 50,
     ) -> list[dict[str, Any]]:
@@ -1030,6 +1144,13 @@ class BrokerService:
 
 
 _UNKNOWN_RETCODES = {10012, 10031}
+
+
+def _to_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _order_status(result: dict[str, Any]) -> str:

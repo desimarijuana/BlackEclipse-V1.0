@@ -60,6 +60,9 @@ _SYMBOL_STOP = frozenset({
     "JSON", "HTML", "CSS", "SVG", "API", "URL", "URI", "UI", "UX", "ID", "SQL",
     "HTTP", "HTTPS", "SDK", "CLI", "PDF", "CSV", "PNG", "BARS", "VOL", "THR",
     "HOVER", "PIN", "BASE", "JS", "TS", "OK", "TODO",
+    # Trade-confirmation vocabulary: a bracket table is a report, not advice.
+    "ATR", "RSI", "MACD", "EMA", "SMA", "SL", "TP", "OHLC", "OHLCV",
+    "CFD", "PIP", "PIPS", "LOT", "LOTS", "MT4", "MT5", "BE", "RR",
 })
 
 _PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s?%")
@@ -126,6 +129,16 @@ def _sentences(text: str) -> list[str]:
     return [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", text or "") if s.strip()]
 
 
+def _is_table_row(sentence: str) -> bool:
+    """A markdown table row is a field/value report, never a recommendation.
+
+    "| Take profit | 4055.00 |" used to become a "sell" claim (the directive
+    `take profit` plus the token `ATR` from a neighbouring cell), which disclosed
+    a filled order as unverified advice.
+    """
+    return sentence.count("|") >= 2
+
+
 def _dedupe_target(labels: list[str]) -> str | None:
     if not labels:
         return None
@@ -143,6 +156,8 @@ def extract_claims(answer: str) -> list[AdvisoryClaim]:
     seen: set[tuple[str, tuple[str, ...], str | None]] = set()
 
     for sentence in _sentences(_prose_only(answer)):
+        if _is_table_row(sentence):
+            continue
         directive = _DIRECTIVE_RE.search(sentence)
         if directive is None:
             continue

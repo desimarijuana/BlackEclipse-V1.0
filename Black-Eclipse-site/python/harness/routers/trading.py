@@ -319,6 +319,81 @@ async def trading_order_cancel(
         raise _refusal(exc) from None
 
 
+@router.post("/trading/connections/{connection_id}/positions/{ticket}/close")
+async def trading_position_close(
+    connection_id: str,
+    ticket: int,
+    body: dict[str, Any] = Body(default={}),
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Close all or part of ONE demo position. Risk-reducing: no approval."""
+    volume = body.get("volume")
+    try:
+        return _brokers().close_position(
+            connection_id, ticket,
+            deviation=int(body.get("deviation") or 20),
+            volume=float(volume) if volume is not None else None,
+        )
+    except (TypeError, ValueError):
+        raise _refusal(
+            TradeRefused("INVALID_VOLUME", "volume must be a number")
+        ) from None
+    except KeyError:
+        raise _not_found(connection_id) from None
+    except TradeRefused as exc:
+        raise _refusal(exc) from None
+
+
+@router.post("/trading/connections/{connection_id}/positions/{ticket}/modify")
+async def trading_position_modify(
+    connection_id: str,
+    ticket: int,
+    body: dict[str, Any] = Body(default={}),
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Move a demo position's stop/target. Risk-reducing: no approval."""
+    stop_loss = body.get("stopLoss")
+    take_profit = body.get("takeProfit")
+    try:
+        return _brokers().modify_position(
+            connection_id, ticket,
+            stop_loss=float(stop_loss) if stop_loss is not None else None,
+            take_profit=float(take_profit) if take_profit is not None else None,
+        )
+    except (TypeError, ValueError):
+        raise _refusal(
+            TradeRefused("INVALID_STOPS", "stopLoss/takeProfit must be numbers")
+        ) from None
+    except KeyError:
+        raise _not_found(connection_id) from None
+    except TradeRefused as exc:
+        raise _refusal(exc) from None
+
+
+@router.post("/trading/connections/{connection_id}/positions/close")
+async def trading_positions_close(
+    connection_id: str,
+    body: dict[str, Any] = Body(default={}),
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Close every open demo position, or only `tickets` when supplied."""
+    tickets = body.get("tickets")
+    try:
+        return _brokers().close_positions(
+            connection_id,
+            tickets=[int(ticket) for ticket in tickets] if tickets else None,
+            deviation=int(body.get("deviation") or 20),
+        )
+    except (TypeError, ValueError):
+        raise _refusal(
+            TradeRefused("INVALID_TICKETS", "tickets must be a list of integers")
+        ) from None
+    except KeyError:
+        raise _not_found(connection_id) from None
+    except TradeRefused as exc:
+        raise _refusal(exc) from None
+
+
 @router.get("/trading/connections/{connection_id}/orders/ledger")
 async def trading_order_ledger(
     connection_id: str, limit: int = 50, _: bool = Depends(require_operator),

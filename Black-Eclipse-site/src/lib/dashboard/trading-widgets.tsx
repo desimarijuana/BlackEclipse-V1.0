@@ -9,12 +9,16 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
   cancelBrokerOrder,
+  closeAllBrokerPositions,
+  closeBrokerPosition,
   decideTradeApproval,
   getBrokerAccount,
   getBrokerFills,
   getBrokerOrders,
   getBrokerPositions,
   listBrokerConnections,
+  listLedgerOrders,
+  modifyBrokerPosition,
   previewOrder,
   submitOrder,
   type BrokerAccount,
@@ -22,6 +26,7 @@ import {
   type BrokerFill,
   type BrokerPosition,
   type BrokerWorkingOrder,
+  type LedgerOrder,
   type OrderIntent,
   type OrderPreview,
   type TradeApproval,
@@ -179,6 +184,67 @@ function Badge({ children, tone: color }: { children: React.ReactNode; tone?: st
 // ── Open positions ───────────────────────────────────────────────────────────
 export function BrokerOpenPositionsWidget() {
   const { connection, positions, error, loading, refresh } = useTradingData();
+  const [notice, setNotice] = useState<string | null>(null);
+  const close = async (position: BrokerPosition) => {
+    if (!connection) return;
+    const raw = window.prompt(
+      `Close how much of #${position.ticket}? Blank closes the whole ${position.volume} lot.`,
+    );
+    if (raw === null) return;
+    const volume = raw.trim() === '' ? undefined : Number(raw);
+    if (volume !== undefined && !Number.isFinite(volume)) return;
+    if (!window.confirm(`Close ${volume ?? position.volume} of #${position.ticket} at market?`)) return;
+    try {
+      const result = await closeBrokerPosition(connection.id, position.ticket, volume);
+      const detail = result.result as { partial?: boolean; remainingVolume?: number; verified?: boolean };
+      setNotice(
+        `Closed #${position.ticket}${detail.partial ? `; ${detail.remainingVolume} still open` : ''}` +
+          `${detail.verified === false ? ' — broker did not read back as expected' : ''}`,
+      );
+      invalidateTradingSnapshot();
+      await refresh();
+    } catch {
+      /* the next refresh reports the broker's state */
+    }
+  };
+  const modify = async (position: BrokerPosition) => {
+    if (!connection) return;
+    const slRaw = window.prompt(
+      `New stop loss for #${position.ticket} (blank keeps ${position.stopLoss ?? 'none'}, 0 removes it)`,
+    );
+    if (slRaw === null) return;
+    const tpRaw = window.prompt(
+      `New take profit for #${position.ticket} (blank keeps ${position.takeProfit ?? 'none'}, 0 removes it)`,
+    );
+    if (tpRaw === null) return;
+    const levels: { stopLoss?: number; takeProfit?: number } = {};
+    if (slRaw.trim() !== '') levels.stopLoss = Number(slRaw);
+    if (tpRaw.trim() !== '') levels.takeProfit = Number(tpRaw);
+    if (Object.keys(levels).length === 0) return;
+    try {
+      const result = await modifyBrokerPosition(connection.id, position.ticket, levels);
+      const detail = result.result as { stopLoss?: number; takeProfit?: number; verified?: boolean };
+      setNotice(
+        `#${position.ticket} bracket: SL ${detail.stopLoss ?? '—'} / TP ${detail.takeProfit ?? '—'}` +
+          `${detail.verified === false ? ' (unverified)' : ''}`,
+      );
+      invalidateTradingSnapshot();
+      await refresh();
+    } catch {
+      /* the next refresh reports the broker's state */
+    }
+  };
+  const closeAll = async () => {
+    if (!connection || positions.length === 0) return;
+    if (!window.confirm(`Close ALL ${positions.length} open position(s) at market?`)) return;
+    try {
+      await closeAllBrokerPositions(connection.id);
+      invalidateTradingSnapshot();
+      await refresh();
+    } catch {
+      /* the next refresh reports the broker's state */
+    }
+  };
   return (
     <div className="flex h-full flex-col p-4">
       <WidgetHeader title="Open Positions" hint={loading ? '…' : `${positions.length}`} />
@@ -188,32 +254,60 @@ export function BrokerOpenPositionsWidget() {
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto scrollbar-hide">
-          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-2 pb-1 text-[9px] uppercase tracking-widest text-muted-foreground">
-            <span>Symbol</span><span>Vol</span><span>Open</span><span className="text-right">P&L</span>
+          {notice && <p className="pb-1 text-[9px] text-emerald-300/90">{notice}</p>}
+          <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-2 pb-1 text-[9px] uppercase tracking-widest text-muted-foreground">
+            <span>Symbol</span><span>Vol</span><span>Open</span><span className="text-right">P&L</span><span /><span />
           </div>
           {positions.map((position) => (
             <div
               key={position.ticket}
-              className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 border-t border-border/10 py-1.5 text-[10px]"
+              className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-2 border-t border-border/10 py-1.5 text-[10px]"
             >
               <span className="min-w-0">
                 <span className="block truncate font-mono font-bold text-foreground">{position.symbol}</span>
-                <span className={cn('text-[9px] uppercase', position.side === 'buy' ? UP : DOWN)}>{position.side}</span>
+                <span className={cn('text-[9px] uppercase', position.side === 'buy' ? UP : DOWN)}>
+                  {position.side} <span className="text-muted-foreground/70">#{position.ticket}</span>
+                </span>
               </span>
               <span className="font-mono text-muted-foreground">{position.volume}</span>
               <span className="font-mono text-muted-foreground">{fmt(position.openPrice, 5)}</span>
               <span className={cn('text-right font-mono font-bold', tone(position.profit))}>
                 {fmt(position.profit)}
               </span>
+              <button
+                type="button"
+                onClick={() => void modify(position)}
+                title={`Modify stop/target of #${position.ticket}`}
+                className="rounded border border-border/20 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-muted-foreground hover:border-primary/40 hover:text-primary"
+              >
+                SL/TP
+              </button>
+              <button
+                type="button"
+                onClick={() => void close(position)}
+                title={`Close position #${position.ticket}`}
+                className="rounded border border-border/20 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-muted-foreground hover:border-rose-400/40 hover:text-rose-300"
+              >
+                Close
+              </button>
             </div>
           ))}
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className="mt-2 w-full rounded-lg border border-border/20 py-1 text-[9px] uppercase tracking-widest text-muted-foreground hover:text-foreground"
-          >
-            Refresh
-          </button>
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="flex-1 rounded-lg border border-border/20 py-1 text-[9px] uppercase tracking-widest text-muted-foreground hover:text-foreground"
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => void closeAll()}
+              className="flex-1 rounded-lg border border-rose-400/30 py-1 text-[9px] uppercase tracking-widest text-rose-300/90 hover:border-rose-400/60 hover:text-rose-200"
+            >
+              Close all
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -345,6 +439,84 @@ export function BrokerTodayPnlWidget() {
             </div>
           </div>
           <p className="text-[9px] text-muted-foreground/70">Broker-reported deals + open P&L.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Recent trades (the local ledger, newest first) ───────────────────────────
+export function BrokerRecentTradesWidget() {
+  const { connection, error, loading } = useTradingData();
+  const [rows, setRows] = useState<LedgerOrder[]>([]);
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!connection) {
+      setRows([]);
+      return;
+    }
+    setBusy(true);
+    try {
+      setRows(await listLedgerOrders(connection.id, 8));
+      setLedgerError(null);
+    } catch (err) {
+      setLedgerError(err instanceof Error ? err.message : 'order ledger unavailable');
+    } finally {
+      setBusy(false);
+    }
+  }, [connection]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const statusTone = (status: string) =>
+    status === 'filled' || status === 'placed'
+      ? UP
+      : status === 'unknown'
+        ? 'text-amber-300'
+        : DOWN;
+
+  return (
+    <div className="flex h-full flex-col p-4">
+      <WidgetHeader title="Recent Trades" hint={busy ? '…' : `${rows.length}`} />
+      {!connection ? <ConnectNote /> : error || ledgerError ? (
+        <ErrorNote message={ledgerError ?? error ?? 'order ledger unavailable'} />
+      ) : rows.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center">
+          <p className="text-xs text-muted-foreground">{loading ? 'Loading…' : 'No submitted orders yet.'}</p>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto scrollbar-hide">
+          <div className="grid grid-cols-[1fr_auto_auto] gap-2 pb-1 text-[9px] uppercase tracking-widest text-muted-foreground">
+            <span>Order</span><span className="text-right">Fill</span><span className="text-right">Status</span>
+          </div>
+          {rows.map((row) => (
+            <div
+              key={row.id}
+              className="grid grid-cols-[1fr_auto_auto] items-center gap-2 border-t border-border/10 py-1.5 text-[10px]"
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-mono font-bold text-foreground">
+                  {row.intent.symbol} {row.intent.side} {row.intent.volume}
+                </span>
+                <span className="text-[9px] text-muted-foreground/80">
+                  {row.ticket ? `#${row.ticket}` : row.id} · {row.mandateId ?? 'approval'}
+                </span>
+              </span>
+              <span className="text-right font-mono text-muted-foreground">{fmt(row.avgPrice, 5)}</span>
+              <span className={cn('text-right font-mono uppercase', statusTone(row.status))}>{row.status}</span>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="mt-2 w-full rounded-lg border border-border/20 py-1 text-[9px] uppercase tracking-widest text-muted-foreground hover:text-foreground"
+          >
+            Refresh
+          </button>
         </div>
       )}
     </div>

@@ -1,0 +1,103 @@
+﻿"""The per-run trading directive for "analyze X and place a trade" turns.
+
+The block is lexical and deterministic. It never grants a tool or a mandate; it
+only tells the model to skip research and let `order_submit` resolve ids. A
+refusal or a question must keep the directive out.
+"""
+
+from __future__ import annotations
+
+from harness.trading_intent import (
+    is_trade_turn,
+    narrow_trade_surface,
+    trading_intent_block as _trading_intent_block,
+)
+
+
+def test_analysis_plus_order_gets_the_directive():
+    block = _trading_intent_block(
+        "Analyze XAUUSD and place a small demo trade with a stop loss and take profit."
+    )
+    assert block.startswith("# Trading request")
+    assert "order_submit" in block
+    assert "do not ask the user for a mandate id" in block.lower()
+    assert "demo only" in block.lower()
+
+
+def test_explicit_order_without_a_symbol_also_gets_it():
+    assert _trading_intent_block("Place a 0.01 lot order now")
+
+
+def test_plain_analysis_is_untouched():
+    assert _trading_intent_block("Analyze XAUUSD and give me a technical read.") == ""
+
+
+def test_refusal_wins_over_the_verb():
+    assert _trading_intent_block(
+        "Analyze XAUUSD. Do not place a trade, just give me the levels."
+    ) == ""
+
+
+def test_a_question_is_advice_not_execution():
+    assert _trading_intent_block("Should I buy a small gold position here?") == ""
+
+
+def test_empty_query_is_empty():
+    assert _trading_intent_block("") == ""
+    assert _trading_intent_block("   ") == ""
+
+
+def test_close_request_gets_the_close_directive():
+    block = _trading_intent_block("Close my gold trade, I want to step out.")
+    assert block.startswith("# Close request")
+    assert "position_close" in block
+    assert "all: true" in block
+    assert "order_submit" not in block
+
+
+def test_exit_all_positions_gets_the_close_directive():
+    assert _trading_intent_block("Exit all positions now").startswith("# Close request")
+
+
+def test_close_refusal_is_not_directed():
+    assert _trading_intent_block("Do not close my positions yet") == ""
+
+
+def test_closing_an_ui_element_is_not_a_trade():
+    assert _trading_intent_block("Close the settings dialog for me") == ""
+
+
+def test_modify_stop_gets_the_modify_directive():
+    block = _trading_intent_block("Move my gold stop to breakeven")
+    assert block.startswith("# Modify request")
+    assert "position_modify" in block
+    assert "widen" in block
+
+
+def test_a_question_about_stops_is_not_directed():
+    assert _trading_intent_block("Should I move my stop closer?") == ""
+
+
+def test_trade_turn_detection_matches_the_directive():
+    assert is_trade_turn("Analyze gold and place a small demo trade") is True
+    assert is_trade_turn("Close all my trades") is True
+    assert is_trade_turn("Analyze gold and give me a technical read") is False
+
+
+def test_a_trade_turn_binds_only_the_trade_surface():
+    allowed = {"order_submit", "broker_quote", "broker_bars", "shell_run",
+               "code_edit", "response_block_schema"}
+    narrowed = narrow_trade_surface(allowed)
+    assert narrowed == {
+        "order_submit", "broker_quote", "broker_bars", "response_block_schema",
+    }
+
+
+def test_a_non_trade_surface_is_left_untouched():
+    allowed = {"broker_quote", "shell_run", "code_edit"}
+    assert narrow_trade_surface(allowed) == allowed
+
+
+def test_a_surface_without_an_effect_tool_is_untouched():
+    allowed = {"broker_quote", "broker_bars", "response_block_schema"}
+    assert narrow_trade_surface(allowed) == allowed

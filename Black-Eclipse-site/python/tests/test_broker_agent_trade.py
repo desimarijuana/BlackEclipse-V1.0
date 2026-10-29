@@ -28,8 +28,23 @@ class FakeMandates:
 
 
 class FakeService:
-    def __init__(self, allowed: bool = True) -> None:
+    def __init__(
+        self, allowed: bool = True, active: list[dict] | None = None,
+        connections: list[dict] | None = None,
+    ) -> None:
         self.mandates = FakeMandates(allowed)
+        self.active = active if active is not None else [{"id": "mnd_ok"}]
+        self.connections = connections if connections is not None else [
+            {"id": "brk_1"}, {"id": "brk_2"},
+        ]
+
+    def list_mandates(self, connection_id: str, *, active_only: bool = False):
+        if connection_id not in {item["id"] for item in self.connections}:
+            return []
+        return self.active
+
+    def list_connections(self):
+        return self.connections
 
 
 async def _never(tool, args, ctx=None):
@@ -61,6 +76,73 @@ def test_order_submit_requires_an_active_mandate():
     set_service(FakeService(False))
     try:
         assert asyncio.run(authorize(_tool("order_submit"), _args())) is False
+    finally:
+        set_service(None)
+
+
+def test_order_submit_resolves_the_single_active_mandate():
+    set_service(FakeService(True))
+    try:
+        authorize = wrap_trade_authorizer(_never)
+        args = _args()
+        args.pop("mandateId")
+        assert asyncio.run(authorize(_tool("order_submit"), args)) is True
+    finally:
+        set_service(None)
+
+
+def test_order_submit_requires_an_explicit_id_when_several_are_active():
+    set_service(FakeService(True, active=[{"id": "mnd_ok"}, {"id": "mnd_other"}]))
+    try:
+        authorize = wrap_trade_authorizer(_never)
+        args = _args()
+        args.pop("mandateId")
+        assert asyncio.run(authorize(_tool("order_submit"), args)) is False
+    finally:
+        set_service(None)
+
+
+def test_position_close_needs_no_mandate_but_a_target():
+    set_service(None)  # closing must not touch the mandate store at all
+    authorize = wrap_trade_authorizer(_never)
+    assert asyncio.run(authorize(_tool("position_close"), {"ticket": 111})) is True
+    assert asyncio.run(authorize(_tool("position_close"), {"all": True})) is True
+    assert asyncio.run(authorize(_tool("position_close"), {})) is False
+
+
+def test_position_close_without_a_target_is_denied_even_if_the_inner_gate_allows():
+    async def allow(tool, args, ctx=None):
+        return True
+
+    authorize = wrap_trade_authorizer(allow)
+    assert asyncio.run(authorize(_tool("position_close"), {})) is False
+
+
+def test_position_modify_needs_a_ticket_and_a_level():
+    set_service(None)
+    authorize = wrap_trade_authorizer(_never)
+    assert asyncio.run(authorize(
+        _tool("position_modify"), {"ticket": 111, "stopLoss": 1.10}
+    )) is True
+    assert asyncio.run(authorize(_tool("position_modify"), {"ticket": 111})) is False
+    assert asyncio.run(authorize(_tool("position_modify"), {"stopLoss": 1.10})) is False
+
+
+def test_other_tools_still_delegate_to_the_inner_authorizer():
+    async def allow(tool, args, ctx=None):
+        return True
+
+    authorize = wrap_trade_authorizer(allow)
+    assert asyncio.run(authorize(_tool("broker_positions"), {})) is True
+
+
+def test_order_submit_drops_a_stale_connection_id_when_one_is_saved():
+    set_service(FakeService(True, connections=[{"id": "brk_1"}]))
+    try:
+        authorize = wrap_trade_authorizer(_never)
+        assert asyncio.run(authorize(
+            _tool("order_submit"), _args(connectionId="brk_from_another_db")
+        )) is True
     finally:
         set_service(None)
 

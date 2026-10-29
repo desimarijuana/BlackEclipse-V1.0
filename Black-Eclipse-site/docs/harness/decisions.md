@@ -10957,3 +10957,125 @@ SL 1.11125, TP 1.12260) under mandate `mnd_c82ba003d785`. The generic effect
 authorizer wrapper remains as defense in depth if the permission label changes.
 Live is still unreachable: no live mandate, and the account-mode checks reject a
 real account. Docs: `docs/trading.md`, `docs/NAVIGATION.md`, this ADR.
+
+## ADR-H337 — Closing a demo position is a risk-reducing exit, not a new mandate use
+
+**Decision.** Add a demo position-close path: `TradingAdapter.close_position`,
+`BrokerService.close_position` / `close_positions`, operator routes
+`POST .../positions/{ticket}/close` and `POST .../positions/close`, the dashboard
+Close/Close-all actions, and the agent tool `position_close`. A close needs no
+mandate and no approval card, and it does not consume a mandate order; the service
+refuses a live connection (`LIVE_NOT_ENABLED`) and a real account
+(`DEMO_ACCOUNT_REQUIRED`). The MT5 adapter sends the exact opposite market deal
+with the position ticket as `position` and the position's magic, once. The agent
+prompt and a per-run `# Close request` directive tell it to prefer
+`position_close` over research, a hedge or `order_preview`.
+
+**Why.** "Step out" is the one trade action whose risk is entirely one-directional:
+closing cannot increase exposure, so requiring a fresh authorization to reduce it
+would keep a user trapped in a position when the mandate is used up or expired —
+exactly when an exit matters most. It mirrors the existing cancel rule (cancel a
+working order with no approval) instead of the submit rule (a mandate authorizes
+new exposure). Ticket-scoped sends avoid the class of bug where "flatten" becomes a
+blind close of the wrong position, and the magic is carried so the deal still
+belongs to Eclipse.
+
+**Consequences.** `position_close` joins `BROKER_TOOLS` and its authorizer admits it
+when a ticket/`all` is named; the demo-only check lives in the service, where a
+mislabelled connection cannot bypass it. Close is not a substitute for the P5
+close/flatten design: live exits, partial closes and bracket (SL/TP) management
+remain out of scope, and a live close still belongs in the terminal. Docs:
+`docs/trading.md`, this ADR.
+
+## ADR-H338 — Broker-native bars are the data source for a broker symbol
+
+**Decision.** Add `broker_bars` and the `TradingAdapter.bars` /
+`BrokerService.bars` seam. MT5 returns its own `copy_rates_from_pos` series
+(server time, `M1…W1`, 1–500 bars) with contract/tick size; a pure
+`trade/analysis.py` computes true range, ATR(14) and the lookback range. The
+quote gains `contractSize`/`tickSize`. The per-run trade directive uses
+`broker_bars` for the symbol being traded and forbids substituting a proxy ETF.
+
+**Why.** XAUUSD exists on the terminal but not in the stored instrument
+universe, so every market-history route returned `UNAVAILABLE` and the model fell
+back to GLD as a proxy — a different instrument with a different price, beta and
+contract. A stop derived from a proxy is not a stop for the position. The broker
+already holds the exact series; reading it is more accurate, cheaper and honest
+about provenance. Computing ATR in Python removes model arithmetic from risk.
+
+**Consequences.** A bracket can now be justified by ATR and a measured range for
+any tradable broker symbol, not just the stored universe. History depth is capped
+at 500 bars and the vocabulary is fixed; an unknown timeframe is refused rather
+than guessed. The advisory gate no longer treats a confirmation table as advice.
+Docs: `docs/trading.md`, this ADR.
+
+## ADR-H339 — Exits are verified against the broker, and partial/modify are exits too
+
+**Decision.** Extend the demo lifecycle to partial closes (`volume`), close by
+`symbol`, and SL/TP modification (`position_modify`). Every close, modify and
+market fill is **read back** from the broker and returns `verified` + `verifyNote`;
+a mismatch is surfaced, never masked as success. All three remain mandate-free and
+approval-free, demo-only, and are implemented in `trade/positions.py` so the
+broker service stays within its size budget. The position list text now names the
+ticket.
+
+**Why.** A `order_send` reply is an acceptance, not proof of stored state. The
+live run showed exactly why this matters: a stop above the bid was legally
+rejected, a TP-only retry was accepted, and only a read-back could state the
+position's real bracket. Partial exits and moving a stop are still risk-reducing
+verbs; requiring a fresh mandate to protect an open position would trap the user
+when the mandate is exhausted — the same argument as ADR-H337. A wider stop can
+increase risk, so the tool text says so and the result is audited.
+
+**Consequences.** The trade surface is now open / close (full, partial, by symbol)
+/ modify, each with a broker-verified result. Live remains refused. Bracket
+management (trailing, OCO) and live exits remain out of scope; the MT5 bridge is
+ratcheted as one wire module with a read/execute split as the next candidate.
+Docs: `docs/trading.md`, this ADR.
+
+## ADR-H340 — Risk limits are connection policy, and the daily brake never blocks an exit
+
+**Decision.** Add three optional connection-config limits: `riskPerTradePct`
+(equity risk at the stop, computed from `|entry − stop| × volume × contractSize`),
+`maxDailyLossPct` (rolling 24 h realised + open P&L) and `maxSymbolNotional`
+(per-order notional). With `riskPerTradePct` set, an order without a stop is
+refused rather than treated as zero-risk. The daily brake is checked in the
+service because it needs the broker's deal history; it raises
+`DAILY_LOSS_LIMIT` before any mandate/approval is consumed. Exits
+(`position_close`, `position_modify`) are never subject to it. Settings exposes a
+compact Risk limits editor.
+
+**Why.** A per-order margin cap bounds cash committed, not money lost. The user
+can still be wrong by more than intended, or keep re-entering after a losing day.
+Risk-per-trade is the only rule that scales the position to the stop; the daily
+brake is the only rule that stops a bad day from becoming a bad week. Blocking
+exits would be the opposite of risk management, so the brake applies to entries
+only. Config (not code) keeps the numbers explainable and per-account.
+
+**Consequences.** Every submit path (agent, approval, graph node) enforces the
+same limits; `preview_order` shows the risk rule that would refuse, and submit
+adds the daily check. A missing stop is refused only when the risk cap is on, so
+existing setups are unchanged. Limits are per connection, not per mandate; the
+mandate still bounds count and margin. Docs: `docs/trading.md`, this ADR.
+
+## ADR-H341 — A trade turn binds a trade-shaped tool surface
+
+**Decision.** When a run's prompt is a trade, close or modify request, the graph
+narrows the policy-resolved allowlist to `TRADE_SURFACE_TOOLS` (~18 names: broker
+reads, bars, order submit, position close/modify, response helpers, clarify).
+Narrowing happens after surface resolution, replaces the published resolution's
+`allowed`/`boundTools`, and can only remove. A run whose surface has no
+submit/close/modify tool is left untouched.
+
+**Why.** The agent carries ~700 tools and a 41.9k-character prompt. A trade turn
+needs a quote, bars, one order, or a close — not shell, code, plugins or 600
+research tools. The live measurement was unambiguous: 721 → 18 tools and ~228k →
+47k prompt tokens for the same three-step trade, with the model calling exactly
+the intended tools. A smaller surface also makes a wrong-tool detour visible.
+
+**Consequences.** Trade runs are cheaper, faster and easier to audit. The static
+system prompt still mentions other tools, which is harmless but is the next diet
+candidate. The narrowing is lexical (`is_trade_turn`) and deterministic; a
+misclassification only removes tools for that run, never grants one, and the
+`allowedTools` field on the run records exactly what was bound. Docs:
+`docs/trading.md`, this ADR.

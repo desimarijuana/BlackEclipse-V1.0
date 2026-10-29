@@ -116,6 +116,11 @@ demo/contest/real, netting/hedging), `positions_get()`, `orders_get()`,
 min/max/step, stops level). It never calls `order_send`, never selects symbols,
 and never stores a login password.
 
+A symbol that exists but has no live tick (for example `XAUUSD` before it is in
+Market Watch) is subscribed with `symbol_select` and retried for up to ~2 s. That
+is a local terminal subscription, not an order or account mutation. A tick that
+stays all-zero is reported as `SYMBOL_NOT_FOUND`, never as a price.
+
 ## Demo execution (P1)
 
 ```
@@ -153,14 +158,18 @@ Endpoints (operator-gated):
 | `POST` | `/trading/connections/{id}/orders/preview` | validate + `order_check` + request approval; sends nothing |
 | `POST` | `/trading/connections/{id}/orders/submit` | consume the approval and `order_send` once |
 | `POST` | `/trading/connections/{id}/orders/{ticket}/cancel` | cancel a working order (risk-reducing; no approval) |
+| `POST` | `/trading/connections/{id}/positions/{ticket}/close` | close a demo position, fully or with `volume` (risk-reducing; no approval) |
+| `POST` | `/trading/connections/{id}/positions/{ticket}/modify` | move SL/TP on a demo position (risk-reducing; no approval) |
+| `POST` | `/trading/connections/{id}/positions/close` | close every open demo position (or `tickets`) |
 | `GET` | `/trading/connections/{id}/orders/ledger` | local submitted-order ledger |
 | `GET` | `/trading/orders/{orderId}` | one ledger row |
 | `GET` | `/trading/approvals` | `trade_order` approvals |
 | `POST` | `/trading/approvals/{id}/decide` | approve or deny (operator only) |
 
-Agent tools add `order_preview` (creates an approval, never sends) and
-`order_ledger`. There is deliberately **no `order_submit` agent tool**: submitting
-is an operator action on the same approval the preview created.
+Agent tools add `order_preview` (creates an approval, never sends), `order_ledger`
+and — under an active demo mandate — `order_submit`. Submitting through the generic
+approval card remains the operator route; the agent's `order_submit` is admitted by
+the mandate itself (see the mandate section), never by the approval card.
 
 **Never retry an ambiguous send.** A timeout, a lost IPC reply or any exception
 after `order_send` marks the ledger `unknown` and tells the operator to check the
@@ -253,6 +262,84 @@ or exceed the mandate’s symbols / margin cap / order count / expiry. A verifie
 demo run placed ticket **11164809214** (EURUSD BUY 0.01, SL 1.11125, TP 1.12260)
 under mandate `mnd_c82ba003d785`.
 
+**A plain prompt is enough.** The user never has to name a mandate or a
+connection. `order_submit` resolves the only saved connection, then the one
+active mandate whose `symbols` cover the intent symbol (or the sole active
+mandate regardless of symbol). Only when the symbol matches several mandates, or
+none, does it return `MANDATE_REQUIRED` with the active ids. Ambiguity is refused,
+never guessed. A `connectionId` that no longer exists (a remembered id from
+another profile or database) is dropped and resolved normally; otherwise it would
+make an account with a valid mandate report "no active mandate".
+
+**The trade turn is not a research turn.** `graph.py` appends a per-run
+`# Trading request` block when the query asks to place/buy/sell an order and
+`order_submit` is bound. It tells the model to skip web/news/scrape work, read
+the quote (plus at most one bar source) and call `order_submit` once with a small
+size, then report the ticket. A refusal (“do not place a trade”) or a question
+(“should I buy…”) never gets the block. Verified with the bare prompt
+“Analyze XAUUSD and place a small demo trade with a stop loss and take profit”:
+4 model steps, one `order_submit`, ticket **11165187813** (XAUUSD BUY 0.01 @
+4014.13, SL 3988.99, TP 4063.99) under mandate `mnd_c405bf889119`, no ids given.
+
+**The trade turn gets the trade surface.** A run whose prompt is a trade, close
+or modify request binds only the broker/trade tools plus the response helpers
+(`TRADE_SURFACE_TOOLS`, ~18 names) instead of the agent’s ~700. The narrowing is
+applied after policy resolution and can only remove: a run that cannot
+submit/close/modify is left untouched. Verified live on a refused gold order:
+`allowedTools` fell from 721 to **18** and prompt tokens for the 3-step run were
+**47k** instead of ~228k, with the model calling exactly `broker_quote` →
+`broker_bars` → `order_submit`.
+
+**The mandate cap sees this order's margin, not the account total.**
+`order_check().margin` is the account margin *after* the order, so with other
+positions open a 0.01 XAUUSD lot reported 113.74 against a 100 cap while adding
+only 40.00. The adapter now charges `check.margin − account.margin` (floored at
+zero), and exposes `accountMarginAfter` for diagnosis.
+
+**Risk limits (connection config).** Beyond the broker's own checks, the
+connection can carry `riskPerTradePct`, `maxDailyLossPct`, `maxSymbolNotional`,
+`maxOpenPositions` and `maxSpreadPoints` (all optional; 0 = off). The first three
+are the risk engine:
+
+- **`riskPerTradePct`** — equity risk at the stop is `|entry − stop| × volume ×
+  contractSize`; an order above the cap is refused, and with this cap set an order
+  **without a stop is refused** (“undefined risk is not small”).
+- **`maxDailyLossPct`** — a rolling 24 h brake over realised deals + open P&L.
+  New entries are blocked; closing is always allowed.
+- **`maxSymbolNotional`** — a per-order notional cap for one symbol.
+
+Settings → Broker connection exposes these as a **Risk limits** editor. Verified
+live: with `riskPerTradePct=0.02` a 0.01 XAUUSD order with a 100-point stop was
+refused (`risk 121.76 > 20.00 cap`); at `0.5` and a 120-point spread cap the same
+shape previews as allowed.
+instrument universe, so `get_historical_prices` / `market_get_ohlcv` return
+`UNAVAILABLE` for it. `broker_bars` reads the **broker's own** OHLCV series
+(`copy_rates_from_pos`, server time) and returns a deterministic ATR(14) and
+20-bar range computed from it, plus the contract size. Timeframes are
+`M1/M5/M15/M30/H1/H4/D1/W1`, count clamped to 1–500. The agent uses it for gold
+and is told never to substitute a proxy ETF for the instrument being traded.
+Verified live: XAUUSD H1, 120 bars, contract 100, ATR(14) 14.82, 20-bar range
+4005.20–4068.74 — the trade run placed ticket **11166047327** (BUY 0.01 @
+4025.10, SL 4003.50 ≈ 1.46 ATR, TP 4055.00 ≈ 2.02 ATR).
+
+**Stepping out (close, partial close, modify).** `position_close` closes one demo
+position by `ticket`, every position in a `symbol`, or everything with `all: true`;
+pass `volume` to close part of a ticket. `position_modify` moves `stopLoss` /
+`takeProfit` (0 removes a level). Both only reduce or re-scope exposure, so — like
+cancelling a working order — they need **no mandate and no approval**, and neither
+consumes a mandate order. The service refuses a live connection
+(`LIVE_NOT_ENABLED`) and a real account behind a mislabelled connection
+(`DEMO_ACCOUNT_REQUIRED`); a live exit stays a terminal action. MT5 sends the exact
+opposite market deal (or `TRADE_ACTION_SLTP`) against the named position ticket with
+its magic, once, and an ambiguous reply is reported, never retried. Every close and
+modify is **read back** and returns `verified` plus a `verifyNote`; a market fill
+with SL/TP is verified the same way, so the tool never claims a bracket it did not
+see stored. A wider stop can increase risk, so the tool text says so. The
+dashboard's Open Positions widget exposes **SL/TP**, **Close** (with an optional
+partial volume) and **Close all**; a **Recent Trades** widget lists the last eight
+ledger orders with ticket, fill and status. Wide-stop, bracket management and
+flatten-on-live beyond this path remain out of scope.
+
 ## Reconciliation (P4)
 
 The broker is authoritative, so Eclipse keeps a durable local copy of what it
@@ -312,7 +399,7 @@ overlap, so the stored cursor is advisory, not authoritative.
 | Front door | `src/app/api/trading/[[...path]]/route.ts`, `src/lib/harness/trading-routes.ts` |
 | Client | `src/lib/harness/trading-client.ts` |
 | Settings UI | `src/components/screens/trading-settings.tsx` |
-| Sidebar connect | `src/components/layout/sidebar-broker-dialog.tsx` |
+| Sidebar connect | `src/components/layout/sidebar-broker-dialog.tsx`, `src/components/layout/sidebar-broker-panels.tsx` |
 | Dashboard widgets | `src/lib/dashboard/trading-widgets.tsx` |
 
 Routes are operator-gated (loopback or runtime token); the front door injects
@@ -326,8 +413,12 @@ Agent tools: `broker_connections`, `broker_account`, `broker_positions`,
 nothing), `broker_mandates`, `order_submit` (the ONE effectful tool),
 `order_ledger`, `broker_reconciliation` and `broker_fills`. `order_submit` requires
 an active operator-created **demo** mandate; it cannot create/revoke a mandate,
-arm live, cancel an order, or submit live. `order_cancel`, arm/disarm and the kill
-switch remain operator routes.
+arm live, cancel an order, or submit live. `position_close` (ticket, symbol, all,
+volume) and `position_modify` (SL/TP) reduce or re-scope exposure and need no
+mandate. `broker_bars` reads the broker's own OHLCV + ATR for symbols the
+stored universe does not cover. `order_cancel`, arm/disarm and the kill
+switch remain operator routes. `mandateId` may be omitted; the handler resolves the
+one active mandate that covers the symbol, so a user never has to paste an id.
 
 **Why `order_submit` is admitted by a mandate, not the generic approval card.**
 An unattended mandate already carries the operator's consent, scope and caps. The
@@ -347,11 +438,18 @@ floating P&L, labelled as broker-reported.
 
 The shell's quick-launcher row (next to **Gateway** and **Graph**) also carries a
 **broker icon** (handshake) with an **MT5** badge in its popup. In the collapsed
-rail it stays in the footer. It opens a compact broker dialog with the live status
-dot, account, **Test**, **Sync**, and an **Add & test connection** form — so a user
-can connect MT5 from any screen without opening Settings. The dialog uses the same
-`rounded-2xl border border-white/10 glass-card-strong` recipe as the Gateway/Graph
-dialogs. Live arming and mandates remain in Settings → Broker connection.
+rail it stays in the footer. It opens a full **broker control center** with a
+connection switcher and five tabs: **Overview** (live account tiles — balance,
+equity, used/free margin, margin level, floating P/L, leverage, margin mode,
+trade/algo flags — bridge health, connection timestamps and a quote lookup),
+**Positions** (close one or all, risk-reducing), **Orders** (cancel a working
+order), **Activity** (broker deals plus the Eclipse order ledger) and **Settings**
+(edit label/mode/terminal/magic/max-margin, live arm/disarm/kill switch, add and
+remove connections). Test, Sync and Refresh are available throughout. The dialog
+uses the same `rounded-2xl border border-white/10 glass-card-strong` recipe as
+the Gateway/Graph dialogs. Demo mandates and per-order approvals remain in
+Settings → Broker connection; the dialog's live arm and kill switch reuse the
+exact same operator routes.
 
 ## Roadmap
 
@@ -361,8 +459,10 @@ dialogs. Live arming and mandates remain in Settings → Broker connection.
 | **P1 (done)** | demo order submission via `order_check` -> approval -> `order_send` | connection AND broker account must be `demo`; single-use approval |
 | **P2 (done)** | armed live submission + kill switch | real account, Algo Trading, typed arm phrase, non-zero magic, positive `maxMargin`, time-boxed arm, per-order `LIVE ...` phrase |
 | **P3 (done)** | Graph Studio `trading.broker_order` + bounded, revocable demo mandates | paper-mode graph + operator paper grant + demo connection + active mandate; live trading nodes remain refused |
-| **P4 (this)** | durable fills/positions/order-state reconciliation | broker history is the only source; a failed sync is an error, never a fake fill |
-| P5 | close/flatten + unattended live mandates | separate design + review; not enabled by P4 |
+| **P4 (done)** | durable fills/positions/order-state reconciliation | broker history is the only source; a failed sync is an error, never a fake fill |
+| **P4.5 (done)** | demo close (ticket, symbol or all), partial close, SL/TP modify, read-back verification | risk-reducing, no mandate/approval; live exits and bracket management stay out |
+| **P4.6 (done)** | per-trade risk, per-symbol notional, rolling 24 h loss brake, spread cap | config on the connection; brake blocks entries, never exits |
+| P5 | flatten-on-live + unattended live mandates | separate design + review; not enabled by P4 |
 
 P4 deliberately does not add position closing or live automation. Reconciliation
 makes the existing manual live path observable; those are separate risk decisions.

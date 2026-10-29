@@ -30,6 +30,11 @@ class FakeTradingAdapter(TradingAdapter):
     SPREAD_POINTS = 2.0
     MARGIN = 11.0
     OPEN_POSITIONS = 0
+    POSITIONS: list[dict] = []
+    CLOSED: list[int] = []
+    MODIFIED: list[tuple] = []
+    DEALS: list[dict] = []
+    SUBMIT_CALLS = 0
 
     @classmethod
     def availability(cls):
@@ -55,7 +60,25 @@ class FakeTradingAdapter(TradingAdapter):
         return self._account()
 
     def positions(self):
-        return []
+        return list(type(self).POSITIONS)
+
+    def close_position(self, ticket, deviation=20, volume=None):
+        type(self).CLOSED.append(int(ticket))
+        held = 0.02 if volume is not None else 0.01
+        return {"ok": True, "ticket": int(ticket), "symbol": "EURUSD", "side": "sell",
+                "volume": volume if volume is not None else 0.01,
+                "partial": volume is not None and volume < held,
+                "remainingVolume": max(held - (volume or held), 0.0),
+                "price": 1.1, "deal": 900 + int(ticket),
+                "retcode": 10009, "retcodeName": "DONE", "reasons": [],
+                "verified": True, "account": self._account()}
+
+    def modify_position(self, ticket, stop_loss=None, take_profit=None):
+        type(self).MODIFIED.append((int(ticket), stop_loss, take_profit))
+        return {"ok": True, "ticket": int(ticket), "symbol": "EURUSD",
+                "stopLoss": stop_loss or 0, "takeProfit": take_profit or 0,
+                "retcode": 10009, "retcodeName": "DONE", "reasons": [],
+                "verified": True, "account": self._account()}
 
     def orders(self):
         return []
@@ -88,6 +111,7 @@ class FakeTradingAdapter(TradingAdapter):
         }
 
     def submit_order(self, intent):
+        type(self).SUBMIT_CALLS += 1
         return {
             "ok": True, "status": "FILLED", "symbol": intent.symbol.upper(),
             "side": intent.side, "type": intent.order_type, "volume": intent.volume,
@@ -104,6 +128,9 @@ class FakeTradingAdapter(TradingAdapter):
         type(self).LAST_CANCEL_MAGIC = magic
         return {"ok": True, "magic": magic, "matched": 1, "cancelled": 1,
                 "failed": 0, "results": []}
+
+    def deals_since(self, since_ms):
+        return list(type(self).DEALS)
 
 
 def _service(tmp_path, adapter_cls=FakeTradingAdapter) -> BrokerService:
@@ -295,6 +322,94 @@ def test_cancel_is_allowed_without_a_trade_approval(tmp_path):
     result = service.cancel_order(_connection_id(service), 4242)
     assert result["cancelled"] is True
     assert result["result"]["retcode"] == 10009
+
+
+def test_close_position_is_allowed_without_a_mandate_or_approval(tmp_path):
+    FakeTradingAdapter.POSITIONS = [{"ticket": 111, "symbol": "EURUSD", "volume": 0.01}]
+    FakeTradingAdapter.CLOSED = []
+    service = _service(tmp_path)
+    result = service.close_position(_connection_id(service), 111)
+    assert result["closed"] is True
+    assert result["result"]["ticket"] == 111
+    assert FakeTradingAdapter.CLOSED == [111]
+
+
+def test_close_positions_closes_every_open_position(tmp_path):
+    FakeTradingAdapter.POSITIONS = [
+        {"ticket": 111, "symbol": "EURUSD", "volume": 0.01},
+        {"ticket": 222, "symbol": "XAUUSD", "volume": 0.01},
+    ]
+    FakeTradingAdapter.CLOSED = []
+    service = _service(tmp_path)
+    result = service.close_positions(_connection_id(service))
+    assert result["closed"] == 2
+    assert result["failed"] == 0
+    assert result["requested"] == 2
+    assert FakeTradingAdapter.CLOSED == [111, 222]
+
+
+def test_close_positions_can_target_named_tickets(tmp_path):
+    FakeTradingAdapter.POSITIONS = [
+        {"ticket": 111, "symbol": "EURUSD", "volume": 0.01},
+        {"ticket": 222, "symbol": "XAUUSD", "volume": 0.01},
+    ]
+    FakeTradingAdapter.CLOSED = []
+    service = _service(tmp_path)
+    result = service.close_positions(_connection_id(service), tickets=[222])
+    assert result["closed"] == 1
+    assert FakeTradingAdapter.CLOSED == [222]
+
+
+def test_close_positions_reports_a_missing_ticket_as_failed(tmp_path):
+    FakeTradingAdapter.POSITIONS = [{"ticket": 111, "symbol": "EURUSD", "volume": 0.01}]
+    FakeTradingAdapter.CLOSED = []
+    service = _service(tmp_path)
+    result = service.close_positions(_connection_id(service), tickets=[111, 999])
+    assert result["closed"] == 1
+    assert result["failed"] == 1
+    assert any(row["retcodeName"] == "POSITION_NOT_FOUND" for row in result["results"])
+
+
+def test_close_position_can_close_part_of_a_position(tmp_path):
+    FakeTradingAdapter.CLOSED = []
+    service = _service(tmp_path)
+    result = service.close_position(_connection_id(service), 111, volume=0.01)
+    assert result["closed"] is True
+    assert result["result"]["partial"] is True
+    assert result["result"]["remainingVolume"] == 0.01
+
+
+def test_modify_position_moves_the_bracket_without_a_mandate(tmp_path):
+    FakeTradingAdapter.MODIFIED = []
+    service = _service(tmp_path)
+    result = service.modify_position(
+        _connection_id(service), 111, stop_loss=1.105, take_profit=1.12,
+    )
+    assert result["modified"] is True
+    assert FakeTradingAdapter.MODIFIED == [(111, 1.105, 1.12)]
+
+
+def test_modify_position_needs_at_least_one_level(tmp_path):
+    service = _service(tmp_path)
+    with pytest.raises(TradeRefused) as caught:
+        service.modify_position(_connection_id(service), 111)
+    assert caught.value.code == "INVALID_STOPS"
+
+
+def test_modify_refuses_a_live_connection(tmp_path):
+    service = _live_service(tmp_path)
+    with pytest.raises(TradeRefused) as caught:
+        service.modify_position(_connection_id(service), 111, stop_loss=1.1)
+    assert caught.value.code == "LIVE_NOT_ENABLED"
+
+
+def test_close_refuses_a_live_connection(tmp_path):
+    FakeTradingAdapter.CLOSED = []
+    service = _live_service(tmp_path)
+    with pytest.raises(TradeRefused) as caught:
+        service.close_position(_connection_id(service), 111)
+    assert caught.value.code == "LIVE_NOT_ENABLED"
+    assert FakeTradingAdapter.CLOSED == []
 
 
 def test_order_intent_digest_is_stable_and_covers_every_field():

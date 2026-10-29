@@ -112,7 +112,11 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # interactive-block clause; re-pinned to the measured size.
     # Re-pinned 40067->40358 to the measured tree (pre-existing prompt growth).
     # Re-pinned 40358->40850 for the capability-scope rule.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 40850
+    # Re-pinned 40850->41619 for the trade/close execution guidance. Matches the
+    # same test in `test_memory_tools.py`.
+    # Re-pinned 41619->41829 for the `broker_bars` guidance.
+    # Re-pinned 41829->41967 for the partial-close / modify guidance.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 41967
 
 
 def test_main_still_reexports_the_identity_boundary_surface():
