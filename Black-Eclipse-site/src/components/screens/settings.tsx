@@ -35,6 +35,7 @@ import { CustomizationSettingsPanel } from "./customization-settings";
 import { GeneralSettingsPanel } from "./general-settings";
 import { Panel, SectionHeader, SubSection } from "./settings-ui";
 import { SoundSettingsPanel } from "./sound-settings";
+import { VoiceSettingsPanel } from "./voice-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources } from "./provider-registry-panel";
 import { AIProviderSettings } from "./ai-provider-settings";
 import { NewsFeedsPanel } from "./news-feeds-panel";
@@ -169,6 +170,7 @@ let settingsCache: SettingsSnapshot | null = readCachedSnapshot();
 // is configuring, never for how the backend is implemented:
 //   general        — startup + behavior, plus the full theme/customization tabs
 //   sound          — UI audio feedback
+//   voice          — read assistant replies aloud (TTS)
 //   ai             — every LLM: providers, keys, base URLs, model, test
 //   investor-eye   — every financial/data provider, grouped by purpose
 //   market         — supported markets, exchanges, JDDS data
@@ -178,13 +180,13 @@ let settingsCache: SettingsSnapshot | null = readCachedSnapshot();
 //   data           — local chats/watchlist/portfolio + reset
 //   system         — JDDS status, health, internal integrations
 export type SectionId =
-  | "general" | "sound" | "ai" | "investor-eye" | "economics" | "market" | "news"
+  | "general" | "sound" | "voice" | "ai" | "investor-eye" | "economics" | "market" | "news"
   | "analytics" | "sidebar" | "alerts" | "data" | "git" | "mcp" | "system" | "security"
   | "money-guardrails" | "connections" | "trading";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
-  "general", "sound", "ai", "investor-eye", "economics", "market", "news",
+  "general", "sound", "voice", "ai", "investor-eye", "economics", "market", "news",
   "analytics", "sidebar", "alerts", "data", "git", "mcp", "system", "security",
   "money-guardrails", "connections", "trading",
 ] as const;
@@ -467,6 +469,7 @@ export function Settings({
   }[] = [
     { id: "general", label: "General", desc: "Startup, theme, branding & preferences", icon: Palette, group: "Personalize", terms: ["general", "start", "startup", "start screen", "home", "landing", "last screen", "resume", "market", "currency", "timezone", "refresh", "confirm", "delete", "safety", "theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "aurora", "chart", "charts", "candles", "palette", "series", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl", "chatbot", "chat bot", "chat page", "conversation font", "chat font", "background", "wallpaper", "wordmark", "backdrop"] },
     { id: "sound", label: "Sound", desc: "UI sounds & feedback", icon: Volume2, group: "Personalize", terms: ["sound", "sounds", "audio", "volume", "click", "tick", "toggle", "feedback", "notification", "voice", "pack", "mute", "muted", "silence", "chime", "beep"] },
+    { id: "voice", label: "Voice", desc: "Read replies aloud", icon: Volume2, group: "Personalize", terms: ["voice", "tts", "text to speech", "text-to-speech", "read aloud", "read out loud", "speak", "speech", "narration", "audio", "rate", "pitch", "auto speak", "accessibility"] },
     { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft, group: "Personalize", terms: ["sidebar", "navigation", "menu", "shortcuts", "keys", "reorder"] },
 
     { id: "ai", label: "AI / LLM", desc: "Models, keys & testing", icon: Bot, group: "Intelligence", terms: ["ai", "llm", "agent", "model", "openai", "anthropic", "ollama", "groq", "gemini", "api key", "base url", "chat"] },
@@ -701,6 +704,17 @@ export function Settings({
                   description="Terminal-style audio feedback for navigation, actions and alerts. Pick a voice pack, fine-tune every cue, or upload your own clips — all stored on this device."
                 />
                 <SoundSettingsPanel />
+              </div>
+            )}
+
+            {section === "voice" && (
+              <div className="animate-fade-in-up">
+                <SectionHeader
+                  icon={Volume2}
+                  title="Voice"
+                  description="Read assistant replies aloud with your browser's own voices. Choose a voice, tune pacing and pitch, or let Eclipse speak new answers automatically — all on this device, with nothing sent to a server."
+                />
+                <VoiceSettingsPanel />
               </div>
             )}
 

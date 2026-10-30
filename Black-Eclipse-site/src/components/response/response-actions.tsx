@@ -20,6 +20,8 @@ import {
 } from '@/lib/response/export';
 import { registerArtifact } from '@/lib/harness/artifacts-browser';
 import { contentFromResponse } from '@/lib/canvas/content';
+import { toMarkdownProjection } from '@/lib/response/projection';
+import { TtsButton } from '@/components/chat/tts-button';
 import { useCommandStore } from '@/lib/search/store';
 
 export interface ResponseActionsProps {
@@ -77,6 +79,12 @@ export function ResponseActions({ response }: ResponseActionsProps) {
       <button type="button" className={btn} onClick={() => downloadResponseJson(response, responseName(response))} title="Download response as JSON">
         <FileText size={11} /> JSON
       </button>
+      <TtsButton
+        content={toMarkdownProjection(response)}
+        speakKey={response.responseId}
+        variant="pill"
+        label="Read aloud"
+      />
       <button type="button" className={btn} onClick={() => downloadResponseMarkdown(response, responseName(response))} title="Download response as Markdown">
         <FileText size={11} /> MD
       </button>

@@ -25,6 +25,8 @@ import { CapabilityCard } from './capability-card';
 import { AcquisitionPanel } from './acquisition-panel';
 import { MessageRail } from './message-rail';
 import { MessageAttachments } from './message-attachments';
+import { TtsButton } from './tts-button';
+import { useAutoSpeak } from '@/lib/tts';
 import { BotAvatar } from '@/components/bots/bot-avatar';
 import { GhostAvatar } from '@/components/bots/ghost-avatar';
 import { avatarFor, useBotAvatarStore } from '@/lib/bots/avatar-store';
@@ -178,6 +180,10 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
   // and a CSS transform on an ancestor does the same. This tracks the
   // transcript's on-screen box so the portaled pill can be positioned over it.
   const [rootRect, setRootRect] = useState<{ left: number; top: number; width: number; bottom: number } | null>(null);
+
+  // Opt-in: speak each newly completed assistant reply once. Primed on mount so
+  // loading a saved conversation never replays its history.
+  useAutoSpeak(messages);
 
   // Track whether the viewport is pinned to the bottom. When it is, we follow the
   // stream and hide the scrollbar; when the user scrolls up we reveal the
@@ -541,6 +547,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                           >
                             {copiedId === msg.id ? <Check size={11} /> : <Copy size={11} />}
                           </button>
+                          <TtsButton content={msg.content} speakKey={msg.id} />
                           {onOpenCanvas && (
                             <button
                               type="button"

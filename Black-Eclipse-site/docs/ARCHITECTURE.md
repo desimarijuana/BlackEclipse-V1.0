@@ -2058,6 +2058,30 @@ the client zustand `useSoundStore` (`be_sounds_v3`; the key was bumped from
 is **opt-in**: defaults are OFF, 12% volume (deliberately subtle), mode `all`,
 pack `eclipse`.
 
+**Read aloud (TTS).** Spoken replies are a separate subsystem from UI cues:
+`src/lib/tts/` wraps the browser's **Web Speech API**
+(`speechSynthesis`), so there is no key, no dependency and no server round-trip —
+reply text never leaves the device. `speech.ts` is the singleton: it cancels any
+prior utterance before speaking, chunks prose to ~220 characters (Chrome
+truncates long utterances), resolves the system voice by explicit `voiceURI` or
+the browser locale, and guards every `onend`/`onerror` with a generation token so
+a cancelled run cannot flip the UI. `text.ts` is the pure projection that makes a
+reply worth hearing: fenced code and `eclipse-response` JSON are dropped, link
+labels are kept while URLs are removed, tables become comma-separated rows, and
+Markdown markers are stripped. Structured turns reuse
+`src/lib/response/projection.ts` (the same projector as Copy/PDF) on demand.
+`TtsProvider` is mounted once in `src/app/layout.tsx` and hydrates the persisted
+`useTtsStore` (`be_tts_v1`); preferences are device-local (voice, rate, pitch,
+volume, master enable, and an **off-by-default** `autoSpeak`). `useAutoSpeak`
+speaks each *newly completed* assistant turn once and primes on mount, so loading
+history never replays it. The Speak control is shared
+(`src/components/chat/tts-button.tsx`) by the transcript footer, structured
+response header and bot messages; it hides itself when the API or voices are
+unavailable rather than offering a dead action. Settings › Voice
+(`src/components/screens/voice-settings.tsx`) is the operator surface. v1 is
+deliberately browser-native; a cloud voice (OpenAI/ElevenLabs) would be an
+`/api/tts` proxy added later, never a replacement for the honest offline path.
+
 ## The chart engine (Python-authored Plotly figures; ECharts elsewhere)
 
 The **chat's** charts are authored in Python: a `chart` block is mapped to the

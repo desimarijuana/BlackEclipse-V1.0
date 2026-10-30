@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Markdown } from '@/components/chat/markdown';
+import { TtsButton } from '@/components/chat/tts-button';
 import { ParallelAgentsPanel } from '@/components/chat/parallel-agents-panel';
 import type { DelegationView } from '@/lib/agent/response-model';
 import type { HarnessUiEvent } from '@/lib/agent/events';
@@ -904,6 +905,7 @@ function MessageActions({
       >
         {copied ? <CheckCircle2 size={12} /> : <Copy size={12} />}
       </button>
+      {!isUser && <TtsButton content={content} />}
       {!isUser && onFeedback && (
         <>
           <button

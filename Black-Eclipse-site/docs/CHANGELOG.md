@@ -7,6 +7,17 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-29
+- **feat(voice): read assistant replies aloud with browser-native TTS.** Added a
+  Speak/Stop control to the chat footer, structured-response header and bot
+  messages, plus a Settings › Voice pane (voice, rate, pitch, volume, opt-in
+  auto-speak). Uses the Web Speech API only — no dependency, key, server
+  round-trip or transcript upload; unavailable browsers hide the control and say
+  why. `src/lib/tts/text.ts` projects Markdown/structured replies to prose
+  (drops code/JSON, keeps link labels, reads tables as rows, strips citations)
+  and `speech.ts` chunks utterances and guards cancelled runs. Prefs persist in
+  `be_tts_v1`; auto-speak primes on mount so history never replays.
+  Docs updated: `docs/voice.md` (new), `docs/ARCHITECTURE.md`,
+  `docs/NAVIGATION.md`.
 - **feat(trading): reveal the MT5 terminal after a fill.** A successful
   `filled`/`placed` order now focuses the running `terminal64.exe` (or starts the
   connection's `terminalPath`) so the operator sees the position immediately.

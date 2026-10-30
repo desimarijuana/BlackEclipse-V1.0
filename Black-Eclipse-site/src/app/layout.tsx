@@ -14,6 +14,7 @@ import { ChannelActivityWatcher } from "@/lib/notifications/channel-watcher";
 import { BrowserTabIndicator } from "@/lib/notifications/tab-indicator";
 import { DesktopSession } from "@/components/layout/desktop-session";
 import { SoundProvider } from "@/lib/sounds";
+import { TtsProvider } from "@/lib/tts";
 import { TerminalKeybind } from "@/components/layout/terminal-keybind";
 import { WorkspaceKeybind } from "@/components/agent-workspace/workspace-keybind";
 
@@ -56,6 +57,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <TerminalKeybind />
         <WorkspaceKeybind />
         <SoundProvider />
+        <TtsProvider />
         <AlertNotificationProvider />
         <TaskCompletionWatcher />
         <BotsRunWatcher />
