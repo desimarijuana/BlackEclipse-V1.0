@@ -114,23 +114,50 @@ export function useChatModel(): ChatModelState {
 
   useEffect(() => {
     let live = true;
+    let retry: number | null = null;
+
+    const load = (attempt: number) => {
+      void fetch("/api/harness/chat/models", { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+        .then((body) => {
+          if (!live || !body) return;
+          if (Array.isArray(body.providers)) setProviders(body.providers as ChatModelProvider[]);
+          if (body.active) {
+            setSavedProvider(typeof body.active.provider === "string" ? body.active.provider : "auto");
+            setSavedModel(typeof body.active.model === "string" ? body.active.model : "");
+          }
+        })
+        .catch(() => {
+          // The runtime can be cold-starting on the first page load. Retrying lets
+          // the picker settle on the real provider instead of staying on "Auto"
+          // until the operator reloads the whole app.
+          if (!live || attempt >= 2) return;
+          retry = window.setTimeout(() => load(attempt + 1), 1500);
+        })
+        .finally(() => {
+          if (live) setLoading(false);
+        });
+    };
+
     setChoice(readStored());
-    void fetch("/api/harness/chat/models")
+    // Fast path: the saved LLM config already knows the configured provider and
+    // model. Show them immediately so the composer never sits on "Auto" while
+    // the heavier provider/model catalog is still probing (a cold runtime can
+    // take tens of seconds). The catalog below then refines availability.
+    void fetch("/api/settings", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((body) => {
-        if (!live || !body) return;
-        if (Array.isArray(body.providers)) setProviders(body.providers as ChatModelProvider[]);
-        if (body.active) {
-          setSavedProvider(typeof body.active.provider === "string" ? body.active.provider : "auto");
-          setSavedModel(typeof body.active.model === "string" ? body.active.model : "");
-        }
+        if (!live || !body?.llm) return;
+        const provider = typeof body.llm.provider === "string" ? body.llm.provider : "";
+        const model = typeof body.llm.model === "string" ? body.llm.model : "";
+        if (provider && provider !== "auto") setSavedProvider(provider);
+        if (model) setSavedModel(model);
       })
-      .catch(() => undefined)
-      .finally(() => {
-        if (live) setLoading(false);
-      });
+      .catch(() => undefined);
+    load(0);
     return () => {
       live = false;
+      if (retry != null) window.clearTimeout(retry);
     };
   }, []);
 

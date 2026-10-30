@@ -1,14 +1,14 @@
 'use client';
 
-// ── Settings › Voice (read aloud) ───────────────────────────────────────────
-// Read-aloud for assistant replies. This pane is deliberately separate from
-// Settings › Sound: UI cues and spoken replies are different systems with
-// different controls (voice, rate, pitch, auto-speak). Everything is device-
-// local and speaks through the browser's own voices — reply text is never sent
-// to a server, and there is no key to configure.
+// ── Settings › Voice ────────────────────────────────────────────────────────
+// Two related but independent systems:
+//   * Read aloud (TTS) — browser `speechSynthesis`, device-local, no key.
+//   * Voice input (dictation) — Whisper through the Python runtime, or the
+//     browser's SpeechRecognition as the zero-config fallback.
 //
-// When the Web Speech API is missing the pane says so plainly instead of
-// showing dead controls.
+// The TTS controls below are entirely local. The dictation card reads/writes
+// server-owned provider config (keys stay in the shared vault) and lives in
+// `voice-input-settings.tsx` to keep this file small.
 
 import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Play, RotateCcw, Square, Volume2 } from '@/lib/icons';
@@ -25,6 +25,7 @@ import {
 import { cn } from '@/lib/utils';
 import { tts, useTts, useTtsStore } from '@/lib/tts';
 import { Field, Panel, SubSection, Toggle } from './settings-ui';
+import { VoiceInputSettings } from './voice-input-settings';
 
 const PREVIEW_TEXT =
   'Eclipse will read replies aloud at this pace and volume. Numbers, tables and citations are skipped.';
@@ -65,25 +66,43 @@ export function VoiceSettingsPanel() {
       .map(([lang, list]) => [lang, [...list].sort((a, b) => a.name.localeCompare(b.name))] as const);
   }, [voices]);
 
+  // Base UI needs the label list to render the trigger before the popup opens;
+  // without it the raw voiceURI is shown.
+  const voiceItems = useMemo(
+    () => [
+      { value: 'auto', label: 'Automatic (system default)' },
+      ...groups.flatMap(([, list]) =>
+        list.map((voice) => ({
+          value: voice.voiceURI,
+          label: `${voice.name}${voice.localService ? '' : ' (network)'}`,
+        })),
+      ),
+    ],
+    [groups],
+  );
+
   const previewing = speakingKey === PREVIEW_KEY;
 
   if (!available) {
     return (
-      <Panel className="p-5 md:p-6">
-        <div className="flex items-start gap-3">
-          <span className="mt-px flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300">
-            <AlertCircle size={15} />
-          </span>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-foreground">Read-aloud is unavailable here</p>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Eclipse speaks through your browser&apos;s built-in Web Speech API, which this
-              environment does not expose. Try a Chromium-based browser (Chrome or Edge) or
-              install a system voice. Nothing is sent to a server either way.
-            </p>
+      <div className="space-y-5">
+        <Panel className="p-5 md:p-6">
+          <div className="flex items-start gap-3">
+            <span className="mt-px flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300">
+              <AlertCircle size={15} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">Read-aloud is unavailable here</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Eclipse speaks through your browser&apos;s built-in Web Speech API, which this
+                environment does not expose. Try a Chromium-based browser (Chrome or Edge) or
+                install a system voice. Nothing is sent to a server either way.
+              </p>
+            </div>
           </div>
-        </div>
-      </Panel>
+        </Panel>
+        <VoiceInputSettings />
+      </div>
     );
   }
 
@@ -125,6 +144,7 @@ export function VoiceSettingsPanel() {
         >
           <Field label="Voice" hint={prefs.voiceURI ? undefined : 'Automatic picks a voice that matches your system language.'}>
             <Select
+              items={voiceItems}
               value={prefs.voiceURI ?? 'auto'}
               onValueChange={(value) => setVoiceURI(!value || value === 'auto' ? null : value)}
             >
@@ -212,6 +232,8 @@ export function VoiceSettingsPanel() {
           </div>
         </SubSection>
       </Panel>
+
+      <VoiceInputSettings />
 
       <p className={cn('px-1 text-[10px] leading-relaxed text-muted-foreground/70')}>
         Code blocks, tables and structured-response JSON are converted to prose before speaking;

@@ -469,7 +469,7 @@ export function Settings({
   }[] = [
     { id: "general", label: "General", desc: "Startup, theme, branding & preferences", icon: Palette, group: "Personalize", terms: ["general", "start", "startup", "start screen", "home", "landing", "last screen", "resume", "market", "currency", "timezone", "refresh", "confirm", "delete", "safety", "theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "aurora", "chart", "charts", "candles", "palette", "series", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl", "chatbot", "chat bot", "chat page", "conversation font", "chat font", "background", "wallpaper", "wordmark", "backdrop"] },
     { id: "sound", label: "Sound", desc: "UI sounds & feedback", icon: Volume2, group: "Personalize", terms: ["sound", "sounds", "audio", "volume", "click", "tick", "toggle", "feedback", "notification", "voice", "pack", "mute", "muted", "silence", "chime", "beep"] },
-    { id: "voice", label: "Voice", desc: "Read replies aloud", icon: Volume2, group: "Personalize", terms: ["voice", "tts", "text to speech", "text-to-speech", "read aloud", "read out loud", "speak", "speech", "narration", "audio", "rate", "pitch", "auto speak", "accessibility"] },
+    { id: "voice", label: "Voice", desc: "Read aloud & dictation", icon: Volume2, group: "Personalize", terms: ["voice", "tts", "text to speech", "text-to-speech", "read aloud", "read out loud", "speak", "speech", "narration", "audio", "rate", "pitch", "auto speak", "accessibility", "dictation", "microphone", "mic", "whisper", "transcribe", "transcription", "voice input"] },
     { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft, group: "Personalize", terms: ["sidebar", "navigation", "menu", "shortcuts", "keys", "reorder"] },
 
     { id: "ai", label: "AI / LLM", desc: "Models, keys & testing", icon: Bot, group: "Intelligence", terms: ["ai", "llm", "agent", "model", "openai", "anthropic", "ollama", "groq", "gemini", "api key", "base url", "chat"] },
@@ -712,7 +712,7 @@ export function Settings({
                 <SectionHeader
                   icon={Volume2}
                   title="Voice"
-                  description="Read assistant replies aloud with your browser's own voices. Choose a voice, tune pacing and pitch, or let Eclipse speak new answers automatically — all on this device, with nothing sent to a server."
+                  description="Talk to Eclipse and hear it answer. Dictate prompts with Whisper or your browser's speech recognition, and read assistant replies aloud with your browser's own voices — choose the engine, language and pacing here."
                 />
                 <VoiceSettingsPanel />
               </div>

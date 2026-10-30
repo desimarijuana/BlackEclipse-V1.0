@@ -1,23 +1,32 @@
 ---
-title: Voice (Read Aloud)
+title: Voice (Read Aloud & Dictation)
 status: Current
-last-verified: 2026-10-29
+last-verified: 2026-10-30
 ---
 
-# Voice — Read Aloud (TTS)
+# Voice — Read Aloud & Dictation
 
-**Who this is for:** anyone changing how Eclipse speaks replies, or asking why
-it uses browser voices instead of a cloud provider.
+**Who this is for:** anyone changing how Eclipse speaks replies or transcribes
+spoken prompts, or asking why it uses browser voices / Whisper.
 
 ## What it is
 
-An assistant reply can be spoken with the **Speak** control in its footer. The
-same control appears in a structured response's header and in bot messages.
-Settings › **Voice** chooses the system voice, rate, pitch and volume, and can
-opt into speaking every new reply automatically.
+Two related but independent systems:
 
-The feature is **text-to-speech only**. It does not listen, record, transcribe or
-send audio anywhere.
+- **Read aloud (TTS).** An assistant reply can be spoken with the **Speak**
+  control in its footer; the same control appears in a structured response's
+  header and in bot messages. Settings › **Voice** chooses the system voice,
+  rate, pitch and volume, and can opt into speaking every new reply.
+- **Voice input (dictation).** The mic in either composer records a prompt,
+  transcribes it, and inserts the words at the caret. Whisper is used when an
+  OpenAI-compatible transcription endpoint is configured; otherwise the
+  browser's SpeechRecognition is the zero-config fallback.
+
+Read-aloud is text-to-speech only. Dictation records **only while the control is
+active**, sends the clip to the selected transcription endpoint (or the browser
+recognizer), and discards it after the response — no audio and no transcript is
+persisted by Eclipse.
+
 
 ## Why browser-native (the decision)
 
@@ -75,6 +84,79 @@ component).
 (`null` = browser-locale default), `rate` (0.5–2), `pitch` (0–2), `volume`
 (0–1). Stored in `localStorage`; nothing is synced server-side.
 
+## Voice input (dictation)
+
+The mic in the full composer and in the floating dock starts ONE dictation
+session. `describeVoiceEngine` decides what actually runs:
+
+| Preference | Provider ready | Browser recognition | Result |
+|---|---|---|---|
+| `auto` | yes | anything | **Whisper** |
+| `auto` | no | yes | **Browser** |
+| `auto` | no | no | unavailable (honest) |
+| `whisper` | yes / no | — | Whisper / unavailable |
+| `browser` | — | yes / no | Browser / unavailable |
+
+An explicit preference never silently falls back: choosing Whisper without a
+provider reports why instead of switching engines behind the operator's back.
+
+### Flow
+
+```
+mic → Whisper:  MediaRecorder → base64 → POST /api/voice/transcribe
+                → Next caps/rate/provider → Python /voice/transcribe
+                → provider /audio/transcriptions → { text } → insert at caret
+mic → Browser:  SpeechRecognition → final transcript → insert at caret
+```
+
+Audio is bounded (≤ 15 MB, ≤ 120 s), MIME-allowlisted, transcribed once and
+discarded. Nothing is written to disk, JDDS, artifacts or memory; the transcript
+is ordinary composer text, so the operator reviews it before sending.
+
+### Where it lives
+
+| Concern | File |
+|---|---|
+| Preferences (`be_voice_input_v1`: engine, language, prompt, max seconds) | `src/lib/voice/store.ts` |
+| Engine/provider vocabulary + presets | `src/lib/voice/types.ts` |
+| MediaRecorder wrapper (tracks released on stop/cancel) | `src/lib/voice/recorder.ts` |
+| SpeechRecognition wrapper + friendly errors | `src/lib/voice/browser-recognition.ts` |
+| Front-door client (config + transcribe, no key) | `src/lib/voice/client.ts` |
+| State machine (engine choice, caps, permissions, cleanup) | `src/hooks/use-voice-input.ts` |
+| Mic control (timer, spinner, error pill) | `src/components/chat/voice-input-button.tsx` |
+| Composer insertion (caret-aware, never replaces typed text) | `src/lib/voice/insert.ts` |
+| Server config + key resolution | `src/lib/voice/config-server.ts` |
+| Config route (`GET` readiness/stored, `PUT` save) | `src/app/api/voice/config/route.ts` |
+| Bounded transcription front door | `src/app/api/voice/transcribe/route.ts` |
+| Runtime client | `src/lib/harness/transcribe-client.ts` |
+| Python validation + provider call | `python/harness/transcription/service.py` |
+| Python route (`/voice/transcribe`, operator-gated) | `python/harness/routers/transcription.py` |
+| Operator settings card | `src/components/screens/voice-input-settings.tsx` |
+
+### Config and keys
+
+- Provider choice is server-owned in JDDS `SystemConfig` key
+  `voice_input_config` (`provider`, optional `baseUrl`, optional `model`).
+  `auto` picks the first configured key (OpenAI, then Groq).
+- Presets: OpenAI (`gpt-4o-mini-transcribe`), Groq (`whisper-large-v3`), and
+  Custom. Custom is any OpenAI-compatible endpoint — including a keyless local
+  `whisper.cpp` server (`http://127.0.0.1:8080/v1`).
+- Keys come from the shared vault: `OPENAI_API_KEY`, `GROQ_API_KEY`, or the
+  optional `TRANSCRIBE_API_KEY` for a custom remote endpoint. The browser only
+  learns *whether* one is configured — never its value.
+- Caps enforced in `src/app/api/voice/transcribe/route.ts` and again in Python:
+  15 MB, 120 s, MIME allowlist, 20 requests/minute/client.
+- Provider failure classes are explicit: `NOT_CONFIGURED`, `UNSUPPORTED_MEDIA`,
+  `TOO_LARGE`, `KEY_REJECTED`, `RATE_LIMITED`, `TIMEOUT`, `EMPTY_TRANSCRIPT`,
+  `PROVIDER_ERROR`, `RUNTIME_UNAVAILABLE`.
+
+### Browser dictation caveat
+
+Chromium-only, and Chrome/Edge may process audio in the vendor's cloud. It also
+needs microphone permission for the origin; a denied permission is reported in
+the composer, never swallowed. This is why Whisper is preferred whenever a
+provider is configured.
+
 ## Adding a speak control elsewhere
 
 ```tsx
@@ -93,3 +175,10 @@ speech. `content` may be plain Markdown or an `eclipse-response` fence.
 entities, citations, punctuation) and the chunker (merge, split, hard break,
 empty input). The engine itself is browser-only; keep changes to `speech.ts`
 conservative and verify them in a real browser.
+
+Voice input has pure tests for caret insertion and engine resolution
+(`src/lib/voice/insert.test.ts`, `src/lib/voice/types.test.ts`), a front-door
+route test (`src/app/api/voice/transcribe/route.test.ts`), and Python tests for
+validation + the provider multipart call
+(`python/tests/test_transcription.py`). The recorder and SpeechRecognition
+wrappers are browser-only; verify them with a real microphone.

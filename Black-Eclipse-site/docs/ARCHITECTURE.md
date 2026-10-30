@@ -2082,6 +2082,23 @@ unavailable rather than offering a dead action. Settings › Voice
 deliberately browser-native; a cloud voice (OpenAI/ElevenLabs) would be an
 `/api/tts` proxy added later, never a replacement for the honest offline path.
 
+**Voice input (dictation).** The mic in both composers is a separate pipeline:
+`src/lib/voice/` captures audio (`MediaRecorder`), or uses the browser's
+`SpeechRecognition` as the zero-config fallback, and inserts the transcript at
+the caret via the pure `insert.ts` helper. `use-voice-input.ts` owns the engine
+choice (`auto` = Whisper when a provider is ready, else browser; an explicit
+choice never silently falls back), permissions, the hard duration cap and
+cleanup. Whisper runs server-side through the Next front door
+(`/api/voice/transcribe`: guard + rate limit + 15 MB/120 s/MIME caps) into the
+Python runtime's operator-gated `/voice/transcribe`, which calls one
+OpenAI-compatible `/audio/transcriptions` endpoint (OpenAI, Groq, or a keyless
+local whisper.cpp server). Provider choice/model live in JDDS SystemConfig
+(`voice_input_config`); keys stay in the shared vault (`OPENAI_API_KEY`,
+`GROQ_API_KEY`, optional `TRANSCRIBE_API_KEY`). Audio is validated, transcribed
+once and discarded — never written to disk, JDDS or memory. Settings › Voice
+(`voice-input-settings.tsx`) reports readiness honestly; a denied microphone or
+missing provider surfaces in the composer instead of being swallowed.
+
 ## The chart engine (Python-authored Plotly figures; ECharts elsewhere)
 
 The **chat's** charts are authored in Python: a `chart` block is mapped to the

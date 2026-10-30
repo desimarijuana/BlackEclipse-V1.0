@@ -26,9 +26,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ArrowUp, Bot, Maximize2, Mic, Minimize2, Minus, Pause, Plus, SquarePen, Trash2,
+  ArrowUp, Bot, Maximize2, Minimize2, Minus, Pause, Plus, SquarePen, Trash2,
   Image as ImageIcon, Layers, Blocks,
 } from '@/lib/icons';
+import { VoiceInputButton } from './voice-input-button';
+import { insertTranscript } from '@/lib/voice/insert';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -170,6 +172,36 @@ export function ChatDock({
   const [pillPos, setPillPos] = useState<PillPos | null>(null);
   const pillRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  const voiceSelectionRef = useRef<{ start: number; end: number } | null>(null);
+  const captureVoiceSelection = useCallback(() => {
+    const el = textareaRef.current;
+    voiceSelectionRef.current = el
+      ? { start: el.selectionStart, end: el.selectionEnd }
+      : null;
+  }, []);
+  const insertVoiceText = useCallback(
+    (text: string) => {
+      const { value, caret } = insertTranscript(
+        queryRef.current,
+        text,
+        voiceSelectionRef.current ?? undefined,
+      );
+      setQuery(value);
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        try {
+          el.setSelectionRange(caret, caret);
+        } catch {
+          /* selection unavailable */
+        }
+      });
+    },
+    [setQuery],
+  );
   const sessionIdRef = useRef<string>('dock-temp');
   const [dockSessionId, setDockSessionId] = useState<string>('dock-temp');
   const attachRef = useRef<HTMLInputElement>(null);
@@ -759,14 +791,12 @@ export function ChatDock({
             />
 
             <div className="ml-auto flex items-center gap-1.5">
-              <button
-                type="button"
-                className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground cursor-pointer"
-                title="Voice input (coming soon)"
-                aria-label="Voice input"
-              >
-                <Mic size={17} />
-              </button>
+              <VoiceInputButton
+                onTranscript={insertVoiceText}
+                onStart={captureVoiceSelection}
+                className="h-9 w-9"
+                iconSize={17}
+              />
               {busy ? (
                 <button
                   type="button"

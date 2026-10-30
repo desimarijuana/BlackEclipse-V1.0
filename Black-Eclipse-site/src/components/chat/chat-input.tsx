@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Mic, ArrowUp, Pause, Loader2, Sparkles, Command, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers, Bot, Users, Image as ImageIcon, Blocks, SquarePen } from '@/lib/icons';
+import { Plus, ArrowUp, Pause, Loader2, Command, FileText, X, ChevronDown, Check, Cpu, KeyRound, Layers, Bot, Users, Image as ImageIcon, Blocks, SquarePen } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
+import { ProviderLogo } from '@/components/providers/provider-logo';
+import { VoiceInputButton } from './voice-input-button';
+import { insertTranscript } from '@/lib/voice/insert';
 import { cn } from '@/lib/utils';
 import { getAgentProvider } from '@/lib/agent/registry';
 import { useCommandStore } from '@/lib/search/store';
@@ -145,6 +148,38 @@ export function ChatInput({
   onPasteText,
   }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Dictation inserts at the caret captured when the mic is pressed, never at
+  // the end: a spoken sentence must be able to complete something already typed.
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  const voiceSelectionRef = useRef<{ start: number; end: number } | null>(null);
+  const captureVoiceSelection = useCallback(() => {
+    const el = textareaRef.current;
+    voiceSelectionRef.current = el
+      ? { start: el.selectionStart, end: el.selectionEnd }
+      : null;
+  }, []);
+  const insertVoiceText = useCallback(
+    (text: string) => {
+      const { value, caret } = insertTranscript(
+        queryRef.current,
+        text,
+        voiceSelectionRef.current ?? undefined,
+      );
+      setQuery(value);
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        try {
+          el.setSelectionRange(caret, caret);
+        } catch {
+          /* selection unavailable */
+        }
+      });
+    },
+    [setQuery],
+  );
   // The REAL configured provider, never a fabricated model list.
   const providerLabel = useMemo(() => getAgentProvider().label, []);
   // Translated copy for the command palette / badge (i18n keys, not literals).
@@ -640,7 +675,7 @@ export function ChatInput({
                 className="hidden min-[400px]:inline-flex items-center gap-1.5 px-3 py-1 h-7 rounded-full bg-accent/25 border border-border/25 text-muted-foreground text-xs font-medium whitespace-nowrap"
                 title={`Chat provider: ${providerLabel}`}
               >
-                <Sparkles size={12} className="text-primary" />
+                <ProviderLogo provider={providerLabel} size={12} className="text-primary" />
                 {providerLabel}
               </span>
             ) : null}
@@ -652,14 +687,11 @@ export function ChatInput({
                 disabled={busy}
               />
             )}
-            <Button 
-              type="button" 
-              variant="ghost" 
-              size="icon" 
-              className="hidden p-1.5 text-muted-foreground hover:text-foreground rounded-full hover:bg-accent shrink-0 h-8 w-8 focus-visible:ring-0 focus-visible:outline-none sm:flex"
-            >
-              <Mic size={16} />
-            </Button>
+            <VoiceInputButton
+              onTranscript={insertVoiceText}
+              onStart={captureVoiceSelection}
+              className="h-8 w-8"
+            />
             {busy ? (
               <Button
                 type="button"
@@ -719,6 +751,13 @@ export function ModelSelector({ state }: { state: ChatModelState }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const label = state.displayModel || state.providerLabel || "Model";
   const current = state.providers.find((p) => p.id === state.selectedProvider);
+  // Prefer the provider's own id; fall back to whichever provider owns the
+  // selected model, then the label (resolved by ProviderLogo).
+  const logoProvider =
+    state.selectedProvider ||
+    state.providers.find((p) => p.models.includes(state.selectedModel))?.id ||
+    current?.id ||
+    state.providerLabel;
   useHydrateEnabledModels();
   const enabledFor = useEnabledModelsStore((s) => s.enabledFor);
   const isCurated = useEnabledModelsStore((s) => s.isCurated);
@@ -736,7 +775,7 @@ export function ModelSelector({ state }: { state: ChatModelState }) {
         title={`Model: ${state.displayModel || "default"} · provider ${state.providerLabel}`}
         className="inline-flex items-center gap-1.5 px-2.5 py-1 h-7 max-w-none sm:max-w-[180px] sm:px-3 rounded-full bg-accent/25 border border-border/25 text-muted-foreground hover:text-foreground hover:border-border/40 text-xs font-medium whitespace-nowrap transition-colors cursor-pointer"
       >
-        <Sparkles size={12} className="text-primary shrink-0" />
+        <ProviderLogo provider={logoProvider} size={13} className="text-primary" />
         <span className="hidden truncate font-mono sm:inline">{label}</span>
         <ChevronDown size={13} className="shrink-0 opacity-70" />
       </DropdownMenuTrigger>
@@ -885,6 +924,7 @@ export function ModelSelector({ state }: { state: ChatModelState }) {
                   className="gap-2"
                 >
                   <Check size={13} className={cn("shrink-0", p.id === state.selectedProvider ? "opacity-100 text-primary" : "opacity-0")} />
+                  <ProviderLogo provider={p.id} size={13} className={p.id === state.selectedProvider ? "text-primary" : "text-muted-foreground"} />
                   <span className="truncate">{p.label}</span>
                   {p.keyless ? (
                     <span className="ml-auto text-[9px] text-muted-foreground/50">no key</span>

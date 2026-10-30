@@ -13,7 +13,8 @@
 // Dialog, so it is never clipped and sits above the Settings modal (z-[100]).
 
 import { useMemo, useState } from 'react';
-import { Check, Layers, RefreshCw, Search } from '@/lib/icons';
+import { Check, RefreshCw, Search } from '@/lib/icons';
+import { ProviderLogo } from '@/components/providers/provider-logo';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { useEnabledModelsStore } from '@/lib/agent/enabled-models';
@@ -107,7 +108,7 @@ export function ManageModelsDialog({
         {/* Header */}
         <div className="flex items-start gap-3 border-b border-border/10 p-5">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/12 bg-white/[0.05] text-foreground">
-            <Layers size={18} />
+            <ProviderLogo provider={providerId} size={20} />
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="font-serif text-lg font-semibold text-foreground">Manage models</h2>

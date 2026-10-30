@@ -6,6 +6,29 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
+## 2026-10-30
+- **fix(ui): provider logos replace the sparkle in the model picker.** The
+  composer's model selector and the Provider submenu now show the actual
+  provider's brand mark (OpenAI, Anthropic, Gemini, Mistral, DeepSeek, Groq,
+  Ollama, LM Studio, xAI, OpenRouter, Perplexity, Together, Fireworks, OpenCode,
+  or the Eclipse mark) instead of the generic sparkle; unknown/custom providers
+  get a neutral CPU glyph. Marks are vendored under `public/providers/` and
+  rendered as a `currentColor` mask so they work in both themes and never call
+  a CDN. The Manage-models dialog header shows the provider's mark too.
+  No doc change — visual identity only.
+- **feat(voice): dictation — speak prompts into the composer.** The dead mic in
+  both composers is now a real voice-input control: Whisper through an
+  OpenAI-compatible `/audio/transcriptions` endpoint (OpenAI, Groq, or a keyless
+  local whisper.cpp server), with browser SpeechRecognition as the zero-config
+  fallback. Audio is bounded, validated, transcribed once and discarded — never
+  stored or logged — and the transcript is inserted at the caret without
+  replacing typed text. Settings › Voice gained engine/language/vocabulary/max
+  length/provider config plus an honest readiness report. A new Settings › Voice
+  provider readiness route (`/api/voice/config`), transcription front door
+  (`/api/voice/transcribe`), Python `/voice/transcribe` runtime route, and the
+  optional `TRANSCRIBE_API_KEY` vault entry keep the key server-side.
+  Docs updated: `docs/voice.md`, `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
+
 ## 2026-10-29
 - **feat(voice): read assistant replies aloud with browser-native TTS.** Added a
   Speak/Stop control to the chat footer, structured-response header and bot
