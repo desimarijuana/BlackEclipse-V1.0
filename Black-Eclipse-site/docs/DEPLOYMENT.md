@@ -67,7 +67,24 @@ changed. It is safe to run on a timer: an unchanged commit exits immediately, a
 lock prevents overlapping builds, tracked local edits make it refuse, and it
 waits for `/login` before reporting success.
 
-Install it once per server (adjust the path and user):
+Install it once per server:
+
+```sh
+cd /path/to/BlackEclipse-V1.0
+git pull --ff-only
+sudo bash Black-Eclipse-site/scripts/install-autodeploy.sh
+```
+
+That writes the two systemd units with the correct paths, enables the timer and
+runs one deploy immediately. Check it with:
+
+```sh
+systemctl status blackeclipse-deploy.timer
+journalctl -u blackeclipse-deploy -f
+```
+
+Use `--interval 2` for a 2-minute poll. The equivalent units, if you prefer to
+manage them yourself:
 
 ```ini
 # /etc/systemd/system/blackeclipse-deploy.service

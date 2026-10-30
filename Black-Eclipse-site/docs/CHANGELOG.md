@@ -12,7 +12,8 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   a running container. The script fetches `origin/main`, exits immediately when
   the commit is unchanged, pulls `--ff-only`, rebuilds the compose image, and
   waits for `/login`; a lock prevents overlapping builds and tracked local edits
-  make it refuse. Documented a 5-minute systemd timer (and cron equivalent).
+  make it refuse. `scripts/install-autodeploy.sh` writes and enables the timer in
+  one command. Documented a 5-minute systemd timer (and cron equivalent).
   Docs updated: `docs/DEPLOYMENT.md` (new "Automatic updates" section).
 - **feat(trading): live exits are arm-free; live entries are one-click in chat.**
   A live connection can now close/modify its own positions without an arm (the
