@@ -126,8 +126,12 @@ A cron entry is equivalent:
 ```
 
 The timer polls; it does not receive webhooks. For an immediate deploy on every
-push, add a GitHub Actions job that SSHes to each host and runs
-`scripts/deploy.sh --force` (needs a deploy key and host list as repo secrets).
+push, `.github/workflows/deploy.yml` SSHes to each host and runs
+`scripts/deploy.sh --force`. It **skips harmlessly** until these repository
+secrets exist: `DEPLOY_SSH_KEY` (OpenSSH private key), `DEPLOY_USER`,
+`DEPLOY_PATH` (repo root on the server) and `DEPLOY_HOST_1` (plus optional
+`DEPLOY_HOST_2`/`_3`). The server-side lock, `--ff-only` pull and health check
+still apply, so the workflow cannot bypass them.
 
 ## Persistence
 

@@ -1,0 +1,66 @@
+name: Deploy production
+
+# Optional push-to-deploy. If the deploy secrets are not configured this job
+# skips instead of failing, so the repository stays usable without them.
+#
+# Repository secrets:
+#   DEPLOY_SSH_KEY  private key for the deploy user (OpenSSH format)
+#   DEPLOY_USER     SSH user on the servers
+#   DEPLOY_PATH     repo root on the server (contains Black-Eclipse-site/)
+#   DEPLOY_HOST_1   first server IP/hostname (DEPLOY_HOST_2/3 optional)
+#
+# The server-side scripts/deploy.sh still enforces the lock, the ff-only pull and
+# the health check, so this job cannot bypass those gates.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to each configured host
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          DEPLOY_HOST_1: ${{ secrets.DEPLOY_HOST_1 }}
+          DEPLOY_HOST_2: ${{ secrets.DEPLOY_HOST_2 }}
+          DEPLOY_HOST_3: ${{ secrets.DEPLOY_HOST_3 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEPLOY_SSH_KEY}" ] || [ -z "${DEPLOY_HOST_1}" ]; then
+            echo "Deploy secrets are not configured; skipping (the systemd timer, if installed, still deploys)."
+            exit 0
+          fi
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${DEPLOY_SSH_KEY}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          touch ~/.ssh/known_hosts
+
+          failed=0
+          for host in "${DEPLOY_HOST_1}" "${DEPLOY_HOST_2:-}" "${DEPLOY_HOST_3:-}"; do
+            [ -n "$host" ] || continue
+            echo "::group::Deploying to ${DEPLOY_USER}@${host}"
+            ssh-keyscan -H "$host" >> ~/.ssh/known_hosts 2>/dev/null || true
+            if ssh -i ~/.ssh/deploy_key \
+                 -o IdentitiesOnly=yes \
+                 -o StrictHostKeyChecking=accept-new \
+                 -o ConnectTimeout=20 \
+                 "${DEPLOY_USER}@${host}" \
+                 "cd '${DEPLOY_PATH}' && ./Black-Eclipse-site/scripts/deploy.sh --force"; then
+              echo "deployed ${host}"
+            else
+              echo "::error::deploy failed on ${host}"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$failed"
