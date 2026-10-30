@@ -37,6 +37,7 @@ from .policy import TradePolicy
 from .reconcile import BrokerReconciler, ReconcilerLoop, interval_from_env
 from .registry import get_kind, list_kinds, make_adapter
 from .store import BrokerConnectionStore
+from .terminal import reveal_terminal
 
 
 class BrokerService:
@@ -926,6 +927,13 @@ class BrokerService:
                 connection.id, "submit", status,
                 {"digest": intent.digest, "orderId": ledger["id"], "retcode": code},
             )
+            if status in ("filled", "placed"):
+                # Local affordance: show the operator the new position in the
+                # attached terminal. Never allowed to change the order result.
+                try:
+                    reveal_terminal(connection)
+                except Exception:  # noqa: BLE001
+                    pass
             return {
                 "available": True,
                 "sent": True,

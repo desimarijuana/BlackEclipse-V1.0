@@ -241,6 +241,15 @@ the phrase on the operator's behalf, and the agent does not call `order_submit` 
 a live order. A demo order follows the same card (the phrase appears only when the
 money guardrails require one).
 
+**The terminal comes forward after a fill.** When an order is `filled` or `placed`,
+the harness focuses the running `terminal64.exe` (or launches the connection's
+`terminalPath` if it is not running) so the operator sees the new position
+immediately. This is Windows-only and best-effort: a failed window activation is
+reported nowhere and never changes the order result, and on a container/remote
+bridge it is a no-op. Disable it per connection with
+`config.openTerminalOnTrade: false`, or set `BE_MT5_PATH` to override the default
+`C:\Program Files\MetaTrader 5\terminal64.exe`.
+
 ## Unattended demo graph orders (P3)
 
 A Graph Studio node cannot show an approval card. P3 adds an explicit substitute:

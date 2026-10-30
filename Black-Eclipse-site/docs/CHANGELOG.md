@@ -7,6 +7,12 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-29
+- **feat(trading): reveal the MT5 terminal after a fill.** A successful
+  `filled`/`placed` order now focuses the running `terminal64.exe` (or starts the
+  connection's `terminalPath`) so the operator sees the position immediately.
+  Windows-only and best-effort; it cannot change the order result, is a no-op on
+  a container/remote bridge, and can be disabled per connection with
+  `openTerminalOnTrade: false`. Docs updated: `docs/trading.md`.
 - **ops(deploy): server-side auto-deploy (`scripts/deploy.sh`).** Production had
   no update path beyond a manual pull + rebuild, so a pushed commit never reached
   a running container. The script fetches `origin/main`, exits immediately when

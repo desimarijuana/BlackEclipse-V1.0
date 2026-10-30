@@ -684,3 +684,50 @@ def test_graph_broker_order_node_requires_a_mandate(tmp_path):
             exec_broker_order(context)
     finally:
         set_service(None)
+
+
+# ── reveal the terminal after a fill ────────────────────────────────────────
+def test_a_filled_order_reveals_the_attached_terminal(tmp_path, monkeypatch):
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "harness.trade.service.reveal_terminal",
+        lambda connection: calls.append(connection.id) or {"opened": True},
+    )
+    service = _service(tmp_path)
+    connection_id = _connection_id(service)
+    preview = service.preview_order(connection_id, _intent())
+    service.decide_approval(preview["approval"]["id"], approve=True)
+    result = service.submit_order(connection_id, _intent(), preview["approval"]["id"])
+    assert result["status"] == "filled"
+    assert calls == [connection_id]
+
+
+def test_a_refused_order_does_not_reveal_the_terminal(tmp_path, monkeypatch):
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "harness.trade.service.reveal_terminal",
+        lambda connection: calls.append(connection.id) or {"opened": True},
+    )
+    service = _live_service(tmp_path)
+    with pytest.raises(TradeRefused):
+        service.submit_order(_connection_id(service), _intent(), mandate_id="mnd_missing")
+    assert calls == []
+
+
+def test_terminal_reveal_is_a_noop_off_windows(monkeypatch):
+    from harness.trade import terminal
+
+    monkeypatch.setattr(terminal.sys, "platform", "linux")
+    result = terminal.reveal_terminal(object())
+    assert result["opened"] is False
+    assert result["reason"] == "PLATFORM_UNSUPPORTED"
+
+
+def test_terminal_reveal_can_be_disabled_per_connection(monkeypatch):
+    from harness.trade import terminal
+
+    monkeypatch.setattr(terminal.sys, "platform", "win32")
+    connection = type("C", (), {"config": {"openTerminalOnTrade": False}})()
+    result = terminal.reveal_terminal(connection)
+    assert result["opened"] is False
+    assert result["reason"] == "DISABLED"
