@@ -1,7 +1,7 @@
 ---
 title: Deployment — Production Container
 status: Current
-last-verified: 2026-10-16
+last-verified: 2026-10-29
 ---
 
 # Deployment — Production Container
@@ -60,6 +60,58 @@ loopback/dev bind every check is advisory (exit 0), so it is also part of
 end-to-end posture (bind + front-door auth) and warns on any unsafe combination
 (`docs/harness/authentication.md`).
 
+## Automatic updates (systemd timer)
+
+`scripts/deploy.sh` pulls `origin/main` and rebuilds only when the commit
+changed. It is safe to run on a timer: an unchanged commit exits immediately, a
+lock prevents overlapping builds, tracked local edits make it refuse, and it
+waits for `/login` before reporting success.
+
+Install it once per server (adjust the path and user):
+
+```ini
+# /etc/systemd/system/blackeclipse-deploy.service
+[Unit]
+Description=BlackEclipse auto-deploy
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/BlackEclipse-V1.0/Black-Eclipse-site
+ExecStart=/opt/BlackEclipse-V1.0/Black-Eclipse-site/scripts/deploy.sh
+```
+
+```ini
+# /etc/systemd/system/blackeclipse-deploy.timer
+[Unit]
+Description=Check origin/main for BlackEclipse updates
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now blackeclipse-deploy.timer
+sudo journalctl -u blackeclipse-deploy -f
+```
+
+A cron entry is equivalent:
+
+```cron
+*/5 * * * * /opt/BlackEclipse-V1.0/Black-Eclipse-site/scripts/deploy.sh >> /var/log/blackeclipse-deploy.log 2>&1
+```
+
+The timer polls; it does not receive webhooks. For an immediate deploy on every
+push, add a GitHub Actions job that SSHes to each host and runs
+`scripts/deploy.sh --force` (needs a deploy key and host list as repo secrets).
+
 ## Persistence
 
 The entrypoint symlinks these into the `be-data` volume mounted at `/data`:
@@ -81,7 +133,8 @@ Back up `/data`; do not bake it into the image.
   awaited inside `register()`, which delayed first-request readiness on every
   boot.)
 - Logs: `docker compose logs -f app`.
-- Rebuild after a code change: `docker compose up -d --build`.
+- Rebuild after a code change: `docker compose up -d --build` (or run
+  `scripts/deploy.sh`, which pulls only when `origin/main` moved).
 - **Runtime port (`127.0.0.1:8765`):** only one Python runtime may own it; a
   second one fails to bind (`WinError 10048`) and exits. In the container a fresh
   process tree starts on every `up`, so this is self-contained. On a bare host
