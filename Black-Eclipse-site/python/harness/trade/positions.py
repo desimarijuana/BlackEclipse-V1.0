@@ -1,11 +1,13 @@
-"""Demo position lifecycle: close (full or partial) and modify brackets.
+"""Position lifecycle: close (full or partial) and modify brackets.
 
 These are the risk-reducing verbs. They live in their own module because the
 broker service is near its size ceiling and because the rule is simple enough to
 state in one place:
 
-  * demo connection AND a demo account behind it, or the call is refused;
-  * no mandate and no approval — an exit must always be possible;
+  * the connection and the account behind it must agree (demo/demo, live/real),
+    or the call is refused — a live position is never closed through a demo path;
+  * no mandate, no approval and no arm — an exit must always be possible, even
+    after a live arm has expired;
   * the broker's own position is read before and after the send, so the returned
     `verified` flag is evidence, not optimism.
 
@@ -21,15 +23,16 @@ from .adapter import AdapterUnavailable
 from .model import TradeRefused
 
 
-def _demo_adapter(service: Any, connection_id: str, action: str) -> tuple[Any, Any]:
-    """The connection and an OPEN adapter, both proven demo, or a refusal."""
+def _execution_adapter(service: Any, connection_id: str, action: str) -> tuple[Any, Any]:
+    """The connection and an OPEN adapter, with matching demo/live modes.
+
+    Closing or moving a bracket reduces exposure, so it deliberately does NOT
+    require a live arm: an expired arm must never trap an operator in a live
+    position. The mode check is still absolute — a live connection can only act
+    on a real account, and a demo connection only on a demo account.
+    """
     connection = service._connection(connection_id)
-    if connection.mode.value != "demo":
-        raise TradeRefused(
-            "LIVE_NOT_ENABLED",
-            f"{action} live positions is not enabled; do it in the terminal",
-            status_code=403,
-        )
+    expected = "real" if connection.mode.value == "live" else "demo"
     adapter = service._trading_adapter(connection)
     try:
         account_mode = str(adapter.account().get("mode") or "unknown")
@@ -41,12 +44,12 @@ def _demo_adapter(service: Any, connection_id: str, action: str) -> tuple[Any, A
         raise TradeRefused(
             "ADAPTER_ERROR", f"the broker could not be read: {exc}", status_code=503
         ) from exc
-    if account_mode != "demo":
+    if account_mode != expected:
         _close(adapter)
         raise TradeRefused(
-            "DEMO_ACCOUNT_REQUIRED",
-            f"the connected account is {account_mode}; only a demo position can be "
-            f"{action} from Eclipse",
+            "LIVE_ACCOUNT_REQUIRED" if expected == "real" else "DEMO_ACCOUNT_REQUIRED",
+            f"the connected account is {account_mode}; a {connection.mode.value} "
+            f"connection can only {action} a {expected} position",
             status_code=403,
         )
     return connection, adapter
@@ -63,8 +66,8 @@ def close_position(
     service: Any, connection_id: str, ticket: int, *,
     deviation: int = 20, volume: Optional[float] = None,
 ) -> dict[str, Any]:
-    """Close all or part of ONE demo position. No approval, no mandate."""
-    connection, adapter = _demo_adapter(service, connection_id, "closing")
+    """Close all or part of ONE position. No approval, no mandate."""
+    connection, adapter = _execution_adapter(service, connection_id, "closing")
     try:
         try:
             result = adapter.close_position(
@@ -94,8 +97,8 @@ def close_positions(
     service: Any, connection_id: str, *, tickets: Optional[list[int]] = None,
     deviation: int = 20,
 ) -> dict[str, Any]:
-    """Close every open demo position, or only the named tickets."""
-    connection, adapter = _demo_adapter(service, connection_id, "closing")
+    """Close every open position, or only the named tickets."""
+    connection, adapter = _execution_adapter(service, connection_id, "closing")
     try:
         try:
             rows = adapter.positions()
@@ -104,11 +107,29 @@ def close_positions(
     finally:
         _close(adapter)
     wanted = {int(ticket) for ticket in (tickets or [])}
-    targets = [
-        int(row.get("ticket") or 0)
-        for row in rows
-        if not wanted or int(row.get("ticket") or 0) in wanted
-    ]
+    if connection.mode.value == "live" and not wanted:
+        # A live "close all" means every position ECLIPSE owns, not every manual
+        # position on the account. The magic is the ownership boundary the kill
+        # switch already uses; without it, refuse rather than guess.
+        magic = service._magic(connection)
+        if magic <= 0:
+            raise TradeRefused(
+                "MAGIC_REQUIRED",
+                "set a non-zero magic before closing all live positions; it scopes "
+                "the action to Eclipse's own orders",
+                status_code=400,
+            )
+        targets = [
+            int(row.get("ticket") or 0)
+            for row in rows
+            if int(row.get("magic") or 0) == magic
+        ]
+    else:
+        targets = [
+            int(row.get("ticket") or 0)
+            for row in rows
+            if not wanted or int(row.get("ticket") or 0) in wanted
+        ]
     results: list[dict[str, Any]] = []
     for ticket in targets:
         try:
@@ -133,7 +154,7 @@ def close_positions(
         "connectionId": connection.id,
         "closed": closed,
         "failed": len(results) - closed,
-        "requested": len(wanted) if wanted else len(rows),
+        "requested": len(wanted) if wanted else len(targets) if connection.mode.value == "live" else len(rows),
         "results": results,
     }
 
@@ -142,7 +163,7 @@ def modify_position(
     service: Any, connection_id: str, ticket: int, *,
     stop_loss: Optional[float] = None, take_profit: Optional[float] = None,
 ) -> dict[str, Any]:
-    """Move a demo position's stop and/or target. No approval, no mandate.
+    """Move a position's stop and/or target. No approval, no mandate.
 
     A wider stop can increase risk, so the tool text warns; the broker still enforces
     its own stops distance and the result is verified against the stored bracket.
@@ -151,7 +172,7 @@ def modify_position(
         raise TradeRefused(
             "INVALID_STOPS", "pass stopLoss and/or takeProfit", status_code=400
         )
-    connection, adapter = _demo_adapter(service, connection_id, "modifying")
+    connection, adapter = _execution_adapter(service, connection_id, "modifying")
     try:
         try:
             result = adapter.modify_position(

@@ -385,10 +385,11 @@ async def order_submit(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
 
 
 async def position_close(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
-    """Close one demo position, or every open one, without an approval.
+    """Close one position, or every open one, without an approval.
 
-    Closing reduces exposure, so it follows the cancel rule: no mandate and no
-    approval card. The service still refuses a live connection or a real account.
+    Closing reduces exposure, so it follows the cancel rule: no mandate, no
+    approval and no live arm. The service still requires the account mode to
+    match the connection (demo/demo, live/real).
     """
     service = _service(ctx)
     connection_id = _known_connection(
@@ -444,7 +445,7 @@ async def position_close(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
         else:
             return (
                 'Pass `ticket` to close one position, `symbol` to close that '
-                'instrument, or `all: true` to close every open demo position.',
+                'instrument, or `all: true` to close every open position.',
                 {"status": "INVALID_ARGUMENTS"},
             )
     except ValueError as exc:
@@ -457,7 +458,7 @@ async def position_close(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     closed = int(result.get("closed") or 0)
     failed = int(result.get("failed") or 0)
     if not result.get("requested"):
-        return "No open demo positions to close.", result
+        return "No open positions to close.", result
     summary = f"Closed {closed} of {result.get('requested')} position(s)"
     if failed:
         summary += f"; {failed} failed"
@@ -465,7 +466,7 @@ async def position_close(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
 
 
 async def position_modify(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
-    """Move a demo position's stop and/or target (no mandate, no approval)."""
+    """Move a position's stop and/or target (no mandate, approval or arm)."""
     service = _service(ctx)
     ticket = args.get("ticket")
     stop_loss = args.get("stopLoss")
@@ -593,9 +594,11 @@ def register_broker_tools(registry: Any) -> None:
     )
     _def(
         "order_preview",
-        "Validate a demo order against broker constraints, the connection's limits "
-        "and the money guardrails, then request a single-use operator approval. "
-        "This NEVER sends an order; submission is an operator action.",
+        "Validate an order (demo or live) against broker constraints, the "
+        "connection's limits and the money guardrails, then request a single-use "
+        "operator approval. On a live connection the operator confirms the "
+        "approval card in chat and types the LIVE phrase; this tool NEVER sends "
+        "an order.",
         order_preview,
         {
             "type": "object",
@@ -691,14 +694,16 @@ def register_broker_tools(registry: Any) -> None:
     )
     _def(
         "order_submit",
-        "Submit ONE demo order under an active operator-created mandate. REQUIRED "
+        "Submit ONE DEMO order under an active operator-created mandate. REQUIRED "
         "arguments: connectionId and intent {symbol, side, type, volume, stopLoss?, "
         "takeProfit?}. `connectionId` and `mandateId` are optional: the one saved "
         "connection and the one active mandate covering the symbol are resolved for "
         "you. Only an ambiguous multi-mandate symbol needs an id from broker_mandates. "
         "This call performs "
         "its own preview and submission; do not call order_preview first and never call "
-        "it with empty arguments. It cannot create a mandate, arm live, or submit live. ",
+        "it with empty arguments. It cannot create a mandate or arm live. LIVE orders "
+        "are never submitted by this tool: call `order_preview` and the operator "
+        "confirms the approval card in chat.",
         order_submit,
         {
             "type": "object",
@@ -736,11 +741,11 @@ def register_broker_tools(registry: Any) -> None:
 
     _def(
         "position_close",
-        "Close an open DEMO position (risk-reducing, so no approval or mandate is "
-        "needed). Pass `ticket` for one position, or `all: true` to step out of "
+        "Close an open position (risk-reducing, so no approval, mandate or live arm "
+        "is needed). Pass `ticket` for one position, or `all: true` to step out of "
         "every open position; `connectionId` resolves on its own when there is one "
-        "connection. Returns the broker's per-ticket result. Live close is refused; "
-        "close a live position in the terminal.",
+        "connection. Works on a demo or a live connection; the account mode must "
+        "match the connection. Returns the broker's per-ticket result.",
         position_close,
         {
             "type": "object",
@@ -773,10 +778,11 @@ def register_broker_tools(registry: Any) -> None:
     )
     _def(
         "position_modify",
-        "Move a demo position's stop loss and/or take profit (risk-reducing; no "
-        "approval or mandate). Pass `ticket` and `stopLoss`/`takeProfit`; 0 removes "
-        "a level. The result is verified against the broker's stored bracket. A "
-        "wider stop increases risk — say so when you do it. Live modify is refused.",
+        "Move a position's stop loss and/or take profit (risk-reducing; no "
+        "approval, mandate or live arm). Pass `ticket` and `stopLoss`/`takeProfit`; "
+        "0 removes a level. Works on a demo or a live connection; the account mode "
+        "must match. The result is verified against the broker's stored bracket. A "
+        "wider stop increases risk — say so when you do it.",
         position_modify,
         {
             "type": "object",

@@ -194,6 +194,21 @@ def test_preview_creates_a_pending_approval_and_sends_nothing(tmp_path):
     assert service.list_approvals("pending")
 
 
+def test_pending_approval_carries_what_the_chat_card_needs(tmp_path):
+    """The card submits from this view; it must not have to re-type the order."""
+    service = _service(tmp_path)
+    connection_id = _connection_id(service)
+    service.preview_order(connection_id, _intent(volume=0.25, stopLoss=1.09))
+
+    row = service.list_approvals("pending")[0]
+    assert row["connectionId"] == connection_id
+    assert row["intent"]["symbol"] == "EURUSD"
+    assert row["intent"]["side"] == "buy"
+    assert row["intent"]["volume"] == 0.25
+    assert row["intent"]["stopLoss"] == 1.09
+    assert row["actionSummary"]
+
+
 def test_submit_consumes_the_approval_exactly_once(tmp_path):
     service = _service(tmp_path)
     connection_id = _connection_id(service)
@@ -396,20 +411,48 @@ def test_modify_position_needs_at_least_one_level(tmp_path):
     assert caught.value.code == "INVALID_STOPS"
 
 
-def test_modify_refuses_a_live_connection(tmp_path):
+def test_modify_live_position_is_allowed_without_an_arm(tmp_path):
+    """Risk-reducing verbs must still work after a live arm expires."""
+    RealLiveAdapter.MODIFIED = []
     service = _live_service(tmp_path)
-    with pytest.raises(TradeRefused) as caught:
-        service.modify_position(_connection_id(service), 111, stop_loss=1.1)
-    assert caught.value.code == "LIVE_NOT_ENABLED"
+    result = service.modify_position(
+        _connection_id(service), 111, stop_loss=1.1, take_profit=1.12,
+    )
+    assert result["modified"] is True
+    assert RealLiveAdapter.MODIFIED == [(111, 1.1, 1.12)]
 
 
-def test_close_refuses_a_live_connection(tmp_path):
-    FakeTradingAdapter.CLOSED = []
+def test_close_live_position_is_allowed_without_an_arm(tmp_path):
+    RealLiveAdapter.CLOSED = []
     service = _live_service(tmp_path)
+    result = service.close_position(_connection_id(service), 111)
+    assert result["closed"] is True
+    assert RealLiveAdapter.CLOSED == [111]
+
+
+def test_live_close_all_is_scoped_to_eclipse_magic(tmp_path):
+    RealLiveAdapter.CLOSED = []
+    RealLiveAdapter.POSITIONS = [
+        {"ticket": 501, "magic": 99, "symbol": "EURUSD"},
+        {"ticket": 502, "magic": 7, "symbol": "EURUSD"},
+    ]
+    try:
+        service = _live_service(tmp_path)
+        result = service.close_positions(_connection_id(service))
+    finally:
+        RealLiveAdapter.POSITIONS = []
+    assert result["closed"] == 1
+    assert RealLiveAdapter.CLOSED == [501]
+
+
+def test_live_connection_refuses_a_demo_account_for_closes(tmp_path):
+    class DemoAdapter(FakeTradingAdapter):
+        ACCOUNT_MODE = "demo"
+
+    service = _live_service(tmp_path, DemoAdapter)
     with pytest.raises(TradeRefused) as caught:
         service.close_position(_connection_id(service), 111)
-    assert caught.value.code == "LIVE_NOT_ENABLED"
-    assert FakeTradingAdapter.CLOSED == []
+    assert caught.value.code == "LIVE_ACCOUNT_REQUIRED"
 
 
 def test_order_intent_digest_is_stable_and_covers_every_field():

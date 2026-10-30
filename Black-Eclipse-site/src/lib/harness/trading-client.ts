@@ -320,6 +320,19 @@ export interface TradeApproval {
   risk: string | null;
   expiresAt: string | null;
   createdAt: string | null;
+  /**
+   * Present when the approval came from the broker service: the exact order the
+   * operator is approving, so the chat card can submit it without a re-entry.
+   */
+  connectionId?: string | null;
+  intent?: (OrderIntent & { connectionId?: string }) | null;
+  preview?: {
+    symbol?: string;
+    volume?: number;
+    margin?: number | null;
+    spreadPoints?: number | null;
+    retcode?: number | null;
+  } | null;
 }
 
 export interface OrderPreview {

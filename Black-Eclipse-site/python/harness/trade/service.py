@@ -15,6 +15,7 @@ from typing import Any, Optional
 from .adapter import AdapterUnavailable, TradingAdapter
 from .authorizer import (
     APPROVAL_KIND,
+    approval_view,
     consume_approval,
     cooling_remaining,
     evaluate_guardrails,
@@ -1018,7 +1019,8 @@ class BrokerService:
     def list_approvals(self, status: Optional[str] = None, limit: int = 50) -> list[dict[str, Any]]:
         if self.approvals is None:
             return []
-        return self.approvals.list_kind(APPROVAL_KIND, status, limit=limit)
+        rows = self.approvals.list_kind(APPROVAL_KIND, status, limit=limit)
+        return [approval_view(row) for row in rows]
 
     def decide_approval(self, approval_id: str, *, approve: bool, reason: str = "") -> dict[str, Any]:
         if self.approvals is None:

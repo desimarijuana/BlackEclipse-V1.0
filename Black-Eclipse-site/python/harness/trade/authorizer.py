@@ -117,7 +117,7 @@ def request_approval(
             digest=intent.digest,
             effect=APPROVAL_EFFECT,
             action_summary=order_summary(connection, intent, preview),
-            affected_data=json.dumps(affected, sort_keys=True, default=str),
+            affected_data=affected,
             risk=risk,
             ttl_seconds=APPROVAL_TTL_SECONDS,
         )
@@ -192,6 +192,48 @@ def consume_approval(approvals: Any, approval_id: str, intent: OrderIntent) -> d
     return claimed
 
 
+def approval_view(row: dict[str, Any]) -> dict[str, Any]:
+    """A pending/decided approval plus what the chat card needs to submit it.
+
+    The stored row carries the exact order in `affectedData` and the connection
+    id in `serverId` (`trade:<connectionId>`). Exposing those lets an operator
+    approve and submit from the chat composer without re-typing the order into
+    another surface. Nothing here authorizes anything: `submit_order` re-verifies
+    the digest, the mode and the phrase.
+    """
+    view = {
+        "id": row.get("id"),
+        "kind": row.get("kind"),
+        "status": row.get("status"),
+        "actionSummary": row.get("actionSummary"),
+        "risk": row.get("risk"),
+        "expiresAt": row.get("expiresAt"),
+        "createdAt": row.get("createdAt"),
+    }
+    affected: dict[str, Any] = {}
+    raw = row.get("affectedData")
+    if raw:
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            # Older rows double-encoded the payload (json.dumps of a string).
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+            if isinstance(parsed, dict):
+                affected = parsed
+        except (TypeError, ValueError):
+            affected = {}
+    order = affected.get("order")
+    if isinstance(order, dict):
+        view["intent"] = order
+    server = str(row.get("serverId") or "")
+    if server.startswith("trade:"):
+        view["connectionId"] = server.removeprefix("trade:")
+    preview = affected.get("preview")
+    if isinstance(preview, dict):
+        view["preview"] = preview
+    return view
+
+
 def cooling_remaining(approval_row: dict[str, Any], guardrail: Any) -> int:
     """Seconds left on the guardrail's cooling-off, measured from the approval.
 
@@ -213,6 +255,7 @@ def cooling_remaining(approval_row: dict[str, Any], guardrail: Any) -> int:
 
 __all__ = [
     "APPROVAL_KIND",
+    "approval_view",
     "consume_approval",
     "cooling_remaining",
     "evaluate_guardrails",

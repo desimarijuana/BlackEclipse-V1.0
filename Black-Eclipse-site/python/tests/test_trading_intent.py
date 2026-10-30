@@ -19,9 +19,10 @@ def test_analysis_plus_order_gets_the_directive():
         "Analyze XAUUSD and place a small demo trade with a stop loss and take profit."
     )
     assert block.startswith("# Trading request")
-    assert "order_submit" in block
-    assert "do not ask the user for a mandate id" in block.lower()
-    assert "demo only" in block.lower()
+    assert "order_preview" in block
+    assert "do not ask the user for a connection id" in block.lower()
+    assert "approval card" in block.lower()
+    assert "do not call `order_submit`" in block.lower()
 
 
 def test_explicit_order_without_a_symbol_also_gets_it():
@@ -85,11 +86,12 @@ def test_trade_turn_detection_matches_the_directive():
 
 
 def test_a_trade_turn_binds_only_the_trade_surface():
-    allowed = {"order_submit", "broker_quote", "broker_bars", "shell_run",
-               "code_edit", "response_block_schema"}
+    allowed = {"order_submit", "order_preview", "broker_quote", "broker_bars",
+               "shell_run", "code_edit", "response_block_schema"}
     narrowed = narrow_trade_surface(allowed)
     assert narrowed == {
-        "order_submit", "broker_quote", "broker_bars", "response_block_schema",
+        "order_submit", "order_preview", "broker_quote", "broker_bars",
+        "response_block_schema",
     }
 
 

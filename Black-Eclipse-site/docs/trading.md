@@ -14,7 +14,9 @@ to a broker, report its account, positions, working orders and quotes, submit or
 for a **demo** account or an **armed live** account, and durably reconcile fills,
 positions and order state. Live is off by default: arming requires a typed phrase, a
 non-zero magic, a positive maxMargin and a time box, and every live order needs its
-own typed phrase. Graph Studio can submit demo orders under a bounded mandate. The
+own typed phrase. Chat surfaces that live approval as a **one-click card** above the
+composer. Live exits (close/modify) are arm-free so risk reduction is never blocked.
+Graph Studio can submit demo orders under a bounded mandate. The
 internal simulator (`trading.paper_order`) remains available.
 
 ## The one rule
@@ -132,10 +134,11 @@ intent ──▶ order_preview (normalize volume, stops, filling, order_check)
         ──▶ BrokerOrder ledger + reconciliation by the operator
 ```
 
-**Two independent demo gates.** The connection record must say `demo`, *and* the
-broker's `account_info().trade_mode` must report `demo` at preview and again at
-submit. A live record or a real account is refused with `LIVE_NOT_ENABLED` /
-`LIVE_ACCOUNT_REFUSED`, even if the other gate says demo.
+**The connection mode and the account must agree.** A demo connection only acts on
+a broker account whose `account_info().trade_mode` reports `demo`; a live
+connection only acts on a `real` account. The account mode is checked at preview,
+again at submit and again for a close/modify, so a mislabelled connection cannot
+touch the wrong book (a named `*_ACCOUNT_REQUIRED` / `LIVE_ACCOUNT_REFUSED` refusal).
 
 **The approval is the payload.** `OrderIntent.digest` covers connection, symbol,
 side, type, volume, price, SL, TP, deviation, time-in-force, magic and comment.
@@ -158,9 +161,9 @@ Endpoints (operator-gated):
 | `POST` | `/trading/connections/{id}/orders/preview` | validate + `order_check` + request approval; sends nothing |
 | `POST` | `/trading/connections/{id}/orders/submit` | consume the approval and `order_send` once |
 | `POST` | `/trading/connections/{id}/orders/{ticket}/cancel` | cancel a working order (risk-reducing; no approval) |
-| `POST` | `/trading/connections/{id}/positions/{ticket}/close` | close a demo position, fully or with `volume` (risk-reducing; no approval) |
-| `POST` | `/trading/connections/{id}/positions/{ticket}/modify` | move SL/TP on a demo position (risk-reducing; no approval) |
-| `POST` | `/trading/connections/{id}/positions/close` | close every open demo position (or `tickets`) |
+| `POST` | `/trading/connections/{id}/positions/{ticket}/close` | close a position, fully or with `volume` (risk-reducing; no approval, no arm) |
+| `POST` | `/trading/connections/{id}/positions/{ticket}/modify` | move SL/TP (risk-reducing; no approval, no arm) |
+| `POST` | `/trading/connections/{id}/positions/close` | close every open position (or `tickets`) |
 | `GET` | `/trading/connections/{id}/orders/ledger` | local submitted-order ledger |
 | `GET` | `/trading/orders/{orderId}` | one ledger row |
 | `GET` | `/trading/approvals` | `trade_order` approvals |
@@ -217,8 +220,26 @@ still apply (caps, crisis mode, cooling-off).
 
 **Kill switch.** `POST /trading/connections/{id}/kill` cancels every working order
 whose magic matches the connection, then disarms. It refuses when the magic is 0.
-It does **not** close open positions: a close is a different action that is not yet
-exposed; use the terminal until that is designed.
+It does **not** close open positions; use `positions/close` (or the Open Positions
+widget) for that, which is arm-free because it only reduces exposure.
+
+**Live exits are always available.** Closing or modifying a live position needs no
+arm, no approval and no mandate: an expired arm must never trap the operator in a
+live position. The only gate is mode agreement — a live connection can only act on
+a real account, and a demo connection on a demo account. Every close/modify is read
+back from the broker and returns `verified`.
+
+### Chat: one-click order approval
+
+`order_preview` creates the single-use approval; the chat then renders it above the
+composer (`src/components/chat/trade-approval-banner.tsx`). The banner shows the
+exact order, the risk and a **Confirm & send live** button. On a live connection the
+operator must type the phrase the server computed (`LIVE BUY 0.1 EURUSD`) before the
+button enables; the banner then approves the exact digest and calls the same
+`/trading/connections/{id}/orders/submit` route as Quick Trade. Eclipse never types
+the phrase on the operator's behalf, and the agent does not call `order_submit` for
+a live order. A demo order follows the same card (the phrase appears only when the
+money guardrails require one).
 
 ## Unattended demo graph orders (P3)
 
@@ -253,14 +274,17 @@ There is still no unattended live trading. A live mandate is not implemented; th
 compiler refuses live trading graphs, and `create_mandate` refuses a live
 connection. That remains a separate design with a separate review.
 
-**Agent-driven demo execution.** Settings → Broker connection can create and
-revoke the same mandates. Once an active mandate exists, ask Eclipse in chat to
-analyze a market and place one order under it. The agent calls `order_submit`
-directly (it previews and submits in one call), and the result appears in the
-position book and ledger. The agent cannot create the mandate, arm live, cancel,
-or exceed the mandate’s symbols / margin cap / order count / expiry. A verified
-demo run placed ticket **11164809214** (EURUSD BUY 0.01, SL 1.11125, TP 1.12260)
-under mandate `mnd_c82ba003d785`.
+**Agent-driven chat execution.** Settings → Broker connection can create and
+revoke mandates. On a **live** connection, ask Eclipse to analyze a market and place
+one order: the agent calls `order_preview` and the approval appears above the chat
+composer. You type the live phrase and click **Confirm & send live**; the banner
+approves the exact digest and submits through the same route as Quick Trade. The
+agent never types the phrase and never calls `order_submit` for live. On a **demo**
+connection with an active mandate the agent may still call `order_submit` once (the
+unattended demo path); the result appears in the position book and ledger. The agent
+cannot create the mandate, arm live, cancel, or exceed the mandate’s symbols / margin
+cap / order count / expiry. A verified demo run placed ticket **11164809214**
+(EURUSD BUY 0.01, SL 1.11125, TP 1.12260) under mandate `mnd_c82ba003d785`.
 
 **A plain prompt is enough.** The user never has to name a mandate or a
 connection. `order_submit` resolves the only saved connection, then the one
@@ -272,23 +296,21 @@ another profile or database) is dropped and resolved normally; otherwise it woul
 make an account with a valid mandate report "no active mandate".
 
 **The trade turn is not a research turn.** `graph.py` appends a per-run
-`# Trading request` block when the query asks to place/buy/sell an order and
-`order_submit` is bound. It tells the model to skip web/news/scrape work, read
-the quote (plus at most one bar source) and call `order_submit` once with a small
-size, then report the ticket. A refusal (“do not place a trade”) or a question
-(“should I buy…”) never gets the block. Verified with the bare prompt
-“Analyze XAUUSD and place a small demo trade with a stop loss and take profit”:
-4 model steps, one `order_submit`, ticket **11165187813** (XAUUSD BUY 0.01 @
-4014.13, SL 3988.99, TP 4063.99) under mandate `mnd_c405bf889119`, no ids given.
+`# Trading request` block when the query asks to place/buy/sell an order. It tells
+the model to skip web/news/scrape work, read the quote (plus at most one bar source)
+and call `order_preview` once with a small size, then tell the operator the approval
+card is waiting for their phrase. A live turn never submits from the agent. A
+refusal (“do not place a trade”) or a question (“should I buy…”) never gets the
+block. The historical demo runs above were produced by the earlier
+`order_submit`-first directive; the tool remains available for demo mandates.
 
 **The trade turn gets the trade surface.** A run whose prompt is a trade, close
 or modify request binds only the broker/trade tools plus the response helpers
 (`TRADE_SURFACE_TOOLS`, ~18 names) instead of the agent’s ~700. The narrowing is
 applied after policy resolution and can only remove: a run that cannot
-submit/close/modify is left untouched. Verified live on a refused gold order:
-`allowedTools` fell from 721 to **18** and prompt tokens for the 3-step run were
-**47k** instead of ~228k, with the model calling exactly `broker_quote` →
-`broker_bars` → `order_submit`.
+submit/close/modify is left untouched. In the historical demo run on a refused gold
+order the narrowing held: `allowedTools` fell from 721 to **18** and prompt tokens
+for the 3-step run were **47k** instead of ~228k.
 
 **The mandate cap sees this order's margin, not the account total.**
 `order_check().margin` is the account margin *after* the order, so with other
@@ -322,14 +344,16 @@ Verified live: XAUUSD H1, 120 bars, contract 100, ATR(14) 14.82, 20-bar range
 4005.20–4068.74 — the trade run placed ticket **11166047327** (BUY 0.01 @
 4025.10, SL 4003.50 ≈ 1.46 ATR, TP 4055.00 ≈ 2.02 ATR).
 
-**Stepping out (close, partial close, modify).** `position_close` closes one demo
+**Stepping out (close, partial close, modify).** `position_close` closes one
 position by `ticket`, every position in a `symbol`, or everything with `all: true`;
 pass `volume` to close part of a ticket. `position_modify` moves `stopLoss` /
 `takeProfit` (0 removes a level). Both only reduce or re-scope exposure, so — like
-cancelling a working order — they need **no mandate and no approval**, and neither
-consumes a mandate order. The service refuses a live connection
-(`LIVE_NOT_ENABLED`) and a real account behind a mislabelled connection
-(`DEMO_ACCOUNT_REQUIRED`); a live exit stays a terminal action. MT5 sends the exact
+cancelling a working order — they need **no mandate, no approval and no live arm**,
+and neither consumes a mandate order. They work on a demo or a live connection; a
+mode mismatch is refused with `DEMO_ACCOUNT_REQUIRED` / `LIVE_ACCOUNT_REQUIRED`.
+On a live connection, `all: true` closes only positions whose magic matches the
+connection (name `tickets` to include others); this is the same ownership boundary
+the kill switch uses. MT5 sends the exact
 opposite market deal (or `TRADE_ACTION_SLTP`) against the named position ticket with
 its magic, once, and an ambiguous reply is reported, never retried. Every close and
 modify is **read back** and returns `verified` plus a `verifyNote`; a market fill
@@ -460,12 +484,14 @@ exact same operator routes.
 | **P2 (done)** | armed live submission + kill switch | real account, Algo Trading, typed arm phrase, non-zero magic, positive `maxMargin`, time-boxed arm, per-order `LIVE ...` phrase |
 | **P3 (done)** | Graph Studio `trading.broker_order` + bounded, revocable demo mandates | paper-mode graph + operator paper grant + demo connection + active mandate; live trading nodes remain refused |
 | **P4 (done)** | durable fills/positions/order-state reconciliation | broker history is the only source; a failed sync is an error, never a fake fill |
-| **P4.5 (done)** | demo close (ticket, symbol or all), partial close, SL/TP modify, read-back verification | risk-reducing, no mandate/approval; live exits and bracket management stay out |
+| **P4.5 (done)** | close (ticket, symbol or all), partial close, SL/TP modify, read-back verification | risk-reducing, no mandate/approval/arm; demo or live with a matching account; a live close-all is scoped to the connection magic |
 | **P4.6 (done)** | per-trade risk, per-symbol notional, rolling 24 h loss brake, spread cap | config on the connection; brake blocks entries, never exits |
-| P5 | flatten-on-live + unattended live mandates | separate design + review; not enabled by P4 |
+| **P4.7 (done)** | chat one-click live approval (`TradeApprovalBanner`) + Settings mode switch | preview -> approval -> typed LIVE phrase -> submit; no unattended live |
+| P5 | unattended live mandates | separate design + review; not enabled by P4 |
 
-P4 deliberately does not add position closing or live automation. Reconciliation
-makes the existing manual live path observable; those are separate risk decisions.
+P4 deliberately does not add unattended live automation. The manual live path and
+its chat approval are observable; unattended live trading remains a separate risk
+decision.
 
 ## Honest boundaries
 

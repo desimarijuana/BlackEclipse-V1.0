@@ -7,6 +7,18 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-29
+- **feat(trading): live exits are arm-free; live entries are one-click in chat.**
+  A live connection can now close/modify its own positions without an arm (the
+  account mode must still match), so an expired arm cannot trap live risk. A live
+  close-all is scoped to the connection's magic (the kill-switch boundary); explicit
+  tickets can include others. Added a
+  chat `TradeApprovalBanner`: `order_preview` leaves a single-use approval, the
+  banner shows the exact order, and the operator types the LIVE phrase and clicks
+  Confirm & send. The server list view now carries `connectionId`/`intent` so the
+  card submits without re-entry. Settings › Broker connection gained an edit/switch
+  mode control. Live mandates and Graph Studio live nodes remain out of scope.
+  Docs updated: `docs/trading.md`, `docs/DECISIONS.md`, `skills/ARCHITECT.md`
+  (ADR-056), `docs/harness/tool-registry.json`.
 - **fix(ui): frosted-glass dropdowns in the broker + quick-trade surfaces.** Replaced
   the native `<select>` mode/side/type pickers in Settings › Broker connection, the
   sidebar broker dialog, and the Quick Trade widget with the shared Base UI

@@ -24,6 +24,7 @@ import {
 import type { ChatModelState } from '@/lib/agent/use-chat-model';
 import type { ReasoningEffortState } from '@/lib/agent/use-reasoning-effort';
 import { EffortControl } from './effort-control';
+import { TradeApprovalBanner } from './trade-approval-banner';
 import {
   commandArgHint,
   isCommandAvailable,
@@ -396,6 +397,7 @@ export function ChatInput({
 
   return (
     <div className="w-full">
+      <TradeApprovalBanner />
       {attachments && attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5" aria-label="Attached documents">
           {attachments.map((file) => (

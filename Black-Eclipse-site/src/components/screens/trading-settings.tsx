@@ -292,6 +292,7 @@ export function TradingSettingsPanel() {
               )}
 
               <RiskLimits connection={connection} onSaved={load} />
+              <ConnectionEditor connection={connection} onSaved={load} />
 
               <div className="flex flex-wrap items-center gap-2">
                 <Action busy={busy === `test:${connection.id}`} onClick={() => void test(connection)}>
@@ -520,6 +521,108 @@ function RiskLimits({
       <Action busy={busy} onClick={() => void save()}>
         Save limits
       </Action>
+    </div>
+  );
+}
+
+function ConnectionEditor({
+  connection,
+  onSaved,
+}: {
+  connection: BrokerConnection;
+  onSaved: () => Promise<void>;
+}) {
+  const config = connection.config ?? {};
+  const [open, setOpen] = useState(false);
+  const [label, setLabel] = useState(connection.label);
+  const [mode, setMode] = useState<"demo" | "live">(connection.mode === "live" ? "live" : "demo");
+  const [magic, setMagic] = useState(String(config.magic ?? ""));
+  const [maxMargin, setMaxMargin] = useState(String(config.maxMargin ?? ""));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const next: Record<string, unknown> = { ...config };
+      const magicNumber = Number(magic);
+      const marginNumber = Number(maxMargin);
+      if (Number.isFinite(magicNumber) && magicNumber > 0) next.magic = magicNumber;
+      else delete next.magic;
+      if (Number.isFinite(marginNumber) && marginNumber > 0) next.maxMargin = marginNumber;
+      else delete next.maxMargin;
+      await updateBrokerConnection(connection.id, {
+        label: label.trim() || connection.label,
+        mode,
+        config: next,
+      });
+      await onSaved();
+      setOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "could not save the connection");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-xl border border-border/20 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
+          Connection settings
+        </p>
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="rounded-lg border border-border/40 px-2 py-1 text-[10px] text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
+        >
+          {open ? "Close" : "Edit"}
+        </button>
+      </div>
+      {open && (
+        <>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field label="Label">
+              <input value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} />
+            </Field>
+            <Field label="Mode" hint="Live clears the arm; re-arm after saving.">
+              <Select
+                value={mode}
+                onValueChange={(value) => setMode(value === "live" ? "live" : "demo")}
+              >
+                <SelectTrigger className={cn(inputClass, "h-auto w-full justify-between py-1.5")}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="demo">Demo</SelectItem>
+                  <SelectItem value="live">Live</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="Magic" hint="Non-zero for live; scopes the kill switch.">
+              <input value={magic} onChange={(event) => setMagic(event.target.value)} className={inputClass} />
+            </Field>
+            <Field label="Max margin" hint="Required for live; a per-order cap.">
+              <input
+                value={maxMargin}
+                onChange={(event) => setMaxMargin(event.target.value)}
+                className={inputClass}
+              />
+            </Field>
+          </div>
+          {mode === "live" && (
+            <p className="text-[10px] text-rose-200/80">
+              A live connection places real orders. A non-zero magic and a positive max margin are
+              required before you can arm it.
+            </p>
+          )}
+          {error && <p className="text-[10px] text-rose-300">{error}</p>}
+          <Action busy={busy} onClick={() => void save()}>
+            Save connection
+          </Action>
+        </>
+      )}
     </div>
   );
 }

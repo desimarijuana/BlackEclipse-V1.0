@@ -1,5 +1,5 @@
 {
-  "digest": "cfc07c424ded4902",
+  "digest": "3c1ed4ab9309b6a6",
   "manifestVersion": "1",
   "toolCount": 983,
   "tools": [
@@ -18545,7 +18545,7 @@
     },
     {
       "deprecated": false,
-      "description": "Validate a demo order against broker constraints, the connection's limits and the money guardrails, then request a single-use operator approval. This NEVER sends an order; submission is an operator action.",
+      "description": "Validate an order (demo or live) against broker constraints, the connection's limits and the money guardrails, then request a single-use operator approval. On a live connection the operator confirms the approval card in chat and types the LIVE phrase; this tool NEVER sends an order.",
       "effect": null,
       "inputSchema": {
         "properties": {
@@ -18624,7 +18624,7 @@
     },
     {
       "deprecated": false,
-      "description": "Submit ONE demo order under an active operator-created mandate. REQUIRED arguments: connectionId and intent {symbol, side, type, volume, stopLoss?, takeProfit?}. `connectionId` and `mandateId` are optional: the one saved connection and the one active mandate covering the symbol are resolved for you. Only an ambiguous multi-mandate symbol needs an id from broker_mandates. This call performs its own preview and submission; do not call order_preview first and never call it with empty arguments. It cannot create a mandate, arm live, or submit live. ",
+      "description": "Submit ONE DEMO order under an active operator-created mandate. REQUIRED arguments: connectionId and intent {symbol, side, type, volume, stopLoss?, takeProfit?}. `connectionId` and `mandateId` are optional: the one saved connection and the one active mandate covering the symbol are resolved for you. Only an ambiguous multi-mandate symbol needs an id from broker_mandates. This call performs its own preview and submission; do not call order_preview first and never call it with empty arguments. It cannot create a mandate or arm live. LIVE orders are never submitted by this tool: call `order_preview` and the operator confirms the approval card in chat.",
       "effect": "trading",
       "inputSchema": {
         "properties": {
@@ -20138,7 +20138,7 @@
     },
     {
       "deprecated": false,
-      "description": "Close an open DEMO position (risk-reducing, so no approval or mandate is needed). Pass `ticket` for one position, or `all: true` to step out of every open position; `connectionId` resolves on its own when there is one connection. Returns the broker's per-ticket result. Live close is refused; close a live position in the terminal.",
+      "description": "Close an open position (risk-reducing, so no approval, mandate or live arm is needed). Pass `ticket` for one position, or `all: true` to step out of every open position; `connectionId` resolves on its own when there is one connection. Works on a demo or a live connection; the account mode must match the connection. Returns the broker's per-ticket result.",
       "effect": "trading",
       "inputSchema": {
         "properties": {
@@ -20182,7 +20182,7 @@
     },
     {
       "deprecated": false,
-      "description": "Move a demo position's stop loss and/or take profit (risk-reducing; no approval or mandate). Pass `ticket` and `stopLoss`/`takeProfit`; 0 removes a level. The result is verified against the broker's stored bracket. A wider stop increases risk — say so when you do it. Live modify is refused.",
+      "description": "Move a position's stop loss and/or take profit (risk-reducing; no approval, mandate or live arm). Pass `ticket` and `stopLoss`/`takeProfit`; 0 removes a level. Works on a demo or a live connection; the account mode must match. The result is verified against the broker's stored bracket. A wider stop increases risk — say so when you do it.",
       "effect": "trading",
       "inputSchema": {
         "properties": {
