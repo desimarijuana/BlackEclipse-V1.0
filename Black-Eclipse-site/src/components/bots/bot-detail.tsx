@@ -318,7 +318,17 @@ function OverviewSection({ bot, status }: { bot: AutomationView; status: Automat
           </div>
         </div>
         <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label={t('bots.create.agent')}>{bot.action.agentId ?? 'eclipse-agent'}</Field>
+          {bot.action.type === 'execute_workflow' ? (
+            <Field label="Workflow">
+              {typeof bot.action.config?.graphWorkflowName === 'string'
+                ? bot.action.config.graphWorkflowName
+                : (typeof bot.action.config?.graphWorkflowId === 'string'
+                    ? bot.action.config.graphWorkflowId
+                    : bot.action.workflowId ?? '—')}
+            </Field>
+          ) : (
+            <Field label={t('bots.create.agent')}>{bot.action.agentId ?? 'eclipse-agent'}</Field>
+          )}
           <Field label={t('bots.scope')}>{bot.scopeId ?? 'Personal'}</Field>
           <Field label={t('bots.status')}>{bot.state}</Field>
         </dl>
@@ -500,7 +510,17 @@ function CapabilitiesSection({ bot }: { bot: AutomationView }) {
   return (
     <div className="space-y-3 text-sm">
       <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label={t('bots.create.agent')}>{bot.action.agentId ?? 'eclipse-agent'}</Field>
+        {bot.action.type === 'execute_workflow' ? (
+          <Field label="Workflow">
+            {typeof bot.action.config?.graphWorkflowName === 'string'
+              ? bot.action.config.graphWorkflowName
+              : (typeof bot.action.config?.graphWorkflowId === 'string'
+                  ? bot.action.config.graphWorkflowId
+                  : bot.action.workflowId ?? '—')}
+          </Field>
+        ) : (
+          <Field label={t('bots.create.agent')}>{bot.action.agentId ?? 'eclipse-agent'}</Field>
+        )}
         <Field label={t('bots.scope')}>{bot.scopeId ?? 'Personal'}</Field>
         <Field label={t('bots.requiresApproval')}>
           {perms.requiresApproval ? (perms.approvalScope ?? 'Yes') : t('bots.noApproval')}

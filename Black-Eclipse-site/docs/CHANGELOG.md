@@ -1,5 +1,29 @@
 # Change Log
 
+## 2026-10-31
+- **fix(bots): workflow bots show their workflow, not an agent id.** The bot
+  Overview and Capabilities sections display the linked workflow name (or id)
+  for an `execute_workflow` bot instead of the irrelevant default agent.
+  No doc change — the workflow-bot behaviour is already documented in
+  `docs/graph-studio.md`.
+- **feat(bots): use a saved workflow as the brain of a bot.** The New-bot dialog
+  gained a **Brain** choice (Agent / Workflow) and a saved-workflow picker. A
+  workflow bot answers chat turns by running its graph with
+  `runInput = { message, botId, context }` and replying with the terminal output
+  (string or pretty JSON). Scheduled workflow bots use the automation
+  `execute_workflow` action with `action.config.graphWorkflowId`; because the
+  Python runtime cannot read JDDS, the dispatcher starts the run through the
+  front door (`/api/workflows/{id}/runs`) and polls `/api/graph-runs/{id}` to a
+  terminal state. Both paths stay in the read-only TEST envelope. A workflow that
+  is a bot shows that bot's avatar in the Graph Studio header and a **Workflow**
+  badge in chat.
+- **fix(graph/ui): Ctrl+Tab add-node shortcut and calmer add-node affordances.**
+  The canvas add-node shortcut and its hint are now `Ctrl/Cmd+Tab` (plain Tab
+  did not fire reliably), and the small `+` on a node output is a larger neutral
+  frosted button instead of a tiny accent circle.
+  Docs updated: `docs/graph-studio.md`, `docs/harness/automation-engine.md`,
+  `docs/CHANGELOG.md`.
+
 ## Rotation policy
 
 This file keeps a rolling window of the **most recent 7 dated sections** (the active window). Older dated sections are **moved** - never deleted - into monthly archive files under `docs/changelog/YYYY-MM.md`. New entries are appended under the current date; the commit-msg hook checks this path. Rotation is by hand only when this file grows unwieldy; the archive link below points at where the older entries went.

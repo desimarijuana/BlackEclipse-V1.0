@@ -210,7 +210,7 @@ target and closes the drawer. On a phone the drawer becomes a full-width sheet.
 
 | Gesture | Result |
 | --- | --- |
-| `Tab` (canvas focused) / empty-state "Add first step" / right-edge **Add node** button | Search panel inserts a node under the pointer / view centre |
+| `Ctrl/Cmd+Tab` (canvas focused) / empty-state "Add first step" / right-edge **Add node** button | Search panel inserts a node under the pointer / view centre |
 | Canvas controls → **Tidy up layout** (or the editor's More menu) | Deterministic auto-layout of every node |
 | `+` on a node output | Search panel appends a node and wires that output |
 | `+` on a hovered edge | Search panel inserts a node *into* the edge (splits it) |
@@ -441,6 +441,19 @@ trigger the graph no longer contains. Schedules created from the old dock (no
 `nodeId`) are unaffected. For an unattended host, drive the tick from system
 cron as described below; otherwise schedules only fire while the Eclipse server
 is running.
+
+**Workflow bots.** A saved workflow can be the brain of a bot in Bots mode:
+*New bot → Brain → Workflow*, then pick the workflow. Each chat message is sent
+as the workflow's one-off `runInput` (`{ message, botId, context }`) and the
+bot replies with the graph's terminal output (a string, or pretty JSON). The
+bot card and chat header show a **Workflow** badge; the workflow editor shows
+that bot's avatar in its header. Scheduled workflow bots run through the
+automation engine's `execute_workflow` action with
+`action.config.graphWorkflowId`; the Python runtime cannot read JDDS, so it
+starts the run through the front door and polls the graph run record. Both chat
+turns and scheduled runs use the normal **read-only TEST envelope** — a
+workflow bot cannot place orders, write files or hit the network just because
+it was messaged or scheduled.
 
 `src/lib/graph-studio/cron.ts` is a dependency-free, timezone-aware 5-field cron
 evaluator (cached `Intl` formatters, 40-day search bound). A 60 s in-process

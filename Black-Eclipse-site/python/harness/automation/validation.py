@@ -141,9 +141,14 @@ def validate_automation(
     else:
         required = _ACTION_REQUIRES[action.type]
         if required and not getattr(action, required, None):
-            issues.append(ValidationIssue(
-                ERROR, "INVALID_ACTION", f"action.{required}", f"action {action.type!r} requires {required}",
-            ))
+            # A Graph Studio workflow is addressed through config.graphWorkflowId
+            # (the Python runtime cannot read JDDS); a legacy harness workflow
+            # still uses action.workflow_id.
+            graph_id = action.config.get("graphWorkflowId") if isinstance(action.config, dict) else None
+            if not (action.type == "execute_workflow" and graph_id):
+                issues.append(ValidationIssue(
+                    ERROR, "INVALID_ACTION", f"action.{required}", f"action {action.type!r} requires {required}",
+                ))
         if action.type == "execute_task" and not (action.skill_id or action.objective):
             issues.append(ValidationIssue(
                 ERROR, "INVALID_ACTION", "action",
@@ -156,7 +161,8 @@ def validate_automation(
             ))
 
     # ── Referenced entities ──────────────────────────────────────────────────
-    if action.workflow_id and workflow_store is not None:
+    graph_workflow_id = action.config.get("graphWorkflowId") if isinstance(action.config, dict) else None
+    if action.workflow_id and not graph_workflow_id and workflow_store is not None:
         try:
             if workflow_store.get(action.workflow_id) is None:
                 issues.append(ValidationIssue(ERROR, "WORKFLOW_NOT_FOUND", "action.workflowId", f"no workflow {action.workflow_id!r}"))

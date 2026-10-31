@@ -23,6 +23,9 @@ import {
 import type { ExecutionMode } from '@/lib/graph-studio/types';
 import { summarizeRunNeeds } from '@/lib/graph-studio/run-authorization';
 import { parseRunInputText } from '@/lib/graph-studio/run-input';
+import { BotAvatar } from '@/components/bots/bot-avatar';
+import { avatarFor, useBotAvatarStore, useHydrateBotAvatars } from '@/lib/bots/avatar-store';
+import { listAutomations, type AutomationView } from '@/lib/harness/automation-browser';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -91,6 +94,28 @@ export function GraphStudioScreen({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [authorizeOpen, setAuthorizeOpen] = useState(false);
+  // A workflow can be the brain of a bot; show that bot's face in the header.
+  useHydrateBotAvatars();
+  const avatars = useBotAvatarStore((s) => s.avatars);
+  const [linkedBot, setLinkedBot] = useState<AutomationView | null>(null);
+  useEffect(() => {
+    if (!workflowId) {
+      setLinkedBot(null);
+      return;
+    }
+    let live = true;
+    void listAutomations()
+      .then((items) => {
+        if (!live) return;
+        setLinkedBot(
+          items.find(
+            (item) => item.action.type === 'execute_workflow' && item.action.workflowId === workflowId,
+          ) ?? null,
+        );
+      })
+      .catch(() => { if (live) setLinkedBot(null); });
+    return () => { live = false; };
+  }, [workflowId]);
   // One-off trigger input for the next run. Text lives in the execution dock;
   // it is parsed here so both the dock button and the operator dialog use it.
   const [runInputText, setRunInputText] = useState('');
@@ -360,12 +385,29 @@ export function GraphStudioScreen({
         </Button>
         <span className="h-4 w-px bg-white/10" />
 
-        <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20">
-          <GitBranch size={14} />
-          {dirty && (
-            <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-amber-400 ring-1 ring-background" />
-          )}
-        </span>
+        {linkedBot ? (
+          <span
+            title={`Bot: ${linkedBot.name}`}
+            className="relative flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-lg ring-1 ring-inset ring-primary/20"
+          >
+            <BotAvatar
+              botId={linkedBot.id}
+              spec={avatarFor(avatars, linkedBot.id)}
+              size={28}
+              title={linkedBot.name}
+            />
+            {dirty && (
+              <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-amber-400 ring-1 ring-background" />
+            )}
+          </span>
+        ) : (
+          <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20">
+            <GitBranch size={14} />
+            {dirty && (
+              <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-amber-400 ring-1 ring-background" />
+            )}
+          </span>
+        )}
 
         <div className="flex min-w-0 items-center gap-2">
           <input

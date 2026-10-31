@@ -296,14 +296,10 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
             event.stopPropagation();
             data.onAddNext?.(id, port.id);
           }}
-          style={{
-            top: handleTop(index, data.outputs.length),
-            borderColor: `color-mix(in srgb, ${accent} 55%, transparent)`,
-            color: accent,
-          }}
-          className="nodrag nopan absolute right-[-31px] z-10 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full border bg-background/90 opacity-0 shadow-sm transition-opacity hover:bg-black/5 group-hover/node:opacity-100 dark:hover:bg-white/10"
+          style={{ top: handleTop(index, data.outputs.length) }}
+          className="nodrag nopan absolute right-[-33px] z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-black/10 bg-background/95 text-muted-foreground opacity-0 shadow-[0_2px_10px_rgba(0,0,0,0.35)] backdrop-blur transition-all hover:scale-105 hover:border-black/20 hover:bg-white/10 hover:text-foreground group-hover/node:opacity-100 dark:border-white/15 dark:bg-[#17171b]/95 dark:hover:border-white/25"
         >
-          <Plus size={10} />
+          <Plus size={11} />
         </button>
       ))}
 

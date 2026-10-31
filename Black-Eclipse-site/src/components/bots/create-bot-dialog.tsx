@@ -23,6 +23,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { createAutomation, type AutomationView } from '@/lib/harness/automation-browser';
+import { listWorkflows, type WorkflowSummary } from '@/lib/graph-studio/persistence-client';
 import { useBotAvatarStore } from '@/lib/bots/avatar-store';
 import { fileToAvatarDataUrl } from '@/lib/bots/image';
 import {
@@ -69,6 +70,7 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [draft, setDraft] = useState<BotDraft>(() => emptyBotDraft());
+  const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   // True once the operator edits the schedule by hand in Advanced — after that,
   // a schedule phrase in the description must NOT override their explicit choice.
   const [scheduleTouched, setScheduleTouched] = useState(false);
@@ -104,6 +106,9 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
     setAdvanced(false);
     setIssues([]);
     setError(null);
+    void listWorkflows()
+      .then(setWorkflows)
+      .catch(() => setWorkflows([]));
   }, [open]);
 
   const candidates = useMemo<GhostSpec[]>(() => {
@@ -199,10 +204,21 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
         description: title.trim() || undefined,
         state: 'active',
         trigger: buildTrigger(nextDraft),
-        action: {
-          type: 'run_agent', objective: nextDraft.objective, agentId: nextDraft.agentId,
-          config: buildModelConfig(nextDraft),
-        },
+        action: nextDraft.kind === 'workflow'
+          ? {
+              type: 'execute_workflow',
+              objective: nextDraft.objective,
+              workflowId: null,
+              workflowInput: {},
+              config: {
+                graphWorkflowId: nextDraft.workflowId,
+                graphWorkflowName: workflows.find((w) => w.id === nextDraft.workflowId)?.name ?? null,
+              },
+            }
+          : {
+              type: 'run_agent', objective: nextDraft.objective, agentId: nextDraft.agentId,
+              config: buildModelConfig(nextDraft),
+            },
         ...buildPolicies(nextDraft),
         tags: ['bot'],
       });
@@ -215,7 +231,7 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
     } finally {
       setSaving(false);
     }
-  }, [saving, draft, name, description, title, nameKey, existingNames, t, spec, image, onCreated, onOpenChange, setAvatar, setAvatarImage]);
+  }, [saving, draft, name, description, title, nameKey, existingNames, t, spec, image, workflows, onCreated, onOpenChange, setAvatar, setAvatarImage]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!saving) onOpenChange(next); }}>
@@ -397,6 +413,58 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
           </Field>
         </div>
 
+        {/* Brain — the existing agent loop, or a saved workflow graph. */}
+        <div>
+          <div className="mb-1 text-[11px] font-medium text-muted-foreground">Brain</div>
+          <div className="grid grid-cols-2 gap-1 rounded-xl glass-card-subtle p-1">
+            <button
+              type="button"
+              onClick={() => setDraft((d) => ({ ...d, kind: 'agent' }))}
+              className={cn(
+                'rounded-lg py-1.5 text-xs font-semibold transition-colors cursor-pointer',
+                draft.kind === 'agent' ? 'bg-white/[0.09] text-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Agent
+            </button>
+            <button
+              type="button"
+              onClick={() => setDraft((d) => ({ ...d, kind: 'workflow' }))}
+              className={cn(
+                'rounded-lg py-1.5 text-xs font-semibold transition-colors cursor-pointer',
+                draft.kind === 'workflow' ? 'bg-white/[0.09] text-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              Workflow
+            </button>
+          </div>
+          {draft.kind === 'workflow' && (
+            <div className="mt-2 space-y-1.5">
+              <select
+                value={draft.workflowId}
+                onChange={(event) => {
+                  setDraft((d) => ({ ...d, workflowId: event.target.value }));
+                  setIssues((prev) => prev.filter((issue) => issue.field !== 'workflowId'));
+                }}
+                className="w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring"
+              >
+                <option value="">Choose a saved workflow…</option>
+                {workflows.map((workflow) => (
+                  <option key={workflow.id} value={workflow.id}>
+                    {workflow.name} (v{workflow.currentVersion})
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                Each chat message is passed to the workflow as its trigger input. Scheduled
+                runs use the objective above as the input. Workflow bots answer from the
+                graph&apos;s terminal output.
+              </p>
+              <FieldError issue={issueFor('workflowId')} />
+            </div>
+          )}
+        </div>
+
         {/* Advanced — schedule + agent, collapsed by default */}
         <div className="rounded-xl glass-card-subtle">
           <button
@@ -410,24 +478,28 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
           </button>
           {advanced && (
             <div className="space-y-3 border-t border-border/10 px-3 py-3">
-              <div>
-                <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t('bots.create.agent')}</div>
-                <Select value={draft.agentId} onValueChange={(v) => setDraft((d) => ({ ...d, agentId: v ?? d.agentId }))}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {BOT_AGENTS.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <BotModelPicker
-                provider={draft.modelProvider}
-                model={draft.model}
-                onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
-              />
+              {draft.kind === 'agent' && (
+                <>
+                  <div>
+                    <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t('bots.create.agent')}</div>
+                    <Select value={draft.agentId} onValueChange={(v) => setDraft((d) => ({ ...d, agentId: v ?? d.agentId }))}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {BOT_AGENTS.map((a) => (
+                          <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <BotModelPicker
+                    provider={draft.modelProvider}
+                    model={draft.model}
+                    onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
+                  />
+                </>
+              )}
               <div>
                 <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t('bots.dialog.schedule')}</div>
                 <ScheduleEditor
@@ -463,7 +535,10 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>
             {t('bots.dialog.cancel')}
           </Button>
-          <Button onClick={() => void create()} disabled={saving || !name.trim() || !description.trim()}>
+          <Button
+            onClick={() => void create()}
+            disabled={saving || !name.trim() || !description.trim() || (draft.kind === 'workflow' && !draft.workflowId)}
+          >
             {saving ? t('bots.dialog.creating') : (
               <>
                 <Sparkles size={14} /> {t('bots.dialog.create')}

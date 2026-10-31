@@ -16,6 +16,7 @@ import type { ChatMessage } from '@/lib/agent/types';
 import type { HarnessUiEvent } from '@/lib/agent/events';
 import type { AutomationView } from '@/lib/harness/automation-client';
 import type { BotGroup } from '@/lib/bots/groups-store';
+import { getGraphRun, isTerminal, startWorkflowRun } from '@/lib/graph-studio/execution-client';
 
 /** Prior bot-chat turns. `error` marks a failed turn, excluded from context. */
 export interface PriorBotTurn {
@@ -117,8 +118,74 @@ export interface RunBotTurnArgs {
  * Run one turn as the bot and resolve its final reply text. The caller owns the
  * placeholder message and the transcript; it streams `onDelta` into it.
  */
+function formatWorkflowOutput(output: unknown): string {
+  if (output === null || output === undefined) {
+    return 'The workflow finished without a terminal output.';
+  }
+  if (typeof output === 'string') return output;
+  if (typeof output === 'object' && !Array.isArray(output)) {
+    const text = (output as { text?: unknown; message?: unknown }).text
+      ?? (output as { message?: unknown }).message;
+    if (typeof text === 'string' && text.trim()) return text;
+  }
+  try {
+    return JSON.stringify(output, null, 2);
+  } catch {
+    return String(output);
+  }
+}
+
+/**
+ * Run a workflow-backed bot turn: the chat message becomes the trigger's Start
+ * value. The run is the normal TEST envelope (no write/network/trading effects),
+ * so a chat bot can never act on the world just because it was messaged.
+ */
+export async function runWorkflowTurn(args: {
+  bot: AutomationView;
+  text: string;
+  signal?: AbortSignal;
+  onDelta?: (chunk: string) => void;
+  extra?: Record<string, unknown>;
+  /** Poll interval; tests pass 0. */
+  pollMs?: number;
+}): Promise<string> {
+  const { bot, text, signal, onDelta, extra, pollMs = 600 } = args;
+  const configured = bot.action.config?.graphWorkflowId;
+  const workflowId = (typeof configured === 'string' && configured) || bot.action.workflowId;
+  if (!workflowId) throw new Error('This workflow bot has no workflow configured.');
+
+  const run = await startWorkflowRun(workflowId, undefined, {
+    runInput: {
+      message: text,
+      botId: bot.id,
+      ...(extra ?? {}),
+    },
+  });
+
+  const started = Date.now();
+  let current = run;
+  while (!isTerminal(current.status)) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (Date.now() - started > 120_000) {
+      throw new Error('The workflow did not finish within 2 minutes.');
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    current = await getGraphRun(run.id);
+  }
+
+  if (current.status !== 'succeeded') {
+    throw new Error(current.error || `The workflow ended ${current.status}.`);
+  }
+  const reply = formatWorkflowOutput(current.output);
+  onDelta?.(reply);
+  return reply;
+}
+
 export async function runBotTurn(args: RunBotTurnArgs): Promise<string> {
   const { bot, text, prior, model, signal, onDelta, onEvent } = args;
+  if (bot.action.type === 'execute_workflow') {
+    return runWorkflowTurn({ bot, text, signal, onDelta, extra: { context: bot.action.workflowInput ?? {} } });
+  }
   return getAgentProvider().chat(buildBotMessages(bot, text, prior), undefined, {
     chatId: botChatId(bot.id),
     memoryScope: 'conversation',
@@ -147,6 +214,9 @@ export interface RunGroupMemberTurnArgs {
  */
 export async function runGroupMemberTurn(args: RunGroupMemberTurnArgs): Promise<string> {
   const { group, bot, text, prior, model, signal, onDelta, onEvent } = args;
+  if (bot.action.type === 'execute_workflow') {
+    return runWorkflowTurn({ bot, text, signal, onDelta, extra: { group: group.name } });
+  }
   return getAgentProvider().chat(buildGroupMemberMessages(group, bot, text, prior), undefined, {
     chatId: groupMemberChatId(group.id, bot.id),
     memoryScope: 'conversation',

@@ -367,6 +367,13 @@ export type ScheduleChoice =
 export interface BotDraft {
   name: string;
   objective: string;
+  /**
+   * What answers a chat turn: an agent (the existing loop) or a saved workflow
+   * (the graph's trigger receives the message as its run input).
+   */
+  kind: 'agent' | 'workflow';
+  /** Saved workflow id for a workflow bot. Empty for an agent bot. */
+  workflowId: string;
   agentId: string;
   schedule: ScheduleChoice;
   /** Event trigger preserved verbatim while an event-driven bot is edited. */
@@ -418,6 +425,8 @@ export function emptyBotDraft(): BotDraft {
   return {
     name: '',
     objective: '',
+    kind: 'agent',
+    workflowId: '',
     agentId: 'eclipse-agent',
     schedule: 'manual',
     eventType: null,
@@ -553,6 +562,9 @@ export function validateDraft(draft: BotDraft): DraftIssue[] {
   const issues: DraftIssue[] = [];
   if (!draft.name.trim()) issues.push({ field: 'name', message: 'Give the bot a name.' });
   if (!draft.objective.trim()) issues.push({ field: 'objective', message: 'Describe what the bot should do.' });
+  if (draft.kind === 'workflow' && !draft.workflowId.trim()) {
+    issues.push({ field: 'workflowId', message: 'Choose the workflow this bot runs.' });
+  }
   if (draft.schedule === 'once') {
     if (!draft.runAt) issues.push({ field: 'runAt', message: 'Pick a date and time to run.' });
     else {
@@ -726,6 +738,12 @@ export function draftFromBot(bot: AutomationView): BotDraft {
     ...base,
     name: bot.name,
     objective: bot.action.objective ?? bot.description ?? '',
+    kind: bot.action.type === 'execute_workflow' ? 'workflow' : 'agent',
+    workflowId: bot.action.type === 'execute_workflow'
+      ? (typeof bot.action.config?.graphWorkflowId === 'string'
+          ? bot.action.config.graphWorkflowId
+          : bot.action.workflowId ?? '')
+      : '',
     agentId: bot.action.agentId ?? 'eclipse-agent',
   };
   const trig = bot.trigger;

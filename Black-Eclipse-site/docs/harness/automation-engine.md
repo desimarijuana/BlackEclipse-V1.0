@@ -147,7 +147,11 @@ condition on an event trigger is evaluated against the event's data (bare keys a
   failed.
 - `run_agent` / `generate_report` / `delegate_agent` → `service.run` (a Task System
   task is created + started + finished around it).
-- `execute_workflow` → `service.run_workflow`.
+- `execute_workflow` → `service.run_workflow` for a legacy harness workflow;
+  with `action.config.graphWorkflowId` it runs a Graph Studio workflow (JDDS)
+  through the front door's `/api/workflows/{id}/runs` + `/api/graph-runs/{id}`
+  bridge and polls to a terminal state. The bridge uses the normal read-only
+  TEST envelope.
 - `call_tool` / `run_code` / `browser_action` / `custom_action` → the ONE
   `ToolRegistry.execute` with a real `ToolContext`.
 - `create_task` → registers work in the Task System (no execution).

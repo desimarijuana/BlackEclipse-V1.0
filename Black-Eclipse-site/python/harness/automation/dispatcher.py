@@ -11,10 +11,15 @@ runtime failure — the engine records it and applies retry/recovery policy.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
+
+import httpx
 
 from ..schemas import ModelSettings, RunInput, RunRequest, RunWorkspace
 from .model import AutomationDefinition
@@ -51,7 +56,12 @@ def _default_model_settings() -> ModelSettings:
 
 
 def _callback_url() -> str:
-    return os.environ.get("HARNESS_CALLBACK_URL", "http://127.0.0.1")
+    # The front door sets HARNESS_CALLBACK_URL when it can. Fall back to the
+    # same local port the graph runtime uses, never a bare port 80.
+    return (
+        os.environ.get("HARNESS_CALLBACK_URL")
+        or f"http://127.0.0.1:{os.environ.get('PORT', '3000')}"
+    )
 
 
 def plan_actions(definition: AutomationDefinition) -> list[str]:
@@ -412,6 +422,10 @@ class Dispatcher:
 
     async def _run_workflow(self, definition: AutomationDefinition, run_id: str) -> DispatchResult:
         action = definition.action
+        graph_workflow_id = str(action.config.get("graphWorkflowId") or "").strip()
+        if graph_workflow_id:
+            return await self._run_graph_via_front_door(definition, run_id, graph_workflow_id)
+
         request = self._run_request(definition, run_id, definition.name)
         request = request.model_copy(update={
             "workflowId": action.workflow_id,
@@ -428,6 +442,95 @@ class Dispatcher:
             error=None if status in ("completed", "ok") else str(result.get("note") if isinstance(result, dict) else status),
             error_class=None if status in ("completed", "ok") else "WORKFLOW_NOT_FOUND" if status == "not_found" else "INVALID_CONFIGURATION",
         )
+
+    async def _run_graph_via_front_door(
+        self,
+        definition: AutomationDefinition,
+        run_id: str,
+        graph_workflow_id: str,
+    ) -> DispatchResult:
+        """Run a Graph Studio workflow through the front door.
+
+        Graph Studio workflows live in JDDS (Prisma), which the Python runtime
+        cannot read. The front door owns that run surface, so a workflow bot's
+        scheduled action starts the run there and polls the graph run record.
+        This uses the same TEST-RUN envelope as a normal scheduled graph run.
+        """
+        action = definition.action
+        base = _callback_url().rstrip("/")
+        headers = {"Content-Type": "application/json"}
+        token = os.environ.get("CRON_SECRET")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        payload = {
+            "runInput": {
+                "message": (action.objective or definition.name)[:4000],
+                "botId": definition.id,
+                "context": action.workflow_input or {},
+            }
+        }
+        timeout_s = max(30, int(definition.execution.max_runtime_s or 900)) + 30
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.post(
+                    f"{base}/api/workflows/{graph_workflow_id}/runs",
+                    json=payload,
+                    headers=headers,
+                )
+                data = res.json() if res.content else {}
+                if res.status_code >= 400:
+                    detail = data.get("detail") if isinstance(data, dict) else None
+                    message = (
+                        detail.get("message") if isinstance(detail, dict)
+                        else detail or (data.get("error") if isinstance(data, dict) else None)
+                        or f"HTTP {res.status_code}"
+                    )
+                    return DispatchResult(
+                        state=FAILED, run_id=run_id, error=str(message),
+                        error_class="GRAPH_RUN_REJECTED",
+                    )
+                graph_run = (data.get("run") if isinstance(data, dict) else None) or {}
+                graph_run_id = graph_run.get("id")
+                if not graph_run_id:
+                    return DispatchResult(
+                        state=FAILED, run_id=run_id,
+                        error="the front door did not return a graph run id",
+                        error_class="GRAPH_BRIDGE_ERROR",
+                    )
+
+                deadline = time.monotonic() + timeout_s
+                while time.monotonic() < deadline:
+                    await asyncio.sleep(1.0)
+                    poll = await client.get(f"{base}/api/graph-runs/{graph_run_id}", headers=headers)
+                    record = ((poll.json() if poll.content else {}) or {}).get("run") or {}
+                    status = record.get("status")
+                    if status in ("succeeded", "failed", "cancelled"):
+                        output = record.get("output")
+                        if isinstance(output, (dict, list)):
+                            text = json.dumps(output, sort_keys=True)
+                        elif output is None:
+                            text = "The workflow finished without a terminal output."
+                        else:
+                            text = str(output)
+                        ok = status == "succeeded"
+                        return DispatchResult(
+                            state=COMPLETED if ok else FAILED,
+                            run_id=run_id,
+                            output=text[:20_000],
+                            error=None if ok else (record.get("error") or f"graph run {status}"),
+                            error_class=None if ok else "GRAPH_RUN_FAILED",
+                        )
+                return DispatchResult(
+                    state=FAILED, run_id=run_id,
+                    error=f"graph run {graph_run_id} did not finish in {timeout_s}s",
+                    error_class="GRAPH_RUN_TIMEOUT",
+                )
+        except Exception as exc:  # noqa: BLE001 - a bridge failure is reported, never raised
+            return DispatchResult(
+                state=FAILED, run_id=run_id,
+                error=f"graph bridge failed: {type(exc).__name__}: {exc}",
+                error_class="GRAPH_BRIDGE_ERROR",
+            )
 
     async def _call_tool(self, definition: AutomationDefinition, run_id: str) -> DispatchResult:
         from ..tools import ToolContext  # noqa: PLC0415

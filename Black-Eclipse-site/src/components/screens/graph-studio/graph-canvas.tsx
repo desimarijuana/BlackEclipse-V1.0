@@ -762,7 +762,7 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
       const mod = event.ctrlKey || event.metaKey;
       if (typing) return;
       const inCanvas = !target || target === document.body || wrapperRef.current?.contains(target);
-      if (event.key === 'Tab' && !mod && !event.altKey && inCanvas) {
+      if (event.key === 'Tab' && (event.ctrlKey || event.metaKey) && !event.altKey && inCanvas) {
         event.preventDefault();
         openPaneSearch(pointerRef.current.x || pointerRef.current.y
           ? { x: pointerRef.current.x, y: pointerRef.current.y }
@@ -883,7 +883,7 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
               ['Multi-select', 'Ctrl/Cmd + click'],
               ['Move node', 'Drag node'],
               ['Node details', 'Double-click node'],
-              ['Add node', 'Tab · + Add node'],
+              ['Add node', 'Ctrl+Tab · + Add node'],
               ['Undo / redo', 'Ctrl+Z · Ctrl+Shift+Z'],
               ['Delete', 'Backspace · Delete'],
               ['Context menu', 'Right-click'],
@@ -902,7 +902,7 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
       <button
         type="button"
         onClick={() => openPaneSearch()}
-        title="Add a node (Tab)"
+        title="Add a node (Ctrl+Tab)"
         className="glass-card-subtle absolute right-3 top-3 z-10 flex items-center gap-2 rounded-xl border border-black/10 py-1.5 pl-1.5 pr-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-black/20 hover:text-foreground dark:border-white/10 dark:hover:border-white/20"
       >
         <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-black/[0.04] text-foreground dark:bg-white/[0.06]">
@@ -910,7 +910,7 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
         </span>
         <span>Add node</span>
         <kbd className="ml-1 rounded border border-black/10 bg-black/[0.03] px-1.5 py-0.5 font-mono text-[9px] font-normal text-muted-foreground/80 dark:border-white/10 dark:bg-white/[0.04]">
-          Tab
+          Ctrl+Tab
         </kbd>
       </button>
 

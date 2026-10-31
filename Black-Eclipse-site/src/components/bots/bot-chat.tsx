@@ -481,6 +481,14 @@ export function BotChat({
               <SquarePen size={14} />
             </button>
             <LifecyclePill state={bot.state} />
+            {bot.action.type === 'execute_workflow' && (
+              <span
+                title="This bot answers by running its workflow"
+                className="rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary"
+              >
+                Workflow
+              </span>
+            )}
             {bot.breaker !== 'closed' && <BreakerPill state={bot.breaker} />}
           </div>
           <p className="mt-0.5 line-clamp-1 text-[11px] text-muted-foreground">
