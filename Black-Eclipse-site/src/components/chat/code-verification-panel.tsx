@@ -38,17 +38,6 @@ export function CodeVerificationPanel({ verification, compact = false }: CodeVer
   const failedRecords = data.records.filter((r) => r.exitCode !== 0);
   const unbacked = data.claims.filter((c) => !c.supported);
 
-  // Nothing was actually checked and nothing was produced: render NOTHING.
-  // A "Proof it works · 0 check(s)" card claims a check happened when none did,
-  // and it is pure noise under an ordinary answer.
-  const nothingToShow =
-    data.records.length === 0 &&
-    data.claims.length === 0 &&
-    data.artifacts.length === 0 &&
-    data.reviews.length === 0 &&
-    !data.repair;
-  if (nothingToShow) return null;
-
   // Phase 19: one line per produced artifact (its checks rolled up), and each
   // recorded change review with its findings in plain words.
   const artifacts = new Map<string, typeof data.artifacts>();
@@ -57,6 +46,20 @@ export function CodeVerificationPanel({ verification, compact = false }: CodeVer
     list.push(record);
     artifacts.set(record.artifactName, list);
   }
+
+  // "Proof it works" is a claim about EVIDENCE, so it only appears when there is
+  // evidence to prove: a recorded check, a claim that did not hold up, a failed
+  // artifact check, a review with findings, or a repair. A card that says
+  // "0 check(s)" while nothing was checked is not a proof — it is noise, and it
+  // makes a real failure harder to spot.
+  const hasChecks = data.records.length > 0;
+  const hasFailedArtifactCheck = [...artifacts.values()].some((checks) =>
+    checks.some((check) => !check.passed),
+  );
+  const hasReviewFindings = data.reviews.some((review) => review.findings.length > 0);
+  const worthShowing =
+    hasChecks || unbacked.length > 0 || hasFailedArtifactCheck || hasReviewFindings || Boolean(data.repair);
+  if (!worthShowing) return null;
 
   return (
     <div className={cn('mt-2 rounded-xl border border-border/40 p-3', compact ? 'text-[11px]' : 'text-[12px]')}>

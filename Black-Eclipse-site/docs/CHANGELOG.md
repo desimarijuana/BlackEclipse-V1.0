@@ -1,6 +1,13 @@
 # Change Log
 
 ## 2026-10-31
+- **fix(chat): the "Proof it works" card only appears when there is a proof.** A
+  run that recorded no check but did produce an artifact or a clean change
+  review still rendered the card — with a "0 check(s)" count that claimed a
+  check that never happened. The card now needs a recorded check, an unsupported
+  claim, a FAILED artifact check, a review finding or a repair, and the count is
+  hidden when there is nothing to count.
+  Docs updated: `docs/interactive-response-engine.md`.
 - **fix(chat): the metadata cards under an answer were noise.** "Proof it works"
   no longer renders when nothing was checked (a `0 check(s)` card claimed a
   check that never happened), and a computed result's method line drops debug
