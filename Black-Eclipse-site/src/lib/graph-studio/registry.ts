@@ -107,8 +107,11 @@ const DEFINITIONS: NodeDefinition[] = [
     // JSON.parse may yield an object, an array, a number, a string or a boolean
     // — declaring `object` would be wrong (and would block arrays).
     outputs: [port({ id: 'value', name: 'Value', type: 'any' })],
-    configSchema: z.object({ strict: z.boolean().default(true) }),
-    defaultConfig: () => ({ strict: true }),
+    configSchema: z.object({
+      text: z.string().max(20_000).default(''),
+      strict: z.boolean().default(true),
+    }),
+    defaultConfig: () => ({ text: '', strict: true }),
     capabilities: [],
     sideEffects: 'none',
     allowedModes: ALL_MODES,
@@ -128,8 +131,9 @@ const DEFINITIONS: NodeDefinition[] = [
     configSchema: z.object({
       name: z.string().max(200).default(''),
       ttlHours: z.number().int().min(0).max(8_760).default(0),
+      valueJson: z.string().max(100_000).default(''),
     }),
-    defaultConfig: () => ({ name: '', ttlHours: 0 }),
+    defaultConfig: () => ({ name: '', ttlHours: 0, valueJson: '' }),
     capabilities: ['dataset.write'],
     sideEffects: 'local_write',
     allowedModes: ALL_MODES,
@@ -147,8 +151,8 @@ const DEFINITIONS: NodeDefinition[] = [
       port({ id: 'value', name: 'Value', type: 'any' }),
       port({ id: 'meta', name: 'Meta', type: 'object' }),
     ],
-    configSchema: z.object({}),
-    defaultConfig: () => ({}),
+    configSchema: z.object({ ref: z.string().max(200).default('') }),
+    defaultConfig: () => ({ ref: '' }),
     capabilities: ['dataset.read'],
     sideEffects: 'read',
     allowedModes: ALL_MODES,

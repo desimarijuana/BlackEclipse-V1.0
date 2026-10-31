@@ -88,8 +88,23 @@ describe('workflow validation', () => {
     expect(codes).toContain('missing_required_input');
   });
 
-  it('accepts a required input supplied by a node literal', () => {
+  it('accepts a required input supplied by a config fallback', () => {
     const base = createWorkflowIR();
+    const parse = node(base, 'data.json.parse', 'parse');
+    const ir: WorkflowIR = {
+      ...base,
+      nodes: [
+        node(base, 'trigger.manual', 'trig'),
+        { ...parse, config: { ...parse.config, text: '{"a":1}' } },
+        node(base, 'output.result', 'out'),
+      ],
+      edges: [{ id: 'e1', source: 'parse', sourceHandle: 'value', target: 'out', targetHandle: 'value' }],
+    };
+    const codes = validateWorkflow(ir).map((d) => d.code);
+    expect(codes).not.toContain('missing_required_input');
+  });
+
+  it('accepts a required input supplied by a node literal', () => {    const base = createWorkflowIR();
     const parse = node(base, 'data.json.parse', 'parse');
     const ir: WorkflowIR = {
       ...base,

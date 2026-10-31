@@ -344,8 +344,13 @@ def _exec_set_variables(context: NodeExecContext) -> dict[str, Any]:
 
 def _exec_json_parse(context: NodeExecContext) -> dict[str, Any]:
     text = context.inputs.get("text")
+    if text is None:
+        configured = context.config.get("text")
+        text = configured if isinstance(configured, str) else ""
     if not isinstance(text, str):
         raise ValueError("input 'text' must be a string")
+    if text.strip() == "":
+        raise ValueError("no JSON to parse: wire Text or fill the JSON field")
     try:
         return {"value": json.loads(text)}
     except json.JSONDecodeError as exc:
@@ -854,7 +859,10 @@ def build_default_registry() -> NodeRegistry:
         # JSON.parse may yield an object, an array, a number, a string or a
         # boolean — declaring `object` would be wrong (and would block arrays).
         outputs=(_port("value", "Value", PortType.ANY),),
-        config_fields=(ConfigField("strict", "boolean", True),),
+        config_fields=(
+            ConfigField("text", "string", "", max_length=20_000),
+            ConfigField("strict", "boolean", True),
+        ),
         allowed_modes=_ALL, executor=_exec_json_parse,
     ))
     registry.register(NodeDef(

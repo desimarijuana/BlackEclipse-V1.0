@@ -11,6 +11,7 @@ still cannot run. A dataset is bounded by size, count and an optional TTL.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .datasets import DatasetError, require_dataset_store
@@ -22,8 +23,13 @@ _ALL = tuple(ExecutionMode)
 
 def exec_dataset_save(context: NodeExecContext) -> dict[str, Any]:
     value = context.inputs.get("value")
+    if value is None and isinstance(context.config.get("valueJson"), str) and context.config["valueJson"].strip():
+        try:
+            value = json.loads(context.config["valueJson"])
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"payload is not valid JSON: {exc}") from exc
     if value is None:
-        raise ValueError("no value to save: wire a value into this node")
+        raise ValueError("no value to save: wire a value into this node or fill Payload (JSON)")
     try:
         ttl_hours = int(context.config.get("ttlHours", 0))
     except (TypeError, ValueError) as exc:
@@ -46,7 +52,10 @@ def exec_dataset_save(context: NodeExecContext) -> dict[str, Any]:
 def exec_dataset_load(context: NodeExecContext) -> dict[str, Any]:
     ref = context.inputs.get("ref")
     if not isinstance(ref, str) or not ref.strip():
-        raise ValueError("input 'ref' must be a dataset reference")
+        configured = context.config.get("ref")
+        ref = configured if isinstance(configured, str) else ""
+    if not isinstance(ref, str) or not ref.strip():
+        raise ValueError("input 'ref' must be a dataset reference (pin a saved dataset in the inspector)")
     try:
         store = require_dataset_store()
         value = store.load(ref, owner=context.user_id)
@@ -72,6 +81,7 @@ def build_dataset_nodes() -> list[NodeDef]:
             config_fields=(
                 ConfigField("name", "string", "", max_length=200),
                 ConfigField("ttlHours", "integer", 0, minimum=0, maximum=8760),
+                ConfigField("valueJson", "string", "", max_length=100_000),
             ),
             capabilities=("dataset.write",),
             side_effects=SideEffect.LOCAL_WRITE,
@@ -94,7 +104,9 @@ def build_dataset_nodes() -> list[NodeDef]:
                 PortDef(id="value", name="Value", type=PortType.ANY),
                 PortDef(id="meta", name="Meta", type=PortType.OBJECT),
             ),
-            config_fields=(),
+            config_fields=(
+                ConfigField("ref", "string", "", max_length=200),
+            ),
             capabilities=("dataset.read",),
             side_effects=SideEffect.READ,
             allowed_modes=_ALL,

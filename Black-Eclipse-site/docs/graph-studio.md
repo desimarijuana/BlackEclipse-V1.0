@@ -269,6 +269,15 @@ the node **Test** tab prefills from the literals. The runtime resolves
 `wire → literal → optional/null` in `executor.py`, and the compiler accepts the
 same rule, so the editor and the Python runtime cannot disagree.
 
+**Data-node controls.** Three data nodes also accept an editable config fallback
+so they are useful without an upstream wire: Parse JSON has a **JSON text**
+editor, Save dataset has **Payload (JSON)**, and Load dataset has a **Saved
+datasets** picker backed by `GET /graphs/datasets` (ref, name, type, rows,
+bytes) plus a manual ref field. Resolution is `wire → literal → config`, and the
+validator/compiler/executor share the same fallback table (`CONFIG_FALLBACK` in
+`validation.ts`, mirrored in `compiler.py`/`executor.py`). Set variables uses the
+key/value row editor described above.
+
 **Execution.** The header's **Start workflow** button is the primary run control,
 inline with the other editor actions; when there are unsaved edits it becomes
 **Save & run** (save, then execute the persisted version). The execution dock's

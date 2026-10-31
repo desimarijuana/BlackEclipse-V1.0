@@ -240,6 +240,23 @@ export interface TestNodeOptions {
   mode?: string;
 }
 
+export interface DatasetSummary {
+  ref: string;
+  name: string;
+  valueType: string;
+  bytes: number;
+  rows: number;
+  contentHash: string;
+  createdAt: string;
+  expiresAt?: string | null;
+}
+
+/** Saved local dataset metadata (no payload) for the dataset picker. */
+export async function listDatasets(): Promise<DatasetSummary[]> {
+  const data = await request<{ datasets: DatasetSummary[] }>('/api/graph-runs/datasets');
+  return data.datasets ?? [];
+}
+
 /** Execute ONE node with explicit inputs. Never persists a run. */
 export async function testNode(options: TestNodeOptions): Promise<NodeTestResult> {
   return request<NodeTestResult>('/api/graph-runs/node-test', {

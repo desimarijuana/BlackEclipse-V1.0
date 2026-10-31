@@ -6,7 +6,7 @@
 // validated patch. The Output tab is read-only and only shows what the runtime
 // actually persisted for the selected run — never an optimistic value.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Trash2, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { getNodeDefinition } from '@/lib/graph-studio/registry';
@@ -28,7 +28,8 @@ import {
   type TradingMandate,
 } from '@/lib/harness/trading-client';
 import type { PortDef } from '@/lib/graph-studio/types';
-import type { NodeRunRecord } from '@/lib/graph-studio/execution-client';
+import type { DatasetSummary, NodeRunRecord } from '@/lib/graph-studio/execution-client';
+import { listDatasets } from '@/lib/graph-studio/execution-client';
 import { nodeIcon } from './node-icons';
 import { ConfigField } from './config-field';
 import { PortValueEditor } from './port-value-editor';
@@ -150,6 +151,9 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
   const [brokerConnections, setBrokerConnections] = useState<BrokerConnection[]>([]);
   const [brokerMandates, setBrokerMandates] = useState<TradingMandate[]>([]);
   const [brokerError, setBrokerError] = useState<string | null>(null);
+  const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
+  const [datasetsError, setDatasetsError] = useState<string | null>(null);
+  const [datasetsLoading, setDatasetsLoading] = useState(false);
 
   useEffect(() => {
     if (workflows.length === 0) void refreshWorkflows();
@@ -159,6 +163,24 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
   const isAgentNode =
     node?.type === 'agent.research' || node?.type === 'agent.delegate';
   const isBrokerNode = Boolean(node?.type.startsWith('trading.broker_'));
+  const isDatasetLoad = node?.type === 'data.dataset.load';
+
+  const loadDatasets = useCallback(async () => {
+    setDatasetsLoading(true);
+    try {
+      setDatasets(await listDatasets());
+      setDatasetsError(null);
+    } catch (err) {
+      setDatasetsError(err instanceof Error ? err.message : 'datasets unavailable');
+    } finally {
+      setDatasetsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isDatasetLoad) return;
+    void loadDatasets();
+  }, [isDatasetLoad, loadDatasets]);
 
   useEffect(() => {
     if (!isAgentNode) return;
@@ -363,6 +385,56 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
                 <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">{def.docs}</p>
               )}
             </div>
+            {isDatasetLoad && (
+              <div className="mb-3 rounded-md border border-white/10 bg-white/[0.02] p-2">
+                <div className="mb-1 flex items-center justify-between">
+                  <div className="text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Saved datasets
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadDatasets()}
+                    className="text-[9.5px] text-muted-foreground hover:text-foreground"
+                  >
+                    {datasetsLoading ? 'Loading…' : 'Refresh'}
+                  </button>
+                </div>
+                <select
+                  value={String(node.config.ref ?? '')}
+                  onChange={(event) => setConfigValue('ref', event.target.value)}
+                  className="w-full rounded-md border border-white/10 bg-background/60 px-2 py-1 text-[12px] outline-none focus:border-primary/50"
+                >
+                  <option value="">Select a saved dataset…</option>
+                  {datasets.map((dataset) => (
+                    <option key={dataset.ref} value={dataset.ref}>
+                      {dataset.name} · {dataset.valueType} · {dataset.rows} row(s) · {dataset.bytes} B
+                    </option>
+                  ))}
+                </select>
+                {datasets.length === 0 && !datasetsLoading && !datasetsError && (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    No saved datasets yet. Run a Save dataset node first, then refresh.
+                  </p>
+                )}
+                {datasetsError && <p className="mt-1 text-[10px] text-amber-300">{datasetsError}</p>}
+                {node.config.ref ? (
+                  <div className="mt-1 flex items-center gap-2 text-[9.5px] text-muted-foreground">
+                    <span className="break-all font-mono">{String(node.config.ref)}</span>
+                    <button
+                      type="button"
+                      onClick={() => setConfigValue('ref', '')}
+                      className="ml-auto shrink-0 hover:text-foreground"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Or paste a ref below. A wired Ref port overrides this selection.
+                  </p>
+                )}
+              </div>
+            )}
             {dataInputs.length > 0 && (
               <div className="mb-3 rounded-md border border-white/10 bg-white/[0.02] p-2">
                 <div className="mb-1 flex items-center justify-between text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">

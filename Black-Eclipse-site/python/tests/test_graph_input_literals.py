@@ -105,6 +105,24 @@ def test_false_and_null_literals_are_present_values():
     assert by_id["parse"].outputs["value"] is None
 
 
+def test_compiler_accepts_a_config_fallback_for_parse_json():
+    ir = _ir(
+        [
+            _node("trig", "trigger.manual"),
+            _node("parse", "data.json.parse", {"text": '{"from": "config"}', "strict": True}),
+            _node("out", "output.result"),
+        ],
+        [_edge("e1", "parse", "value", "out", "value")],
+    )
+    registry = build_default_registry()
+    plan = compile_workflow(ir, registry, RunGrants(test_run=True))
+    assert plan.executable, [d.message for d in plan.diagnostics]
+    run = GraphExecutor(ir, plan, registry, run_id="grun_config_fallback").execute()
+    by_id = {record.node_id: record for record in run.node_runs}
+    assert run.status == RunStatus.SUCCEEDED
+    assert by_id["parse"].outputs["value"] == {"from": "config"}
+
+
 def test_compiler_does_not_accept_a_literal_for_a_control_input():
     ir = _ir(
         [

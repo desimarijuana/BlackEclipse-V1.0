@@ -12,6 +12,7 @@ The service owns no second connection: it uses the shared `ArtifactStore` and a
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -797,7 +798,12 @@ class ArtifactService:
                 run_id = path.parent.name if path.parent != base else None
                 if self._store.find_by_checksum(checksum, run_id=run_id):
                     continue
+                # The idempotency key is bounded (200 chars) but a deep artifact
+                # path is not: hash the whole key when it would overflow, so a
+                # long filename is still discovered instead of silently skipped.
                 key = f"discover:{relative}:{checksum}"
+                if len(key) > 200:
+                    key = f"discover:{hashlib.sha256(key.encode('utf-8')).hexdigest()}"
                 if self._store.lookup_idempotency(key):
                     continue
                 try:

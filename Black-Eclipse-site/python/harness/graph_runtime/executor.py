@@ -90,6 +90,20 @@ def _preview(value: Any) -> Any:
     return {"_truncated": True, "preview": text[:MAX_PREVIEW_CHARS]}
 
 
+# Ports whose required value may come from a config field instead of a wire or
+# a node literal. Mirrors the TS validator and the executors' fallbacks.
+_CONFIG_FALLBACK_PORTS: dict[str, str] = {
+    "data.json.parse": "text",
+    "data.dataset.save": "value",
+    "data.dataset.load": "ref",
+}
+_CONFIG_FALLBACK_KEYS: dict[str, str] = {
+    "data.json.parse": "text",
+    "data.dataset.save": "valueJson",
+    "data.dataset.load": "ref",
+}
+
+
 class GraphExecutor:
     """Execute one plan. Construct per run; not reused."""
 
@@ -242,6 +256,15 @@ class GraphExecutor:
             if not produced and port.id in literals:
                 value = literals[port.id]
                 produced = True
+            # A config field may supply the required value (the executor reads
+            # it). It must count as satisfied here or the node would be skipped.
+            if not produced and not port.optional and node is not None:
+                fallback_port = _CONFIG_FALLBACK_PORTS.get(node.type)
+                fallback_key = _CONFIG_FALLBACK_KEYS.get(node.type)
+                if fallback_port == port.id and fallback_key is not None:
+                    configured = node.config.get(fallback_key)
+                    if isinstance(configured, str) and configured.strip():
+                        produced = True
             if not produced and not port.optional:
                 unsatisfied.append(port.name)
             resolved[port.id] = value

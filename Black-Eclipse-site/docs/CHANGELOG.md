@@ -1,6 +1,39 @@
 # Change Log
 
 ## 2026-10-31
+- **fix(artifacts): discovery no longer skips artifacts with long paths.** The
+  idempotency key `discover:<path>:<checksum>` is capped at 200 chars by the
+  schema; a deep artifact path overflowed it, raised, and the file was silently
+  left out of the catalog. An over-long key is now hashed.
+  no doc change — internal repair path, contract unchanged.
+- **feat(graph): dataset picker + editable data-node fallbacks.** The four data
+  nodes are now usable without an upstream wire. `data.json.parse` gained a
+  **JSON text** field, `data.dataset.save` a **Payload (JSON)** field, and
+  `data.dataset.load` a **Saved datasets** picker (ref, name, type, rows, bytes)
+  backed by the new read-only `GET /graphs/datasets` route + `/api/graph-runs/
+  datasets` proxy, with a manual ref field kept. Resolution is
+  `wire → node literal → config`. The validator, compiler and executor share the
+  same fallback table so a config-only node compiles and runs; `data.set_variables`
+  keeps its key/value rows. Covered by `test_graph_datasets.py`,
+  `test_graph_input_literals.py` and `validation.test.ts`.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(graph): port literals + richer node controls.** Two linked updates to
+  the Graph Studio node UX. (1) **IR v2**: `WorkflowNode.inputValues` (keyed by
+  port id) lets an unwired data input carry a literal, so a node is usable
+  without a producer. A wire wins; required inputs are satisfied by a wire OR a
+  literal; control ports never take literals. A v1→v2 migration adds an empty
+  map, the validator warns when a wired port's literal is ignored, and the
+  Python runtime mirrors the rule (`model.py`, `compiler.py`, `executor.py`:
+  `wire → literal → optional/null`). The inspector gained an **Inputs** section
+  with type-aware editors and the node **Test** tab prefills from literals.
+  (2) **Structured field kinds**: `textarea`, `keyvalue` (row editor for
+  `data.set_variables`), `code` (JSON validate/format), `combobox` (free text
+  with suggestions) and `slider`, implemented in `config-field.tsx` +
+  `key-value-editor.tsx` and wired through `config-fields.ts`. Constant/input,
+  Save dataset and Write file now have clearer controls and help text.
+  Covered by `validation.test.ts`, `patches.test.ts`, `ir.test.ts` and
+  `python/tests/test_graph_input_literals.py`.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
 - **fix(charts): the allocation donut, trade replay and economics comparison
   use the palette too.** The portfolio allocation donut had a fixed rainbow,
   the trade-replay entry line and the economics comparison line were a fixed

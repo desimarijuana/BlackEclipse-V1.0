@@ -238,7 +238,13 @@
           "nullable": false
         }
       ],
-      "configFields": [],
+      "configFields": [
+        {
+          "name": "ref",
+          "kind": "string",
+          "default": ""
+        }
+      ],
       "capabilities": [
         "dataset.read"
       ],
@@ -295,6 +301,11 @@
           "name": "ttlHours",
           "kind": "number",
           "default": 0
+        },
+        {
+          "name": "valueJson",
+          "kind": "string",
+          "default": ""
         }
       ],
       "capabilities": [
@@ -340,6 +351,11 @@
           "name": "strict",
           "kind": "boolean",
           "default": true
+        },
+        {
+          "name": "text",
+          "kind": "string",
+          "default": ""
         }
       ],
       "capabilities": [],

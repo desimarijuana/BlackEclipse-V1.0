@@ -23,6 +23,24 @@ export function hasInputLiteral(node: WorkflowNode, portId: string): boolean {
 }
 
 /**
+ * Nodes whose required data port may instead be supplied by a config field.
+ * Keep this in lockstep with the Python compiler and the node executors.
+ */
+const CONFIG_FALLBACK: Record<string, { port: string; key: string }> = {
+  'data.json.parse': { port: 'text', key: 'text' },
+  'data.dataset.save': { port: 'value', key: 'valueJson' },
+  'data.dataset.load': { port: 'ref', key: 'ref' },
+};
+
+/** True when the node's config carries a usable fallback for this data port. */
+export function hasConfigFallback(node: WorkflowNode, portId: string): boolean {
+  const rule = CONFIG_FALLBACK[node.type];
+  if (!rule || rule.port !== portId) return false;
+  const value = node.config[rule.key];
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+/**
  * Can a value typed by `source` flow into `target`?
  *   * control ports only connect to control ports (never to a data port);
  *   * `any` is compatible with everything;
@@ -232,6 +250,7 @@ export function validateWorkflow(ir: WorkflowIR): Diagnostic[] {
       if (input.optional) continue;
       if (connectedInputs.has(`${node.id}:${input.id}`)) continue;
       if (input.kind !== 'control' && hasInputLiteral(node, input.id)) continue;
+      if (input.kind !== 'control' && hasConfigFallback(node, input.id)) continue;
       diagnostics.push({
         severity: 'error',
         code: 'missing_required_input',

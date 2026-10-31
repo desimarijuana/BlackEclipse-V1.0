@@ -219,6 +219,7 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'variables', label: 'Variables', kind: 'keyvalue', help: 'Named values merged over the input object. Configured keys win.' },
   ],
   'data.json.parse': [
+    { key: 'text', label: 'JSON text', kind: 'code', help: 'Used when the Text port is not wired. The wire wins when connected.' },
     { key: 'strict', label: 'Strict', kind: 'boolean', help: 'Reject invalid JSON instead of passing the raw text through.' },
   ],
   'trading.broker_order': [
@@ -257,6 +258,10 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
   'data.dataset.save': [
     { key: 'name', label: 'Dataset name', kind: 'combobox', inline: true, placeholder: 'bars', help: 'A label for the stored payload; the ref is returned by the node.' },
     { key: 'ttlHours', label: 'TTL (hours)', kind: 'number', min: 0, max: 8_760, help: '0 means no expiry. Stored datasets are local scratch, not market data.' },
+    { key: 'valueJson', label: 'Payload (JSON)', kind: 'code', help: 'Used when the Value port is not wired. The wire wins when connected.' },
+  ],
+  'data.dataset.load': [
+    { key: 'ref', label: 'Dataset ref', kind: 'text', placeholder: 'gds:…', help: 'Pick a saved dataset above, or paste a ref. A wired Ref port wins.' },
   ],
   'transform.template': [
     { key: 'template', label: 'Template', kind: 'text', inline: true, placeholder: '{{a}}' },

@@ -425,6 +425,14 @@ def compile_workflow(
             ))
 
     # ── Required inputs ────────────────────────────────────────────────────
+    # A REQUIRED data port may instead be supplied by a config field on nodes
+    # whose executor reads that fallback explicitly. Keep in lockstep with
+    # `CONFIG_FALLBACK` in the TS validator.
+    config_fallback = {
+        "data.json.parse": ("text", "text"),
+        "data.dataset.save": ("value", "valueJson"),
+        "data.dataset.load": ("ref", "ref"),
+    }
     for node in ir.nodes:
         definition = defs.get(node.id)
         if definition is None:
@@ -438,6 +446,12 @@ def compile_workflow(
             # A data port may carry its own literal instead of a wire.
             if input_port.kind != PortKind.CONTROL and input_port.id in node.input_values:
                 continue
+            rule = config_fallback.get(node.type)
+            if rule is not None and input_port.kind != PortKind.CONTROL:
+                port_id, config_key = rule
+                value = node.config.get(config_key)
+                if port_id == input_port.id and isinstance(value, str) and value.strip():
+                    continue
             diagnostics.append(_error(
                 "missing_required_input",
                 f'Node "{node.id}" is missing required input "{input_port.name}".',

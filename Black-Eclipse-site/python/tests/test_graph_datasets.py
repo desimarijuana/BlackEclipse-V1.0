@@ -116,6 +116,36 @@ def test_size_and_serialization_limits(dataset_store, monkeypatch):
         dataset_store.save("bad", {1, 2})
 
 
+def test_json_parse_reads_its_config_when_the_port_is_unwired():
+    registry = build_default_registry()
+    parse = registry.get("data.json.parse")
+    assert parse is not None and parse.executor is not None
+    out = parse.executor(NodeExecContext(
+        node_id="parse", run_id="run", mode=ExecutionMode.RESEARCH,
+        inputs={}, config={"text": '{"a": 1}', "strict": True},
+    ))
+    assert out == {"value": {"a": 1}}
+
+
+def test_save_and_load_use_their_config_fallbacks(dataset_store):
+    registry = build_default_registry()
+    save = registry.get("data.dataset.save")
+    load = registry.get("data.dataset.load")
+    assert save is not None and save.executor is not None
+    assert load is not None and load.executor is not None
+
+    saved = save.executor(NodeExecContext(
+        node_id="save", run_id="run", mode=ExecutionMode.RESEARCH,
+        inputs={}, config={"name": "inline", "ttlHours": 0, "valueJson": '{"rows": [1, 2]}'},
+    ))
+    loaded = load.executor(NodeExecContext(
+        node_id="load", run_id="run", mode=ExecutionMode.RESEARCH,
+        inputs={}, config={"ref": saved["ref"]},
+    ))
+    assert loaded["value"] == {"rows": [1, 2]}
+    assert loaded["meta"]["ref"] == saved["ref"]
+
+
 def test_executors_roundtrip_through_the_registry(dataset_store):
     registry = build_default_registry()
     save = registry.get("data.dataset.save")

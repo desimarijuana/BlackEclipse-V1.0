@@ -208,6 +208,22 @@ async def plan_graph(body: PlanRequest, _: bool = Depends(require_operator)) -> 
     return result
 
 
+@router.get("/graphs/datasets")
+def list_datasets(
+    request: Request,
+    limit: int = 50,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Saved local datasets for the dataset picker (read-only metadata)."""
+    from ..graph_runtime.datasets import DatasetError, require_dataset_store
+
+    owner = (request.headers.get("x-harness-user") or "local").strip() or "local"
+    try:
+        return {"datasets": require_dataset_store().list(limit, owner=owner)}
+    except DatasetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/graphs/health")
 def graph_health(
     windowHours: int = 24,  # noqa: N803
