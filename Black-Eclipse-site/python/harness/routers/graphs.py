@@ -93,7 +93,10 @@ class RunRequest(BaseModel):
     allowedWriteScopes: list[str] = Field(default_factory=list, alias="allowedWriteScopes")  # noqa: N815
     allowLiveTrading: bool = Field(default=False, alias="allowLiveTrading")  # noqa: N815
     subworkflows: list[SubworkflowPayload] = Field(default_factory=list)
-    input: Any = None
+    # One-off trigger input for THIS run. The front door sends `runInput` (the
+    # same key the durable job payload uses), so accept that alias; `input`
+    # still works for direct callers and older payloads.
+    input: Any = Field(default=None, alias="runInput")
     # Front-door base URL for run-scoped credential re-resolution after a
     # restart. The response carries the key in memory only, never this payload.
     callbackBaseUrl: Optional[str] = Field(default=None, alias="callbackBaseUrl")  # noqa: N815

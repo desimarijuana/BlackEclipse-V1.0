@@ -38,6 +38,23 @@ describe('workflow validation', () => {
     }
   });
 
+  it('ships the six data nodes wired in the data-pipeline template', () => {
+    const ir = buildTemplate('data-pipeline')!;
+    const types = new Set(ir.nodes.map((n) => n.type));
+    expect(types).toEqual(
+      new Set([
+        'trigger.manual',
+        'data.value',
+        'data.json.parse',
+        'data.set_variables',
+        'data.dataset.save',
+        'data.dataset.load',
+        'file.write',
+        'output.result',
+      ]),
+    );
+  });
+
   it('reports a missing trigger and terminal on an empty graph', () => {
     const ir = createWorkflowIR({ nodes: [node(createWorkflowIR(), 'transform.template', 't')] });
     const codes = validateWorkflow(ir).map((d) => d.code);

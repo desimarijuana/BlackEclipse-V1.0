@@ -149,12 +149,49 @@ function marketScan(): WorkflowIR {
   );
 }
 
+function dataPipeline(): WorkflowIR {
+  return buildGraph(
+    'Data pipeline (six nodes)',
+    'Constant → parse JSON → set variables → save/load dataset → write file. A test run stops at Write file by design; use an operator run and grant the workspace scope.',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      {
+        id: 'constant',
+        type: 'data.value',
+        config: { dataType: 'string', value: '{"symbol": "AAPL", "rows": [1, 2, 3]}' },
+      },
+      { id: 'parse', type: 'data.json.parse', config: { strict: true } },
+      { id: 'variables', type: 'data.set_variables', config: { variables: { env: 'demo' } } },
+      { id: 'save', type: 'data.dataset.save', config: { name: 'demo_payload', ttlHours: 0 } },
+      { id: 'load', type: 'data.dataset.load' },
+      {
+        id: 'path',
+        type: 'data.value',
+        config: { dataType: 'string', value: 'demo/payload.json' },
+      },
+      { id: 'write', type: 'file.write', config: { scope: 'workspace', path: 'demo/payload.json', append: false } },
+      { id: 'result', type: 'output.result', config: { label: 'Dataset' } },
+    ],
+    [
+      { source: 'trigger', sourceHandle: 'start', target: 'constant', targetHandle: 'in' },
+      { source: 'constant', sourceHandle: 'value', target: 'parse', targetHandle: 'text' },
+      { source: 'parse', sourceHandle: 'value', target: 'variables', targetHandle: 'in' },
+      { source: 'variables', sourceHandle: 'variables', target: 'save', targetHandle: 'value' },
+      { source: 'save', sourceHandle: 'ref', target: 'load', targetHandle: 'ref' },
+      { source: 'load', sourceHandle: 'value', target: 'write', targetHandle: 'content' },
+      { source: 'path', sourceHandle: 'value', target: 'write', targetHandle: 'path' },
+      { source: 'load', sourceHandle: 'value', target: 'result', targetHandle: 'value' },
+    ],
+  );
+}
+
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   { id: 'blank', name: 'Blank', description: 'A trigger and a result. Start here.', build: blank },
   { id: 'if-else', name: 'If / else', description: 'Branch on a value with control gates.', build: ifElse },
   { id: 'market-scan', name: 'Market scan', description: 'Stored bars → SMA → z-score → branch.', build: marketScan },
   { id: 'price-check', name: 'Price + indicator', description: 'Market data → SMA → branch.', build: priceCheck },
   { id: 'http-fetch', name: 'HTTP request', description: 'Fetch an external endpoint.', build: httpFetch },
+  { id: 'data-pipeline', name: 'Data pipeline', description: 'Six data nodes wired end to end.', build: dataPipeline },
 ];
 
 export function buildTemplate(id: string): WorkflowIR | null {

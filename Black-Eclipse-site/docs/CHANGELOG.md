@@ -1,6 +1,34 @@
 # Change Log
 
 ## 2026-10-31
+- **feat(graph): `Data pipeline` starter template.** Added a sixth starter graph
+  that places all six basic data/write nodes in one workflow — `data.value`
+  (twice: JSON text and output path), `data.json.parse`, `data.set_variables`,
+  `data.dataset.save`, `data.dataset.load`, `file.write` — wired
+  trigger → parse → variables → save → load → write → result. It is the clickable
+  counterpart to `python/tests/test_graph_data_nodes_wiring.py`. Because
+  `file.write` is a write effect, a test run refuses it by design; the template
+  is meant for an operator run that grants the `workspace` scope, and its
+  description says so. Covered by `validation.test.ts`.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **test(graph): wiring proof for the six basic data/write nodes.** Added
+  `python/tests/test_graph_data_nodes_wiring.py`, which places `data.value`
+  (literal + wired override), `data.set_variables` (config wins over input),
+  `data.json.parse` (strict true/false), `data.dataset.save`/`load` (roundtrip,
+  missing ref, owner/TTL), and `file.write` (config vs wired path, append,
+  traversal refusal, denied scopes) each in a minimal workflow, then chains all
+  six in one operator run. This executes the real compiler + executor, not just
+  the executor functions, so a palette-visible node is also proven usable. No
+  doc change — test-only; the node contracts are already documented in
+  `docs/graph-studio.md`.
+- **fix(graph): a run's `runInput` never reached the trigger.** The Python
+  `/graphs/runs` body named the field `input`, while the front door sends
+  `runInput` (the same key the durable job payload uses), so every workflow-bot
+  turn and scheduled workflow run started with a null Start value and replied
+  with an empty result. `RunRequest.input` now accepts the `runInput` alias
+  (`input` still works for direct callers), covered by
+  `python/tests/test_graph_api.py::test_run_input_reaches_the_trigger`.
+  No doc change — `docs/graph-studio.md` already describes the contract.
 - **fix(bots): workflow bots show their workflow, not an agent id.** The bot
   Overview and Capabilities sections display the linked workflow name (or id)
   for an `execute_workflow` bot instead of the irrelevant default agent.

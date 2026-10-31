@@ -130,6 +130,32 @@ def test_run_lifecycle_and_listing():
     assert cancelled.json()["run"]["status"] == "succeeded"
 
 
+def test_run_input_reaches_the_trigger():
+    """`runInput` (the front door's key) is the trigger's Start value.
+
+    A workflow-backed bot sends the chat message here; if the key were dropped
+    the trigger would emit null and every bot reply would be empty.
+    """
+    run_input = {"message": "Hi workflow bot", "botId": "auto_smoke"}
+    echo_ir = _ir(
+        [_node("trig", "trigger.manual"), _node("out", "output.result")],
+        [_edge("e1", "trig", "start", "out", "value")],
+    )
+    started = client.post("/graphs/runs", json={"ir": echo_ir, "runInput": run_input})
+    assert started.status_code == 201, started.text
+    run_id = started.json()["run"]["id"]
+
+    deadline = time.time() + 10
+    record = started.json()["run"]
+    while time.time() < deadline and record["status"] not in ("succeeded", "failed", "cancelled"):
+        time.sleep(0.02)
+        record = client.get(f"/graphs/runs/{run_id}").json()["run"]
+    assert record["status"] == "succeeded", record.get("error")
+
+    by_node = {n["nodeId"]: n for n in record["nodeRuns"]}
+    assert by_node["trig"]["outputs"]["start"] == run_input
+
+
 def test_run_event_stream_replays_and_ends():
     started = client.post("/graphs/runs", json={"ir": GOOD_IR})
     assert started.status_code == 201, started.text

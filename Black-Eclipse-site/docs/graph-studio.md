@@ -697,6 +697,10 @@ finance graph can be exercised from the UI. Agent tools are narrowed to
 
 **Templates.** `Market scan (SMA z-score)` — stored bars → SMA(50) → z-score(20)
 → branch → result, plus a second output carrying the data provenance.
+`Data pipeline` — the six basic data/write nodes wired end to end: constant →
+parse JSON → set variables → save/load dataset → write file. Its write step is
+refused in a test run by design, so it is meant for an operator run that grants
+the `workspace` scope.
 
 ### Phase 9 — inspection and diffing
 
