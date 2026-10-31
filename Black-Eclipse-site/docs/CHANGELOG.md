@@ -2327,14 +2327,3 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   docs updated: `docs/harness/roadmap/phase-07-delegation.md`, `docs/NAVIGATION.md`;
   regenerated `docs/harness/tool-registry.json`.
 
-## 2026-10-24
-- **ui(chat): roomier chat history rows.** Increased the vertical gap between
-  conversation rows from 2px (`gap-0.5`) to 6px (`gap-1.5`) inside the pinned,
-  date-bucket and folder groups so the list separates more clearly. no doc
-  change — styling only.
-- **ui(chat): brighter unselected rows in the chat history rail.** Unselected
-  conversation titles in the sidebar now use `text-foreground/70` instead of
-  `text-muted-foreground`, and their snippets use the full muted tone, so the
-  list is legible at rest without changing the selected row. No contract or
-  architecture change. no doc change — styling only.
-
