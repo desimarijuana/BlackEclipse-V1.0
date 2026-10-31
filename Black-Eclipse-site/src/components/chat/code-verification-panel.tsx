@@ -38,6 +38,17 @@ export function CodeVerificationPanel({ verification, compact = false }: CodeVer
   const failedRecords = data.records.filter((r) => r.exitCode !== 0);
   const unbacked = data.claims.filter((c) => !c.supported);
 
+  // Nothing was actually checked and nothing was produced: render NOTHING.
+  // A "Proof it works · 0 check(s)" card claims a check happened when none did,
+  // and it is pure noise under an ordinary answer.
+  const nothingToShow =
+    data.records.length === 0 &&
+    data.claims.length === 0 &&
+    data.artifacts.length === 0 &&
+    data.reviews.length === 0 &&
+    !data.repair;
+  if (nothingToShow) return null;
+
   // Phase 19: one line per produced artifact (its checks rolled up), and each
   // recorded change review with its findings in plain words.
   const artifacts = new Map<string, typeof data.artifacts>();

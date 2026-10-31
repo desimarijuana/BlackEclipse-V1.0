@@ -92,7 +92,7 @@ function SourceRefs({ ids, index }: { ids: string[]; index: Map<string, number> 
 function Section({ title, children, tone }: { title: string; children: React.ReactNode; tone?: string }) {
   return (
     <section>
-      <h4 className={cn('mb-1 text-[10px] font-semibold uppercase tracking-wide', tone ?? 'text-muted-foreground/80')}>
+      <h4 className={cn('mb-1.5 text-[10px] font-semibold uppercase tracking-wide', tone ?? 'text-muted-foreground/80')}>
         {title}
       </h4>
       {children}
@@ -135,12 +135,12 @@ function SourceRow({ citation, n }: { citation: ResearchCitation; n: number }) {
   const retrieved = shortDate(citation.retrievedAt);
   const unverified = citation.validationStatus === 'unverified';
   return (
-    <li className="rounded-lg border border-primary/15 bg-primary/[0.05] px-2.5 py-2">
+    <li className="rounded-lg border border-primary/15 bg-primary/[0.05] px-3 py-2.5">
       <div className="flex items-baseline gap-2">
         <span className="shrink-0 font-mono text-[9px] text-primary/70">[{n}]</span>
-        <span className="min-w-0 flex-1 font-semibold text-foreground">{title}</span>
+        <span className="min-w-0 flex-1 font-semibold leading-relaxed text-foreground">{title}</span>
       </div>
-      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-4 text-[9px] text-muted-foreground/70">
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 pl-4 text-[9px] text-muted-foreground/70">
         <span className={cn('rounded-full border border-border/30 px-1.5 py-0.5', tm.tone)}>{tm.label}</span>
         {citation.fiscalPeriod ? <span>{citation.fiscalPeriod}</span> : null}
         {citation.currency ? <span>{citation.currency}</span> : null}
@@ -150,7 +150,7 @@ function SourceRow({ citation, n }: { citation: ResearchCitation; n: number }) {
         {retrieved ? <span>retrieved {retrieved}</span> : null}
         {unverified ? <span className="text-amber-500">unverified</span> : null}
       </div>
-      <div className="mt-1 pl-4">
+      <div className="mt-2 pl-4">
         {citation.url ? (
           <a
             href={citation.url}
@@ -254,14 +254,14 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
   const detailSummary = legs.length > 0 ? `${coverageCounts(legs).covered}/${legs.length} legs covered` : undefined;
 
   return (
-    <div className={cn('mt-3 w-full rounded-xl border border-border/20', compact ? 'p-2' : 'p-2.5')}>
+    <div className={cn('mt-3 w-full rounded-xl border border-border/20', compact ? 'p-2.5' : 'p-3')}>
       {/* One header line — same shape as "What influenced this run". */}
       <button
         type="button"
         onClick={() => setBlockOpen((v) => !v)}
         aria-expanded={blockOpen}
         aria-controls={bodyId}
-        className="flex w-full items-start gap-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+        className="flex w-full items-start gap-2 py-0.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
       >
         <span className="mt-px shrink-0">{blockOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}</span>
         <Icon size={11} className={cn('mt-px shrink-0', meta.tone)} />
@@ -275,7 +275,7 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
       </button>
 
       {blockOpen ? (
-        <div id={bodyId} className="mt-2.5 space-y-3 text-[10px]">
+        <div id={bodyId} className="mt-3 space-y-4 text-[10px]">
           {/* 1. Calculations */}
           <Calculations calculations={calculations} index={index} />
 
@@ -286,13 +286,13 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
               manageable instead of spilling the whole transcript. */}
           {citations.length > 0 || failedRoutes.length > 0 ? (
             <section>
-              <div className="flex items-center gap-1.5 px-1">
+              <div className="flex items-center gap-2 px-1 pb-1">
                 <BookOpen size={11} className="shrink-0 text-primary" />
                 <span className="font-semibold text-foreground">Sources</span>
                 <span className="text-muted-foreground/70">· {sourcesSummary}</span>
               </div>
               {citations.length > 0 ? (
-                <ol className="mt-1.5 max-h-56 space-y-1.5 overflow-y-auto overscroll-contain pr-1">
+                <ol className="mt-2 max-h-56 space-y-2 overflow-y-auto overscroll-contain pr-1">
                   {citations.map((citation, i) => (
                     <SourceRow key={citation.evidenceId || i} citation={citation} n={i + 1} />
                   ))}

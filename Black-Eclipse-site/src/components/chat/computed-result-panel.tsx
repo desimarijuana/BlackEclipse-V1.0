@@ -36,6 +36,24 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
+/**
+ * A method line a person can read. The runtime sometimes hands us a debug dump
+ * (`type <class 'dict'> · keys ["asOf", …]`), which tells the reader nothing —
+ * it describes the Python object, not the calculation. Such a detail is DROPPED
+ * rather than shown; the panel still names the result and its values.
+ */
+export function humanMethodLine(detail: string | null | undefined): string | null {
+  if (typeof detail !== 'string') return null;
+  const text = detail.trim();
+  if (!text) return null;
+  if (/^type\s*<class/i.test(text)) return null;
+  if (/^<class\s/i.test(text)) return null;
+  if (/\bkeys\s*\[/i.test(text)) return null;
+  // A bare serialized object is not a method ("{'a': 1, ...}", '[{...}]').
+  if (/^[[{]/.test(text) && /[:]\s/.test(text) && text.length > 24) return null;
+  return text;
+}
+
 export function ComputedResultPanel({
   result,
   compact = false,
@@ -53,6 +71,7 @@ export function ComputedResultPanel({
 
   const statusKey = provenanceStatusKey(data.provenance);
   const status = renderComputedValue(data.outputs, data.provenance).status;
+  const method = humanMethodLine(data.provenance?.detail);
   const rows = Object.entries(data.outputs)
     .filter(([key]) => !key.startsWith('_'))
     .slice(0, MAX_ROWS);
@@ -67,12 +86,12 @@ export function ComputedResultPanel({
     .join(' · ');
 
   return (
-    <div className={cn('mt-2 rounded-xl border border-border/30', compact ? 'p-2' : 'p-2.5')}>
+    <div className={cn('mt-3 rounded-xl border border-border/30', compact ? 'p-2.5' : 'p-3')}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex w-full items-start gap-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+        className="flex w-full items-start gap-2 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
       >
         <span className="mt-px shrink-0">{open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}</span>
         <Calculator size={11} className="mt-px shrink-0 text-primary" />
@@ -83,16 +102,16 @@ export function ComputedResultPanel({
               <span className="truncate font-mono text-[10px] text-muted-foreground/70">{preview}</span>
             ) : null}
           </span>
-          {data.provenance ? (
+          {method ? (
             <span className={cn('mt-0.5 block break-words text-muted-foreground/70', !open && 'line-clamp-2')}>
-              {data.provenance.detail}
+              {method}
             </span>
           ) : null}
         </span>
       </button>
 
       {open ? (
-        <div className="mt-2 space-y-2 text-[10px]">
+        <div className="mt-3 space-y-2.5 text-[10px]">
           {figure ? (
             <div className="space-y-1">
               {figureArtifact ? (
@@ -123,9 +142,9 @@ export function ComputedResultPanel({
           ) : null}
 
           {rows.length > 0 ? (
-            <ul className="space-y-0.5">
+            <ul className="space-y-1">
               {rows.map(([key, value]) => (
-                <li key={key} className="flex items-baseline justify-between gap-2 text-muted-foreground">
+                <li key={key} className="flex items-baseline justify-between gap-3 text-muted-foreground">
                   <span className="min-w-0 break-words">{key}</span>
                   <span className="min-w-0 break-words text-right font-mono text-foreground/90">{formatValue(value)}</span>
                 </li>

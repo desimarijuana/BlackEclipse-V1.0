@@ -22,13 +22,14 @@ export interface ChartPalette {
 }
 
 export const DEFAULT_CHART_PALETTE: ChartPalette = {
-  candles: { up: "#7aff78", down: "#ff3e3e", neutral: "#94a3b8" },
-  // Finance default: green (up) / red (down). This is the shipped chart palette
-  // and is INDEPENDENT of the app theme — a theme edit never recolours charts.
-  // A user changes these only deliberately (Settings › Charts, or a preset that
-  // carries its own chart palette).
-  lines: { primary: "#7aff78", series: ["#ff3e3e", "#22c55e", "#f87171", "#4ade80", "#94a3b8", "#fb7185"] },
-  heatmap: { up: "#22c55e", mid: "#27272a", down: "#b91c1c" },
+  candles: { up: "#e5e7eb", down: "#6b7280", neutral: "#94a3b8" },
+  // Neutral (black & white) by default: a chart is data, not decoration, and a
+  // greyscale ramp reads on both the dark and the light surface without a hue
+  // clash. Candles keep a light/dark pair so up and down still separate.
+  // Users change these deliberately in Settings › General › Charts, or pick a
+  // preset (Black & white, Silver, Ocean & amber, …).
+  lines: { primary: "#fafafa", series: ["#fafafa", "#a1a1aa", "#d4d4d8", "#71717a", "#e4e4e7", "#52525b"] },
+  heatmap: { up: "#e5e7eb", mid: "#27272a", down: "#52525b" },
 };
 
 export function normalizeChartColor(raw: unknown): string | null {

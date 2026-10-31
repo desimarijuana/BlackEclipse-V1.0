@@ -785,6 +785,13 @@ computed number is not retrieved evidence. Both chat surfaces map the full turn
 (chat-dock and stock-chat), so the panel, the code-capability panel and the
 document panel appear everywhere.
 
+The card's second line is a METHOD a person can read. A provenance detail that
+is really a debug dump of the runtime's Python object (`type <class 'dict'> ·
+keys [...]`) is dropped rather than shown — it describes the object, not the
+calculation — and a "Proof it works" panel with no recorded check, claim,
+artifact, review or repair renders nothing at all, because a "0 check(s)" card
+claims a check that never happened.
+
 Diagnostics are split by **severity**: only `error` diagnostics raise the amber
 panel; a warning-only answer renders quietly (an empty-but-valid envelope says so
 in one muted line instead of an alarm).

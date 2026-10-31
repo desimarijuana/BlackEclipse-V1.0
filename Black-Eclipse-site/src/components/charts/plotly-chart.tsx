@@ -20,9 +20,12 @@
 // The background is TRANSPARENT: the chart sits on the app's frosted surface
 // without hiding the frost.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { RotateCcw, ZoomIn, ZoomOut } from '@/lib/icons';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Download, RotateCcw, ZoomIn, ZoomOut } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { useChartPalette } from '@/lib/chart-palette-store';
+import type { ChartPalette } from '@/lib/chart-palette';
+import { applyChartPalette } from './apply-palette';
 
 export interface PlotlyFigure {
   data: Array<Record<string, unknown>>;
@@ -51,6 +54,7 @@ type PlotlyGlobal = {
   ) => Promise<unknown>;
   react?: (element: HTMLElement, data: unknown[], layout: unknown, config?: unknown) => void;
   relayout?: (element: HTMLElement, update: Record<string, unknown>) => Promise<unknown>;
+  toImage?: (element: HTMLElement, opts?: Record<string, unknown>) => Promise<string>;
   purge?: (element: HTMLElement) => void;
 };
 
@@ -70,7 +74,10 @@ type PlotlyHost = HTMLElement & {
 };
 
 const PLOTLY_CONFIG = {
-  displayModeBar: true,
+  // The library's own modebar is a dark pill that floats over the chart. Eclipse
+  // draws its own frosted toolbar (zoom / reset / save) instead, so the native
+  // one is off — no black bar on the picture.
+  displayModeBar: false,
   displaylogo: false,
   responsive: true,
   scrollZoom: true,
@@ -149,16 +156,43 @@ export function PlotlyChart({
 }: PlotlyChartProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'unavailable'>('idle');
+  // True once a plot exists on the host, so a recolour can React to it instead
+  // of replotting from scratch (which would blink and drop the zoom).
+  const drawnRef = useRef(false);
+  // The library is 4.7 MB: nothing is loaded until the chart is about to be seen.
+  const [visible, setVisible] = useState(false);
+  // The user's chart colours (Settings › General › Charts). Applied HERE so a
+  // colour change repaints instantly and never needs a redraw by the runtime.
+  const palette = useChartPalette();
+  const styled = useMemo(() => applyChartPalette(figure, palette), [figure, palette]);
 
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !figure) return;
+    if (!host) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        setVisible(true);
+      },
+      { rootMargin: '400px 0px' },
+    );
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !styled || !visible) return;
     let cancelled = false;
     let cancelIdle: (() => void) | null = null;
-    let observer: IntersectionObserver | null = null;
 
     const draw = () => {
-      setState('loading');
+      setState((current) => (current === 'ready' ? current : 'loading'));
       loadPlotly()
         .then(async (Plotly) => {
           if (cancelled) return;
@@ -167,12 +201,19 @@ export function PlotlyChart({
             return;
           }
           const layout = {
-            ...(figure.layout ?? {}),
+            ...(styled.layout ?? {}),
             autosize: true,
             height,
           };
           try {
-            await Plotly.newPlot(host, figure.data ?? [], layout, PLOTLY_CONFIG);
+            // A colour-only change must not blink: react() reuses the drawn
+            // chart (and keeps the user's zoom); newPlot() is the first draw.
+            if (drawnRef.current && Plotly.react) {
+              await Plotly.react(host, styled.data ?? [], layout, PLOTLY_CONFIG);
+            } else {
+              await Plotly.newPlot(host, styled.data ?? [], layout, PLOTLY_CONFIG);
+            }
+            drawnRef.current = true;
             if (!cancelled) setState('ready');
           } catch {
             if (!cancelled) setState('unavailable');
@@ -183,39 +224,26 @@ export function PlotlyChart({
         });
     };
 
-    const schedule = () => {
-      cancelIdle = onIdle(draw);
-    };
-
-    // Load the 4.7 MB library only when the chart is about to be seen.
-    if (typeof IntersectionObserver !== 'undefined') {
-      observer = new IntersectionObserver(
-        (entries) => {
-          if (!entries.some((entry) => entry.isIntersecting)) return;
-          observer?.disconnect();
-          observer = null;
-          schedule();
-        },
-        { rootMargin: '400px 0px' },
-      );
-      observer.observe(host);
-    } else {
-      schedule();
-    }
+    cancelIdle = onIdle(draw);
 
     return () => {
       cancelled = true;
-      observer?.disconnect();
       cancelIdle?.();
-      // Plotly leaves listeners and DOM behind; purge before the next chart.
-      try {
-        window.Plotly?.purge?.(host);
-      } catch {
-        // A chart that cannot be purged is replaced by the next render anyway.
-      }
-      host.replaceChildren();
     };
-  }, [figure, height]);
+  }, [styled, height, visible]);
+
+  // Unmount only: Plotly leaves listeners and DOM behind.
+  useEffect(() => () => {
+    const host = hostRef.current;
+    drawnRef.current = false;
+    if (!host) return;
+    try {
+      window.Plotly?.purge?.(host);
+    } catch {
+      // A chart that cannot be purged is replaced by the next render anyway.
+    }
+    host.replaceChildren();
+  }, []);
 
   const is3d = Boolean(
     figure?.data?.some((trace) => trace.type === 'scatter3d' || trace.type === 'surface'),
@@ -273,13 +301,13 @@ export function PlotlyChart({
   const resetView = useCallback(() => {
     const host = hostRef.current as PlotlyHost | null;
     const Plotly = window.Plotly;
-    if (!host || !Plotly || !figure) return;
+    if (!host || !Plotly || !styled) return;
     try {
       if (Plotly.react) {
         void Plotly.react(
           host,
-          figure.data ?? [],
-          { ...(figure.layout ?? {}), autosize: true, height },
+          styled.data ?? [],
+          { ...(styled.layout ?? {}), autosize: true, height },
           PLOTLY_CONFIG,
         );
         return;
@@ -289,12 +317,33 @@ export function PlotlyChart({
         if (!/^[xy]axis\d*$/.test(key)) continue;
         if (!(raw as PlotlyAxis).fixedrange) update[`${key}.autorange`] = true;
       }
-      if (is3d) update['scene.camera'] = (figure.layout?.scene as { camera?: unknown } | undefined)?.camera;
+      if (is3d) update['scene.camera'] = (styled.layout?.scene as { camera?: unknown } | undefined)?.camera;
       if (Object.keys(update).length > 0) void Plotly.relayout?.(host, update);
     } catch {
       // A chart that cannot be reset keeps its current view.
     }
-  }, [figure, height, is3d]);
+  }, [styled, height, is3d]);
+
+  /** Save the chart exactly as it looks now (the user's colours included). */
+  const downloadPng = useCallback(() => {
+    const host = hostRef.current as PlotlyHost | null;
+    const Plotly = window.Plotly;
+    if (!host || !Plotly?.toImage) return;
+    try {
+      void Plotly.toImage(host, { format: 'png', scale: 2, height: height * 2, width: host.clientWidth * 2 })
+        .then((url: string) => {
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `eclipse-chart-${Date.now()}.png`;
+          link.click();
+        })
+        .catch(() => {
+          // A chart that cannot be exported leaves the drawn picture in place.
+        });
+    } catch {
+      // Same: the chart stays on screen.
+    }
+  }, [height]);
 
   if (!figure) {
     if (!fallbackSrc) return null;
@@ -366,6 +415,15 @@ export function PlotlyChart({
             className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <RotateCcw size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={downloadPng}
+            aria-label="Save chart as PNG"
+            title="Save as PNG"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <Download size={13} />
           </button>
         </div>
       )}

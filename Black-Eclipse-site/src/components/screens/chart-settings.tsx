@@ -16,8 +16,8 @@ import { useChartPalette, useChartPaletteStore } from "@/lib/chart-palette-store
 import { useThrottledCommit } from "@/hooks/use-throttled-commit";
 
 const CANDLE_PRESETS: { name: string; colors: CandleColors }[] = [
-  { name: "Eclipse", colors: DEFAULT_CHART_PALETTE.candles },
-  { name: "Black & white", colors: { up: "#ffffff", down: "#525252", neutral: "#a3a3a3" } },
+  { name: "Black & white", colors: DEFAULT_CHART_PALETTE.candles },
+  { name: "Eclipse", colors: { up: "#7aff78", down: "#ff3e3e", neutral: "#94a3b8" } },
   { name: "Blue & orange", colors: { up: "#38bdf8", down: "#fb923c", neutral: "#94a3b8" } },
   { name: "Violet & teal", colors: { up: "#2dd4bf", down: "#fb7185", neutral: "#a1a1aa" } },
   { name: "Sunset", colors: { up: "#fbbf24", down: "#f472b6", neutral: "#a8a29e" } },
@@ -25,10 +25,10 @@ const CANDLE_PRESETS: { name: string; colors: CandleColors }[] = [
 ];
 
 const LINE_PRESETS: { name: string; colors: LineColors }[] = [
-  { name: "Eclipse", colors: DEFAULT_CHART_PALETTE.lines },
+  { name: "Black & white", colors: DEFAULT_CHART_PALETTE.lines },
+  { name: "Eclipse", colors: { primary: "#7aff78", series: ["#ff3e3e", "#22c55e", "#f87171", "#4ade80", "#94a3b8", "#fb7185"] } },
   { name: "Ocean & amber", colors: { primary: "#38bdf8", series: ["#38bdf8", "#fbbf24", "#a78bfa", "#fb7185", "#2dd4bf", "#e879f9"] } },
   { name: "Violet & teal", colors: { primary: "#c084fc", series: ["#c084fc", "#2dd4bf", "#fbbf24", "#60a5fa", "#fb7185", "#fb923c"] } },
-  { name: "Black & white", colors: { primary: "#fafafa", series: ["#fafafa", "#525252", "#d4d4d4", "#737373", "#b3b3b3", "#929292"] } },
   { name: "Silver", colors: { primary: "#cbd5e1", series: ["#e2e8f0", "#64748b", "#cbd5e1", "#7c8da6", "#b0bfd3", "#94a3b8"] } },
   { name: "Sunset", colors: { primary: "#fb923c", series: ["#fb923c", "#f472b6", "#fcd34d", "#c084fc", "#fb7185", "#fdba74"] } },
   { name: "Arctic", colors: { primary: "#67e8f9", series: ["#67e8f9", "#c4b5fd", "#93c5fd", "#5eead4", "#a5b4fc", "#bae6fd"] } },

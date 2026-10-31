@@ -1,6 +1,22 @@
 # Change Log
 
 ## 2026-10-31
+- **fix(chat): the metadata cards under an answer were noise.** "Proof it works"
+  no longer renders when nothing was checked (a `0 check(s)` card claimed a
+  check that never happened), and a computed result's method line drops debug
+  dumps such as `type <class 'dict'> · keys [...]` instead of printing them.
+  The evidence card's spacing was opened up (roomier header, source rows and
+  section gaps) so "Sources consulted" no longer reads as one cramped block.
+  Docs updated: `docs/interactive-response-engine.md`.
+- **feat(charts): neutral default palette + the user's own colours.** Charts
+  are greyscale by default (`#fafafa` → `#52525b`) because a hue should not
+  invent a meaning the numbers do not carry; candlesticks use a light/dark pair
+  and heatmaps a neutral ramp. The live Plotly figure now applies the palette
+  from Settings › General › Charts in the browser (`charts/apply-palette.ts`),
+  so a colour change repaints instantly (React, not a replot) and the new
+  **Save as PNG** button exports exactly what is on screen. Plotly's own dark
+  modebar pill is gone; the frosted zoom / reset / save toolbar replaces it.
+  Docs updated: `docs/chart-engine.md`.
 - **feat(graph): `Data pipeline` starter template.** Added a sixth starter graph
   that places all six basic data/write nodes in one workflow — `data.value`
   (twice: JSON text and output path), `data.json.parse`, `data.set_variables`,

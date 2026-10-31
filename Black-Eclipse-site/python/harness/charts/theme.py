@@ -24,25 +24,29 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-#: The categorical series palette — ordered so that neighbouring series never
-#: land on the same hue, and the first two (cyan, violet) read well against
-#: the frosted dark surface.
+#: The categorical series palette — NEUTRAL (black & white) by default, matching
+#: the app's default chart palette on the client. A chart is data, not
+#: decoration: a greyscale ramp never invents meaning from a hue and reads on
+#: both the dark and the light surface. Users can choose another palette (or pick
+#: individual colours) in Settings › General › Charts; the browser then recolours
+#: the live figure, and this palette is what a static export is drawn with.
 SERIES_COLORS: tuple[str, ...] = (
-    "#0ea5e9",  # sky
-    "#a78bfa",  # violet
-    "#22c55e",  # green
-    "#f59e0b",  # amber
-    "#e11d48",  # rose
-    "#14b8a6",  # teal
-    "#f472b6",  # pink
-    "#60a5fa",  # blue
-    "#a3e635",  # lime
-    "#fb923c",  # orange
+    "#fafafa",  # near-white
+    "#a1a1aa",  # mid grey
+    "#d4d4d8",  # light grey
+    "#71717a",  # dark grey
+    "#e4e4e7",  # pale grey
+    "#52525b",  # deep grey
+    "#c4c4cc",
+    "#8b8b94",
+    "#b8b8bf",
+    "#6b6b73",
 )
 
-#: Market direction. Up is green, down is rose — the app's convention.
-UP_COLOR = "#22c55e"
-DOWN_COLOR = "#e11d48"
+#: Market direction: a light / dark pair rather than green / red, so a neutral
+#: chart stays neutral. The green / rose pair is still available as a theme.
+UP_COLOR = "#e5e7eb"
+DOWN_COLOR = "#6b7280"
 
 
 @dataclass(frozen=True)
@@ -58,9 +62,9 @@ class ChartTheme:
     up: str = UP_COLOR
     down: str = DOWN_COLOR
     palette: tuple[str, ...] = SERIES_COLORS
-    #: The colour a heatmap's extremes take.
-    heat_low: str = "#0ea5e9"
-    heat_high: str = "#e11d48"
+    #: The colour a heatmap's extremes take — neutral by default.
+    heat_low: str = "#52525b"
+    heat_high: str = "#e5e7eb"
     rc: dict[str, Any] = field(default_factory=dict)
 
     def series_color(self, index: int) -> str:

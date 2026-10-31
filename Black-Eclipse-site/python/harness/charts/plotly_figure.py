@@ -44,6 +44,11 @@ def _dash(style: Optional[str]) -> Optional[str]:
     return {"solid": "solid", "dashed": "dash", "dotted": "dot"}.get(style or "solid", "solid")
 
 
+def _heat_scale(theme: ChartTheme) -> list[list[Any]]:
+    """A neutral (low → high) scale, so a heatmap never invents a hue meaning."""
+    return [[0.0, theme.heat_low], [0.5, theme.surface or "rgba(0,0,0,0)"], [1.0, theme.heat_high]]
+
+
 def _x_values(mark: ChartMark, count: int) -> list[Any]:
     if mark.x:
         return [v if v is not None else None for v in mark.x]
@@ -281,7 +286,7 @@ def _mark_traces(
         traces.append({
             "type": "heatmap", "z": mark.matrix or [],
             "x": mark.col_labels or None, "y": mark.row_labels or None,
-            "name": name, "colorscale": "RdBu", "hoverongaps": False,
+            "name": name, "colorscale": _heat_scale(theme), "hoverongaps": False,
         })
         return traces
 
@@ -300,8 +305,8 @@ def _mark_traces(
             "x": mark.labels or list(range(len(candles))),
             "open": [c[0] for c in candles], "high": [c[1] for c in candles],
             "low": [c[2] for c in candles], "close": [c[3] for c in candles],
-            "increasing": {"line": {"color": "#22c55e"}},
-            "decreasing": {"line": {"color": "#e11d48"}},
+            "increasing": {"line": {"color": theme.up}},
+            "decreasing": {"line": {"color": theme.down}},
         })
         return traces
 
@@ -309,8 +314,8 @@ def _mark_traces(
         values = mark.the_values or []
         traces.append({
             "type": "waterfall", "x": _x_values(mark, len(values)), "y": values, "name": name,
-            "increasing": {"marker": {"color": "#22c55e"}},
-            "decreasing": {"marker": {"color": "#e11d48"}},
+            "increasing": {"marker": {"color": theme.up}},
+            "decreasing": {"marker": {"color": theme.down}},
         })
         return traces
 
@@ -453,7 +458,7 @@ def _simple_traces(spec: ChartSpec, theme: ChartTheme) -> list[dict[str, Any]]:
         traces.append({
             "type": "heatmap", "z": spec.matrix or [],
             "x": spec.col_labels or None, "y": spec.row_labels or None,
-            "colorscale": "RdBu", "hoverongaps": False,
+            "colorscale": _heat_scale(theme), "hoverongaps": False,
         })
         return traces
 
@@ -465,8 +470,8 @@ def _simple_traces(spec: ChartSpec, theme: ChartTheme) -> list[dict[str, Any]]:
             "high": [c.high for c in spec.candles],
             "low": [c.low for c in spec.candles],
             "close": [c.close for c in spec.candles],
-            "increasing": {"line": {"color": "#22c55e"}},
-            "decreasing": {"line": {"color": "#e11d48"}},
+            "increasing": {"line": {"color": theme.up}},
+            "decreasing": {"line": {"color": theme.down}},
         })
         return traces
 
@@ -475,8 +480,8 @@ def _simple_traces(spec: ChartSpec, theme: ChartTheme) -> list[dict[str, Any]]:
         traces.append({
             "type": "waterfall", "x": spec.categories or [], "y": series.data if series else [],
             "name": series.name if series else "change",
-            "increasing": {"marker": {"color": "#22c55e"}},
-            "decreasing": {"marker": {"color": "#e11d48"}},
+            "increasing": {"marker": {"color": theme.up}},
+            "decreasing": {"marker": {"color": theme.down}},
         })
         return traces
 

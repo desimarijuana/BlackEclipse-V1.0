@@ -138,10 +138,19 @@ snake_case field names stay valid too.
 
 `python/harness/charts/theme.py`. The background is **transparent** so the
 figure sits on the frosted glass card without hiding the frost; the ink is
-light because the surface behind it is dark. The palette is the app's:
-`#0ea5e9` sky, `#a78bfa` violet, `#22c55e` green, `#f59e0b` amber,
-`#e11d48` rose, `#94a3b8` muted ink. The light theme is a real theme,
-not an inversion, because the app has a light mode.
+light because the surface behind it is dark. The default series palette is
+**neutral** (a near-white → grey ramp) because a chart is data, not decoration:
+a hue should not imply a meaning the numbers do not carry, and a greyscale ramp
+reads on both the dark and the light surface. Candlesticks use a light/dark pair
+for the same reason. The light theme is a real theme, not an inversion, because
+the app has a light mode.
+
+Colours are the user's, not the engine's: the browser applies the palette from
+Settings › General › Charts to the live figure (`components/charts/apply-palette.ts`),
+so a colour change repaints instantly without asking the runtime to redraw, and
+"Save as PNG" exports exactly what is on screen. The Python palette is what a
+static export (the PNG fallback and the Artifact Center copy) is drawn with, so
+the two start from the same neutral default.
 
 ### 2.4 The honesty rules
 
