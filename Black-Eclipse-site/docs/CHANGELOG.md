@@ -22,7 +22,7 @@
   did not fire reliably), and the small `+` on a node output is a larger neutral
   frosted button instead of a tiny accent circle.
   Docs updated: `docs/graph-studio.md`, `docs/harness/automation-engine.md`,
-  `docs/CHANGELOG.md`.
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 
 ## Rotation policy
 
