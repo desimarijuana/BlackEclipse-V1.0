@@ -7,6 +7,102 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
 ## 2026-10-30
+- **fix(graph): production hardening for schedules + a stable perf guard.** A
+  schedule linked to a `trigger.schedule` node is now paused (with a visible
+  reason) on the next tick if that node no longer exists in the persisted
+  workflow, so deleting a trigger cannot leave an orphaned schedule firing the
+  graph. Added coverage for the deleted-node and still-present-node paths. The
+  observability span-overhead perf test now measures the **median of five warmed
+  batches** instead of one run, so a scheduling hiccup under load cannot fail a
+  guard that still requires < 1 ms per span.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(graph): schedule details directly on the Schedule node.** The
+  `trigger.schedule` card now shows an Active/Paused dot, a human schedule
+  summary (`Weekdays at 09:00 · Asia/Karachi`), the next fire in the schedule's
+  timezone, and the last error when a fire fails; a node with no linked schedule
+  says so. The canvas loads schedules for the open workflow, refreshes after any
+  schedule mutation (a small `eclipse:schedules-changed` event) and once a minute
+  as the tick advances `nextRunAt`. The Schedule tab remains the editor.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **fix(graph): black in-node input wells + double-click for details.** Inline
+  text/number/select/JSON widgets use the original black field fill again
+  (`bg-background/60`) while keeping the compact 28px rows and borders. A single
+  click on a node now only selects it, so clicking into a widget never opens the
+  right inspector; double-click opens the inspector as the shortcuts panel
+  already documented. Widgets stop double-click propagation, so editing a value
+  cannot accidentally open the panel.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **style(graph): compact two-column node controls.** Inline parameters are now
+  Blender-style rows — small label on the left, widget on the right — instead of
+  stacked labels, which had made the cards tall and cramped. JSON parameters use
+  a single-line value box on the card (the inspector keeps the full editor), and
+  node width is 264 px so labels and dropdowns fit. No doc change — visual
+  refinement of the in-node controls.
+- **style(ui): filled Test glyph, lock for the broker, broom for “Tidy up”, and
+  a calmer Add-node control.** The node hover Test button uses Phosphor's filled
+  Play glyph (still a neutral solid-grey button). The sidebar broker launcher now
+  uses the shared Lock icon so it matches the other sidebar icons instead of a
+  brand mark. The graph canvas “Tidy up layout” action (toolbar and context menu)
+  uses the Phosphor Broom icon. The canvas **Add node** affordance is now a
+  frosted control with a neutral plus tile, the label and a `Tab` key hint —
+  no green pill — and the empty-state “Add first step” uses the same treatment.
+  No doc change — visual identity only.
+- **style(graph): neutral solid-grey Test button.** The node hover toolbar's
+  Test play button now uses the solid `muted` surface with a neutral foreground
+  hover instead of green; the result dots keep their semantic colours.
+  No doc change — visual tweak.
+- **feat(graph): Blender/ComfyUI-style controls inside every node + one-click
+  node Test.** Parameters are edited directly on the node: two priority fields
+  always visible, a “+N more parameters” toggle expands the rest in place
+  (Show less collapses). Number fields are drag-to-scrub widgets (Shift fine,
+  Ctrl/Cmd coarse, click to type), selects are dropdowns, booleans are
+  checkboxes, text is an input and JSON is a compact textarea. Every control
+  dispatches the same `update_node_config` patch as the inspector; clicking the
+  node still opens the full advanced inspector. `ConfigFieldDef.quick` chooses
+  the two priority slots (logic.condition now surfaces compareTo,
+  agent.research surfaces agent). The hover toolbar's play button — next to
+  Duplicate — runs the node; the result renders inside the node body with
+  running/succeeded/failed, duration, error and an expandable output preview.
+  Side-effecting nodes show a lock and require an authorized run. Test state is
+  ephemeral and nothing is persisted. Registry-driven, so it covers every node
+  type without per-node UI code.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **fix(graph): schedule triggers now have real time controls and cannot
+  double-fire.** `trigger.schedule` is zero-config; its cron/timezone/enabled
+  state is a `WorkflowSchedule` linked by a new `nodeId` column (Prisma db push),
+  edited in the node inspector's **Schedule** tab: repeat presets, a time picker,
+  weekday chips, IANA timezone select, catch-up policy, version pin, next-three-
+  fires preview, Run now, pause and delete. The 60 s ticker now starts early in
+  the boot pipeline, holds a process-level overlap lock, and **claims each due
+  fire atomically** (compare-and-set on `nextRunAt`) so two ticks/processes
+  cannot start the same run; missed fires keep the skip/coalesce policy and a
+  later tick reconciles `lastStatus` from the run instead of leaving it at
+  `started`. Zone names are validated with a clear error. Schedules still run in
+  the read-only test envelope (the UI says so) and only while the server is up.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(graph): zero-config manual trigger + per-node Test panel.** `trigger.manual`
+  now has no config fields, like n8n: `Start` is the one-off run input (Execution
+  dock or webhook body) or null; stored defaults belong in `data.value` /
+  `data.set_variables`. Legacy `seed`/`payload` keys in already-saved graphs are
+  still honoured at runtime but are no longer declared or shown, and the starter
+  templates were moved onto visible data-node defaults. The inspector gained a
+  **Test** tab that executes a single node through the new
+  `POST /api/graph-runs/node-test` → Python `POST /graphs/nodes/test` surface:
+  explicit per-port inputs, re-validated config, the node's hard timeout, and a
+  safe envelope that refuses network/write/trading/model nodes (403). Tests cover
+  the zero-config trigger, node tests, input validation and the safe envelope.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(graph): n8n-style manual trigger — payload, run input and webhook body.**
+  `trigger.manual` now has a `payload` (any JSON) plus `payloadType`
+  (`auto`/`string`/`number`/`boolean`/`object`/`array`) in addition to the legacy
+  `seed`; the executor resolves Start as run input → payload → seed → null, so
+  existing graphs are unchanged. The runs route and the webhook-style trigger
+  route now accept a bounded (64 KiB) `runInput` (webhook: the request body) and
+  forward it to the Python runtime, which already supported it. The Execution
+  dock gained a **Run input** JSON editor (one run only, never persisted), and the
+  inspector shows Payload/Payload type with help text. Registry parity kept in
+  both languages; `config_fields` gained an `any` kind for JSON values.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
 - **fix(ui): provider logos replace the sparkle in the model picker.** The
   composer's model selector and the Provider submenu now show the actual
   provider's brand mark (OpenAI, Anthropic, Gemini, Mistral, DeepSeek, Groq,
@@ -28,6 +124,119 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   (`/api/voice/transcribe`), Python `/voice/transcribe` runtime route, and the
   optional `TRANSCRIBE_API_KEY` vault entry keep the key server-side.
   Docs updated: `docs/voice.md`, `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
+- **feat(graph): n8n-style node parameter editing.** A single click now opens the
+  inspector (drag still moves the node). The Parameters tab shows the node
+  description/docs, friendly labels, one-line help, required markers, and an
+  “Advanced: edit config as JSON” editor for any field the form does not expose.
+  The Settings tab gained saved node **Notes** (`update_node_notes`; notes are
+  copied on duplicate/paste and never executed). Added shared help text and
+  required-field metadata in `config-fields.ts`.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **test(graph): verified `trading.broker_order` on a real MT5 demo fill.** A
+  graph `trigger → data.value(intent) → trading.broker_order → result` submitted
+  a 0.01 lot EURUSD buy (SL 1.11000, TP 1.12500) under a one-order demo mandate:
+  ticket `11183814415` filled at 1.11676, then closed/verified at 1.11677
+  (`positions=0`). A first attempt without a stop was correctly refused by the
+  connection's 0.5% risk-per-trade policy, proving the preflight gate. The
+  configured connection is a demo account, so the live two-key path still needs
+  an armed live connection to be exercised.
+  no doc change — verification run; no contract changed.
+
+- **feat(graph): MT5 live execution under a workflow-pinned mandate.** Phase 6
+  adds LIVE broker nodes: `trading.broker_order` (armed live connection + live
+  mandate; a mandate replaces the per-order typed phrase), read nodes
+  `broker_account` / `broker_quote` / `broker_bars`, and risk-reducing
+  `broker_close` / `broker_modify` / `broker_cancel` (no arm/approval/mandate).
+  Live mandates pin `workflowId@version`, are capped at a 24 h TTL and require
+  the connection arm before creation; `RunGrants`/`RunRequest`/the front door
+  carry `allowLiveTrading`, the compiler refuses paper-only nodes in live mode
+  and requires pinned `connectionId`/`mandateId`, and the execution context now
+  carries the workflow id for the mandate check. The editor gained a broker
+  connection/mandate picker and the Settings mandate form supports live + a
+  workflow pin. Tests: live mandate/submit, pinned workflow mismatch, compiler
+  live grant. Docs updated: `docs/trading.md`, `docs/graph-studio.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): scoped external file writes.** Added `file.write` (Phase 5):
+  a named operator-configured scope (`HARNESS_GRAPH_WRITE_ROOTS`, default
+  `workspace` → `.black-eclipse/workspace`), relative paths only, `..`/absolute/
+  symlink escapes refused, 8 MB cap, atomic replacement or append. A test run
+  never writes; an operator run is granted only the exact scopes it confirms
+  (`allowedWriteScopes`, carried through the front door to `RunGrants`). The
+  authorization dialog lists the scopes; the editor marks file writes as an
+  effect. Tests: node confinement/caps, compiler envelope, TS authorization.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(graph): bounded loop nodes.** Added `flow.for_each`, `flow.repeat` and
+  `flow.while`: a pinned body workflow run under a hard `maxIterations`/`count`
+  and optional `maxDurationMs` cap. The compiler still refuses graph cycles; a
+  loop is an orchestrated node. Each iteration is a durable child run
+  (`<parent>:<node>:i<N>`) and doubles as its checkpoint — a resumed parent
+  reuses a succeeded iteration. `flow.while` evaluates the safe formula language
+  over `value`/`index`/`iterations`; `flow.for_each` can continue on a failed
+  item and records the error in `results`. The editor treats loop bodies like
+  subworkflows (pinned workflow picker) and the front-door bundle walks them.
+  Tests: compile/execute/cap/reuse and parity.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(graph): resumable agent runs.** Durable graph jobs now persist the
+  front-door callback URL and re-resolve model credentials on resume through the
+  operator-gated `POST /api/graph-runs/{id}/credentials` route — the key is held
+  in worker memory only, never in the job payload. The agent adapter re-enters
+  the same agent-plane run when a durable checkpoint exists
+  (`agent_run_identity`), so a crashed turn continues instead of replaying; a
+  run without a checkpoint restarts under a fresh id (model calls have no world
+  effect). Added credential-resolution and identity tests. Docs updated:
+  `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(graph): dry-run agent nodes in a test run.** Added the `model` side
+  effect (tokens, not a world effect), separate from `network`. Agent nodes are
+  now `model`, so a test/dry run may execute them; the front door resolves model
+  credentials for any graph with `agent.run`, and the runtime narrows the agent's
+  declared allowlist DOWN to `DRY_RUN_TOOLS` (read-only finance, local evidence,
+  response helpers) — web, browser, MCP, plugins, code and broker tools are
+  removed. Operator runs keep the preset's surface. Added `requiresModel` /
+  `modelNodes` to run authorization and the dialog, plus dry-run surface tests.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(graph): operator-authored agent presets from Settings.** New Settings ›
+  Agents CRUD for a custom agent preset (prompt, max steps, explicit tool
+  allowlist, MCP/plugin expansion). Presets live on `agent-memory.db` in
+  `AgentPreset` + immutable `AgentPresetVersion`; every edit appends a version
+  and an agent node pins `agent@version`. Tool names are validated against the
+  live registry and a write/external tool requires the explicit “Allow effectful
+  tools” acknowledgement. The Next front door is a thin proxy; the runtime owns
+  resolution. Agent nodes gained `agentVersion` and the inspector gained a
+  built-in/custom picker; the manifest was regenerated.
+  Docs updated: `docs/graph-studio.md`, `docs/harness/decisions.md`
+  (ADR-H342), `docs/CHANGELOG.md`.
+- **fix(docs): rotate-changelog archives the oldest sections, not the newest.**
+  The script read the newest-first file backwards (`marks[length - KEEP]`) and
+  sliced the archive block with a dead identity check, so `--write` moved the
+  newest section out and dropped the older ones. It now keeps the first 7
+  newest sections and archives the contiguous oldest tail; 2026-10-23 moved to
+  `docs/changelog/2026-10.md`.
+  Docs updated: `docs/CHANGELOG.md`, `docs/changelog/2026-10.md`.
+- **fix(graph): record the repro + root cause for failing agent nodes.** A
+  trigger → `agent.research` → result graph run as an operator run returns a
+  complete answer from the agent plane but the node is marked failed with
+  `agent run completed: <output>`; downstream nodes are skipped. Cause: the
+  bootstrap adapter accepts only `succeeded` while the run plane's terminal
+  success status is `completed` (`RunStatus` in `python/harness/schemas.py`).
+  Also found adjacent defects: run history is keyed by `ir.id` while the API
+  lists by the JDDS row id, and subworkflow bundles fail the same identity
+  equality check. Analysis only, no code changed in this pass.
+  no doc change — investigation for a fix plan; `docs/graph-studio.md` will be
+  updated with the fix, not the audit.
+- **fix(graph): make agent nodes and run history work.** Extracted the agent
+  result projection into `agent_nodes.agent_result_payload`, which now accepts
+  the run plane's `completed` terminal status as success (and `failed`/
+  `cancelled` report their own message, not the transcript). Run dispatch now
+  aligns the IR id to the persisted JDDS workflow id (and bundled subworkflow
+  IRs to their pinned row ids), so `/api/workflows/[id]/runs` and nested runs
+  share one identity. `agent.research.query` / `agent.plan.objective` are
+  optional ports backed by a compile-time "wire or config objective" rule, and
+  the canvas "From wire" state maps a config field to its real port. The editor
+  Start action now opens the authorization dialog for graphs with network /
+  trading / write effects instead of firing a test run that must be refused.
+  Added agent adapter, config-only objective and every-node-executable tests;
+  regenerated `registry.manifest.json`.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
 
 ## 2026-10-29
 - **feat(voice): read assistant replies aloud with browser-native TTS.** Added a
@@ -2105,339 +2314,3 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   list is legible at rest without changing the selected row. No contract or
   architecture change. no doc change — styling only.
 
-## 2026-10-23
-- **release: v0.2.1-rc.1 (release candidate, not production).** Lands the
-  data-integrity, live-measurement and terminal-merge work on `main` and tags the
-  merged tree. Offline gates are green (Python 8,283 passed / 27 skipped; Vitest
-  3,866 passed; eval gates and corpus gate PASS; tsc, eslint, security, size and
-  ADR checks PASS). The live tier is honestly **FAIL**: `task_success` 0.8520 on
-  live-eligible tasks against the 0.9 gate. External review, PyPI, ACP, the
-  SWE-bench suite, the remaining V2 merges and phases 15/18/20 are explicitly not
-  in this candidate. Release note: `docs/releases/v0.2.1-rc.1.md`.
-  docs updated: `docs/releases/v0.2.1-rc.1.md`, `docs/CHANGELOG.md`.
-- **refactor(harness): V2 terminal merge — one executor, two transports.** The
-  code profile's `terminal_run` and the `.black-eclipse/verify.json` auto-verify
-  hook now run through the ONE `TerminalManager` instead of calling
-  `code/sandbox.run` directly. The manager gained `shell_mode=False`, which
-  tokenizes the command with `shlex.split(posix=True)` and executes the argv
-  directly, preserving the no-shell contract. `code/terminal.py` is now the ONE
-  classifier; `build_run_spec` was removed. Tool names are unchanged. The
-  terminal slice measured 383,443 total / code 18,197; reconciling origin/main's
-  live-preflight and outage guards added 24 evaluation lines, so the final
-  committed ceiling is 383,467 / evaluation 11,741. Files:
-  `python/harness/terminal/manager.py`,
-  `python/harness/code/{terminal,terminal_tools,tools}.py`,
-  `python/tests/test_terminal_tools.py`,
-  `python/tests/test_code_terminal.py`, `scripts/size-budget.json`.
-  docs updated: `docs/harness/terminal-architecture.md`,
-  `docs/harness/decisions.md` (ADR-H311), `docs/CHANGELOG.md`.
-- **fix(harness): restore the release gate by recording the size-budget raise.**
-  `npm run check:all` failed before tests ran because the harness tree had grown
-  to 383,293 lines against the committed 382,030 ceiling (the D1-D12
-  data-integrity work added ~1.4k Python lines). Raised the committed total to
-  383,400 and the `.`/`evaluation` directory ceilings to their measured values
-  (25,110 / 11,725) as an explicit, one-release decision (ADR-H327); Round 4 V2
-  remains the work that must lower it again. Files:
-  `scripts/size-budget.json`, `docs/harness/decisions.md`.
-  docs updated: `docs/harness/decisions.md`, `docs/CHANGELOG.md`.
-- **fix(evaluation): the live lane measures the agent, not missing eval tools.**
-  Three defects made the live tier publish a false zero: it ran every task
-  (including tier-0 scripted tasks that require `eval_*` tools or synthetic
-  environments) against the production service; a provider 429/timeout was
-  graded as a failed task; and the generated benchmark said `NOT MEASURED` even
-  when a pinned live baseline existed. The live gate now selects only
-  `live_eligible` tasks, provider failures are `UNMEASURED` with the provider
-  reason, and the benchmark falls back to the newest committed
-  `baselines/live_v1.json` entry when no valid local run is recorded. Also fixed
-  the financial/exact graders to accept `25%` for an expected fraction `0.25`
-  (all `weight` tasks were failing on this). Files:
-  `python/harness/evaluation/{tasks,live_gate,runner,report}.py`,
-  `python/harness/evaluation/graders/{exact,financial}.py`,
-  `python/harness/evaluation/baselines/live_v1.json` (adds the live-eligible
-  re-score note), `python/tests/test_evaluation_{tasks,live_gate,graders}.py`,
-  `python/tests/test_live_baseline.py`, `docs/harness/benchmarks.md` (generated).
-  docs updated: `docs/harness/agent-evaluation.md`, `docs/harness/benchmarks.md`,
-  `docs/CHANGELOG.md`.
-- **style(branding): square, self-backing app icon.** Rebuilt
-  `public/branding/FAVICON.svg` as a 32×32 square (near-black rounded tile with
-  the white Eclipse mark scaled to a 2px safe area) so the mark stays visible on
-  both light and dark browser chrome; the old asset was 28×32 with white-only
-  fills. Regenerated `src/app/favicon.ico` (16/32/48 ICO), added
-  `src/app/apple-icon.png` (180×180) and `public/branding/icon-{192,512}.png` for
-  future PWA use. No manifest was added. Also generated a multi-size
-  `public/branding/black-eclipse.ico` and pointed the Windows "Black Eclipse"
-  desktop shortcut's **IconLocation** at it (it previously showed the generic
-  wscript/Node icon), then refreshed the shell icon cache. docs updated:
-  `docs/QUICKSTART.md`, `docs/CHANGELOG.md`; `docs/ARCHITECTURE.md` already
-  documents the `public/branding/` defaults.
-- **style(branding): flush-left mark in the app icon.** Moved the Eclipse glyph
-  from a 3.75px centred inset to the tile's left edge (no left gap), clipped it
-  to the rounded tile so the corner stays clean, and regenerated every derived
-  PNG/ICO plus the desktop shortcut's cached icon. docs updated:
-  `docs/CHANGELOG.md`.
-- **fix(desktop): hidden launcher and reliable stop on tab close.**
-  `start-eclipse.vbs` now starts the Node launcher with window style `0`, so no
-  CMD window appears; boot/stop output goes only to
-  `.black-eclipse/desktop-launch.log`. The tab-close stop delay dropped from 20s
-  to 8s, and `start-desktop.js` gained a stale-heartbeat watchdog (~150s) so a
-  tab that crashes or is force-closed without `pagehide` also tears the server
-  down. The watchdog threshold sits above browser background-tab timer
-  throttling, so an open-but-hidden tab is not mistaken for a closed one.
-  docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
-- **chore(stock detail): ship the intelligence + verification slice.** Committed
-  the five-chart market-intelligence panel, JDdS listing-market resolution,
-  Yahoo→Stooq price fallback, and the web-backed identity/listing/filing/quote
-  verification route and panel. Checks: `npx tsc --noEmit` clean; targeted
-  Vitest 20/20; changed-file ESLint 0 errors. Files:
-  `src/app/api/stocks/[symbol]/{intelligence,verification}/route.ts`,
-  `src/lib/stock-intelligence/`, `src/lib/scraper/stooq-chart.ts`,
-  `src/components/screens/stock-detail/`,
-  `src/components/screens/tradingview-chart.tsx`.
-  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`.
-- **feat(stock detail): more charts and web-backed source verification.**
-  Added 1Y price-trend and drawdown charts so the panel shows sourced data even
-  when a symbol has no fundamentals, and made every unavailable chart render as
-  a card with its reason instead of collapsing the section. The intelligence
-  route now resolves the listing market from JDdS (the screener can omit
-  country, e.g. EMAAR was being requested as US) and falls back from Yahoo to
-  Stooq for US daily closes. Added `GET /api/stocks/[symbol]/verification`,
-  which reuses the existing web-search transport to check identity, listing,
-  filings and a quote cross-check; official hosts are required for `VERIFIED`,
-  snippets only ever `CORROBORATE`, and results are cached for 30 minutes.
-  Files: `src/lib/stock-intelligence/{types,charts,verification,use-stock-verification}.ts`,
-  `src/lib/scraper/stooq-chart.ts`, `src/app/api/stocks/[symbol]/{intelligence,verification}/route.ts`,
-  `src/components/screens/stock-detail/{charts/intelligence-panel.tsx,verification-panel.tsx}`,
-  `src/components/screens/tradingview-chart.tsx`, tests alongside each module.
-  `npx tsc --noEmit` clean; targeted Vitest 20/20 pass; lint 0 errors.
-  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **fix(harness): twelve data-integrity defects closed in retrieval/routing.**
-  Added the shared `DataQualityEnvelope` (VALID/STALE/DIVERGENT/SCALE_MISMATCH/
-  UNAVAILABLE/UNVERIFIED), cross-source price comparison with both candidates
-  preserved, statement period-age + cache-key versioning, one FX pair resolver,
-  cadence-aware freshness (business days + holidays), provider health read from
-  the recorded run ledger, breaker-demoted routes with provenance, capability
-  mismatch blocks + CI allowlist, undated-news filtering, bounded retry/body
-  cache/success-rate for research fetches, Levenshtein tool suggestions, and
-  IMAGE_ONLY/OCR_UNAVAILABLE document handling. Evidence in `HARNESS_FIXES.md`
-  and `scripts/repro_{baseline,after}.txt`.
-  docs updated: `docs/harness/market-data.md`, `docs/CHANGELOG.md`.
-- **docs(nav): NAVIGATION covers the corpus, rotation, live-baseline and
-  supervised-change surfaces.** Updated the evaluation row (338 tasks — 263
-  oracle-backed + 75 exemptions, plus `corpus.py` / `contamination.py` /
-  `rotation.py` / `significance.py` / `live_baseline.py`), the RSL row (v4
-  modules `archive` / `cmp` / `operators` / `sampler` / `autonomy` and the v4
-  plan), and added a task row for corpus audit / rotation / live baselines /
-  operator-triggered apply with the CLI, routes, UI cards and the quarterly
-  workflow. Files: `docs/NAVIGATION.md`.
-  docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **feat(desktop): the icon now opens `blackeclipse`, with a visible boot console
-  and a fast start.** `scripts/start-desktop.js` manages the production profile
-  (`black eclipse --restart`: built Next on 3100 behind the local proxy),
-  restarts an unmanaged instance so tab-close owns its lifecycle, and opens
-  `https://blackeclipse` (http fallback). `start-eclipse.vbs` runs it with a
-  visible console that closes when the tab closes; closing the console by hand
-  stops the server. The launcher starts the existing build directly
-  (`local-host`, ~2s) and never rebuilds while the user waits: a stale source
-  shows a console note and still starts instantly, and the first launch on a
-  fresh clone is the only build. `BE_DESKTOP_BUILD=1` forces a rebuild. The
-  source hash is now content-based (a touch no longer invalidates the build),
-  and a `postbuild` hook marks a plain `npm run build` as current.
-  Files: `scripts/start-desktop.js`, `start-eclipse.vbs`, `scripts/mark-build.js`,
-  `scripts/lib/server.js`, `scripts/doctor.js`, `package.json`.
-  docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
-- **ci(rsl): a quarterly rotation reminder that cannot write a dataset.**
-  Added `.github/workflows/rsl-rotation.yml`: quarterly schedule plus dispatch,
-  resolves and validates the quarter label, runs
-  `node scripts/rsl-rotate.js --json` (dry run), publishes the plan to the step
-  summary and fails when `plan.ok` is false. It never passes `--apply`, and it
-  proves the dry run left the corpus tree unchanged. `--json`
-  now keeps stdout pure JSON (the human dry-run note goes to stderr) so the
-  plan can be redirected and parsed. Files: `.github/workflows/rsl-rotation.yml`,
-  `python/harness/evaluation/rotation.py`,
-  `python/tests/test_evaluation_rotation.py`.
-  docs updated: `docs/harness/agent-evaluation.md`,
-  `docs/self-improvement/rsl-v4-plan.md`, `docs/CHANGELOG.md`.
-- **feat(rsl-ui): corpus and autonomy cards on the RSL control panel.**
-  Added typed runtime calls and Next proxies for `GET /evolution/corpus`, the
-  rotation preview, autonomy status/pause/resume/decide and the state
-  autonomy-apply route. Two frosted cards show the 338-task splits, 263
-  oracle-backed + 75 documented exemptions, verification/audit, and the
-  autonomy level, kill switch and daily budget. Apply is disabled when the
-  level, kill switch or budget refuses; the runtime's evidence refusal reasons
-  are shown, never bypassed. Files: `src/lib/harness/{evolution-client,
-  evolution-browser}.ts`, `src/app/api/evolution/{corpus,corpus/rotation,
-  rsl/autonomy/**,states/[id]/autonomy-apply}/route.ts`,
-  `src/components/screens/skills/rsl-{corpus,autonomy}-card.tsx`,
-  `rsl-control-panel.tsx`, `src/lib/i18n/dictionaries/evolution.ts`, tests.
-  docs updated: `docs/harness/agent-evaluation.md`,
-  `docs/self-improvement/rsl-v4-plan.md`, `docs/CHANGELOG.md`.
-- **docs(rsl): auto-apply stays operator-triggered (Phase 4 decision).**
-  Recorded ADR-H326: no scheduler tick and no `HARNESS_RSL_AUTO_APPLY` switch;
-  the only activation path remains `POST
-  /evolution/states/{id}/autonomy-apply`, bounded by the existing
-  L1/evidence/kill-switch/daily-budget policy. A future scheduler needs its own
-  ADR, an off-by-default flag, one apply per tick and a dry-run period. Files:
-  `docs/harness/decisions.md`, `docs/self-improvement/rsl-v4-plan.md`.
-  docs updated: `docs/harness/decisions.md`,
-  `docs/self-improvement/rsl-v4-plan.md`, `docs/CHANGELOG.md`.
-- **data(evaluation): the first live-tier baseline is pinned.**
-  Recorded `ollama` / `deepseek-v4.1-flash:cloud` on the validation split of the
-  338-task corpus (244 tasks, dataset checksum `d6375ca4…`, prompt hash
-  `f05e7c03…`): task_success 0.6901 (95% CI 0.6292..0.7450), 242 measured
-  trials. A same-identity rerun exited FAIL on the critical gates
-  (task_success −0.0083, financial_accuracy −0.0195, safety_score −0.0625); the
-  gates allow no drop on those dimensions, so the regression is reported, not
-  smoothed. Cost reads 0.0 because `ollama/*` is priced free/local. Files:
-  `python/harness/evaluation/baselines/live_v1.json`,
-  `docs/self-improvement/rsl-report-2026-10-23.md`.
-  docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
-- **fix(evaluation): the nightly report can no longer contradict its exit code.**
-  Moved the report write to the end of `run_nightly`, after the live comparison,
-  promotion and baseline write; a live regression used to set `ok=False` after
-  the PASS file was already on disk (and the file omitted those results).
-  `GET /evolution/corpus` now also exposes `oracleExemptCount`. Size ceilings
-  raised 5 lines (382,030 total; evaluation 11,603; routers 17,214). Files:
-  `python/harness/evaluation/nightly.py`,
-  `python/harness/routers/evolution_corpus.py`,
-  `python/tests/{test_evaluation_nightly,test_evolution_corpus_routes}.py`,
-  `scripts/size-budget.json`.
-  docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
-- **data(evaluation): 338-task corpus with 263 real oracles and 75 documented
-  exemptions.** Added `metadata.oracleExempt` + `oracleReason` (task or dataset
-  level) and dataset-level contamination so `validate_tasks(strict=True)`
-  treats the seven legacy fixture sets (benchmark, construction, adversarial,
-  research, replay, routing_e2e, team — 75 tasks) as intentional rather than
-  gaps. `finance_v1`'s 13 tasks gained real oracles; new `finance_v7` adds 88
-  oracle-backed tasks (60 validation / 28 optimization). The manifest now
-  records `oracleExemptCount` (total and per dataset) and verifies it. Splits:
-  validation 244 / optimization 88 / held_out 6; corpus audit PASS. Size
-  ceilings raised 75 lines for `corpus.py` (382,025 total; evaluation 11,600).
-  Files: `python/harness/evaluation/{corpus,contamination}.py`,
-  `python/harness/evaluation/datasets/*`,
-  `python/harness/evaluation/baselines/corpus_manifest.json`,
-  `python/tests/{test_evaluation_corpus,test_rsl_provenance,
-  test_evolution_corpus_routes}.py`, `scripts/size-budget.json`.
-  docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
-- **data(evaluation): the 2026Q4 held_out rotation moved four finance tasks.**
-  `finance.v5.percentage_change.004`, `finance.v5.operating_margin.005`,
-  `finance.v4.eps.003` and `finance.v3.opt.cagr.001` moved
-  optimization → held_out (version bumped, `metadata.rotation` recorded); the
-  rotation-exempt team tasks stayed put. Splits are now validation 184 /
-  optimization 60 / held_out 6, still 250 tasks; the manifest was rebuilt and
-  verifies. Files: `python/harness/evaluation/datasets/{finance_v3,finance_v4,
-  finance_v5}.json`, `python/harness/evaluation/baselines/corpus_manifest.json`,
-  `python/tests/test_rsl_provenance.py`.
-  docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
-- **safety(evaluation): the live nightly is bounded and capped before it spends.**
-  `--limit N` runs only the first N tasks (hard bound 500) and a positive
-  `--max-cost USD` is required for `--live`; both are validated before any task
-  is sent and recorded in the report (`limit`, `maxCostUsd`,
-  `estimatedWorstCaseTrials`). `--publish` with no value now resolves to the app
-  root's `docs/self-improvement` instead of the Python child's cwd. Files:
-  `python/harness/evaluation/nightly.py`, `scripts/rsl-nightly.js`,
-  `python/tests/test_evaluation_nightly.py`; raised the committed size
-  ceilings to the measured tree (381,950 total; evaluation 11,525) for the 69
-  added lines, `scripts/size-budget.json`.
-  docs updated: `docs/harness/agent-evaluation.md`, `docs/CHANGELOG.md`.
-- **merge(harness): origin/main's Round 3/4 work landed on the local tree.**
-  Merged 22 upstream commits (Round 3/4, v0.2.0, and the live-eval publishing
-  fix) and resolved the content conflicts in `docs/harness/decisions.md`,
-  `package.json`, `python/tests/test_size_budget.py` and the generated
-  `docs/harness/benchmarks.md`. The local RSL v4 / notebook decisions moved from
-  H293-H302 to H316-H325 so H310-H315 stay reserved for the Round 4 plan;
-  `scripts/check-adr-numbers.js` now reserves that range, and every doc reference
-  was updated. Raised the harness size ceilings to the measured merged tree
-  (381,881 total; `.` 24,845; routers 17,212; evaluation 11,456), pinned
-  `graph.py` at 2,323, regenerated the tool registry (957 tools) and benchmarks,
-  and included the read-only corpus/rotation routes
-  (`python/harness/routers/evolution_corpus.py`, its test, the `main.py`
-  registration and the `agent-evaluation.md` note). `npx tsc --noEmit` clean;
-  lint 0 errors; ADR and size gates pass; full suite 8,223 passed / 27 skipped,
-  with only the two stale-generated-artifact failures, both regenerated and
-  their 15 tests green; the follow-up eval-publishing merge's affected
-  benchmark/public/size tests (15) also pass.
-  docs updated: `docs/harness/decisions.md`,
-  `docs/harness/roadmap/round-4-gap-closure.md`,
-  `docs/harness/agent-evaluation.md`, `docs/NAVIGATION.md`,
-  `docs/self-improvement/rsl-v4-plan.md`,
-  `docs/harness/roadmap/{README,phase-21-notebook-cells}.md`,
-  `docs/harness/benchmarks.md`, `docs/harness/tool-registry.json`,
-  `docs/CHANGELOG.md`.
-- **test(evaluation): the one-split export check no longer hardcodes 61 tasks.**
-  `test_one_split_can_be_exported_alone` now compares the optimization split
-  count against the full built-in corpus, so legitimate corpus growth (64
-  optimization / 250 total) cannot fail a test that is about split filtering,
-  not a fixed size. `python/tests/test_evaluation_export.py`.
-  no canonical doc change — test-only; the rolling-window rotation moved the
-  2026-10-16 section into `docs/changelog/2026-10.md`.
-
-- **ui(stock detail): the overlay is compact and chart-led.** Reworked the
-  full-screen stock detail overlay into a compact header + key-statistics band,
-  one Interactive/History chart card, a collapsible AI brief, tabbed
-  fundamentals, clamped news, merged Technical & Risk, merged profile +
-  leadership, and a header glossary. Fixed overlay stacking above the chat dock,
-  restored blur, contained rail overscroll, made the glossary clear the mobile
-  header, and added explicit history loading/empty/error states. Forward P/E now
-  comes from the selected stock; history ranges read `1M/3M/6M` and volume labels
-  no longer collide. Kept `market-overview.tsx` at its 2,760-line ratchet by
-  keeping the new prop on the existing line. Files:
-  `src/components/screens/tradingview-chart.tsx`,
-  `src/components/screens/company/sections.tsx`,
-  `src/components/screens/fundamentals/panel.tsx`,
-  `src/components/screens/market-overview.tsx`, `src/app/globals.css`.
-  `npx tsc --noEmit` clean; Vitest 384 files / 3828 tests pass; lint 0 errors;
-  size budget pass. no canonical doc change — presentation-only; no contract or
-  data-shape change. docs updated: `docs/CHANGELOG.md`.
-
-- **chore(evaluation): regenerated the published benchmark after the 2026Q4
-  rotation.** The rotation changed the benchmark checksum, so
-  `test_published_benchmarks` failed; `npm run eval:benchmarks` rewrote
-  `docs/harness/benchmarks.md` from a fresh offline gate, and the targeted
-  benchmark + watcher tests now pass (37). Files: `docs/harness/benchmarks.md`.
-  docs updated: `docs/harness/benchmarks.md`, `docs/CHANGELOG.md`.
-
-- **fix(home): removed the dead space below the dashboard footer.** The home
-  dashboard root carried `pb-24`; its mobile clearance is already supplied by
-  `#main-content`, so the extra 96px left a large empty band under the footer.
-  Reduced to `pb-6`. File: `src/components/screens/dashboard/home-dashboard.tsx`.
-  no doc change — spacing-only fix with no contract or architecture impact.
-
-- **fix(windows): child processes no longer open console windows on server
-  start.** Node's `spawn`/`exec*` default to `windowsHide: false`, so the
-  auto-started Python harness, port checks, and doctor probes could pop a
-  `cmd.exe` window on Windows. Set `windowsHide: true` on the harness spawn,
-  Python resolver, launcher/server spawns, doctor, and kill-port. Files:
-  `src/lib/harness/python-runtime.ts`, `src/lib/scraper/fetchers/python.ts`,
-  `scripts/local-host.js`, `scripts/lib/server.js`, `scripts/doctor.js`,
-  `scripts/kill-port.js`.
-  no doc change — process-launch detail, no contract or architecture change.
-
-- **feat(desktop): silent launcher that stops the server when the tab closes.**
-  Added `scripts/start-desktop.js` (probe known app URLs, start `npm run dev`
-  detached with no stdio, wait for HTTP, open `?desktop=1`) and
-  `start-eclipse.vbs` (windowless wrapper). `<DesktopSession />` beacons
-  `alive`/`leave` to `/api/desktop/session`; the launcher watches the beacon
-  file and kills the process tree ~20s after the tab closes, with a reload grace
-  window. The route is inert unless `BE_DESKTOP_HEARTBEAT_FILE` is set, so
-  console-launched servers are unaffected. A `Black Eclipse` Desktop shortcut
-  points at the VBS. Files: `scripts/start-desktop.js`, `start-eclipse.vbs`,
-  `src/components/layout/desktop-session.tsx`,
-  `src/app/api/desktop/session/route.ts`, `src/app/layout.tsx`.
-  docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
-
-- **feat(stock-detail): sourced market-intelligence charts on the company overlay.**
-  Added a read-only `GET /api/stocks/[symbol]/intelligence` route that fans out
-  to the existing fundamentals service and Yahoo daily closes, then returns
-  three derived charts: 6M return vs the home-market benchmark, trailing P/E at
-  each fiscal year-end, and earnings surprise. Every chart carries a provenance
-  block and an explicit `UNAVAILABLE` reason instead of invented points; web/AI
-  facts are deliberately excluded from historical numeric series. The overlay
-  mounts a new `Market intelligence` section between the price chart and the AI
-  brief, with `SourceBadge` provenance chips and a 5-minute server cache.
-  Files: `src/lib/stock-intelligence/{types,charts,use-stock-intelligence}.ts`,
-  `src/app/api/stocks/[symbol]/intelligence/route.ts`,
-  `src/components/screens/stock-detail/charts/{intelligence-panel,source-badge}.tsx`,
-  `src/components/screens/tradingview-chart.tsx`,
-  `src/lib/stock-intelligence/charts.test.ts`.
-  docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.

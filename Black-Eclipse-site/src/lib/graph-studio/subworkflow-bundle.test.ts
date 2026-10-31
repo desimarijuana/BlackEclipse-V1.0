@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createWorkflowIR } from './ir';
-import { collectSubworkflows, subworkflowRefs, type SubworkflowLoader } from './subworkflow-bundle';
+import {
+  alignSubworkflowIds,
+  alignWorkflowIdentity,
+  collectSubworkflows,
+  subworkflowRefs,
+  type SubworkflowLoader,
+} from './subworkflow-bundle';
 import type { WorkflowIR } from './types';
 
 function graph(id: string, child?: { id: string; version: number }): WorkflowIR {
@@ -36,6 +42,15 @@ describe('subworkflow bundle', () => {
     expect(subworkflowRefs(blank)).toEqual([]);
   });
 
+  it('collects loop bodies as pinned references', () => {
+    const ir = graph('root');
+    ir.nodes.push({
+      id: 'loop', type: 'flow.for_each', version: '1.0.0',
+      config: { workflowId: 'body', version: 2 }, layout: { x: 0, y: 0 },
+    });
+    expect(subworkflowRefs(ir)).toEqual([{ id: 'body', version: 2 }]);
+  });
+
   it('resolves nested subworkflows once', async () => {
     const child = graph('child', { id: 'grandchild', version: 1 });
     const grandchild = graph('grandchild');
@@ -44,6 +59,24 @@ describe('subworkflow bundle', () => {
       loaderOf({ 'child@2': child, 'grandchild@1': grandchild }),
     );
     expect(bundle.map((entry) => `${entry.id}@${entry.version}`)).toEqual(['child@2', 'grandchild@1']);
+  });
+
+  it('aligns the root run id to the persisted workflow row id', () => {
+    const aligned = alignWorkflowIdentity(graph('wf_document'), 'cmv_row');
+    expect(aligned.id).toBe('cmv_row');
+    // Nothing else about the document changes.
+    expect(aligned.nodes).toEqual(graph('wf_document').nodes);
+    expect(aligned.edges).toEqual(graph('wf_document').edges);
+  });
+
+  it('aligns every bundled child IR to its pinned bundle id', async () => {
+    const bundle = await collectSubworkflows(
+      graph('root', { id: 'cmv_child', version: 1 }),
+      loaderOf({ 'cmv_child@1': graph('wf_document_child') }),
+    );
+    const aligned = alignSubworkflowIds(bundle);
+    expect(aligned[0].ir.id).toBe('cmv_child');
+    expect(aligned[0].id).toBe('cmv_child');
   });
 
   it('refuses a missing subworkflow', async () => {

@@ -80,6 +80,8 @@ export interface WorkflowNode {
   version: string;
   /** Optional user label overriding the definition's display name. */
   label?: string;
+  /** Free-form operator note, saved with the workflow (not executed). */
+  notes?: string;
   config: Record<string, unknown>;
   /** Non-semantic canvas position (persisted, ignored by the compiler). */
   layout: NodePosition;
@@ -161,6 +163,9 @@ export type SideEffectClass =
   | 'write'
   | 'network'
   | 'trading'
+  /** A model-provider call: costs tokens, does not act on the world. A test run
+   *  may perform it with a narrowed tool surface. */
+  | 'model'
   /** Local scratch (the runtime's own store). Survives the run, cannot affect
    *  the world, so a test run may perform it. */
   | 'local_write';
@@ -175,14 +180,31 @@ export interface ConfigFieldDef {
   key: string;
   label: string;
   kind: 'text' | 'number' | 'boolean' | 'select' | 'json';
+  /**
+   * The input port this field shadows when wired, when it differs from `key`.
+   * `agent.research` is the canonical case: the canvas field is `objective`
+   * but the wire that supplies it is the `query` port.
+   */
+  port?: string;
   /** Show on the node card (at most two per definition; json is panel-only). */
   inline?: boolean;
+  /**
+   * Priority for the card's inline slots (1 = highest). A field with `quick`
+   * is eligible for an inline slot even when `inline` is not set; ties fall
+   * back to declaration order. Presentation only.
+   */
+  quick?: number;
   options?: { value: string; label: string }[];
   placeholder?: string;
   min?: number;
   max?: number;
   step?: number;
+  /** A one-line explanation shown under the labelled control. */
   help?: string;
+  /** Marks the parameter as required in the inspector (validation still owns it). */
+  required?: boolean;
+  /** Optional section heading in the inspector. */
+  group?: string;
 }
 
 export interface NodeDefinition {

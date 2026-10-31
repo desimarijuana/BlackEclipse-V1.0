@@ -1115,6 +1115,10 @@ model Workflow {
 model WorkflowSchedule {
   id         String   @id @default(cuid())
   workflowId String
+  // The trigger.schedule node this schedule belongs to, when created from the
+  // node inspector. Null for schedules created from the execution dock before
+  // the node link existed; they still fire.
+  nodeId     String?
   name       String
   cron       String
   timezone   String   @default("UTC")
@@ -1133,6 +1137,7 @@ model WorkflowSchedule {
 
   @@index([enabled, nextRunAt])
   @@index([workflowId])
+  @@index([workflowId, nodeId])
 }
 
 // One immutable snapshot of a workflow's canonical IR.

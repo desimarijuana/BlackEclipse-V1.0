@@ -24,6 +24,7 @@ from .model import ExecutionMode, PortDef, PortType, SideEffect
 from .registry import ConfigField, NodeDef, NodeExecContext
 
 _PAPER = (ExecutionMode.PAPER,)
+_BROKER = (ExecutionMode.PAPER, ExecutionMode.LIVE)
 MAX_QUANTITY = 1_000_000_000.0
 
 _paper_store: Any = None
@@ -168,6 +169,7 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
         payload,
         mandate_id=mandate_id,
         run_id=context.run_id,
+        workflow_id=getattr(context, "workflow_id", ""),
     )
     status = str(result.get("status") or "UNKNOWN")
     if status in ("filled", "placed", "unknown"):
@@ -287,7 +289,7 @@ def build_trading_nodes() -> list[NodeDef]:
             config_fields=risk_fields,
             capabilities=("trading.risk",),
             side_effects=SideEffect.NONE,
-            allowed_modes=_PAPER,
+            allowed_modes=_BROKER,
             executor=exec_risk_check,
             metadata={
                 "docs": (
@@ -333,7 +335,7 @@ def build_trading_nodes() -> list[NodeDef]:
         ),
         NodeDef(
             type="trading.broker_order", version="1.0.0",
-            label="Broker order (demo mandate)",
+            label="Broker order",
             category="trading",
             inputs=(
                 PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
@@ -349,7 +351,7 @@ def build_trading_nodes() -> list[NodeDef]:
             ),
             capabilities=("trading.broker",),
             side_effects=SideEffect.TRADING,
-            allowed_modes=_PAPER,
+            allowed_modes=_BROKER,
             timeout_ms=45_000,
             executor=exec_broker_order,
             metadata={

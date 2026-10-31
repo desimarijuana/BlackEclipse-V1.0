@@ -20,7 +20,12 @@ from typing import Any
 
 from harness.graph_runtime.model import ExecutionMode
 from harness.graph_runtime.nodes import build_default_registry
-from harness.graph_runtime.registry import NodeDef, NodeExecContext
+from harness.graph_runtime.registry import (
+    NodeDef,
+    NodeExecContext,
+    config_defaults,
+    validate_config,
+)
 
 MANIFEST_PATH = (
     Path(__file__).resolve().parents[2]
@@ -93,6 +98,42 @@ def test_python_registry_matches_the_ts_manifest():
     )
     for key in sorted(ts_nodes):
         assert py_nodes[key] == ts_nodes[key], key
+
+
+def test_every_registered_node_has_valid_defaults():
+    """Dropping any palette node onto the canvas must produce valid config."""
+    invalid = []
+    for definition in build_default_registry().definitions():
+        problems = validate_config(definition, config_defaults(definition))
+        if problems:
+            invalid.append((definition.type, problems))
+    assert invalid == [], f"nodes with invalid default config: {invalid}"
+
+
+def test_every_registered_node_is_executable():
+    """No palette node may be a dead contract.
+
+    `flow.subworkflow` is the one intentional exception: the executor
+    special-cases it (`_run_subworkflow`) instead of binding a plain executor.
+    """
+    definitions = build_default_registry().definitions()
+    assert definitions
+    # Orchestrated nodes are executed by the scheduler itself (the body is
+    # compiled and run as a nested graph); they intentionally bind no plain
+    # executor function.
+    orchestrated = {"flow.subworkflow", "flow.for_each", "flow.repeat", "flow.while"}
+    missing = [
+        f"{definition.type}@{definition.version}"
+        for definition in definitions
+        if definition.executor is None and definition.type not in orchestrated
+    ]
+    assert missing == [], f"nodes registered without an executor: {missing}"
+    unavailable = [
+        f"{definition.type}@{definition.version}"
+        for definition in definitions
+        if not definition.available
+    ]
+    assert unavailable == [], f"nodes registered but unavailable: {unavailable}"
 
 
 def test_set_variables_merges_configured_over_input():

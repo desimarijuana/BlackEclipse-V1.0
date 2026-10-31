@@ -27,12 +27,19 @@ import {
 import '@xyflow/react/dist/style.css';
 import { cn } from '@/lib/utils';
 import {
-  Copy, HelpCircle, Layers, LayoutGrid, Maximize2, Minus, Plus, Search, Trash2,
+  Broom, Copy, HelpCircle, Layers, Maximize2, Minus, Plus, Search, Trash2,
 } from '@/lib/icons';
 import type { Diagnostic, PortDef, WorkflowIR } from '@/lib/graph-studio/types';
-import type { GraphRunRecord, NodeRunStatus } from '@/lib/graph-studio/execution-client';
+import { testNode, type GraphRunRecord, type NodeRunStatus } from '@/lib/graph-studio/execution-client';
 import { getNodeDefinition } from '@/lib/graph-studio/registry';
-import { inlineFieldsFor } from '@/lib/graph-studio/config-fields';
+import { fieldsFor, inlineFieldsFor } from '@/lib/graph-studio/config-fields';
+import {
+  canTestNode, missingRequiredInputs, type NodeTestUiState,
+} from '@/lib/graph-studio/node-test-ui';
+import {
+  listSchedules, SCHEDULES_CHANGED_EVENT, type WorkflowSchedule,
+} from '@/lib/graph-studio/schedule-client';
+import type { ScheduleNodeSummary } from '@/lib/graph-studio/schedule-summary';
 import { canConnect } from '@/lib/graph-studio/patches';
 import { buildDuplicateNodes, buildClipboard } from '@/lib/graph-studio/edit-ops';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
@@ -74,6 +81,8 @@ interface NodeCallbacks {
   onDuplicate: (nodeId: string) => void;
   onDelete: (nodeId: string) => void;
   onMore: (nodeId: string, anchor: { x: number; y: number }) => void;
+  onTest: (nodeId: string, anchor: { x: number; y: number }) => void;
+  onToggleExpanded: (nodeId: string) => void;
   onConfigCommit: (nodeId: string, key: string, value: unknown) => void;
 }
 
@@ -97,12 +106,27 @@ function sameNodeData(a: EclipseNodeData, b: EclipseNodeData): boolean {
     && a.errorCount === b.errorCount
     && a.warningCount === b.warningCount
     && a.runStatus === b.runStatus
+    && a.testState?.status === b.testState?.status
+    && a.testState?.durationMs === b.testState?.durationMs
+    && a.testState?.error === b.testState?.error
+    && a.testState?.outputs === b.testState?.outputs
+    && a.testable === b.testable
+    && a.schedule?.id === b.schedule?.id
+    && a.schedule?.enabled === b.schedule?.enabled
+    && a.schedule?.cron === b.schedule?.cron
+    && a.schedule?.timezone === b.schedule?.timezone
+    && a.schedule?.nextRunAt === b.schedule?.nextRunAt
+    && a.schedule?.lastStatus === b.schedule?.lastStatus
+    && a.extraFields === b.extraFields
+    && a.expanded === b.expanded
     && a.accent === b.accent
     && a.onConfigCommit === b.onConfigCommit
     && a.onAddNext === b.onAddNext
     && a.onDuplicate === b.onDuplicate
     && a.onDelete === b.onDelete
     && a.onMore === b.onMore
+    && a.onTest === b.onTest
+    && a.onToggleExpanded === b.onToggleExpanded
   );
 }
 
@@ -110,6 +134,9 @@ function buildNodes(
   ir: WorkflowIR,
   diagnostics: Diagnostic[],
   run: GraphRunRecord | null,
+  testStates: Record<string, NodeTestUiState>,
+  expandedNodes: Record<string, boolean>,
+  schedules: WorkflowSchedule[],
   prev: Node<EclipseNodeData>[],
   callbacks: NodeCallbacks,
 ): Node<EclipseNodeData>[] {
@@ -122,11 +149,32 @@ function buildNodes(
     if (handles) handles.push(edge.targetHandle);
     else wiredInputs.set(edge.target, [edge.targetHandle]);
   }
+  const scheduleByNode = new Map(
+    schedules
+      .filter((schedule) => schedule.nodeId)
+      .map((schedule) => [schedule.nodeId as string, schedule]),
+  );
   return ir.nodes.map((node) => {
     const def = getNodeDefinition(node.type, node.version);
     const count = counts.get(node.id) ?? { error: 0, warning: 0 };
     const previous = prevNodes.get(node.id);
     const wiredInputHandles = wiredInputs.get(node.id) ?? NO_HANDLES;
+    const inlineFields = inlineFieldsFor(def);
+    const inlineKeys = new Set(inlineFields.map((field) => field.key));
+    const extraFields = def ? fieldsFor(def).filter((field) => !inlineKeys.has(field.key)) : [];
+    const linkedSchedule = node.type === 'trigger.schedule' ? scheduleByNode.get(node.id) : undefined;
+    const schedule: ScheduleNodeSummary | undefined = linkedSchedule
+      ? {
+          id: linkedSchedule.id,
+          cron: linkedSchedule.cron,
+          timezone: linkedSchedule.timezone,
+          enabled: linkedSchedule.enabled,
+          nextRunAt: linkedSchedule.nextRunAt,
+          lastStatus: linkedSchedule.lastStatus,
+          lastError: linkedSchedule.lastError,
+          catchUp: linkedSchedule.catchUp,
+        }
+      : undefined;
     const data: EclipseNodeData = {
       label: node.label ?? def?.label ?? node.type,
       type: node.type,
@@ -137,11 +185,16 @@ function buildNodes(
       inputs: (def?.inputs ?? NO_PORTS) as PortDef[],
       outputs: (def?.outputs ?? NO_PORTS) as PortDef[],
       config: node.config,
-      inlineFields: inlineFieldsFor(def),
+      inlineFields,
+      extraFields,
+      expanded: Boolean(expandedNodes[node.id]),
       wiredInputHandles,
       errorCount: count.error,
       warningCount: count.warning,
       runStatus: statuses.get(node.id),
+      testState: testStates[node.id],
+      testable: def ? canTestNode(def) : false,
+      schedule,
       accent: 'var(--primary)',
       ...callbacks,
     };
@@ -249,7 +302,7 @@ function CanvasControls({
         <Maximize2 size={12} />
       </button>
       <button type="button" title="Tidy up layout" onClick={onTidy} className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10">
-        <LayoutGrid size={12} />
+        <Broom size={12} />
       </button>
       <button type="button" title={minimap ? 'Hide minimap' : 'Show minimap'} onClick={onToggleMinimap} className={cn('flex h-6 w-6 items-center justify-center rounded-md hover:bg-black/5 dark:hover:bg-white/10', minimap ? 'text-primary' : 'text-muted-foreground')}>
         <Layers size={12} />
@@ -319,7 +372,7 @@ function ContextMenu({
               <Search size={12} /> Select all <span className="ml-auto text-[9px] text-muted-foreground">⌘A</span>
             </button>
             <button type="button" className={item} onClick={() => { onAutoLayout(); onClose(); }}>
-              <LayoutGrid size={12} /> Tidy up
+              <Broom size={12} /> Tidy up
             </button>
             <button type="button" className={item} onClick={() => { onFit(); onClose(); }}>
               <Maximize2 size={12} /> Fit view
@@ -340,6 +393,7 @@ export interface GraphCanvasProps {
 
 function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
   const ir = useGraphEditor((s) => s.ir);
+  const workflowId = useGraphEditor((s) => s.workflowId);
   const diagnostics = useGraphEditor((s) => s.diagnostics);
   const run = useGraphEditor((s) => s.run);
   const selection = useGraphEditor((s) => s.selection);
@@ -366,10 +420,37 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
   const [minimap, setMinimap] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [shiftDown, setShiftDown] = useState(false);
+  const [testStates, setTestStates] = useState<Record<string, NodeTestUiState>>({});
+  const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
+  const [schedules, setSchedules] = useState<WorkflowSchedule[]>([]);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const pointerRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const nodesRef = useRef(nodes);
   nodesRef.current = nodes;
+
+  // Schedule nodes show their live summary on the card. Refresh on workflow
+  // change, after any schedule mutation, and once a minute for the next-fire
+  // clock (the tick advances `nextRunAt` server-side).
+  useEffect(() => {
+    if (!workflowId) {
+      setSchedules([]);
+      return;
+    }
+    let live = true;
+    const load = () => {
+      void listSchedules(workflowId)
+        .then((items) => { if (live) setSchedules(items); })
+        .catch(() => {});
+    };
+    load();
+    window.addEventListener(SCHEDULES_CHANGED_EVENT, load);
+    const timer = window.setInterval(load, 60_000);
+    return () => {
+      live = false;
+      window.removeEventListener(SCHEDULES_CHANGED_EVENT, load);
+      window.clearInterval(timer);
+    };
+  }, [workflowId]);
 
   const openPaneSearch = useCallback((position?: { x: number; y: number }) => {
     const rect = wrapperRef.current?.getBoundingClientRect();
@@ -409,6 +490,61 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
     setMenu({ x: anchor.x, y: anchor.y, flow: screenToFlowPosition(anchor), nodeId });
   }, [screenToFlowPosition]);
 
+  const onToggleExpanded = useCallback((nodeId: string) => {
+    setExpandedNodes((prev) => ({ ...prev, [nodeId]: !prev[nodeId] }));
+  }, []);
+
+  const runNodeTest = useCallback(async (nodeId: string) => {
+    const state = useGraphEditor.getState();
+    const node = state.ir?.nodes.find((item) => item.id === nodeId);
+    if (!node) return;
+    const definition = getNodeDefinition(node.type, node.version);
+    if (!definition) return;
+
+    if (!canTestNode(definition)) {
+      setTestStates((prev) => ({
+        ...prev,
+        [nodeId]: { status: 'failed', error: 'This node has side effects; test it with an authorized run.' },
+      }));
+      return;
+    }
+
+    // A node test reuses the last run's inputs for this node. Ports with no
+    // upstream value are reported instead of silently running with null.
+    const inputs = state.run?.nodeRuns?.find((item) => item.nodeId === nodeId)?.inputs ?? {};
+    const missing = missingRequiredInputs(definition, inputs);
+    if (missing.length > 0) {
+      const error = `Missing required input${missing.length === 1 ? '' : 's'}: ${missing.join(', ')}. Run the graph once or test it from the inspector's Test tab.`;
+      setTestStates((prev) => ({ ...prev, [nodeId]: { status: 'failed', error } }));
+      return;
+    }
+
+    setTestStates((prev) => ({ ...prev, [nodeId]: { status: 'running' } }));
+    try {
+      const result = await testNode({
+        nodeType: definition.type,
+        version: definition.version,
+        config: node.config,
+        inputs,
+        mode: state.ir?.settings.executionMode ?? 'research',
+      });
+      setTestStates((prev) => ({
+        ...prev,
+        [nodeId]: {
+          status: 'succeeded',
+          durationMs: result.durationMs,
+          outputs: result.outputs,
+          logs: result.logs,
+        },
+      }));
+    } catch (err) {
+      setTestStates((prev) => ({
+        ...prev,
+        [nodeId]: { status: 'failed', error: err instanceof Error ? err.message : 'Node test failed' },
+      }));
+    }
+  }, []);
+
   const onConfigCommit = useCallback((nodeId: string, key: string, value: unknown) => {
     const current = useGraphEditor.getState().ir;
     const node = current?.nodes.find((item) => item.id === nodeId);
@@ -420,8 +556,16 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
   }, [dispatch]);
 
   const nodeCallbacks = useMemo<NodeCallbacks>(
-    () => ({ onAddNext, onDuplicate: onDuplicateNode, onDelete: onDeleteNode, onMore, onConfigCommit }),
-    [onAddNext, onDuplicateNode, onDeleteNode, onMore, onConfigCommit],
+    () => ({
+      onAddNext,
+      onDuplicate: onDuplicateNode,
+      onDelete: onDeleteNode,
+      onMore,
+      onTest: (nodeId) => { void runNodeTest(nodeId); },
+      onToggleExpanded,
+      onConfigCommit,
+    }),
+    [onAddNext, onDuplicateNode, onDeleteNode, onMore, onToggleExpanded, runNodeTest, onConfigCommit],
   );
   const edgeCallbacks = useMemo<EdgeCallbacks>(
     () => ({ onInsert: onInsertEdge, onDelete: onDeleteEdge }),
@@ -434,9 +578,9 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
       setEdges([]);
       return;
     }
-    setNodes((prev) => buildNodes(ir, diagnostics, run, prev, nodeCallbacks));
+    setNodes((prev) => buildNodes(ir, diagnostics, run, testStates, expandedNodes, schedules, prev, nodeCallbacks));
     setEdges((prev) => buildEdges(ir, run, edgeCallbacks, prev));
-  }, [ir, diagnostics, run, nodeCallbacks, edgeCallbacks]);
+  }, [ir, diagnostics, run, testStates, expandedNodes, schedules, nodeCallbacks, edgeCallbacks]);
 
   // Programmatic selection (select-all / duplicate / paste) lands in the store.
   // React Flow owns selection during pointer interaction (and reports it back
@@ -759,9 +903,15 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
         type="button"
         onClick={() => openPaneSearch()}
         title="Add a node (Tab)"
-        className="glass-card-subtle graph-accent absolute right-3 top-3 z-10 flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-colors"
+        className="glass-card-subtle absolute right-3 top-3 z-10 flex items-center gap-2 rounded-xl border border-black/10 py-1.5 pl-1.5 pr-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-black/20 hover:text-foreground dark:border-white/10 dark:hover:border-white/20"
       >
-        <Plus size={13} /> Add node
+        <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-black/[0.04] text-foreground dark:bg-white/[0.06]">
+          <Plus size={12} />
+        </span>
+        <span>Add node</span>
+        <kbd className="ml-1 rounded border border-black/10 bg-black/[0.03] px-1.5 py-0.5 font-mono text-[9px] font-normal text-muted-foreground/80 dark:border-white/10 dark:bg-white/[0.04]">
+          Tab
+        </kbd>
       </button>
 
       {ir && ir.nodes.length === 0 && (
@@ -771,9 +921,12 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
             <button
               type="button"
               onClick={() => openPaneSearch()}
-              className="graph-accent flex items-center gap-1.5 rounded-lg border px-4 py-2 text-[12px] font-medium"
+              className="glass-card-subtle flex items-center gap-2 rounded-xl border border-black/10 py-2 pl-2 pr-3.5 text-[12px] font-medium text-foreground transition-colors hover:border-black/20 dark:border-white/10 dark:hover:border-white/20"
             >
-              <Plus size={14} /> Add first step
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-black/[0.04] dark:bg-white/[0.06]">
+                <Plus size={13} />
+              </span>
+              Add first step
             </button>
           </div>
         </div>

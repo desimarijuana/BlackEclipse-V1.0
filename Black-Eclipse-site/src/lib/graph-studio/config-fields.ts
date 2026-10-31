@@ -15,14 +15,202 @@ type Override = Omit<ConfigFieldDef, 'key'> & { key: string };
 const opts = (...values: string[]): ConfigFieldDef['options'] =>
   values.map((value) => ({ value, label: value }));
 
+/** One-line explanations shared by every node that uses the key. */
+const KEY_HELP: Record<string, string> = {
+
+  objective: 'What the agent should do. A wired query overrides this.',
+  agent: 'Agent preset id. Pick a built-in or a preset from Settings › Agents.',
+  agentVersion: '0 uses the preset’s current version; a positive value pins a snapshot.',
+  maxSteps: 'Maximum model turns for one bounded run.',
+  maxTasks: 'Maximum delegated tasks (1–6).',
+  tasksJson: 'JSON array of tasks, used when no tasks wire is connected.',
+  connectionId: 'Saved broker connection used for this node.',
+  mandateId: 'Active mandate that authorizes this order or unattended run.',
+  scope: 'Named write scope configured by the operator.',
+  path: 'Relative path inside the selected scope.',
+  append: 'Append to the existing file instead of replacing it.',
+  workflowId: 'Saved workflow used as the loop body or subworkflow.',
+  version: 'Pinned version of the referenced workflow.',
+  condition: 'Safe formula over value, index and iterations.',
+  maxIterations: 'Hard stop on loop iterations (1–1000).',
+  maxDurationMs: 'Optional wall-clock cap in milliseconds (0 = none).',
+  count: 'How many times the body runs.',
+  timezone: 'IANA timezone, e.g. UTC or America/New_York.',
+  cron: 'Five-field cron expression, e.g. 0 9 * * 1-5.',
+  symbol: 'Instrument symbol, e.g. AAPL or EURUSD.',
+  interval: 'Bar interval used for the series.',
+  lookback: 'How many bars or series points to read.',
+  period: 'Indicator lookback period.',
+  expression: 'Safe arithmetic expression (no eval).',
+  template: 'Text template; use {{name}} placeholders.',
+  timeoutMs: 'Maximum time for this node’s work.',
+  freshness: 'Data freshness requirement.',
+  limit: 'Maximum number of rows/items returned.',
+  preset: 'Preset strategy. A custom strategy JSON overrides the preset.',
+  fast: 'Fast moving-average period.',
+  slow: 'Slow moving-average period.',
+  sizePct: 'Percent of equity committed to each entry.',
+  stopPct: 'Initial stop distance as a percent of entry price.',
+  reward: 'Take-profit multiple of the stop distance.',
+  initialCapital: 'Starting equity for the simulation.',
+  randomSeed: 'Same seed and data produce the same result.',
+  maxBars: 'Cap the number of bars used (0 = all).',
+  includeSeries: 'Include equity/trade curves in the result payload.',
+  strategyJson: 'Optional full StrategySpec JSON; overrides the preset.',
+  paramSpaceJson: 'Optional parameter grid/search space as JSON.',
+  method: 'Optimization or simulation method.',
+  simulations: 'Number of Monte Carlo paths.',
+  ruinThreshold: 'Equity fraction that counts as ruin (0–1).',
+  oosFraction: 'Fraction of bars held out for out-of-sample testing.',
+  confidence: 'Bootstrap confidence level (0–1).',
+  trainBars: 'Bars per training window.',
+  testBars: 'Bars per test window.',
+  stepBars: 'Bars to advance between windows.',
+  dataType: 'How the literal is converted before it leaves the node.',
+  strict: 'Reject invalid JSON instead of passing the raw text through.',
+  ttlHours: 'Optional expiry for the stored dataset (0 = no expiry).',
+  variables: 'Named values merged over an optional input object.',
+  adjusted: 'Use split/dividend-adjusted prices.',
+  start: 'Optional ISO start date.',
+  end: 'Optional ISO end date.',
+  market: 'Optional market override; empty = auto-detect.',
+  compareTo: 'Value to compare against (ignored by truthy).',
+  operator: 'Comparison operator.',
+  field: 'Dotted field path inside each object.',
+  groupBy: 'Optional dotted field to group rows by.',
+  op: 'Aggregate operation.',
+  keys: 'Comma-separated fields that define a duplicate.',
+  cases: 'Comma-separated values; a matching case fires its control output.',
+  message: 'Optional message emitted when the run stops.',
+  status: 'Status to record when the run stops.',
+  ms: 'Pause duration in milliseconds (bounded).',
+  label: 'Display label for the result.',
+  closeAll: 'Close every open position on the connection.',
+  deviation: 'Maximum price deviation in points.',
+  continueOnError: 'Keep looping when one iteration fails.',
+};
+
+/** A stable section for fields that otherwise have no explicit override. */
+const GROUP_BY_KEY: Record<string, string> = {
+  connectionId: 'Connection',
+  mandateId: 'Connection',
+  workflowId: 'Body workflow',
+  version: 'Body workflow',
+  agent: 'Agent',
+  agentVersion: 'Agent',
+  objective: 'Agent',
+  maxSteps: 'Agent',
+  maxTasks: 'Agent',
+  tasksJson: 'Agent',
+  url: 'Request',
+  method: 'Request',
+  headersJson: 'Request',
+  bodyJson: 'Request',
+  credentialEnvJson: 'Request',
+  timeoutMs: 'Request',
+  maxPositionPct: 'Risk limits',
+  maxGrossExposure: 'Risk limits',
+  maxLeverage: 'Risk limits',
+  maxOpenPositions: 'Risk limits',
+  maxDailyLossPct: 'Risk limits',
+  maxRiskPerTradePct: 'Risk limits',
+  requireStop: 'Risk limits',
+  allowLong: 'Risk limits',
+  allowShort: 'Risk limits',
+  initialCapital: 'Risk & costs',
+  sizePct: 'Risk & costs',
+  stopPct: 'Risk & costs',
+  reward: 'Risk & costs',
+  riskFreeRate: 'Risk & costs',
+  fast: 'Strategy',
+  slow: 'Strategy',
+  rsiPeriod: 'Strategy',
+  oversold: 'Strategy',
+  overbought: 'Strategy',
+  atrPeriod: 'Strategy',
+  atrMult: 'Strategy',
+  preset: 'Strategy',
+  strategyJson: 'Strategy',
+  randomSeed: 'Advanced',
+  maxBars: 'Advanced',
+  includeSeries: 'Advanced',
+};
+
+/** Parameters the inspector marks with a required asterisk. */
+const REQUIRED_FIELDS: Record<string, string[]> = {
+  'file.write': ['path'],
+  'flow.for_each': ['workflowId'],
+  'flow.repeat': ['workflowId'],
+  'flow.while': ['workflowId'],
+  'flow.subworkflow': ['workflowId'],
+  'trading.broker_order': ['connectionId', 'mandateId'],
+  'trading.broker_account': ['connectionId'],
+  'trading.broker_quote': ['connectionId'],
+  'trading.broker_bars': ['connectionId'],
+  'trading.broker_close': ['connectionId'],
+  'trading.broker_modify': ['connectionId'],
+  'trading.broker_cancel': ['connectionId'],
+  'integration.http': ['url'],
+};
+
+// Shared quant parameter presentation. Every quant node reuses the same
+// strategy/risk vocabulary, so one definition keeps the labels consistent.
+const quantInstrument: Override[] = [
+  { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, group: 'Instrument & series', placeholder: 'AAPL' },
+  { key: 'interval', label: 'Interval', kind: 'select', inline: true, group: 'Instrument & series', options: opts('1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1mo') },
+];
+const quantStrategy: Override[] = [
+  { key: 'preset', label: 'Strategy preset', kind: 'select', inline: true, group: 'Strategy', options: opts('ema_cross', 'rsi_reversion') },
+  { key: 'fast', label: 'Fast EMA', kind: 'number', group: 'Strategy', min: 2, max: 500 },
+  { key: 'slow', label: 'Slow EMA', kind: 'number', group: 'Strategy', min: 2, max: 2_000 },
+  { key: 'rsiPeriod', label: 'RSI period', kind: 'number', group: 'Strategy', min: 2, max: 500 },
+  { key: 'oversold', label: 'Oversold level', kind: 'number', group: 'Strategy', min: 0, max: 100 },
+  { key: 'overbought', label: 'Overbought level', kind: 'number', group: 'Strategy', min: 0, max: 100 },
+  { key: 'atrPeriod', label: 'ATR period', kind: 'number', group: 'Strategy', min: 2, max: 500 },
+  { key: 'atrMult', label: 'ATR multiple', kind: 'number', group: 'Strategy', min: 0, max: 100 },
+  { key: 'strategyJson', label: 'Custom strategy (JSON)', kind: 'json', group: 'Strategy', help: 'A full StrategySpec. Leave empty to use the preset.' },
+];
+const quantRisk: Override[] = [
+  { key: 'initialCapital', label: 'Initial capital', kind: 'number', group: 'Risk & costs', min: 1 },
+  { key: 'sizePct', label: 'Position size %', kind: 'number', group: 'Risk & costs', min: 1, max: 100 },
+  { key: 'stopPct', label: 'Stop loss %', kind: 'number', group: 'Risk & costs', min: 0, max: 100 },
+  { key: 'reward', label: 'Reward : risk', kind: 'number', group: 'Risk & costs', min: 0, max: 100 },
+  { key: 'riskFreeRate', label: 'Risk-free rate', kind: 'number', group: 'Risk & costs' },
+];
+const quantAdvanced: Override[] = [
+  { key: 'randomSeed', label: 'Random seed', kind: 'number', group: 'Advanced' },
+  { key: 'maxBars', label: 'Max bars (0 = all)', kind: 'number', group: 'Advanced', min: 0 },
+  { key: 'includeSeries', label: 'Include series curves', kind: 'boolean', group: 'Advanced' },
+  { key: 'objective', label: 'Objective', kind: 'select', group: 'Advanced', options: opts('sharpe', 'sortino', 'total_return', 'calmar', 'profit_factor') },
+  { key: 'method', label: 'Method', kind: 'select', group: 'Advanced', options: opts('grid', 'random', 'evolutionary', 'bayesian', 'trade_reshuffle', 'return_bootstrap', 'regime_block') },
+  { key: 'maxEvaluations', label: 'Max evaluations', kind: 'number', group: 'Advanced', min: 1 },
+  { key: 'paramSpaceJson', label: 'Parameter space (JSON)', kind: 'json', group: 'Advanced' },
+  { key: 'objectivesJson', label: 'Objectives (JSON)', kind: 'json', group: 'Advanced' },
+  { key: 'leaderboardSize', label: 'Leaderboard size', kind: 'number', group: 'Advanced', min: 1 },
+  { key: 'trainBars', label: 'Train bars', kind: 'number', group: 'Advanced', min: 1 },
+  { key: 'testBars', label: 'Test bars', kind: 'number', group: 'Advanced', min: 1 },
+  { key: 'stepBars', label: 'Step bars', kind: 'number', group: 'Advanced', min: 1 },
+  { key: 'anchored', label: 'Anchored windows', kind: 'boolean', group: 'Advanced' },
+  { key: 'simulations', label: 'Simulations', kind: 'number', group: 'Advanced', min: 1 },
+  { key: 'ruinThreshold', label: 'Ruin threshold', kind: 'number', group: 'Advanced', min: 0, max: 1, step: 0.01 },
+  { key: 'regimeMix', label: 'Regime mix', kind: 'select', group: 'Advanced', options: opts('resample', 'preserve') },
+  { key: 'regimeBlockLength', label: 'Regime block length', kind: 'number', group: 'Advanced', min: 1 },
+  { key: 'perturbationPct', label: 'Perturbation %', kind: 'number', group: 'Advanced', min: 0, max: 100, step: 0.1 },
+  { key: 'perturbationJson', label: 'Perturbation (JSON)', kind: 'json', group: 'Advanced' },
+  { key: 'executionPerturbationJson', label: 'Execution perturbation (JSON)', kind: 'json', group: 'Advanced' },
+  { key: 'oosFraction', label: 'OOS fraction', kind: 'number', group: 'Advanced', min: 0, max: 1, step: 0.01 },
+  { key: 'oosStartIndex', label: 'OOS start index', kind: 'number', group: 'Advanced', min: 0 },
+  { key: 'bootstrapIterations', label: 'Bootstrap iterations', kind: 'number', group: 'Advanced', min: 1 },
+  { key: 'confidence', label: 'Confidence', kind: 'number', group: 'Advanced', min: 0, max: 1, step: 0.01 },
+];
+
+const pickQuantAdvanced = (...keys: string[]): Override[] =>
+  quantAdvanced.filter((field) => keys.includes(field.key));
+
 const FIELD_OVERRIDES: Record<string, Override[]> = {
-  'trigger.manual': [
-    { key: 'seed', label: 'Seed', kind: 'text', inline: true, placeholder: 'e.g. AAPL' },
-  ],
-  'trigger.schedule': [
-    { key: 'cron', label: 'Cron', kind: 'text', inline: true, placeholder: '0 9 * * 1-5' },
-    { key: 'timezone', label: 'Timezone', kind: 'text', placeholder: 'UTC' },
-  ],
+  // trigger.manual is deliberately zero-config (n8n-style): Start is the run
+  // input or null. Stored defaults belong in data.value / data.set_variables.
+  // trigger.schedule is zero-config; its schedule is edited in the Schedule tab.
   'data.value': [
     { key: 'value', label: 'Value', kind: 'text', inline: true },
     { key: 'dataType', label: 'Type', kind: 'select', inline: true, options: opts('string', 'number', 'boolean', 'object', 'array') },
@@ -32,6 +220,39 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
   ],
   'data.json.parse': [
     { key: 'strict', label: 'Strict', kind: 'boolean' },
+  ],
+  'trading.broker_order': [
+    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
+    { key: 'mandateId', label: 'Mandate (live/paper)', kind: 'text' },
+  ],
+  'trading.broker_account': [
+    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
+  ],
+  'trading.broker_quote': [
+    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'XAUUSD' },
+  ],
+  'trading.broker_bars': [
+    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'XAUUSD' },
+    { key: 'timeframe', label: 'Timeframe', kind: 'select', options: opts('M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1') },
+    { key: 'count', label: 'Bars', kind: 'number', min: 1, max: 500 },
+  ],
+  'trading.broker_close': [
+    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
+    { key: 'closeAll', label: 'Close all positions', kind: 'boolean' },
+    { key: 'deviation', label: 'Deviation (points)', kind: 'number', min: 0, max: 1_000 },
+  ],
+  'trading.broker_modify': [
+    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
+  ],
+  'trading.broker_cancel': [
+    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
+  ],
+  'file.write': [
+    { key: 'path', label: 'Path (relative)', kind: 'text', inline: true, placeholder: 'reports/aapl.csv' },
+    { key: 'scope', label: 'Write scope', kind: 'text', placeholder: 'workspace' },
+    { key: 'append', label: 'Append', kind: 'boolean' },
   ],
   'data.dataset.save': [
     { key: 'name', label: 'Dataset name', kind: 'text', inline: true },
@@ -58,8 +279,8 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'how', label: 'Join', kind: 'select', options: opts('inner', 'left') },
   ],
   'logic.condition': [
-    { key: 'operator', label: 'Operator', kind: 'select', inline: true, options: opts('eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'truthy') },
-    { key: 'compareTo', label: 'Compare to', kind: 'text' },
+    { key: 'operator', label: 'Operator', kind: 'select', inline: true, quick: 1, options: opts('eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'truthy') },
+    { key: 'compareTo', label: 'Compare to', kind: 'text', quick: 2 },
   ],
   'logic.aggregate': [
     { key: 'field', label: 'Field', kind: 'text', inline: true },
@@ -113,8 +334,8 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'slow', 'any') },
   ],
   'finance.market_data': [
-    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'AAPL' },
-    { key: 'interval', label: 'Interval', kind: 'select', inline: true, options: opts('1m', '5m', '15m', '1h', '1d') },
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, quick: 1, placeholder: 'AAPL' },
+    { key: 'interval', label: 'Interval', kind: 'select', inline: true, quick: 2, options: opts('1m', '5m', '15m', '1h', '1d') },
     { key: 'lookback', label: 'Lookback bars', kind: 'number', min: 1, max: 5_000 },
   ],
   'video.render': [
@@ -127,6 +348,39 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'fast', label: 'Fast', kind: 'number', min: 1, max: 500 },
     { key: 'slow', label: 'Slow', kind: 'number', min: 1, max: 500 },
     { key: 'signal', label: 'Signal', kind: 'number', min: 1, max: 500 },
+  ],
+  'quant.backtest': [
+    ...quantInstrument, ...quantStrategy, ...quantRisk,
+    ...pickQuantAdvanced('randomSeed', 'maxBars', 'includeSeries'),
+  ],
+  'quant.walkforward': [
+    ...quantInstrument, ...quantStrategy, ...quantRisk,
+    ...pickQuantAdvanced(
+      'randomSeed', 'maxEvaluations', 'method', 'objective', 'paramSpaceJson',
+      'trainBars', 'testBars', 'stepBars', 'anchored',
+    ),
+  ],
+  'quant.optimize': [
+    ...quantInstrument, ...quantStrategy, ...quantRisk,
+    ...pickQuantAdvanced(
+      'randomSeed', 'maxEvaluations', 'method', 'objective', 'paramSpaceJson',
+      'objectivesJson', 'leaderboardSize',
+    ),
+  ],
+  'quant.montecarlo': [
+    ...quantInstrument, ...quantStrategy, ...quantRisk,
+    ...pickQuantAdvanced(
+      'randomSeed', 'method', 'simulations', 'ruinThreshold', 'regimeMix',
+      'regimeBlockLength', 'perturbationPct', 'perturbationJson',
+      'executionPerturbationJson',
+    ),
+  ],
+  'quant.oos': [
+    ...quantInstrument, ...quantStrategy, ...quantRisk,
+    ...pickQuantAdvanced(
+      'randomSeed', 'oosFraction', 'oosStartIndex', 'bootstrapIterations',
+      'confidence', 'objective',
+    ),
   ],
   'quant.returns': [
     { key: 'kind', label: 'Returns', kind: 'select', inline: true, options: opts('simple', 'log') },
@@ -141,8 +395,9 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'periodsPerYear', label: 'Periods / year', kind: 'number', min: 1, max: 1_000 },
   ],
   'agent.research': [
-    { key: 'objective', label: 'Objective', kind: 'text', inline: true },
-    { key: 'agent', label: 'Agent', kind: 'text' },
+    { key: 'objective', label: 'Objective', kind: 'text', inline: true, quick: 1, port: 'query' },
+    { key: 'agent', label: 'Agent', kind: 'text', quick: 2 },
+    { key: 'agentVersion', label: 'Agent version (0 = latest)', kind: 'number', min: 0 },
     { key: 'maxSteps', label: 'Max steps', kind: 'number', min: 1, max: 32 },
   ],
   'agent.plan': [
@@ -150,6 +405,7 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
   ],
   'agent.delegate': [
     { key: 'agent', label: 'Agent', kind: 'text', inline: true },
+    { key: 'agentVersion', label: 'Agent version (0 = latest)', kind: 'number', min: 0 },
     { key: 'tasksJson', label: 'Tasks', kind: 'json' },
     { key: 'maxSteps', label: 'Max steps', kind: 'number', min: 1, max: 32 },
     { key: 'maxTasks', label: 'Max tasks', kind: 'number', min: 1, max: 6 },
@@ -211,10 +467,6 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'slippagePct', label: 'Slippage %', kind: 'number', min: 0, max: 10 },
     { key: 'persist', label: 'Persist fill', kind: 'boolean' },
   ],
-  'trading.broker_order': [
-    { key: 'connectionId', label: 'Broker connection id', kind: 'text', inline: true },
-    { key: 'mandateId', label: 'Mandate id', kind: 'text', inline: true },
-  ],
   'output.result': [
     { key: 'label', label: 'Result label', kind: 'text', inline: true },
   ],
@@ -248,6 +500,9 @@ function buildFields(def: NodeDefinition): ConfigFieldDef[] {
       key,
       label: humanize(key),
       kind: inferKind(defaults[key]),
+      help: KEY_HELP[key],
+      required: (REQUIRED_FIELDS[def.type] ?? []).includes(key),
+      group: GROUP_BY_KEY[key],
     };
     const override = overrides.get(key);
     return override ? { ...base, ...override } : base;
@@ -274,8 +529,11 @@ export function inlineFieldsFor(def: NodeDefinition | undefined): ConfigFieldDef
   const cached = inlineCache.get(def);
   if (cached) return cached;
   const fields = fieldsFor(def)
-    .filter((field) => field.inline && field.kind !== 'json')
-    .slice(0, 2);
+    .map((field, index) => ({ field, index }))
+    .filter(({ field }) => (field.inline || field.quick !== undefined) && field.kind !== 'json')
+    .sort((a, b) => (a.field.quick ?? 1_000) - (b.field.quick ?? 1_000) || a.index - b.index)
+    .slice(0, 2)
+    .map(({ field }) => field);
   inlineCache.set(def, fields);
   return fields;
 }

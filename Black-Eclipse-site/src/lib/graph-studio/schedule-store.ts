@@ -9,11 +9,13 @@
 // "catch up" — a schedule must not storm on boot.
 
 import { prisma } from '@/lib/db';
-import { isValidCron, nextRunAt, parseCron } from './cron';
+import { isValidCron, isValidTimezone, nextRunAt, parseCron } from './cron';
 
 export interface ScheduleRecord {
   id: string;
   workflowId: string;
+  /** The trigger.schedule node this schedule belongs to, when there is one. */
+  nodeId: string | null;
   name: string;
   cron: string;
   timezone: string;
@@ -30,7 +32,7 @@ export interface ScheduleRecord {
 }
 
 type Row = {
-  id: string; workflowId: string; name: string; cron: string; timezone: string;
+  id: string; workflowId: string; nodeId: string | null; name: string; cron: string; timezone: string;
   enabled: boolean; catchUp: string; version: number | null;
   lastRunAt: Date | null; lastRunId: string | null; lastStatus: string | null;
   lastError: string | null; nextRunAt: Date | null; createdAt: Date; updatedAt: Date;
@@ -40,6 +42,7 @@ function toRecord(row: Row): ScheduleRecord {
   return {
     id: row.id,
     workflowId: row.workflowId,
+    nodeId: row.nodeId,
     name: row.name,
     cron: row.cron,
     timezone: row.timezone,
@@ -60,6 +63,11 @@ export function computeNextRun(cron: string, timezone: string, from = new Date()
   return nextRunAt(cron, timezone, from);
 }
 
+export async function getSchedule(id: string): Promise<ScheduleRecord | null> {
+  const row = await prisma.workflowSchedule.findUnique({ where: { id } });
+  return row ? toRecord(row as Row) : null;
+}
+
 export async function listSchedules(workflowId?: string): Promise<ScheduleRecord[]> {
   const rows = await prisma.workflowSchedule.findMany({
     where: workflowId ? { workflowId } : {},
@@ -71,6 +79,7 @@ export async function listSchedules(workflowId?: string): Promise<ScheduleRecord
 
 export async function createSchedule(input: {
   workflowId: string;
+  nodeId?: string | null;
   name: string;
   cron: string;
   timezone?: string;
@@ -80,11 +89,13 @@ export async function createSchedule(input: {
 }): Promise<ScheduleRecord> {
   if (!isValidCron(input.cron)) throw new Error(`Invalid cron expression: ${input.cron}`);
   const timezone = input.timezone ?? 'UTC';
+  if (!isValidTimezone(timezone)) throw new Error(`Unknown timezone: ${timezone}`);
   const next = computeNextRun(input.cron, timezone);
   if (!next) throw new Error('That expression never matches — use one that fires within 40 days.');
   const row = await prisma.workflowSchedule.create({
     data: {
       workflowId: input.workflowId,
+      nodeId: input.nodeId ?? null,
       name: input.name,
       cron: input.cron.trim(),
       timezone,
@@ -99,7 +110,7 @@ export async function createSchedule(input: {
 
 export async function updateSchedule(
   id: string,
-  patch: Partial<Pick<ScheduleRecord, 'name' | 'cron' | 'timezone' | 'enabled' | 'catchUp' | 'version'>>,
+  patch: Partial<Pick<ScheduleRecord, 'nodeId' | 'name' | 'cron' | 'timezone' | 'enabled' | 'catchUp' | 'version'>>,
 ): Promise<ScheduleRecord | null> {
   const existing = await prisma.workflowSchedule.findUnique({ where: { id } });
   if (!existing) return null;
@@ -109,12 +120,14 @@ export async function updateSchedule(
     if (!isValidCron(cron)) throw new Error(`Invalid cron expression: ${cron}`);
     parseCron(cron); // surfaces field-level errors early
   }
+  if (!isValidTimezone(timezone)) throw new Error(`Unknown timezone: ${timezone}`);
   const enabled = patch.enabled ?? existing.enabled;
   const next = enabled ? computeNextRun(cron, timezone) : null;
   if (enabled && !next) throw new Error('That expression never matches — use one that fires within 40 days.');
   const row = await prisma.workflowSchedule.update({
     where: { id },
     data: {
+      nodeId: patch.nodeId === undefined ? existing.nodeId : patch.nodeId,
       name: patch.name ?? existing.name,
       cron,
       timezone,
@@ -147,16 +160,39 @@ export async function dueSchedules(now = new Date()): Promise<ScheduleRecord[]> 
   return rows.map((r) => toRecord(r as Row));
 }
 
-/** Record the outcome of one fire and advance the schedule. */
-export async function recordScheduleRun(
+/**
+ * Atomically claim ONE due fire and advance its `nextRunAt`.
+ *
+ * The compare-and-set on the exact `nextRunAt` is the idempotency boundary:
+ * two overlapping ticks (or two server processes) may both see the same due
+ * row, but only the one whose UPDATE matches still-fires. The loser must not
+ * start a run.
+ *
+ * `now` is the tick time. Advancing from `now` (not from the scheduled
+ * instant) skips every missed occurrence, so a long-closed app never storms.
+ */
+export async function claimScheduleFire(
+  id: string,
+  scheduledFor: Date,
+  now = new Date(),
+): Promise<boolean> {
+  const existing = await prisma.workflowSchedule.findUnique({ where: { id } });
+  if (!existing || !existing.enabled) return false;
+  if (existing.nextRunAt?.getTime() !== scheduledFor.getTime()) return false;
+  const next = computeNextRun(existing.cron, existing.timezone, now);
+  const result = await prisma.workflowSchedule.updateMany({
+    where: { id, enabled: true, nextRunAt: scheduledFor },
+    data: { nextRunAt: next },
+  });
+  return result.count === 1;
+}
+
+/** Record the outcome of a claimed fire. `nextRunAt` was already advanced. */
+export async function recordScheduleFire(
   id: string,
   outcome: { runId?: string | null; status: string; error?: string | null },
   firedAt = new Date(),
 ): Promise<ScheduleRecord | null> {
-  const existing = await prisma.workflowSchedule.findUnique({ where: { id } });
-  if (!existing) return null;
-  // Advance strictly past the fire time so a slow tick cannot double-fire.
-  const next = computeNextRun(existing.cron, existing.timezone, firedAt);
   const row = await prisma.workflowSchedule.update({
     where: { id },
     data: {
@@ -164,8 +200,61 @@ export async function recordScheduleRun(
       lastRunId: outcome.runId ?? null,
       lastStatus: outcome.status,
       lastError: outcome.error ?? null,
-      nextRunAt: next,
     },
   });
   return toRecord(row as Row);
+}
+
+/**
+ * Pause a schedule that can no longer fire safely (e.g. its trigger node was
+ * deleted). Unlike a user pause, this records the reason so the card shows it.
+ */
+export async function pauseSchedule(id: string, reason: string): Promise<void> {
+  await prisma.workflowSchedule.update({
+    where: { id },
+    data: {
+      enabled: false,
+      nextRunAt: null,
+      lastStatus: 'error',
+      lastError: reason,
+    },
+  });
+}
+
+/** A missed fire that was deliberately skipped: record it, keep last run intact. */
+export async function recordScheduleSkip(id: string, status = 'skipped-missed'): Promise<void> {
+  await prisma.workflowSchedule.update({
+    where: { id },
+    data: { lastStatus: status, lastError: null },
+  });
+}
+
+/** Update only the last outcome (used when a started run reaches a terminal state). */
+export async function recordScheduleOutcome(
+  id: string,
+  status: string,
+  error: string | null = null,
+): Promise<void> {
+  await prisma.workflowSchedule.update({
+    where: { id },
+    data: { lastStatus: status, lastError: error },
+  });
+}
+
+/** Schedules whose recorded run was left at `started` long enough to reconcile. */
+export async function pendingScheduleRuns(
+  olderThanMs = 30_000,
+  limit = 20,
+  now = new Date(),
+): Promise<ScheduleRecord[]> {
+  const rows = await prisma.workflowSchedule.findMany({
+    where: {
+      lastStatus: 'started',
+      lastRunId: { not: null },
+      lastRunAt: { lte: new Date(now.getTime() - olderThanMs) },
+    },
+    orderBy: { lastRunAt: 'asc' },
+    take: limit,
+  });
+  return rows.map((r) => toRecord(r as Row));
 }

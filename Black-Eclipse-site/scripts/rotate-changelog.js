@@ -40,10 +40,10 @@ function main() {
     console.log("  [OK  ] nothing to archive.");
     return;
   }
-  const cutoff = marks[marks.length - KEEP].start;
+  // Sections are NEWEST FIRST. Keep the first KEEP and archive the tail.
+  const cutoff = marks[KEEP].start;
   const head = text.slice(0, cutoff);
-  const tail = text.slice(cutoff);
-  const archived = marks.slice(0, marks.length - KEEP);
+  const archived = marks.slice(KEEP);
   const byMonth = new Map();
   for (const section of archived) {
     const month = section.date.slice(0, 7);
@@ -52,11 +52,11 @@ function main() {
   }
   for (const [month, sections] of byMonth) {
     const start = sections[0].start;
-    const end = sections[sections.length - 1].start;
-    const endOfBlock = sections.length === archived.length && sections === archived
-      ? text.length
-      : end;
-    const block = text.slice(start, endOfBlock).trimEnd();
+    // The block ends where the section AFTER the group begins (or EOF). Look
+    // it up in the full mark list; a group's sections are contiguous.
+    const lastIndex = KEEP + archived.indexOf(sections[sections.length - 1]);
+    const end = lastIndex + 1 < marks.length ? marks[lastIndex + 1].start : text.length;
+    const block = text.slice(start, end).trimEnd();
     const target = path.join(ARCHIVE_DIR, `${month}.md`);
     const existing = fs.existsSync(target) ? fs.readFileSync(target, "utf8").trimEnd() : "";
     const merged = existing

@@ -253,10 +253,27 @@ def evaluate_formula(expression: str, variables: dict[str, float]) -> float:
 
 
 def _exec_trigger(context: NodeExecContext) -> dict[str, Any]:
-    # A subworkflow receives its parent's input here; a top-level run normally
-    # has no run input, so the configured seed remains the fallback.
+    """Emit the trigger's Start value.
+
+    A trigger is zero-config: Start is the run's input (a manual "run with
+    input", a webhook body, or a parent subworkflow's input) or null.
+
+    Legacy only: workflows authored before the zero-config trigger may still
+    carry `payload`/`payloadType`/`seed` in their stored config. Those keys are
+    no longer declared (so the editor never shows them), but they are still
+    honoured here so an existing saved workflow does not silently change
+    behaviour. New graphs should put defaults in data.value/set_variables.
+    """
     if context.run_input is not None:
         return {"start": context.run_input}
+
+    payload = context.config.get("payload")
+    if payload is not None and payload != "":
+        payload_type = context.config.get("payloadType") or "auto"
+        if payload_type in ("auto", ""):
+            return {"start": payload}
+        return {"start": coerce_value(payload, payload_type)}
+
     seed = context.config.get("seed") or ""
     return {"start": seed if seed != "" else None}
 
@@ -788,17 +805,19 @@ def build_default_registry() -> NodeRegistry:
         type="trigger.manual", version="1.0.0", label="Manual trigger",
         category="trigger",
         outputs=(_port("start", "Start", PortType.ANY),),
-        config_fields=(ConfigField("seed", "string", "", max_length=4_000),),
+        # Zero-config, like n8n's Manual Trigger. Legacy seed/payload keys from
+        # older saved graphs still work (see _exec_trigger) even though they are
+        # no longer declared here.
+        config_fields=(),
         allowed_modes=_ALL, timeout_ms=5_000, executor=_exec_trigger,
     ))
     registry.register(NodeDef(
         type="trigger.schedule", version="1.0.0", label="Schedule",
         category="trigger",
         outputs=(_port("start", "Start", PortType.ANY),),
-        config_fields=(
-            ConfigField("cron", "string", "0 9 * * 1-5", max_length=120),
-            ConfigField("timezone", "string", "UTC", max_length=60),
-        ),
+        # Zero-config like trigger.manual: the WorkflowSchedule linked to this
+        # node owns cron/timezone/enabled. The front door fires the run.
+        config_fields=(),
         capabilities=("schedule.manage",),
         allowed_modes=_ALL, timeout_ms=5_000, executor=_exec_trigger,
     ))
@@ -1048,6 +1067,22 @@ def build_default_registry() -> NodeRegistry:
         registry.register(definition)
     # The agent node is a thin adapter over the existing run plane.
     for definition in build_agent_nodes():
+        registry.register(definition)
+    # Bounded loops (Phase 4): a body subworkflow + an explicit cap, never a
+    # graph cycle.
+    from .loop_nodes import build_loop_nodes  # noqa: PLC0415
+
+    for definition in build_loop_nodes():
+        registry.register(definition)
+    # Scoped local writes (Phase 5): a named scope, a relative path, a cap.
+    from .write_nodes import build_write_nodes  # noqa: PLC0415
+
+    for definition in build_write_nodes():
+        registry.register(definition)
+    # Broker reads + risk-reducing exits (Phase 6). Orders stay in trading_nodes.
+    from .broker_nodes import build_broker_nodes  # noqa: PLC0415
+
+    for definition in build_broker_nodes():
         registry.register(definition)
     return registry
 

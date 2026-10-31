@@ -576,7 +576,10 @@ export async function killBrokerConnection(connectionId: string): Promise<{
 export interface TradingMandate {
   id: string;
   connectionId: string;
-  mode: "demo";
+  mode: "demo" | "live";
+  /** A live mandate pins the workflow version it authorizes. */
+  workflowId?: string | null;
+  workflowVersion?: number | null;
   symbols: string[];
   maxOrders: number;
   maxMargin: number;
@@ -599,6 +602,8 @@ export async function createTradingMandate(
     ttlSeconds: number;
     confirmation: string;
     note?: string;
+    workflowId?: string;
+    workflowVersion?: number;
   },
 ): Promise<TradingMandate> {
   const body = await api<{ mandate: TradingMandate }>(

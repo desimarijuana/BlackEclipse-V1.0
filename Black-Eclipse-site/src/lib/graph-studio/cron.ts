@@ -110,6 +110,16 @@ function assertTimezone(timezone: string): void {
   formatterFor(timezone);
 }
 
+/** True when `timezone` is a zone Intl knows (so cron can be resolved in it). */
+export function isValidTimezone(timezone: string): boolean {
+  try {
+    assertTimezone(timezone);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** The civil parts of an instant in a named timezone. */
 export function civilParts(instant: Date, timezone: string) {
   const parts = formatterFor(timezone).formatToParts(instant);

@@ -12,6 +12,7 @@ durable Fabric job payload.
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any, Callable, Optional
 
 from .model import ExecutionMode, PortDef, PortType, SideEffect
@@ -67,6 +68,63 @@ def _tasks(context: NodeExecContext) -> list[dict[str, str]]:
             raise ValueError(f"task {index + 1} exceeds 2 000 characters")
         out.append({"title": title[:120], "objective": objective})
     return out
+
+
+# The agent run plane reports a successful turn as `completed` (see
+# `schemas.RunStatus`). `succeeded` is accepted too so substitute runtimes and
+# older fakes keep working.
+RUN_SUCCESS_STATUSES = frozenset({"completed", "succeeded"})
+
+
+def agent_run_identity(
+    store: Any,
+    base_id: str,
+    *,
+    lineage: Any = None,
+) -> tuple[str, Optional[str]]:
+    """Pick the agent-plane run id and a resume checkpoint, if one exists.
+
+    A graph node that is re-executed after a process restart must re-enter the
+    SAME agent run when that run has a durable checkpoint. Without a checkpoint
+    (or after a terminal run) it gets a fresh id, so the agent plane never
+    rejects a retry as a duplicate.
+    """
+    prior = store.get_run(base_id) if store is not None else None
+    if prior is not None:
+        status = str(prior.get("status") or "")
+        if status not in ("completed", "failed", "cancelled"):
+            if lineage is None:
+                from ..run_lineage import RunLineage  # noqa: PLC0415
+
+                lineage = RunLineage(store)
+            checkpoint = lineage.latest_checkpoint(base_id)
+            if checkpoint:
+                return base_id, str(checkpoint["id"])
+        return f"{base_id}:{uuid.uuid4().hex[:6]}", None
+    return base_id, None
+
+
+def agent_result_payload(result: Any) -> dict[str, Any]:
+    """Project an agent-plane RunResult onto the node's declared outputs.
+
+    This is the ONE place the run-status vocabulary is interpreted. It used to
+    live inline in `bootstrap._agent_runner` and accepted only `succeeded`,
+    which turned every real (completed) agent turn into a node failure.
+    """
+    status = getattr(result.status, "value", str(result.status))
+    if status not in RUN_SUCCESS_STATUSES:
+        error = getattr(result, "error", None)
+        message = getattr(error, "message", None) or status
+        raise ValueError(f"agent run {status}: {message}")
+    finding = {
+        "text": getattr(result, "output", None) or "",
+        "runId": getattr(result, "runId", None),
+        "status": status,
+        "research": getattr(result, "research", None),
+        "tokens": getattr(result, "totalTokens", None),
+        "toolCalls": getattr(result, "toolCalls", None),
+    }
+    return {"finding": finding, "evidence": getattr(result, "research", None) or {}}
 
 
 def exec_research_agent(context: NodeExecContext) -> dict[str, Any]:
@@ -162,18 +220,21 @@ def build_agent_nodes() -> list[NodeDef]:
         NodeDef(
             type="agent.research", version="1.0.0", label="Research agent",
             category="agent",
-            inputs=(PortDef(id="query", name="Query", type=PortType.STRING),),
+            # Optional: the configured `objective` is a valid alternative, and
+            # `exec_research_agent` prefers the input when one is wired.
+            inputs=(PortDef(id="query", name="Query", type=PortType.STRING, optional=True),),
             outputs=(
                 PortDef(id="finding", name="Finding", type=PortType.RESEARCH_FINDING),
                 PortDef(id="evidence", name="Evidence", type=PortType.EVIDENCE),
             ),
             config_fields=(
                 ConfigField("agent", "string", "eclipse-agent", max_length=80),
+                ConfigField("agentVersion", "integer", 0, minimum=0, maximum=1_000_000),
                 ConfigField("objective", "string", "", max_length=2_000),
                 ConfigField("maxSteps", "integer", 8, minimum=1, maximum=32),
             ),
             capabilities=("agent.run",),
-            side_effects=SideEffect.NETWORK,
+            side_effects=SideEffect.MODEL,
             allowed_modes=_ALL,
             timeout_ms=600_000,
             executor=exec_research_agent,
@@ -188,7 +249,7 @@ def build_agent_nodes() -> list[NodeDef]:
         NodeDef(
             type="agent.plan", version="1.0.0", label="Plan steps",
             category="agent",
-            inputs=(PortDef(id="objective", name="Objective", type=PortType.STRING),),
+            inputs=(PortDef(id="objective", name="Objective", type=PortType.STRING, optional=True),),
             outputs=(
                 PortDef(id="plan", name="Plan", type=PortType.OBJECT),
                 PortDef(id="steps", name="Steps", type=PortType.ARRAY),
@@ -198,7 +259,7 @@ def build_agent_nodes() -> list[NodeDef]:
                 ConfigField("objective", "string", "", max_length=2_000),
             ),
             capabilities=("agent.run",),
-            side_effects=SideEffect.NETWORK,
+            side_effects=SideEffect.MODEL,
             allowed_modes=_ALL,
             timeout_ms=300_000,
             executor=exec_plan_agent,
@@ -220,11 +281,12 @@ def build_agent_nodes() -> list[NodeDef]:
             config_fields=(
                 ConfigField("tasksJson", "string", "", max_length=20_000),
                 ConfigField("agent", "string", "eclipse-agent", max_length=80),
+                ConfigField("agentVersion", "integer", 0, minimum=0, maximum=1_000_000),
                 ConfigField("maxSteps", "integer", 8, minimum=1, maximum=32),
                 ConfigField("maxTasks", "integer", 4, minimum=1, maximum=MAX_DELEGATE_TASKS),
             ),
             capabilities=("agent.run",),
-            side_effects=SideEffect.NETWORK,
+            side_effects=SideEffect.MODEL,
             allowed_modes=_ALL,
             timeout_ms=900_000,
             executor=exec_delegate_agent,
@@ -239,6 +301,9 @@ def build_agent_nodes() -> list[NodeDef]:
 
 
 __all__ = [
+    "RUN_SUCCESS_STATUSES",
+    "agent_result_payload",
+    "agent_run_identity",
     "build_agent_nodes",
     "set_agent_runner",
     "set_plan_runner",

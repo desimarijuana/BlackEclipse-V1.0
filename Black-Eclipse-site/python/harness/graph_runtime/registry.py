@@ -29,7 +29,7 @@ from .model import (
 
 log = logging.getLogger("harness.graph_runtime.registry")
 
-ConfigKind = Literal["string", "number", "integer", "boolean", "enum", "object", "array"]
+ConfigKind = Literal["any", "string", "number", "integer", "boolean", "enum", "object", "array"]
 
 
 @dataclass(frozen=True)
@@ -57,6 +57,9 @@ class NodeExecContext:
     mode: ExecutionMode
     inputs: dict[str, Any]
     config: dict[str, Any]
+    # The persisted workflow identity for this run. A live mandate pins it, so an
+    # edited graph cannot reuse an old mandate.
+    workflow_id: str = ""
     emit: Callable[[str], None] = lambda _msg: None  # noqa: E731 - trivial default
     # The caller-supplied input for this run. A subworkflow receives its
     # parent node's input here; a top-level run normally leaves it None.
@@ -72,6 +75,11 @@ class NodeExecContext:
     # True only for a durable Fabric job: a wait node may then defer the job
     # instead of blocking the worker thread.
     allow_defer: bool = False
+    # The run's effect envelope. Agent nodes narrow their tool surface when a
+    # run has no network grant (a test/dry run), so the model cannot reach web,
+    # browser, MCP or broker tools while it can still reason and read locally.
+    allow_network: bool = False
+    test_run: bool = False
 
 
 @dataclass
@@ -206,6 +214,10 @@ def validate_config(definition: NodeDef, config: dict[str, Any]) -> list[str]:
         elif f.kind == "enum":
             if value not in f.enum:
                 problems.append(f"{f.name}: expected one of {', '.join(f.enum)}")
+        elif f.kind == "any":
+            # Deliberately unconstrained: a JSON value (object, array, string,
+            # number, boolean). The editor's zod schema mirrors this.
+            pass
         elif f.kind == "object" and not isinstance(value, dict):
             problems.append(f"{f.name}: expected an object")
         elif f.kind == "array" and not isinstance(value, list):

@@ -16,6 +16,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
   try {
     const body = (await request.json().catch(() => ({}))) as Partial<ScheduleRecord>;
     const schedule = await updateSchedule(sid, {
+      nodeId: typeof body.nodeId === 'string' && body.nodeId.trim() ? body.nodeId.trim() : undefined,
       name: body.name,
       cron: body.cron,
       timezone: body.timezone,

@@ -44,7 +44,17 @@ def install_graph_layer(service: Any) -> bool:
         from .paper_store import PaperAccountStore  # noqa: PLC0415
         from .research_nodes import set_evidence_store  # noqa: PLC0415
         from .trading_nodes import set_paper_store  # noqa: PLC0415
-        from .agent_nodes import set_agent_runner, set_plan_runner  # noqa: PLC0415
+        from .agent_nodes import (  # noqa: PLC0415
+            agent_result_payload,
+            agent_run_identity,
+            set_agent_runner,
+            set_plan_runner,
+        )
+        from ..agent_presets import (  # noqa: PLC0415
+            AgentPresetStore,
+            get_preset_store,
+            set_preset_store,
+        )
         from .video_nodes import set_video_runner  # noqa: PLC0415
         from ..research.web_store import EvidenceStore  # noqa: PLC0415
 
@@ -54,17 +64,47 @@ def install_graph_layer(service: Any) -> bool:
             import os  # noqa: PLC0415
 
             from ..agents import get_agent  # noqa: PLC0415
-            from ..schemas import ModelSettings, RunInput, RunRequest  # noqa: PLC0415
+            from ..schemas import AgentConfig, ModelSettings, RunInput, RunRequest  # noqa: PLC0415
 
             if not context.model_settings:
                 raise ValueError(
                     "model settings are unavailable for this run; start it as an "
                     "operator run with a configured model provider"
                 )
+            agent_id = str(config.get("agent") or "eclipse-agent")
             try:
-                base = get_agent(config["agent"])
-            except KeyError as exc:
-                raise ValueError(f"unknown agent {config['agent']!r}") from exc
+                base = get_agent(agent_id)
+            except (KeyError, ValueError):
+                # A user-authored preset. The node may pin a version; absent one
+                # resolves the preset's current version (backward compatible).
+                presets = get_preset_store()
+                pinned = config.get("agentVersion")
+                try:
+                    version = int(pinned) if pinned else None
+                except (TypeError, ValueError):
+                    version = None
+                preset = presets.get(agent_id, version) if presets is not None else None
+                if preset is None:
+                    raise ValueError(f"unknown agent {agent_id!r}") from None
+                base = AgentConfig(
+                    id=preset["id"],
+                    name=preset["name"],
+                    systemPrompt=preset["systemPrompt"],
+                    tools=list(preset.get("tools") or []),
+                    maxSteps=int(preset.get("maxSteps") or 8),
+                    allowMcpTools=bool(preset.get("allowMcpTools")),
+                    allowPluginTools=bool(preset.get("allowPluginTools")),
+                )
+            if context.test_run or not context.allow_network:
+                # A test/dry run may call the model but must not reach the
+                # world. Narrow the declared allowlist DOWN to the read-only
+                # finance surface; this can only remove tools.
+                from ..agents import dry_run_tools  # noqa: PLC0415
+
+                tools = dry_run_tools(base.tools)
+                base = base.model_copy(update={"tools": tools})
+                context.emit(f"dry run: {len(tools)} read-only tool(s) bound")
+
             agent = base.model_copy(update={
                 "maxSteps": max(1, min(int(config["maxSteps"]), base.maxSteps or 8)),
             })
@@ -72,8 +112,15 @@ def install_graph_layer(service: Any) -> bool:
                 os.environ.get("HARNESS_CALLBACK_URL")
                 or f"http://127.0.0.1:{os.environ.get('PORT', '3000')}"
             )
+            # Re-enter the same agent run when a durable checkpoint exists, so a
+            # graph resumed after a restart continues the turn instead of
+            # replaying it. Without a checkpoint the turn restarts under a fresh
+            # id (a model call has no world effect, so replay is safe here).
+            agent_run_id, resume_from = agent_run_identity(
+                service.store, f"graph:{context.run_id}:{context.node_id}",
+            )
             request = RunRequest(
-                runId=f"graph:{context.run_id}:{context.node_id}",
+                runId=agent_run_id,
                 input=RunInput(query=objective),
                 agent=agent,
                 modelSettings=ModelSettings(**context.model_settings),
@@ -81,22 +128,10 @@ def install_graph_layer(service: Any) -> bool:
                 callbackBaseUrl=callback,
                 callbackToken=context.callback_token or os.environ.get("CRON_SECRET"),
                 analysisEnabled=False,
+                resumeFrom=resume_from,
             )
             result = asyncio.run(service.run(request))
-            status = getattr(result.status, "value", str(result.status))
-            if status not in ("succeeded",):
-                error = getattr(result, "error", None)
-                message = getattr(error, "message", None) or getattr(result, "output", None) or status
-                raise ValueError(f"agent run {status}: {message}")
-            finding = {
-                "text": result.output or "",
-                "runId": result.runId,
-                "status": status,
-                "research": result.research,
-                "tokens": result.totalTokens,
-                "toolCalls": result.toolCalls,
-            }
-            return {"finding": finding, "evidence": result.research or {}}
+            return agent_result_payload(result)
 
         def _plan_runner(context, objective):
             """One bounded structured-plan model call; credentials stay in memory."""
@@ -107,6 +142,10 @@ def install_graph_layer(service: Any) -> bool:
             return asyncio.run(generate_step_plan(
                 objective, model_settings=context.model_settings,
             ))
+
+        preset_store = AgentPresetStore(service.store, service.registry)
+        service.agent_presets = preset_store
+        set_preset_store(preset_store)
 
         set_agent_runner(_agent_runner)
         set_plan_runner(_plan_runner)

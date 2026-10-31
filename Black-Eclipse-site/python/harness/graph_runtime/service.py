@@ -16,6 +16,10 @@ import asyncio
 import logging
 import os
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+import httpx
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -23,6 +27,7 @@ from ..persistence import now_iso
 from .compiler import RunGrants, compile_workflow
 from .executor import GraphExecutor, ResumeState
 from .model import (
+    ExecutionMode,
     ExecutionPlan,
     GraphRun,
     NodeRun,
@@ -31,10 +36,17 @@ from .model import (
     RunEvent,
     RunStatus,
     Severity,
+    SideEffect,
     WorkflowIR,
 )
 from .nodes import build_default_registry
-from .registry import NodeRegistry
+from .registry import (
+    NodeExecContext,
+    NodeRegistry,
+    coerce_config,
+    validate_config,
+    validate_port_value,
+)
 from .store import GraphRunStore
 
 log = logging.getLogger("harness.graph_runtime.service")
@@ -49,6 +61,15 @@ class GraphCompileError(Exception):
         super().__init__(first)
         self.plan = plan
         self.errors = errors
+
+
+class NodeTestError(Exception):
+    """A single-node test was refused or failed before it could run."""
+
+    def __init__(self, message: str, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
 
 
 @dataclass
@@ -83,6 +104,109 @@ class GraphService:
         subworkflows: Optional[dict[str, WorkflowIR]] = None,
     ) -> ExecutionPlan:
         return compile_workflow(ir, self._registry, grants, subworkflows)
+
+    # ── single-node test ───────────────────────────────────────────────────
+
+    def test_node(
+        self,
+        *,
+        node_type: str,
+        version: Optional[str],
+        config: Any,
+        inputs: Any,
+        mode: ExecutionMode = ExecutionMode.RESEARCH,
+        owner_id: str = "local",
+    ) -> dict[str, Any]:
+        """Run ONE registered node with explicit inputs — never a graph.
+
+        This is the editor's "Test node" action. It is intentionally narrow:
+        the executor is pure, the hard per-node timeout is enforced, and the
+        safe envelope allows only `none`/`read` side effects. Network, write,
+        trading, model and local-write nodes are refused here; they must be
+        tested through an authorized run so a "test" can never act on the world.
+        """
+        definition = self._registry.get(node_type, version)
+        if definition is None:
+            raise NodeTestError(f'Unknown node type "{node_type}".', 404)
+        if definition.orchestrated:
+            raise NodeTestError(
+                "This node runs as a nested graph (subworkflow/loop); test it with a full run.",
+                400,
+            )
+        if definition.executor is None:
+            raise NodeTestError("This node has no executor.", 400)
+        if not isinstance(config, dict):
+            raise NodeTestError("config must be an object.", 400)
+        if not isinstance(inputs, dict):
+            raise NodeTestError("inputs must be an object keyed by input port id.", 400)
+
+        problems = validate_config(definition, config)
+        if problems:
+            raise NodeTestError("; ".join(problems), 400)
+
+        if definition.side_effects not in (SideEffect.NONE, SideEffect.READ):
+            raise NodeTestError(
+                f'"{definition.type}" has the "{definition.side_effects.value}" side effect. '
+                "A per-node test runs in a safe envelope; use an authorized run to test it.",
+                403,
+            )
+
+        for port in definition.inputs:
+            if not port.optional and port.id not in inputs:
+                raise NodeTestError(f'Missing required input "{port.id}".', 400)
+            if port.id in inputs:
+                problem = validate_port_value(port.type, inputs[port.id])
+                if problem:
+                    raise NodeTestError(f'input "{port.id}": {problem}', 400)
+
+        logs: list[str] = []
+        context = NodeExecContext(
+            node_id="node-test",
+            run_id="node-test",
+            mode=mode,
+            inputs=inputs,
+            config=coerce_config(definition, config),
+            emit=logs.append,
+            user_id=owner_id,
+            test_run=True,
+        )
+        started = time.monotonic()
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="node-test")
+        future = pool.submit(definition.executor, context)
+        try:
+            outputs = future.result(timeout=definition.timeout_ms / 1000.0)
+        except TimeoutError as exc:
+            raise NodeTestError(
+                f"Node timed out after {definition.timeout_ms} ms.",
+                408,
+            ) from exc
+        except Exception as exc:  # noqa: BLE001 - report the executor failure as a test result
+            raise NodeTestError(f"{type(exc).__name__}: {exc}", 400) from exc
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+        if not isinstance(outputs, dict):
+            raise NodeTestError("The executor returned a non-object result.", 500)
+        for port in definition.outputs:
+            if port.id in outputs:
+                problem = validate_port_value(port.type, outputs[port.id])
+                if problem:
+                    raise NodeTestError(f'output "{port.id}": {problem}', 500)
+
+        return {
+            "ok": True,
+            "node": {
+                "type": definition.type,
+                "version": definition.version,
+                "label": definition.label,
+                "category": definition.category,
+                "sideEffects": definition.side_effects.value,
+                "timeoutMs": definition.timeout_ms,
+            },
+            "outputs": outputs,
+            "logs": logs,
+            "durationMs": int((time.monotonic() - started) * 1000),
+        }
 
     # ── run ────────────────────────────────────────────────────────────────
 
@@ -142,6 +266,9 @@ class GraphService:
             "grantedCapabilities": sorted(grants.granted_capabilities),
             "allowNetwork": grants.allow_network,
             "allowTrading": grants.allow_trading,
+            "allowWrite": grants.allow_write,
+            "allowedWriteScopes": sorted(grants.allowed_write_scopes),
+            "allowLiveTrading": grants.allow_live_trading,
         }
 
     @staticmethod
@@ -151,6 +278,9 @@ class GraphService:
             granted_capabilities=frozenset(payload.get("grantedCapabilities") or ()),
             allow_network=bool(payload.get("allowNetwork", False)),
             allow_trading=bool(payload.get("allowTrading", False)),
+            allow_write=bool(payload.get("allowWrite", False)),
+            allowed_write_scopes=frozenset(payload.get("allowedWriteScopes") or ()),
+            allow_live_trading=bool(payload.get("allowLiveTrading", False)),
         )
 
     def _job_payload(
@@ -163,6 +293,7 @@ class GraphService:
         grants: RunGrants,
         subworkflows: Optional[dict[str, WorkflowIR]],
         run_input: Any,
+        callback_base_url: str = "",
     ) -> dict[str, Any]:
         return {
             "ir": ir.model_dump(by_alias=True),
@@ -175,7 +306,52 @@ class GraphService:
             "ownerId": owner_id,
             "runInput": run_input,
             "grants": self._grants_payload(grants),
+            # A durable job outlives the process that started it. The worker
+            # re-resolves model credentials from the front door on resume; the
+            # secret itself is never written into this payload.
+            "callbackBaseUrl": callback_base_url,
         }
+
+    def _resolve_model_settings(
+        self, run_id: str, payload: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        """Re-resolve model credentials after a restart.
+
+        The vault lives in the Next front door. A durable worker calls the
+        run-scoped credentials route with the operator secret; the key is held
+        in memory for this process only and is never persisted in the job.
+        """
+        base = str(
+            payload.get("callbackBaseUrl")
+            or os.environ.get("HARNESS_CALLBACK_URL")
+            or f"http://127.0.0.1:{os.environ.get('PORT', '3000')}"
+        ).rstrip("/")
+        if not base:
+            return None
+        token = os.environ.get("CRON_SECRET") or ""
+        headers = {"Content-Type": "application/json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+            headers["X-Harness-Operator"] = token
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                response = client.post(
+                    f"{base}/api/graph-runs/{run_id}/credentials",
+                    headers=headers,
+                    json={},
+                )
+            if response.status_code != 200:
+                log.warning(
+                    "graph credentials re-resolution failed for %s: HTTP %s",
+                    run_id, response.status_code,
+                )
+                return None
+            data = response.json()
+            settings = data.get("modelSettings") if isinstance(data, dict) else None
+            return settings if isinstance(settings, dict) else None
+        except Exception:  # noqa: BLE001 - the node fails honestly without credentials
+            log.warning("graph credentials re-resolution failed for %s", run_id, exc_info=True)
+            return None
 
     def run_sync(
         self,
@@ -215,6 +391,7 @@ class GraphService:
             callback_token=callback_token,
             user_id=user_id,
             on_subworkflow=self._persist_subworkflow,
+            load_child_run=self._store.get_run,
         )
         try:
             run = executor.execute()
@@ -276,6 +453,7 @@ class GraphService:
                 ir, run_id=run_id, workflow_version=workflow_version,
                 owner_id=owner_id, grants=grants,
                 subworkflows=subworkflows, run_input=run_input,
+                callback_base_url=callback_base_url,
             )
             timeout_ms = max(60_000, min(3_600_000, ir.settings.timeout_ms or 3_600_000))
             try:
@@ -319,6 +497,7 @@ class GraphService:
                     callback_token=callback_token,
                     user_id=user_id,
                     on_subworkflow=self._persist_subworkflow,
+                    load_child_run=self._store.get_run,
                 )
                 run = executor.execute()
                 self._store.finish_run(run)
@@ -409,8 +588,15 @@ class GraphService:
 
         self._store.mark_running(run_id)
         model_settings = self._model_settings.get(run_id)
+        if model_settings is None and "agent.run" in plan.required_capabilities:
+            # The job survived a restart: the in-memory credentials are gone, so
+            # ask the front door to resolve them again. Never persisted here.
+            model_settings = self._resolve_model_settings(run_id, payload)
+            if model_settings:
+                self._model_settings[run_id] = model_settings
         callback_base_url = (
-            os.environ.get("HARNESS_CALLBACK_URL")
+            str(payload.get("callbackBaseUrl") or "")
+            or os.environ.get("HARNESS_CALLBACK_URL")
             or f"http://127.0.0.1:{os.environ.get('PORT', '3000')}"
         )
         executor = GraphExecutor(
@@ -428,6 +614,7 @@ class GraphService:
             callback_token=os.environ.get("CRON_SECRET"),
             user_id=str(payload.get("ownerId") or "local"),
             on_subworkflow=self._persist_subworkflow,
+            load_child_run=self._store.get_run,
             allow_defer=True,
         )
         try:

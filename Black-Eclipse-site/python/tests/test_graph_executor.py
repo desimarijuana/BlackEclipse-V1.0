@@ -8,9 +8,9 @@ import time
 
 from harness.graph_runtime.compiler import compile_workflow
 from harness.graph_runtime.executor import GraphExecutor
-from harness.graph_runtime.model import NodeStatus, PortDef, PortType, RunStatus, WorkflowIR
+from harness.graph_runtime.model import ExecutionMode, NodeStatus, PortDef, PortType, RunStatus, WorkflowIR
 from harness.graph_runtime.nodes import build_default_registry
-from harness.graph_runtime.registry import NodeDef, NodeRegistry
+from harness.graph_runtime.registry import NodeDef, NodeExecContext, NodeRegistry
 
 
 def _node(node_id, node_type, config=None):
@@ -66,6 +66,43 @@ def test_end_to_end_pure_graph():
     assert runs["out"].inputs["value"] == 7.0
     assert all(r.duration_ms is not None for r in run.node_runs)
     assert run.plan is not None and run.plan.executable
+
+
+def test_manual_trigger_is_zero_config_but_honours_legacy_defaults():
+    definition = build_default_registry().get("trigger.manual")
+    assert definition is not None and definition.executor is not None
+    assert definition.config_fields == ()
+
+    def emit(config, run_input=None):
+        return definition.executor(
+            NodeExecContext(
+                node_id="trig",
+                run_id="run",
+                mode=ExecutionMode.RESEARCH,
+                inputs={},
+                config=config,
+                run_input=run_input,
+            )
+        )
+
+    # Zero-config: Start is the run input, or null.
+    assert emit({}) == {"start": None}
+    assert emit({}, run_input={"anything": True}) == {"start": {"anything": True}}
+    # Legacy saved graphs keep their stored defaults.
+    # A run input wins over everything.
+    assert emit(
+        {"seed": "AAPL", "payload": {"symbol": "MSFT"}, "payloadType": "auto"},
+        run_input={"symbol": "TSLA"},
+    ) == {"start": {"symbol": "TSLA"}}
+    # A configured payload wins over the legacy seed.
+    assert emit({"seed": "AAPL", "payload": {"symbol": "MSFT"}, "payloadType": "auto"}) == {
+        "start": {"symbol": "MSFT"}
+    }
+    # payloadType coerces the payload (the schema is not inferred silently).
+    assert emit({"seed": "AAPL", "payload": 42, "payloadType": "string"}) == {"start": "42"}
+    # Empty payload falls back to the seed; an empty seed emits null.
+    assert emit({"seed": "AAPL", "payload": None, "payloadType": "auto"}) == {"start": "AAPL"}
+    assert emit({"seed": "", "payload": None, "payloadType": "auto"}) == {"start": None}
 
 
 def test_same_inputs_produce_identical_outputs():

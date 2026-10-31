@@ -21,6 +21,7 @@ export type Patch =
   | { op: 'move_node'; nodeId: string; position: NodePosition }
   | { op: 'update_node_config'; nodeId: string; config: Record<string, unknown> }
   | { op: 'update_node_label'; nodeId: string; label?: string }
+  | { op: 'update_node_notes'; nodeId: string; notes?: string }
   | { op: 'replace_node'; nodeId: string; type: string; version: string; config?: Record<string, unknown> }
   | { op: 'add_edge'; edge: Omit<WorkflowEdge, 'id'> & { id?: string } }
   | { op: 'remove_edge'; edgeId: string }
@@ -108,6 +109,7 @@ export function applyPatch(ir: WorkflowIR, patch: Patch): PatchResult {
         type: patch.node.type,
         version: patch.node.version,
         label: patch.node.label,
+        notes: patch.node.notes,
         config: patch.node.config ?? def.defaultConfig(),
         layout: patch.node.layout,
       };
@@ -133,6 +135,12 @@ export function applyPatch(ir: WorkflowIR, patch: Patch): PatchResult {
     case 'update_node_label': {
       if (!ir.nodes.some((n) => n.id === patch.nodeId)) return { ok: false, error: `Node "${patch.nodeId}" not found.`, patch };
       const nodes = ir.nodes.map((n) => (n.id === patch.nodeId ? { ...n, label: patch.label } : n));
+      return { ok: true, ir: touch({ ...ir, nodes }), patch };
+    }
+    case 'update_node_notes': {
+      if (!ir.nodes.some((n) => n.id === patch.nodeId)) return { ok: false, error: `Node "${patch.nodeId}" not found.`, patch };
+      const notes = patch.notes?.trim();
+      const nodes = ir.nodes.map((n) => (n.id === patch.nodeId ? { ...n, notes: notes || undefined } : n));
       return { ok: true, ir: touch({ ...ir, nodes }), patch };
     }
     case 'replace_node': {

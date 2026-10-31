@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
+from harness.agents import DRY_RUN_TOOLS, dry_run_tools
 from harness.graph_runtime.agent_nodes import (
+    agent_result_payload,
+    agent_run_identity,
     set_agent_runner,
     set_plan_runner,
 )
@@ -153,10 +158,147 @@ def test_delegate_bounds_the_task_list_and_config():
         _exec_type("agent.delegate", {"tasksJson": "{not json"}, {})
 
 
-def test_agent_node_is_gated_by_the_operator_envelope():
-    denied = compile_workflow(_ir(), REGISTRY, RunGrants(test_run=True))
-    assert denied.executable is False
-    assert any(d.code == "permission_denied" for d in denied.diagnostics)
+def _agent_result(status: str, *, output=None, error=None):
+    return SimpleNamespace(
+        status=SimpleNamespace(value=status) if isinstance(status, str) else status,
+        output=output,
+        error=error,
+        runId="run_agent",
+        research={"evidenceCount": 1},
+        totalTokens=12,
+        toolCalls=2,
+    )
+
+
+def test_completed_agent_run_maps_to_a_successful_finding():
+    """The run plane's success status is `completed`; it must not fail the node."""
+    payload = agent_result_payload(_agent_result("completed", output="AAPL is expensive"))
+    assert payload["finding"]["text"] == "AAPL is expensive"
+    assert payload["finding"]["status"] == "completed"
+    assert payload["evidence"] == {"evidenceCount": 1}
+
+
+def test_succeeded_remains_accepted_for_substitute_runtimes():
+    payload = agent_result_payload(_agent_result("succeeded", output="ok"))
+    assert payload["finding"]["text"] == "ok"
+
+
+def test_failed_agent_run_uses_the_error_message_not_the_output():
+    result = _agent_result(
+        "failed",
+        output="partial transcript",
+        error=SimpleNamespace(message="provider rate limited"),
+    )
+    with pytest.raises(ValueError, match="provider rate limited") as exc:
+        agent_result_payload(result)
+    assert "partial transcript" not in str(exc.value)
+
+
+def _ir_without_query(agent_config: dict | None = None):
+    return WorkflowIR.model_validate({
+        "irVersion": 1, "id": "wf_agent", "name": "Agent",
+        "meta": {"createdAt": "", "updatedAt": "", "tags": []},
+        "nodes": [
+            _node("trig", "trigger.manual", {"seed": "Research AAPL"}),
+            _node("agent", "agent.research", agent_config or {"agent": "eclipse-agent", "objective": "Summarize AAPL"}),
+            _node("out", "output.result"),
+        ],
+        "edges": [
+            # Deliberately no trigger -> agent.query wire: the objective comes
+            # from config, which the executor supports.
+            _edge("e2", "agent", "finding", "out", "value"),
+        ],
+        "settings": {"executionMode": "research", "failFast": False, "maxConcurrency": 1, "timeoutMs": 0},
+        "requiredCapabilities": ["agent.run"],
+    })
+
+
+def _operator_grants():
+    return RunGrants(
+        test_run=False,
+        granted_capabilities=frozenset({"agent.run"}),
+        allow_network=True,
+    )
+
+
+def test_agent_objective_may_come_from_config_without_a_wire():
+    plan = compile_workflow(_ir_without_query(), REGISTRY, _operator_grants())
+    assert not any(d.code == "missing_required_input" for d in plan.diagnostics)
+    assert not any(d.code == "missing_objective" for d in plan.diagnostics)
+    assert plan.executable is True, [d.message for d in plan.diagnostics]
+
+
+def test_agent_without_input_or_config_objective_is_still_invalid():
+    plan = compile_workflow(
+        _ir_without_query({"agent": "eclipse-agent", "objective": "   "}),
+        REGISTRY,
+        _operator_grants(),
+    )
+    assert any(d.code == "missing_objective" for d in plan.diagnostics)
+    assert plan.executable is False
+
+
+class _AgentRunStore:
+    def __init__(self, run: dict | None) -> None:
+        self._run = run
+
+    def get_run(self, _run_id: str):
+        return self._run
+
+
+class _Lineage:
+    def __init__(self, checkpoint: dict | None) -> None:
+        self._checkpoint = checkpoint
+
+    def latest_checkpoint(self, _run_id: str):
+        return self._checkpoint
+
+
+def test_a_crashed_agent_run_reenters_its_checkpoint():
+    store = _AgentRunStore({"status": "running"})
+    run_id, resume = agent_run_identity(
+        store, "graph:grun:agent", lineage=_Lineage({"id": "ckpt_1"}),
+    )
+    assert run_id == "graph:grun:agent"
+    assert resume == "ckpt_1"
+
+
+def test_an_agent_run_without_a_checkpoint_starts_under_a_fresh_id():
+    store = _AgentRunStore({"status": "running"})
+    run_id, resume = agent_run_identity(store, "graph:grun:agent", lineage=_Lineage(None))
+    assert run_id.startswith("graph:grun:agent:")
+    assert resume is None
+
+
+def test_a_terminal_agent_run_never_blocks_a_retry():
+    store = _AgentRunStore({"status": "failed"})
+    run_id, resume = agent_run_identity(store, "graph:grun:agent", lineage=_Lineage({"id": "x"}))
+    assert run_id.startswith("graph:grun:agent:")
+    assert resume is None
+
+
+def test_a_fresh_agent_run_uses_the_stable_id():
+    run_id, resume = agent_run_identity(_AgentRunStore(None), "graph:grun:agent")
+    assert run_id == "graph:grun:agent"
+    assert resume is None
+
+
+def test_dry_run_tool_surface_can_only_remove_tools():
+    declared = ["get_quote", "research_search", "browser_navigate", "order_submit"]
+    narrowed = dry_run_tools(declared)
+    assert "get_quote" in narrowed
+    assert "research_search" not in narrowed
+    assert "browser_navigate" not in narrowed
+    assert "order_submit" not in narrowed
+    # An agent with no declared allowlist gets exactly the read-only surface.
+    assert set(dry_run_tools(None)) == set(DRY_RUN_TOOLS)
+
+
+def test_agent_node_runs_in_a_test_run_with_a_model_effect():
+    """A model call is not a world effect: a dry run may execute it."""
+    dry = compile_workflow(_ir(), REGISTRY, RunGrants(test_run=True))
+    assert dry.executable is True, [d.message for d in dry.diagnostics]
+    assert not any(d.code == "permission_denied" for d in dry.diagnostics)
 
     allowed = compile_workflow(
         _ir(), REGISTRY,

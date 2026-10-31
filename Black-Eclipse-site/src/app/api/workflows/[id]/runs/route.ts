@@ -11,6 +11,8 @@ import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtim
 import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
 import { startPersistedRun } from "@/lib/graph-studio/run-server";
+import { getWorkflow } from "@/lib/graph-studio/server-store";
+import { validateRunInput } from "@/lib/graph-studio/run-input";
 
 export const dynamic = "force-dynamic";
 
@@ -41,12 +43,31 @@ export async function GET(request: Request, ctx: Ctx) {
   if (unavailable) return unavailable;
   const { id } = await ctx.params;
   try {
-    const res = await fetch(`${HARNESS_PY_URL}/graphs/runs?workflowId=${encodeURIComponent(id)}&limit=50`, {
-      headers: await runtimeHeaders(request),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const data = await res.json().catch(() => ({}));
-    return NextResponse.json(data, { status: res.status });
+    const headers = await runtimeHeaders(request);
+    const listRuns = async (workflowId: string) => {
+      const res = await fetch(
+        `${HARNESS_PY_URL}/graphs/runs?workflowId=${encodeURIComponent(workflowId)}&limit=50`,
+        { headers, signal: AbortSignal.timeout(30_000) },
+      );
+      const data = (await res.json().catch(() => ({}))) as { runs?: Array<{ id: string }>; error?: string };
+      return { res, data };
+    };
+    const primary = await listRuns(id);
+    if (!primary.res.ok) return NextResponse.json(primary.data, { status: primary.res.status });
+
+    // Runs recorded before the identity alignment were keyed by the IR document
+    // id (`wf_…`). Merge those in so History does not lose older runs.
+    let runs = primary.data.runs ?? [];
+    const workflow = await getWorkflow(id).catch(() => null);
+    const legacyId = workflow?.ir.id;
+    if (legacyId && legacyId !== id) {
+      const legacy = await listRuns(legacyId);
+      if (legacy.res.ok) {
+        const seen = new Set(runs.map((run) => run.id));
+        runs = [...runs, ...(legacy.data.runs ?? []).filter((run) => !seen.has(run.id))];
+      }
+    }
+    return NextResponse.json({ ...primary.data, runs });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "failed to list runs" },
@@ -65,7 +86,17 @@ export async function POST(request: Request, ctx: Ctx) {
     allowNetwork?: boolean;
     allowPaperTrading?: boolean;
     allowLocalWrite?: boolean;
+    allowWriteScopes?: string[];
+    allowLiveTrading?: boolean;
+    runInput?: unknown;
   };
+
+  // A run input is bounded and must be JSON. It is used for this run only and
+  // is never written into the persisted workflow.
+  const input = validateRunInput(body.runInput);
+  if (!input.ok) {
+    return NextResponse.json({ error: input.error }, { status: 400 });
+  }
 
   // The persisted version is the ONLY authority for what runs (see run-server).
   // A test run is the default; an operator run is an explicit request and the
@@ -74,12 +105,17 @@ export async function POST(request: Request, ctx: Ctx) {
     workflowId: id,
     version: typeof body.version === "number" ? body.version : undefined,
     request,
+    runInput: input.value,
     authorization: body.operator
       ? {
           operator: true,
           allowNetwork: Boolean(body.allowNetwork),
           allowPaperTrading: Boolean(body.allowPaperTrading),
           allowLocalWrite: Boolean(body.allowLocalWrite),
+          allowWriteScopes: Array.isArray(body.allowWriteScopes)
+            ? body.allowWriteScopes.filter((scope): scope is string => typeof scope === 'string')
+            : undefined,
+          allowLiveTrading: Boolean(body.allowLiveTrading),
         }
       : undefined,
   });

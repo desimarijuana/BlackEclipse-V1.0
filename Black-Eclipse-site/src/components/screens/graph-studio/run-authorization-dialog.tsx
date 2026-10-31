@@ -15,6 +15,13 @@ export interface OperatorRunNeeds {
   tradingNodes: string[];
   writeNodes: string[];
   writeNodeTypes: string[];
+  /** Model calls cost tokens but are not a world effect; shown for clarity. */
+  requiresModel?: boolean;
+  modelNodes?: string[];
+  /** Named `file.write` scopes this run will be allowed to write. */
+  writeScopes?: string[];
+  /** True when the workflow mode is live and live execution was requested. */
+  liveTrading?: boolean;
 }
 
 export function RunAuthorizationDialog({
@@ -44,6 +51,14 @@ export function RunAuthorizationDialog({
         </div>
 
         <ul className="mt-3 space-y-2">
+          {needs.requiresModel && (needs.modelNodes?.length ?? 0) > 0 && (
+            <li className="rounded-lg border border-violet-500/25 bg-violet-500/5 px-2.5 py-2">
+              <div className="text-[11px] font-medium text-violet-200">Model calls</div>
+              <p className="mt-0.5 text-[10.5px] text-muted-foreground">
+                {(needs.modelNodes ?? []).join(', ')} — tokens are spent; the tool surface is read-only.
+              </p>
+            </li>
+          )}
           {needs.requiresNetwork && (
             <li className="rounded-lg border border-sky-500/25 bg-sky-500/5 px-2.5 py-2">
               <div className="text-[11px] font-medium text-sky-200">Network access</div>
@@ -52,9 +67,22 @@ export function RunAuthorizationDialog({
           )}
           {needs.tradingNodes.length > 0 && (
             <li className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-2.5 py-2">
-              <div className="text-[11px] font-medium text-amber-200">Paper trading only</div>
+              <div className="text-[11px] font-medium text-amber-200">
+                {needs.liveTrading ? 'LIVE broker execution' : 'Paper trading only'}
+              </div>
               <p className="mt-0.5 text-[10.5px] text-muted-foreground">
-                {needs.tradingNodes.join(', ')} — simulated fills; no broker is contacted and live trading is never granted.
+                {needs.liveTrading
+                  ? `${needs.tradingNodes.join(', ')} — real orders on the pinned connection. The connection must be armed and a workflow-pinned live mandate must be active; every order is capped and counted.`
+                  : `${needs.tradingNodes.join(', ')} — simulated fills; no broker is contacted and live trading is never granted.`}
+              </p>
+            </li>
+          )}
+          {(needs.writeScopes?.length ?? 0) > 0 && (
+            <li className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-2.5 py-2">
+              <div className="text-[11px] font-medium text-amber-200">File writes</div>
+              <p className="mt-0.5 text-[10.5px] text-muted-foreground">
+                Confined to scope(s): {(needs.writeScopes ?? []).join(', ')} — relative paths only,
+                8 MB cap, no symlink escape.
               </p>
             </li>
           )}

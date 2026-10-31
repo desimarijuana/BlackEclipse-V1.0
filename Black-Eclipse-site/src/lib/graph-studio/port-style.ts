@@ -32,6 +32,7 @@ export function sideEffectColor(effect: SideEffectClass): string {
     case 'trading': return '#fb7185';
     case 'write': return '#f59e0b';
     case 'local_write': return '#eab308';
+    case 'model': return '#a78bfa';
     case 'network': return '#38bdf8';
     case 'read': return '#34d399';
     default: return '#64748b';

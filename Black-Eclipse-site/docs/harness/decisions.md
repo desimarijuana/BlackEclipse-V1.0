@@ -11079,3 +11079,52 @@ candidate. The narrowing is lexical (`is_trade_turn`) and deterministic; a
 misclassification only removes tools for that run, never grants one, and the
 `allowedTools` field on the run records exactly what was bound. Docs:
 `docs/trading.md`, this ADR.
+
+## ADR-H342 — Custom agent presets are runtime-owned, versioned and effect-gated
+
+**Decision.** Operator-authored agent presets live in `agent-memory.db`
+(`AgentPreset` + immutable `AgentPresetVersion`), not in the Next.js settings
+store. The runtime owns CRUD, validates every tool name against the live
+registry, and appends a version on every edit. A graph node pins
+`agent@version`; an unpinned node resolves the current version for backward
+compatibility. Naming a write/external tool requires an explicit
+`allowEffectful` acknowledgement at save time.
+
+**Why.** Agent behaviour is runtime state: the prompt and tool allowlist decide
+what the model can do, and the Python worker must resolve them without reaching
+into JDDS. Keeping presets in the settings vault would create a second authority
+and make a resumed run depend on the front door's configuration view. Version
+pinning is the same reproducibility rule as a pinned subworkflow: editing a
+preset must not silently change a saved workflow.
+
+**Consequences.** Preset CRUD is a thin Next proxy over `/agents/*`; the browser
+never sees the operator token. A preset cannot widen itself by naming an
+effectful tool — the save is refused until the operator ticks the acknowledgement.
+Built-ins stay code (`agents.py`); the three names are reserved because the
+store ids are generated (`agt_…`). Docs: `docs/graph-studio.md`, this ADR.
+
+## ADR-H343 — Unattended live trading is two-key and workflow-pinned
+
+**Decision.** A Graph Studio live order requires BOTH (a) an armed live
+connection (typed `ARM LIVE <login>`, time-boxed) and (b) an active live mandate
+that pins `workflowId` + `workflowVersion`, the allowed symbols, a margin cap, an
+order count and a ≤24 h expiry. A mandate substitutes for the per-order typed
+phrase only for unattended runs; a manual live order still requires it. The
+mandate never arms the connection and the arm never authorizes an order. The
+compiler requires `allowLiveTrading` plus pinned `connectionId`/`mandateId`; it
+refuses paper-only trading nodes in live mode. Broker reads are read effects;
+close/modify/cancel are risk-reducing and stay arm-free and mandate-free.
+
+**Why.** Live automation is the product goal, but an LLM or a scheduled graph
+must not be able to create, arm or widen its own authority. Pinning the workflow
+version means editing the graph invalidates the mandate, and the two independent
+keys mean a stale mandate cannot trade after the arm expires or a compromised
+mandate cannot trade without an armed terminal. Keeping exits outside the gate
+ensures risk can always be reduced.
+
+**Consequences.** Live execution is possible only through `trading.broker_*`
+nodes; `trading.paper_order` remains paper-only. The mandate store gained
+`workflowId`/`workflowVersion` and live TTL bounds; the execution context carries
+the workflow id for the pin check. A live mandate cannot outlive the connection's
+arm at execution time even if its own TTL is longer. Docs: `docs/trading.md`,
+`docs/graph-studio.md`, this ADR.

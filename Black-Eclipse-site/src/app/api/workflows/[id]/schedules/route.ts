@@ -25,6 +25,7 @@ export async function POST(request: Request, ctx: Ctx) {
   const { id } = await ctx.params;
   try {
     const body = (await request.json().catch(() => ({}))) as {
+      nodeId?: string | null;
       name?: string;
       cron?: string;
       timezone?: string;
@@ -39,6 +40,7 @@ export async function POST(request: Request, ctx: Ctx) {
     if (!workflow) return NextResponse.json({ error: 'Workflow not found' }, { status: 404 });
     const schedule = await createSchedule({
       workflowId: id,
+      nodeId: typeof body.nodeId === 'string' && body.nodeId.trim() ? body.nodeId.trim() : null,
       name: body.name,
       cron: body.cron,
       timezone: body.timezone,

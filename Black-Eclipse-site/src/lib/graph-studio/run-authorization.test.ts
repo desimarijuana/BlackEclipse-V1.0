@@ -33,6 +33,8 @@ describe('run authorization', () => {
       allowNetwork: false,
       allowTrading: false,
       allowWrite: false,
+      allowedWriteScopes: [],
+      allowLiveTrading: false,
     });
   });
 
@@ -70,6 +72,45 @@ describe('run authorization', () => {
     const refused = authorizeGraphRun(write, [], { operator: true, allowNetwork: true });
     expect(refused.ok).toBe(false);
     expect(refused.error).toContain('confirm the local render');
+  });
+
+  it('requires the exact file.write scopes to be confirmed', () => {
+    const write = graph('wf_file', [
+      { id: 'trig', type: 'trigger.manual' },
+      { id: 'file', type: 'file.write', config: { scope: 'exports', path: 'a.csv' } },
+      { id: 'out', type: 'output.result' },
+    ]);
+    const summary = summarizeRunNeeds(write);
+    expect(summary.requiresNetwork).toBe(false);
+    expect(summary.writeScopes).toEqual(['exports']);
+    expect(summary.requiredCapabilities).toContain('file.write');
+
+    const missing = authorizeGraphRun(write, [], { operator: true });
+    expect(missing.ok).toBe(false);
+    expect(missing.error).toContain('exports');
+
+    const allowed = authorizeGraphRun(write, [], { operator: true, allowWriteScopes: ['exports'] });
+    expect(allowed.ok).toBe(true);
+    expect(allowed.authorization.allowedWriteScopes).toEqual(['exports']);
+    expect(allowed.authorization.allowWrite).toBe(false);
+  });
+
+  it('treats an agent node as a model effect, not network', () => {
+    const agent = graph('wf_agent', [
+      { id: 'trig', type: 'trigger.manual' },
+      { id: 'agent', type: 'agent.research', config: { objective: 'Summarize AAPL' } },
+      { id: 'out', type: 'output.result' },
+    ]);
+    const summary = summarizeRunNeeds(agent);
+    expect(summary.requiresModel).toBe(true);
+    expect(summary.modelNodes).toEqual(['Research agent']);
+    expect(summary.requiresNetwork).toBe(false);
+    expect(summary.networkNodes).toEqual([]);
+    // A test run may perform model calls; the runtime narrows the tool surface.
+    const testRun = authorizeGraphRun(agent);
+    expect(testRun.ok).toBe(true);
+    expect(testRun.authorization.testRun).toBe(true);
+    expect(testRun.authorization.allowNetwork).toBe(false);
   });
 
   it('treats web research nodes as network and local verification as a read', () => {
@@ -127,10 +168,10 @@ describe('run authorization', () => {
     live.settings.executionMode = 'live';
     const refused = authorizeGraphRun(live, [], { operator: true, allowPaperTrading: true });
     expect(refused.ok).toBe(false);
-    expect(refused.error).toContain('Live trading is not available');
+    expect(refused.error).toContain('Paper-only trading nodes');
   });
 
-  it('allows the demo broker-order node in paper and refuses it live', () => {
+  it('allows the broker-order node in paper and live with the right confirmation', () => {
     const paper = graph('wf_broker_paper', [
       { id: 'trig', type: 'trigger.manual' },
       { id: 'order', type: 'trading.broker_order', config: { connectionId: 'brk_1', mandateId: 'mnd_1' } },
@@ -148,9 +189,23 @@ describe('run authorization', () => {
       { id: 'out', type: 'output.result' },
     ]);
     live.settings.executionMode = 'live';
-    const refused = authorizeGraphRun(live, [], { operator: true, allowPaperTrading: true });
-    expect(refused.ok).toBe(false);
-    expect(refused.error).toContain('Live trading is not available');
+    const missing = authorizeGraphRun(live, [], { operator: true, allowPaperTrading: true });
+    expect(missing.ok).toBe(false);
+    expect(missing.error).toContain('confirm live trading');
+
+    const allowedLive = authorizeGraphRun(live, [], { operator: true, allowLiveTrading: true });
+    expect(allowedLive.ok).toBe(true);
+    expect(allowedLive.authorization.allowLiveTrading).toBe(true);
+    expect(allowedLive.authorization.allowTrading).toBe(false);
+
+    const unpinned = graph('wf_broker_unpinned', [
+      { id: 'trig', type: 'trigger.manual' },
+      { id: 'order', type: 'trading.broker_order', config: { connectionId: 'brk_1' } },
+      { id: 'out', type: 'output.result' },
+    ]);
+    unpinned.settings.executionMode = 'live';
+    expect(authorizeGraphRun(unpinned, [], { operator: true, allowLiveTrading: true }).error)
+      .toContain('mandate');
   });
 
   it('allows only a whitelisted local video render write', () => {

@@ -145,7 +145,10 @@ export function validateWorkflow(ir: WorkflowIR): Diagnostic[] {
         nodeId: node.id,
       });
     }
-    if (def.type === 'flow.subworkflow') {
+    if (def.type === 'flow.subworkflow'
+      || def.type === 'flow.for_each'
+      || def.type === 'flow.repeat'
+      || def.type === 'flow.while') {
       const workflowId = typeof node.config.workflowId === 'string' ? node.config.workflowId.trim() : '';
       const version = Number(node.config.version);
       if (!workflowId || !Number.isInteger(version) || version < 1) {
@@ -229,6 +232,28 @@ export function validateWorkflow(ir: WorkflowIR): Diagnostic[] {
           nodeId: node.id,
         });
       }
+    }
+  }
+
+  // Nodes whose required value may come EITHER from a wire OR from config. The
+  // port is optional so a config-only node is valid; this check enforces that
+  // at least one source is actually present (the executor uses the same rule).
+  const INPUT_OR_CONFIG: Record<string, { port: string; key: string; label: string }> = {
+    'agent.research': { port: 'query', key: 'objective', label: 'a query or an objective' },
+    'agent.plan': { port: 'objective', key: 'objective', label: 'an objective' },
+  };
+  for (const node of ir.nodes) {
+    const rule = INPUT_OR_CONFIG[node.type];
+    if (!rule) continue;
+    const wired = connectedInputs.has(`${node.id}:${rule.port}`);
+    const configured = node.config[rule.key];
+    if (!wired && (typeof configured !== 'string' || configured.trim() === '')) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'missing_objective',
+        message: `Node "${node.id}" needs ${rule.label}: wire "${rule.port}" or type it in the node settings.`,
+        nodeId: node.id,
+      });
     }
   }
 

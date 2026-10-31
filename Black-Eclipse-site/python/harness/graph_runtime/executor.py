@@ -56,6 +56,26 @@ class ResumeState:
     complete: bool = True
 
 
+_MISSING = object()
+
+
+def _numeric_state(value: Any) -> float:
+    """A bounded numeric projection for a loop condition.
+
+    A scalar is used directly; an object is read from `value`/`state`/`result`.
+    Anything else is 0, so a malformed body stops the loop instead of spinning.
+    """
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, dict):
+        for key in ("value", "state", "result"):
+            if key in value:
+                return _numeric_state(value[key])
+    return 0.0
+
+
 def _preview(value: Any) -> Any:
     """A bounded, JSON-safe preview of a value for the run record."""
     try:
@@ -98,6 +118,7 @@ class GraphExecutor:
         callback_token: Optional[str] = None,
         user_id: str = "local",
         on_subworkflow: Optional[Callable[[GraphRun], None]] = None,
+        load_child_run: Optional[Callable[[str], Optional[dict[str, Any]]]] = None,
         allow_defer: bool = False,
     ) -> None:
         self._ir = ir
@@ -120,6 +141,10 @@ class GraphExecutor:
         self._callback_token = callback_token
         self._user_id = user_id
         self._on_subworkflow = on_subworkflow
+        # Loop iterations use a durable child run per iteration as their
+        # checkpoint. The service supplies this loader; a nested executor
+        # inherits it.
+        self._load_child_run = load_child_run
         self._allow_defer = allow_defer
         self._deferred: Optional[DeferredWait] = None
         self._terminal_outputs: dict[str, Any] = {}
@@ -365,6 +390,7 @@ class GraphExecutor:
             node_id=node_id,
             run_id=self._run_id,
             mode=self._plan.mode,
+            workflow_id=self._plan.workflow_id,
             inputs=inputs,
             config=config,
             emit=lambda message: self._emit("node.log", message, node_id),
@@ -374,10 +400,14 @@ class GraphExecutor:
             callback_token=self._callback_token,
             user_id=self._user_id,
             allow_defer=self._allow_defer,
+            allow_network=self._grants.allow_network,
+            test_run=self._grants.test_run,
         )
 
         def call() -> dict[str, Any]:
             if definition.orchestrated:
+                if definition.type in ("flow.for_each", "flow.repeat", "flow.while"):
+                    return self._run_loop(node_id, inputs, config, definition)
                 return self._run_subworkflow(node_id, inputs, config, definition)
             if definition.executor is None:  # pragma: no cover - compile refuses these
                 raise RuntimeError(f"node type {definition.type} has no executor")
@@ -395,12 +425,149 @@ class GraphExecutor:
             # threads die with the process and pure executors hold no resources.
             pool.shutdown(wait=False, cancel_futures=True)
 
+    def _loop_condition(self, expression: str, state: Any, index: int) -> bool:
+        from .nodes import evaluate_formula  # noqa: PLC0415 - avoids an import cycle
+
+        value = _numeric_state(state)
+        try:
+            return evaluate_formula(
+                expression,
+                {"value": value, "index": float(index), "iterations": float(index)},
+            ) != 0
+        except Exception as exc:  # noqa: BLE001 - a bad condition is a node error
+            raise ValueError(f"loop condition failed: {exc}") from exc
+
+    def _child_output(self, child_run_id: str) -> Any:
+        if self._load_child_run is None:
+            return _MISSING
+        record = self._load_child_run(child_run_id)
+        if not isinstance(record, dict):
+            return _MISSING
+        if record.get("status") != RunStatus.SUCCEEDED.value:
+            return _MISSING
+        if "output" not in record:
+            return _MISSING
+        return record.get("output")
+
+    def _run_loop(
+        self,
+        node_id: str,
+        inputs: dict[str, Any],
+        config: dict[str, Any],
+        definition: NodeDef,
+    ) -> dict[str, Any]:
+        """Run a pinned body workflow under an explicit iteration/time bound.
+
+        Each iteration is a durable child run (`<parent>:<node>:i<N>`). On a
+        resumed parent, a succeeded child output is reused, so completed
+        iterations are never re-executed.
+        """
+        kind = definition.type
+        workflow_id = str(config.get("workflowId") or "").strip()
+        try:
+            version = int(config.get("version", 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("loop body version must be a whole number") from exc
+        if not workflow_id:
+            raise ValueError("a loop needs a pinned body workflow")
+        if version < 1:
+            raise ValueError("loop body version must be pinned (>= 1)")
+        key = f"{workflow_id}@{version}"
+        if key not in self._subworkflows:
+            raise ValueError(f"loop body {key} was not supplied to this run")
+
+        if kind == "flow.repeat":
+            raw_limit = config.get("count", 1)
+        else:
+            raw_limit = config.get("maxIterations", 100)
+        try:
+            limit = max(1, min(int(raw_limit), 1_000))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("loop iteration bound must be a number") from exc
+        try:
+            duration_ms = max(0, int(config.get("maxDurationMs", 0) or 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("loop duration bound must be a number") from exc
+        continue_on_error = bool(config.get("continueOnError", False))
+        condition = str(config.get("condition") or "value > 0")
+
+        items: list[Any] = []
+        if kind == "flow.for_each":
+            raw_items = inputs.get("items")
+            if not isinstance(raw_items, list):
+                raise ValueError("flow.for_each needs an array on its items input")
+            items = raw_items
+            stopped = len(items) > limit
+            items = items[:limit]
+            iterations_to_run = len(items)
+        else:
+            stopped = limit < (
+                int(config.get("count", 1) or 1) if kind == "flow.repeat"
+                else int(config.get("maxIterations", 100) or 100)
+            )
+            iterations_to_run = limit
+
+        state = inputs.get("input")
+        results: list[Any] = []
+        iterations = 0
+        started = time.monotonic()
+        for index in range(iterations_to_run):
+            if self._cancel.is_set():
+                stopped = True
+                break
+            if duration_ms and (time.monotonic() - started) * 1000.0 >= duration_ms:
+                stopped = True
+                break
+            if kind == "flow.for_each":
+                item = items[index]
+            elif kind == "flow.repeat":
+                item = state
+            else:
+                if not self._loop_condition(condition, state, index):
+                    break
+                item = state
+
+            child_id = f"{self._run_id}:{node_id}:i{index}"
+            prior = self._child_output(child_id)
+            try:
+                if prior is not _MISSING:
+                    output = prior
+                    self._emit("node.log", f"loop iteration {index + 1} reused", node_id)
+                else:
+                    result = self._run_subworkflow(
+                        node_id, {"input": item}, config, definition, iteration=index,
+                    )
+                    output = result.get("output")
+                results.append(output)
+                state = output
+                iterations += 1
+            except ValueError as exc:
+                if not continue_on_error:
+                    raise
+                results.append({"error": str(exc)})
+                iterations += 1
+
+        if kind == "flow.for_each":
+            return {
+                "results": results,
+                "iterations": iterations,
+                "stopped": stopped,
+            }
+        return {
+            "state": state,
+            "iterations": iterations,
+            "stopped": stopped,
+        }
+
     def _run_subworkflow(
         self,
         node_id: str,
         inputs: dict[str, Any],
         config: dict[str, Any],
         definition: NodeDef,
+        *,
+        iteration: Optional[int] = None,
+        prior_output: Any = _MISSING,
     ) -> dict[str, Any]:
         """Execute a pinned subworkflow with the SAME grants and a bounded depth.
 
@@ -418,6 +585,11 @@ class GraphExecutor:
         if version < 1:
             raise ValueError("subworkflow version must be pinned (>= 1)")
         key = f"{workflow_id}@{version}"
+        child_run_id = f"{self._run_id}:{node_id}" + (
+            f":i{iteration}" if iteration is not None else ""
+        )
+        if prior_output is not _MISSING:
+            return {"output": prior_output, "runId": child_run_id, "reused": True}
         if key in self._subworkflow_stack:
             raise ValueError(f"subworkflow cycle detected: {' -> '.join((*self._subworkflow_stack, key))}")
         if self._depth >= MAX_SUBWORKFLOW_DEPTH:
@@ -441,7 +613,7 @@ class GraphExecutor:
 
         nested = GraphExecutor(
             sub_ir, plan, self._registry,
-            run_id=f"{self._run_id}:{node_id}",
+            run_id=child_run_id,
             grants=self._grants,
             cancel_event=self._cancel,
             on_event=relay,
@@ -452,6 +624,7 @@ class GraphExecutor:
             depth=self._depth + 1,
             subworkflow_stack=stack,
             on_subworkflow=self._on_subworkflow,
+            load_child_run=self._load_child_run,
             user_id=self._user_id,
         )
         run = nested.execute()

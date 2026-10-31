@@ -1,7 +1,7 @@
 ---
 title: Broker Connectivity
 status: Current
-last-verified: 2026-10-29
+last-verified: 2026-10-30
 ---
 
 # Broker Connectivity
@@ -16,8 +16,9 @@ positions and order state. Live is off by default: arming requires a typed phras
 non-zero magic, a positive maxMargin and a time box, and every live order needs its
 own typed phrase. Chat surfaces that live approval as a **one-click card** above the
 composer. Live exits (close/modify) are arm-free so risk reduction is never blocked.
-Graph Studio can submit demo orders under a bounded mandate. The
-internal simulator (`trading.paper_order`) remains available.
+Graph Studio can submit demo orders — and, since P6, **live orders under a
+workflow-pinned live mandate on an armed live connection**. The internal simulator
+(`trading.paper_order`) remains available.
 
 ## The one rule
 
@@ -250,10 +251,13 @@ bridge it is a no-op. Disable it per connection with
 `config.openTerminalOnTrade: false`, or set `BE_MT5_PATH` to override the default
 `C:\Program Files\MetaTrader 5\terminal64.exe`.
 
-## Unattended demo graph orders (P3)
+## Unattended graph orders (P3 demo, P6 live)
 
-A Graph Studio node cannot show an approval card. P3 adds an explicit substitute:
-an operator-created **mandate** for ONE demo connection.
+A Graph Studio node cannot show an approval card. An operator-created **mandate**
+is the explicit substitute for ONE connection. It is bounded by symbols, a margin
+cap, an order count and an expiry. A **demo** mandate is enough for paper nodes.
+A **live** mandate additionally requires an armed live connection, a
+workflow-pinned version and a maximum 24 h TTL — the two-key model:
 
 ```
 POST /trading/connections/{id}/mandates
@@ -267,21 +271,33 @@ POST /trading/connections/{id}/mandates
 ```
 
 A mandate names the allowed symbols, a margin cap per order, a maximum number of
-orders and an expiry (60 s to 7 days). It is demo-only: creating one on a live
-connection returns `LIVE_MANDATES_DISABLED`. Every use is counted atomically, so a
-looping graph cannot exceed `maxOrders`. Revocation is immediate
+orders and an expiry (60 s to 7 days for demo; **24 h maximum for live**). For
+live it also pins `workflowId` + `workflowVersion`, so editing the graph cannot
+reuse an old mandate. Every use is counted atomically, so a looping graph cannot
+exceed `maxOrders`. Revocation is immediate
 (`POST /trading/mandates/{id}/revoke`).
 
 The Graph Studio node `trading.broker_order` takes an order intent plus a
-`connectionId` and `mandateId`. It runs only in **paper** mode; the compiler and the
-front door still refuse a live trading node. The node calls the SAME
-`BrokerService.submit_order` path, so the connection policy, money guardrails,
-demo/real account check and ambiguity rules all still apply. The mandate is
-consumed before the send and the ledger records `mandateId`.
+`connectionId` and `mandateId`. In **paper** mode it uses a demo mandate. In
+**live** mode it requires the operator to confirm live trading; the compiler then
+requires `allowLiveTrading`, an armed live connection and a pinned live mandate.
+The node calls the SAME `BrokerService.submit_order` path, so the connection
+policy, money guardrails, account-mode check, daily-loss brake and ambiguity
+rules all still apply. The mandate is consumed before the send and the ledger
+records `mandateId` and the workflow pin.
 
-There is still no unattended live trading. A live mandate is not implemented; the
-compiler refuses live trading graphs, and `create_mandate` refuses a live
-connection. That remains a separate design with a separate review.
+**Two keys for live.** A live order can only be sent when BOTH are true:
+the connection is armed (typed `ARM LIVE <login>`, time-boxed) and an active live
+mandate pins the workflow. An expired arm or a revoked/expired mandate refuses
+the order. The mandate never arms the account and the arm never authorizes an
+order by itself; the operator creates both, and the agent can do neither.
+
+**Reads and risk-reducing exits.** `trading.broker_account`, `broker_quote` and
+`broker_bars` are read nodes for the broker's own account/quotes/OHLCV (including
+symbols JDDS may not carry). `trading.broker_close`, `broker_modify` and
+`broker_cancel` are risk-reducing: they need no arm, approval or mandate, because
+an expired arm must never trap a position. They still require a pinned
+`connectionId`.
 
 **Agent-driven chat execution.** Settings → Broker connection can create and
 revoke mandates. On a **live** connection, ask Eclipse to analyze a market and place

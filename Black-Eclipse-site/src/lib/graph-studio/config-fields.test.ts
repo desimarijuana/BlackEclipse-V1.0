@@ -11,12 +11,25 @@ describe('config field presentation', () => {
     }
   });
 
+  it('maps an inline field to a real input port for the From wire state', () => {
+    for (const def of listNodeDefinitions()) {
+      const inputIds = new Set(def.inputs.map((port) => port.id));
+      for (const field of inlineFieldsFor(def)) {
+        const port = field.port ?? field.key;
+        // A field only claims a wire when the mapped port actually exists.
+        if (field.port) expect(inputIds.has(port), `${def.type}.${field.key}`).toBe(true);
+      }
+    }
+    const agent = getNodeDefinition('agent.research')!;
+    expect(inlineFieldsFor(agent).find((field) => field.key === 'objective')?.port).toBe('query');
+  });
+
   it('marks at most two scalar fields inline (never JSON)', () => {
     for (const def of listNodeDefinitions()) {
       const inline = inlineFieldsFor(def);
       expect(inline.length, def.type).toBeLessThanOrEqual(2);
       expect(inline.every((field) => field.kind !== 'json')).toBe(true);
-      expect(inline.every((field) => field.inline === true)).toBe(true);
+      expect(inline.every((field) => field.inline === true || field.quick !== undefined)).toBe(true);
     }
   });
 
@@ -40,13 +53,28 @@ describe('config field presentation', () => {
     expect(inlineFieldsFor(sort).map((field) => field.key)).toEqual(['field', 'order']);
   });
 
+  it('keeps the manual trigger zero-config', () => {
+    const def = getNodeDefinition('trigger.manual')!;
+    expect(def.defaultConfig()).toEqual({});
+    expect(fieldsFor(def)).toEqual([]);
+    expect(inlineFieldsFor(def)).toEqual([]);
+  });
+
+  it('promotes quick-priority fields into the two inline slots', () => {
+    const condition = getNodeDefinition('logic.condition')!;
+    expect(inlineFieldsFor(condition).map((field) => field.key)).toEqual(['operator', 'compareTo']);
+
+    const research = getNodeDefinition('agent.research')!;
+    expect(inlineFieldsFor(research).map((field) => field.key)).toEqual(['objective', 'agent']);
+  });
+
   it('falls back to a humanized text/number/boolean/json field when unannotated', () => {
     const def = getNodeDefinition('logic.merge')!;
-    expect(fieldsFor(def)).toEqual([
+    expect(fieldsFor(def)).toMatchObject([
       { key: 'strategy', label: 'Strategy', kind: 'text' },
     ]);
     const quant = getNodeDefinition('quant.zscore')!;
-    expect(fieldsFor(quant)).toEqual([
+    expect(fieldsFor(quant)).toMatchObject([
       { key: 'period', label: 'Period', kind: 'number', inline: true, min: 2, max: 500 },
     ]);
   });

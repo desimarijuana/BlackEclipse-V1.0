@@ -8,6 +8,7 @@ import {
   listWorkflowRuns,
   nodeStatusFromEvent,
   startWorkflowRun,
+  testNode,
 } from './execution-client';
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -31,6 +32,15 @@ describe('execution client', () => {
     expect(JSON.parse(String(init?.body))).toEqual({ version: 3 });
   });
 
+  it('passes a one-off run input through to the runs route', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ run: { id: 'grun_1', status: 'running' } }, 201));
+    await startWorkflowRun('wf_1', undefined, { runInput: { symbol: 'AAPL' } });
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(init?.body))).toEqual({ runInput: { symbol: 'AAPL' } });
+  });
+
   it('surfaces the runtime message and plan from a rejected run', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       jsonResponse(
@@ -44,6 +54,23 @@ describe('execution client', () => {
       message: 'The graph has no terminal (output) node.',
     });
     await expect(startWorkflowRun('wf_1')).rejects.toBeInstanceOf(GraphRunApiError);
+  });
+
+  it('tests a single node through the node-test route', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ ok: true, node: { type: 'trigger.manual' }, outputs: { start: null }, logs: [], durationMs: 1 }),
+    );
+    const result = await testNode({
+      nodeType: 'trigger.manual',
+      version: '1.0.0',
+      config: {},
+      inputs: {},
+    });
+    expect(result.outputs).toEqual({ start: null });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('/api/graph-runs/node-test');
+    expect(init?.method).toBe('POST');
+    expect(JSON.parse(String(init?.body))).toMatchObject({ nodeType: 'trigger.manual' });
   });
 
   it('reads and cancels a run', async () => {

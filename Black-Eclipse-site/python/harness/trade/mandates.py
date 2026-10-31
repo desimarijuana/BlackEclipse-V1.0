@@ -20,6 +20,9 @@ from ..persistence import now_iso
 from .model import BrokerConnection, ConnectionMode, TradeRefused
 
 MAX_TTL_SECONDS = 7 * 24 * 60 * 60
+# A live mandate may never outlive a trading day; the connection arm is shorter
+# still, so an unattended live strategy needs both to be renewed.
+LIVE_MAX_TTL_SECONDS = 24 * 60 * 60
 DEFAULT_TTL_SECONDS = 24 * 60 * 60
 MAX_ORDERS = 1000
 
@@ -37,7 +40,9 @@ CREATE TABLE IF NOT EXISTS TradingMandate (
   createdBy    TEXT NOT NULL DEFAULT 'operator',
   note         TEXT,
   createdAt    TEXT NOT NULL,
-  lastUsedAt   TEXT
+  lastUsedAt   TEXT,
+  workflowId   TEXT,
+  workflowVersion INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_mandate_connection
   ON TradingMandate(connectionId, createdAt);
@@ -69,6 +74,8 @@ def _row(row: Any) -> dict[str, Any]:
         "note": row["note"],
         "createdAt": row["createdAt"],
         "lastUsedAt": row["lastUsedAt"],
+        "workflowId": row["workflowId"] if "workflowId" in row.keys() else None,
+        "workflowVersion": row["workflowVersion"] if "workflowVersion" in row.keys() else None,
     }
 
 
@@ -109,6 +116,12 @@ class TradingMandateStore:
 
     def _ensure_schema(self) -> None:
         self._db.executescript(_SCHEMA)
+        # Existing databases predate the workflow pin columns.
+        columns = {row["name"] for row in self._db.execute("PRAGMA table_info(TradingMandate)")}
+        if "workflowId" not in columns:
+            self._db.execute("ALTER TABLE TradingMandate ADD COLUMN workflowId TEXT")
+        if "workflowVersion" not in columns:
+            self._db.execute("ALTER TABLE TradingMandate ADD COLUMN workflowVersion INTEGER")
         self._db.commit()
 
     def create(
@@ -121,12 +134,21 @@ class TradingMandateStore:
         ttl_seconds: int,
         note: str = "",
         created_by: str = "operator",
+        workflow_id: str = "",
+        workflow_version: int | None = None,
     ) -> dict[str, Any]:
-        if connection.mode != ConnectionMode.DEMO:
+        if connection.mode not in (ConnectionMode.DEMO, ConnectionMode.LIVE):
             raise TradeRefused(
-                "LIVE_MANDATES_DISABLED",
-                "unattended mandates are demo-only in this build",
+                "MANDATE_MODE_UNKNOWN",
+                "the connection has no execution mode; set it to demo or live",
                 status_code=403,
+            )
+        mode = connection.mode.value
+        if mode == "live" and (not workflow_id or not workflow_version):
+            raise TradeRefused(
+                "MANDATE_WORKFLOW_REQUIRED",
+                "a live mandate must pin the workflow id and version it authorizes",
+                status_code=400,
             )
         cleaned = sorted({str(item).strip().upper() for item in symbols if str(item).strip()})
         if not cleaned:
@@ -139,7 +161,8 @@ class TradingMandateStore:
                 "a mandate needs a positive maxMargin",
                 status_code=400,
             )
-        ttl = max(60, min(int(ttl_seconds or DEFAULT_TTL_SECONDS), MAX_TTL_SECONDS))
+        ceiling = LIVE_MAX_TTL_SECONDS if mode == "live" else MAX_TTL_SECONDS
+        ttl = max(60, min(int(ttl_seconds or DEFAULT_TTL_SECONDS), ceiling))
         now = now_iso()
         mandate_id = f"mnd_{uuid.uuid4().hex[:12]}"
         expires = (datetime.now(timezone.utc) + timedelta(seconds=ttl)).isoformat().replace(
@@ -148,11 +171,12 @@ class TradingMandateStore:
         self._db.execute(
             """INSERT INTO TradingMandate
                (id, connectionId, mode, symbols, maxOrders, maxMargin, ordersUsed,
-                expiresAt, createdBy, note, createdAt)
-               VALUES (?, ?, 'demo', ?, ?, ?, 0, ?, ?, ?, ?)""",
+                expiresAt, createdBy, note, createdAt, workflowId, workflowVersion)
+               VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)""",
             (
                 mandate_id,
                 connection.id,
+                mode,
                 json.dumps(cleaned),
                 orders,
                 margin,
@@ -160,6 +184,8 @@ class TradingMandateStore:
                 created_by,
                 str(note or "")[:400] or None,
                 now,
+                workflow_id or None,
+                int(workflow_version) if workflow_version else None,
             ),
         )
         self._db.commit()
@@ -222,6 +248,7 @@ class TradingMandateStore:
 
     def verify(
         self, mandate_id: str, *, connection_id: str, symbol: str, margin: float,
+        mode: str = "", workflow_id: str = "",
     ) -> dict[str, Any]:
         row = self._db.execute(
             "SELECT * FROM TradingMandate WHERE id=?", (str(mandate_id or ""),)
@@ -231,6 +258,19 @@ class TradingMandateStore:
         data = _row(row)
         if data["connectionId"] != connection_id:
             raise TradeRefused("MANDATE_CONNECTION_MISMATCH", "the mandate is for another connection", status_code=409)
+        if mode and data["mode"] != mode:
+            raise TradeRefused(
+                "MANDATE_MODE_MISMATCH",
+                f"the mandate is for {data['mode']} execution, not {mode}",
+                status_code=409,
+            )
+        pinned = str(data.get("workflowId") or "")
+        if pinned and str(workflow_id or "") != pinned:
+            raise TradeRefused(
+                "MANDATE_WORKFLOW_MISMATCH",
+                "the mandate is pinned to a different workflow",
+                status_code=409,
+            )
         if not _active(row):
             raise TradeRefused(
                 "MANDATE_INACTIVE",
@@ -278,6 +318,7 @@ class TradingMandateStore:
 
 __all__ = [
     "DEFAULT_TTL_SECONDS",
+    "LIVE_MAX_TTL_SECONDS",
     "MAX_ORDERS",
     "MAX_TTL_SECONDS",
     "TradingMandateStore",

@@ -68,7 +68,7 @@ function priceCheck(): WorkflowIR {
     'Price + indicator check',
     'Read a daily series, compute an SMA, and branch on the result.',
     [
-      { id: 'trigger', type: 'trigger.manual', config: { seed: 'AAPL' } },
+      { id: 'trigger', type: 'trigger.manual' },
       { id: 'market', type: 'finance.market_data', config: { symbol: 'AAPL', interval: '1d', lookback: 200 } },
       { id: 'indicator', type: 'finance.indicator', config: { kind: 'sma', period: 50 } },
       { id: 'condition', type: 'logic.condition', config: { operator: 'truthy' } },
@@ -104,8 +104,8 @@ function ifElse(): WorkflowIR {
     'If / else',
     'Branch on a value: only the taken gate runs.',
     [
-      { id: 'trigger', type: 'trigger.manual', config: { seed: 'go' } },
-      { id: 'value', type: 'data.value', config: { dataType: 'string', value: '' } },
+      { id: 'trigger', type: 'trigger.manual' },
+      { id: 'value', type: 'data.value', config: { dataType: 'string', value: 'go' } },
       { id: 'condition', type: 'logic.condition', config: { operator: 'eq', compareTo: 'go' } },
       { id: 'taken', type: 'flow.gate' },
       { id: 'otherwise', type: 'flow.gate' },
@@ -130,8 +130,8 @@ function marketScan(): WorkflowIR {
     'Market scan (SMA z-score)',
     'Read stored bars, smooth them, z-score the trend, and branch when it is stretched. Fill the bars with the research-data tools first.',
     [
-      { id: 'trigger', type: 'trigger.manual', config: { seed: 'AAPL' } },
-      { id: 'market', type: 'finance.market_data', config: { symbol: '', interval: '1d', lookback: 200 } },
+      { id: 'trigger', type: 'trigger.manual' },
+      { id: 'market', type: 'finance.market_data', config: { symbol: 'AAPL', interval: '1d', lookback: 200 } },
       { id: 'sma', type: 'finance.indicator', config: { kind: 'sma', period: 50 } },
       { id: 'z', type: 'quant.zscore', config: { period: 20 } },
       { id: 'stretched', type: 'logic.condition', config: { operator: 'gt', compareTo: '1' } },

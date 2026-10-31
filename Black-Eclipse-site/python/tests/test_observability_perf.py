@@ -25,14 +25,26 @@ def test_hook_ingestion_overhead_bounded():
 
 
 def test_span_creation_overhead_bounded():
+    """Median of several batches, so one scheduling hiccup cannot fail the
+    guard. The intent is unchanged: span bookkeeping stays well under 1 ms.
+    """
     hub = _hub()
-    started = time.monotonic()
-    for i in range(1000):
-        with hub.span("eclipse.tool.x", kind="tool", attributes={"i": i}):
+    # Warm imports/caches before measuring.
+    for i in range(50):
+        with hub.span("eclipse.tool.warm", kind="tool", attributes={"i": i}):
             pass
-    elapsed = time.monotonic() - started
-    per_span_ms = (elapsed / 1000) * 1000.0
-    assert per_span_ms < 1.0, f"per-span overhead {per_span_ms:.3f}ms"
+
+    batch = 200
+    samples: list[float] = []
+    for _ in range(5):
+        started = time.monotonic()
+        for i in range(batch):
+            with hub.span("eclipse.tool.x", kind="tool", attributes={"i": i}):
+                pass
+        samples.append(((time.monotonic() - started) / batch) * 1000.0)
+
+    median_ms = sorted(samples)[len(samples) // 2]
+    assert median_ms < 1.0, f"median per-span overhead {median_ms:.3f}ms (samples={samples})"
 
 
 def test_bounded_span_store_does_not_grow_unbounded():

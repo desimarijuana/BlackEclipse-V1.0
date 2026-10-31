@@ -1,7 +1,7 @@
 ---
 title: Graph Studio — Visual Workflow Engineering
 status: Current
-last-verified: 2026-10-29
+last-verified: 2026-10-30
 ---
 
 # Graph Studio
@@ -125,11 +125,15 @@ contracts.
   stale; `python/tests/test_graph_registry_parity.py` fails when the Python
   registry disagrees with it. A node that exists in only one side is an error.
 
-The manifest covers **42 node types**. Three are declared-only in the runtime —
-`integration.http`, `agent.research`, `video.render` — and the compiler reports
-`executor_unavailable` for them. `data.set_variables` is the first new core
-node added through this pipeline: it merges configured named values over an
-optional input object (configured keys win).
+The manifest covers **54 node types**, and every registered type has an
+executor in the runtime. `flow.subworkflow` is the one special case: the
+executor handles it directly (`_run_subworkflow`) instead of binding a plain
+`executor` function, so it has no executor attribute by design. The parity test
+asserts that no other node is a dead contract.
+
+`data.set_variables` is the first new core node added through this pipeline: it
+merges configured named values over an optional input object (configured keys
+win).
 
 ### Persistence
 
@@ -138,6 +142,12 @@ optional input object (configured keys win).
 version; the IR is re-validated server-side before it is stored. Routes:
 `/api/workflows` (list/create), `/api/workflows/[id]` (get/save/delete),
 `/api/workflows/[id]/versions`.
+
+**One identity.** A run, a schedule and a subworkflow lookup are all addressed
+by the persisted `Workflow` row id — never by the IR document id (`wf_…`). The
+front door aligns the IR id to the row id before dispatching, and aligns each
+bundled child IR to its pinned row id, so `/api/workflows/[id]/runs` (History)
+and nested subworkflow rows use the same key.
 
 ---
 
@@ -207,7 +217,7 @@ target and closes the drawer. On a phone the drawer becomes a full-width sheet.
 | Drag on empty pane | Pan the canvas (grab/grabbing cursor) |
 | Middle-mouse drag / hold `Space` + drag | Pan the canvas (same as plain drag) |
 | `Shift` + drag on empty pane | Marquee selection box (crosshair cursor; n8n default) |
-| Click node | Select it (drag to move; never opens details) |
+| Click node | Select it; the in-node widgets stay editable (drag still moves it) |
 | Double-click node | Open the Parameters / Settings / Output inspector |
 | `Ctrl/Cmd` + click node | Add/remove from the selection |
 | Right-click pane / node | Context menu: add/paste/select-all/tidy/fit, or duplicate/copy/delete |
@@ -221,20 +231,27 @@ the chosen point (typed ports and acyclicity are checked by the same
 validated patches in `edit-ops.ts`, so undo/redo and the server-side revalidation
 seam are unchanged.
 
-**Node details.** **Double-clicking** a node opens a ~380px inspector dock
-(n8n/Figma convention); a single click just selects, dragging moves it, and
-clicking empty canvas closes the dock. The card's inline fields and the
-inspector's Parameters tab are the **same renderer** (`config-field.tsx`) at two
-densities: text/number edits commit on blur or Enter (Escape reverts), booleans
-and selects commit immediately, and consecutive edits to one control collapse
-into a single undo step (`dispatch(patch, { coalesceKey })`). Inline inputs are
-`nodrag nopan nowheel`, so typing never pans the canvas, drags the node, or opens
-the inspector mid-edit. The dock has three
-tabs: **Parameters** (registry-derived fields, friendly labels, JSON only for
-object/array fields), **Settings** (description, ports, capabilities, allowed
-modes, node id) and **Output** (the last run's bounded inputs/outputs for that
-node, read from the persisted run record). Issues, History and Health are
-reachable from the header instead of sharing five cramped tabs.
+**Node details.** **Double-clicking** a node opens a ~380px inspector dock;
+a single click only selects it, so the in-node widgets can be edited without the
+dock covering the canvas. Dragging still moves the node, and clicking empty
+canvas closes the dock.
+The card's inline fields and the inspector's Parameters tab are the **same
+renderer** (`config-field.tsx`) at two densities: text/number edits commit on
+blur or Enter (Escape reverts), booleans and selects commit immediately, and
+consecutive edits to one control collapse into a single undo step
+(`dispatch(patch, { coalesceKey })`). Inline inputs are `nodrag nopan nowheel`, so
+typing never pans the canvas, drags the node, or opens the inspector mid-edit.
+
+The Parameters tab is the full n8n-style form: the node's description and docs,
+a friendly label plus one-line help for every field, required markers, selects
+and booleans, a JSON editor only for object/array values, and an **Advanced: edit
+config as JSON** escape hatch for fields the form does not expose. Dynamically
+resolved fields (agent preset, broker connection/mandate, pinned body workflow)
+render as pickers. **Settings** holds free-form **Notes** (saved with the node,
+never executed), ports with types, capabilities, allowed modes and the node id.
+**Output** shows the last run's bounded inputs/outputs for that node, read from
+the persisted run record. Issues, History and Health are reachable from the
+header instead of sharing five cramped tabs.
 
 **Execution.** The header's **Start workflow** button is the primary run control,
 inline with the other editor actions; when there are unsaved edits it becomes
@@ -304,12 +321,23 @@ and local scratch only. An **operator run** is an explicit UI action; the front
 door derives its grants from the registry and the persisted IR — never from the
 caller. It grants exactly the union of node capabilities, enables network only
 when the graph needs it and the user confirms, and keeps external write nodes
-refused. Two effects may be enabled explicitly: PAPER trading
+refused. Three effects may be enabled explicitly: PAPER trading
 (`trading.paper_order` requires `executionMode: "paper"`, an explicit
-confirmation and `allowTrading`; LIVE and ungranted trading are refused) and the
+confirmation and `allowTrading`), LIVE broker execution (`trading.broker_*`
+requires `executionMode: "live"`, `allowLiveTrading`, an armed live connection
+and a workflow-pinned live mandate), the
 whitelisted LOCAL video render (`video.render` requires an explicit local-render
-confirmation and `allowWrite`; any other write node is refused). The Python
-compiler re-checks the same envelope.
+confirmation and `allowWrite`), and scoped file writes (`file.write` requires
+the operator to confirm each named scope it uses; `allowedWriteScopes` carries
+only those scopes). The Python compiler re-checks the same envelope.
+
+**Scoped writes.** `file.write` never chooses an absolute path. A write names a
+**scope** configured by the operator (`HARNESS_GRAPH_WRITE_ROOTS`, a JSON map;
+`workspace` always defaults to `.black-eclipse/workspace`). The path is relative,
+`..` and absolute paths are refused, the resolved target (after following
+symlinks) must stay inside the scope root, the payload is capped at 8 MB, and a
+normal write is atomic (temp file + replace). A test run never writes; an
+operator run is granted only the scopes it explicitly confirmed.
 `integration.http` is the first network node: SSRF-checked, loopback refused,
 1 MB response cap, 60 s ceiling, plain custom headers (`headersJson`) and
 credential REFERENCES (`credentialEnvJson`: header → env-var name, resolved by
@@ -375,21 +403,108 @@ parent node returns that child `runId`. The inspector picks a saved workflow and
 pins its version from a dropdown instead of typing ids.
 
 **Loops are internal and bounded, never graph cycles.** The compiler still
-refuses a cyclic graph; iteration is a node with a declared bound, which is what
-"loops through explicitly defined runtime constructs" means.
+refuses a cyclic graph. Iteration is a node with a pinned body workflow and a
+declared cap:
 
-**Schedules.** `WorkflowSchedule` (JDDS) stores cron + IANA timezone + a
-precomputed `nextRunAt`; `src/lib/graph-studio/cron.ts` is a dependency-free,
-timezone-aware 5-field cron evaluator (cached `Intl` formatters, 40-day search
-bound). A 60 s in-process timer (started in `instrumentation.ts`) fires due
-schedules through the SAME test-run dispatch as the UI. Missed fires follow the
-schedule's policy — `skip` (advance only) or `coalesce` (run once now) — so a
-closed app never storms on boot. Every fire records its outcome on the schedule.
+| Node | Semantics | Bounds |
+| --- | --- | --- |
+| `flow.for_each` | Runs the body once per array item; returns `results` | `maxIterations` (≤ 1 000), `maxDurationMs` |
+| `flow.repeat` | Runs the body `count` times, passing the previous output on | `count` (≤ 1 000), `maxDurationMs` |
+| `flow.while` | Runs while a safe numeric condition holds (`value`, `index`, `iterations`) | `maxIterations`, `maxDurationMs` |
 
-**Triggers.** Manual (the toolbar / UI), scheduled (above), and a webhook-style
-`POST /api/workflows/[id]/trigger`. The webhook deliberately runs inside the
-TEST-RUN envelope: a trigger reachable without a secret must not be able to act
-on the world (secret-signed webhooks are Phase 8/10 work).
+Every iteration is its own durable child run (`<parent>:<node>:i<N>`), which is
+also the loop checkpoint: a parent resumed after a crash reuses a succeeded
+iteration's output instead of re-running it. `flow.for_each` can continue past a
+failed item (`continueOnError`) and records the error in `results`; the other
+shapes fail the node. A loop without a pinned body is invalid in both the editor
+and the compiler.
+
+**Schedules.** `trigger.schedule` is **zero-config**: the node declares no cron
+or timezone. Its schedule is a `WorkflowSchedule` row (JDDS) linked by `nodeId`,
+edited in the node inspector's **Schedule** tab. The tab is a builder — repeat
+(minutes / hourly / daily / weekly / monthly / custom), a real time picker,
+weekday chips, an IANA timezone select, catch-up policy and version pin — and it
+previews the next three fires with the same cron engine the tick uses. The node
+and the scheduler therefore cannot drift apart; `nodeId` is null only on older
+schedules created from the execution dock, which still fire.
+
+The **node card** shows the live schedule itself: an Active/Paused dot, a human
+summary (`Weekdays at 09:00 · Asia/Karachi`), the next fire in that timezone, and
+the last error when a fire failed. It refreshes after any schedule mutation and
+once a minute as the tick advances `nextRunAt`; a node with no linked schedule
+shows “No schedule yet — open the Schedule tab”. The Schedule tab remains the
+editor.
+
+A schedule whose linked `trigger.schedule` node has been deleted is **paused**
+with an error on the next tick — it can never keep firing a workflow from a
+trigger the graph no longer contains. Schedules created from the old dock (no
+`nodeId`) are unaffected. For an unattended host, drive the tick from system
+cron as described below; otherwise schedules only fire while the Eclipse server
+is running.
+
+`src/lib/graph-studio/cron.ts` is a dependency-free, timezone-aware 5-field cron
+evaluator (cached `Intl` formatters, 40-day search bound). A 60 s in-process
+timer — started early in `instrumentation.ts`, before the long boot pipeline —
+fires due schedules through the SAME test-run dispatch as the UI, so a scheduled
+run can read and compute but never write, trade or use network effects. Each due
+fire is **claimed atomically** (compare-and-set on the exact `nextRunAt`) before
+a run starts, and a process-level lock prevents overlapping ticks, so two ticks
+or two server processes cannot double-fire. Missed fires follow the schedule's
+policy — `skip` (advance only) or `coalesce` (run once now) — so a closed app
+never storms on boot. A fire records `started`; a later tick reconciles the
+terminal run status, so “last status” cannot stay stuck at `started`. **Run now**
+fires one schedule immediately in the same envelope without moving its clock.
+
+**Triggers.** All three trigger nodes are zero-config. Manual = the toolbar /
+UI; schedule = a `WorkflowSchedule` linked to the node (above); webhook =
+`POST /api/workflows/[id]/trigger`, where the request body becomes the trigger's
+`runInput`. The webhook deliberately runs inside the TEST-RUN envelope: a trigger
+reachable without a secret must not be able to act on the world (secret-signed
+webhooks are Phase 8/10 work).
+
+`trigger.manual` is deliberately **zero-config**, like n8n's Manual Trigger: it
+has no declared config fields. `Start` is the one-off run input (the Execution
+dock's **Run input** editor, or the webhook request body) or `null`. The input is
+bounded to 64 KiB, validated on both the editor and the route, and never written
+into the persisted workflow. **Stored defaults belong in a `data.value` or
+`data.set_variables` node, not on the trigger.** Workflows saved before this
+change may still carry `payload`/`payloadType`/`seed` in their config; those keys
+are no longer shown or declared, but `_exec_trigger` still honours them so an
+existing graph does not silently change behaviour.
+
+**Per-node testing.** `POST /api/graph-runs/node-test` → Python
+`POST /graphs/nodes/test` runs ONE registered node (never a graph, never a
+persisted run) with explicit per-port `inputs` and the node's declared config.
+The runtime re-validates the config and inputs, enforces the node's own hard
+timeout, and only allows `none`/`read` side effects: network, write, trading,
+model and local-write nodes are refused with a 403 and must go through an
+authorized run.
+
+Every node exposes this in three places: the inspector's **Test** tab, a **▶
+Test** button in the node's hover toolbar, and the footer of the **quick edit**
+panel. A test runs with the current (possibly unsaved) config, pre-fills the
+last run's inputs when available, and shows outputs, logs and duration. For a
+trigger, the output is exactly the `Start` value it would emit. Test state is
+ephemeral: a small dot on the card (running / succeeded / failed) plus the result
+in the quick edit panel; nothing is written to the workflow or JDDS.
+
+**In-node controls.** Parameters are edited directly on the node, not in a
+popover. Two priority fields are always visible; `ConfigFieldDef.quick` (1 =
+highest) chooses them, otherwise declaration order wins, and a **+N more
+parameters** row expands the rest *inside* the node (with **Show less** to
+collapse). Controls are Blender/ComfyUI-style: number fields drag horizontally to
+scrub (Shift = fine, Ctrl/Cmd = coarse, click without dragging to type), selects
+are dropdowns, booleans are checkboxes, text is an input and JSON is a compact
+single-line value box. Every control dispatches the same `update_node_config`
+patch as the inspector, so the two surfaces cannot diverge. A **single click
+selects** the node (so the in-node widgets stay usable); **double-click** opens
+the inspector for advanced details.
+
+The hover toolbar's **Test** (play) button, next to Duplicate, runs the node
+through the same safe endpoint. The result renders inside the node body: running,
+succeeded or failed, duration, the error, and an expandable output preview. The
+toolbar also keeps Duplicate / Delete / More. Nodes with side effects show a lock
+instead of Test and explain that an authorized run is required.
 
 **Recovery.** A run left `running` by a previous process is marked failed
 (`interrupted by a restart`) when the runtime boot-wires the graph layer, so a
@@ -446,14 +561,21 @@ weaker OOS objective is an explicit `IS_OOS_DIVERGENCE` warning, never a
 silently "validated" strategy.
 
 **Research agent.** `agent.research` is a thin adapter over the EXISTING agent
-run plane (`AgenticService.run`), not a second agent loop. It accepts a query or
-configured objective, resolves the named agent preset and its tools, caps the
-turn at `maxSteps`, and returns a structured `finding` plus the run's `research`
-evidence object. It requires an **operator run** with network access, so a test
-run refuses it. The front door resolves model credentials from the vault and
-sends them in memory only; `GraphService` deliberately excludes them from the
-durable Fabric job payload. A restart before the agent node runs therefore makes
-that node fail honestly instead of persisting a key.
+run plane (`AgenticService.run`), not a second agent loop. Its `query` input is
+optional: the node runs on a wired query **or** the configured objective (a
+node with neither is invalid at compile time). It resolves the named agent
+preset and its tools, caps the turn at `maxSteps`, and returns a structured
+`finding` plus the run's `research` evidence object. The adapter treats the run
+plane's terminal `completed` status (and `succeeded` for substitutes) as
+success; a failed/cancelled run reports its own error message. Agent nodes are a
+**`model` side effect**, not `network`: a test/dry run may call the model while
+its tool surface is narrowed to `DRY_RUN_TOOLS` (read-only finance, local
+evidence, response helpers) — web research, browser, MCP, plugins, code and
+broker tools are removed. An operator run keeps the preset's declared surface.
+The front door resolves model credentials from the vault and sends them in
+memory only; `GraphService` deliberately excludes them from the durable Fabric
+job payload. A restart before the agent node runs therefore makes that node fail
+honestly instead of persisting a key.
 
 **Research & evidence.** `research.evidence`, `research.citations`,
 `research.conflicts`, `research.completeness`, `research.claim_verify` and
@@ -496,14 +618,25 @@ expiry; immediate revoke), and each use is counted atomically. The connection mu
 be a demo MT5 connection; live trading nodes remain refused by the compiler and the
 front door. See `docs/trading.md`.
 
+**Custom agent presets.** Settings › Agents creates an operator-authored preset:
+a name, system prompt, max-step bound, an explicit tool allowlist and optional
+MCP/plugin expansion. Presets are stored on `agent-memory.db` by the runtime
+(`AgentPreset` + immutable `AgentPresetVersion`), so a preset is runtime state,
+not a Next.js setting. Every edit appends a version; the agent node pins
+`agent@version` (0 = current), and a pinned run keeps its snapshot. A preset that
+names a write/external tool requires the explicit “Allow effectful tools”
+acknowledgement; unknown tool names are refused at save time. The three built-ins
+remain code-resolved in `agents.py`.
+
 **Planner and delegate.** `agent.plan` makes ONE bounded model call with a strict
 step schema and returns 1–8 steps (stable ids, optional `dependsOn` on earlier
 steps). It never executes them. `agent.delegate` runs each task as one bounded
 turn on the existing agent plane (up to `maxTasks`, default 4) and returns every
 finding; a failed part is reported as `failed` with its error and the summary is
-`PARTIAL`, never a hidden success. Both are `agent.run` + network nodes, so a
-test run refuses them and an operator run needs the explicit grants. Neither
-re-implements the agent loop or tool registry.
+`PARTIAL`, never a hidden success. Both are `agent.run` + `model` nodes, so a
+test/dry run may execute them with the narrowed read-only tool surface, while an
+operator run keeps the preset's declared surface. Neither re-implements the
+agent loop or tool registry.
 
 **Chat-to-graph.** `POST /api/graphs/plan` → Python `POST /graphs/plan` turns a
 natural-language objective into a candidate workflow. The model receives the
@@ -545,8 +678,9 @@ fabricates a price") — never a synthetic series, never a silent zero.
 
 **Test-run policy.** A test run implicitly grants the read-only / local-compute
 capabilities (`market.read`, `quant.compute`, `compute.safe`, `dataset.read`,
-`dataset.write`) so a finance graph can be exercised from the UI, while external
-write/network/trading nodes stay refused.
+`dataset.write`) plus `agent.run` — a model call is not a world effect — so a
+finance graph can be exercised from the UI. Agent tools are narrowed to
+`DRY_RUN_TOOLS` in that run. External write/network/trading nodes stay refused.
 
 **Templates.** `Market scan (SMA z-score)` — stored bars → SMA(50) → z-score(20)
 → branch → result, plus a second output carrying the data provenance.
@@ -698,17 +832,26 @@ or HTTP errors.
   nested object/array field is not flattened; project it first.
 - Run history is browsable in the History panel; node runs and events are
   normalized tables, and successful nodes have resumable checkpoints.
-- Operator runs allow network, PAPER trading and the whitelisted local
-  `video.render`. Other external write nodes, live trading and ungranted trading
-  are refused. The paper account persists cash,
+- Operator runs allow network, PAPER trading, LIVE broker execution under the
+  two-key model, the whitelisted local `video.render`, and `file.write` only
+  inside the named scopes the operator confirmed. Other external write nodes and
+  ungranted trading are refused. Live orders need an armed live connection **and**
+  an active workflow-pinned live mandate (24 h max TTL); a paper-only node in live
+  mode is refused by the compiler. `file.write` is confined to its scope
+  (relative paths, no `..`, no symlink escape, 8 MB cap, atomic replacement). The paper account persists cash,
   positions and realized PnL, but it is cost-basis accounting (no mark-to-market)
   and fills only at a supplied price - it never fetches a live quote.
   `persist: false` keeps a single-node fill stateless.
-- Agent model credentials are held in memory for the run only. A process restart
-  before an agent node executes makes that node fail; agent runs are not
-  resumable across a restart. The nodes are bounded turns/plans (no autonomous
-  loop). A real-provider e2e harness exists (`test_graph_agent_e2e.py`) but is
-  opt-in and needs credentials.
+- Agent model credentials are held in memory for the run only and are never
+  written into the durable job payload. After a process restart the worker
+  re-resolves them from the front door (`POST /api/graph-runs/{id}/credentials`,
+  operator-gated) using the persisted callback URL. If the front door is down or
+  no provider is configured, that node fails honestly. Agent turns also resume
+  from the agent plane's own checkpoint (`agent_run_identity`): a crashed turn
+  re-enters the same run when a checkpoint exists; without one the turn restarts
+  under a fresh id (safe — a model call has no world effect). The nodes remain
+  bounded turns/plans (no autonomous loop). A real-provider e2e harness exists
+  (`test_graph_agent_e2e.py`) but is opt-in and needs credentials.
 - Web research nodes use the app's data bridge (a real operator run has one; a
   headless runtime does not). With `allowBrowser`, `research.web_fetch` escalates
   a thin/failed page to the existing Browser Runtime; without it (the default) it

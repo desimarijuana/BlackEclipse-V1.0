@@ -270,13 +270,18 @@ class BrokerService:
     # ── demo automation mandates (P3) ────────────────────────────────────────
     def create_mandate(self, connection_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         connection = self._connection(connection_id)
-        expected = f"MANDATE DEMO {connection.label}"
+        mode = connection.mode.value
+        expected = f"MANDATE {mode.upper()} {connection.label}"
         if str(payload.get("confirmation") or "").strip() != expected:
             raise TradeRefused(
                 "MANDATE_CONFIRMATION_MISMATCH",
                 f"type {expected!r} exactly to create this mandate",
                 status_code=400,
             )
+        if mode == "live":
+            # The second key: an unattended live mandate can only be created on an
+            # armed live connection. Execution re-checks the arm again.
+            self._assert_live_armed(connection)
         mandate = self.mandates.create(
             connection=connection,
             symbols=list(payload.get("symbols") or ["*"]),
@@ -284,6 +289,11 @@ class BrokerService:
             max_margin=float(payload.get("maxMargin") or 0),
             ttl_seconds=int(payload.get("ttlSeconds") or 0),
             note=str(payload.get("note") or ""),
+            workflow_id=str(payload.get("workflowId") or ""),
+            workflow_version=(
+                int(payload.get("workflowVersion"))
+                if payload.get("workflowVersion") is not None else None
+            ),
         )
         self.connections.record_event(
             connection.id, "mandate", "created",
@@ -700,6 +710,7 @@ class BrokerService:
         confirmation: str = "",
         mandate_id: str = "",
         run_id: str = "",
+        workflow_id: str = "",
     ) -> dict[str, Any]:
         """Consume the authorization and send exactly one order. Never retries."""
         if approval_id and mandate_id:
@@ -751,17 +762,13 @@ class BrokerService:
             mandate: Optional[dict[str, Any]] = None
             self._assert_daily_loss(connection, adapter, preview)
             if mandate_id:
-                if execution_mode != "demo":
-                    raise TradeRefused(
-                        "LIVE_MANDATES_DISABLED",
-                        "unattended mandates are demo-only in this build",
-                        status_code=403,
-                    )
                 mandate = self.mandates.verify(
                     mandate_id,
                     connection_id=connection.id,
                     symbol=str(preview.get("symbol") or intent.symbol),
                     margin=float(preview.get("margin") or 0),
+                    mode=execution_mode,
+                    workflow_id=workflow_id,
                 )
 
             money_intent = money_intent_for(connection, intent, preview)
@@ -789,7 +796,9 @@ class BrokerService:
                     f"{float(preview.get('volume') or intent.volume):g} "
                     f"{preview.get('symbol') or intent.symbol}"
                 )
-                required = True
+                # A mandate is the standing authorization for an unattended live
+                # order; a manual live order still needs the typed phrase.
+                required = not bool(mandate_id)
                 phrase_reason = "live orders require the typed order phrase"
             else:
                 expected = str(verdict.confirm_phrase or "")

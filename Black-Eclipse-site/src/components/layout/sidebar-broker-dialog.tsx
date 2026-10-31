@@ -21,6 +21,7 @@ import {
   LayoutDashboard,
   List,
   Loader2,
+  Lock,
   Plus,
   Settings,
   ShieldCheck,
@@ -123,7 +124,7 @@ export function SidebarBrokerButton({
         title="Broker connection (MetaTrader)"
         aria-label="Broker connection (MetaTrader)"
       >
-        <Handshake size={variant === "launcher" ? 15 : 16} className="shrink-0" />
+        <Lock size={variant === "launcher" ? 15 : 16} className="shrink-0" />
         {connected != null && (
           <span
             className={cn(

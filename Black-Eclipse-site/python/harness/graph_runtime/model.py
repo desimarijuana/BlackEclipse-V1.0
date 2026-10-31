@@ -69,6 +69,10 @@ class SideEffect(str, Enum):
     WRITE = "write"
     NETWORK = "network"
     TRADING = "trading"
+    # A model-provider call. It costs tokens but does not act on the world, so a
+    # test run may perform it (its tool surface is narrowed separately). This is
+    # deliberately distinct from NETWORK, which stays denied in a test run.
+    MODEL = "model"
     # Local scratch (the runtime's own store). It survives the run but cannot
     # affect the world, so a test run may perform it while external write,
     # network and trading effects stay denied.

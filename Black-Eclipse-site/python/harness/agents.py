@@ -8,6 +8,8 @@ fetch it instead of carrying its own copy.
 
 from __future__ import annotations
 
+from typing import Optional
+
 from .prompts import (
     CODE_AGENT_SYSTEM_PROMPT,
     CODE_NAVIGATOR_SYSTEM_PROMPT,
@@ -617,6 +619,37 @@ ECLIPSE_AGENT = AgentConfig(
     allowPluginTools=True,
 )
 
+# The dry/test-run surface: read-only finance + local evidence + response
+# helpers. A graph test run may call the model, but its tool allowlist is
+# narrowed to this set so it cannot reach web research, the browser, MCP,
+# plugins, code execution or broker/trade tools. It is a NARROWING only — an
+# operator run still uses the agent's declared allowlist.
+DRY_RUN_TOOLS: tuple[str, ...] = (
+    "market_get_quote", "market_get_ohlcv", "market_get_crypto",
+    "get_quote", "get_historical_prices", "get_ohlcv", "get_volume",
+    "get_orderbook", "get_trades", "get_market_cap", "get_supply",
+    "get_funding_rate", "get_open_interest", "get_fx_rate", "get_bond_data",
+    "get_options_chain", "get_liquidations", "get_long_short_ratio",
+    "get_onchain_metric", "get_tvl", "get_market_snapshot", "get_fundamentals",
+    "get_news", "fundamentals_get_company_profile", "fundamentals_get_financials",
+    "macro_get_series", "financial_providers", "financial_resolve_entity",
+    "history_catalog", "get_coverage", "get_capability_matrix",
+    "get_research_health", "get_source_health",
+    "python_chart",
+    "memory", "memory_search_native", "session_search", "skill_list",
+    "skill_view", "skill_learning_get",
+    "journal_trades",
+    "clarify", "response_block_schema", "response_style_guide",
+    "response_validate",
+)
+
+def dry_run_tools(declared: Optional[list[str]]) -> list[str]:
+    """The test-run surface: the declared allowlist INTERSECTED with the
+    read-only finance set. It can only remove tools."""
+    allowed = set(DRY_RUN_TOOLS)
+    return sorted(allowed if declared is None else (set(declared) & allowed))
+
+
 # The repository navigator (Phase 1). A SEPARATE preset, not the finance agent
 # widened: it does NOT set `allowMcpTools`, so it keeps its exact, closed
 # allowlist and can never reach a finance tool, an MCP tool or any other
@@ -996,6 +1029,8 @@ def get_agent(agent_id: str) -> AgentConfig:
 __all__ = [
     "AGENT_PRESETS",
     "BROWSER_TOOLS",
+    "DRY_RUN_TOOLS",
+    "dry_run_tools",
     "CHAT_CODE_TOOLS",
     "CODE_AGENT",
     "CODE_AGENT_TOOLS",

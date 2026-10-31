@@ -22,6 +22,7 @@ import {
 } from '@/lib/graph-studio/execution-client';
 import type { ExecutionMode } from '@/lib/graph-studio/types';
 import { summarizeRunNeeds } from '@/lib/graph-studio/run-authorization';
+import { parseRunInputText } from '@/lib/graph-studio/run-input';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -90,9 +91,28 @@ export function GraphStudioScreen({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [authorizeOpen, setAuthorizeOpen] = useState(false);
+  // One-off trigger input for the next run. Text lives in the execution dock;
+  // it is parsed here so both the dock button and the operator dialog use it.
+  const [runInputText, setRunInputText] = useState('');
+  const runInput = useMemo(() => parseRunInputText(runInputText), [runInputText]);
+  const runInputError = runInput.ok ? null : runInput.error;
+
+  // A one-off input belongs to one workflow; never carry it across a switch.
+  useEffect(() => {
+    setRunInputText('');
+  }, [workflowId]);
 
   const errorCount = useMemo(() => diagnostics.filter((d) => d.severity === 'error').length, [diagnostics]);
   const runNeeds = useMemo(() => (ir ? summarizeRunNeeds(ir) : null), [ir]);
+  const needsOperatorRun = useMemo(
+    () => Boolean(
+      runNeeds
+      && (runNeeds.requiresNetwork
+        || runNeeds.tradingNodes.length > 0
+        || runNeeds.writeNodes.length > 0),
+    ),
+    [runNeeds],
+  );
 
   useEffect(() => {
     void refreshCatalog();
@@ -233,12 +253,21 @@ export function GraphStudioScreen({
     allowNetwork?: boolean;
     allowPaperTrading?: boolean;
     allowLocalWrite?: boolean;
+    allowWriteScopes?: string[];
+    allowLiveTrading?: boolean;
   }) => {
     if (!workflowId) return;
+    if (!runInput.ok) {
+      setError(runInput.error);
+      return;
+    }
     setRunBusy(true);
     setError(null);
     try {
-      const record = await startWorkflowRun(workflowId, undefined, options);
+      const record = await startWorkflowRun(workflowId, undefined, {
+        ...options,
+        ...(runInput.value !== undefined ? { runInput: runInput.value } : {}),
+      });
       setRun(record);
       streamRun(record.id);
     } catch (err) {
@@ -247,7 +276,7 @@ export function GraphStudioScreen({
     } finally {
       setRunBusy(false);
     }
-  }, [workflowId, setRun, streamRun]);
+  }, [workflowId, setRun, streamRun, runInput]);
 
   const stopRun = useCallback(async () => {
     if (!run) return;
@@ -268,27 +297,41 @@ export function GraphStudioScreen({
     if (errorCount > 0) return 'Fix the validation errors before running.';
     return null;
   }, [workflowId, dirty, errorCount]);
-  const canRun = runBlockReason === null && !runBusy;
+  const canRun = runBlockReason === null && !runBusy && runInputError === null;
 
   const operatorReady = useMemo(() => {
     if (!runNeeds || !ir) return false;
     const mode = ir.settings.executionMode;
-    const tradingReady = runNeeds.tradingNodes.length === 0 || mode === 'paper';
-    const unsupported = runNeeds.writeNodeTypes.filter((type) => type !== 'video.render');
+    const tradingReady =
+      runNeeds.tradingNodes.length === 0 || mode === 'paper' || mode === 'live';
+    const unsupported = runNeeds.writeNodeTypes.filter(
+      (type) => type !== 'video.render' && type !== 'file.write',
+    );
     return runNeeds.requiresNetwork || runNeeds.tradingNodes.length > 0 || runNeeds.writeNodes.length > 0
       ? canRun && unsupported.length === 0 && tradingReady
       : false;
   }, [runNeeds, ir, canRun]);
 
-  const operatorBlockReason = useMemo(() => {
+  // A block that holds regardless of the dirty flag (unsupported effects or a
+  // mode mismatch). Kept separate from `runBlockReason` so the Start handler can
+  // re-check it AFTER a save without reading a stale "unsaved" render value.
+  const operatorHardBlock = useMemo(() => {
     if (!runNeeds || !ir) return null;
     const mode = ir.settings.executionMode;
-    const unsupported = runNeeds.writeNodeTypes.filter((type) => type !== 'video.render');
+    const unsupported = runNeeds.writeNodeTypes.filter(
+      (type) => type !== 'video.render' && type !== 'file.write',
+    );
     if (unsupported.length > 0) return `External write nodes are not enabled yet: ${runNeeds.writeNodes.join(', ')}`;
-    if (runNeeds.tradingNodes.length > 0 && mode === 'live') return 'Live trading is not available; set the workflow mode to paper.';
-    if (runNeeds.tradingNodes.length > 0 && mode !== 'paper') return `Paper-trading nodes require paper mode: ${runNeeds.tradingNodes.join(', ')}`;
-    return runBlockReason;
-  }, [runNeeds, ir, runBlockReason]);
+    if (runNeeds.tradingNodes.length > 0 && mode !== 'paper' && mode !== 'live') {
+      return `Trading nodes require paper or live mode: ${runNeeds.tradingNodes.join(', ')}`;
+    }
+    return null;
+  }, [runNeeds, ir]);
+
+  const operatorBlockReason = useMemo(
+    () => operatorHardBlock ?? runBlockReason,
+    [operatorHardBlock, runBlockReason],
+  );
 
   const backHome = () => {
     if (dirty && !window.confirm('You have unsaved changes. Leave the editor and keep them unsaved?')) return;
@@ -414,12 +457,26 @@ export function GraphStudioScreen({
           <Button
             type="button"
             size="sm"
-            disabled={!workflowId || errorCount > 0 || runBusy || run?.status === 'running'}
+            disabled={!workflowId || errorCount > 0 || runBusy || runInputError !== null || run?.status === 'running'}
             onClick={() => {
+              // A graph with network / trading / write effects cannot be a test
+              // run. Offer the authorization path instead of firing a run the
+              // runtime is guaranteed to refuse.
+              const proceed = () => {
+                if (!needsOperatorRun) {
+                  void startRun();
+                  return;
+                }
+                if (operatorHardBlock) {
+                  setError(operatorHardBlock);
+                  return;
+                }
+                setAuthorizeOpen(true);
+              };
               if (dirty) {
-                void save().then((ok) => { if (ok) void startRun(); });
+                void save().then((ok) => { if (ok) proceed(); });
               } else {
-                void startRun();
+                proceed();
               }
             }}
             title={
@@ -429,7 +486,10 @@ export function GraphStudioScreen({
                   ? 'Fix the validation errors before running'
                   : dirty
                     ? 'Save the current changes and run the workflow'
-                    : runBlockReason ?? 'Run a test execution of the saved version'
+                    : runBlockReason
+                      ?? (needsOperatorRun
+                        ? 'Run this workflow with the effects it declares'
+                        : 'Run a test execution of the saved version')
             }
             className="gap-1.5"
           >
@@ -481,6 +541,9 @@ export function GraphStudioScreen({
             canRun={canRun}
             blockReason={runBlockReason}
             workflowId={workflowId && !dirty ? workflowId : null}
+            runInputText={runInputText}
+            onRunInputChange={setRunInputText}
+            runInputError={runInputError}
           />
         </div>
 
@@ -557,7 +620,11 @@ export function GraphStudioScreen({
 
       {authorizeOpen && runNeeds && (
         <RunAuthorizationDialog
-          needs={runNeeds}
+          needs={{
+            ...runNeeds,
+            liveTrading:
+              runNeeds.tradingNodes.length > 0 && ir?.settings.executionMode === 'live',
+          }}
           onCancel={() => setAuthorizeOpen(false)}
           onConfirm={() => {
             setAuthorizeOpen(false);
@@ -565,7 +632,10 @@ export function GraphStudioScreen({
               operator: true,
               allowNetwork: runNeeds.requiresNetwork,
               allowPaperTrading: runNeeds.tradingNodes.length > 0,
-              allowLocalWrite: runNeeds.writeNodes.length > 0,
+              allowLocalWrite: runNeeds.writeNodeTypes.includes('video.render'),
+              allowWriteScopes: runNeeds.writeScopes,
+              allowLiveTrading:
+                runNeeds.tradingNodes.length > 0 && ir?.settings.executionMode === 'live',
             });
           }}
         />

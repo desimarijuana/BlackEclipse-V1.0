@@ -43,6 +43,7 @@ from .model_runtime import ALIASES, get_runtime
 from .persistence import now_iso
 from .research.engine import run_research
 from .research.mandate import parse_mandate
+from .routers.agent_presets import router as agent_presets_router
 from .routers.browser import browser_health, router as browser_router
 from .routers.code import router as code_router
 from .routers.channels import router as channels_router
@@ -114,6 +115,7 @@ app = FastAPI(title="BlackEclipse Harness Runtime", version="0.1.0", lifespan=li
 install_sdk(app)
 
 # Route groups extracted into `harness/routers/` (public surface: `harness.main:app`).
+app.include_router(agent_presets_router)
 app.include_router(a2a_router)
 app.include_router(team_router)
 app.include_router(advisory_router)

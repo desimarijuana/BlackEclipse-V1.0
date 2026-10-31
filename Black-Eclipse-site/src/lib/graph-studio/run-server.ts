@@ -7,11 +7,15 @@
 // Server-only.
 
 import { HARNESS_PY_URL, ensurePythonRuntime } from '@/lib/harness/python-runtime';
-import { runtimeCallbackToken } from '@/lib/harness/runtime-auth';
+import { runtimeBaseUrl, runtimeCallbackToken } from '@/lib/harness/runtime-auth';
 import { runtimeIdentityHeaders } from '@/lib/harness/runtime-identity';
 import { getLLMConfig } from '@/lib/settings';
 import { getWorkflow } from './server-store';
-import { collectSubworkflows } from './subworkflow-bundle';
+import {
+  alignSubworkflowIds,
+  alignWorkflowIdentity,
+  collectSubworkflows,
+} from './subworkflow-bundle';
 import { authorizeGraphRun, type RunAuthorizationOptions } from './run-authorization';
 
 export interface StartRunResult {
@@ -28,6 +32,8 @@ export async function startPersistedRun(options: {
   request?: Request;
   /** Omitted = a TEST run. An operator run grants only what the graph needs. */
   authorization?: RunAuthorizationOptions;
+  /** One-off value the trigger emits as Start (a manual run or webhook body). */
+  runInput?: unknown;
   /** Kept for existing callers; a test run is the default. */
   testRun?: boolean;
 }): Promise<StartRunResult> {
@@ -48,29 +54,38 @@ export async function startPersistedRun(options: {
   }
   if (!workflow) return { ok: false, status: 404, error: 'Workflow not found' };
 
+  // The persisted JDDS row id is the ONE workflow identity a run is recorded
+  // against. A stored IR keeps its own document id (`wf_…`), but run history,
+  // schedules and subworkflow lookups all address the row id — so the runtime
+  // receives it as the IR id (the document id is not a semantic input to
+  // execution).
+  const runtimeIr = alignWorkflowIdentity(workflow.ir, workflow.id);
+
   // The Python runtime cannot read JDDS. Resolve every PINNED subworkflow the
   // graph references (recursively, bounded) and send the IRs with the run.
   let subworkflows;
   try {
-    subworkflows = await collectSubworkflows(
-      workflow.ir,
+    const loaded = await collectSubworkflows(
+      runtimeIr,
       async (subId, subVersion) => (await getWorkflow(subId, subVersion))?.ir ?? null,
       { rootKey: `${workflow.id}@${workflow.version}` },
     );
+    subworkflows = alignSubworkflowIds(loaded);
   } catch (err) {
     return { ok: false, status: 400, error: err instanceof Error ? err.message : 'subworkflow could not be loaded' };
   }
 
-  const authorized = authorizeGraphRun(workflow.ir, subworkflows, options.authorization ?? {});
+  const authorized = authorizeGraphRun(runtimeIr, subworkflows, options.authorization ?? {});
   if (!authorized.ok) {
     return { ok: false, status: 400, error: authorized.error ?? 'Run is not authorized' };
   }
 
   // Only an agent node needs model credentials. They are resolved here from the
   // vault and sent to the runtime IN MEMORY; the runtime excludes them from the
-  // durable Fabric job payload.
+  // durable Fabric job payload. A TEST run also needs them now: a model call is
+  // not a world effect, and the runtime narrows the tool surface to read-only.
   let modelSettings: Record<string, unknown> | undefined;
-  if (options.authorization?.operator && authorized.summary.requiredCapabilities.includes('agent.run')) {
+  if (authorized.summary.requiredCapabilities.includes('agent.run')) {
     const llm = await getLLMConfig();
     if (!llm || llm.provider === 'mock') {
       return {
@@ -102,9 +117,15 @@ export async function startPersistedRun(options: {
       },
       signal: AbortSignal.timeout(30_000),
       body: JSON.stringify({
-        ir: workflow.ir,
+        ir: runtimeIr,
         workflowVersion: workflow.version,
+        // A durable job may resume in a different process. The worker uses this
+        // to re-resolve model credentials from the vault on demand; the key is
+        // never written into the persisted job payload.
+        callbackBaseUrl: runtimeBaseUrl(),
         subworkflows,
+        // One-off trigger input for THIS run only; never persisted.
+        ...(options.runInput !== undefined ? { runInput: options.runInput } : {}),
         // Computed from the registry + the persisted IR, never from a caller.
         ...authorized.authorization,
         ...(modelSettings ? { modelSettings } : {}),

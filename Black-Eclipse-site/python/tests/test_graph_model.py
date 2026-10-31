@@ -104,12 +104,14 @@ def test_every_registered_node_is_executable():
     video = registry.get("video.render")
     assert video is not None and video.executor is not None
     assert video.side_effects.value == "write"
-    # The HTTP and agent nodes are executable now; they are gated by the
-    # operator-run network envelope.
-    for node_type in ("integration.http", "agent.research"):
-        definition = registry.get(node_type)
-        assert definition is not None and definition.executor is not None
-        assert definition.side_effects.value == "network"
+    # The HTTP node is a real network effect; the agent node is a MODEL effect
+    # (a test run may call it with a narrowed read-only surface).
+    http = registry.get("integration.http")
+    assert http is not None and http.executor is not None
+    assert http.side_effects.value == "network"
+    agent = registry.get("agent.research")
+    assert agent is not None and agent.executor is not None
+    assert agent.side_effects.value == "model"
     # The finance/quant pack gained real executors in Phase 5.
     for node_type in ("finance.market_data", "finance.indicator", "quant.returns", "quant.zscore", "quant.volatility"):
         definition = registry.get(node_type)

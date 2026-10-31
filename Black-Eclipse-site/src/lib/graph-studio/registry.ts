@@ -11,7 +11,9 @@
 
 import { z } from 'zod';
 import { AGENT_DEFINITIONS } from './registry-agents';
+import { LOOP_DEFINITIONS } from './registry-loops';
 import { TRADING_DEFINITIONS } from './registry-trading';
+import { WRITE_DEFINITIONS } from './registry-write';
 import type { ExecutionMode, NodeDefinition, PortDef } from './types';
 
 /** All operating modes — the default allowance for a pure/read node. */
@@ -33,12 +35,12 @@ const DEFINITIONS: NodeDefinition[] = [
     icon: 'play',
     inputs: [],
     outputs: [port({ id: 'start', name: 'Start', type: 'any' })],
-    configSchema: z.object({ seed: z.string().max(4_000).default('') }),
-    defaultConfig: () => ({ seed: '' }),
+    configSchema: z.object({}),
+    defaultConfig: () => ({}),
     capabilities: [],
     sideEffects: 'none',
     allowedModes: ALL_MODES,
-    docs: 'The entry point of every runnable graph. Emits an optional seed value (e.g. a symbol).',
+    docs: 'The entry point of every runnable graph. It has no parameters: Start is the run input, or null when none is supplied. Put stored defaults in a data.value or data.set_variables node.',
   },
   {
     type: 'trigger.schedule',
@@ -49,15 +51,12 @@ const DEFINITIONS: NodeDefinition[] = [
     icon: 'clock',
     inputs: [],
     outputs: [port({ id: 'start', name: 'Start', type: 'any' })],
-    configSchema: z.object({
-      cron: z.string().min(1).max(120).default('0 9 * * 1-5'),
-      timezone: z.string().max(60).default('UTC'),
-    }),
-    defaultConfig: () => ({ cron: '0 9 * * 1-5', timezone: 'UTC' }),
+    configSchema: z.object({}),
+    defaultConfig: () => ({}),
     capabilities: ['schedule.manage'],
     sideEffects: 'none',
     allowedModes: ALL_MODES,
-    docs: 'Scheduling is executed by the runtime scheduler, not the editor.',
+    docs: 'Zero-config. Its cron, timezone and enabled state live on a WorkflowSchedule linked to this node (see the Schedule tab), so the graph and the scheduler cannot drift apart.',
   },
   {
     type: 'data.value',
@@ -495,6 +494,8 @@ const DEFINITIONS: NodeDefinition[] = [
     docs: 'Indicator math lives in the quant engine and is independently tested.',
   },
   ...AGENT_DEFINITIONS,
+  ...LOOP_DEFINITIONS,
+  ...WRITE_DEFINITIONS,
   // ── Control flow (Phase 4) ──────────────────────────────────────────────
   // Control ports gate EXECUTION, not values: a node that declares control
   // inputs runs only when an upstream fired one of them.

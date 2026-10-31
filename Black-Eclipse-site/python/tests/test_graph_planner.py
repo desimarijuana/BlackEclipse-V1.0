@@ -24,7 +24,7 @@ def _plan(nodes, edges, name="Generated workflow"):
 def _minimal():
     return _plan(
         [
-            {"id": "trig", "type": "trigger.manual", "config": {"seed": "AAPL"}},
+            {"id": "trig", "type": "trigger.manual", "config": {}},
             {"id": "out", "type": "output.result", "config": {"label": "Result"}},
         ],
         [
@@ -93,7 +93,9 @@ def test_unknown_node_types_and_ports_are_rejected():
 
 def test_an_invalid_config_is_rejected():
     plan = _minimal()
-    plan["nodes"][0]["config"] = {"seed": 42}
+    # Both triggers are zero-config, so use the output node's declared string
+    # field: label must be a string.
+    plan["nodes"][1]["config"] = {"label": 42}
     result = validate_plan(plan, REGISTRY)
     assert result["ok"] is False
     assert "invalid config" in result["errors"][0]["message"]

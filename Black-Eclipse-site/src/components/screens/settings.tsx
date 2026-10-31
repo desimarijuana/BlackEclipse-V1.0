@@ -38,6 +38,7 @@ import { SoundSettingsPanel } from "./sound-settings";
 import { VoiceSettingsPanel } from "./voice-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources } from "./provider-registry-panel";
 import { AIProviderSettings } from "./ai-provider-settings";
+import { AgentsSettingsPanel } from "@/components/settings/agents-settings";
 import { NewsFeedsPanel } from "./news-feeds-panel";
 import { SearchRetrievalSettings } from "./search-retrieval-settings";
 import { useModelCatalog } from "@/lib/agent/model-catalog";
@@ -180,13 +181,13 @@ let settingsCache: SettingsSnapshot | null = readCachedSnapshot();
 //   data           — local chats/watchlist/portfolio + reset
 //   system         — JDDS status, health, internal integrations
 export type SectionId =
-  | "general" | "sound" | "voice" | "ai" | "investor-eye" | "economics" | "market" | "news"
+  | "general" | "sound" | "voice" | "ai" | "agents" | "investor-eye" | "economics" | "market" | "news"
   | "analytics" | "sidebar" | "alerts" | "data" | "git" | "mcp" | "system" | "security"
   | "money-guardrails" | "connections" | "trading";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
-  "general", "sound", "voice", "ai", "investor-eye", "economics", "market", "news",
+  "general", "sound", "voice", "ai", "agents", "investor-eye", "economics", "market", "news",
   "analytics", "sidebar", "alerts", "data", "git", "mcp", "system", "security",
   "money-guardrails", "connections", "trading",
 ] as const;
@@ -473,6 +474,7 @@ export function Settings({
     { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft, group: "Personalize", terms: ["sidebar", "navigation", "menu", "shortcuts", "keys", "reorder"] },
 
     { id: "ai", label: "AI / LLM", desc: "Models, keys & testing", icon: Bot, group: "Intelligence", terms: ["ai", "llm", "agent", "model", "openai", "anthropic", "ollama", "groq", "gemini", "api key", "base url", "chat"] },
+    { id: "agents", label: "Agents", desc: "Custom agent presets", icon: Bot, group: "Intelligence", terms: ["agent", "agents", "preset", "presets", "prompt", "system prompt", "tools", "workflow", "graph"] },
     { id: "investor-eye", label: "Investor Eye", desc: "World-state sources", icon: EyeIcon, group: "Intelligence", terms: ["investor eye", "world state", "gdelt", "usgs", "firms", "events", "geopolitics", "map", "sources"] },
     { id: "economics", label: "Economics", desc: "Macro & calendar providers", icon: Activity, group: "Intelligence", terms: ["economics", "macro", "fred", "bea", "bls", "calendar", "indicators", "yield", "inflation"] },
     { id: "market", label: "Market Data", desc: "Discover, charts & markets", icon: Globe2, group: "Intelligence", terms: ["market", "screener", "stocks", "crypto", "prices", "fundamentals", "polygon", "finnhub", "alpha vantage", "coin"] },
@@ -731,6 +733,20 @@ export function Settings({
                 />
 
                 <AIProviderSettings llm={llm} updateLlm={updateLlm} modelCatalog={modelCatalog} />
+              </div>
+            )}
+
+            {/* ── Agents ──────────────────────────────────────────────────
+                Custom agent presets for Graph Studio. A preset is a pinned
+                prompt + explicit tool allowlist; the runtime owns validation. */}
+            {section === "agents" && (
+              <div className="animate-fade-in-up">
+                <SectionHeader
+                  icon={Bot}
+                  title="Agents"
+                  description="Create your own agent presets for Graph Studio. Each preset pins a system prompt, model step bound and an explicit tool list; a workflow node pins the preset version it was saved against."
+                />
+                <AgentsSettingsPanel />
               </div>
             )}
 

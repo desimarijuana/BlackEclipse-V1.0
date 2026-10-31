@@ -54,6 +54,11 @@ TEST_RUN_CAPABILITIES = frozenset({
     "dataset.write",
     # Local evidence reads cannot affect the world.
     "research.read",
+    # A model call is not a world effect. Its tool surface is narrowed by the
+    # agent runner for a test run, so it cannot reach web/write/trade tools.
+    "agent.run",
+    # Broker reads (account/quote/bars) cannot change anything.
+    "trading.broker.read",
 })
 
 
@@ -69,6 +74,12 @@ class RunGrants:
     # A LOCAL write (video render → files + artifact). The front door only grants
     # it for the whitelisted local render node, never for an external write.
     allow_write: bool = False
+    # Named scopes a file.write node may use. The front door derives this from
+    # the IR + the operator's explicit confirmation; an empty set writes nothing.
+    allowed_write_scopes: frozenset[str] = field(default_factory=frozenset)
+    # The explicit operator confirmation for LIVE broker execution. Paper remains
+    # governed by `allow_trading`.
+    allow_live_trading: bool = False
 
 
 def _error(code: str, message: str, node_id: Optional[str] = None, edge_id: Optional[str] = None) -> Diagnostic:
@@ -206,11 +217,38 @@ def compile_workflow(
         # Permission envelope — the runtime's own decision.
         if definition.side_effects == SideEffect.TRADING and not grants.test_run:
             if mode == ExecutionMode.LIVE:
-                diagnostics.append(_error(
-                    "live_trading_unavailable",
-                    f'Node "{node.id}" is a trading node; live trading is not available in Graph Studio. Use paper mode.',
-                    node_id=node.id,
-                ))
+                live_ok = definition.type in (
+                    "trading.broker_order", "trading.broker_close",
+                    "trading.broker_modify", "trading.broker_cancel",
+                )
+                if not live_ok:
+                    diagnostics.append(_error(
+                        "live_trading_unavailable",
+                        f'Node "{node.id}" is a paper-only trading node; switch the workflow to paper mode.',
+                        node_id=node.id,
+                    ))
+                elif not grants.allow_live_trading:
+                    diagnostics.append(_error(
+                        "permission_denied",
+                        f'Node "{node.id}" can place live trades; live trading is not authorized for this run.',
+                        node_id=node.id,
+                    ))
+                else:
+                    connection_id = str(node.config.get("connectionId") or "").strip()
+                    if not connection_id:
+                        diagnostics.append(_error(
+                            "invalid_trading_config",
+                            f'Node "{node.id}" needs a connectionId for live execution.',
+                            node_id=node.id,
+                        ))
+                    if definition.type == "trading.broker_order" and not str(
+                        node.config.get("mandateId") or ""
+                    ).strip():
+                        diagnostics.append(_error(
+                            "invalid_trading_config",
+                            f'Node "{node.id}" needs a live mandateId for unattended execution.',
+                            node_id=node.id,
+                        ))
             elif not (grants.allow_trading and mode == ExecutionMode.PAPER):
                 diagnostics.append(_error(
                     "permission_denied",
@@ -229,12 +267,21 @@ def compile_workflow(
                 f'Node "{node.id}" requires network access, which this run was not granted.',
                 node_id=node.id,
             ))
-        elif definition.side_effects == SideEffect.WRITE and not grants.allow_write:
-            diagnostics.append(_error(
-                "permission_denied",
-                f'Node "{node.id}" writes locally, which this run was not granted.',
-                node_id=node.id,
-            ))
+        elif definition.side_effects == SideEffect.WRITE:
+            if definition.type == "file.write":
+                scope = str(node.config.get("scope") or "workspace").strip()
+                if scope not in grants.allowed_write_scopes:
+                    diagnostics.append(_error(
+                        "write_scope_denied",
+                        f'Node "{node.id}" writes to the {scope!r} scope, which this run was not granted.',
+                        node_id=node.id,
+                    ))
+            elif not grants.allow_write:
+                diagnostics.append(_error(
+                    "permission_denied",
+                    f'Node "{node.id}" writes locally, which this run was not granted.',
+                    node_id=node.id,
+                ))
         # Capabilities gate EFFECTS: a pure node (side_effects "none") cannot
         # affect anything, so its declared capabilities are descriptive and are
         # not required to be granted. Any node that touches the world must have
@@ -255,7 +302,9 @@ def compile_workflow(
                 node_id=node.id,
             ))
 
-        if definition.type == "flow.subworkflow":
+        if definition.type in (
+            "flow.subworkflow", "flow.for_each", "flow.repeat", "flow.while",
+        ):
             workflow_id = str(node.config.get("workflowId") or "").strip()
             try:
                 version = int(node.config.get("version", 0))
@@ -389,6 +438,28 @@ def compile_workflow(
                     f'Node "{node.id}" is missing required input "{input_port.name}".',
                     node_id=node.id,
                 ))
+
+    # ── Input-or-config requirements ───────────────────────────────────────
+    # Some nodes accept their core value from EITHER a wire OR a config field
+    # (the agent nodes' objective). The port is optional so a config-only node
+    # validates; the value itself is still mandatory.
+    _input_or_config = {
+        "agent.research": ("query", "objective", "a query or an objective"),
+        "agent.plan": ("objective", "objective", "an objective"),
+    }
+    for node in ir.nodes:
+        rule = _input_or_config.get(node.type)
+        if rule is None:
+            continue
+        port_id, config_key, label = rule
+        wired = f"{node.id}:{port_id}" in connected_inputs
+        configured = node.config.get(config_key)
+        if not wired and (not isinstance(configured, str) or not configured.strip()):
+            diagnostics.append(_error(
+                "missing_objective",
+                f'Node "{node.id}" needs {label}: wire "{port_id}" or type it in the node settings.',
+                node_id=node.id,
+            ))
 
     # ── Structure: cycles, reachability, terminals ─────────────────────────
     order = _topological_order(ir)

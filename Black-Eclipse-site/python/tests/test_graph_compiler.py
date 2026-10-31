@@ -147,11 +147,14 @@ def test_test_run_denies_effects_and_names_the_phase():
     messages = " ".join(d.message for d in plan.diagnostics)
     codes = _codes(plan)
     assert plan.executable is False
-    assert "permission_denied" in codes          # both are effectful nodes
-    # Both nodes are executable; the test-run envelope refuses them by effect,
-    # not because their executor is missing.
+    assert "permission_denied" in codes          # the HTTP node is network
+    # Both nodes are executable; the test-run envelope refuses the HTTP node by
+    # effect. The agent node is a MODEL effect and is allowed in a dry run.
     assert "executor_unavailable" not in codes
     assert "network" in messages
+    assert not any(
+        d.code == "permission_denied" and d.node_id == "agent" for d in plan.diagnostics
+    )
 
 
 def test_capability_is_required_for_effectful_nodes():

@@ -43,6 +43,11 @@
           "default": "eclipse-agent"
         },
         {
+          "name": "agentVersion",
+          "kind": "number",
+          "default": 0
+        },
+        {
           "name": "maxSteps",
           "kind": "number",
           "default": 8
@@ -61,7 +66,7 @@
       "capabilities": [
         "agent.run"
       ],
-      "sideEffects": "network",
+      "sideEffects": "model",
       "allowedModes": [
         "backtest",
         "live",
@@ -82,7 +87,7 @@
           "name": "Objective",
           "type": "string",
           "kind": "data",
-          "optional": false,
+          "optional": true,
           "nullable": false
         }
       ],
@@ -122,7 +127,7 @@
       "capabilities": [
         "agent.run"
       ],
-      "sideEffects": "network",
+      "sideEffects": "model",
       "allowedModes": [
         "backtest",
         "live",
@@ -143,7 +148,7 @@
           "name": "Query",
           "type": "string",
           "kind": "data",
-          "optional": false,
+          "optional": true,
           "nullable": false
         }
       ],
@@ -172,6 +177,11 @@
           "default": "eclipse-agent"
         },
         {
+          "name": "agentVersion",
+          "kind": "number",
+          "default": 0
+        },
+        {
           "name": "maxSteps",
           "kind": "number",
           "default": 8
@@ -185,7 +195,7 @@
       "capabilities": [
         "agent.run"
       ],
-      "sideEffects": "network",
+      "sideEffects": "model",
       "allowedModes": [
         "backtest",
         "live",
@@ -425,6 +435,85 @@
       ],
       "capabilities": [],
       "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "file.write",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Write file",
+      "description": "Writes a payload inside a named, operator-configured scope.",
+      "inputs": [
+        {
+          "id": "content",
+          "name": "Content",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "path",
+          "name": "Path",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "path",
+          "name": "Path",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "bytes",
+          "name": "Bytes",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "scope",
+          "name": "Scope",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "append",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "path",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "scope",
+          "kind": "string",
+          "default": "workspace"
+        }
+      ],
+      "capabilities": [
+        "file.write"
+      ],
+      "sideEffects": "write",
       "allowedModes": [
         "backtest",
         "live",
@@ -713,6 +802,85 @@
       "terminal": false
     },
     {
+      "type": "flow.for_each",
+      "version": "1.0.0",
+      "category": "logic",
+      "label": "For each",
+      "description": "Runs a pinned body workflow once per array item, up to a hard cap.",
+      "inputs": [
+        {
+          "id": "items",
+          "name": "Items",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "results",
+          "name": "Results",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "iterations",
+          "name": "Iterations",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "stopped",
+          "name": "Stopped early",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "continueOnError",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "maxDurationMs",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "maxIterations",
+          "kind": "number",
+          "default": 100
+        },
+        {
+          "name": "version",
+          "kind": "number",
+          "default": 1
+        },
+        {
+          "name": "workflowId",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "flow.gate",
       "version": "1.0.0",
       "category": "logic",
@@ -758,6 +926,80 @@
       "terminal": false
     },
     {
+      "type": "flow.repeat",
+      "version": "1.0.0",
+      "category": "logic",
+      "label": "Repeat",
+      "description": "Runs a pinned body workflow N times, passing the previous output on.",
+      "inputs": [
+        {
+          "id": "input",
+          "name": "Input",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "state",
+          "name": "State",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "iterations",
+          "name": "Iterations",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "stopped",
+          "name": "Stopped early",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "count",
+          "kind": "number",
+          "default": 1
+        },
+        {
+          "name": "maxDurationMs",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "version",
+          "kind": "number",
+          "default": 1
+        },
+        {
+          "name": "workflowId",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "flow.subworkflow",
       "version": "1.0.0",
       "category": "logic",
@@ -792,6 +1034,85 @@
         }
       ],
       "configFields": [
+        {
+          "name": "version",
+          "kind": "number",
+          "default": 1
+        },
+        {
+          "name": "workflowId",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "flow.while",
+      "version": "1.0.0",
+      "category": "logic",
+      "label": "While",
+      "description": "Runs a pinned body workflow while a safe numeric condition holds.",
+      "inputs": [
+        {
+          "id": "input",
+          "name": "Initial state",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "state",
+          "name": "Final state",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "iterations",
+          "name": "Iterations",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "stopped",
+          "name": "Stopped early",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "condition",
+          "kind": "string",
+          "default": "value > 0"
+        },
+        {
+          "name": "maxDurationMs",
+          "kind": "number",
+          "default": 0
+        },
+        {
+          "name": "maxIterations",
+          "kind": "number",
+          "default": 100
+        },
         {
           "name": "version",
           "kind": "number",
@@ -3035,11 +3356,310 @@
       "terminal": false
     },
     {
+      "type": "trading.broker_account",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Broker account",
+      "description": "Reads the broker account and positions for a connection.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "account",
+          "name": "Account",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "trading.broker.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.broker_bars",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Broker bars",
+      "description": "The broker's own OHLCV series for symbols JDDS cannot proxy.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "bars",
+          "name": "Bars",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "count",
+          "kind": "number",
+          "default": 120
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "timeframe",
+          "kind": "string",
+          "default": "H1"
+        }
+      ],
+      "capabilities": [
+        "trading.broker.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.broker_cancel",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Cancel order",
+      "description": "Cancels one working order. Risk-reducing.",
+      "inputs": [
+        {
+          "id": "ticket",
+          "name": "Ticket",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "name": "Result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "trading.broker"
+      ],
+      "sideEffects": "trading",
+      "allowedModes": [
+        "live",
+        "paper"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.broker_close",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Close position",
+      "description": "Closes one position (full/partial) or all positions. Risk-reducing.",
+      "inputs": [
+        {
+          "id": "ticket",
+          "name": "Ticket",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "volume",
+          "name": "Volume",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "name": "Result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "closeAll",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "deviation",
+          "kind": "number",
+          "default": 20
+        }
+      ],
+      "capabilities": [
+        "trading.broker"
+      ],
+      "sideEffects": "trading",
+      "allowedModes": [
+        "live",
+        "paper"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.broker_modify",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Modify position",
+      "description": "Moves SL/TP on one position. Risk-reducing.",
+      "inputs": [
+        {
+          "id": "ticket",
+          "name": "Ticket",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "stopLoss",
+          "name": "Stop loss",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "takeProfit",
+          "name": "Take profit",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "name": "Result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "trading.broker"
+      ],
+      "sideEffects": "trading",
+      "allowedModes": [
+        "live",
+        "paper"
+      ],
+      "terminal": false
+    },
+    {
       "type": "trading.broker_order",
       "version": "1.0.0",
       "category": "trading",
-      "label": "Broker order (demo mandate)",
-      "description": "Submit one order to a demo broker connection under a bounded, revocable mandate.",
+      "label": "Broker order",
+      "description": "Submit one order to a broker connection under a bounded, revocable mandate.",
       "inputs": [
         {
           "id": "intent",
@@ -3093,7 +3713,66 @@
       ],
       "sideEffects": "trading",
       "allowedModes": [
+        "live",
         "paper"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.broker_quote",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Broker quote",
+      "description": "Bid/ask/spread from the broker, including symbols JDDS may not carry.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "quote",
+          "name": "Quote",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": ""
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": ""
+        }
+      ],
+      "capabilities": [
+        "trading.broker.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
       ],
       "terminal": false
     },
@@ -3356,6 +4035,7 @@
       ],
       "sideEffects": "none",
       "allowedModes": [
+        "live",
         "paper"
       ],
       "terminal": false
@@ -3651,13 +4331,7 @@
           "nullable": false
         }
       ],
-      "configFields": [
-        {
-          "name": "seed",
-          "kind": "string",
-          "default": ""
-        }
-      ],
+      "configFields": [],
       "capabilities": [],
       "sideEffects": "none",
       "allowedModes": [
@@ -3685,18 +4359,7 @@
           "nullable": false
         }
       ],
-      "configFields": [
-        {
-          "name": "cron",
-          "kind": "string",
-          "default": "0 9 * * 1-5"
-        },
-        {
-          "name": "timezone",
-          "kind": "string",
-          "default": "UTC"
-        }
-      ],
+      "configFields": [],
       "capabilities": [
         "schedule.manage"
       ],

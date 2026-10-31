@@ -223,14 +223,23 @@ export function RunPanel({
   busy,
   canRun,
   blockReason,
+  runInputText,
+  onRunInputChange,
+  runInputError,
 }: {
   onStart: () => void;
   onCancel: () => void;
   busy: boolean;
   canRun: boolean;
   blockReason?: string | null;
+  /** JSON text for the one-off trigger input; empty = use the configured payload. */
+  runInputText: string;
+  onRunInputChange: (value: string) => void;
+  runInputError?: string | null;
 }) {
   const run = useGraphEditor((s) => s.run);
+  const [inputOpen, setInputOpen] = useState(false);
+  const hasInput = runInputText.trim().length > 0;
 
   return (
     <div className="flex h-full flex-col">
@@ -243,6 +252,25 @@ export function RunPanel({
           className="flex items-center gap-1.5 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-2.5 py-1.5 text-[11px] text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-40"
         >
           {busy ? <Play size={12} /> : <Check size={12} />} Test run
+        </button>
+        <button
+          type="button"
+          onClick={() => setInputOpen((value) => !value)}
+          title="Send a one-off value to the trigger for this run only"
+          className={cn(
+            'flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-[10.5px]',
+            inputOpen
+              ? 'border-sky-400/30 bg-sky-500/10 text-sky-200'
+              : 'border-white/10 text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <span
+            className={cn(
+              'h-1.5 w-1.5 rounded-full',
+              runInputError ? 'bg-rose-400' : hasInput ? 'bg-sky-400' : 'bg-slate-600',
+            )}
+          />
+          Run input
         </button>
         {run && (
           <>
@@ -262,6 +290,30 @@ export function RunPanel({
           </>
         )}
       </div>
+
+      {inputOpen && (
+        <div className="shrink-0 border-b border-white/10 px-3 py-2">
+          <label className="text-[9.5px] uppercase tracking-wide text-muted-foreground" htmlFor="run-input">
+            Run input (JSON)
+          </label>
+          <textarea
+            id="run-input"
+            value={runInputText}
+            onChange={(event) => onRunInputChange(event.target.value)}
+            rows={3}
+            spellCheck={false}
+            placeholder={'{"symbol": "AAPL"}'}
+            className="mt-1 w-full resize-y rounded-md border border-white/10 bg-background/60 px-2 py-1.5 font-mono text-[10.5px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:border-sky-400/40"
+          />
+          {runInputError ? (
+            <p className="mt-1 text-[10px] text-rose-300">{runInputError}</p>
+          ) : (
+            <p className="mt-1 text-[10px] text-muted-foreground/70">
+              Overrides the trigger payload for this run only — never saved with the workflow.
+            </p>
+          )}
+        </div>
+      )}
 
       {!run && (
         <div className="px-3 py-3 text-[11px] leading-relaxed text-muted-foreground">

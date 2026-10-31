@@ -572,7 +572,7 @@ def _mandate(service: BrokerService, connection_id: str, **overrides):
     return service.create_mandate(connection_id, payload)
 
 
-def test_mandate_requires_demo_and_the_typed_phrase(tmp_path):
+def test_mandate_requires_the_typed_phrase_and_a_pinned_live_workflow(tmp_path):
     service = _service(tmp_path)
     connection_id = _connection_id(service)
     with pytest.raises(TradeRefused) as exc:
@@ -582,8 +582,53 @@ def test_mandate_requires_demo_and_the_typed_phrase(tmp_path):
     live = _live_service(tmp_path / "live")
     live_id = _connection_id(live)
     with pytest.raises(TradeRefused) as exc:
-        _mandate(live, live_id, confirmation="MANDATE DEMO Fake live")
-    assert exc.value.code == "LIVE_MANDATES_DISABLED"
+        live.create_mandate(live_id, {
+            "confirmation": "MANDATE LIVE Fake live",
+            "symbols": ["EURUSD"], "maxOrders": 1, "maxMargin": 100,
+            "ttlSeconds": 600,
+        })
+    assert exc.value.code == "LIVE_NOT_ARMED"
+
+    live.arm_connection(live_id, confirmation="ARM LIVE 7", ttl_seconds=600)
+    with pytest.raises(TradeRefused) as exc:
+        live.create_mandate(live_id, {
+            "confirmation": "MANDATE LIVE Fake live",
+            "symbols": ["EURUSD"], "maxOrders": 1, "maxMargin": 100,
+            "ttlSeconds": 600,
+        })
+    assert exc.value.code == "MANDATE_WORKFLOW_REQUIRED"
+
+    mandate = live.create_mandate(live_id, {
+        "confirmation": "MANDATE LIVE Fake live",
+        "symbols": ["EURUSD"], "maxOrders": 1, "maxMargin": 100,
+        "ttlSeconds": 600, "workflowId": "wf_live", "workflowVersion": 1,
+    })
+    assert mandate["mode"] == "live"
+    assert mandate["workflowId"] == "wf_live"
+    assert mandate["workflowVersion"] == 1
+
+
+def test_live_mandate_submits_without_a_typed_order_phrase(tmp_path):
+    service = _live_service(tmp_path)
+    connection_id = _connection_id(service)
+    service.arm_connection(connection_id, confirmation="ARM LIVE 7", ttl_seconds=600)
+    mandate = service.create_mandate(connection_id, {
+        "confirmation": "MANDATE LIVE Fake live",
+        "symbols": ["EURUSD"], "maxOrders": 1, "maxMargin": 100,
+        "ttlSeconds": 600, "workflowId": "wf_live", "workflowVersion": 1,
+    })
+    result = service.submit_order(
+        connection_id, _intent(), mandate_id=mandate["id"],
+        workflow_id="wf_live",
+    )
+    assert result["status"] == "filled"
+
+    with pytest.raises(TradeRefused) as exc:
+        service.submit_order(
+            connection_id, _intent(), mandate_id=mandate["id"],
+            workflow_id="wf_other",
+        )
+    assert exc.value.code == "MANDATE_WORKFLOW_MISMATCH"
 
 
 def test_mandate_submits_without_an_approval_and_is_exhausted(tmp_path):

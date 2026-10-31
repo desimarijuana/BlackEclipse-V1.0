@@ -179,6 +179,45 @@ def test_compiler_refuses_trading_in_a_test_run_and_allows_a_paper_grant():
     assert allowed.executable is True
 
 
+def test_compiler_allows_a_pinned_live_broker_order_with_an_explicit_grant():
+    ir = WorkflowIR.model_validate({
+        "irVersion": 1, "id": "wf_live", "name": "Live",
+        "meta": {"createdAt": "", "updatedAt": "", "tags": []},
+        "nodes": [
+            _node("trig", "trigger.manual"),
+            _node("risk", "trading.risk_check", {"price": 100.0}),
+            _node("order", "trading.broker_order", {
+                "connectionId": "brk_1", "mandateId": "mnd_1",
+            }),
+            _node("out", "output.result"),
+        ],
+        "edges": [
+            _edge("e1", "trig", "start", "risk", "intent"),
+            _edge("e2", "risk", "intent", "order", "intent"),
+            _edge("e3", "order", "status", "out", "value"),
+        ],
+        "settings": {"executionMode": "live", "failFast": False, "maxConcurrency": 1, "timeoutMs": 0},
+        "requiredCapabilities": ["trading.risk", "trading.broker"],
+    })
+    grants = RunGrants(
+        test_run=False,
+        granted_capabilities=frozenset({"trading.risk", "trading.broker"}),
+    )
+    denied = compile_workflow(ir, REGISTRY, grants)
+    assert denied.executable is False
+    assert any(d.code == "permission_denied" for d in denied.diagnostics)
+
+    allowed = compile_workflow(
+        ir, REGISTRY,
+        RunGrants(
+            test_run=False,
+            granted_capabilities=frozenset({"trading.risk", "trading.broker"}),
+            allow_live_trading=True,
+        ),
+    )
+    assert allowed.executable is True, [d.message for d in allowed.diagnostics]
+
+
 def test_compiler_refuses_live_and_an_ungranted_paper_run():
     live = compile_workflow(_ir("live"), REGISTRY, RunGrants(
         test_run=False,

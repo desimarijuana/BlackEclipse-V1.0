@@ -71,6 +71,48 @@ describe('workflow validation', () => {
     expect(codes).toContain('missing_required_input');
   });
 
+  it('accepts an agent objective typed in config without a query wire', () => {
+    const base = createWorkflowIR();
+    const agent = node(base, 'agent.research', 'agent');
+    const ir: WorkflowIR = {
+      ...base,
+      nodes: [
+        node(base, 'trigger.manual', 'trig'),
+        { ...agent, config: { ...agent.config, objective: 'Summarize AAPL' } },
+        node(base, 'output.result', 'out'),
+      ],
+      edges: [{ id: 'e1', source: 'agent', sourceHandle: 'finding', target: 'out', targetHandle: 'value' }],
+    };
+    const errors = validateWorkflow(ir).filter((d) => d.severity === 'error');
+    expect(errors).toEqual([]);
+  });
+
+  it('rejects an agent with neither a query wire nor a configured objective', () => {
+    const base = createWorkflowIR();
+    const agent = node(base, 'agent.research', 'agent');
+    const ir: WorkflowIR = {
+      ...base,
+      nodes: [
+        node(base, 'trigger.manual', 'trig'),
+        { ...agent, config: { ...agent.config, objective: '  ' } },
+        node(base, 'output.result', 'out'),
+      ],
+      edges: [{ id: 'e1', source: 'agent', sourceHandle: 'finding', target: 'out', targetHandle: 'value' }],
+    };
+    expect(validateWorkflow(ir).map((d) => d.code)).toContain('missing_objective');
+  });
+
+  it('rejects a loop without a pinned body workflow', () => {
+    const base = createWorkflowIR();
+    const loop = { ...node(base, 'flow.for_each', 'loop'), config: { workflowId: '', version: 1 } };
+    const ir: WorkflowIR = {
+      ...base,
+      nodes: [node(base, 'trigger.manual', 'trig'), loop, node(base, 'output.result', 'out')],
+      edges: [{ id: 'e1', source: 'loop', sourceHandle: 'results', target: 'out', targetHandle: 'value' }],
+    };
+    expect(validateWorkflow(ir).map((d) => d.code)).toContain('invalid_subworkflow');
+  });
+
   it('detects cycles', () => {
     const base = createWorkflowIR();
     const a = node(base, 'logic.merge', 'a');

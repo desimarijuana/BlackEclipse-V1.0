@@ -30,6 +30,9 @@ export function ExecutionDock({
   canRun,
   blockReason,
   workflowId,
+  runInputText,
+  onRunInputChange,
+  runInputError,
 }: {
   onStart: () => void;
   onCancel: () => void;
@@ -37,6 +40,10 @@ export function ExecutionDock({
   canRun: boolean;
   blockReason?: string | null;
   workflowId: string | null;
+  /** One-off trigger input for the next run (JSON text in the run panel). */
+  runInputText: string;
+  onRunInputChange: (value: string) => void;
+  runInputError?: string | null;
 }) {
   const run = useGraphEditor((s) => s.run);
   const [expanded, setExpanded] = useState(false);
@@ -107,6 +114,9 @@ export function ExecutionDock({
               busy={busy}
               canRun={canRun}
               blockReason={blockReason}
+              runInputText={runInputText}
+              onRunInputChange={onRunInputChange}
+              runInputError={runInputError}
             />
           </div>
           <div className="max-h-[132px] shrink-0 overflow-y-auto">

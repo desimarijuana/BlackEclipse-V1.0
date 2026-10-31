@@ -5,6 +5,8 @@
 export interface WorkflowSchedule {
   id: string;
   workflowId: string;
+  /** The trigger.schedule node this schedule is attached to, when there is one. */
+  nodeId: string | null;
   name: string;
   cron: string;
   timezone: string;
@@ -18,6 +20,15 @@ export interface WorkflowSchedule {
   nextRunAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Fired after any schedule mutation so the canvas can refresh node summaries. */
+export const SCHEDULES_CHANGED_EVENT = 'eclipse:schedules-changed';
+
+function notifySchedulesChanged(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(SCHEDULES_CHANGED_EVENT));
+  }
 }
 
 export class ScheduleApiError extends Error {
@@ -44,12 +55,20 @@ export async function listSchedules(workflowId: string): Promise<WorkflowSchedul
 
 export async function createSchedule(
   workflowId: string,
-  input: { name: string; cron: string; timezone?: string; catchUp?: 'skip' | 'coalesce' },
+  input: {
+    nodeId?: string | null;
+    name: string;
+    cron: string;
+    timezone?: string;
+    catchUp?: 'skip' | 'coalesce';
+    version?: number | null;
+  },
 ): Promise<WorkflowSchedule> {
   const data = await request<{ schedule: WorkflowSchedule }>(`/api/workflows/${workflowId}/schedules`, {
     method: 'POST',
     body: JSON.stringify(input),
   });
+  notifySchedulesChanged();
   return data.schedule;
 }
 
@@ -58,11 +77,19 @@ export async function updateSchedule(id: string, patch: Partial<WorkflowSchedule
     method: 'PATCH',
     body: JSON.stringify(patch),
   });
+  notifySchedulesChanged();
   return data.schedule;
 }
 
 export async function deleteSchedule(id: string): Promise<void> {
   await request(`/api/workflow-schedules/${id}`, { method: 'DELETE' });
+  notifySchedulesChanged();
+}
+
+/** Fire a schedule immediately. Same read-only test envelope as a timed fire. */
+export async function runScheduleNow(id: string): Promise<void> {
+  await request(`/api/workflow-schedules/${id}/run`, { method: 'POST' });
+  notifySchedulesChanged();
 }
 
 export async function tickSchedules(): Promise<number> {

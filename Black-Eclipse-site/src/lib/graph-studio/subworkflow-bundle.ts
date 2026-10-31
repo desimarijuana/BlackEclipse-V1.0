@@ -12,6 +12,14 @@ import type { WorkflowIR } from './types';
 export const MAX_SUBWORKFLOW_DEPTH = 5;
 export const MAX_SUBWORKFLOW_BUNDLE = 20;
 
+/** Every node type whose body is a pinned saved workflow. */
+export const LOOP_OR_SUBWORKFLOW_TYPES = new Set([
+  'flow.subworkflow',
+  'flow.for_each',
+  'flow.repeat',
+  'flow.while',
+]);
+
 export interface SubworkflowRef {
   id: string;
   version: number;
@@ -23,12 +31,31 @@ export interface SubworkflowBundleEntry extends SubworkflowRef {
 
 export type SubworkflowLoader = (id: string, version: number) => Promise<WorkflowIR | null>;
 
+/**
+ * The runtime records a run against `ir.id`. A persisted document keeps its own
+ * document id (`wf_…`), while History, schedules and subworkflow pins all use
+ * the JDDS row id. Align the root IR to the row id at dispatch time so both
+ * sides name the same run identity.
+ */
+export function alignWorkflowIdentity(ir: WorkflowIR, workflowId: string): WorkflowIR {
+  return { ...ir, id: workflowId };
+}
+
+/**
+ * A bundle KEY is the pinned row id (what `flow.subworkflow.workflowId` stores),
+ * but the child IR carries its own document id. Align every child IR to its
+ * bundle id so the runtime's identity check and nested run rows agree.
+ */
+export function alignSubworkflowIds(entries: SubworkflowBundleEntry[]): SubworkflowBundleEntry[] {
+  return entries.map((entry) => ({ ...entry, ir: { ...entry.ir, id: entry.id } }));
+}
+
 /** The pinned subworkflows directly referenced by a graph. Ignore incomplete
  *  nodes: the editor/compiler reports those as invalid configuration. */
 export function subworkflowRefs(ir: WorkflowIR): SubworkflowRef[] {
   const refs: SubworkflowRef[] = [];
   for (const node of ir.nodes) {
-    if (node.type !== 'flow.subworkflow') continue;
+    if (!LOOP_OR_SUBWORKFLOW_TYPES.has(node.type)) continue;
     const workflowId = typeof node.config.workflowId === 'string' ? node.config.workflowId.trim() : '';
     const version = Number(node.config.version);
     if (!workflowId || !Number.isInteger(version) || version < 1) continue;

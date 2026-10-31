@@ -60,6 +60,8 @@ export function TradingSettingsPanel() {
   const [mandateMargin, setMandateMargin] = useState("50");
   const [mandateTtl, setMandateTtl] = useState("3600");
   const [mandatePhrase, setMandatePhrase] = useState("");
+  const [mandateWorkflowId, setMandateWorkflowId] = useState("");
+  const [mandateWorkflowVersion, setMandateWorkflowVersion] = useState("1");
 
   const load = useCallback(async () => {
     setError(null);
@@ -161,9 +163,15 @@ export function TradingSettingsPanel() {
           maxMargin: Number(mandateMargin) || 0,
           ttlSeconds: Number(mandateTtl) || 3600,
           confirmation: mandatePhrase,
-          note: "Settings demo autopilot mandate",
+          note: "Settings autopilot mandate",
+          ...(connection.mode === "live"
+            ? {
+                workflowId: mandateWorkflowId.trim(),
+                workflowVersion: Number(mandateWorkflowVersion) || 1,
+              }
+            : {}),
         }),
-      "Mandate created. Ask Eclipse to analyze and trade under it.",
+      `Mandate created for ${connection.mode}. Pin it in the matching Graph Studio broker node.`,
     );
   };
 
@@ -325,9 +333,10 @@ export function TradingSettingsPanel() {
           <div className="flex items-center gap-2">
             <Handshake size={14} className="text-muted-foreground" />
             <div>
-              <p className="text-xs font-semibold text-foreground">Demo autopilot mandates</p>
+              <p className="text-xs font-semibold text-foreground">Autopilot mandates</p>
               <p className="text-[10px] text-muted-foreground">
-                A bounded authorization the agent can submit under. Demo only; live is never available.
+                A bounded authorization an unattended graph can submit under. A live mandate also
+                requires the connection to be armed and pins the workflow version it authorizes.
               </p>
             </div>
           </div>
@@ -348,8 +357,10 @@ export function TradingSettingsPanel() {
                     <div className="min-w-0">
                       <p className="truncate font-mono text-[10px] text-foreground">{mandate.id}</p>
                       <p className="text-[10px] text-muted-foreground">
-                        {mandate.symbols.join(", ")} · {mandate.remainingOrders}/{mandate.maxOrders} orders ·{" "}
-                        max margin {mandate.maxMargin} · expires {new Date(mandate.expiresAt).toLocaleString()}
+                        {mandate.mode ?? "demo"} · {mandate.symbols.join(", ")} ·{" "}
+                        {mandate.remainingOrders}/{mandate.maxOrders} orders · max margin{" "}
+                        {mandate.maxMargin} · expires {new Date(mandate.expiresAt).toLocaleString()}
+                        {mandate.workflowId ? ` · workflow ${mandate.workflowId}@${mandate.workflowVersion}` : ""}
                       </p>
                     </div>
                     <Action
@@ -376,14 +387,33 @@ export function TradingSettingsPanel() {
             <Field label="TTL (seconds)">
               <input value={mandateTtl} onChange={(event) => setMandateTtl(event.target.value)} className={inputClass} />
             </Field>
+            {connections[0].mode === "live" && (
+              <>
+                <Field label="Workflow id" hint="The live mandate is pinned to this exact workflow.">
+                  <input
+                    value={mandateWorkflowId}
+                    onChange={(event) => setMandateWorkflowId(event.target.value)}
+                    className={inputClass}
+                    placeholder="workflow row id"
+                  />
+                </Field>
+                <Field label="Workflow version">
+                  <input
+                    value={mandateWorkflowVersion}
+                    onChange={(event) => setMandateWorkflowVersion(event.target.value)}
+                    className={inputClass}
+                  />
+                </Field>
+              </>
+            )}
             <Field
               label="Typed confirmation"
-              hint={`Type MANDATE DEMO ${connections[0].label} exactly.`}
+              hint={`Type MANDATE ${connections[0].mode.toUpperCase()} ${connections[0].label} exactly.`}
             >
               <input
                 value={mandatePhrase}
                 onChange={(event) => setMandatePhrase(event.target.value)}
-                placeholder={`MANDATE DEMO ${connections[0].label}`}
+                placeholder={`MANDATE ${connections[0].mode.toUpperCase()} ${connections[0].label}`}
                 className={inputClass}
               />
             </Field>

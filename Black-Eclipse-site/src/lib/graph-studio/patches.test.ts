@@ -23,6 +23,18 @@ describe('graph patches', () => {
     expect(removed.ir.edges.length).toBe(0);
   });
 
+  it('saves and clears a node note', () => {
+    const ir = buildTemplate('blank')!;
+    const saved = applyPatch(ir, { op: 'update_node_notes', nodeId: 'trigger', notes: '  watch this  ' });
+    expect(saved.ok).toBe(true);
+    if (!saved.ok) return;
+    expect(saved.ir.nodes.find((n) => n.id === 'trigger')?.notes).toBe('watch this');
+    const cleared = applyPatch(saved.ir, { op: 'update_node_notes', nodeId: 'trigger', notes: '   ' });
+    expect(cleared.ok).toBe(true);
+    if (!cleared.ok) return;
+    expect(cleared.ir.nodes.find((n) => n.id === 'trigger')?.notes).toBeUndefined();
+  });
+
   it('rejects a duplicate node id', () => {
     const ir = buildTemplate('blank')!;
     const result = applyPatch(ir, addNode(ir, 'logic.merge', 'trigger'));

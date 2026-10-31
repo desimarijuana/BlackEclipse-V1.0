@@ -9,9 +9,15 @@
 
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { cn } from '@/lib/utils';
-import { AlertTriangle, Copy, MoreHorizontal, Plus, Trash2, WarningCircle } from '@/lib/icons';
+import {
+  AlertTriangle, ChevronDown, ChevronUp, Copy, Lock, MoreHorizontal, Play, Plus, Trash2, WarningCircle,
+} from '@/lib/icons';
 import type { ConfigFieldDef, NodeCategory, PortDef, SideEffectClass } from '@/lib/graph-studio/types';
 import type { NodeRunStatus } from '@/lib/graph-studio/execution-client';
+import type { NodeTestUiState } from '@/lib/graph-studio/node-test-ui';
+import {
+  describeSchedule, formatNextFire, type ScheduleNodeSummary,
+} from '@/lib/graph-studio/schedule-summary';
 import { ConfigField } from './config-field';
 import { nodeIcon } from './node-icons';
 
@@ -28,11 +34,21 @@ export interface EclipseNodeData extends Record<string, unknown> {
   config: Record<string, unknown>;
   /** At most two scalar fields shown on the card. */
   inlineFields: ConfigFieldDef[];
+  /** Every field that does not fit in the two inline slots. */
+  extraFields: ConfigFieldDef[];
+  /** Whether the extra fields are expanded inside the node. */
+  expanded: boolean;
   /** Input handles currently supplied by an edge â€” those fields show "From wire". */
   wiredInputHandles: string[];
   errorCount: number;
   warningCount: number;
   runStatus?: NodeRunStatus;
+  /** A one-off single-node test, not the graph run. */
+  testState?: NodeTestUiState;
+  /** Whether the safe test envelope permits this node. */
+  testable: boolean;
+  /** Linked schedule for a trigger.schedule node (read-only summary). */
+  schedule?: ScheduleNodeSummary;
   /** Hue shared by the selected outline and every wire leaving this node. */
   accent: string;
   onConfigCommit?: (nodeId: string, key: string, value: unknown) => void;
@@ -40,6 +56,8 @@ export interface EclipseNodeData extends Record<string, unknown> {
   onDuplicate?: (nodeId: string) => void;
   onDelete?: (nodeId: string) => void;
   onMore?: (nodeId: string, anchor: { x: number; y: number }) => void;
+  onTest?: (nodeId: string, anchor: { x: number; y: number }) => void;
+  onToggleExpanded?: (nodeId: string) => void;
 }
 
 const RUN_TONE: Record<NodeRunStatus, { dot: string; badge: string }> = {
@@ -66,6 +84,15 @@ const CATEGORY_LABEL: Record<NodeCategory, string> = {
   output: 'Output',
 };
 
+function jsonPreview(value: unknown): string {
+  try {
+    const text = JSON.stringify(value, null, 2);
+    return text.length > 700 ? `${text.slice(0, 700)}…` : text;
+  } catch {
+    return String(value);
+  }
+}
+
 function handleTop(index: number, count: number): string {
   if (count <= 1) return '50%';
   return `calc(50% + ${(index - (count - 1) / 2) * 18}px)`;
@@ -78,12 +105,16 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
   const hasWarning = !hasError && data.warningCount > 0;
   const run = data.runStatus;
   const tone = run ? RUN_TONE[run] : null;
+  const test = data.testState;
+  const testTone = test?.status === 'running' ? 'bg-sky-400 animate-pulse'
+    : test?.status === 'succeeded' ? 'bg-emerald-400'
+      : test?.status === 'failed' ? 'bg-rose-400' : null;
 
   return (
     <div
       style={{ ['--node-accent' as string]: accent }}
       className={cn(
-        'node-card graph-node group/node relative w-[244px] rounded-[12px] transition-[box-shadow,border-color] duration-150',
+        'node-card graph-node group/node relative w-[280px] rounded-[12px] transition-[box-shadow,border-color] duration-150',
         selected && 'node-selected',
       )}
     >
@@ -115,12 +146,62 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
             className={cn('h-2 w-2 shrink-0 rounded-full', tone.dot)}
           />
         )}
+        {testTone && (
+          <span
+            title={test?.status === 'failed'
+              ? `Node test failed: ${test.error ?? 'unknown error'}`
+              : `Node test: ${test?.status}${typeof test?.durationMs === 'number' ? ` · ${test.durationMs} ms` : ''}`}
+            aria-label={`Node test: ${test?.status}`}
+            className={cn('h-1.5 w-1.5 shrink-0 rounded-full', testTone)}
+          />
+        )}
       </div>
 
       {/* Inline parameters â€” the values you most often change, editable in place. */}
+      {/* A schedule node carries its live schedule on the card itself. */}
+      {data.type === 'trigger.schedule' && (
+        <div className="relative z-10 border-t border-black/10 px-3 py-2 dark:border-white/10">
+          {data.schedule ? (
+            <>
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span
+                  className={cn(
+                    'h-1.5 w-1.5 rounded-full',
+                    data.schedule.enabled ? 'bg-emerald-400' : 'bg-slate-500',
+                  )}
+                />
+                <span className="text-foreground">
+                  {data.schedule.enabled ? 'Active' : 'Paused'}
+                </span>
+                <span className="ml-auto truncate text-muted-foreground">
+                  {data.schedule.enabled
+                    ? formatNextFire(data.schedule.nextRunAt, data.schedule.timezone) ?? 'no next fire'
+                    : '—'}
+                </span>
+              </div>
+              <div
+                className="mt-0.5 truncate text-[10px] text-muted-foreground"
+                title={`${data.schedule.cron} · ${data.schedule.timezone}`}
+              >
+                {describeSchedule(data.schedule.cron)} · {data.schedule.timezone}
+              </div>
+              {data.schedule.lastError && (
+                <div className="mt-0.5 truncate text-[9px] text-rose-300" title={data.schedule.lastError}>
+                  {data.schedule.lastError}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-[10px] text-muted-foreground">
+              No schedule yet — open the <span className="text-foreground">Schedule</span> tab.
+            </div>
+          )}
+        </div>
+      )}
+
       {data.inlineFields.length > 0 && (
         <div
-          className="nodrag nopan nowheel relative z-10 space-y-1 border-t border-black/10 px-2.5 py-1.5 dark:border-white/10"
+          className="nodrag nopan nowheel relative z-10 space-y-1.5 border-t border-black/10 px-3 py-2 dark:border-white/10"
           onDoubleClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
@@ -130,11 +211,48 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
               field={field}
               value={data.config[field.key]}
               variant="inline"
-              wired={data.wiredInputHandles.includes(field.key)}
+              wired={data.wiredInputHandles.includes(field.port ?? field.key)}
               onCommit={(value) => data.onConfigCommit?.(id, field.key, value)}
             />
           ))}
         </div>
+      )}
+
+      {/* Every remaining parameter lives inside the node, Blender/ComfyUI-style. */}
+      {data.expanded && data.extraFields.length > 0 && (
+        <div
+          className="nodrag nopan nowheel relative z-10 space-y-1.5 border-t border-black/10 px-3 py-2 dark:border-white/10"
+          onDoubleClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          {data.extraFields.map((field) => (
+            <ConfigField
+              key={field.key}
+              field={field}
+              value={data.config[field.key]}
+              variant="inline"
+              wired={data.wiredInputHandles.includes(field.port ?? field.key)}
+              onCommit={(value) => data.onConfigCommit?.(id, field.key, value)}
+            />
+          ))}
+        </div>
+      )}
+
+      {data.extraFields.length > 0 && (
+        <button
+          type="button"
+          title={data.expanded ? 'Hide extra parameters' : 'Show all parameters in the node'}
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onToggleExpanded?.(id);
+          }}
+          className="nodrag nopan relative z-10 flex w-full items-center gap-1.5 border-t border-black/10 px-3 py-1 text-left text-[9.5px] text-muted-foreground transition-colors hover:text-foreground dark:border-white/10"
+        >
+          {data.expanded ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+          {data.expanded
+            ? 'Show less'
+            : `+${data.extraFields.length} more parameter${data.extraFields.length === 1 ? '' : 's'}`}
+        </button>
       )}
 
       {/* Handles on the edge midpoints â€” left = incoming, right = outgoing â€”
@@ -189,8 +307,52 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
         </button>
       ))}
 
+      {/* Test result only appears after the hover play button has run. */}
+      {test && (
+        <div className="nodrag nopan nowheel relative z-10 border-t border-black/10 px-2.5 py-1.5 dark:border-white/10">
+          <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
+            <span
+              className={cn(
+                'h-1.5 w-1.5 rounded-full',
+                test.status === 'running' ? 'animate-pulse bg-sky-400'
+                  : test.status === 'succeeded' ? 'bg-emerald-400' : 'bg-rose-400',
+              )}
+            />
+            <span>{test.status === 'running' ? 'Testing…' : test.status}</span>
+            {typeof test.durationMs === 'number' && <span>· {test.durationMs} ms</span>}
+          </div>
+          {test.error && (
+            <p className="mt-1 rounded bg-rose-500/10 px-1.5 py-1 text-[9.5px] text-rose-200">
+              {test.error}
+            </p>
+          )}
+          {test.outputs && (
+            <details className="mt-1">
+              <summary className="cursor-pointer text-[8.5px] uppercase tracking-wider text-muted-foreground">
+                Output · {Object.keys(test.outputs).length}
+              </summary>
+              <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-black/25 p-1.5 font-mono text-[9px] leading-relaxed text-slate-300">
+                {jsonPreview(test.outputs)}
+              </pre>
+            </details>
+          )}
+        </div>
+      )}
+
       {/* Hover toolbar. Kept solid: it sits inside a canvas pane, not a modal. */}
       <div className="nodrag nopan absolute -top-7 right-0 z-20 flex items-center gap-0.5 rounded-md border border-black/10 bg-background/90 p-0.5 opacity-0 shadow-md transition-opacity group-hover/node:opacity-100 group-focus-within/node:opacity-100 dark:border-white/10">
+        <button
+          type="button"
+          title={data.testable ? 'Test this node' : 'Side-effect nodes need an authorized run'}
+          disabled={!data.testable || test?.status === 'running'}
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onTest?.(id, { x: event.clientX, y: event.clientY });
+          }}
+          className="flex h-6 w-6 items-center justify-center rounded bg-muted text-muted-foreground hover:text-foreground disabled:opacity-30"
+        >
+          {data.testable ? <Play size={11} weight="fill" /> : <Lock size={11} />}
+        </button>
         <button
           type="button"
           title="Duplicate node"

@@ -19,8 +19,8 @@ from pydantic import BaseModel, Field, ValidationError
 
 from ..deps import require_operator, service
 from ..graph_runtime.compiler import RunGrants as GraphRunGrants
-from ..graph_runtime.model import WorkflowIR
-from ..graph_runtime.service import GraphCompileError, GraphService
+from ..graph_runtime.model import ExecutionMode, WorkflowIR
+from ..graph_runtime.service import GraphCompileError, GraphService, NodeTestError
 
 router = APIRouter(tags=["graphs"])
 
@@ -90,8 +90,13 @@ class RunRequest(BaseModel):
     allowNetwork: bool = Field(default=False, alias="allowNetwork")  # noqa: N815
     allowTrading: bool = Field(default=False, alias="allowTrading")  # noqa: N815
     allowWrite: bool = Field(default=False, alias="allowWrite")  # noqa: N815
+    allowedWriteScopes: list[str] = Field(default_factory=list, alias="allowedWriteScopes")  # noqa: N815
+    allowLiveTrading: bool = Field(default=False, alias="allowLiveTrading")  # noqa: N815
     subworkflows: list[SubworkflowPayload] = Field(default_factory=list)
     input: Any = None
+    # Front-door base URL for run-scoped credential re-resolution after a
+    # restart. The response carries the key in memory only, never this payload.
+    callbackBaseUrl: Optional[str] = Field(default=None, alias="callbackBaseUrl")  # noqa: N815
     # Resolved by the front door from the settings vault. Held in memory by the
     # service, never written into the durable Fabric job payload.
     modelSettings: Optional[dict[str, Any]] = None  # noqa: N815
@@ -106,7 +111,47 @@ def _grants(body: RunRequest) -> GraphRunGrants:
         allow_network=body.allowNetwork,
         allow_trading=body.allowTrading,
         allow_write=body.allowWrite,
+        allowed_write_scopes=frozenset(body.allowedWriteScopes),
+        allow_live_trading=body.allowLiveTrading,
     )
+
+
+class NodeTestRequest(BaseModel):
+    nodeType: str = Field(min_length=1, max_length=200)  # noqa: N815
+    version: Optional[str] = Field(default=None, max_length=32)
+    config: dict[str, Any] = Field(default_factory=dict)
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    mode: str = Field(default="research", max_length=20)
+
+    model_config = {"populate_by_name": True}
+
+
+@router.post("/graphs/nodes/test")
+def test_node(
+    body: NodeTestRequest,
+    request: Request,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Execute ONE node with explicit inputs (the editor's Test node action)."""
+    try:
+        mode = ExecutionMode(body.mode)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="mode must be research, backtest, paper or live",
+        ) from exc
+    owner = (request.headers.get("x-harness-user") or "local").strip() or "local"
+    try:
+        return _graph_service().test_node(
+            node_type=body.nodeType,
+            version=body.version,
+            config=body.config,
+            inputs=body.inputs,
+            mode=mode,
+            owner_id=owner,
+        )
+    except NodeTestError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
 
 
 @router.post("/graphs/compile")
@@ -129,6 +174,7 @@ def start_run(body: RunRequest, request: Request, _: bool = Depends(require_oper
             subworkflows=_bundle(body.subworkflows),
             run_input=body.input,
             model_settings=body.modelSettings,
+            callback_base_url=body.callbackBaseUrl or "",
         )
     except GraphCompileError as exc:
         raise HTTPException(

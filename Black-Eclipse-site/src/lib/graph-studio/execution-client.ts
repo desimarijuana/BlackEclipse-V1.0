@@ -199,6 +199,8 @@ export interface StartRunOptions {
   allowNetwork?: boolean;
   allowPaperTrading?: boolean;
   allowLocalWrite?: boolean;
+  /** One-off value the trigger emits as Start. Never persisted with the graph. */
+  runInput?: unknown;
 }
 
 /** Start a TEST run (default) or an explicitly authorized operator run. */
@@ -212,6 +214,38 @@ export async function startWorkflowRun(
     body: JSON.stringify({ version, ...options }),
   });
   return data.run;
+}
+
+export interface NodeTestResult {
+  ok: true;
+  node: {
+    type: string;
+    version: string;
+    label: string;
+    category: string;
+    sideEffects: string;
+    timeoutMs: number;
+  };
+  outputs: Record<string, unknown>;
+  logs: string[];
+  durationMs: number;
+}
+
+export interface TestNodeOptions {
+  nodeType: string;
+  version?: string;
+  config: Record<string, unknown>;
+  inputs: Record<string, unknown>;
+  /** The workflow's current mode; the runtime treats this as a test run. */
+  mode?: string;
+}
+
+/** Execute ONE node with explicit inputs. Never persists a run. */
+export async function testNode(options: TestNodeOptions): Promise<NodeTestResult> {
+  return request<NodeTestResult>('/api/graph-runs/node-test', {
+    method: 'POST',
+    body: JSON.stringify(options),
+  });
 }
 
 export async function getGraphRun(runId: string): Promise<GraphRunRecord> {

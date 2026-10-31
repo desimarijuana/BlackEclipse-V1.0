@@ -7,9 +7,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Clock, Play, Plus, Trash2 } from '@/lib/icons';
+import { Clock, Play, Plus, Square, Trash2 } from '@/lib/icons';
 import {
-  createSchedule, deleteSchedule, listSchedules, updateSchedule,
+  createSchedule, deleteSchedule, listSchedules, runScheduleNow, updateSchedule,
   ScheduleApiError, type WorkflowSchedule,
 } from '@/lib/graph-studio/schedule-client';
 
@@ -133,7 +133,7 @@ export function ScheduleList({ workflowId }: { workflowId: string | null }) {
                 onClick={() => void updateSchedule(schedule.id, { enabled: !schedule.enabled }).then(refresh)}
                 className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
               >
-                <Play size={11} />
+                {schedule.enabled ? <Square size={10} /> : <Play size={11} />}
               </button>
               <button
                 type="button"
@@ -150,6 +150,19 @@ export function ScheduleList({ workflowId }: { workflowId: string | null }) {
             <div className="text-[9.5px] text-muted-foreground">
               next {formatWhen(schedule.nextRunAt)}
               {schedule.lastStatus ? ` · last ${schedule.lastStatus}` : ''}
+            </div>
+            <div className="mt-0.5 flex items-center gap-2 text-[9.5px] text-muted-foreground">
+              <button
+                type="button"
+                onClick={() => void runScheduleNow(schedule.id).then(refresh).catch((err) => {
+                  setError(err instanceof Error ? err.message : 'Failed to run');
+                })}
+                className="text-emerald-300 hover:text-emerald-200"
+              >
+                Run now
+              </button>
+              <span>· {schedule.catchUp === 'coalesce' ? 'coalesce missed' : 'skip missed'}</span>
+              {schedule.nodeId && <span>· linked to node</span>}
             </div>
             {schedule.lastError && <div className="text-[9.5px] text-rose-300">{schedule.lastError}</div>}
           </li>
