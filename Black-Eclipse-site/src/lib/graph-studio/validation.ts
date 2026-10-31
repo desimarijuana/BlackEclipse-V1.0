@@ -13,8 +13,14 @@ import type {
   NodeDefinition,
   PortDef,
   WorkflowIR,
+  WorkflowNode,
 } from './types';
 import { getNodeDefinition } from './registry';
+
+/** A literal counts when it is present, including an explicit `null` or `false`. */
+export function hasInputLiteral(node: WorkflowNode, portId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(node.inputValues ?? {}, portId);
+}
 
 /**
  * Can a value typed by `source` flow into `target`?
@@ -216,7 +222,7 @@ export function validateWorkflow(ir: WorkflowIR): Diagnostic[] {
     connectedInputs.add(`${edge.target}:${edge.targetHandle}`);
   }
 
-  // Required inputs must be connected.
+  // Required inputs must be connected OR carry a literal on the node.
   for (const node of ir.nodes) {
     const def = nodeDefs.get(node.id);
     if (!def) continue;
@@ -224,11 +230,38 @@ export function validateWorkflow(ir: WorkflowIR): Diagnostic[] {
       // Required CONTROL inputs count too (a gate must be triggered by
       // something); optional ports of either kind may stay unwired.
       if (input.optional) continue;
-      if (!connectedInputs.has(`${node.id}:${input.id}`)) {
+      if (connectedInputs.has(`${node.id}:${input.id}`)) continue;
+      if (input.kind !== 'control' && hasInputLiteral(node, input.id)) continue;
+      diagnostics.push({
+        severity: 'error',
+        code: 'missing_required_input',
+        message: `Node "${node.id}" is missing required input "${input.name}".`,
+        nodeId: node.id,
+      });
+    }
+  }
+
+  // A literal on a wired port is ignored (the wire wins) — say so rather than
+  // leaving a stale value that looks effective.
+  for (const node of ir.nodes) {
+    const def = nodeDefs.get(node.id);
+    if (!def || !node.inputValues) continue;
+    for (const portId of Object.keys(node.inputValues)) {
+      const port = def.inputs.find((p) => p.id === portId);
+      if (!port) {
         diagnostics.push({
-          severity: 'error',
-          code: 'missing_required_input',
-          message: `Node "${node.id}" is missing required input "${input.name}".`,
+          severity: 'warning',
+          code: 'unknown_input_literal',
+          message: `Node "${node.id}" carries a value for unknown input "${portId}".`,
+          nodeId: node.id,
+        });
+        continue;
+      }
+      if (connectedInputs.has(`${node.id}:${portId}`)) {
+        diagnostics.push({
+          severity: 'warning',
+          code: 'input_literal_ignored',
+          message: `Node "${node.id}" input "${port.name}" is wired; its literal value is ignored.`,
           nodeId: node.id,
         });
       }

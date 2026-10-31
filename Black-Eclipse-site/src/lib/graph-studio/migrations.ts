@@ -22,6 +22,20 @@ const MIGRATIONS: Record<number, (doc: RawDoc) => RawDoc> = {
   // settings block exist. (No such documents are stored yet, but the seam is
   // established so the first real schema change is a one-line addition.)
   0: (doc) => ({ ...doc, irVersion: 1, settings: doc.settings ?? defaultSettings() }),
+  // 1 → 2: per-port literal values. Optional on the node, so the migration only
+  // needs to advance the marker; adding an empty object keeps the shape stable
+  // for readers that expect the key.
+  1: (doc) => ({
+    ...doc,
+    irVersion: 2,
+    nodes: Array.isArray(doc.nodes)
+      ? doc.nodes.map((node) =>
+          node && typeof node === 'object' && !Array.isArray(node)
+            ? { ...(node as RawDoc), inputValues: (node as RawDoc).inputValues ?? {} }
+            : node,
+        )
+      : doc.nodes,
+  }),
 };
 
 export function migrateWorkflowIR(raw: unknown): unknown {

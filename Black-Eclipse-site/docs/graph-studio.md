@@ -245,13 +245,29 @@ typing never pans the canvas, drags the node, or opens the inspector mid-edit.
 The Parameters tab is the full n8n-style form: the node's description and docs,
 a friendly label plus one-line help for every field, required markers, selects
 and booleans, a JSON editor only for object/array values, and an **Advanced: edit
-config as JSON** escape hatch for fields the form does not expose. Dynamically
-resolved fields (agent preset, broker connection/mandate, pinned body workflow)
-render as pickers. **Settings** holds free-form **Notes** (saved with the node,
-never executed), ports with types, capabilities, allowed modes and the node id.
-**Output** shows the last run's bounded inputs/outputs for that node, read from
-the persisted run record. Issues, History and Health are reachable from the
-header instead of sharing five cramped tabs.
+config as JSON** escape hatch for fields the form does not expose. Field kinds
+now include **textarea**, **key/value rows** (`data.set_variables`), **code**
+(JSON with validate/format), **combobox** (free text with suggestions) and a
+**slider**; the presentation map is still `config-fields.ts`, so semantics and
+the persisted config never change. Dynamically resolved fields (agent preset,
+broker connection/mandate, pinned body workflow) render as pickers. **Settings**
+holds free-form **Notes** (saved with the node, never executed), ports with
+types, capabilities, allowed modes and the node id. **Output** shows the last
+run's bounded inputs/outputs for that node, read from the persisted run record.
+Issues, History and Health are reachable from the header instead of sharing five
+cramped tabs.
+
+**Port literals (IR v2).** Above the parameters the inspector shows an
+**Inputs** section for every data port. An unwired port can carry a literal
+(`WorkflowNode.inputValues`, keyed by port id) so a node is usable without a
+producer — for example Parse JSON carrying its text, or Load dataset carrying
+its ref. A connected wire **always wins**; the inspector says "wired" and the
+validator warns that the literal is ignored. Required inputs are satisfied by a
+wire **or** a literal. Control ports never take literals (they gate execution,
+not values). Type-aware editors cover text, number, boolean and JSON values, and
+the node **Test** tab prefills from the literals. The runtime resolves
+`wire → literal → optional/null` in `executor.py`, and the compiler accepts the
+same rule, so the editor and the Python runtime cannot disagree.
 
 **Execution.** The header's **Start workflow** button is the primary run control,
 inline with the other editor actions; when there are unsaved edits it becomes

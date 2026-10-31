@@ -81,11 +81,46 @@ describe('workflow validation', () => {
     const base = createWorkflowIR();
     const ir: WorkflowIR = {
       ...base,
-      nodes: [node(base, 'trigger.manual', 'trig'), node(base, 'output.result', 'out')],
-      edges: [],
+      nodes: [node(base, 'trigger.manual', 'trig'), node(base, 'data.json.parse', 'parse'), node(base, 'output.result', 'out')],
+      edges: [{ id: 'e1', source: 'parse', sourceHandle: 'value', target: 'out', targetHandle: 'value' }],
     };
     const codes = validateWorkflow(ir).map((d) => d.code);
     expect(codes).toContain('missing_required_input');
+  });
+
+  it('accepts a required input supplied by a node literal', () => {
+    const base = createWorkflowIR();
+    const parse = node(base, 'data.json.parse', 'parse');
+    const ir: WorkflowIR = {
+      ...base,
+      nodes: [
+        node(base, 'trigger.manual', 'trig'),
+        { ...parse, inputValues: { text: '{"a":1}' } },
+        node(base, 'output.result', 'out'),
+      ],
+      edges: [{ id: 'e1', source: 'parse', sourceHandle: 'value', target: 'out', targetHandle: 'value' }],
+    };
+    const codes = validateWorkflow(ir).map((d) => d.code);
+    expect(codes).not.toContain('missing_required_input');
+  });
+
+  it('warns that a wired input ignores its literal', () => {
+    const base = createWorkflowIR();
+    const parse = node(base, 'data.json.parse', 'parse');
+    const ir: WorkflowIR = {
+      ...base,
+      nodes: [
+        node(base, 'trigger.manual', 'trig'),
+        { ...parse, inputValues: { text: '{"a":1}' } },
+        node(base, 'output.result', 'out'),
+      ],
+      edges: [
+        { id: 'e1', source: 'trig', sourceHandle: 'start', target: 'parse', targetHandle: 'text' },
+        { id: 'e2', source: 'parse', sourceHandle: 'value', target: 'out', targetHandle: 'value' },
+      ],
+    };
+    const ignored = validateWorkflow(ir).filter((d) => d.code === 'input_literal_ignored');
+    expect(ignored).toHaveLength(1);
   });
 
   it('accepts an agent objective typed in config without a query wire', () => {

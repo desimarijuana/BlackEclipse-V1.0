@@ -20,6 +20,7 @@ export type Patch =
   | { op: 'remove_node'; nodeId: string }
   | { op: 'move_node'; nodeId: string; position: NodePosition }
   | { op: 'update_node_config'; nodeId: string; config: Record<string, unknown> }
+  | { op: 'update_node_input_value'; nodeId: string; portId: string; value?: unknown }
   | { op: 'update_node_label'; nodeId: string; label?: string }
   | { op: 'update_node_notes'; nodeId: string; notes?: string }
   | { op: 'replace_node'; nodeId: string; type: string; version: string; config?: Record<string, unknown> }
@@ -111,6 +112,7 @@ export function applyPatch(ir: WorkflowIR, patch: Patch): PatchResult {
         label: patch.node.label,
         notes: patch.node.notes,
         config: patch.node.config ?? def.defaultConfig(),
+        inputValues: patch.node.inputValues,
         layout: patch.node.layout,
       };
       return { ok: true, ir: withCapabilities(touch({ ...ir, nodes: [...ir.nodes, node] })), patch };
@@ -132,6 +134,25 @@ export function applyPatch(ir: WorkflowIR, patch: Patch): PatchResult {
       const nodes = ir.nodes.map((n) => (n.id === patch.nodeId ? { ...n, config: patch.config } : n));
       return { ok: true, ir: touch({ ...ir, nodes }), patch };
     }
+    case 'update_node_input_value': {
+      const target = ir.nodes.find((n) => n.id === patch.nodeId);
+      if (!target) return { ok: false, error: `Node "${patch.nodeId}" not found.`, patch };
+      const def = getNodeDefinition(target.type, target.version);
+      const port = def?.inputs.find((p) => p.id === patch.portId);
+      if (!port) return { ok: false, error: `Node "${patch.nodeId}" has no input "${patch.portId}".`, patch };
+      if (port.kind === 'control') {
+        return { ok: false, error: 'Control inputs are gated by a wire, not a literal value.', patch };
+      }
+      const nextValues = { ...(target.inputValues ?? {}) };
+      if (patch.value === undefined) delete nextValues[patch.portId];
+      else nextValues[patch.portId] = patch.value;
+      const nodes = ir.nodes.map((n) =>
+        n.id === patch.nodeId
+          ? { ...n, inputValues: Object.keys(nextValues).length > 0 ? nextValues : undefined }
+          : n,
+      );
+      return { ok: true, ir: touch({ ...ir, nodes }), patch };
+    }
     case 'update_node_label': {
       if (!ir.nodes.some((n) => n.id === patch.nodeId)) return { ok: false, error: `Node "${patch.nodeId}" not found.`, patch };
       const nodes = ir.nodes.map((n) => (n.id === patch.nodeId ? { ...n, label: patch.label } : n));
@@ -150,7 +171,19 @@ export function applyPatch(ir: WorkflowIR, patch: Patch): PatchResult {
       if (!def) return { ok: false, error: `Unknown node type ${patch.type}@${patch.version}`, patch };
       const nodes = ir.nodes.map((n) =>
         n.id === patch.nodeId
-          ? { ...n, type: patch.type, version: patch.version, config: patch.config ?? def.defaultConfig() }
+          ? {
+              ...n,
+              type: patch.type,
+              version: patch.version,
+              config: patch.config ?? def.defaultConfig(),
+              inputValues: n.inputValues
+                ? Object.fromEntries(
+                    Object.entries(n.inputValues).filter(([portId]) =>
+                      def.inputs.some((p) => p.id === portId),
+                    ),
+                  )
+                : undefined,
+            }
           : n,
       );
       // Dropping edges whose handles no longer exist on the replaced node.

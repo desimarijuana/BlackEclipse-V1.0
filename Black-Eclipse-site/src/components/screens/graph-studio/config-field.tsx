@@ -8,8 +8,9 @@
 // text/number commit on blur or Enter, Escape reverts, booleans/selects commit
 // immediately. `wired` disables the control when an incoming edge supplies it.
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { KeyValueEditor } from './key-value-editor';
 import type { ConfigFieldDef } from '@/lib/graph-studio/types';
 
 export interface ConfigFieldProps {
@@ -159,26 +160,50 @@ function JsonEditor({
 }) {
   const serialized = JSON.stringify(value ?? null, null, 2);
   const [text, setText] = useState(serialized);
+  const [error, setError] = useState<string | null>(null);
   const focused = useRef(false);
   useEffect(() => {
     if (!focused.current) setText(serialized);
   }, [serialized]);
+
+  const commit = (raw: string) => {
+    try {
+      onCommit(JSON.parse(raw));
+      setError(null);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid JSON');
+      return false;
+    }
+  };
+
   return (
-    <textarea
-      value={text}
-      onChange={(event) => setText(event.target.value)}
-      onFocus={() => { focused.current = true; }}
-      onBlur={() => {
-        focused.current = false;
-        try {
-          onCommit(JSON.parse(text));
-        } catch {
-          setText(serialized);
-        }
-      }}
-      rows={rows}
-      className={cn(BASE_INPUT, 'nodrag nowheel resize-y py-1.5 font-mono text-[11px]')}
-    />
+    <div className="space-y-1">
+      <textarea
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onFocus={() => { focused.current = true; }}
+        onBlur={() => {
+          focused.current = false;
+          commit(text);
+        }}
+        rows={rows}
+        spellCheck={false}
+        className={cn(BASE_INPUT, 'nodrag nowheel resize-y py-1.5 font-mono text-[11px]')}
+      />
+      <div className="flex items-center gap-2 text-[9.5px]">
+        <button
+          type="button"
+          onClick={() => {
+            if (commit(text)) setText(JSON.stringify(JSON.parse(text), null, 2));
+          }}
+          className="rounded border border-white/10 px-1.5 py-0.5 text-muted-foreground hover:text-foreground"
+        >
+          Validate & format
+        </button>
+        {error ? <span className="text-rose-300">{error}</span> : <span className="text-muted-foreground/70">JSON</span>}
+      </div>
+    </div>
   );
 }
 
@@ -230,8 +255,109 @@ function InlineJsonInput({
   );
 }
 
-function InlineRow({ field, children }: { field: ConfigFieldDef; children: ReactNode }) {
-  // Inline labels drop a trailing parenthetical ("Agent version (0 = latest)")
+function TextAreaInput({
+  value, rows, onCommit,
+}: {
+  value: unknown;
+  rows: number;
+  onCommit: (value: unknown) => void;
+}) {
+  const serialized = value == null ? '' : String(value);
+  const [text, setText] = useState(serialized);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setText(serialized);
+  }, [serialized]);
+  return (
+    <textarea
+      value={text}
+      rows={rows}
+      spellCheck={false}
+      onFocus={() => { focused.current = true; }}
+      onChange={(event) => setText(event.target.value)}
+      onBlur={() => {
+        focused.current = false;
+        if (text !== serialized) onCommit(text);
+      }}
+      className={cn(BASE_INPUT, 'nodrag nowheel resize-y py-1.5 text-[12px] leading-relaxed')}
+    />
+  );
+}
+
+function ComboboxInput({
+  field, value, onCommit, inline = false,
+}: {
+  field: ConfigFieldDef;
+  value: unknown;
+  onCommit: (value: unknown) => void;
+  inline?: boolean;
+}) {
+  const listId = useId();
+  const serialized = value == null ? '' : String(value);
+  const [text, setText] = useState(serialized);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setText(serialized);
+  }, [serialized]);
+  return (
+    <>
+      <input
+        value={text}
+        list={listId}
+        placeholder={field.placeholder}
+        onFocus={() => { focused.current = true; }}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={() => {
+          focused.current = false;
+          if (text !== serialized) onCommit(text);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            focused.current = false;
+            onCommit(text);
+            (event.target as HTMLInputElement).blur();
+          }
+        }}
+        className={cn(inline ? INLINE_INPUT : BASE_INPUT, inline ? 'w-full' : 'py-1.5 text-[12px]')}
+      />
+      <datalist id={listId}>
+        {(field.options ?? []).map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </datalist>
+    </>
+  );
+}
+
+function SliderInput({
+  field, value, onCommit,
+}: {
+  field: ConfigFieldDef;
+  value: unknown;
+  onCommit: (value: unknown) => void;
+}) {
+  const numeric = Number(value);
+  const current = Number.isFinite(numeric) ? numeric : (field.min ?? 0);
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="range"
+        min={field.min ?? 0}
+        max={field.max ?? 100}
+        step={field.step ?? 1}
+        value={current}
+        onChange={(event) => onCommit(Number(event.target.value))}
+        className="h-1.5 flex-1 accent-primary"
+      />
+      <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular-nums text-foreground">
+        {current}
+      </span>
+    </div>
+  );
+}
+
+function InlineRow({ field, children }: { field: ConfigFieldDef; children: ReactNode }) {  // Inline labels drop a trailing parenthetical ("Agent version (0 = latest)")
   // so the narrow card column stays readable; the tooltip keeps the full text.
   const shortLabel = field.label.replace(/\s*\(.*$/, '');
   return (
@@ -307,12 +433,58 @@ export function ConfigField({
     );
   }
 
-  if (field.kind === 'json') {
+  if (field.kind === 'keyvalue') {
     return wrap(
       inline
         ? <InlineJsonInput value={value} disabled={disabled} onCommit={onCommit} />
-        : <JsonEditor value={value} rows={5} onCommit={onCommit} />,
+        : <KeyValueEditor value={value} onChange={onCommit} />,
     );
+  }
+
+  if (field.kind === 'json' || field.kind === 'code') {
+    return wrap(
+      inline
+        ? <InlineJsonInput value={value} disabled={disabled} onCommit={onCommit} />
+        : <JsonEditor value={value} rows={field.kind === 'code' ? 10 : 5} onCommit={onCommit} />,
+    );
+  }
+
+  if (field.kind === 'textarea' && inline) {
+    return wrap(
+      <input
+        value={text}
+        disabled={disabled}
+        placeholder={field.placeholder}
+        onChange={(event) => setText(event.target.value)}
+        onFocus={() => { focused.current = true; }}
+        onBlur={() => {
+          focused.current = false;
+          commitDraft(text);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            focused.current = false;
+            commitDraft(text);
+            (event.target as HTMLInputElement).blur();
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            setText(serialized);
+            focused.current = false;
+            (event.target as HTMLInputElement).blur();
+          }
+        }}
+        className={cn(INLINE_INPUT, 'w-full')}
+      />,
+    );
+  }
+
+  if (field.kind === 'textarea') {
+    return wrap(<TextAreaInput value={value} rows={4} onCommit={onCommit} />);
+  }
+
+  if (field.kind === 'combobox') {
+    return wrap(<ComboboxInput field={field} value={value} onCommit={onCommit} inline={inline} />);
   }
 
   if (field.kind === 'boolean') {
@@ -352,6 +524,10 @@ export function ConfigField({
         )}
       </select>,
     );
+  }
+
+  if (field.kind === 'slider' && !inline) {
+    return wrap(<SliderInput field={field} value={value} onCommit={onCommit} />);
   }
 
   if (inline && field.kind === 'number') {

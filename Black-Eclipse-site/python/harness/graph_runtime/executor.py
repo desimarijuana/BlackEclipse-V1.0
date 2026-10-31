@@ -150,6 +150,7 @@ class GraphExecutor:
         self._terminal_outputs: dict[str, Any] = {}
 
         self._inputs_map = plan_inputs(ir)
+        self._nodes = {node.id: node for node in ir.nodes}
         self._outputs: dict[str, dict[str, Any]] = {}  # node_id → {handle: value}
         # Control outputs a node FIRED (`_control` in its result). Control ports
         # gate execution; they never carry values.
@@ -217,6 +218,8 @@ class GraphExecutor:
         upstream produced — a node whose input never materialized is skipped,
         never run with a silently-null placeholder."""
         definition = self._defs[node_id]
+        node = self._nodes.get(node_id)
+        literals = node.input_values if node is not None else {}
         resolved: dict[str, Any] = {}
         unsatisfied: list[str] = []
         for port in definition.inputs:
@@ -233,7 +236,13 @@ class GraphExecutor:
                 if outputs is not None and source_handle in outputs:
                     value = outputs[source_handle]
                     produced = True
-            if not produced and not port.optional and writers:
+            # A wire wins; otherwise a node-level literal fills the port. A
+            # literal is authoritative even when it is `None`/`false`, so test
+            # presence with `in`, not truthiness.
+            if not produced and port.id in literals:
+                value = literals[port.id]
+                produced = True
+            if not produced and not port.optional:
                 unsatisfied.append(port.name)
             resolved[port.id] = value
         return resolved, unsatisfied

@@ -31,6 +31,7 @@ import type { PortDef } from '@/lib/graph-studio/types';
 import type { NodeRunRecord } from '@/lib/graph-studio/execution-client';
 import { nodeIcon } from './node-icons';
 import { ConfigField } from './config-field';
+import { PortValueEditor } from './port-value-editor';
 import { NodeTestPanel } from './node-test-panel';
 import { SchedulePanel } from './schedule-panel';
 
@@ -257,6 +258,12 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
     [],
   );
   const selectedWorkflow = workflows.find((item) => item.id === node.config.workflowId);
+  const wiredInputs = new Set(
+    (ir?.edges ?? [])
+      .filter((edge) => edge.target === node.id)
+      .map((edge) => edge.targetHandle),
+  );
+  const dataInputs = def.inputs.filter((port) => port.kind !== 'control');
 
   const openJson = () => {
     setJsonDraft(JSON.stringify(node.config, null, 2));
@@ -356,6 +363,45 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
                 <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">{def.docs}</p>
               )}
             </div>
+            {dataInputs.length > 0 && (
+              <div className="mb-3 rounded-md border border-white/10 bg-white/[0.02] p-2">
+                <div className="mb-1 flex items-center justify-between text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <span>Inputs</span>
+                  <span className="font-normal normal-case tracking-normal text-muted-foreground/70">
+                    wire wins
+                  </span>
+                </div>
+                <p className="mb-2 text-[10px] leading-snug text-muted-foreground/70">
+                  Give an unwired input a literal value here; a connected wire overrides it.
+                </p>
+                <div className="space-y-2">
+                  {dataInputs.map((port) => (
+                    <div key={port.id}>
+                      <div className="mb-1 flex items-center gap-1.5 text-[10.5px]">
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ background: portColor(port.type) }} />
+                        <span className="text-foreground">{port.name}</span>
+                        <span className="text-muted-foreground">· {port.type}</span>
+                        {!port.optional && (
+                          <span className="text-rose-300/80">required</span>
+                        )}
+                        {wiredInputs.has(port.id) && (
+                          <span className="ml-auto text-muted-foreground/70">wired</span>
+                        )}
+                      </div>
+                      <PortValueEditor
+                        port={port}
+                        value={node.inputValues?.[port.id]}
+                        wired={wiredInputs.has(port.id)}
+                        onChange={(value) => dispatch(
+                          { op: 'update_node_input_value', nodeId: node.id, portId: port.id, value },
+                          { coalesceKey: `input:${node.id}:${port.id}` },
+                        )}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {isBrokerNode && (
               <div className="mb-3 rounded-md border border-white/10 bg-white/[0.02] p-2">
                 <div className="mb-1 text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">

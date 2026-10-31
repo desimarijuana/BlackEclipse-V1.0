@@ -40,7 +40,9 @@ interface TradeReplayChartProps {
 }
 
 export function TradeReplayChart({ series, trade, height = 320 }: TradeReplayChartProps) {
-  const { up: UP, down: DOWN } = useChartPalette().candles;
+  const palette = useChartPalette();
+  const { up: UP, down: DOWN } = palette.candles;
+  const entryColor = palette.lines.primary;
   const option = useMemo<EChartsOption | null>(() => {
     if (series.length < 2) return null;
     const dates = series.map((b) => b.date);
@@ -48,7 +50,7 @@ export function TradeReplayChart({ series, trade, height = 320 }: TradeReplayCha
 
     // Mark lines: entry, stop, target, exit.
     const markLines: { name: string; yAxis: number; color: string; type?: 'dashed' }[] = [];
-    if (trade.entry) markLines.push({ name: 'Entry', yAxis: trade.entry, color: '#38bdf8' });
+    if (trade.entry) markLines.push({ name: 'Entry', yAxis: trade.entry, color: entryColor });
     if (trade.stopLoss) markLines.push({ name: 'Stop', yAxis: trade.stopLoss, color: DOWN, type: 'dashed' });
     if (trade.takeProfit) markLines.push({ name: 'Target', yAxis: trade.takeProfit, color: UP, type: 'dashed' });
     if (trade.exit) markLines.push({ name: 'Exit', yAxis: trade.exit, color: '#fbbf24' });
@@ -116,7 +118,7 @@ export function TradeReplayChart({ series, trade, height = 320 }: TradeReplayCha
         },
       ],
     } as EChartsOption;
-  }, [series, trade, UP, DOWN]);
+  }, [series, trade, UP, DOWN, entryColor]);
 
   const ref = useEChart(() => option, [option]);
 

@@ -16,7 +16,7 @@
 
 /** The current canonical IR schema version. Bump on any breaking IR change and
  *  add a migration in `migrations.ts`. */
-export const WORKFLOW_IR_VERSION = 1;
+export const WORKFLOW_IR_VERSION = 2;
 
 // ── Ports ────────────────────────────────────────────────────────────────────
 
@@ -83,6 +83,12 @@ export interface WorkflowNode {
   /** Free-form operator note, saved with the workflow (not executed). */
   notes?: string;
   config: Record<string, unknown>;
+  /**
+   * Literal values for input ports, keyed by port id. A wire always wins; a
+   * literal lets a node be self-contained (e.g. Parse JSON carrying its text).
+   * Control ports never take literals.
+   */
+  inputValues?: Record<string, unknown>;
   /** Non-semantic canvas position (persisted, ignored by the compiler). */
   layout: NodePosition;
 }
@@ -179,7 +185,8 @@ export type SideEffectClass =
 export interface ConfigFieldDef {
   key: string;
   label: string;
-  kind: 'text' | 'number' | 'boolean' | 'select' | 'json';
+  kind: 'text' | 'number' | 'boolean' | 'select' | 'json'
+    | 'textarea' | 'keyvalue' | 'code' | 'combobox' | 'slider';
   /**
    * The input port this field shadows when wired, when it differs from `key`.
    * `agent.research` is the canonical case: the canvas field is `objective`

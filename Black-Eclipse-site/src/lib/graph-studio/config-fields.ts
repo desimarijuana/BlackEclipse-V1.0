@@ -212,14 +212,14 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
   // input or null. Stored defaults belong in data.value / data.set_variables.
   // trigger.schedule is zero-config; its schedule is edited in the Schedule tab.
   'data.value': [
-    { key: 'value', label: 'Value', kind: 'text', inline: true },
+    { key: 'value', label: 'Value', kind: 'textarea', inline: true, help: 'A literal. Object/array types accept JSON; a wired input overrides it.' },
     { key: 'dataType', label: 'Type', kind: 'select', inline: true, options: opts('string', 'number', 'boolean', 'object', 'array') },
   ],
   'data.set_variables': [
-    { key: 'variables', label: 'Variables', kind: 'json' },
+    { key: 'variables', label: 'Variables', kind: 'keyvalue', help: 'Named values merged over the input object. Configured keys win.' },
   ],
   'data.json.parse': [
-    { key: 'strict', label: 'Strict', kind: 'boolean' },
+    { key: 'strict', label: 'Strict', kind: 'boolean', help: 'Reject invalid JSON instead of passing the raw text through.' },
   ],
   'trading.broker_order': [
     { key: 'connectionId', label: 'Broker connection', kind: 'text' },
@@ -250,13 +250,13 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'connectionId', label: 'Broker connection', kind: 'text' },
   ],
   'file.write': [
-    { key: 'path', label: 'Path (relative)', kind: 'text', inline: true, placeholder: 'reports/aapl.csv' },
-    { key: 'scope', label: 'Write scope', kind: 'text', placeholder: 'workspace' },
-    { key: 'append', label: 'Append', kind: 'boolean' },
+    { key: 'path', label: 'Path (relative)', kind: 'text', inline: true, placeholder: 'reports/aapl.csv', help: 'Relative to the scope root; ".." and absolute paths are refused.' },
+    { key: 'scope', label: 'Write scope', kind: 'combobox', options: opts('workspace'), placeholder: 'workspace', help: 'A named scope the operator granted for this run.' },
+    { key: 'append', label: 'Append', kind: 'boolean', help: 'Append instead of replacing the file.' },
   ],
   'data.dataset.save': [
-    { key: 'name', label: 'Dataset name', kind: 'text', inline: true },
-    { key: 'ttlHours', label: 'TTL (hours)', kind: 'number', min: 0 },
+    { key: 'name', label: 'Dataset name', kind: 'combobox', inline: true, placeholder: 'bars', help: 'A label for the stored payload; the ref is returned by the node.' },
+    { key: 'ttlHours', label: 'TTL (hours)', kind: 'number', min: 0, max: 8_760, help: '0 means no expiry. Stored datasets are local scratch, not market data.' },
   ],
   'transform.template': [
     { key: 'template', label: 'Template', kind: 'text', inline: true, placeholder: '{{a}}' },

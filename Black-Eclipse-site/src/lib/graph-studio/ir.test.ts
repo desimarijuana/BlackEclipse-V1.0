@@ -28,6 +28,19 @@ describe('workflow IR', () => {
     expect(readWorkflowIR({ name: 'Legacy', nodes: [], edges: [], id: 'x' }).name).toBe('Legacy');
   });
 
+  it('migrates a v1 node to v2 with an empty inputValues map', () => {
+    const migrated = migrateWorkflowIR({
+      irVersion: 1,
+      id: 'wf',
+      name: 'V1',
+      nodes: [{ id: 'n', type: 'data.json.parse', version: '1.0.0', config: {}, layout: { x: 0, y: 0 } }],
+      edges: [],
+      settings: { executionMode: 'research', failFast: false, maxConcurrency: 1, timeoutMs: 0 },
+    }) as { irVersion: number; nodes: Array<Record<string, unknown>> };
+    expect(migrated.irVersion).toBe(2);
+    expect(migrated.nodes[0].inputValues).toEqual({});
+  });
+
   it('produces a stable content hash regardless of key order', () => {
     expect(canonicalStringify({ b: 1, a: 2 })).toBe(canonicalStringify({ a: 2, b: 1 }));
     expect(contentHash({ a: 1, b: 2 })).toBe(contentHash({ b: 2, a: 1 }));

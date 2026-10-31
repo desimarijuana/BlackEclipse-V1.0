@@ -1,6 +1,11 @@
 # Change Log
 
 ## 2026-10-31
+- **fix(charts): the allocation donut, trade replay and economics comparison
+  use the palette too.** The portfolio allocation donut had a fixed rainbow,
+  the trade-replay entry line and the economics comparison line were a fixed
+  sky blue — the last charts that ignored Settings › General › Charts.
+  no doc change — palette behaviour is documented in `docs/chart-engine.md`.
 - **fix(charts): strictly greyscale axes and grid.** The series palette was
   neutral but the axis text, ticks and grid still used the slate blue-grey
   `#94a3b8` / `rgba(148,163,184,…)`, so a "monochrome" chart still carried a blue

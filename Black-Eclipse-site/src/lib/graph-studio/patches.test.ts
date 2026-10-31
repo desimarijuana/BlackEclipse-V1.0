@@ -23,8 +23,36 @@ describe('graph patches', () => {
     expect(removed.ir.edges.length).toBe(0);
   });
 
-  it('saves and clears a node note', () => {
+  it('sets and clears a port literal, and refuses control ports', () => {
     const ir = buildTemplate('blank')!;
+    const withParse = applyPatch(ir, addNode(ir, 'data.json.parse', 'parse'));
+    expect(withParse.ok).toBe(true);
+    if (!withParse.ok) return;
+
+    const set = applyPatch(withParse.ir, {
+      op: 'update_node_input_value', nodeId: 'parse', portId: 'text', value: '{"a":1}',
+    });
+    expect(set.ok).toBe(true);
+    if (!set.ok) return;
+    expect(set.ir.nodes.find((n) => n.id === 'parse')?.inputValues).toEqual({ text: '{"a":1}' });
+
+    const cleared = applyPatch(set.ir, {
+      op: 'update_node_input_value', nodeId: 'parse', portId: 'text', value: undefined,
+    });
+    expect(cleared.ok).toBe(true);
+    if (!cleared.ok) return;
+    expect(cleared.ir.nodes.find((n) => n.id === 'parse')?.inputValues).toBeUndefined();
+
+    const withGate = applyPatch(ir, addNode(ir, 'flow.gate', 'gate'));
+    expect(withGate.ok).toBe(true);
+    if (!withGate.ok) return;
+    const control = applyPatch(withGate.ir, {
+      op: 'update_node_input_value', nodeId: 'gate', portId: 'in', value: true,
+    });
+    expect(control.ok).toBe(false);
+  });
+
+  it('saves and clears a node note', () => {    const ir = buildTemplate('blank')!;
     const saved = applyPatch(ir, { op: 'update_node_notes', nodeId: 'trigger', notes: '  watch this  ' });
     expect(saved.ok).toBe(true);
     if (!saved.ok) return;

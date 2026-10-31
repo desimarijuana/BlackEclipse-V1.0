@@ -273,8 +273,8 @@ export function EconPanel({ source }: PanelProps) {
               type: 'line' as const,
               showSymbol: false,
               data: compareSeries.data,
-              lineStyle: { width: 2, color: '#38bdf8', type: 'dashed' as const },
-              itemStyle: { color: '#38bdf8' },
+              lineStyle: { width: 2, color: chartPalette.lines.series[1] ?? chartPalette.lines.primary, type: 'dashed' as const },
+              itemStyle: { color: chartPalette.lines.series[1] ?? chartPalette.lines.primary },
             }]
           : []),
       ] as echarts.SeriesOption[],

@@ -51,6 +51,7 @@ export const nodeSchema = z.object({
   label: z.string().max(120).optional(),
   notes: z.string().max(2_000).optional(),
   config: z.record(z.string(), z.unknown()).default({}),
+  inputValues: z.record(z.string().max(64), z.unknown()).optional(),
   layout: positionSchema,
 });
 

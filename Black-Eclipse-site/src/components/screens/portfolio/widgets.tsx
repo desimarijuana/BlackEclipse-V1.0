@@ -127,10 +127,14 @@ export function PerformanceWidget({ data }: WidgetProps) {
 
 // ── Allocation ───────────────────────────────────────────────────────────────
 
-const DONUT_COLORS = ['#34d399', '#60a5fa', '#fbbf24', '#f472b6', '#a78bfa', '#2dd4bf', '#fb7185', '#f97316', '#94a3b8'];
+const DONUT_COLORS = ['#fafafa', '#a1a1aa', '#d4d4d8', '#71717a', '#e4e4e7', '#52525b', '#c4c4cc', '#8b8b94', '#a3a3a3'];
 
 export function AllocationWidget({ data }: WidgetProps) {
   const holdings = data.stats.holdings;
+  // The user's categorical palette (Settings › General › Charts), so an
+  // allocation donut is not the one chart that ignores their colours.
+  const paletteSeries = useChartPalette().lines.series;
+  const donutColors = paletteSeries.length > 0 ? paletteSeries : DONUT_COLORS;
   const ref = useEChart(() => {
     if (!holdings.length) return null;
     return {
@@ -139,7 +143,7 @@ export function AllocationWidget({ data }: WidgetProps) {
       series: [{
         type: 'pie', radius: ['58%', '82%'], center: ['50%', '50%'],
         label: { show: false }, silent: false,
-        data: holdings.slice(0, 9).map((h, i) => ({ name: h.symbol, value: Number(h.valueUsd.toFixed(2)), itemStyle: { color: DONUT_COLORS[i % DONUT_COLORS.length] } })),
+        data: holdings.slice(0, 9).map((h, i) => ({ name: h.symbol, value: Number(h.valueUsd.toFixed(2)), itemStyle: { color: donutColors[i % donutColors.length] } })),
       }],
     };
   }, [holdings]);
@@ -160,10 +164,10 @@ export function AllocationWidget({ data }: WidgetProps) {
       <div className="mt-2 flex min-h-0 shrink-0 flex-col gap-1">
         {holdings.map((h, i) => (
           <div key={h.symbol} className="flex items-center gap-2 text-xs">
-            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: donutColors[i % donutColors.length] }} />
             <span className="font-mono font-bold text-foreground w-16 truncate">{h.symbol}</span>
             <div className="flex-1 h-1 rounded-full bg-border/40 overflow-hidden">
-              <div className="h-full rounded-full" style={{ width: `${Math.min(100, h.allocation)}%`, background: DONUT_COLORS[i % DONUT_COLORS.length] }} />
+              <div className="h-full rounded-full" style={{ width: `${Math.min(100, h.allocation)}%`, background: donutColors[i % donutColors.length] }} />
             </div>
             <span className="font-mono text-[10px] text-muted-foreground w-10 text-right">{h.allocation.toFixed(1)}%</span>
           </div>

@@ -45,10 +45,11 @@ export function NodeTestPanel({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setText('{}');
+    const literals = node.inputValues ?? {};
+    setText(Object.keys(literals).length > 0 ? serialize(literals) : '{}');
     setResult(null);
     setError(null);
-  }, [node.id]);
+  }, [node.id, node.inputValues]);
 
   const lastInputs = nodeRun?.inputs ?? null;
   const lastSerialized = useMemo(

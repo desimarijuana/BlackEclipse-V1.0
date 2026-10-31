@@ -22,6 +22,7 @@ from .model import (
     MAX_SUBWORKFLOW_DEPTH,
     NodeStatus,  # noqa: F401 - re-exported for convenience by callers importing from compiler
     PlanNode,
+    PortKind,
     PortType,
     Severity,
     SideEffect,
@@ -432,12 +433,16 @@ def compile_workflow(
             if input_port.optional:
                 continue
             # Required CONTROL inputs must also be wired (e.g. a gate's trigger).
-            if f"{node.id}:{input_port.id}" not in connected_inputs:
-                diagnostics.append(_error(
-                    "missing_required_input",
-                    f'Node "{node.id}" is missing required input "{input_port.name}".',
-                    node_id=node.id,
-                ))
+            if f"{node.id}:{input_port.id}" in connected_inputs:
+                continue
+            # A data port may carry its own literal instead of a wire.
+            if input_port.kind != PortKind.CONTROL and input_port.id in node.input_values:
+                continue
+            diagnostics.append(_error(
+                "missing_required_input",
+                f'Node "{node.id}" is missing required input "{input_port.name}".',
+                node_id=node.id,
+            ))
 
     # ── Input-or-config requirements ───────────────────────────────────────
     # Some nodes accept their core value from EITHER a wire OR a config field

@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # The IR schema versions this runtime can compile. Unknown versions are refused
 # with an explicit diagnostic rather than coerced.
-SUPPORTED_IR_VERSIONS: tuple[int, ...] = (1,)
+SUPPORTED_IR_VERSIONS: tuple[int, ...] = (1, 2)
 
 # Bounds — a workflow is a plan, never an unbounded program.
 MAX_NODES = 500
@@ -128,6 +128,10 @@ class WorkflowNode(_Model):
     version: str = Field(min_length=1, max_length=32)
     label: Optional[str] = Field(default=None, max_length=120)
     config: dict[str, Any] = Field(default_factory=dict)
+    # Literal values for input ports (wire wins). Optional on the node so an
+    # older document stays readable; the compiler and executor treat it as the
+    # fallback source for an unwired required port.
+    input_values: dict[str, Any] = Field(default_factory=dict, alias="inputValues")
     layout: NodePosition = Field(default_factory=NodePosition)
 
 
