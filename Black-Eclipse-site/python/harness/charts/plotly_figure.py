@@ -23,8 +23,8 @@ from .theme import ChartTheme
 
 #: The palette the app's charts use, in the theme's language.
 INK = "#e5e7eb"
-MUTED = "#94a3b8"
-GRID = "rgba(148,163,184,0.16)"
+MUTED = "#a3a3a3"
+GRID = "rgba(163,163,163,0.16)"
 
 
 def _rgba(hex_color: str, alpha: float) -> str:

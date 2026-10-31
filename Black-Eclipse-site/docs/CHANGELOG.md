@@ -1,6 +1,12 @@
 # Change Log
 
 ## 2026-10-31
+- **fix(charts): strictly greyscale axes and grid.** The series palette was
+  neutral but the axis text, ticks and grid still used the slate blue-grey
+  `#94a3b8` / `rgba(148,163,184,…)`, so a "monochrome" chart still carried a blue
+  tint. Ink, muted text, ticks and grid are neutral greys now, in both the
+  Plotly figure and the matplotlib theme.
+  no doc change — `docs/chart-engine.md` already states the palette is neutral.
 - **fix(chat): the "Proof it works" card only appears when there is a proof.** A
   run that recorded no check but did produce an artifact or a clean change
   review still rendered the card — with a "0 check(s)" count that claimed a

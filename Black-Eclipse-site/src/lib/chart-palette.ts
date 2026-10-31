@@ -22,7 +22,7 @@ export interface ChartPalette {
 }
 
 export const DEFAULT_CHART_PALETTE: ChartPalette = {
-  candles: { up: "#e5e7eb", down: "#6b7280", neutral: "#94a3b8" },
+  candles: { up: "#e5e7eb", down: "#6b7280", neutral: "#a3a3a3" },
   // Neutral (black & white) by default: a chart is data, not decoration, and a
   // greyscale ramp reads on both the dark and the light surface without a hue
   // clash. Candles keep a light/dark pair so up and down still separate.

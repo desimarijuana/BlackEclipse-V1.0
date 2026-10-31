@@ -14,9 +14,9 @@ Two rules shape it:
   app has a light mode, and a chart that is unreadable in light mode is a
   broken chart — not a cosmetic detail.
 
-The palette below is the same family the UI uses (`.glass-card` ink
-`#e5e7eb`, muted `#94a3b8`, cyan `#0ea5e9`, green `#22c55e`, rose `#e11d48`,
-violet `#a78bfa`, amber `#f59e0b`).
+The palette below is NEUTRAL: a near-white ink and a grey ramp, so a hue never
+implies a meaning the numbers do not carry. (The app's accent colours live in
+the UI, not in the data.)
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ class ChartTheme:
 DARK_THEME = ChartTheme(
     name="eclipse-dark",
     ink="#e5e7eb",
-    muted="#94a3b8",
+    muted="#a3a3a3",
     grid="#ffffff14",
     axis="#ffffff33",
     surface=None,
@@ -86,11 +86,11 @@ DARK_THEME = ChartTheme(
         "axes.facecolor": "none",
         "savefig.facecolor": "none",
         "text.color": "#e5e7eb",
-        "axes.labelcolor": "#94a3b8",
+        "axes.labelcolor": "#a3a3a3",
         "axes.edgecolor": "#ffffff33",
         "axes.titlecolor": "#e5e7eb",
-        "xtick.color": "#94a3b8",
-        "ytick.color": "#94a3b8",
+        "xtick.color": "#a3a3a3",
+        "ytick.color": "#a3a3a3",
         "grid.color": "#ffffff1a",
         "grid.linestyle": "-",
         "grid.linewidth": 0.6,
