@@ -51,7 +51,10 @@
     "test:smoke": "node scripts/test-python.js smoke",
     "test:presets": "node scripts/test-presets.js",
     "graph:manifest": "tsx scripts/graph-manifest.mts",
+    "graph:loop": "tsx scripts/graph-loop-demo.mts",
     "demo:btc": "tsx scripts/demo-btc.mts",
+    "demo:transform": "node scripts/demo-transform.js",
+    "demo:loop": "node scripts/demo-loop.js",
     "eclipse": "node scripts/eclipse.js",
     "security:preflight": "node scripts/security-preflight.js",
     "check:all": "node scripts/check-all.js"

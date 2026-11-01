@@ -5,31 +5,11 @@ const { spawnSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { root, pythonDir, resolvePython, pythonPathEnv } = require("./python-runner");
 
-const root = path.join(__dirname, "..");
-const pythonDir = path.join(root, "python");
-const vendored = path.join(__dirname, "vendor", "python", "python.exe");
-
-const candidates =
-  process.platform === "win32"
-    ? [fs.existsSync(vendored) ? vendored : null, "python", "python3", "py"].filter(Boolean)
-    : ["python3", "python"];
-
-function tryRun(cmd, args, opts = {}) {
-  try {
-    return spawnSync(cmd, args, { stdio: "ignore", ...opts });
-  } catch {
-    return { status: 1 };
-  }
-}
-
-function usable(cmd) {
-  if (tryRun(cmd, ["--version"]).status !== 0) return false;
-  return tryRun(cmd, ["-c", "import langgraph, pytest"]).status === 0;
-}
-
-const isPath = (c) => c.includes(path.sep) || c.endsWith(".exe");
-const py = candidates.find((c) => usable(isPath(c) ? c : c));
+// Same interpreter the runtime uses. The probe is the test suite's requirement:
+// the agent stack AND pytest.
+const py = resolvePython("import langgraph, pytest");
 if (!py) {
   console.log("[test] Python agent stack not installed — skipping Python tests.");
   console.log("[test] Install it with: npm run setup:python");
@@ -59,7 +39,7 @@ const childEnv = {
   // Do not open/warm the developer's real code index during the test suite: the
   // boot warm-up is an operational affordance, not part of what is under test.
   BLACK_ECLIPSE_CODE_INTEL_WARM: "0",
-  PYTHONPATH: pythonDir + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : ""),
+  PYTHONPATH: pythonPathEnv(),
 };
 
 if (process.argv.includes("smoke")) {
@@ -82,7 +62,7 @@ if (process.argv.includes("smoke")) {
 }
 
 // Any extra arguments are passed to pytest, so a slice can be run on its own:
-//   node scripts/test-python.js tests/test_rsl_loop.py
+//   node scripts/test-python.js python/tests/test_rsl_loop.py
 // The full suite is `node scripts/test-python.js` (no arguments).
 const extra = process.argv.slice(2).filter((arg) => arg !== "smoke");
 const targets = extra.length > 0 ? extra : [pythonDir];
