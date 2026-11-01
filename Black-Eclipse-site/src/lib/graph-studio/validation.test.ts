@@ -104,7 +104,8 @@ describe('workflow validation', () => {
     expect(codes).not.toContain('missing_required_input');
   });
 
-  it('accepts a required input supplied by a node literal', () => {    const base = createWorkflowIR();
+  it('accepts a required input supplied by a node literal', () => {
+    const base = createWorkflowIR();
     const parse = node(base, 'data.json.parse', 'parse');
     const ir: WorkflowIR = {
       ...base,
@@ -200,5 +201,50 @@ describe('workflow validation', () => {
     const bad = { ...node(base, 'finance.indicator', 'ind'), config: { kind: 'not-real', period: 20 } };
     const ir: WorkflowIR = { ...base, nodes: [node(base, 'trigger.manual', 'trig'), bad] };
     expect(validateWorkflow(ir).map((d) => d.code)).toContain('invalid_config');
+  });
+
+  it('rejects switch cases that are not valid JSON', () => {
+    const base = createWorkflowIR();
+    const sw = { ...node(base, 'logic.switch', 'sw'), config: { cases: '[a, b' } };
+    const ir: WorkflowIR = {
+      ...base,
+      nodes: [node(base, 'trigger.manual', 'trig'), sw, node(base, 'output.result', 'out')],
+    };
+    expect(validateWorkflow(ir).map((d) => d.code)).toContain('invalid_switch_cases');
+  });
+
+  it('warns when a branch uses a case the switch does not configure', () => {
+    const base = createWorkflowIR();
+    const sw = { ...node(base, 'logic.switch', 'sw'), config: { cases: 'buy, sell' } };
+    const gate = node(base, 'flow.gate', 'g');
+    const ir: WorkflowIR = {
+      ...base,
+      nodes: [node(base, 'trigger.manual', 'trig'), sw, gate, node(base, 'output.result', 'out')],
+      edges: [
+        { id: 'e1', source: 'trig', sourceHandle: 'start', target: 'sw', targetHandle: 'value' },
+        { id: 'e2', source: 'sw', sourceHandle: 'case4', target: 'g', targetHandle: 'in' },
+      ],
+    };
+    const warning = validateWorkflow(ir).find((d) => d.code === 'switch_case_not_configured');
+    expect(warning?.severity).toBe('warning');
+    expect(warning?.nodeId).toBe('sw');
+  });
+
+  it('warns when "Any match" and a specific case are both wired', () => {
+    const base = createWorkflowIR();
+    const sw = { ...node(base, 'logic.switch', 'sw'), config: { cases: 'buy, sell' } };
+    const gate = node(base, 'flow.gate', 'g');
+    const other = node(base, 'flow.gate', 'g2');
+    const ir: WorkflowIR = {
+      ...base,
+      nodes: [node(base, 'trigger.manual', 'trig'), sw, gate, other, node(base, 'output.result', 'out')],
+      edges: [
+        { id: 'e1', source: 'trig', sourceHandle: 'start', target: 'sw', targetHandle: 'value' },
+        { id: 'e2', source: 'sw', sourceHandle: 'case1', target: 'g', targetHandle: 'in' },
+        { id: 'e3', source: 'sw', sourceHandle: 'matched', target: 'g2', targetHandle: 'in' },
+      ],
+    };
+    const warning = validateWorkflow(ir).find((d) => d.code === 'switch_double_branch');
+    expect(warning?.severity).toBe('warning');
   });
 });

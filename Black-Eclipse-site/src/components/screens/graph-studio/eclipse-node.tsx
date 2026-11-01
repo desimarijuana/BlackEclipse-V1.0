@@ -1,11 +1,11 @@
 'use client';
 
-// â”€â”€ Custom React Flow node â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ã¢â€â‚¬Ã¢â€â‚¬ Custom React Flow node Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // Compact, icon-led card: a 46px identity header (icon, title, category, run
 // state) plus up to two inline config fields. Ports are handles on the card's
 // edge midpoints (fanned when a side has several); their names live in the
 // handle tooltip so the surface stays clean. Inline fields edit the SAME
-// validated config the inspector does â€” one renderer, two densities.
+// validated config the inspector does Ã¢â‚¬â€ one renderer, two densities.
 
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { cn } from '@/lib/utils';
@@ -25,6 +25,8 @@ export interface EclipseNodeData extends Record<string, unknown> {
   label: string;
   type: string;
   version: string;
+  /** One-line "what this node does", shown under the title on the card. */
+  description: string;
   category: NodeCategory;
   icon?: string;
   sideEffects: SideEffectClass;
@@ -38,8 +40,10 @@ export interface EclipseNodeData extends Record<string, unknown> {
   extraFields: ConfigFieldDef[];
   /** Whether the extra fields are expanded inside the node. */
   expanded: boolean;
-  /** Input handles currently supplied by an edge â€” those fields show "From wire". */
+  /** Input handles currently supplied by an edge Ã¢â‚¬â€ those fields show "From wire". */
   wiredInputHandles: string[];
+  /** Required inputs nothing satisfies yet â€” the card asks for them by name. */
+  unmetInputs: string[];
   errorCount: number;
   warningCount: number;
   runStatus?: NodeRunStatus;
@@ -87,7 +91,7 @@ const CATEGORY_LABEL: Record<NodeCategory, string> = {
 function jsonPreview(value: unknown): string {
   try {
     const text = JSON.stringify(value, null, 2);
-    return text.length > 700 ? `${text.slice(0, 700)}…` : text;
+    return text.length > 700 ? `${text.slice(0, 700)}â€¦` : text;
   } catch {
     return String(value);
   }
@@ -95,7 +99,10 @@ function jsonPreview(value: unknown): string {
 
 function handleTop(index: number, count: number): string {
   if (count <= 1) return '50%';
-  return `calc(50% + ${(index - (count - 1) / 2) * 18}px)`;
+  // A card is ~50-80px tall. Spacing compresses as ports fan out, but never below
+  // the height of a port label â€” overlapping labels would be worse than none.
+  const step = count > 6 ? 12 : count > 4 ? 14 : 18;
+  return `calc(50% + ${(index - (count - 1) / 2) * step}px)`;
 }
 
 export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeData>>) {
@@ -103,6 +110,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
   const accent = data.accent ?? 'var(--primary)';
   const hasError = data.errorCount > 0;
   const hasWarning = !hasError && data.warningCount > 0;
+  const unmet = data.unmetInputs ?? [];
   const run = data.runStatus;
   const tone = run ? RUN_TONE[run] : null;
   const test = data.testState;
@@ -116,6 +124,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
       className={cn(
         'node-card graph-node group/node relative w-[280px] rounded-[12px] transition-[box-shadow,border-color] duration-150',
         selected && 'node-selected',
+        unmet.length > 0 && !hasError && 'ring-1 ring-amber-400/45',
       )}
     >
       {/* Identity: plain outline icon, title + category, quiet run-state dot. */}
@@ -126,16 +135,22 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
         <span className="min-w-0 flex-1">
           <span
             className="block truncate text-[13px] font-semibold leading-tight tracking-tight text-foreground"
-            title={`${data.label} Â· ${data.type}@${data.version}`}
+            title={`${data.label} Ã‚Â· ${data.type}@${data.version}`}
           >
             {data.label}
           </span>
-          <span className="mt-0.5 block truncate text-[9.5px] leading-none text-muted-foreground">
-            {CATEGORY_LABEL[data.category]}
+          <span
+            className="mt-0.5 block truncate text-[9.5px] leading-none text-muted-foreground"
+            title={`${CATEGORY_LABEL[data.category]} Â· ${data.description}`}
+          >
+            {data.description}
           </span>
         </span>
-        {(hasError || hasWarning) && (
-          <span className={cn('shrink-0', hasError ? 'text-rose-400' : 'text-amber-400')}>
+        {(hasError || hasWarning || unmet.length > 0) && (
+          <span
+            className={cn('shrink-0', hasError ? 'text-rose-400' : 'text-amber-400')}
+            title={unmet.length > 0 ? `Connect: ${unmet.join(', ')}` : undefined}
+          >
             {hasError ? <WarningCircle size={12} /> : <AlertTriangle size={12} />}
           </span>
         )}
@@ -150,12 +165,18 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
           <span
             title={test?.status === 'failed'
               ? `Node test failed: ${test.error ?? 'unknown error'}`
-              : `Node test: ${test?.status}${typeof test?.durationMs === 'number' ? ` · ${test.durationMs} ms` : ''}`}
+              : `Node test: ${test?.status}${typeof test?.durationMs === 'number' ? ` Â· ${test.durationMs} ms` : ''}`}
             aria-label={`Node test: ${test?.status}`}
             className={cn('h-1.5 w-1.5 shrink-0 rounded-full', testTone)}
           />
         )}
       </div>
+
+      {unmet.length > 0 && (
+        <div className="relative z-10 border-t border-amber-400/20 bg-amber-400/[0.06] px-3 py-1 text-[9.5px] leading-tight text-amber-200/90">
+          Connect {unmet.join(', ')}
+        </div>
+      )}
 
       {/* Inline parameters â€” the values you most often change, editable in place. */}
       {/* A schedule node carries its live schedule on the card itself. */}
@@ -176,14 +197,14 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
                 <span className="ml-auto truncate text-muted-foreground">
                   {data.schedule.enabled
                     ? formatNextFire(data.schedule.nextRunAt, data.schedule.timezone) ?? 'no next fire'
-                    : '—'}
+                    : 'â€”'}
                 </span>
               </div>
               <div
                 className="mt-0.5 truncate text-[10px] text-muted-foreground"
-                title={`${data.schedule.cron} · ${data.schedule.timezone}`}
+                title={`${data.schedule.cron} Â· ${data.schedule.timezone}`}
               >
-                {describeSchedule(data.schedule.cron)} · {data.schedule.timezone}
+                {describeSchedule(data.schedule.cron)} Â· {data.schedule.timezone}
               </div>
               {data.schedule.lastError && (
                 <div className="mt-0.5 truncate text-[9px] text-rose-300" title={data.schedule.lastError}>
@@ -193,7 +214,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
             </>
           ) : (
             <div className="text-[10px] text-muted-foreground">
-              No schedule yet — open the <span className="text-foreground">Schedule</span> tab.
+              No schedule yet â€” open the <span className="text-foreground">Schedule</span> tab.
             </div>
           )}
         </div>
@@ -255,8 +276,10 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
         </button>
       )}
 
-      {/* Handles on the edge midpoints â€” left = incoming, right = outgoing â€”
-          fanned only when a side has several ports. Names stay in the tooltip. */}
+      {/* Ports are LABELLED. A dot with the name hidden in a tooltip is the one
+          thing that made branches unusable: "if true / if false" on the card is
+          the difference between a guess and a choice. Control ports are square
+          (they gate execution, not values); data ports are round. */}
       {data.inputs.map((port, index) => (
         <Handle
           key={port.id}
@@ -267,9 +290,21 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
             top: handleTop(index, data.inputs.length),
             background: accent,
           }}
-          className="!z-10 !h-2.5 !w-2.5 !border-2 !border-background !left-[-5px]"
-          title={`${port.name} Â· ${port.type}`}
+          className={cn(
+            '!z-10 !h-2.5 !w-2.5 !border-2 !border-background !left-[-5px]',
+            port.kind === 'control' ? '!rounded-[2px]' : '!rounded-full',
+          )}
+          title={`${port.name} Â· ${port.kind === 'control' ? 'control' : port.type}${port.optional ? ' Â· optional' : ''}`}
         />
+      ))}
+      {data.inputs.map((port, index) => (
+        <span
+          key={`in-label-${port.id}`}
+          className="pointer-events-none absolute left-[-9px] z-10 -translate-x-full -translate-y-1/2 whitespace-nowrap rounded bg-background/80 px-1 text-[8.5px] font-medium leading-none text-muted-foreground backdrop-blur-sm"
+          style={{ top: handleTop(index, data.inputs.length) }}
+        >
+          {port.name}
+        </span>
       ))}
       {data.outputs.map((port, index) => (
         <Handle
@@ -281,13 +316,32 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
             top: handleTop(index, data.outputs.length),
             background: accent,
           }}
-          className="!z-10 !h-2.5 !w-2.5 !border-2 !border-background !right-[-5px]"
-          title={`${port.name} Â· ${port.type}`}
+          className={cn(
+            '!z-10 !h-2.5 !w-2.5 !border-2 !border-background !right-[-5px]',
+            port.kind === 'control' ? '!rounded-[2px]' : '!rounded-full',
+          )}
+          title={`${port.name} Â· ${port.kind === 'control' ? 'control' : port.type}${port.optional ? ' Â· optional' : ''}`}
         />
       ))}
-
-      {/* Add-next affordance follows each output handle on hover. */}
       {data.outputs.map((port, index) => (
+        <span
+          key={`out-label-${port.id}`}
+          className={cn(
+            'pointer-events-none absolute right-[-9px] z-10 max-w-[64px] translate-x-full -translate-y-1/2 truncate whitespace-nowrap rounded px-1 text-[8.5px] font-medium leading-none backdrop-blur-sm',
+            port.kind === 'control'
+              ? 'bg-background/85 text-foreground/90'
+              : 'bg-background/70 text-muted-foreground',
+          )}
+          style={{ top: handleTop(index, data.outputs.length) }}
+        >
+          {port.name}
+        </span>
+      ))}
+
+      {/* Add-next affordance follows each output handle on hover. Hidden once the
+          fan is dense: overlapping 24px buttons would stack on top of each other
+          and hit-test to the wrong branch. Dragging from the handle still works. */}
+      {data.outputs.length <= 4 && data.outputs.map((port, index) => (
         <button
           key={`add-${port.id}`}
           type="button"
@@ -297,7 +351,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
             data.onAddNext?.(id, port.id);
           }}
           style={{ top: handleTop(index, data.outputs.length) }}
-          className="nodrag nopan absolute right-[-33px] z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-black/10 bg-background/95 text-muted-foreground opacity-0 shadow-[0_2px_10px_rgba(0,0,0,0.35)] backdrop-blur transition-all hover:scale-105 hover:border-black/20 hover:bg-white/10 hover:text-foreground group-hover/node:opacity-100 dark:border-white/15 dark:bg-[#17171b]/95 dark:hover:border-white/25"
+          className="nodrag nopan absolute right-[-76px] z-20 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-black/10 bg-background/95 text-muted-foreground opacity-0 shadow-[0_2px_10px_rgba(0,0,0,0.35)] backdrop-blur transition-all hover:scale-105 hover:border-black/20 hover:bg-white/10 hover:text-foreground group-hover/node:opacity-100 dark:border-white/15 dark:bg-[#17171b]/95 dark:hover:border-white/25"
         >
           <Plus size={11} />
         </button>
@@ -314,8 +368,8 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
                   : test.status === 'succeeded' ? 'bg-emerald-400' : 'bg-rose-400',
               )}
             />
-            <span>{test.status === 'running' ? 'Testing…' : test.status}</span>
-            {typeof test.durationMs === 'number' && <span>· {test.durationMs} ms</span>}
+            <span>{test.status === 'running' ? 'Testingâ€¦' : test.status}</span>
+            {typeof test.durationMs === 'number' && <span>Â· {test.durationMs} ms</span>}
           </div>
           {test.error && (
             <p className="mt-1 rounded bg-rose-500/10 px-1.5 py-1 text-[9.5px] text-rose-200">
@@ -325,7 +379,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
           {test.outputs && (
             <details className="mt-1">
               <summary className="cursor-pointer text-[8.5px] uppercase tracking-wider text-muted-foreground">
-                Output · {Object.keys(test.outputs).length}
+                Output Â· {Object.keys(test.outputs).length}
               </summary>
               <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-black/25 p-1.5 font-mono text-[9px] leading-relaxed text-slate-300">
                 {jsonPreview(test.outputs)}

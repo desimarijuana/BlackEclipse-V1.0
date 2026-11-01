@@ -33,6 +33,7 @@ import type { Diagnostic, PortDef, WorkflowIR } from '@/lib/graph-studio/types';
 import { testNode, type GraphRunRecord, type NodeRunStatus } from '@/lib/graph-studio/execution-client';
 import { getNodeDefinition } from '@/lib/graph-studio/registry';
 import { fieldsFor, inlineFieldsFor } from '@/lib/graph-studio/config-fields';
+import { unwiredRequiredInputs, visiblePorts } from '@/lib/graph-studio/node-ports';
 import {
   canTestNode, missingRequiredInputs, type NodeTestUiState,
 } from '@/lib/graph-studio/node-test-ui';
@@ -46,6 +47,7 @@ import { useGraphEditor } from '@/lib/graph-studio/editor-store';
 import { EclipseNode, type EclipseNodeData } from './eclipse-node';
 import { EclipseEdge, type EclipseEdgeData } from './eclipse-edge';
 import { NodeSearchPanel, type NodeInsertTarget } from './node-search-panel';
+import { GraphOnboarding } from './graph-onboarding';
 
 const nodeTypes = { eclipse: EclipseNode };
 const edgeTypes = { eclipse: EclipseEdge };
@@ -90,16 +92,37 @@ function sameStringArray(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
+/**
+ * Port arrays are sometimes rebuilt per render (a Switch's visible case outputs
+ * depend on its config), so compare them by value — reference equality would
+ * re-render every node on every graph change, and would also hide a genuine
+ * rename when a case value changes.
+ */
+function samePorts(a: PortDef[], b: PortDef[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((port, index) => {
+    const other = b[index];
+    return port.id === other.id
+      && port.name === other.name
+      && port.type === other.type
+      && port.kind === other.kind
+      && port.optional === other.optional
+      && port.nullable === other.nullable;
+  });
+}
+
 function sameNodeData(a: EclipseNodeData, b: EclipseNodeData): boolean {
   return (
     a.label === b.label
     && a.type === b.type
     && a.version === b.version
+    && a.description === b.description
     && a.category === b.category
     && a.icon === b.icon
     && a.sideEffects === b.sideEffects
-    && a.inputs === b.inputs
-    && a.outputs === b.outputs
+    && samePorts(a.inputs, b.inputs)
+    && samePorts(a.outputs, b.outputs)
     && a.config === b.config
     && a.inlineFields === b.inlineFields
     && sameStringArray(a.wiredInputHandles, b.wiredInputHandles)
@@ -144,10 +167,14 @@ function buildNodes(
   const statuses = runStatuses(run);
   const prevNodes = new Map(prev.map((n) => [n.id, n]));
   const wiredInputs = new Map<string, string[]>();
+  const wiredOutputs = new Map<string, string[]>();
   for (const edge of ir.edges) {
     const handles = wiredInputs.get(edge.target);
     if (handles) handles.push(edge.targetHandle);
     else wiredInputs.set(edge.target, [edge.targetHandle]);
+    const outHandles = wiredOutputs.get(edge.source);
+    if (outHandles) outHandles.push(edge.sourceHandle);
+    else wiredOutputs.set(edge.source, [edge.sourceHandle]);
   }
   const scheduleByNode = new Map(
     schedules
@@ -159,6 +186,18 @@ function buildNodes(
     const count = counts.get(node.id) ?? { error: 0, warning: 0 };
     const previous = prevNodes.get(node.id);
     const wiredInputHandles = wiredInputs.get(node.id) ?? NO_HANDLES;
+    // Presentation only: a Switch shows the case outputs it actually has instead
+    // of all eight declared ones. Handle ids are unchanged.
+    const ports = def
+      ? visiblePorts(def, node, wiredOutputs.get(node.id) ?? NO_HANDLES)
+      : { inputs: NO_PORTS as PortDef[], outputs: NO_PORTS as PortDef[] };
+    // What the card must say "connect me" about. The validator reports the same
+    // thing, but a node that looks finished while it is missing an input is the
+    // failure mode this fixes.
+    const unmetInputs = def
+      ? unwiredRequiredInputs(def, wiredInputs.get(node.id) ?? NO_HANDLES, node.inputValues ?? {})
+          .map((port) => port.name)
+      : [];
     const inlineFields = inlineFieldsFor(def);
     const inlineKeys = new Set(inlineFields.map((field) => field.key));
     const extraFields = def ? fieldsFor(def).filter((field) => !inlineKeys.has(field.key)) : [];
@@ -179,11 +218,13 @@ function buildNodes(
       label: node.label ?? def?.label ?? node.type,
       type: node.type,
       version: node.version,
+      description: def?.description ?? '',
       category: def?.category ?? 'transform',
       icon: def?.icon,
       sideEffects: def?.sideEffects ?? 'none',
-      inputs: (def?.inputs ?? NO_PORTS) as PortDef[],
-      outputs: (def?.outputs ?? NO_PORTS) as PortDef[],
+      inputs: ports.inputs,
+      outputs: ports.outputs,
+      unmetInputs,
       config: node.config,
       inlineFields,
       extraFields,
@@ -874,6 +915,21 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
 
       {helpOpen && (
         <div className="glass-tooltip absolute bottom-12 left-3 z-20 w-[292px] rounded-xl p-3">
+          <p className="mb-2 text-[11px] font-semibold text-foreground">Reading a node</p>
+          <ul className="mb-3 space-y-1 text-[10.5px] text-muted-foreground">
+            <li className="flex items-center gap-2">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+              <span>Round = a <span className="text-foreground/90">value</span>; square = a <span className="text-foreground/90">branch</span> (run control)</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="h-2 w-2 shrink-0 rounded-[2px] bg-primary" />
+              <span>Each connector is labelled; the subtitle says what the node does</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="h-2 w-2 shrink-0 rounded-full ring-1 ring-amber-400/60" />
+              <span>Amber ring = a required input still needs connecting</span>
+            </li>
+          </ul>
           <p className="mb-2 text-[11px] font-semibold text-foreground">Canvas shortcuts</p>
           <dl className="space-y-1.5 text-[10.5px]">
             {[
@@ -931,6 +987,8 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
           </div>
         </div>
       )}
+
+      {ir && !search && <GraphOnboarding />}
 
       {search && (
         <NodeSearchPanel

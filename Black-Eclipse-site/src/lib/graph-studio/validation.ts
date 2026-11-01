@@ -16,6 +16,7 @@ import type {
   WorkflowNode,
 } from './types';
 import { getNodeDefinition } from './registry';
+import { parseSwitchCases } from './node-ports';
 
 /** A literal counts when it is present, including an explicit `null` or `false`. */
 export function hasInputLiteral(node: WorkflowNode, portId: string): boolean {
@@ -184,6 +185,18 @@ export function validateWorkflow(ir: WorkflowIR): Diagnostic[] {
         });
       }
     }
+    if (def.type === 'logic.switch') {
+      // The runtime refuses a `cases` text that is not valid JSON, so surface it
+      // in the editor instead of at run time.
+      if (parseSwitchCases(node.config.cases) === null) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'invalid_switch_cases',
+          message: `Node "${node.id}" has switch cases that are not valid JSON — use a comma list (a, b, c) or a JSON array (["a,b", "c"]).`,
+          nodeId: node.id,
+        });
+      }
+    }
     if (def.sideEffects === 'trading' && !['paper', 'live'].includes(ir.settings.executionMode)) {
       diagnostics.push({
         severity: 'error',
@@ -238,6 +251,36 @@ export function validateWorkflow(ir: WorkflowIR): Diagnostic[] {
       });
     }
     connectedInputs.add(`${edge.target}:${edge.targetHandle}`);
+    if (srcDef?.type === 'logic.switch') {
+      const match = /^case(\d+)$/.exec(edge.sourceHandle);
+      const cases = parseSwitchCases(src.config.cases);
+      if (match && cases && Number(match[1]) > cases.length) {
+        diagnostics.push({
+          severity: 'warning',
+          code: 'switch_case_not_configured',
+          message: `Edge "${edge.id}" uses ${edge.sourceHandle}, but node "${src.id}" configures only ${cases.length} case(s). Add the case or rewire the branch.`,
+          edgeId: edge.id,
+          nodeId: src.id,
+        });
+      }
+    }
+  }
+
+  // A Switch can fire "Any match" AND the specific case at the same time, so
+  // wiring both makes two branches run. Say so before the run surprises someone.
+  for (const node of ir.nodes) {
+    if (nodeDefs.get(node.id)?.type !== 'logic.switch') continue;
+    const handles = new Set(
+      ir.edges.filter((edge) => edge.source === node.id).map((edge) => edge.sourceHandle),
+    );
+    if (handles.has('matched') && [...handles].some((handle) => /^case\d+$/.test(handle))) {
+      diagnostics.push({
+        severity: 'warning',
+        code: 'switch_double_branch',
+        message: `Node "${node.id}" wires both "Any match" and a specific case; both branches run when that case matches. Wire only one shape.`,
+        nodeId: node.id,
+      });
+    }
   }
 
   // Required inputs must be connected OR carry a literal on the node.

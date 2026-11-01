@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { CornerDownLeft, Search, X } from '@/lib/icons';
-import { listNodeDefinitions } from '@/lib/graph-studio/registry';
+import { listNodeDefinitions, getNodeDefinition } from '@/lib/graph-studio/registry';
 import type { NodeCategory, NodeDefinition, NodePosition } from '@/lib/graph-studio/types';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
 import {
@@ -87,6 +87,37 @@ export function NodeSearchPanel({
     }
     return [...map.entries()];
   }, [results]);
+
+  /**
+   * What this insertion point actually is. "Insert a node" is meaningless until
+   * you know the port you are plugging into — the list is already filtered to
+   * compatible nodes, so the hint explains WHY it is filtered.
+   */
+  const hint = useMemo(() => {
+    if (!ir) return null;
+    if (target.kind === 'edge') {
+      const edge = ir.edges.find((item) => item.id === target.edgeId);
+      if (!edge) return null;
+      const source = ir.nodes.find((node) => node.id === edge.source);
+      const targetNode = ir.nodes.find((node) => node.id === edge.target);
+      const sourceDef = source ? getNodeDefinition(source.type, source.version) : undefined;
+      const targetDef = targetNode ? getNodeDefinition(targetNode.type, targetNode.version) : undefined;
+      const outPort = sourceDef?.outputs.find((port) => port.id === edge.sourceHandle);
+      const inPort = targetDef?.inputs.find((port) => port.id === edge.targetHandle);
+      return `Between ${source?.label ?? edge.source} · ${outPort?.name ?? edge.sourceHandle} and ${inPort?.name ?? edge.targetHandle} — the new node must take ${inPort?.type ?? 'any'} in and give it back out.`;
+    }
+    if (target.kind === 'output') {
+      const node = ir.nodes.find((item) => item.id === target.nodeId);
+      const def = node ? getNodeDefinition(node.type, node.version) : undefined;
+      const port = def?.outputs.find((item) => item.id === target.handle);
+      const name = port?.name ?? target.handle;
+      if (port?.kind === 'control') {
+        return `After ${node?.label ?? target.nodeId} · ${name} — a branch (run control). Only nodes with a Run control input can follow it.`;
+      }
+      return `After ${node?.label ?? target.nodeId} · ${name} (${port?.type ?? 'any'}). The new node must accept that type.`;
+    }
+    return null;
+  }, [ir, target]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -214,11 +245,16 @@ export function NodeSearchPanel({
           />
           <span className="shrink-0 rounded border border-white/10 px-1.5 py-0.5 text-[9.5px] text-muted-foreground">Esc</span>
         </div>
+        {hint && (
+          <p className="shrink-0 border-b border-white/10 bg-white/[0.02] px-3 py-1.5 text-[10px] leading-snug text-muted-foreground">
+            {hint}
+          </p>
+        )}
         <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2.5">
           {results.length === 0 && (
             <p className="px-2 py-6 text-center text-[12px] text-muted-foreground">
               {compatible.length === 0
-                ? 'No node can be wired at this point.'
+                ? 'No node can be wired at this point. A control (branch) output only accepts a node with a Run control input, and a data output only accepts a matching type.'
                 : 'No matching nodes.'}
             </p>
           )}
@@ -249,7 +285,14 @@ export function NodeSearchPanel({
                         <span className="block truncate text-[12.5px] font-medium text-foreground">{def.label}</span>
                         <span className="block truncate text-[10.5px] text-muted-foreground">{def.description}</span>
                       </span>
-                      <span className="shrink-0 text-[9.5px] text-muted-foreground/70">{def.type}</span>
+                      <span className="shrink-0 text-right text-[9.5px] leading-tight text-muted-foreground/70">
+                        <span className="block">
+                          {def.inputs.length} in · {def.outputs.length} out
+                        </span>
+                        <span className="block">
+                          {def.outputs.some((p) => p.kind === 'control') ? 'branch' : def.type.split('.')[0]}
+                        </span>
+                      </span>
                     </button>
                   );
                 })}

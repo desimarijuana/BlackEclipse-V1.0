@@ -11,6 +11,8 @@ import { Trash2, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { getNodeDefinition } from '@/lib/graph-studio/registry';
 import { fieldsFor } from '@/lib/graph-studio/config-fields';
+import { exampleFor } from '@/lib/graph-studio/node-examples';
+import { visiblePorts } from '@/lib/graph-studio/node-ports';
 import { validateConfig } from '@/lib/graph-studio/validation';
 import { portColor, sideEffectColor } from '@/lib/graph-studio/port-style';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
@@ -49,12 +51,16 @@ function preview(value: unknown): string {
 }
 
 function PortRow({ port, direction }: { port: PortDef; direction: 'in' | 'out' }) {
+  const control = port.kind === 'control';
   return (
     <div className="flex items-center gap-2 py-0.5 text-[11px]">
-      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: portColor(port.type) }} />
+      <span
+        className={cn('h-2 w-2 shrink-0', control ? 'rounded-[2px]' : 'rounded-full')}
+        style={{ background: portColor(port.type) }}
+      />
       <span className="truncate text-foreground">{port.name}</span>
       <span className="ml-auto shrink-0 text-muted-foreground">
-        {direction === 'in' ? '←' : '→'} {port.type}
+        {direction === 'in' ? '←' : '→'} {control ? 'control' : port.type}
         {port.optional ? ' · optional' : ''}
       </span>
     </div>
@@ -285,7 +291,12 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
       .filter((edge) => edge.target === node.id)
       .map((edge) => edge.targetHandle),
   );
-  const dataInputs = def.inputs.filter((port) => port.kind !== 'control');
+  const wiredOutputs = (ir?.edges ?? [])
+    .filter((edge) => edge.source === node.id)
+    .map((edge) => edge.sourceHandle);
+  // The inspector must agree with the card: a Switch lists only the cases it has.
+  const shownPorts = visiblePorts(def, node, wiredOutputs);
+  const dataInputs = shownPorts.inputs.filter((port) => port.kind !== 'control');
 
   const openJson = () => {
     setJsonDraft(JSON.stringify(node.config, null, 2));
@@ -350,6 +361,7 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
               {def.sideEffects}
             </span>
           </div>
+          <p className="mt-1 px-1 text-[10px] leading-snug text-muted-foreground/80">{def.description}</p>
         </div>
         {onClose && (
           <button type="button" onClick={onClose} title="Close inspector" className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground">
@@ -407,7 +419,8 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
                   <option value="">Select a saved dataset…</option>
                   {datasets.map((dataset) => (
                     <option key={dataset.ref} value={dataset.ref}>
-                      {dataset.name} · {dataset.valueType} · {dataset.rows} row(s) · {dataset.bytes} B
+                      {dataset.name} · {dataset.valueType}
+                      {typeof dataset.rows === 'number' ? ` · ${dataset.rows} row(s)` : ''} · {dataset.bytes} B
                     </option>
                   ))}
                 </select>
@@ -718,6 +731,14 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
           <div className="space-y-4 px-3 py-3">
             <p className="text-[11px] leading-relaxed text-muted-foreground">{def.description}</p>
             {def.docs && <p className="text-[10px] leading-relaxed text-muted-foreground/70">{def.docs}</p>}
+            {exampleFor(def.type) && (
+              <section>
+                <div className="mb-1 text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">Example</div>
+                <p className="rounded-md border border-white/10 bg-background/50 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
+                  {exampleFor(def.type)}
+                </p>
+              </section>
+            )}
             <section>
               <div className="mb-1 text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">Notes</div>
               <textarea
@@ -734,11 +755,11 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
             </section>
             <section>
               <div className="mb-1 text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">Inputs</div>
-              {def.inputs.length === 0 ? <p className="text-[11px] text-muted-foreground">None</p> : def.inputs.map((port) => <PortRow key={port.id} port={port} direction="in" />)}
+              {shownPorts.inputs.length === 0 ? <p className="text-[11px] text-muted-foreground">None</p> : shownPorts.inputs.map((port) => <PortRow key={port.id} port={port} direction="in" />)}
             </section>
             <section>
               <div className="mb-1 text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">Outputs</div>
-              {def.outputs.length === 0 ? <p className="text-[11px] text-muted-foreground">None</p> : def.outputs.map((port) => <PortRow key={port.id} port={port} direction="out" />)}
+              {shownPorts.outputs.length === 0 ? <p className="text-[11px] text-muted-foreground">None</p> : shownPorts.outputs.map((port) => <PortRow key={port.id} port={port} direction="out" />)}
             </section>
             {def.capabilities.length > 0 && (
               <section>
