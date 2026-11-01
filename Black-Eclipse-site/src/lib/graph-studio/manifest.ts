@@ -21,10 +21,20 @@ export interface ManifestPort {
   nullable: boolean;
 }
 
+export interface ManifestConfigConstraints {
+  maxLength?: number;
+  enum?: string[];
+  min?: number;
+  max?: number;
+  integer?: boolean;
+}
+
 export interface ManifestConfigField {
   name: string;
   kind: 'string' | 'number' | 'boolean' | 'object' | 'array';
   default: unknown;
+  /** Bounds the runtime also enforces. Absent means "unconstrained". */
+  constraints?: ManifestConfigConstraints;
 }
 
 export interface ManifestNode {
@@ -67,11 +77,59 @@ function configKind(value: unknown): ManifestConfigField['kind'] {
   return 'string';
 }
 
+/**
+ * Read the declared bounds out of a zod field.
+ *
+ * The manifest's job is to let the Python suite prove it enforces the SAME
+ * limits the editor shows — comparing field names alone let a `max(200)` and a
+ * `max_length=4_000` disagree silently. `.def` is zod's public introspection
+ * surface, so this stays a pure read (no schema duplication).
+ */
+function constraintsOf(schema: unknown): ManifestConfigConstraints | undefined {
+  type Introspectable = {
+    def?: { type?: string; innerType?: unknown };
+    maxLength?: unknown;
+    options?: unknown;
+    minValue?: unknown;
+    maxValue?: unknown;
+    isInt?: unknown;
+  };
+  let current = schema as Introspectable | undefined;
+  // Unwrap `.default()` / `.optional()` / `.nullable()` wrappers.
+  while (current?.def && ['default', 'optional', 'nullable', 'readonly'].includes(current.def.type ?? '')) {
+    current = current.def.innerType as Introspectable | undefined;
+  }
+  const type = current?.def?.type;
+  if (!current || !type) return undefined;
+
+  // zod 4 exposes the bounds on the schema itself (`maxLength`, `minValue`…)
+  // and keeps only the kind on `.def`.
+  const constraints: ManifestConfigConstraints = {};
+  if (type === 'string' && typeof current.maxLength === 'number') {
+    constraints.maxLength = current.maxLength;
+  }
+  if (type === 'enum' && Array.isArray(current.options)) {
+    constraints.enum = (current.options as unknown[]).map((option) => String(option));
+  }
+  if (type === 'number') {
+    if (Number.isFinite(current.minValue)) constraints.min = current.minValue as number;
+    if (Number.isFinite(current.maxValue)) constraints.max = current.maxValue as number;
+    if (current.isInt === true) constraints.integer = true;
+  }
+  return Object.keys(constraints).length > 0 ? constraints : undefined;
+}
+
 function configFieldsOf(definition: NodeDefinition): ManifestConfigField[] {
   const defaults = definition.defaultConfig();
+  const shape = (definition.configSchema as { shape?: Record<string, unknown> } | undefined)?.shape ?? {};
   return Object.keys(defaults)
     .sort()
-    .map((name) => ({ name, kind: configKind(defaults[name]), default: defaults[name] }));
+    .map((name) => {
+      const field: ManifestConfigField = { name, kind: configKind(defaults[name]), default: defaults[name] };
+      const constraints = constraintsOf(shape[name]);
+      if (constraints) field.constraints = constraints;
+      return field;
+    });
 }
 
 function nodeOf(definition: NodeDefinition): ManifestNode {

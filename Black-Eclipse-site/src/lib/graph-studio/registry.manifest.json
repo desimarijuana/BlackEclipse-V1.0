@@ -40,27 +40,48 @@
         {
           "name": "agent",
           "kind": "string",
-          "default": "eclipse-agent"
+          "default": "eclipse-agent",
+          "constraints": {
+            "maxLength": 80
+          }
         },
         {
           "name": "agentVersion",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000,
+            "integer": true
+          }
         },
         {
           "name": "maxSteps",
           "kind": "number",
-          "default": 8
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 32,
+            "integer": true
+          }
         },
         {
           "name": "maxTasks",
           "kind": "number",
-          "default": 4
+          "default": 4,
+          "constraints": {
+            "min": 1,
+            "max": 6,
+            "integer": true
+          }
         },
         {
           "name": "tasksJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
         }
       ],
       "capabilities": [
@@ -121,7 +142,10 @@
         {
           "name": "objective",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
         }
       ],
       "capabilities": [
@@ -174,22 +198,38 @@
         {
           "name": "agent",
           "kind": "string",
-          "default": "eclipse-agent"
+          "default": "eclipse-agent",
+          "constraints": {
+            "maxLength": 80
+          }
         },
         {
           "name": "agentVersion",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000,
+            "integer": true
+          }
         },
         {
           "name": "maxSteps",
           "kind": "number",
-          "default": 8
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 32,
+            "integer": true
+          }
         },
         {
           "name": "objective",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
         }
       ],
       "capabilities": [
@@ -212,6 +252,14 @@
       "description": "Reads a dataset by reference. A missing or expired reference is an explicit failure.",
       "inputs": [
         {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
           "id": "ref",
           "name": "Ref",
           "type": "string",
@@ -236,13 +284,24 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "ref",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
         }
       ],
       "capabilities": [
@@ -265,6 +324,14 @@
       "description": "Stores a JSON payload in the local dataset store and returns a small reference.",
       "inputs": [
         {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
           "id": "value",
           "name": "Value",
           "type": "any",
@@ -289,23 +356,42 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "name",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
         },
         {
           "name": "ttlHours",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 8760,
+            "integer": true
+          }
         },
         {
           "name": "valueJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 100000
+          }
         }
       ],
       "capabilities": [
@@ -355,7 +441,10 @@
         {
           "name": "text",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
         }
       ],
       "capabilities": [],
@@ -441,12 +530,24 @@
         {
           "name": "dataType",
           "kind": "string",
-          "default": "string"
+          "default": "string",
+          "constraints": {
+            "enum": [
+              "string",
+              "number",
+              "boolean",
+              "object",
+              "array"
+            ]
+          }
         },
         {
           "name": "value",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 8000
+          }
         }
       ],
       "capabilities": [],
@@ -518,12 +619,18 @@
         {
           "name": "path",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 500
+          }
         },
         {
           "name": "scope",
           "kind": "string",
-          "default": "workspace"
+          "default": "workspace",
+          "constraints": {
+            "maxLength": 80
+          }
         }
       ],
       "capabilities": [
@@ -581,37 +688,75 @@
         {
           "name": "end",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
         },
         {
           "name": "freshness",
           "kind": "string",
-          "default": "slow"
+          "default": "slow",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "slow",
+              "any"
+            ]
+          }
         },
         {
           "name": "interval",
           "kind": "string",
-          "default": "1d"
+          "default": "1d",
+          "constraints": {
+            "enum": [
+              "1m",
+              "5m",
+              "15m",
+              "30m",
+              "1h",
+              "4h",
+              "1d",
+              "1w",
+              "1mo"
+            ]
+          }
         },
         {
           "name": "limit",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 5000,
+            "integer": true
+          }
         },
         {
           "name": "market",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
         },
         {
           "name": "start",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
         },
         {
           "name": "symbol",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
         }
       ],
       "capabilities": [
@@ -656,27 +801,59 @@
         {
           "name": "fast",
           "kind": "number",
-          "default": 12
+          "default": 12,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "kind",
           "kind": "string",
-          "default": "sma"
+          "default": "sma",
+          "constraints": {
+            "enum": [
+              "sma",
+              "ema",
+              "rsi",
+              "macd",
+              "atr",
+              "adx",
+              "vwap",
+              "bollinger"
+            ]
+          }
         },
         {
           "name": "period",
           "kind": "number",
-          "default": 20
+          "default": 20,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "signal",
           "kind": "number",
-          "default": 9
+          "default": 9,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "slow",
           "kind": "number",
-          "default": 26
+          "default": 26,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         }
       ],
       "capabilities": [
@@ -729,17 +906,34 @@
         {
           "name": "interval",
           "kind": "string",
-          "default": "1d"
+          "default": "1d",
+          "constraints": {
+            "enum": [
+              "1m",
+              "5m",
+              "15m",
+              "1h",
+              "1d"
+            ]
+          }
         },
         {
           "name": "lookback",
           "kind": "number",
-          "default": 200
+          "default": 200,
+          "constraints": {
+            "min": 1,
+            "max": 5000,
+            "integer": true
+          }
         },
         {
           "name": "symbol",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
         }
       ],
       "capabilities": [
@@ -792,17 +986,31 @@
         {
           "name": "freshness",
           "kind": "string",
-          "default": "realtime"
+          "default": "realtime",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "slow",
+              "any"
+            ]
+          }
         },
         {
           "name": "market",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
         },
         {
           "name": "symbol",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
         }
       ],
       "capabilities": [
@@ -824,6 +1032,14 @@
       "label": "For each",
       "description": "Runs a pinned body workflow once per array item, up to a hard cap.",
       "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
         {
           "id": "items",
           "name": "Items",
@@ -857,6 +1073,14 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
@@ -868,22 +1092,40 @@
         {
           "name": "maxDurationMs",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 86400000,
+            "integer": true
+          }
         },
         {
           "name": "maxIterations",
           "kind": "number",
-          "default": 100
+          "default": 100,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
         },
         {
           "name": "version",
           "kind": "number",
-          "default": 1
+          "default": 1,
+          "constraints": {
+            "min": 1,
+            "max": 1000000,
+            "integer": true
+          }
         },
         {
           "name": "workflowId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
         }
       ],
       "capabilities": [],
@@ -905,10 +1147,26 @@
       "inputs": [
         {
           "id": "in",
-          "name": "In",
+          "name": "Run",
           "type": "any",
           "kind": "control",
           "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "in2",
+          "name": "Run 2",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "in3",
+          "name": "Run 3",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
           "nullable": false
         },
         {
@@ -928,9 +1186,29 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
-      "configFields": [],
+      "configFields": [
+        {
+          "name": "require",
+          "kind": "string",
+          "default": "any",
+          "constraints": {
+            "enum": [
+              "any",
+              "all"
+            ]
+          }
+        }
+      ],
       "capabilities": [],
       "sideEffects": "none",
       "allowedModes": [
@@ -948,6 +1226,14 @@
       "label": "Repeat",
       "description": "Runs a pinned body workflow N times, passing the previous output on.",
       "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
         {
           "id": "input",
           "name": "Input",
@@ -981,28 +1267,59 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
+          "name": "continueOnError",
+          "kind": "boolean",
+          "default": false
+        },
+        {
           "name": "count",
           "kind": "number",
-          "default": 1
+          "default": 1,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
         },
         {
           "name": "maxDurationMs",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 86400000,
+            "integer": true
+          }
         },
         {
           "name": "version",
           "kind": "number",
-          "default": 1
+          "default": 1,
+          "constraints": {
+            "min": 1,
+            "max": 1000000,
+            "integer": true
+          }
         },
         {
           "name": "workflowId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
         }
       ],
       "capabilities": [],
@@ -1022,6 +1339,14 @@
       "label": "Subworkflow",
       "description": "Runs a pinned saved workflow as a nested run with the same grants.",
       "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
         {
           "id": "input",
           "name": "Input",
@@ -1047,18 +1372,34 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "version",
           "kind": "number",
-          "default": 1
+          "default": 1,
+          "constraints": {
+            "min": 1,
+            "max": 1000000,
+            "integer": true
+          }
         },
         {
           "name": "workflowId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
         }
       ],
       "capabilities": [],
@@ -1078,6 +1419,14 @@
       "label": "While",
       "description": "Runs a pinned body workflow while a safe numeric condition holds.",
       "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
         {
           "id": "input",
           "name": "Initial state",
@@ -1111,33 +1460,67 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "condition",
           "kind": "string",
-          "default": "value > 0"
+          "default": "value > 0",
+          "constraints": {
+            "maxLength": 500
+          }
+        },
+        {
+          "name": "continueOnError",
+          "kind": "boolean",
+          "default": false
         },
         {
           "name": "maxDurationMs",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 86400000,
+            "integer": true
+          }
         },
         {
           "name": "maxIterations",
           "kind": "number",
-          "default": 100
+          "default": 100,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
         },
         {
           "name": "version",
           "kind": "number",
-          "default": 1
+          "default": 1,
+          "constraints": {
+            "min": 1,
+            "max": 1000000,
+            "integer": true
+          }
         },
         {
           "name": "workflowId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
         }
       ],
       "capabilities": [],
@@ -1188,32 +1571,58 @@
         {
           "name": "bodyJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
         },
         {
           "name": "credentialEnvJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 10000
+          }
         },
         {
           "name": "headersJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 10000
+          }
         },
         {
           "name": "method",
           "kind": "string",
-          "default": "GET"
+          "default": "GET",
+          "constraints": {
+            "enum": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE"
+            ]
+          }
         },
         {
           "name": "timeoutMs",
           "kind": "number",
-          "default": 10000
+          "default": 10000,
+          "constraints": {
+            "min": 1000,
+            "max": 60000,
+            "integer": true
+          }
         },
         {
           "name": "url",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
         }
       ],
       "capabilities": [
@@ -1236,6 +1645,14 @@
       "description": "Numeric aggregate, optionally grouped by dotted fields.",
       "inputs": [
         {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
           "id": "items",
           "name": "Items",
           "type": "array",
@@ -1251,7 +1668,7 @@
           "type": "number",
           "kind": "data",
           "optional": false,
-          "nullable": false
+          "nullable": true
         },
         {
           "id": "groups",
@@ -1260,23 +1677,58 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "field",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
         },
         {
           "name": "groupBy",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 1000
+          }
         },
         {
           "name": "op",
           "kind": "string",
-          "default": "sum"
+          "default": "sum",
+          "constraints": {
+            "enum": [
+              "sum",
+              "avg",
+              "min",
+              "max",
+              "count",
+              "median",
+              "stddev",
+              "percentile"
+            ]
+          }
+        },
+        {
+          "name": "percentile",
+          "kind": "number",
+          "default": 50,
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
         }
       ],
       "capabilities": [],
@@ -1297,6 +1749,14 @@
       "description": "Routes control flow on a declared comparison.",
       "inputs": [
         {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
           "id": "value",
           "name": "Value",
           "type": "any",
@@ -1308,7 +1768,7 @@
       "outputs": [
         {
           "id": "true",
-          "name": "True",
+          "name": "If true",
           "type": "any",
           "kind": "control",
           "optional": false,
@@ -1316,7 +1776,7 @@
         },
         {
           "id": "false",
-          "name": "False",
+          "name": "If false",
           "type": "any",
           "kind": "control",
           "optional": false,
@@ -1335,12 +1795,26 @@
         {
           "name": "compareTo",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 400
+          }
         },
         {
           "name": "operator",
           "kind": "string",
-          "default": "truthy"
+          "default": "truthy",
+          "constraints": {
+            "enum": [
+              "eq",
+              "neq",
+              "gt",
+              "gte",
+              "lt",
+              "lte",
+              "truthy"
+            ]
+          }
         }
       ],
       "capabilities": [],
@@ -1361,6 +1835,14 @@
       "description": "Keeps the first row per key, or per whole row when keys is empty.",
       "inputs": [
         {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
           "id": "items",
           "name": "Items",
           "type": "array",
@@ -1385,13 +1867,40 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
+          "name": "caseInsensitive",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "keep",
+          "kind": "string",
+          "default": "first",
+          "constraints": {
+            "enum": [
+              "first",
+              "last"
+            ]
+          }
+        },
+        {
           "name": "keys",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 1000
+          }
         }
       ],
       "capabilities": [],
@@ -1412,6 +1921,14 @@
       "description": "Keeps numeric items whose formula result is non-zero.",
       "inputs": [
         {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
           "id": "items",
           "name": "Items",
           "type": "array",
@@ -1436,13 +1953,24 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "expression",
           "kind": "string",
-          "default": "value != 0"
+          "default": "value != 0",
+          "constraints": {
+            "maxLength": 400
+          }
         }
       ],
       "capabilities": [
@@ -1465,6 +1993,14 @@
       "description": "Evaluates a formula for each numeric item (vars: value, index).",
       "inputs": [
         {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
           "id": "items",
           "name": "Items",
           "type": "array",
@@ -1481,13 +2017,24 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "expression",
           "kind": "string",
-          "default": "value"
+          "default": "value",
+          "constraints": {
+            "maxLength": 400
+          }
         }
       ],
       "capabilities": [
@@ -1509,6 +2056,14 @@
       "label": "Merge",
       "description": "Joins two branches back into one value.",
       "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
         {
           "id": "a",
           "name": "A",
@@ -1534,13 +2089,28 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "strategy",
           "kind": "string",
-          "default": "first"
+          "default": "first_present",
+          "constraints": {
+            "enum": [
+              "first",
+              "first_present",
+              "object"
+            ]
+          }
         }
       ],
       "capabilities": [],
@@ -1561,6 +2131,14 @@
       "description": "Accumulates numeric items (vars: acc, value, index).",
       "inputs": [
         {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
           "id": "items",
           "name": "Items",
           "type": "array",
@@ -1577,13 +2155,24 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "expression",
           "kind": "string",
-          "default": "acc + value"
+          "default": "acc + value",
+          "constraints": {
+            "maxLength": 400
+          }
         },
         {
           "name": "initial",
@@ -1612,9 +2201,17 @@
       "inputs": [
         {
           "id": "in",
-          "name": "In",
+          "name": "Run",
           "type": "any",
           "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "value",
+          "name": "Output",
+          "type": "any",
+          "kind": "data",
           "optional": true,
           "nullable": false
         }
@@ -1633,12 +2230,21 @@
         {
           "name": "message",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 400
+          }
         },
         {
           "name": "status",
           "kind": "string",
-          "default": "succeeded"
+          "default": "succeeded",
+          "constraints": {
+            "enum": [
+              "succeeded",
+              "failed"
+            ]
+          }
         }
       ],
       "capabilities": [],
@@ -1659,6 +2265,14 @@
       "description": "Fires `matched` or `default` and reports the case index.",
       "inputs": [
         {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
           "id": "value",
           "name": "Value",
           "type": "any",
@@ -1670,7 +2284,7 @@
       "outputs": [
         {
           "id": "matched",
-          "name": "Matched",
+          "name": "Any match",
           "type": "any",
           "kind": "control",
           "optional": false,
@@ -1678,7 +2292,7 @@
         },
         {
           "id": "default",
-          "name": "Default",
+          "name": "No match",
           "type": "any",
           "kind": "control",
           "optional": false,
@@ -1691,13 +2305,80 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "case1",
+          "name": "Case 1",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "case2",
+          "name": "Case 2",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "case3",
+          "name": "Case 3",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "case4",
+          "name": "Case 4",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "case5",
+          "name": "Case 5",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "case6",
+          "name": "Case 6",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "case7",
+          "name": "Case 7",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "case8",
+          "name": "Case 8",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "cases",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 400
+          }
         }
       ],
       "capabilities": [],
@@ -1719,7 +2400,7 @@
       "inputs": [
         {
           "id": "in",
-          "name": "In",
+          "name": "Run",
           "type": "any",
           "kind": "control",
           "optional": true,
@@ -1734,13 +2415,26 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "ms",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 86400000,
+            "integer": true
+          }
         }
       ],
       "capabilities": [],
@@ -1774,7 +2468,10 @@
         {
           "name": "label",
           "kind": "string",
-          "default": "Result"
+          "default": "Result",
+          "constraints": {
+            "maxLength": 120
+          }
         }
       ],
       "capabilities": [],
@@ -1833,17 +2530,31 @@
         {
           "name": "atrMult",
           "kind": "number",
-          "default": 2
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
         },
         {
           "name": "atrPeriod",
           "kind": "number",
-          "default": 14
+          "default": 14,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "fast",
           "kind": "number",
-          "default": 12
+          "default": 12,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "includeSeries",
@@ -1853,77 +2564,140 @@
         {
           "name": "initialCapital",
           "kind": "number",
-          "default": 100000
+          "default": 100000,
+          "constraints": {
+            "min": 1000,
+            "max": 1000000000
+          }
         },
         {
           "name": "interval",
           "kind": "string",
-          "default": "1d"
+          "default": "1d",
+          "constraints": {
+            "maxLength": 10
+          }
         },
         {
           "name": "maxBars",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 20000,
+            "integer": true
+          }
         },
         {
           "name": "overbought",
           "kind": "number",
-          "default": 55
+          "default": 55,
+          "constraints": {
+            "min": 51,
+            "max": 99
+          }
         },
         {
           "name": "oversold",
           "kind": "number",
-          "default": 30
+          "default": 30,
+          "constraints": {
+            "min": 1,
+            "max": 49
+          }
         },
         {
           "name": "preset",
           "kind": "string",
-          "default": "ema_cross"
+          "default": "ema_cross",
+          "constraints": {
+            "enum": [
+              "ema_cross",
+              "rsi_reversion"
+            ]
+          }
         },
         {
           "name": "randomSeed",
           "kind": "number",
-          "default": 42
+          "default": 42,
+          "constraints": {
+            "min": 0,
+            "max": 2147483647,
+            "integer": true
+          }
         },
         {
           "name": "reward",
           "kind": "number",
-          "default": 2
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
         },
         {
           "name": "riskFreeRate",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": -0.5,
+            "max": 0.5
+          }
         },
         {
           "name": "rsiPeriod",
           "kind": "number",
-          "default": 14
+          "default": 14,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "sizePct",
           "kind": "number",
-          "default": 90
+          "default": 90,
+          "constraints": {
+            "min": 1,
+            "max": 100
+          }
         },
         {
           "name": "slow",
           "kind": "number",
-          "default": 50
+          "default": 50,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "stopPct",
           "kind": "number",
-          "default": 5
+          "default": 5,
+          "constraints": {
+            "min": 0.1,
+            "max": 100
+          }
         },
         {
           "name": "strategyJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
         },
         {
           "name": "symbol",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
         }
       ],
       "capabilities": [
@@ -1984,127 +2758,237 @@
         {
           "name": "atrMult",
           "kind": "number",
-          "default": 2
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
         },
         {
           "name": "atrPeriod",
           "kind": "number",
-          "default": 14
+          "default": 14,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "executionPerturbationJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 10000
+          }
         },
         {
           "name": "fast",
           "kind": "number",
-          "default": 12
+          "default": 12,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "initialCapital",
           "kind": "number",
-          "default": 100000
+          "default": 100000,
+          "constraints": {
+            "min": 1000,
+            "max": 1000000000
+          }
         },
         {
           "name": "interval",
           "kind": "string",
-          "default": "1d"
+          "default": "1d",
+          "constraints": {
+            "maxLength": 10
+          }
         },
         {
           "name": "method",
           "kind": "string",
-          "default": "trade_reshuffle"
+          "default": "trade_reshuffle",
+          "constraints": {
+            "enum": [
+              "trade_reshuffle",
+              "return_bootstrap",
+              "regime_block_bootstrap",
+              "parameter_perturbation",
+              "execution_perturbation"
+            ]
+          }
         },
         {
           "name": "overbought",
           "kind": "number",
-          "default": 55
+          "default": 55,
+          "constraints": {
+            "min": 51,
+            "max": 99
+          }
         },
         {
           "name": "oversold",
           "kind": "number",
-          "default": 30
+          "default": 30,
+          "constraints": {
+            "min": 1,
+            "max": 49
+          }
         },
         {
           "name": "perturbationJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 10000
+          }
         },
         {
           "name": "perturbationPct",
           "kind": "number",
-          "default": 0.1
+          "default": 0.1,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
         },
         {
           "name": "preset",
           "kind": "string",
-          "default": "ema_cross"
+          "default": "ema_cross",
+          "constraints": {
+            "enum": [
+              "ema_cross",
+              "rsi_reversion"
+            ]
+          }
         },
         {
           "name": "randomSeed",
           "kind": "number",
-          "default": 42
+          "default": 42,
+          "constraints": {
+            "min": 0,
+            "max": 2147483647,
+            "integer": true
+          }
         },
         {
           "name": "regimeBlockLength",
           "kind": "number",
-          "default": 1
+          "default": 1,
+          "constraints": {
+            "min": 0.1,
+            "max": 50
+          }
         },
         {
           "name": "regimeMix",
           "kind": "string",
-          "default": "resample"
+          "default": "resample",
+          "constraints": {
+            "enum": [
+              "resample",
+              "preserve"
+            ]
+          }
         },
         {
           "name": "reward",
           "kind": "number",
-          "default": 2
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
         },
         {
           "name": "riskFreeRate",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": -0.5,
+            "max": 0.5
+          }
         },
         {
           "name": "rsiPeriod",
           "kind": "number",
-          "default": 14
+          "default": 14,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "ruinThreshold",
           "kind": "number",
-          "default": 0.5
+          "default": 0.5,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
         },
         {
           "name": "simulations",
           "kind": "number",
-          "default": 1000
+          "default": 1000,
+          "constraints": {
+            "min": 1,
+            "max": 100000,
+            "integer": true
+          }
         },
         {
           "name": "sizePct",
           "kind": "number",
-          "default": 90
+          "default": 90,
+          "constraints": {
+            "min": 1,
+            "max": 100
+          }
         },
         {
           "name": "slow",
           "kind": "number",
-          "default": 50
+          "default": 50,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "stopPct",
           "kind": "number",
-          "default": 5
+          "default": 5,
+          "constraints": {
+            "min": 0.1,
+            "max": 100
+          }
         },
         {
           "name": "strategyJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
         },
         {
           "name": "symbol",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
         }
       ],
       "capabilities": [
@@ -2173,112 +3057,205 @@
         {
           "name": "atrMult",
           "kind": "number",
-          "default": 2
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
         },
         {
           "name": "atrPeriod",
           "kind": "number",
-          "default": 14
+          "default": 14,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "bootstrapIterations",
           "kind": "number",
-          "default": 1000
+          "default": 1000,
+          "constraints": {
+            "min": 0,
+            "max": 10000,
+            "integer": true
+          }
         },
         {
           "name": "confidence",
           "kind": "number",
-          "default": 0.95
+          "default": 0.95,
+          "constraints": {
+            "min": 0.5,
+            "max": 0.999
+          }
         },
         {
           "name": "fast",
           "kind": "number",
-          "default": 12
+          "default": 12,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "initialCapital",
           "kind": "number",
-          "default": 100000
+          "default": 100000,
+          "constraints": {
+            "min": 1000,
+            "max": 1000000000
+          }
         },
         {
           "name": "interval",
           "kind": "string",
-          "default": "1d"
+          "default": "1d",
+          "constraints": {
+            "maxLength": 10
+          }
         },
         {
           "name": "objective",
           "kind": "string",
-          "default": "sharpe"
+          "default": "sharpe",
+          "constraints": {
+            "maxLength": 40
+          }
         },
         {
           "name": "oosFraction",
           "kind": "number",
-          "default": 0.3
+          "default": 0.3,
+          "constraints": {
+            "min": 0.01,
+            "max": 0.99
+          }
         },
         {
           "name": "oosStartIndex",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 20000,
+            "integer": true
+          }
         },
         {
           "name": "overbought",
           "kind": "number",
-          "default": 55
+          "default": 55,
+          "constraints": {
+            "min": 51,
+            "max": 99
+          }
         },
         {
           "name": "oversold",
           "kind": "number",
-          "default": 30
+          "default": 30,
+          "constraints": {
+            "min": 1,
+            "max": 49
+          }
         },
         {
           "name": "preset",
           "kind": "string",
-          "default": "ema_cross"
+          "default": "ema_cross",
+          "constraints": {
+            "enum": [
+              "ema_cross",
+              "rsi_reversion"
+            ]
+          }
         },
         {
           "name": "randomSeed",
           "kind": "number",
-          "default": 42
+          "default": 42,
+          "constraints": {
+            "min": 0,
+            "max": 2147483647,
+            "integer": true
+          }
         },
         {
           "name": "reward",
           "kind": "number",
-          "default": 2
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
         },
         {
           "name": "riskFreeRate",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": -0.5,
+            "max": 0.5
+          }
         },
         {
           "name": "rsiPeriod",
           "kind": "number",
-          "default": 14
+          "default": 14,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "sizePct",
           "kind": "number",
-          "default": 90
+          "default": 90,
+          "constraints": {
+            "min": 1,
+            "max": 100
+          }
         },
         {
           "name": "slow",
           "kind": "number",
-          "default": 50
+          "default": 50,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "stopPct",
           "kind": "number",
-          "default": 5
+          "default": 5,
+          "constraints": {
+            "min": 0.1,
+            "max": 100
+          }
         },
         {
           "name": "strategyJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
         },
         {
           "name": "symbol",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
         }
       ],
       "capabilities": [
@@ -2347,117 +3324,216 @@
         {
           "name": "atrMult",
           "kind": "number",
-          "default": 2
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
         },
         {
           "name": "atrPeriod",
           "kind": "number",
-          "default": 14
+          "default": 14,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "fast",
           "kind": "number",
-          "default": 12
+          "default": 12,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "initialCapital",
           "kind": "number",
-          "default": 100000
+          "default": 100000,
+          "constraints": {
+            "min": 1000,
+            "max": 1000000000
+          }
         },
         {
           "name": "interval",
           "kind": "string",
-          "default": "1d"
+          "default": "1d",
+          "constraints": {
+            "maxLength": 10
+          }
         },
         {
           "name": "leaderboardSize",
           "kind": "number",
-          "default": 15
+          "default": 15,
+          "constraints": {
+            "min": 1,
+            "max": 100,
+            "integer": true
+          }
         },
         {
           "name": "maxEvaluations",
           "kind": "number",
-          "default": 60
+          "default": 60,
+          "constraints": {
+            "min": 1,
+            "max": 2000,
+            "integer": true
+          }
         },
         {
           "name": "method",
           "kind": "string",
-          "default": "random"
+          "default": "random",
+          "constraints": {
+            "enum": [
+              "grid",
+              "random",
+              "evolutionary",
+              "bayesian"
+            ]
+          }
         },
         {
           "name": "objective",
           "kind": "string",
-          "default": "sharpe"
+          "default": "sharpe",
+          "constraints": {
+            "maxLength": 40
+          }
         },
         {
           "name": "objectivesJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 400
+          }
         },
         {
           "name": "overbought",
           "kind": "number",
-          "default": 55
+          "default": 55,
+          "constraints": {
+            "min": 51,
+            "max": 99
+          }
         },
         {
           "name": "oversold",
           "kind": "number",
-          "default": 30
+          "default": 30,
+          "constraints": {
+            "min": 1,
+            "max": 49
+          }
         },
         {
           "name": "paramSpaceJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
         },
         {
           "name": "preset",
           "kind": "string",
-          "default": "ema_cross"
+          "default": "ema_cross",
+          "constraints": {
+            "enum": [
+              "ema_cross",
+              "rsi_reversion"
+            ]
+          }
         },
         {
           "name": "randomSeed",
           "kind": "number",
-          "default": 42
+          "default": 42,
+          "constraints": {
+            "min": 0,
+            "max": 2147483647,
+            "integer": true
+          }
         },
         {
           "name": "reward",
           "kind": "number",
-          "default": 2
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
         },
         {
           "name": "riskFreeRate",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": -0.5,
+            "max": 0.5
+          }
         },
         {
           "name": "rsiPeriod",
           "kind": "number",
-          "default": 14
+          "default": 14,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "sizePct",
           "kind": "number",
-          "default": 90
+          "default": 90,
+          "constraints": {
+            "min": 1,
+            "max": 100
+          }
         },
         {
           "name": "slow",
           "kind": "number",
-          "default": 50
+          "default": 50,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "stopPct",
           "kind": "number",
-          "default": 5
+          "default": 5,
+          "constraints": {
+            "min": 0.1,
+            "max": 100
+          }
         },
         {
           "name": "strategyJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
         },
         {
           "name": "symbol",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
         }
       ],
       "capabilities": [
@@ -2502,12 +3578,23 @@
         {
           "name": "kind",
           "kind": "string",
-          "default": "simple"
+          "default": "simple",
+          "constraints": {
+            "enum": [
+              "simple",
+              "log"
+            ]
+          }
         },
         {
           "name": "period",
           "kind": "number",
-          "default": 1
+          "default": 1,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         }
       ],
       "capabilities": [
@@ -2557,12 +3644,22 @@
         {
           "name": "period",
           "kind": "number",
-          "default": 20
+          "default": 20,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "periodsPerYear",
           "kind": "number",
-          "default": 252
+          "default": 252,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
         }
       ],
       "capabilities": [
@@ -2628,122 +3725,228 @@
         {
           "name": "atrMult",
           "kind": "number",
-          "default": 2
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
         },
         {
           "name": "atrPeriod",
           "kind": "number",
-          "default": 14
+          "default": 14,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "fast",
           "kind": "number",
-          "default": 12
+          "default": 12,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "initialCapital",
           "kind": "number",
-          "default": 100000
+          "default": 100000,
+          "constraints": {
+            "min": 1000,
+            "max": 1000000000
+          }
         },
         {
           "name": "interval",
           "kind": "string",
-          "default": "1d"
+          "default": "1d",
+          "constraints": {
+            "maxLength": 10
+          }
         },
         {
           "name": "maxEvaluations",
           "kind": "number",
-          "default": 40
+          "default": 40,
+          "constraints": {
+            "min": 1,
+            "max": 2000,
+            "integer": true
+          }
         },
         {
           "name": "method",
           "kind": "string",
-          "default": "random"
+          "default": "random",
+          "constraints": {
+            "enum": [
+              "grid",
+              "random",
+              "evolutionary",
+              "bayesian"
+            ]
+          }
         },
         {
           "name": "objective",
           "kind": "string",
-          "default": "sharpe"
+          "default": "sharpe",
+          "constraints": {
+            "maxLength": 40
+          }
         },
         {
           "name": "overbought",
           "kind": "number",
-          "default": 55
+          "default": 55,
+          "constraints": {
+            "min": 51,
+            "max": 99
+          }
         },
         {
           "name": "oversold",
           "kind": "number",
-          "default": 30
+          "default": 30,
+          "constraints": {
+            "min": 1,
+            "max": 49
+          }
         },
         {
           "name": "paramSpaceJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
         },
         {
           "name": "preset",
           "kind": "string",
-          "default": "ema_cross"
+          "default": "ema_cross",
+          "constraints": {
+            "enum": [
+              "ema_cross",
+              "rsi_reversion"
+            ]
+          }
         },
         {
           "name": "randomSeed",
           "kind": "number",
-          "default": 42
+          "default": 42,
+          "constraints": {
+            "min": 0,
+            "max": 2147483647,
+            "integer": true
+          }
         },
         {
           "name": "reward",
           "kind": "number",
-          "default": 2
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
         },
         {
           "name": "riskFreeRate",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": -0.5,
+            "max": 0.5
+          }
         },
         {
           "name": "rsiPeriod",
           "kind": "number",
-          "default": 14
+          "default": 14,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "sizePct",
           "kind": "number",
-          "default": 90
+          "default": 90,
+          "constraints": {
+            "min": 1,
+            "max": 100
+          }
         },
         {
           "name": "slow",
           "kind": "number",
-          "default": 50
+          "default": 50,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "stepBars",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 2000,
+            "integer": true
+          }
         },
         {
           "name": "stopPct",
           "kind": "number",
-          "default": 5
+          "default": 5,
+          "constraints": {
+            "min": 0.1,
+            "max": 100
+          }
         },
         {
           "name": "strategyJson",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
         },
         {
           "name": "symbol",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
         },
         {
           "name": "testBars",
           "kind": "number",
-          "default": 60
+          "default": 60,
+          "constraints": {
+            "min": 5,
+            "max": 2000,
+            "integer": true
+          }
         },
         {
           "name": "trainBars",
           "kind": "number",
-          "default": 250
+          "default": 250,
+          "constraints": {
+            "min": 20,
+            "max": 5000,
+            "integer": true
+          }
         }
       ],
       "capabilities": [
@@ -2788,7 +3991,12 @@
         {
           "name": "period",
           "kind": "number",
-          "default": 20
+          "default": 20,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
         }
       ],
       "capabilities": [
@@ -2841,12 +4049,20 @@
         {
           "name": "limit",
           "kind": "number",
-          "default": 100
+          "default": 100,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
         },
         {
           "name": "researchId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
         }
       ],
       "capabilities": [
@@ -2923,7 +4139,10 @@
         {
           "name": "claim",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
         },
         {
           "name": "evidenceIds",
@@ -2933,7 +4152,10 @@
         {
           "name": "researchId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
         }
       ],
       "capabilities": [
@@ -2978,7 +4200,10 @@
         {
           "name": "researchId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
         }
       ],
       "capabilities": [
@@ -3023,12 +4248,20 @@
         {
           "name": "limit",
           "kind": "number",
-          "default": 100
+          "default": 100,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
         },
         {
           "name": "researchId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
         }
       ],
       "capabilities": [
@@ -3081,17 +4314,28 @@
         {
           "name": "limit",
           "kind": "number",
-          "default": 100
+          "default": 100,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
         },
         {
           "name": "query",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 500
+          }
         },
         {
           "name": "researchId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
         }
       ],
       "capabilities": [
@@ -3144,7 +4388,10 @@
         {
           "name": "researchId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
         }
       ],
       "capabilities": [
@@ -3197,12 +4444,22 @@
         {
           "name": "maxChars",
           "kind": "number",
-          "default": 4000
+          "default": 4000,
+          "constraints": {
+            "min": 500,
+            "max": 100000,
+            "integer": true
+          }
         },
         {
           "name": "maxPages",
           "kind": "number",
-          "default": 5
+          "default": 5,
+          "constraints": {
+            "min": 1,
+            "max": 10,
+            "integer": true
+          }
         },
         {
           "name": "sameDomain",
@@ -3212,7 +4469,10 @@
         {
           "name": "url",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
         }
       ],
       "capabilities": [
@@ -3278,17 +4538,28 @@
         {
           "name": "maxChars",
           "kind": "number",
-          "default": 8000
+          "default": 8000,
+          "constraints": {
+            "min": 500,
+            "max": 100000,
+            "integer": true
+          }
         },
         {
           "name": "researchId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
         },
         {
           "name": "url",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
         }
       ],
       "capabilities": [
@@ -3351,12 +4622,20 @@
         {
           "name": "limit",
           "kind": "number",
-          "default": 8
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 15,
+            "integer": true
+          }
         },
         {
           "name": "query",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 500
+          }
         }
       ],
       "capabilities": [
@@ -3400,7 +4679,10 @@
         {
           "name": "connectionId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
         }
       ],
       "capabilities": [
@@ -3453,22 +4735,45 @@
         {
           "name": "connectionId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
         },
         {
           "name": "count",
           "kind": "number",
-          "default": 120
+          "default": 120,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
         },
         {
           "name": "symbol",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
         },
         {
           "name": "timeframe",
           "kind": "string",
-          "default": "H1"
+          "default": "H1",
+          "constraints": {
+            "enum": [
+              "M1",
+              "M5",
+              "M15",
+              "M30",
+              "H1",
+              "H4",
+              "D1",
+              "W1"
+            ]
+          }
         }
       ],
       "capabilities": [
@@ -3521,7 +4826,10 @@
         {
           "name": "connectionId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
         }
       ],
       "capabilities": [
@@ -3585,12 +4893,20 @@
         {
           "name": "connectionId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
         },
         {
           "name": "deviation",
           "kind": "number",
-          "default": 20
+          "default": 20,
+          "constraints": {
+            "min": 0,
+            "max": 1000,
+            "integer": true
+          }
         }
       ],
       "capabilities": [
@@ -3657,7 +4973,10 @@
         {
           "name": "connectionId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
         }
       ],
       "capabilities": [
@@ -3716,12 +5035,18 @@
         {
           "name": "connectionId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
         },
         {
           "name": "mandateId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
         }
       ],
       "capabilities": [
@@ -3772,12 +5097,18 @@
         {
           "name": "connectionId",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
         },
         {
           "name": "symbol",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
         }
       ],
       "capabilities": [
@@ -3862,17 +5193,28 @@
         {
           "name": "accountId",
           "kind": "string",
-          "default": "paper"
+          "default": "paper",
+          "constraints": {
+            "maxLength": 80
+          }
         },
         {
           "name": "commissionPct",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 10
+          }
         },
         {
           "name": "initialCash",
           "kind": "number",
-          "default": 100000
+          "default": 100000,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000000
+          }
         },
         {
           "name": "persist",
@@ -3882,12 +5224,20 @@
         {
           "name": "price",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
         },
         {
           "name": "slippagePct",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 10
+          }
         }
       ],
       "capabilities": [
@@ -3963,27 +5313,47 @@
         {
           "name": "currentSymbolValue",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": -1000000000000,
+            "max": 1000000000000
+          }
         },
         {
           "name": "dailyPnl",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": -1000000000000,
+            "max": 1000000000000
+          }
         },
         {
           "name": "dailyStartEquity",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000000
+          }
         },
         {
           "name": "equity",
           "kind": "number",
-          "default": 100000
+          "default": 100000,
+          "constraints": {
+            "min": 1,
+            "max": 1000000000000
+          }
         },
         {
           "name": "grossExposure",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000000
+          }
         },
         {
           "name": "hasStop",
@@ -3998,42 +5368,76 @@
         {
           "name": "maxDailyLossPct",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
         },
         {
           "name": "maxGrossExposure",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
         },
         {
           "name": "maxLeverage",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
         },
         {
           "name": "maxOpenPositions",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000,
+            "integer": true
+          }
         },
         {
           "name": "maxPositionPct",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
         },
         {
           "name": "maxRiskPerTradePct",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
         },
         {
           "name": "openPositions",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 10000,
+            "integer": true
+          }
         },
         {
           "name": "price",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
         },
         {
           "name": "requireStop",
@@ -4043,7 +5447,11 @@
         {
           "name": "stopDistance",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
         }
       ],
       "capabilities": [
@@ -4064,9 +5472,17 @@
       "description": "Evaluates a bounded arithmetic expression over numeric inputs.",
       "inputs": [
         {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
           "id": "x",
           "name": "X",
-          "type": "number",
+          "type": "any",
           "kind": "data",
           "optional": false,
           "nullable": false
@@ -4074,7 +5490,7 @@
         {
           "id": "y",
           "name": "Y",
-          "type": "number",
+          "type": "any",
           "kind": "data",
           "optional": true,
           "nullable": false
@@ -4088,13 +5504,24 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "expression",
           "kind": "string",
-          "default": "x"
+          "default": "x",
+          "constraints": {
+            "maxLength": 400
+          }
         }
       ],
       "capabilities": [
@@ -4114,8 +5541,16 @@
       "version": "1.0.0",
       "category": "transform",
       "label": "Join rows",
-      "description": "Inner or left join of two arrays of objects on a dotted key.",
+      "description": "Inner, left, right, full or anti join of two arrays of objects on dotted keys.",
       "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
         {
           "id": "left",
           "name": "Left",
@@ -4149,23 +5584,71 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
+          "name": "caseInsensitive",
+          "kind": "boolean",
+          "default": false
+        },
+        {
           "name": "how",
           "kind": "string",
-          "default": "inner"
+          "default": "inner",
+          "constraints": {
+            "enum": [
+              "inner",
+              "left",
+              "right",
+              "full",
+              "anti"
+            ]
+          }
         },
         {
           "name": "leftKey",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 1000
+          }
+        },
+        {
+          "name": "onDuplicate",
+          "kind": "string",
+          "default": "first",
+          "constraints": {
+            "enum": [
+              "first",
+              "last",
+              "all"
+            ]
+          }
         },
         {
           "name": "rightKey",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 1000
+          }
+        },
+        {
+          "name": "suffix",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 100
+          }
         }
       ],
       "capabilities": [],
@@ -4186,6 +5669,14 @@
       "description": "Selects and renames columns in an array of objects.",
       "inputs": [
         {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
           "id": "rows",
           "name": "Rows",
           "type": "array",
@@ -4202,18 +5693,52 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "dropped",
+          "name": "Dropped",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "fields",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
+        },
+        {
+          "name": "onMissing",
+          "kind": "string",
+          "default": "null",
+          "constraints": {
+            "enum": [
+              "null",
+              "drop",
+              "error"
+            ]
+          }
         },
         {
           "name": "rename",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
         }
       ],
       "capabilities": [],
@@ -4231,8 +5756,16 @@
       "version": "1.0.0",
       "category": "transform",
       "label": "Sort / limit",
-      "description": "Sorts rows by a dotted field (or the whole row) and optionally limits them.",
+      "description": "Sorts rows by dotted keys (or the whole row) and optionally limits them.",
       "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
         {
           "id": "rows",
           "name": "Rows",
@@ -4250,23 +5783,60 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
+          "name": "caseInsensitive",
+          "kind": "boolean",
+          "default": false
+        },
+        {
           "name": "field",
           "kind": "string",
-          "default": ""
+          "default": "",
+          "constraints": {
+            "maxLength": 1000
+          }
         },
         {
           "name": "limit",
           "kind": "number",
-          "default": 0
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 100000,
+            "integer": true
+          }
+        },
+        {
+          "name": "offset",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 100000,
+            "integer": true
+          }
         },
         {
           "name": "order",
           "kind": "string",
-          "default": "asc"
+          "default": "asc",
+          "constraints": {
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          }
         }
       ],
       "capabilities": [],
@@ -4286,6 +5856,14 @@
       "label": "Template",
       "description": "Renders a string template from its inputs.",
       "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
         {
           "id": "a",
           "name": "A",
@@ -4311,13 +5889,24 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
         {
           "name": "template",
           "kind": "string",
-          "default": "{{a}}"
+          "default": "{{a}}",
+          "constraints": {
+            "maxLength": 4000
+          }
         }
       ],
       "capabilities": [],
@@ -4426,12 +6015,21 @@
         {
           "name": "mode",
           "kind": "string",
-          "default": "draft"
+          "default": "draft",
+          "constraints": {
+            "enum": [
+              "draft",
+              "final"
+            ]
+          }
         },
         {
           "name": "title",
           "kind": "string",
-          "default": "Market recap"
+          "default": "Market recap",
+          "constraints": {
+            "maxLength": 80
+          }
         }
       ],
       "capabilities": [

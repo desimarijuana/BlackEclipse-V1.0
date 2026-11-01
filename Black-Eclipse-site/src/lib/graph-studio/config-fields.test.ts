@@ -53,6 +53,81 @@ describe('config field presentation', () => {
     expect(inlineFieldsFor(sort).map((field) => field.key)).toEqual(['field', 'order']);
   });
 
+  it('presents the transform-node controls', () => {
+    const join = getNodeDefinition('transform.join')!;
+    const joinFields = fieldsFor(join);
+    expect(joinFields.find((field) => field.key === 'how')?.options?.map((option) => option.value))
+      .toEqual(['inner', 'left', 'right', 'full', 'anti']);
+    expect(joinFields.find((field) => field.key === 'onDuplicate')?.kind).toBe('select');
+    expect(joinFields.find((field) => field.key === 'caseInsensitive')?.kind).toBe('boolean');
+    expect(joinFields.find((field) => field.key === 'suffix')?.label).toBe('Right column suffix');
+
+    const sort = getNodeDefinition('transform.sort_limit')!;
+    const sortFields = fieldsFor(sort);
+    expect(sortFields.find((field) => field.key === 'offset')?.kind).toBe('number');
+    expect(sortFields.find((field) => field.key === 'field')?.placeholder).toBe('date desc, symbol');
+
+    const select = getNodeDefinition('transform.select')!;
+    expect(fieldsFor(select).find((field) => field.key === 'onMissing')?.options?.map((option) => option.value))
+      .toEqual(['null', 'drop', 'error']);
+    const rename = fieldsFor(select).find((field) => field.key === 'rename');
+    expect(rename?.kind).toBe('keyvalue');
+    expect(rename?.jsonString).toBe(true);
+
+    const sortCase = sortFields.find((field) => field.key === 'caseInsensitive');
+    expect(sortCase?.kind).toBe('boolean');
+
+    const template = getNodeDefinition('transform.template')!;
+    expect(fieldsFor(template).find((field) => field.key === 'template')?.kind).toBe('textarea');
+
+    const aggregate = getNodeDefinition('logic.aggregate')!;
+    const aggregateFields = fieldsFor(aggregate);
+    expect(aggregateFields.find((field) => field.key === 'op')?.options?.map((option) => option.value))
+      .toEqual(['sum', 'avg', 'min', 'max', 'count', 'median', 'stddev', 'percentile']);
+    expect(aggregateFields.find((field) => field.key === 'percentile')).toMatchObject({
+      kind: 'number',
+      min: 0,
+      max: 100,
+    });
+  });
+
+  it('declares a control in/out on the transform and table nodes', () => {
+    for (const type of [
+      'transform.template', 'transform.formula', 'transform.select', 'transform.sort_limit',
+      'transform.join', 'logic.aggregate', 'logic.deduplicate', 'logic.map', 'logic.filter',
+      'logic.reduce', 'data.dataset.save', 'data.dataset.load',
+    ]) {
+      const def = getNodeDefinition(type)!;
+      expect(def.inputs.find((port) => port.id === 'in')?.kind, type).toBe('control');
+      expect(def.outputs.find((port) => port.id === 'done')?.kind, type).toBe('control');
+    }
+  });
+
+  it('gives the branch and flow nodes a consistent control surface', () => {
+    // Every logic/flow node can be gated...
+    for (const type of [
+      'logic.condition', 'logic.switch', 'logic.merge', 'flow.gate', 'logic.wait',
+      'logic.stop', 'flow.subworkflow', 'flow.for_each', 'flow.repeat', 'flow.while',
+    ]) {
+      expect(getNodeDefinition(type)!.inputs.find((port) => port.id === 'in')?.kind, type).toBe('control');
+    }
+    // ...and everything except the branch routers and Stop can chain a `done`.
+    for (const type of [
+      'logic.merge', 'flow.gate', 'logic.wait', 'flow.subworkflow',
+      'flow.for_each', 'flow.repeat', 'flow.while',
+    ]) {
+      expect(getNodeDefinition(type)!.outputs.find((port) => port.id === 'done')?.kind, type).toBe('control');
+    }
+    // A branch router keeps its exclusive outputs instead of a `done`.
+    expect(getNodeDefinition('logic.condition')!.outputs.map((port) => port.id))
+      .toEqual(['true', 'false', 'result']);
+    expect(getNodeDefinition('logic.switch')!.outputs.map((port) => port.id))
+      .toEqual(['matched', 'default', 'caseIndex', 'case1', 'case2', 'case3', 'case4', 'case5', 'case6', 'case7', 'case8']);
+    // Merge's strategy used to render as a free-text box.
+    expect(fieldsFor(getNodeDefinition('logic.merge')!).find((field) => field.key === 'strategy')?.kind)
+      .toBe('select');
+  });
+
   it('keeps the manual trigger zero-config', () => {
     const def = getNodeDefinition('trigger.manual')!;
     expect(def.defaultConfig()).toEqual({});
@@ -69,9 +144,10 @@ describe('config field presentation', () => {
   });
 
   it('falls back to a humanized text/number/boolean/json field when unannotated', () => {
-    const def = getNodeDefinition('logic.merge')!;
+    const def = getNodeDefinition('flow.subworkflow')!;
     expect(fieldsFor(def)).toMatchObject([
-      { key: 'strategy', label: 'Strategy', kind: 'text' },
+      { key: 'workflowId', label: 'Workflow Id', kind: 'text' },
+      { key: 'version', label: 'Version', kind: 'number' },
     ]);
     const quant = getNodeDefinition('quant.zscore')!;
     expect(fieldsFor(quant)).toMatchObject([

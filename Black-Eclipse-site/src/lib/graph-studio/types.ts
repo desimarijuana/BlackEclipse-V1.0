@@ -188,6 +188,12 @@ export interface ConfigFieldDef {
   kind: 'text' | 'number' | 'boolean' | 'select' | 'json'
     | 'textarea' | 'keyvalue' | 'code' | 'combobox' | 'slider';
   /**
+   * For `keyvalue`: the persisted value is a JSON *string*, not an object.
+   * Gives a legacy string-typed field (e.g. a rename map) the row editor
+   * without changing the stored contract.
+   */
+  jsonString?: boolean;
+  /**
    * The input port this field shadows when wired, when it differs from `key`.
    * `agent.research` is the canonical case: the canvas field is `objective`
    * but the wire that supplies it is the `query` port.
