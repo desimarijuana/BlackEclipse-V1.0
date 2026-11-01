@@ -1,7 +1,7 @@
 ---
 title: Graph Studio — Visual Workflow Engineering
 status: Current
-last-verified: 2026-10-30
+last-verified: 2026-10-31
 ---
 
 # Graph Studio
@@ -119,11 +119,16 @@ drives the palette, the other authorizes execution. They must describe the SAME
 contracts.
 
 - `manifest.ts` renders the TS registry into `registry.manifest.json` (ports,
-  config field names/types, capabilities, side effects, modes, terminal).
+  config field names/types and their bounds — `maxLength`, `enum`, `min`/`max`,
+  `integer` — capabilities, side effects, modes, terminal).
 - After changing ANY node contract run `npm run graph:manifest`.
 - `src/lib/graph-studio/manifest.test.ts` fails when the checked-in JSON is
   stale; `python/tests/test_graph_registry_parity.py` fails when the Python
-  registry disagrees with it. A node that exists in only one side is an error.
+  registry disagrees with it — including when the two sides disagree about a
+  field's bounds. A node that exists in only one side is an error.
+- Additive changes (an optional port, a new defaulted config field, a widened
+  port type) keep `type@version`; removing or renaming a contract does not
+  (ADR-H344).
 
 The manifest covers **54 node types**, and every registered type has an
 executor in the runtime. `flow.subworkflow` is the one special case: the
@@ -192,6 +197,72 @@ The screen has two internal views (no router):
   falls back to the definition's `defaultConfig()` shape for nodes without
   overrides — persisted config and semantics are unchanged. Auto-layout gaps keep
   enough vertical room for a node with two inline fields.
+
+### Reading a node
+
+A node has to answer four questions without a manual:
+
+- **What does it do?** The card's subtitle is the node's own one-line
+  `description` ("Routes the run down one of two branches"), not its category.
+  The category is in the tooltip and the inspector.
+- **Which connector is which?** Every port carries a visible label beside its
+  handle — `If true`, `If false`, `No match`, `Any match`, `Items`, `Done` —
+  on a translucent chip so an edge cannot hide it. Labels sit outside the card
+  (outputs right, inputs left); single-port nodes keep just the dot.
+- **Is it a branch or a value?** Control ports are **square**, data ports are
+  **round**. A branch handle can never be mistaken for a value handle.
+- **Which output do I pick?** Branch outputs come first, in the order the
+  sentence reads. A `Switch` shows one output per configured case (labelled with
+  the case value), then `No match` and `Any match`; its `Case index` data output
+  only appears on the card when something is wired to it. "Any match" fires on
+  every match, so wiring both it and a `caseN` runs both branches — the validator
+  warns about that (`switch_double_branch`).
+
+```
+                         ┌──────────────────────────────┐
+   Value ●───────────────┤  If / else                   ├──── ■ If true
+        (round = value)  │  Routes the run down one of  ├──── ■ If false
+                         │  two branches                ├──── ● Result
+                         └──────────────────────────────┘
+                              ▲                              ▲
+                     the label is the port name      square = branch (run control)
+```
+
+Every handle is labelled with its port name; the card subtitle is the node's
+one-line description. An amber ring means a required input is still unwired.
+
+The inspector's Settings tab lists the **same** visible ports (a Switch no longer
+lists eight unused cases) and marks each one `control` or `data`. The canvas and
+the inspector derive their ports from one helper (`node-ports.ts`), so they cannot
+disagree.
+
+**A node that needs something says so.** A required input that is neither wired
+nor given a node literal puts an amber ring on the card and a `Connect: Items`
+line under the header; the same list is the tooltip on the warning icon. It is
+the card's version of the validator's `missing_required_input`, so a half-wired
+node no longer looks finished. The palette shows `N in · M out` and a `branch`
+marker, and the inspector header repeats the node's one-line description.
+
+**A branch that goes nowhere is reported.** When a node with more than one
+control output (`If / else`, `Switch`) fires a branch and nothing is wired to it,
+the run log records `branch If true fired but nothing is connected to it — the run
+continues with no effect`. Nodes with a single `done` control stay quiet: an
+unwired `done` is not a decision.
+
+The canvas `?` panel opens with a three-line **Reading a node** legend (round =
+value, square = branch, amber ring = needs a connection).
+
+**Inserting a node explains the port it lands on.** The add-a-step panel is
+already filtered to nodes that can be wired at the chosen point; it now says
+*why*: `After If / else · If true — a branch (run control). Only nodes with a Run
+control input can follow it.` or `After Filter · Items (array). The new node must
+accept that type.` For an insertion on an edge it names both sides. When the list
+is empty it explains the rule instead of saying "no node can be wired here".
+
+**Every logic node has a worked example.** The inspector's Settings tab shows an
+input → output line (from `node-examples.ts`, presentation only, not part of the
+contract), e.g. `cases "buy, sell, hold" · value "sell" → case2 fires (plus Any
+match), Case index = 1`.
 
 ### Visual language
 
@@ -325,7 +396,9 @@ JDDS and forwards it.
 | --- | --- |
 | `model.py` | The IR contracts (pydantic, camelCase aliases mirroring the TS schema) + run/plan DTOs. Untrusted input: every field is re-validated. |
 | `registry.py` | The node SDK: typed ports, config fields, capabilities, side-effect class, allowed modes, executor, timeout/retry. |
-| `nodes.py` | The built-in PURE executors (incl. a real safe formula language — never `eval`) and the registered-but-unavailable contracts for later phases. |
+| `nodes.py` | The built-in PURE executors and the registered-but-unavailable contracts for later phases. Re-exports the formula and template helpers so existing imports keep working. |
+| `formula.py` | The bounded safe formula language (tokenizer + recursive-descent parser, fixed function table, hard token/length bounds, lazy `if()`) — never `eval`. Shared by the formula/map/filter/reduce nodes and loop conditions. |
+| `template.py` | The bounded template renderer (dotted paths, format specs, nested `{{#each}}` row blocks, output/row/depth caps spent while rendering). |
 | `compiler.py` | IR → `ExecutionPlan`: structural validation, longest-path **layers** (the parallelizable set) + deterministic topological order, mode checks and the **permission envelope**. |
 | `executor.py` | Deterministic layer scheduler: `pending → ready → running → succeeded \| failed \| cancelled` (+ `skipped`), per-node timeout, retries, cancellation, output-schema validation, bounded input/output previews, event log. |
 | `store.py` | Runs, **normalized node runs**, events and per-node checkpoints on `agent-memory.db`. Large node outputs stay as previews but make the run non-resumable. |
@@ -400,10 +473,10 @@ New nodes (both registries, Python executors, `scripts`-free and bounded):
 | Node | Semantics |
 | --- | --- |
 | `flow.gate` | Runs only when its control input fires — the branch primitive. |
-| `logic.switch` | Fires `matched`/`default` and reports `caseIndex`. |
+| `logic.switch` | Fires the matching `caseN` (plus `matched`), else `default`; reports `caseIndex`. The card draws one output per configured case, labelled with its value. |
 | `logic.map` / `logic.filter` / `logic.reduce` | Bounded (`10 000` items) numeric loops over the safe formula language. |
-| `logic.wait` | Bounded pause; a durable job DEFERS itself instead of blocking. A TEST run allows at most 5 s. |
-| `logic.stop` | Ends the run here; downstream nodes become `skipped`. |
+| `logic.wait` | Bounded pause; a durable job DEFERS itself instead of blocking. Cancel-aware; a TEST run allows at most 5 s. |
+| `logic.stop` | Ends the run here with an explicit outcome (`status`, `message`, optional `value`); downstream nodes become `skipped`. |
 | `flow.subworkflow` | Runs a **pinned** saved workflow (`workflowId@version`) as a nested run. |
 
 **Durable waits.** In a durable Fabric job, `logic.wait` checkpoints itself and
@@ -411,8 +484,11 @@ pauses the RUN (status `queued`); the worker returns a `deferred` outcome and th
 Fabric requeues the job at the wake time without consuming a retry, then resumes
 from the wait checkpoint. It is bounded to 24 h and never holds a worker thread.
 A non-durable run (e.g. `run_sync`) still blocks, capped at 30 s; a test run is
-capped at 5 s by the compiler. Model settings stay in memory across the deferral,
-so a worker restart before the resume still makes agent nodes fail honestly.
+capped at 5 s by the compiler. A blocking wait polls cancellation every 100 ms and
+reports the time it **actually** waited, so a cancelled run returns promptly
+instead of holding a worker for the requested duration. Model settings stay in
+memory across the deferral, so a worker restart before the resume still makes
+agent nodes fail honestly.
 
 **Subworkflows are pinned and authority-preserving.** The node's parent input is
 delivered to the child's trigger as the run input; the child's terminal value
@@ -694,8 +770,139 @@ auto-repair loop, no subworkflows, and no live mode.
 `logic.aggregate`, `logic.deduplicate` and `transform.join` operate on arrays of
 JSON objects (bars, fundamentals, filings, screener rows) with dotted field
 paths. They are bounded to 100 000 rows, deterministic, and refuse non-object
-rows. `logic.aggregate` supports sum/avg/min/max/count with optional `groupBy`;
-`transform.join` supports inner/left joins with a matched count.
+rows. `logic.aggregate` supports sum/avg/min/max/count/median/stddev/percentile
+with optional `groupBy`; `stddev` is the sample form (n-1), `percentile`
+interpolates linearly at the configured `percentile` (0–100, default 50), numeric
+strings are coerced, and groups are ordered by value (a group key of `"10"` sorts
+after `"9"`, not before it). An empty input is `null` for every op except `count`
+(which is `0`, because zero rows really is zero) — the node never invents a
+zero that a downstream consumer could mistake for data. `logic.deduplicate` uses
+the same identity rule as `transform.join`, so `1`, `1.0` and `"1"` are one row.
+
+Paths resolve identically everywhere (`graph_runtime/values.py`): a missing
+segment reads as `MISSING`, which the node turns into a null column, a dropped
+row or an error via `transform.select`'s `onMissing` — never a silent null.
+`transform.select` keeps the typed path as the column name unless `alias=path`
+was written (`pe=fundamentals.pe`), and refuses a `rename` that maps two columns
+to one name.
+
+`transform.sort_limit` coerces numeric strings, so `"100"` sorts as a number and
+not lexicographically; `field` accepts several keys (`date desc, symbol`) with
+`order` as the default for keys without a suffix; nulls always sort last in both
+directions; `caseInsensitive` folds text keys; `limit` 0 means "no limit" and
+`offset` windows the rows.
+
+`transform.join` normalises keys (`1`, `1.0` and `"1"` match; `caseInsensitive`
+for text), accepts comma-separated composite keys (`symbol,date`), and supports
+inner/left/right/full/anti. Duplicate right-side keys are never silently dropped:
+`onDuplicate` picks first/last/all (all is bounded to 100 000 output rows), and
+`suffix` keeps a colliding right column instead of letting the left value win.
+
+**Text transforms.** `transform.template` renders `{{a}}`, dotted paths
+(`{{a.price}}`), number/date formats (`{{a.price:.2f}}`,
+`{{a.ts:date:%Y-%m-%d}}`) and `{{a?}}` for a value that is legitimately null. A
+bare `{{a}}` whose value is null is a node error rather than a blank, and the
+rendered text is capped at 50 000 characters. `{{#each a}}…{{/each}}` renders one
+block per row with the row as the lookup scope (`{{symbol}}`, plus `{{this}}` and
+`{{index}}`), nests up to five deep, is bounded to 10 000 rows per block, and
+works inside a format spec; `\{{` emits a literal `{{`. `transform.formula`
+evaluates the same safe language as `logic.map`/`filter`/`reduce` (never `eval`),
+with `if(cond,a,b)` evaluated lazily so the untaken branch cannot fail, plus
+`div`, `nz`, `clamp`, `sign`, `log10` and half-up `round`; its `x`/`y` ports
+accept a series payload (`{last, values}`) and resolve to the latest point,
+exactly like `logic.condition`.
+
+**Try it.** `npm run demo:transform` runs a self-checking walkthrough of every
+node above against the real runtime (`python/examples/transform_demo.py`, via
+`scripts/demo-transform.js`). It prints PASS/FAIL per documented behaviour and
+exits non-zero on a regression, so it doubles as a smoke test.
+
+**Loops, end to end.** `npm run demo:loop` builds two real IR documents with the
+editor registry and runs the pair through the runtime
+(`python/examples/loop_demo.py`, via `scripts/demo-loop.js`): a pinned body
+(`Loop body — 7% growth step` = trigger → `x * 1.07` → result) and a parent
+(`Compounding planner (loops)`) that exercises all three loop shapes against it —
+`flow.repeat` for a 12-year horizon with an if/else on the target, `flow.while`
+until the balance clears 2 000, and `flow.for_each` over three principals. The
+body is supplied to the parent exactly as the front door supplies it (pinned
+`workflowId@version`), so the check proves the same path a saved run uses.
+`npm run graph:loop` (without `--dry`) creates both workflows in JDDS so they can
+be opened and started from the gallery.
+
+Two wiring rules the demo encodes: a loop node's body **must** be a saved,
+pinned workflow (it is what makes an iteration a resumable child run), and a
+transform node chained after a gate **must** take that gate's `done` on its `in`
+control port — otherwise it runs on dataflow alone with a null input when the
+branch is not taken.
+
+**Control ports on transform nodes.** Every tabular/text node — `transform.template`,
+`transform.formula`, `transform.select`, `transform.sort_limit`, `transform.join`,
+`logic.aggregate`, `logic.deduplicate`, `logic.map`, `logic.filter`,
+`logic.reduce`, `data.dataset.save` and `data.dataset.load` — declares an
+optional control `in` and a `done` control output. Wiring `in` makes the node run
+only when an upstream control fires (If/else, Switch, Gate), and `done` fires
+after a successful execution so a branch can own a chain without a helper
+`flow.gate`. Both ports are optional, so existing graphs keep running on dataflow
+alone. The executor refuses a `_control` name the node does not declare, because
+firing an undeclared port routes to nowhere and would look like a successful
+branch.
+
+**Logic & flow control surface.** The same rule covers the rest of the category,
+with one deliberate exception each way: `logic.condition` and `logic.switch` take
+the optional control `in` but keep their exclusive branch outputs (`true`/`false`
+and `matched`/`default`) instead of a `done`, because "done" would have to pick a
+branch; `logic.merge`, `flow.gate`, `logic.wait`, `flow.subworkflow` and the three
+loops (`flow.for_each`/`repeat`/`while`) take `in` and fire `done`.
+`logic.stop` is terminal: it takes `in` and an optional `value` (which becomes the
+run output), ends the run, and its `status` field is authoritative — `failed`
+makes the run fail with the configured message instead of silently reporting
+success; downstream nodes are skipped either way.
+`logic.switch` accepts a JSON array for `cases` when a case itself contains a
+comma (`["a,b", "c"]`). It fires `matched` **and** the per-case output that
+matched (`case1` … `case8`, first match wins), or `default` when nothing matches,
+so a 3-way branch is one node instead of two extra conditions; a case beyond the
+eighth still fires `matched` for legacy graphs that only wire it.
+
+**Switch presents only the cases you configured.** The contract declares
+`case1…case8` so one node can own an eight-way branch, but the card would
+otherwise draw ten anonymous handles and look broken. `node-ports.ts`
+(presentation only — handle ids never change) shows one output per configured
+case, labelled with the case value, plus `default`/`matched`/`caseIndex`; a case
+handle stays visible when an edge still uses it, so removing a case never orphans
+a wire. Handle spacing compresses as the fan grows, and the per-port `+` shortcut
+is withdrawn when more than four outputs would overlap. The validator reports
+`invalid_switch_cases` for cases that are not valid JSON and warns
+(`switch_case_not_configured`) when a branch uses a case the node no longer
+configures. The runtime behaviour is unchanged.
+`flow.repeat`/`flow.while` accept `continueOnError` like `flow.for_each` already
+did.
+
+`flow.gate` takes up to three control inputs (`in`, `in2`, `in3`) and a `require`
+policy: `any` (default) runs when a control input fires, `all` makes it a **join**
+— every *wired* control input must have fired or the gate is skipped
+(`error_code: skipped_by_node`) and its branch does not continue. This is
+implemented with `NodeExecContext.control_fired`, not a scheduler special-case:
+the executor returns a reserved `_skip` reason and the executor marks the node
+skipped.
+
+`logic.deduplicate` takes `keep: first|last` and `caseInsensitive`, and compares
+keys with the same identity rule as `transform.join` (`1`, `1.0` and `"1"` are
+one row). `logic.while` conditions can read the body's object fields — including
+booleans — so a body returning `{done: true}` can be tested with `done != 1`
+instead of silently reading `0` and exiting on the first iteration; the legacy
+numeric projection (`value`) is unchanged.
+
+`logic.merge` treats a branch as **present** unless it is null or empty, so an
+empty `A` no longer shadows a populated `B` (the one case the node exists for);
+`0` and `false` are real values and still win. `first` is the legacy name for
+`first_present`. A skipped node's error now names the control wire that did not
+fire (`its control input did not fire ("In" from cond was skipped)`), so a broken
+branch is diagnosable from the run record.
+
+`logic.map`/`filter`/`reduce` bind only the fields a row actually has: referencing
+a missing non-numeric field is an error, never a silent `0`. A silent zero used to
+make `filter` drop every row of a text field — the loop nodes now fail honestly
+instead.
 
 **Local datasets.** `data.dataset.save` writes a JSON payload to the runtime's
 own `HarnessGraphDataset` table on `agent-memory.db` and returns a small
