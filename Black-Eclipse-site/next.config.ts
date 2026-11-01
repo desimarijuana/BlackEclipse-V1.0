@@ -55,8 +55,8 @@ const nextConfig: NextConfig = {
   // a copy that is deleted while the build walks it used to fail the whole
   // build with "EPERM: operation not permitted, scandir ...". They are never
   // traced into the output.
-  outputFileTracing: {
-    excludes: { "*": [".black-eclipse/**/*"] },
+  outputFileTracingExcludes: {
+    "*": [".black-eclipse/**/*"],
   },
   // Dev only. On a memory-constrained host a cold `next dev` compile of the
   // ~19k-module graph can take longer than webpack's default 120s client
