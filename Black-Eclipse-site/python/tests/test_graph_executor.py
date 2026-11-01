@@ -6,9 +6,11 @@ from __future__ import annotations
 import threading
 import time
 
+import pytest
+
 from harness.graph_runtime.compiler import compile_workflow
 from harness.graph_runtime.executor import GraphExecutor
-from harness.graph_runtime.model import ExecutionMode, NodeStatus, PortDef, PortType, RunStatus, WorkflowIR
+from harness.graph_runtime.model import ExecutionMode, NodeStatus, PortDef, PortKind, PortType, RunStatus, WorkflowIR
 from harness.graph_runtime.nodes import build_default_registry
 from harness.graph_runtime.registry import NodeDef, NodeExecContext, NodeRegistry
 
@@ -215,6 +217,35 @@ def test_output_schema_violation_fails_the_node():
     assert "expected a number" in (runs["bad"].error or "")
 
 
+def test_firing_an_undeclared_control_output_fails_the_node():
+    registry = build_default_registry()
+    registry.register(NodeDef(
+        type="test.bad_control", version="1.0.0", label="Bad control", category="transform",
+        inputs=(PortDef(id="in", name="In", type=PortType.ANY),),
+        outputs=(
+            PortDef(id="out", name="Out", type=PortType.NUMBER),
+            PortDef(id="done", name="Done", type=PortType.ANY, kind=PortKind.CONTROL),
+        ),
+        executor=lambda _ctx: {"out": 1.0, "_control": ["nope"]},
+    ))
+    ir = _ir(
+        [
+            _node("trig", "trigger.manual"),
+            _node("bad", "test.bad_control"),
+            _node("out", "output.result"),
+        ],
+        [
+            _edge("e1", "trig", "start", "bad", "in"),
+            _edge("e2", "bad", "out", "out", "value"),
+        ],
+    )
+    run = _execute(ir, registry)
+    runs = _status(run)
+    assert run.status == RunStatus.FAILED
+    assert runs["bad"].error_code == "output_schema"
+    assert "not declared" in (runs["bad"].error or "")
+
+
 def test_node_timeout_is_enforced():
     registry = build_default_registry()
     registry.register(NodeDef(
@@ -294,3 +325,213 @@ def test_parallel_layer_runs_all_nodes():
     run = _execute(ir)
     assert run.status == RunStatus.SUCCEEDED
     assert _status(run)["out"].inputs["value"] == {"a": 2.0, "b": 3.0}
+
+
+# ── control ports on transform nodes ────────────────────────────────────────
+# A control input gates EXECUTION; a control output fires downstream control
+# inputs. The transform nodes carry both an optional `in` and a `done` output,
+# so a branch can own them without a helper gate node.
+
+def _gated_formula(threshold: float):
+    return _ir(
+        [
+            _node("trig", "trigger.manual"),
+            _node("v", "data.value", {"dataType": "number", "value": str(threshold)}),
+            _node("cond", "logic.condition", {"operator": "gt", "compareTo": "1"}),
+            _node("f", "transform.formula", {"expression": "x * 2"}),
+            _node("out", "output.result"),
+        ],
+        [
+            _edge("e0", "trig", "start", "v", "in"),
+            _edge("e1", "v", "value", "cond", "value"),
+            _edge("e2", "cond", "true", "f", "in"),
+            _edge("e3", "v", "value", "f", "x"),
+            _edge("e4", "f", "result", "out", "value"),
+        ],
+    )
+
+
+def test_a_wired_control_input_gates_a_transform_node():
+    run = _execute(_gated_formula(5))
+    runs = _status(run)
+    assert runs["f"].status == NodeStatus.SUCCEEDED
+    assert runs["out"].inputs["value"] == 10.0
+
+    skipped = _execute(_gated_formula(0))
+    runs = _status(skipped)
+    assert runs["cond"].status == NodeStatus.SUCCEEDED
+    assert runs["f"].status == NodeStatus.SKIPPED
+    assert runs["f"].error_code == "control_not_fired"
+    assert runs["out"].status == NodeStatus.SKIPPED
+
+
+def test_a_transform_node_fires_its_done_control_output():
+    ir = _ir(
+        [
+            _node("trig", "trigger.manual"),
+            _node("v", "data.value", {"dataType": "array", "value": '[{"a": 2}, {"a": 1}]'}),
+            _node("sel", "transform.select", {"fields": "a"}),
+            _node("srt", "transform.sort_limit", {"field": "a"}),
+            _node("out", "output.result"),
+        ],
+        [
+            _edge("e0", "trig", "start", "v", "in"),
+            _edge("e1", "v", "value", "sel", "rows"),
+            _edge("e2", "sel", "done", "srt", "in"),
+            _edge("e3", "sel", "rows", "srt", "rows"),
+            _edge("e4", "srt", "rows", "out", "value"),
+        ],
+    )
+    run = _execute(ir)
+    runs = _status(run)
+    assert runs["srt"].status == NodeStatus.SUCCEEDED, runs["srt"].error
+    assert runs["out"].inputs["value"] == [{"a": 1.0}, {"a": 2.0}]
+
+
+def test_an_unwired_control_input_still_runs_on_dataflow():
+    ir = _ir(
+        [
+            _node("trig", "trigger.manual"),
+            _node("v", "data.value", {"dataType": "number", "value": "2"}),
+            _node("f", "transform.formula", {"expression": "x + 1"}),
+            _node("out", "output.result"),
+        ],
+        [
+            _edge("e0", "trig", "start", "v", "in"),
+            _edge("e1", "v", "value", "f", "x"),
+            _edge("e2", "f", "result", "out", "value"),
+        ],
+    )
+    run = _execute(ir)
+    assert _status(run)["f"].status == NodeStatus.SUCCEEDED
+
+
+# ── stop + the logic/flow control surface ───────────────────────────────────
+
+def test_stop_honours_its_status():
+    def graph(status: str):
+        return _ir(
+            [
+                _node("trig", "trigger.manual"),
+                _node("v", "data.value", {"dataType": "number", "value": "5"}),
+                _node("cond", "logic.condition", {"operator": "gt", "compareTo": "1"}),
+                _node("stop", "logic.stop", {"status": status, "message": "halted by guard"}),
+                _node("out", "output.result"),
+            ],
+            [
+                _edge("e0", "trig", "start", "v", "in"),
+                _edge("e1", "v", "value", "cond", "value"),
+                _edge("e2", "cond", "true", "stop", "in"),
+                _edge("e3", "stop", "stopped", "out", "value"),
+            ],
+        )
+
+    stopped = _execute(graph("succeeded"))
+    assert stopped.status == RunStatus.SUCCEEDED
+    assert _status(stopped)["stop"].status == NodeStatus.SUCCEEDED
+    assert _status(stopped)["out"].status == NodeStatus.SKIPPED
+
+    failed = _execute(graph("failed"))
+    assert failed.status == RunStatus.FAILED
+    assert failed.error == "halted by guard"
+    assert _status(failed)["out"].status == NodeStatus.SKIPPED
+
+
+def test_merge_fires_done_and_can_gate_a_gate_and_a_wait():
+    ir = _ir(
+        [
+            _node("trig", "trigger.manual"),
+            _node("v", "data.value", {"dataType": "number", "value": "2"}),
+            _node("merge", "logic.merge", {"strategy": "first"}),
+            _node("gate", "flow.gate"),
+            _node("wait", "logic.wait", {"ms": 0}),
+            _node("out", "output.result"),
+        ],
+        [
+            _edge("e0", "trig", "start", "v", "in"),
+            _edge("e1", "v", "value", "merge", "a"),
+            _edge("e2", "merge", "done", "gate", "in"),
+            _edge("e3", "v", "value", "gate", "value"),
+            _edge("e4", "gate", "done", "wait", "in"),
+            _edge("e5", "merge", "value", "out", "value"),
+        ],
+    )
+    run = _execute(ir)
+    runs = _status(run)
+    assert runs["merge"].status == NodeStatus.SUCCEEDED
+    assert runs["gate"].status == NodeStatus.SUCCEEDED
+    assert runs["wait"].status == NodeStatus.SUCCEEDED
+    assert runs["out"].inputs["value"] == 2.0
+
+
+def test_condition_can_be_gated_by_another_condition():
+    ir = _ir(
+        [
+            _node("trig", "trigger.manual"),
+            _node("v", "data.value", {"dataType": "number", "value": "0"}),
+            _node("first", "logic.condition", {"operator": "gt", "compareTo": "1"}),
+            _node("second", "logic.condition", {"operator": "truthy"}),
+            _node("gate", "flow.gate"),
+            _node("out", "output.result"),
+        ],
+        [
+            _edge("e0", "trig", "start", "v", "in"),
+            _edge("e1", "v", "value", "first", "value"),
+            # 0 > 1 is false, so the TRUE branch never fires and `second` is skipped.
+            _edge("e2", "first", "true", "second", "in"),
+            _edge("e3", "v", "value", "second", "value"),
+            _edge("e4", "second", "true", "gate", "in"),
+            _edge("e5", "v", "value", "gate", "value"),
+            _edge("e6", "gate", "value", "out", "value"),
+        ],
+    )
+    run = _execute(ir)
+    runs = _status(run)
+    assert runs["first"].status == NodeStatus.SUCCEEDED
+    assert runs["second"].status == NodeStatus.SKIPPED
+    assert runs["second"].error_code == "control_not_fired"
+    assert runs["gate"].status == NodeStatus.SKIPPED
+    assert runs["out"].status == NodeStatus.SKIPPED
+
+
+def test_switch_accepts_a_json_case_list_with_commas():
+    definition = build_default_registry().get("logic.switch")
+    assert definition is not None and definition.executor is not None
+    result = definition.executor(NodeExecContext(
+        node_id="switch", run_id="run", mode=ExecutionMode.RESEARCH,
+        inputs={"value": "a,b"},
+        config={"cases": '["a,b", "c"]'},
+    ))
+    assert result["caseIndex"] == 0
+    assert result["_control"] == ["matched", "case1"]
+
+def test_merge_prefers_a_present_branch_over_an_empty_one():
+    definition = build_default_registry().get("logic.merge")
+    assert definition is not None and definition.executor is not None
+
+    def merge(inputs, strategy):
+        return definition.executor(NodeExecContext(
+            node_id="m", run_id="r", mode=ExecutionMode.RESEARCH,
+            inputs=inputs, config={"strategy": strategy},
+        ))["value"]
+
+    rows = [{"symbol": "AAPL"}]
+    # An empty `a` no longer shadows a populated `b`...
+    assert merge({"a": [], "b": rows}, "first_present") == rows
+    # ...and the legacy name means the same thing.
+    assert merge({"a": [], "b": rows}, "first") == rows
+    # 0 and false are REAL values, not absent ones.
+    assert merge({"a": 0, "b": 5}, "first_present") == 0
+    assert merge({"a": False, "b": True}, "first_present") is False
+    # Nothing present at all falls through to the last input.
+    assert merge({"a": None, "b": ""}, "first_present") == ""
+
+
+def test_merge_rejects_an_unknown_strategy():
+    definition = build_default_registry().get("logic.merge")
+    context = NodeExecContext(
+        node_id="m", run_id="r", mode=ExecutionMode.RESEARCH,
+        inputs={"a": 1}, config={"strategy": "sideways"},
+    )
+    with pytest.raises(ValueError, match="unsupported merge strategy"):
+        definition.executor(context)

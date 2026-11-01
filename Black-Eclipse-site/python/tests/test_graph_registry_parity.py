@@ -100,6 +100,59 @@ def test_python_registry_matches_the_ts_manifest():
         assert py_nodes[key] == ts_nodes[key], key
 
 
+def _python_constraints(field: Any) -> dict[str, Any]:
+    constraints: dict[str, Any] = {}
+    if field.enum:
+        constraints["enum"] = list(field.enum)
+    if field.max_length is not None:
+        constraints["maxLength"] = field.max_length
+    if field.minimum is not None:
+        constraints["min"] = field.minimum
+    if field.maximum is not None:
+        constraints["max"] = field.maximum
+    if field.kind == "integer":
+        constraints["integer"] = True
+    return constraints
+
+
+def _normalise_constraints(constraints: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: (sorted(value) if key == "enum" else value)
+        for key, value in constraints.items()
+    }
+
+
+def test_python_config_constraints_match_the_ts_manifest():
+    """Bounds are part of the contract, not decoration.
+
+    Comparing field NAMES alone let `z.string().max(200)` and
+    `max_length=4_000` disagree, so the editor accepted a value the runtime
+    rejected. The manifest now carries the bounds the editor enforces.
+    """
+    manifest = _load_ts_manifest()
+    ts = {
+        (node["type"], field["name"]): field.get("constraints") or {}
+        for node in manifest["nodes"]
+        for field in node["configFields"]
+    }
+    py: dict[tuple[str, str], dict[str, Any]] = {}
+    for definition in build_default_registry().definitions():
+        for field in definition.config_fields:
+            py[(definition.type, field.name)] = _python_constraints(field)
+
+    assert set(py) == set(ts)
+    mismatches = []
+    for key in sorted(py):
+        left = _normalise_constraints(ts[key])
+        right = _normalise_constraints(py[key])
+        if left != right:
+            mismatches.append((key, left, right))
+    assert mismatches == [], (
+        "TS and Python disagree about config bounds; the editor would accept a "
+        f"value the runtime rejects (or vice versa): {mismatches}"
+    )
+
+
 def test_every_registered_node_has_valid_defaults():
     """Dropping any palette node onto the canvas must produce valid config."""
     invalid = []

@@ -3,11 +3,14 @@ wait bounds and the required-control-input rule."""
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from harness.graph_runtime.compiler import RunGrants, compile_workflow
 from harness.graph_runtime.executor import GraphExecutor
 from harness.graph_runtime.model import (
+    ExecutionMode,
     NodeStatus,
     PortDef,
     PortType,
@@ -16,7 +19,7 @@ from harness.graph_runtime.model import (
     WorkflowIR,
 )
 from harness.graph_runtime.nodes import build_default_registry
-from harness.graph_runtime.registry import NodeDef
+from harness.graph_runtime.registry import NodeDef, NodeExecContext
 
 REGISTRY = build_default_registry()
 
@@ -283,3 +286,135 @@ def test_loop_primitives_reject_non_numeric_arrays():
     run = _run(ir, registry)
     assert run.status == RunStatus.FAILED
     assert "numeric arrays" in (_by_node(run)["mapped"].error or "")
+
+# ── Wave 0 regressions ───────────────────────────────────────────────────────
+
+
+def test_stop_with_failed_status_fails_the_run():
+    """`status` was declared in both registries and ignored by the executor."""
+    ir = _ir(
+        [
+            _node("trig", "trigger.manual"),
+            _node("stop", "logic.stop", {"status": "failed", "message": "guard tripped"}),
+        ],
+        [],
+    )
+    run = _run(ir)
+    assert run.status == RunStatus.FAILED
+    assert run.error == "guard tripped"
+    # The NODE succeeded (that is what `stops_run` keys off); the RUN failed.
+    assert _by_node(run)["stop"].status == NodeStatus.SUCCEEDED
+    assert any(e.kind == "run.stopped" and "guard tripped" in e.message for e in run.events)
+
+
+def test_stop_carries_a_value_as_the_run_output():
+    ir = _ir(
+        [
+            _node("trig", "trigger.manual"),
+            _node("val", "data.value", {"value": "done", "dataType": "string"}),
+            _node("stop", "logic.stop"),
+        ],
+        [
+            _edge("e2", "trig", "start", "val", "in"),
+            _edge("e3", "val", "value", "stop", "value"),
+        ],
+    )
+    run = _run(ir)
+    assert run.status == RunStatus.SUCCEEDED
+    assert run.output == "done"
+
+
+def test_wait_stops_early_when_the_run_is_cancelled():
+    definition = REGISTRY.get("logic.wait")
+    context = NodeExecContext(
+        node_id="wait", run_id="run", mode=ExecutionMode.RESEARCH,
+        inputs={}, config={"ms": 5_000}, should_cancel=lambda: True,
+    )
+    started = time.monotonic()
+    result = definition.executor(context)
+    assert time.monotonic() - started < 1.0
+    # Truthful: it reports what it waited, not what it was asked for.
+    assert 0 <= result["waitedMs"] < 5_000
+
+
+def test_a_skipped_branch_names_the_wire_that_did_not_fire():
+    ir = _ir(
+        [
+            _node("trig", "trigger.manual", {"seed": "no"}),
+            _node("cond", "logic.condition", {"operator": "eq", "compareTo": "yes"}),
+            _node("gate", "flow.gate"),
+            _node("out", "output.result"),
+        ],
+        [
+            _edge("e1", "trig", "start", "cond", "value"),
+            _edge("e2", "cond", "true", "gate", "in"),
+            _edge("e3", "trig", "start", "gate", "value"),
+            _edge("e4", "gate", "value", "out", "value"),
+        ],
+    )
+    run = _run(ir)
+    assert _by_node(run)["gate"].status == NodeStatus.SKIPPED
+    error = _by_node(run)["gate"].error or ""
+    assert "cond" in error and "did not fire" in error
+
+
+def test_map_does_not_invent_zero_for_a_missing_field():
+    """A row without the referenced field must fail, never read as 0."""
+    definition = REGISTRY.get("logic.map")
+    context = NodeExecContext(
+        node_id="map", run_id="run", mode=ExecutionMode.RESEARCH,
+        inputs={"items": [{"symbol": "AAPL"}]}, config={"expression": "price"},
+    )
+    with pytest.raises(ValueError, match="unknown name"):
+        definition.executor(context)
+
+
+def test_filter_on_a_text_field_does_not_silently_drop_every_row():
+    definition = REGISTRY.get("logic.filter")
+    context = NodeExecContext(
+        node_id="filter", run_id="run", mode=ExecutionMode.RESEARCH,
+        inputs={"items": [{"symbol": "AAPL"}, {"symbol": "MSFT"}]},
+        config={"expression": "value"},
+    )
+    with pytest.raises(ValueError):
+        definition.executor(context)
+
+def test_a_branch_that_fires_into_nothing_says_so():
+    """A condition whose branches are both unwired must not look like success."""
+    ir = _ir(
+        [
+            _node("trig", "trigger.manual", {"seed": "5"}),
+            _node("cond", "logic.condition", {"operator": "eq", "compareTo": "5"}),
+            _node("out", "output.result"),
+        ],
+        [
+            _edge("e1", "trig", "start", "cond", "value"),
+            # The boolean is wired to the terminal, but neither BRANCH is wired.
+            _edge("e2", "cond", "result", "out", "value"),
+        ],
+    )
+    run = _run(ir)
+    assert run.status == RunStatus.SUCCEEDED
+    messages = [e.message for e in run.events if e.kind == "node.log"]
+    assert any("fired but nothing is connected" in message for message in messages), messages
+
+
+def test_an_unwired_done_is_not_reported_as_a_dead_branch():
+    """`done` is a convenience control, not a choice between alternatives."""
+    ir = _ir(
+        [
+            _node("trig", "trigger.manual", {"seed": "1"}),
+            _node("f", "transform.formula", {"expression": "x"}),
+            _node("gate", "flow.gate"),
+            _node("out", "output.result"),
+        ],
+        [
+            _edge("e1", "trig", "start", "f", "x"),
+            _edge("e2", "f", "done", "gate", "in"),
+            _edge("e3", "f", "result", "gate", "value"),
+            _edge("e4", "gate", "value", "out", "value"),
+        ],
+    )
+    run = _run(ir)
+    messages = [e.message for e in run.events if e.kind == "node.log"]
+    assert not any("fired but nothing is connected" in message for message in messages), messages
