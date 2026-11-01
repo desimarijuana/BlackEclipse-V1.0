@@ -11128,3 +11128,27 @@ nodes; `trading.paper_order` remains paper-only. The mandate store gained
 the workflow id for the pin check. A live mandate cannot outlive the connection's
 arm at execution time even if its own TTL is longer. Docs: `docs/trading.md`,
 `docs/graph-studio.md`, this ADR.
+
+## ADR-H344 - Node contracts change additively at the same version
+
+**Decision.** A node's `type@version` names a contract. Adding an OPTIONAL port,
+adding a config field that has a default, or widening a port type (`number` →
+`any`, so a series payload can be wired in) is additive: the node keeps its
+version and no saved IR is migrated. Removing or renaming a port or config key,
+changing what a default means, or narrowing a type is a contract break: it needs
+a NEW version plus a migration entry, and the old version stays registered until
+no saved graph references it. Control outputs a node fires must be declared
+(the executor now refuses an undeclared name instead of routing it nowhere).
+
+**Why.** The runtime has no per-version registry, and saved graphs pin
+`type@version`. Bumping for every additive tweak would strand every existing
+graph; never bumping would let a removal change behaviour silently under the
+same name. Optional-first is also what keeps the editor forgiving: a port added
+later can be left unwired and the node still runs on dataflow.
+
+**Consequences.** Every new input port starts `optional=True` unless the node
+genuinely cannot run without it. `registry.manifest.json` is the cross-language
+contract and now carries each config field's bounds (`maxLength`, `enum`,
+`min`/`max`, `integer`), so `test_graph_registry_parity.py` fails if the editor
+and the runtime disagree about what a valid value is. Peer review of a node
+change is a question of add-vs-break before it is a question of code.

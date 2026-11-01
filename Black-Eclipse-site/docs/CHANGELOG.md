@@ -1,6 +1,300 @@
 # Change Log
 
+## 2026-11-01
+- **feat(graph): first-run tour + a labelled node diagram; U4 deferred.** Closes
+  the legibility plan. (1) New `graph-onboarding.tsx`: a three-card tour
+  (a node is one step · connectors are labelled, round = value / square = branch ·
+  Start workflow is a safe TEST run), shown once per browser from
+  `localStorage`, dismissible, never blocking the canvas; the same content stays
+  in the `?` panel. (2) `docs/graph-studio.md` "Reading a node" now carries a
+  labelled node diagram. (3) **U4 (variadic ports) is deferred by decision**: the
+  card and the inspector already hide over-declared ports, so the remaining work
+  would add manifest v2 + validator/executor/canvas surface for no user-visible
+  gain; the plan records the trigger to revisit (> 8 switch cases or > 3 merge
+  inputs).
+  Docs updated: `docs/graph-studio.md`, `docs/graph-studio-node-ux-plan.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): inserting a node explains the port, and every logic node has a
+  worked example.** Two more legibility items. (1) The add-a-step panel now
+  states the insertion point — `After If / else · If true — a branch (run
+  control). Only nodes with a Run control input can follow it.` / `After Filter ·
+  Items (array). The new node must accept that type.` / both sides when inserting
+  on an edge — and its empty state explains the rule instead of "no node can be
+  wired here". (2) New `node-examples.ts` (presentation only, never in the
+  manifest) backs an **Example** block in the inspector's Settings tab with one
+  concrete input → output line for every `logic.*`/`flow.*` node plus the core
+  data/transform/finance nodes; a test asserts the logic pack is fully covered
+  and that no example names an unregistered type.
+  Docs updated: `docs/graph-studio.md`, `docs/graph-studio-node-ux-plan.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): auto-save + fully opaque nodes.** (1) Node cards are now
+  **fully opaque** (`#232329 → #141418`, light mode `#fff → #f5f5f8`): React
+  Flow's transformed viewport is a backdrop root, so the previous near-opaque
+  tint still let the grid/edges show faintly. No alpha remains. (2) The editor
+  gained an **Auto-save** toggle (on by default, persisted per browser) and a
+  2 s idle debounce: after the last edit the graph is persisted automatically,
+  with `Saving…/Saved` in the header. The decision is the pure
+  `shouldAutoSave()` policy — it never writes an invalid graph, never overlaps a
+  save, keeps manual Save working, and additionally skips a save whose content
+  hash equals the persisted one, so opening the editor cannot manufacture an
+  empty version. Verified in the production build: opening created no version,
+  a mode change auto-saved v4, reverting auto-saved v5.
+  Covered by `autosave.test.ts` (6 cases). Typecheck + vitest green.
+  Docs updated: `.opencode/skills/black-eclipse-ui/SKILL.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): a node now says what it needs and what it did nothing with.**
+  U2/U3 of the legibility plan. (1) A required input that is neither wired nor
+  given a node literal puts an **amber ring** on the card plus a `Connect: Items`
+  line, and names itself in the warning tooltip — the card's version of the
+  validator's `missing_required_input`. (2) A node with more than one control
+  output that fires a branch into nothing now logs `branch If true fired but
+  nothing is connected to it — the run continues with no effect`
+  (`executor._report_dead_branch`); single-`done` nodes stay quiet. (3) The
+  inspector header shows the node's one-line description; the palette shows
+  `N in · M out` and a `branch` marker. (4) The canvas `?` panel opens with a
+  three-line **Reading a node** legend (round = value, square = branch, amber ring
+  = needs a connection). Plan progress updated in
+  `docs/graph-studio-node-ux-plan.md`.
+  Docs updated: `docs/graph-studio.md`, `docs/graph-studio-node-ux-plan.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): ports are labelled, so a branch is readable at a glance.**
+  The reported pain was that If / else showed three identical dots and Switch
+  showed ten. (1) Every port now carries a visible label beside its handle (right
+  of outputs, left of inputs, on a chip so an edge cannot hide it); single-port
+  nodes keep just the dot. (2) Control ports are **square**, data ports **round**,
+  in the card and in the inspector, so a branch handle can never be mistaken for a
+  value handle. (3) Branch outputs come first and are named as sentences:
+  `True`/`False` → **If true**/**If false**, `Default` → **No match**,
+  `Matched` → **Any match**, gate `In 2/3` → **Run 2/3**, stop's value input →
+  **Output** (handles keep their ids, so saved graphs are untouched; both
+  registries + the manifest were updated). (4) The inspector's Settings tab now
+  lists the SAME visible ports as the card via `node-ports.ts`, so a Switch no
+  longer lists eight unused cases; its `Case index` data output only shows when
+  wired. (5) The card subtitle is the node's one-line description instead of its
+  category. (6) New validation warning `switch_double_branch` when "Any match"
+  and a specific case are both wired (both would run). Plan:
+  `docs/graph-studio-node-ux-plan.md`.
+  Docs updated: `docs/graph-studio.md` ("Reading a node"),
+  `docs/graph-studio-node-ux-plan.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(graph): a working loop demo, created in the app (`npm run graph:loop`).**
+  Adds `scripts/graph-loop-demo.mts`, which builds two IR documents with the real
+  editor registry, validates them, and (without `--dry`) creates them in JDDS as
+  **`Loop body — 7% growth step`** (trigger → `x * 1.07` → result) and
+  **`Compounding planner (loops)`** — a parent exercising all three loop shapes
+  against that pinned body: `flow.repeat` (12-year horizon, then an if/else on
+  the target), `flow.while` (until the balance clears 2 000) and `flow.for_each`
+  (three principals projected one year each). `npm run demo:loop` then runs the
+  pair through the real runtime via `python/examples/loop_demo.py` +
+  `scripts/demo-loop.js` and asserts every branch outcome (12 iterations,
+  2 252.19 target met, 11 while-iterations, ordered for-each results), exiting
+  non-zero on regression. Writing it surfaced a genuine wiring rule: a transform
+  chained after a gate must take the gate's `done` on its `in` control port, or
+  it runs on dataflow alone with a null input when the branch is skipped.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **fix(graph): a Switch shows the cases you configured, not ten anonymous
+  handles.** The node declared `case1…case8` for an eight-way branch, so every
+  Switch card drew ten output handles (plus ten stacked `+` buttons) whatever the
+  operator typed, and the per-case outputs were unlabelled — a 3-case switch
+  looked broken and could not be adjusted. `node-ports.ts` now derives the
+  *presentation* from the node's `cases` (handle ids unchanged, so edges,
+  validation and the runtime are untouched): one output per configured case,
+  labelled with its value, plus `default`/`matched`/`caseIndex`; a wired case
+  handle stays visible when its case is removed so no edge is orphaned. Handle
+  spacing compresses as the fan grows and the per-port `+` shortcut is withdrawn
+  above four outputs, where the buttons overlapped and hit-tested the wrong
+  branch. The field is relabelled **Cases (one output each)** with help that
+  explains the mapping. Validation gained `invalid_switch_cases` (error) for
+  non-JSON case text and `switch_case_not_configured` (warning) for a branch
+  pointing at a case that no longer exists.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **fix(graph): graph nodes are opaque — the canvas can no longer show through.**
+  React Flow's viewport carries a CSS `transform`, which makes it a backdrop
+  root: a node's `backdrop-filter` could only sample that subtree, so the
+  0.58-alpha `.node-card` tint let the grid, edges and neighbouring nodes bleed
+  through the card. Node cards are now a near-opaque graphite gradient
+  (alpha 0.97/0.98, light mode matched) keeping the inset highlight and soft
+  shadow; the blur was removed rather than left reporting a filter that cannot
+  render there. Verified in the production build: computed
+  `background-image` is the opaque gradient and `backdrop-filter` is `none`.
+  The UI skill gained hard rule 6 (“canvas nodes cannot frost”) so this is not
+  reverted later. CSS only.
+  Docs updated: `.opencode/skills/black-eclipse-ui/SKILL.md`,
+  `docs/CHANGELOG.md`.
+- **refactor(graph): split the formula language and the template renderer out of
+  `nodes.py`.** `nodes.py` reached 1597 lines, over the 1200-line hard ceiling
+  enforced by `test_size_budget.py`. The safe formula language (tokenizer,
+  parser, function table, `evaluate_formula`) moved to `graph_runtime/formula.py`
+  and the bounded template renderer (paths, format specs, `{{#each}}` blocks,
+  output budget) moved to `graph_runtime/template.py`; `nodes.py` (1080 lines)
+  re-exports `evaluate_formula`, `FormulaError` and `render_template`, so every
+  existing import site is unchanged. Behaviour is identical: the graph suite
+  (408), `test_stats_formula.py` and the size-budget test pass.
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(graph): switch routing, gate joins, dedupe modes, loop state.** Closes
+  the remaining logic-pack defects from the plan. (1) `logic.switch` fires the
+  matching `case1`…`case8` control output in addition to `matched` (first match
+  wins, >8 still fires `matched`), so a 3-way branch is one node. (2) `flow.gate`
+  gained `in2`/`in3` and `require: any|all`; `all` is a join whose unmet case is
+  reported as a skipped node (`skipped_by_node`) via a new generic `_skip`
+  result key, not a scheduler special-case. (3) `logic.deduplicate` gained
+  `keep: first|last` and `caseInsensitive`. (4) `flow.while` conditions can read
+  the body's numeric and boolean fields (`done != 1`), fixing the state that
+  silently projected to `0`; the legacy `value` projection is unchanged. (5)
+  `RunStopRequest` now validates the `_stop` payload instead of being dead code.
+  Additive: no node version changed, no config removed. New
+  `test_graph_logic_pack.py` covers all four. Verified: manifest regenerated,
+  Python graph suite 359 passed, vitest 141, `tsc --noEmit`.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(graph): Wave 0 of the logic-node plan — the pack can no longer lie.**
+  (1) `logic.stop` gained an optional `value` input so it can carry the run
+  output (`status` was already honoured by the preceding stop fix). (2)
+  `logic.wait` polls cancellation every 100 ms and reports the time actually
+  waited, instead of blocking a worker for up to 30 s. (3) `logic.map`/`filter`/
+  `reduce` no longer bind a missing row field as `0.0` — a silent zero made
+  `filter` drop every row of a text field; the field now fails honestly. (4)
+  `logic.aggregate` returns `null` for an empty input on every op except `count`
+  (its `value` port is declared `nullable`) instead of a fabricated `0`. (5)
+  `logic.merge` gained `first_present` (legacy `first` shares it): a branch is
+  present unless it is null or empty, so an empty `A` no longer shadows a
+  populated `B`, while `0`/`false` stay real values. (6) every logic node emits
+  one summary line per run. (7) a skipped node names the control wire that did not
+  fire. (8) new `test_graph_node_config_usage.py` asserts every declared config
+  field of the `logic.*`/`flow.*` pack is read by its executor — the test that
+  would have caught the original `logic.stop` defect. `NodeExecContext` gained
+  defaulted `control_fired` and `should_cancel` for the gate-join and
+  cancellation work that follows. Manifest regenerated. Verified: `tsc --noEmit`,
+  vitest (141), the graph Python suite (376) and `demo:transform`.
+  Docs updated: `docs/graph-studio.md`, `docs/graph-studio-logic-nodes-plan.md`,
+  `docs/CHANGELOG.md`.
+- **fix(graph): logic/flow control surface + a silent Stop bug.** (1) *Stop
+  ignored its own `status`.* Choosing `failed` still produced a SUCCEEDED run.
+  The node now returns a `_stop` request the executor reads: the node succeeds
+  (so `stops_run` skips the rest), and the run finishes FAILED with the
+  configured message; `succeeded` keeps the previous behaviour. (2) *Control
+  ports are consistent.* `logic.condition` and `logic.switch` gained the optional
+  control `in` (their exclusive `true`/`false` and `matched`/`default` outputs
+  stay); `logic.merge`, `flow.gate`, `logic.wait`, `flow.subworkflow` and
+  `flow.for_each`/`repeat`/`while` gained `done` (loops and subworkflow fire it
+  from the orchestrator), and merge/gate/wait also chain now. (3) *Switch cases*
+  accept a JSON array (`["a,b","c"]`) when a case contains a comma. (4)
+  `flow.repeat`/`flow.while` gained `continueOnError`, which the loop runner
+  already honoured for `flow.for_each`. (5) Deferred `wait` now fires `done` on
+  resume instead of dropping it. (6) Merge's `strategy` renders as a select
+  instead of free text. Additive: no node version changed.
+  Covered by `test_graph_executor.py`, `test_graph_registry_parity.py` and
+  `config-fields.test.ts`. Docs updated: `docs/graph-studio.md`,
+  `docs/CHANGELOG.md`.
+- **docs(graph): the logic-node plan is now implementation-ready.**
+  Rewrote `docs/graph-studio-logic-nodes-plan.md` as a spec-grade plan: 8
+  documented defects (added `flow.while`'s numeric-only state), per-node target
+  contracts (ports, config fields with bounds, semantics, errors, compat, tests),
+  nine cross-cutting enablers (execution-context additions, rows config editor,
+  shared condition module, typed expression language, variadic ports, error
+  routing, inline bodies, body validation), a ticket-level work breakdown with
+  effort and dependencies, versioning/`strictValues` rules, a per-node test
+  matrix, a definition of done, risks and six open decisions. No source change.
+  Docs updated: `docs/graph-studio-logic-nodes-plan.md`, `docs/CHANGELOG.md`.
+- **docs(graph): plan for improving the logic / control-flow node pack.**
+  Adds `docs/graph-studio-logic-nodes-plan.md`: an audit of the 15 logic nodes
+  read from the code (7 concrete defects — `logic.stop` ignoring `status`, the
+  silent-zero coercion in map/filter/reduce and aggregate, non-cancel-aware
+  `logic.wait`, `logic.switch` routing every case to one output, `logic.merge`
+  preferring an empty `a`), the shared contract chain, and a 4-wave plan
+  (correctness → additive expressiveness → typed expression language + variadic
+  ports + inline bodies → performance) with explicit compat/versioning rules and
+  a test plan. Registered in `docs/NAVIGATION.md`.
+  Docs updated: `docs/graph-studio-logic-nodes-plan.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **chore(next): honour the file-tracing exclude on production builds.**
+  `next.config.ts` declared `outputFileTracing: { excludes: … }`, which Next 15
+  does not recognise (build printed "Unrecognized key(s)"), so the
+  `.black-eclipse/**` workspace copies were never excluded from the trace and
+  the EPERM the comment describes could return. Replaced with the supported
+  `outputFileTracingExcludes`. Verified by a production `next build` with no
+  config warning.
+  no doc change — build configuration only; `docs/QUICKSTART.md` already
+  describes `npm run build && npm start`.
+
 ## 2026-10-31
+- **fix(graph): the template output cap is enforced while rendering.** Nested
+  `{{#each}}` blocks multiply rows, and the 50 000-character cap was checked only
+  on the finished string — a 10 000 × 10 000 block could allocate gigabytes
+  before failing (the per-node timeout cannot kill the worker thread). The
+  renderer now spends a shared budget as it appends, so the same input fails in
+  ~10 ms instead of minutes. Regression test: `test_graph_template_formula.py::
+  test_nested_blocks_hit_the_output_cap_while_rendering`.
+  Docs updated: `docs/CHANGELOG.md`.
+- **feat(graph): runnable transform demo (`npm run demo:transform`).** Adds
+  `python/examples/transform_demo.py`, a self-checking walkthrough of the
+  template/formula/tabular nodes against the real runtime: 20 PASS/FAIL checks
+  over row blocks, formula guards, aliases, numeric sorting, composite joins,
+  aggregate statistics, dedupe identity and control-port gating, exiting
+  non-zero on any mismatch. `scripts/demo-transform.js` runs it with the same
+  interpreter the runtime uses; interpreter discovery moved to
+  `scripts/python-runner.js` so the demo and `test-python.js` cannot disagree
+  (also corrected that runner's slice example to `python/tests/...`).
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(graph): table analytics, row-block templates, one identity rule.**
+  (1) `logic.aggregate` gained `median`, sample `stddev` and `percentile`
+  (linear interpolation, new `percentile` 0–100 field) on top of
+  sum/avg/min/max/count; it now coerces numeric strings instead of rejecting
+  them, and orders groups by value rather than `str(tuple(...))`, so a group key
+  of `"10"` no longer sorts before `"9"`. (2) `transform.template` renders
+  `{{#each a}}…{{/each}}` row blocks — row-scoped lookups, `{{this}}`,
+  `{{index}}`, five levels of nesting, 10 000 rows per block — plus `\{{` for a
+  literal brace. (3) `logic.deduplicate` now uses the shared `key_part` identity
+  from `values.py`, so `1`, `1.0` and `"1"` collapse exactly as `transform.join`
+  matches them. All additive: no node version changed, no config removed.
+  Covered by `test_graph_template_formula.py`, `test_graph_tables.py` and
+  `config-fields.test.ts`.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(graph): node-contract guardrails + control coverage.** (1) *Parity now
+  covers bounds*: `registry.manifest.json` carries each config field's
+  `maxLength`/`enum`/`min`/`max`/`integer`, read from the zod schema (no
+  duplicated spec), and `test_graph_registry_parity.py` fails when the editor and
+  the runtime disagree about a valid value — 279 fields already matched, so the
+  new assertion is a ratchet, not a migration. (2) *Undeclared control outputs*
+  are refused by the executor: firing a `_control` name a node does not declare
+  used to route nowhere and look like a successful branch. (3) *Control ports*
+  extended to `logic.aggregate`, `logic.deduplicate`, `logic.map`,
+  `logic.filter`, `logic.reduce`, `data.dataset.save` and `data.dataset.load`
+  (optional `in` + `done`), completing the branchable set. (4) *Controls*:
+  `transform.sort_limit` gained `caseInsensitive`, and `transform.select`'s
+  `rename` is now a key/value row editor over the same JSON-string contract
+  (`jsonString` presentation flag), so no saved graph changes. (5) **ADR-H344**
+  records the additive-versioning rule this relied on. Additive only; no node
+  version changed. Covered by `test_graph_registry_parity.py`,
+  `test_graph_executor.py`, `test_graph_tables.py`, `config-fields.test.ts`.
+  Docs updated: `docs/graph-studio.md`, `docs/harness/decisions.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): transform nodes — correctness pass, richer controls, control
+  ports.** (1) *Bugs*: `transform.formula` rejected trailing whitespace and
+  parsed `-2 ** 2` as `4`; `transform.select` treated `a.b` as a literal column
+  name (dotted paths now resolve, with `alias=path`), and a `rename` collision
+  used to drop a column silently; `transform.sort_limit` sorted numeric strings
+  lexicographically and put nulls first on `desc`; `transform.join` matched `1`
+  and `1.0` differently and silently kept only the first of several right rows
+  per key. (2) *Capabilities*: template dotted paths, number/date formats,
+  `{{a?}}` and a hard error for a null required value; formula `if`/`div`/`nz`/
+  `clamp`/`sign`/`log10`, half-up `round`, and series-payload inputs; multi-key
+  sort with `offset`; join composite keys, right/full/anti, `onDuplicate`,
+  `caseInsensitive`, `suffix` and null-filled outer rows. Shared path/identity
+  rules moved to the new `graph_runtime/values.py`. (3) *Controls*: the panel now
+  exposes sort-key, join-mode, missing-field and duplicate policies with help
+  text instead of bare text boxes. (4) *Control ports*: each transform node
+  gained an optional control `in` and a `done` output, so If/else, Switch and
+  Gate can own them; the single-node tester reports `firedControls` instead of
+  leaking `_control` into outputs. Additive only — unwired control inputs keep
+  running on dataflow. Covered by `test_graph_template_formula.py`,
+  `test_graph_tables.py`, `test_graph_executor.py` and `config-fields.test.ts`.
+  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **style(graph): graphite panel surfaces for the inspector rail and run console.**
+  The node inspector (`aside`) and the expanded run console now use a shared
+  `.graph-panel` material — translucent graphite gradient, 20px blur, inset top
+  highlight — so they read as part of the node surface family instead of a flat
+  `bg-background/40` cut. Light mode gets a soft white version. No behaviour
+  change.
+  no doc change — presentational surface only; behaviour is unchanged.
 - **fix(artifacts): discovery no longer skips artifacts with long paths.** The
   idempotency key `discover:<path>:<checksum>` is capped at 200 chars by the
   schema; a deep artifact path overflowed it, raised, and the file was silently
@@ -1703,722 +1997,4 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   pointer interaction and the store mirror only applies programmatic changes,
   fixing a `Maximum update depth` crash during marquee. Docs:
   `docs/graph-studio.md`.
-
-## 2026-10-25
-- **feat(models): OpenCode Zen provider in AI / LLM.** Added `opencode` to the
-  provider presets (Settings → AI/LLM and the composer), the Python catalog
-  (`PROVIDER_CATALOG`/`PROVIDER_MODELS`, default `glm-5.3`), the key vault
-  (`OPENCODE_API_KEY`, tested against `https://opencode.ai/inference/v1/models`)
-  and `CATALOG_ENV_VARS`. Chat uses OpenCode's OpenAI-compatible endpoint
-  (`https://opencode.ai/inference/openai/v1`); because the catalog is published
-  one level up, `OpenCodeAdapter` rewrites discovery to
-  `https://opencode.ai/inference/v1/models` (verified live, 85 models). Tests:
-  `test_models.py`, `test_model_runtime.py` (URL rewrite + discovery wiring).
-  Docs: `docs/ARCHITECTURE.md`.
-- **feat(chat): shareable apps and a live preview while they stream.**
-  The interactive toolbar now has **Share**, which copies
-  `/app-view#<base64>` (the `/figure` encoding) and opens a standalone,
-  `noindex` viewer that renders the block in the same sandbox with no server
-  storage. A still-streaming ```` ```html ````/```` ```svg ````/```` ```eclipse-app ````
-  fence renders a debounced (450 ms) sandboxed "Live preview · building" of the
-  partial document; the settled block replaces it. Docs:
-  `docs/interactive-response-engine.md`.
-- **feat(chat): resize, source/copy, off-screen pause and a real dialog.**
-  The interactive card gains a drag/keyboard resize handle (double-click resets;
-  the height is remembered per app in localStorage), a source view with Copy, and
-  a focus-trapped full page that locks page scroll, restores scroll and focus on
-  exit, and closes on Escape. `Eclipse.visible` / `Eclipse.onVisibility(fn)` report
-  off-screen or hidden-tab state; while hidden the shell pauses CSS animations and
-  holds `requestAnimationFrame` callbacks so an off-screen app stops burning CPU.
-  Docs: `docs/interactive-response-engine.md`.
-- **feat(chat): interactive apps get host context, a skeleton, and a fix action.**
-  `Eclipse.context = { theme, reducedMotion, locale }` is baked at mount and
-  pushed live (the block observes the host `dark` class and the reduced-motion
-  media query), so an app can match Eclipse's scheme instead of the OS. The card
-  shows a skeleton until the app signals `eclipse:ready`, then fades the frame
-  in. The "App error" banner now offers **Ask Eclipse to fix**, which re-enters
-  the agent with the error and the app title. Docs:
-  `docs/interactive-response-engine.md`.
-- **feat(models): the picker shows newly released models first.** Model lists
-  were static/catalog-ordered, discovery was manual and its snapshot merged
-  forever, so a provider's new models stayed buried while decomissioned ids
-  lingered. Probes now sort by provider `created` (OpenAI family, Anthropic);
-  `src/lib/agent/model-recency.ts` ranks provider timestamp → version within a
-  family → `-latest`, preserving incoming order otherwise; both catalog routes
-  prefer the freshest `served` set and sort newest-first; `compactModels` keeps
-  the newest 40 on truncation; the Settings picker auto-re-probes after a 6h
-  throttle; the discovered snapshot now REPLACES each provider's set per probe;
-  and `PROVIDER_MODELS` is refreshed. Tests: `src/lib/agent/model-recency.test.ts`,
-  `enabled-models.test.ts`, Python `test_models.py`/`test_model_runtime*.py`.
-  Docs: `docs/ARCHITECTURE.md` (model picker section).
-- **ui(chat): a better interactive surface — scrollbar, auto-fit, error banner.**
-  The sandbox document now has a thin scrollbar derived from the app's own
-  `currentColor` (with a neutral fallback), transparent track and contained
-  scroll chaining. The shell reports its content height through a
-  `ResizeObserver`, so the card fits the app instead of showing a cramped inner
-  scroll (clamped 240–900). Uncaught errors and unhandled rejections post
-  `eclipse:error` to the host and appear as an "App error" banner. Docs:
-  `docs/interactive-response-engine.md`.
-- **feat(chat): interactive apps own their palette and get a full-page view.**
-  The document shell now sets only structural defaults (box-sizing, margin, font,
-  transparent background) — no forced text colour or `color-scheme` — so the model
-  can choose any palette from the user's context. The interactive card is full
-  width and its toolbar adds **Download** (the composed HTML) and **Full page**
-  (a viewport-filling overlay, Escape/Exit to close; Reload stays available).
-  Docs: `docs/interactive-response-engine.md`.
-- **fix(advisory): the fiduciary gate reads prose, not code.** A model-authored
-  app is full of directive words (`add`, `trim`, `exit`, `reduce`), CSS
-  percentages and SHOUTING identifiers (`BARS`, `VOL`, `THR`, `HOVER`, `PIN`,
-  `BASE`, `JSON`), so the gate invented "recommendations" for internal tokens and
-  appended a nonsensical Advisory note. `claims.extract_claims` now strips fenced
-  blocks and inline code before extracting sentences (the gate is a prose check),
-  with a few format/tech tokens added to the symbol stop-list. Prose advice next
-  to code is still disclosed. Tests: `python/tests/test_advisory_gate.py`.
-  no doc change — bug fix.
-- **feat(chat): a fenced app can request the dataset bridge.**
-  A leading `<!--eclipse-dataset {"symbol":"AAPL","range":"6mo"}-->` comment in
-  an ```html/```eclipse-app fence is parsed into the block's `dataset` and
-  stripped before render, so a fence-rendered app gets the same host-injected
-  series as the `interactive` block. The runtime also exposes `Eclipse.bars()`
-  for the bars array directly. Docs: `docs/interactive-response-engine.md`.
-- **ui(chat): parallel agents use the ChatBot nav glyph and sit with the activity.**
-  Replaced the generated ghost "bot faces" in the fan-out card and its detail
-  dialog with the same `Bot` icon the ChatBot nav item uses — a delegated part is
-  one Eclipse agent working in parallel, not a distinct bot. Moved the fan-out
-  card below `ActivityFeed` so it reads as runtime detail with the activity rows
-  instead of a card above the answer.
-  no doc change — presentation only.
-- **fix(chat): an app-build request stays in chat instead of the code workspace.**
-  The classifier recognized the block vocabulary ("return it as one interactive
-  block") but not the same deliverable phrased as code: "one self-contained HTML
-  document … return it as a single html code fence" was still `code_change`, so
-  the code agent edited the repository (repo map, diff, "put this change into my
-  project") instead of answering. `_INLINE_APP_RE` now recognizes
-  self-contained/single-file HTML, SVG, mini-app and html/svg code-fence
-  deliverables as inline content (before the directive+software-object rule),
-  with a guard (renderer/component/codebase/desktop/install/deploy) that keeps a
-  real source change on the code profile. Tests:
-  `python/tests/test_code_request_intent.py`.
-  no doc change — classifier bug fix; ADR-052 already documents the block.
-- **perf(chat): a code-classified turn no longer stalls for minutes before its
-  first model call.** A live "build me an interactive Candle Lab" turn recorded
-  only `run.created` → `response.plan` and then sat silent; on the same repo the
-  code-context seed (`CodeContextEngine.select`) measured **94 s**, synchronously
-  on the runtime's event loop — which also froze every other API route. Three
-  fixes: (1) `find_related_tests` resolved the reference set per TEST FILE
-  instead of per NAME, re-running the same SQL query ~32 500 times — now once per
-  name (94 s → ~2 s); (2) `call_edges(caller_name|callee_name)` indexes added so
-  the `col=? OR name=?` call-path reads stop full-scanning; (3) the chat code
-  classifier now treats "return it as one interactive block" as a `data_task`
-  content deliverable rather than `code_change` (the word "file" in "single-file"
-  used to trigger the code profile, ADR-H117 amendment). Also stopped
-  `EmbeddingService.configure()` from re-arming a tripped provider circuit on
-  every search (a 30 s cooldown), which was firing thousands of doomed
-  `/v1/embeddings` 404s against Ollama. Tests:
-  `test_intel.py` (one reference query per name), `test_search_embeddings.py`
-  (circuit survives re-configure), `test_code_request_intent.py`
-  (response-block vs renderer change). Docs updated:
-  `docs/harness/decisions.md` (ADR-H117 amendment).
-- **fix(chat): a pre-model step can no longer freeze a turn (invariant, not a
-  one-off).** The stall above happened because the repo-map/context seed ran
-  synchronously on the event loop with only COUNT bounds. `CodeContextEngine.select`
-  and `build_repo_map` now also take a wall-clock deadline (default 5 s,
-  `BLACK_ECLIPSE_CODE_CONTEXT_BUDGET_S`) and return partial results with
-  `truncated: true`; the map gets half the budget and the seed the rest
-  (`graph_context._repo_map_context` emits `elapsedMs`/`truncated`);
-  `find_related_tests` accepts the deadline. Opening a large workspace index
-  (seconds; 682 MB here) moved out of the run: `CodeIntelRuntime.warm` opens it
-  at boot on a worker thread (`boot.py::_warm_code_index`;
-  `BLACK_ECLIPSE_CODE_INTEL_WARM=0` disables), while the scan stays lazy
-  (`start_watch(initial_index=False)`, `manager_for` still kicks the first
-  incremental index). Tests: `test_intel.py` (budget cuts a slow index off),
-  `test_repo_map.py` (deadline truncates the walk). Docs updated:
-  `docs/harness/code-intelligence.md` (the budget invariant),
-  `docs/harness/decisions.md` (ADR-H287 amendment), `docs/NAVIGATION.md`.
-- **feat(chat): Eclipse can build and run interactive mini-apps in the conversation.**
-  Added the `interactive` response block: the model authors self-contained
-  HTML/CSS/JS/SVG (a price knob, a VWAP explorer, a doji figure) and it renders
-  inline in a sandboxed iframe. The document is composed by
-  `src/lib/interactive/document.ts` with an immutable CSP
-  (`default-src 'none'; connect-src 'none'; ...`) plus a tiny
-  `Eclipse.data()/onData()/resize()` runtime; the frame is
-  `sandbox="allow-scripts"` with no `allow-same-origin`, so it has no access to
-  the app DOM, cookies or network. Widgets that need market data declare a
-  `dataset`; the HOST fetches the existing read-only `/api/price-history` route,
-  normalizes up to 5000 bars with source/as-of/freshness and injects the snapshot
-  over postMessage (validated by frame source + per-render nonce). The model never
-  types prices, and an empty series renders an explicit unavailable
-  state instead of a fabricated line. Wired through the contract union, registry,
-  Markdown projection, PDF export, Canvas `REPORT_BLOCKS`, prompt guidance, and
-  `contract-matrix` parity. New files: `src/lib/response/blocks/interactive.ts`,
-  `src/lib/interactive/{document,dataset}.ts` (+ tests),
-  `src/components/response/{interactive-block,interactive-frame}.tsx`.
-  A settled ```` ```html ```` / ```` ```svg ```` / ```` ```eclipse-app ```` fence
-  renders through the same sandbox too, so a model that answers with UI code
-  still produces a live app; the composer preserves a full document's styles and
-  scripts but strips any model-supplied CSP meta.
-  Decision: ADR-052. docs updated: `docs/interactive-response-engine.md`,
-  `docs/DECISIONS.md`, `skills/ARCHITECT.md`.
-- **ui(layout): slim the app header.** Top bar and sidebar brand row now use a
-  single `h-12` (48px) at all breakpoints instead of `h-14 md:h-16` (56/64px),
-  reclaiming vertical space while keeping the 40px inner controls comfortable.
-  no doc change — style-only change, no contract or architecture impact.
-- **feat(chat): Eclipse can ask ONE clarifying question instead of guessing.**
-  Added a read-only `clarify` tool (`python/harness/clarify_tools.py`) that takes
-  a question, optional context, 2–4 options and a recommended default, creates a
-  `clarification` row in the existing `McpApproval` store (additive `answer`
-  column), emits `clarification.requested`, and pauses on the SAME
-  `wait_for_decision` gate approvals use. The operator picks an option, types a
-  free-text answer, or chooses "Let Eclipse decide"; the answer returns as the
-  tool result so the run resumes in place. An answer is explicitly NOT an
-  authorization (`answer_clarification` refuses non-clarification rows). Without
-  an interactive client the tool never blocks or fabricates: it returns
-  `answered: false` so the model must state an assumption. Wired through
-  `routers/mcp.py` (`POST /mcp/approvals/{id}/answer`), the Next proxy, the event
-  parser/hook, a new `clarification-card.tsx` in both chat surfaces, prompt
-  guidance, and a watchdog exemption. Tests: `python/tests/test_clarify.py`,
-  `src/lib/agent/events.test.ts`. Decision: ADR-H328.
-  docs updated: `docs/harness/architecture.md`, `docs/harness/decisions.md`,
-  `docs/NAVIGATION.md`.
-
-- **fix(delegation): make the budget, aggregation modes and handle checks real.**
-  The fan-out budget was decorative: `token_budget` was only a minimum check and
-  `consumedTokens` was always 0. Each part's REAL `totalTokens` now flows through
-  `ChildOutcome.tokens` into `BudgetReport.consumedTokens`, and a part is refused
-  before it starts once the remaining room drops below `MIN_TOKENS_PER_CHILD`.
-  Added an overall `DEFAULT_TOTAL_TIMEOUT_S` deadline that stops running parts and
-  gives every outcome a terminal status. `aggregate` now honors the request's
-  `list`/`compare`/`merge_claims` mode (previously all rendered as a list). The
-  `delegate` tool carries the parent's `workflowId` onto the fan-out, and handle
-  verification is fail-closed: an `artifact_digest` is confirmed only when the
-  Artifact Center holds it (never for being non-empty). The tool schema no longer
-  calls working `agent_id`/`tool_subset` fields "Reserved", and the prompt states
-  when delegation is worth its cost. Tests: `test_delegation.py`,
-  `test_delegation_tool.py`.
-  docs updated: `docs/harness/roadmap/phase-07-delegation.md`.
-
-- **feat(chat): see parallel agents working, like a fan-out card.** A delegated
-  child runs on its own run id, so its events never reached the parent stream.
-  New `python/harness/delegation_progress.py` (`ChildProgressBridge`) bridges the
-  child's bus stream into ONE throttled, content-free `delegation.progress`
-  snapshot on the parent emitter (real `step`/`maxSteps`, real tokens, real price
-  or `null` when unpriced, latest activity). `delegation.started` now names the
-  parts (`agents[]`), and the terminal/aggregated events carry real tokens.
-  The chat renders `src/components/chat/parallel-agents-panel.tsx` (bot icon,
-  agent + sub-question, live activity, progress bar, cost per row; header with
-  "N agents working · X of N done · total") fed by a pure
-  `src/lib/agent/delegation-reducer.ts`. Percent is `step / maxSteps` and an
-  unpriced model shows `—`, never `$0.00`. Tests:
-  `python/tests/test_delegation_progress.py`,
-  `src/lib/agent/delegation-reducer.test.ts`, `events.test.ts`.
-  docs updated: `docs/harness/roadmap/phase-07-delegation.md`,
-  `docs/NAVIGATION.md`, `docs/chat-ui-audit.md` (R4 resolved).
-
-- **feat(delegation): `best_of` — try the same task several ways, pick the
-  strongest verified result.** `DelegationRequest.strategy` now accepts
-  `best_of`; the `delegate` tool takes `goal` + `count` (2–4, optional
-  `agent_ids`) instead of `children`, and refuses mixing the two. Selection is
-  deterministic and evidence-based (`select_best`): only completed attempts
-  qualify, confirmed claims/handles score positively, unconfirmed claims
-  negatively, then non-empty output and fewer tokens break ties. Only the
-  winner's prose/proven claims are repeated (`aggregate_best_of`); the rest are
-  named as not repeated, and no attempt finishing yields `winner=None` rather
-  than a fabricated best. `delegation.aggregated` carries `strategy`/`winner`;
-  the chat header renders `Best of N` with a `Best` chip on the winning row.
-  Tests: `python/tests/test_delegation_best_of.py`, `delegation-reducer.test.ts`,
-  `events.test.ts`. docs updated: `docs/harness/roadmap/phase-07-delegation.md`,
-  `docs/NAVIGATION.md`.
-
-- **feat(delegation): per-attempt model for `best_of`.** An attempt may name a
-  `model` (`DelegationChild.model`; tool `models[]`), and the child runs with
-  that model id copied onto the parent's `ModelSettings`. The **provider and its
-  credential never change** — the Python service holds only this run's key, so a
-  cross-provider attempt is deliberately not offered (it would have to invent a
-  credential). The progress snapshot and the chat row show the model name.
-  Tests: `test_delegation_best_of.py`, `events.test.ts`.
-  docs updated: `docs/harness/roadmap/phase-07-delegation.md`,
-  `docs/NAVIGATION.md`; regenerated `docs/harness/tool-registry.json`.
-
-- **feat(delegation): per-attempt temperature for `best_of`.** An attempt may
-  carry `temperature` (`DelegationChild.temperature`; tool `temperatures[]`),
-  applied by copying it onto the child's `ModelSettings`. This makes N attempts
-  real samples instead of near-duplicates. It is a sampling hint only: a
-  provider that ignores temperature is unaffected, and nothing is fabricated to
-  compensate. Tests: `test_delegation_best_of.py`. docs updated:
-  `docs/harness/roadmap/phase-07-delegation.md`; regenerated
-  `docs/harness/tool-registry.json`.
-
-- **feat(graph): enforce the TypeScript/Python node contract and add Set variables.**
-  Added `src/lib/graph-studio/manifest.ts` + checked-in
-  `registry.manifest.json`, generated by `npm run graph:manifest`. The new
-  Python suite `test_graph_registry_parity.py` compares the runtime registry to
-  the manifest node for node (ports, config field names, capabilities, side
-  effects, modes, terminal), so an editor-only or runtime-only node now fails
-  CI. Added the first new core node, `data.set_variables`, to BOTH registries:
-  it merges configured named values over an optional input object (configured
-  keys win). Also added the `fast`/`slow`/`signal` config fields the runtime
-  already accepted to the TS `finance.indicator` contract so the editor can
-  configure them. Tests: `manifest.test.ts`,
-  `test_graph_registry_parity.py`; targeted graph suites 53 TS + 75 Python.
-  docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`.
-- **feat(graph): run and version history in Graph Studio.** Added a History tab
-  to the workspace right rail. It lists a saved workflow's runs
-  (`/api/workflows/[id]/runs`) with status/duration/error, and its immutable
-  versions (`/api/workflows/[id]/versions`). Opening a run fetches the full
-  record before drawing its node statuses on the canvas; opening a version loads
-  it into the editor, with an unsaved-changes confirm, and saving still appends
-  a new version. Formatting is deterministic UTC (`history-model.ts`, tested).
-  Tests: `history-model.test.ts`, `execution-client.test.ts`,
-  `persistence-client.test.ts`; targeted graph suite 11 files / 59 tests.
-  docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`.
-- **feat(graph): bounded local datasets + a `local_write` effect class.**
-  Added `data.dataset.save` / `data.dataset.load` in both registries and the
-  Python runtime. A payload is JSON-encoded into `HarnessGraphDataset` on the
-  runtime's own `agent-memory.db` and referenced by a small `gds:` ref; the
-  store caps a payload at 8 MB, the table at 200 datasets, and supports a TTL
-  (expired refs are purged and fail explicitly). No market data is fabricated
-  and JDDS is untouched. Added `local_write` as a side-effect class: a test run
-  may perform local scratch writes, while external write/network/trading stay
-  denied; `dataset.read`/`dataset.write` join the test-run capability set.
-  Tests: `test_graph_datasets.py` (roundtrip, expiry, size/serialization limits,
-  end-to-end execution, capability denial), registry parity + manifest. Targeted
-  graph suites 60 TS + 81 Python. docs updated: `docs/graph-studio.md`,
-  `docs/NAVIGATION.md`.
-- **feat(graph): pinned subworkflows with input delivery and bounded recursion.**
-  Added `flow.subworkflow` (both registries + Python runtime). A node runs a
-  pinned `workflowId@version` as a nested run; the parent input becomes the
-  child's run input and the child's terminal value becomes the node output
-  (keyed by terminal id when there are several). The Next front door resolves
-  the referenced IRs from JDDS (`subworkflow-bundle.ts`, with cycle/depth/
-  missing-workflow refusal) and sends them with the run, so Python never reads
-  JDDS. The runtime compiles every child with the SAME grants (authority can
-  only narrow), enforces a depth limit of 5, and refuses cycles again. Also added
-  `GraphRun.output` terminal capture and an output readout in the Run panel.
-  Tests: `test_graph_subworkflows.py`, `subworkflow-bundle.test.ts`; targeted
-  graph suites 65 TS + 87 Python. docs updated: `docs/graph-studio.md`,
-  `docs/NAVIGATION.md`.
-- **feat(graph): durable execution on the Fabric + resumable checkpoints.**
-  Graph runs now dispatch as `graph` DURABLE jobs on the existing Execution
-  Fabric (new queue/worker/policy; no second queue). Added normalized
-  `HarnessGraphNodeRun`/`HarnessGraphEvent` tables, a bounded 2 MB per-node
-  output checkpoint, and `GraphRunStore.load_resume`. `GraphExecutor` seeds
-  completed nodes/outputs/fired-control/terminal values and skips them, so a
-  Fabric-requeued run resumes instead of restarting. A node failure stays a
-  succeeded Fabric job (the run row is authoritative); worker/process crashes
-  are recovered by the Fabric lease and resumed. Added `queued → running`
-  status, terminal output persistence, Fabric cancellation (queued or running),
-  and a legacy in-process fallback when the Fabric is disabled. Tests:
-  `test_graph_durable.py` (normalized rows, resume skips a completed node,
-  durable dispatch, worker bridge, cancel, orphan reconcile, real Fabric
-  manager + worker). Targeted graph suites 65 TS + 94 Python. docs updated: `docs/graph-studio.md`,
-  `docs/harness/execution-fabric.md`, `docs/NAVIGATION.md`.
-- **feat(graph): live SSE run updates.** Added
-  `GET /graphs/runs/{id}/stream` (Python) and
-  `/api/graph-runs/[runId]/stream` (Next proxy). The stream replays the
-  persisted `HarnessGraphEvent` log from `Last-Event-ID`, tails new events every
-  250 ms, emits keep-alives, and ends with `stream.end` at a terminal run. The
-  Graph Studio Run tab now consumes SSE: node statuses update in place and the
-  full run record is fetched once at terminal (authoritative outputs/durations/
-  errors). A disconnected stream falls back to the existing bounded polling.
-  Tests: `test_run_event_stream_replays_and_ends` + client event-mapping tests.
-  Targeted graph suites 67 TS + 95 Python. docs updated:
-  `docs/graph-studio.md`, `docs/NAVIGATION.md`.
-- **feat(graph): gateway-backed quotes/history + tabular transform pack.**
-  Added `finance.quote` and `finance.history` in both registries; both call the
-  EXISTING `MarketDataGateway` (server bridge bound at boot) and return
-  provenance, with explicit `MarketError` failures. History emits the standard
-  OHLCV payload so it feeds indicators. Added `transform.select`,
-  `transform.sort_limit`, `logic.aggregate` (sum/avg/min/max/count + groupBy),
-  `logic.deduplicate` and `transform.join` (inner/left) over arrays of objects
-  with dotted field paths and a 100 000-row bound. The node manifest is now 35
-  types. Tests: `test_graph_tables.py` (8 cases incl. fake gateway/error paths)
-  + registry parity. Targeted graph suites 67 TS + 103 Python. docs updated:
-  `docs/graph-studio.md`, `docs/NAVIGATION.md`.
-- **feat(graph): quant backtest node over the existing engine.**
-  Added `quant.backtest` in both registries. It adapts the graph OHLCV payload
-  to `BarSeries`/`MarketDataset` and calls `run_backtest` in
-  `harness/quant/engine.py` — no backtest math in the graph runtime. Supports
-  the documented `ema_cross`/`rsi_reversion` presets and a full `StrategySpec`
-  JSON; the input symbol is authoritative; `randomSeed` keeps runs deterministic
-  and `maxBars` bounds work. Returns the result, metrics and trades; equity
-  curves are optional (`includeSeries`). The manifest is now 36 types. Tests:
-  `test_graph_quant_nodes.py` (preset determinism, RSI preset, curves, custom
-  StrategySpec, explicit failures) + registry parity. Targeted graph suites
-  67 TS + 108 Python. docs updated: `docs/graph-studio.md`,
-  `docs/NAVIGATION.md`.
-- **feat(graph): walk-forward validation node.** Added `quant.walkforward` in
-  both registries. It adapts the OHLCV payload and calls
-  `harness/quant/walkforward.py`, optimizing only on each training window and
-  reporting in-sample, out-of-sample and combined metrics plus IS/OOS
-  divergence. Preset-derived default parameter spaces are provided; custom
-  strategies supply `paramSpaceJson`. Insufficient history is an honest
-  `INSUFFICIENT_HISTORY` result. The manifest is now 37 types. Tests:
-  `test_graph_quant_nodes.py` (walk-forward windows + insufficient history) +
-  registry parity. Targeted graph suites 67 TS + 110 Python. docs updated:
-  `docs/graph-studio.md`, `docs/NAVIGATION.md`.
-- **feat(graph): local research & evidence nodes.** Added `research.evidence`,
-  `research.citations`, `research.conflicts`, `research.completeness` and
-  `research.report` in both registries. They read the EXISTING web-research
-  `EvidenceStore` (no web request, no model call): evidence with a text filter,
-  claims/citations, conflicts, a coverage summary, and a deterministic Markdown
-  report. `research.read` is granted to test runs because it is a local read.
-  The manifest is now 42 types. Tests: `test_graph_research_nodes.py`
-  (filter, citations/claims, conflicts, completeness, deterministic report,
-  missing id) + registry parity. Targeted graph suites 67 TS + 115 Python.
-  docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`.
-- **feat(graph): operator-run envelope + a real HTTP node.** The front door now
-  derives a run's grants from the persisted IR and the node registry
-  (`run-authorization.ts`): test run by default; an operator run grants exactly
-  the declared capabilities, enables network only on explicit confirmation, and
-  refuses trading and external write nodes. `integration.http` gained a real
-  executor: SSRF-checked, loopback refused, 1 MB response cap, 60 s ceiling,
-  JSON body support, no custom headers/credentials yet. The UI shows an
-  `Operator run` button only when the graph needs network and asks for
-  confirmation naming the network nodes. Tests: `run-authorization.test.ts` and
-  `test_graph_http_operator.py` (envelope denial/grant, GET/POST, blocked and
-  loopback URLs, size cap). Targeted graph suites 71 TS + 120 Python. docs
-  updated: `docs/graph-studio.md`, `docs/harness/security.md`,
-  `docs/NAVIGATION.md`.
-- **feat(graph): the research agent node runs on the existing agent plane.**
-  `agent.research` now has an executor: it resolves a named agent preset, caps
-  the turn at `maxSteps`, calls `AgenticService.run`, and returns a structured
-  `finding` plus the run's research evidence. It is gated by the operator-run
-  network envelope. The front door resolves model credentials from the vault
-  and sends them in memory; `GraphService` excludes them from the durable
-  Fabric job payload, so a restart before the node fails honestly instead of
-  persisting a key. Tests: `test_graph_agent_node.py` (structured finding,
-  objective required, bound-runtime required, envelope denial/grant) + registry
-  parity. Targeted graph suites 71 TS + 124 Python. docs updated:
-  `docs/graph-studio.md`, `docs/NAVIGATION.md`.
-
-- **feat(delegation): per-attempt approaches for `best_of`.** A best-of attempt
-  may carry a short `approach` (tool `approaches[]`, e.g. "retry with backoff"
-  or "mock the API"). It is prepended to that child's prompt as guidance and
-  becomes the row label in the chat card (the full sub-question stays in the
-  tooltip), matching the "each agent tries a different angle" presentation. It
-  is guidance, never a claimed result. Starts/progress carry `approach`, so the
-  label is live from the first frame. Tests: `test_delegation_best_of.py`,
-  `events.test.ts`. docs updated: `docs/harness/roadmap/phase-07-delegation.md`,
-  `docs/NAVIGATION.md`; regenerated `docs/harness/tool-registry.json`.
-
-- **feat(delegation): per-attempt context for `best_of`.** Attempts may carry
-  their own bounded `contexts[]` (tool) / `DelegationChild.context`, so tries can
-  work from different background evidence. Context is prompt input only — it is
-  never placed in the progress snapshot or the card, so background material
-  cannot leak into the transcript. Tests: `test_delegation_best_of.py`.
-  docs updated: `docs/harness/roadmap/phase-07-delegation.md`; regenerated
-  `docs/harness/tool-registry.json`.
-
-- **feat(delegation): the fan-out survives a reload, and the card is tested.** The
-  persisted `HarnessRun.delegation` blob now carries each row's bounded
-  `goal`/`approach`/`model`/`tokens` (`ChildOutcome` gained those display
-  fields), `_run_row` returns it old-row-safe, and `/runs/{id}/explain` includes
-  a bounded, redacted `delegation` view (`_bounded_delegation`) without
-  re-rendering the child's prose or claims. Added a server-render test for
-  `src/components/chat/parallel-agents-panel.tsx` (best-of header + winner chip +
-  real cost + `—` for an unpriced part + step/ceiling progress; split header;
-  empty case). Tests: `test_run_observability.py`,
-  `parallel-agents-panel.test.tsx`. docs updated:
-  `docs/harness/roadmap/phase-07-delegation.md`.
-
-- **chore(delegation): stop advertising dead DAG tools, propagate stop, make
-  concurrency configurable.** (1) `install_orchestration_layer` no longer
-  registers the 11 model-facing orchestration tools — no built-in allowlist names
-  them, so they only appeared as unreachable tools; the engine, operator routes
-  and direct-registration tests are unchanged (`parallel-orchestration.md`
-  updated). (2) Each delegated part now gets its own `cancel_event` passed to
-  `execute_run` and set on timeout/cancel/failure, so cooperating tools stop.
-  (3) `MAX_IN_FLIGHT` is operator-configurable via
-  `HARNESS_DELEGATION_MAX_IN_FLIGHT` (clamped 1–8) because memory is the real
-  constraint. Tests: `test_delegation.py`, `test_delegation_tool.py`,
-  `test_orchestration_tools.py`. docs updated:
-  `docs/harness/parallel-orchestration.md`,
-  `docs/harness/roadmap/phase-07-delegation.md`.
-
-- **feat(team): opt-in per-member fan-out.** `TeamPolicy.memberFanout` (default
-  off) adds the `delegate` tool to each member's declared surface so a Bot can
-  run a split fan-out or `best_of` inside its own subtask. It adds only the tool
-  NAME — delegation caps, narrowing and permissions still apply, and a member
-  with no declared surface already inherits it. Tests:
-  `test_team_service.py`. docs updated: `docs/harness/bot-team-orchestration.md`.
-
-- **docs(roadmap): phases 15, 18 and 20 are Done in the code; the index was stale.**
-  Re-read the modules and their tests against the phase files and corrected the
-  status instead of re-implementing finished work: Phase 15 (promotion + rollback,
-  document extractors, artifact serving, inline `ArtifactView`), Phase 18 (figure
-  payload + 10 recipes + inline renderer, 2026-10-18) and Phase 20 (every
-  capability class graded; `test_capability_classes` asserts no unmeasured row).
-  Evidence run: `test_code_promotion*`, `test_analysis_recipes`,
-  `test_artifacts_*`, `test_artifact_verification`, `test_capability_classes`,
-  `artifact-view.test.tsx`, `analysis-types.test.ts` — all pass.
-  docs updated: `docs/harness/roadmap/README.md`,
-  `docs/harness/roadmap/phase-{15,18,20}-*.md` (status + last-verified).
-
-- **feat(eval): a measured adoption gate for the `delegate` fan-out.** New
-  `python/harness/evaluation/delegate_benchmark.py` runs both variants on frozen
-  tasks through the REAL `execute_run` graph and the REAL `delegate` handler:
-  N sequential steps vs one fan-out with N parts. The model is a deterministic
-  SIMULATOR with a fixed per-call latency, so the result answers whether the
-  parts overlap — the report says `simulated: true` and never calls a simulated
-  millisecond provider latency. Both variants cover every fact by construction;
-  a coverage miss is `unmeasured` and vetoes adoption, and adoption needs equal
-  coverage plus a ≥15% wall-clock gain (`ADOPTION_LATENCY_MARGIN`, ADR-H213).
-  First frozen run: three parts save ~29%, two parts do not — the gate is a
-  measurement, not a default. Tests: `test_delegation_benchmark.py`.
-  docs updated: `docs/harness/agent-evaluation.md` (§13.2), `docs/NAVIGATION.md`.
-
-- **fix(delegation): production polish for the fan-out surface.** A stopped part
-  now finishes its live snapshot as `cancelled` (not `failed`) while still
-  setting the child's stop signal; a completed but unpriced part makes the card's
-  total unknown instead of silently understating it (a refused part does not);
-  the card header exposes an `aria-live` status label for screen readers; and the
-  new benchmark test file has consistent line endings. Tests:
-  `delegation-reducer.test.ts`, `parallel-agents-panel.test.tsx`,
-  `test_delegation_benchmark.py`. Full checks: `tsc` clean, 398 vitest files /
-  3917 tests, 83 targeted Python tests.
-
-- **feat(graph): live web-research nodes (Phase 7).** Added
-  `research.web_search`, `research.web_fetch` and `research.claim_verify` to
-  both registries. Search and fetch reuse the existing web-research engine
-  (`web_providers`, `web_extract`) through the SSRF-hardened bridge capabilities
-  - no second egress path. Results are pointers, extracted text is untrusted,
-  and a fetch with a `researchId` saves the same `Evidence` the `web_extract`
-  tool saves so the local research nodes can read it. Both live nodes are
-  `network` side effects (test runs refuse them; an operator run must confirm
-  network). `claim_verify` is a local read over the verifier. The manifest is
-  now 45 types. Tests: `test_graph_research_nodes.py` (search/domain filter,
-  fetch+evidence save, unknown evidence id, compiler network denial/grant) and
-  `run-authorization.test.ts` (network vs local research nodes). docs updated:
-  `docs/graph-studio.md`, `docs/harness/security.md`.
-
-- **feat(graph): optimizer, Monte Carlo and OOS holdout nodes (Phase 6 complete).**
-  Added `quant.optimize`, `quant.montecarlo` and `quant.oos` to both registries.
-  They reuse the tested quant engines instead of reimplementing research math:
-  the optimizer returns best/leaderboard/stability, Monte Carlo returns the
-  return distribution and loss/ruin probabilities, and the OOS node makes a
-  chronological split (fraction or index), backtests both sides with the same
-  deterministic engine, reports IS/OOS divergence and a block-bootstrap CI for
-  the OOS mean return. A materially weaker OOS objective raises
-  `IS_OOS_DIVERGENCE`. The manifest is now 48 types. Tests:
-  `test_graph_quant_nodes.py` (optimizer leaderboard/no-axis refusal, Monte
-  Carlo distribution, OOS split/index/invalid split). docs updated:
-  `docs/graph-studio.md` (Phase 6 status + next milestone), no other contract
-  changed.
-
-- **feat(graph): paper trading and safety (Phase 8).** Added
-  `trading.risk_check` (pure pre-trade gate over `harness/quant/risk.py`) and
-  `trading.paper_order` (PAPER-only execution adapter) to both registries. The
-  front door gains an explicit `allowPaperTrading` confirmation and grants
-  `allowTrading` only for a `paper`-mode graph; the Python compiler refuses LIVE
-  mode outright, refuses an ungranted trading node, and still refuses every
-  trading node in a test run. Paper fills use the supplied reference price with
-  explicit slippage/commission and never contact a broker. The UI shows the
-  operator-run confirmation for paper-trading graphs. The manifest is now 50
-  types. Tests: `test_graph_trading_nodes.py` (risk cap/rejection, simulated
-  fill, rejected decision, price/intent validation, test-run/LIVE/ungranted
-  refusals), `run-authorization.test.ts` (paper confirmation, research-mode
-  refusal, LIVE refusal). docs updated: `docs/graph-studio.md`,
-  `docs/harness/security.md`.
-
-- **feat(graph): post-run step inspector and structural version diff (Phase 9).**
-  Added `src/lib/graph-studio/run-debug.ts` and a Run-panel step inspector:
-  ordered steps, status/attempts, bounded inputs/outputs, per-node events and
-  checkpoint availability. The runtime's node-run read now exposes
-  `resumable`, so the inspector never infers a checkpoint. Added
-  `src/lib/graph-studio/ir-diff.ts` plus a History > Versions `Diff` action:
-  added/removed/changed nodes and edges, changed settings and name, with a
-  key-order-insensitive config comparison. Tests: `run-debug.test.ts`,
-  `ir-diff.test.ts`, and a `resumable` assertion in `test_graph_durable.py`.
-  docs updated: `docs/graph-studio.md` (Phase 9 + next milestone).
-
-- **feat(graph): bounded run telemetry and a Health tab (Phase 10).** Added
-  `GraphRunStore.health` / `GraphService.health` and operator-gated
-  `GET /graphs/health?windowHours=N`: run counts by status, success/failure
-  rate, duration p50/p95, queue wait (created → started), throughput,
-  failed-node codes, slowest node types and checkpoint coverage. Reads are
-  capped (1 000 runs / 5 000 node rows, 1–168 h) and report `truncated`; missing
-  values stay `null`. Added the Next proxy, typed `getGraphHealth` and the Graph
-  Studio **Health** tab (1 h / 24 h / 7 d). Tests:
-  `python/tests/test_graph_health.py` (counts/percentiles/failure codes, window,
-  queue wait, bounded read). docs updated: `docs/graph-studio.md` (Phase 10
-  status, telemetry contract, next milestone).
-
-- **feat(graph): chat-to-graph authoring (Phase 7).** Added
-  `python/harness/graph_runtime/planner.py`: the model receives the runtime's
-  real node catalog and returns a strict JSON proposal; the planner validates
-  every node type, port, edge and config against the same registry the compiler
-  uses, derives capabilities, selects `paper` when a trading node is present and
-  dry-runs the compiler. Only a zero-error proposal becomes a `WorkflowIR`;
-  nothing is saved or executed automatically. Added operator-gated
-  `POST /graphs/plan`, the Next proxy `/api/graphs/plan` (model settings resolved
-  from the vault, memory only), typed `plan-client.ts`, and a "Generate from
-  prompt" flow in the workflow list that saves through the normal create path.
-  Tests: `python/tests/test_graph_planner.py` (catalog, valid/trading plans,
-  unknown type/port/config refusal, missing model/objective) and
-  `plan-client.test.ts` (parsed IR, validation errors, refusal). docs updated:
-  `docs/graph-studio.md` (Phase 7 + chat-to-graph contract).
-
-- **feat(graph): planner and delegate agent nodes (Phase 7 complete).** Added
-  `agent.plan` (one bounded structured-plan model call, 1–8 steps, stable ids
-  and earlier-step dependencies, never executes them) and `agent.delegate` (1–6
-  tasks, each one bounded turn on the existing agent plane, explicit per-task
-  failure with a `PARTIAL` summary). The plan call reuses the in-memory model
-  settings and a strict schema (`agent_plan.py`); delegation reuses the bound
-  agent runner, so neither adds an agent loop. The manifest is now 52 types.
-  Tests: `test_graph_agent_node.py` (plan/delegate, failed part, task cap,
-  bound planner) and   `test_graph_agent_plan.py` (ids, dependencies, step cap).
-  docs updated: `docs/graph-studio.md` (Phase 7 complete).
-
-- **feat(graph): health watch and headless schedule guidance.** Added
-  `graph_runtime/health_watch.py`: a bounded cadence reads the health telemetry,
-  persists `unmeasured`/`insufficient`/`healthy`/`degraded` in
-  `GraphHealthWatchState`, and publishes `graph.health_degraded` /
-  `graph.health_recovered` only on a transition. Thresholds are env-tunable
-  (`HARNESS_GRAPH_HEALTH_*`; `SECONDS=0` disables). `/graphs/health` now carries
-  `watch`, and the Health tab renders the verdict/reasons. Boot starts/stops the
-  watcher; it never creates or changes a run. Docs also document driving
-  `/api/workflow-schedules/tick` from external cron with `CRON_SECRET` for a
-  headless host. Tests: `test_graph_health_watch.py` (thin data, thresholds,
-  transition-only events). docs updated: `docs/graph-studio.md`.
-
-- **feat(fabric): same-host multi-process workers.** `FabricStore.claim_job` is
-  now ONE `UPDATE ... RETURNING` statement, so two processes sharing
-  `agent-memory.db` can never claim the same job; claim and lease renewal now use
-  the same worker id (the old `id:slot` claim meant heartbeats did not renew the
-  lease). Added `HARNESS_FABRIC_WORKERS` (kinds/queues, `none` =
-  producer-only) and `python -m harness.fabric.standalone` for a dedicated worker
-  process that starts only the Fabric consumers. Tests: two independent
-  stores/connections claim exactly once; worker filter parsing; standalone CLI.
-  A multi-machine fleet remains unsupported because the store is local SQLite.
-  docs updated: `docs/harness/execution-fabric.md`, `docs/graph-studio.md`.
-
-- **feat(graph): durable paper-trading accounts.** `trading.paper_order` now
-  records each fill in `GraphPaperAccount`/`GraphPaperFill` on `agent-memory.db`
-  by default: cash, signed position, average cost and realized PnL persist across
-  runs, so a scheduled paper graph keeps its book. The write is one
-  `BEGIN IMMEDIATE` transaction, safe alongside the multi-process workers.
-  `accountId`, `initialCash` and `persist` are node settings; `persist: false`
-  keeps a fill stateless. This is cost-basis accounting, not mark-to-market.
-  Tests: `test_graph_trading_nodes.py` (persisted buy/sell + realized PnL,
-  stateless fill, missing store). docs updated: `docs/graph-studio.md`.
-
-- **feat(graph): durable subworkflow child runs and a workflow picker.**
-  `GraphExecutor` now reports a finished nested run to the service, which stores
-  it as its own durable row (`<parentRunId>:<nodeId>`) with node runs and events;
-  the parent node returns that child `runId`. The inspector's subworkflow node
-  now selects a saved workflow from the catalog and pins its version from a
-  dropdown (with a self-reference warning), instead of typing ids. Tests:
-  `test_graph_subworkflows.py` (child run row + nodes + events). docs updated:
-  `docs/graph-studio.md`.
-
-- **feat(graph): owner-scoped datasets.** `HarnessGraphDataset` gains an
-  `ownerId` column (existing rows migrate to `local`). Save/load/meta carry the
-  run's user id; another owner's reference is reported as NOT FOUND, so a ref
-  holder cannot probe another user's datasets. `delete`/`list` accept an optional
-  owner filter; the expiry purge is unchanged. Tests:
-  `test_graph_datasets.py` (cross-owner load/meta/list). docs updated:
-  `docs/graph-studio.md`.
-
-- **feat(graph): HTTP headers/credential refs, browser escalation and object-row
-  loops.** `integration.http` gains `headersJson` (plain headers; transport
-  headers and secrets refused) and `credentialEnvJson` (header → environment
-  variable NAME resolved by the runtime only; values are never stored). Headers
-  may not come from both sources. `research.web_fetch` gains `allowBrowser`:
-  a thin/failed page escalates to the existing Browser Runtime and reports
-  `extraction: browser`; the default remains bridge-only. `logic.map/filter/
-  reduce` now accept object rows, binding each row's numeric fields by name
-  (plus `value`/`index`/`acc`). The per-node checkpoint size is operator-tunable
-  (`HARNESS_GRAPH_CHECKPOINT_MAX_BYTES`, 2–16 MB). Tests:
-  `test_graph_http_operator.py` (plain/credential headers, ambiguity, missing
-  env), `test_graph_research_nodes.py` (browser escalation),
-  `test_graph_control_flow.py` (object-row loop), `test_graph_durable.py`
-  (checkpoint limit bounds). docs updated: `docs/graph-studio.md`.
-
-- **feat(graph): bounded crawl and an opt-in real-provider e2e.** Added
-  `research.web_crawl`: one start URL, 1–10 same-site pages, using the existing
-  SSRF-hardened fetch plus the bridge's deterministic `web_collect` link pass.
-  It is not a general crawler; each page is untrusted and failures are reported
-  per page (`PARTIAL`). Added `test_graph_agent_e2e.py`, skipped unless
-  `HARNESS_E2E=1` and provider/model/API-key env vars are set, covering
-  chat-to-graph, step planning and an agent node against a REAL provider. Tests:
-  `test_graph_research_nodes.py` (same-domain bound/dedupe). docs updated:
-  `docs/graph-studio.md`.
-
-- **feat(graph): bounded graph-health alert history.** Every watch transition
-  (`degraded`/`healthy`) is appended to `GraphHealthAlert`; `/graphs/health`
-  returns the newest 20 with reasons, and the Health tab lists them. Tests:
-  `test_graph_health.py` (order + reasons). docs updated:
-  `docs/graph-studio.md`.
-
-- **feat(graph): executable `video.render` behind a local-write grant.** The
-  node now builds a bound recap storyboard and runs the existing
-  `VideoService.run_render_job` in the graph worker (project files + Artifact
-  Center entry), with honest failure when the fframes worker is absent. The
-  front door adds a whitelisted `allowLocalWrite` confirmation (only
-  `video.render`; any other write node is still refused) and the compiler gains
-  `RunGrants.allow_write`. Test runs still refuse it. Tests:
-  `test_graph_video_nodes.py` (executor, symbols, compile grants) and
-  `run-authorization.test.ts` (local-render confirmation). docs updated:
-  `docs/graph-studio.md`, `docs/harness/security.md`.
-
-- **feat(graph): durable `logic.wait` via a deferred Fabric job.** A durable
-  graph no longer blocks a worker thread on a long wait: the wait node
-  checkpoints itself, the run is persisted as `queued`, the worker returns a
-  `deferred` outcome and the Fabric requeues the job at the wake time (without
-  consuming a retry), then resumes from the checkpoint. Waits are bounded to
-  24 h; non-durable `run_sync` keeps the 30 s cap and test runs the 5 s cap.
-  Tests: `test_graph_control_flow.py` (deferral), `test_graph_durable.py`
-  (defer + resume), `test_fabric_workers.py` (deferred requeue). docs updated:
-  `docs/graph-studio.md`.
-
-- **feat(graph): spill oversized checkpoints to confined files.** Above the
-  DB checkpoint limit (default 2 MB, tunable to 16 MB), a node's output and
-  terminal value now spill to
-  `<db-dir>/graph-checkpoints/<runId>/<node>.{checkpoint,terminal}.json` with a
-  path-confined `{"$file": ...}` marker, so the run stays resumable (up to a
-  256 MB file cap). `load_resume` follows the marker; `delete_run` removes the
-  files. Tests: `test_graph_durable.py` (spill, resume, cleanup). docs updated:
-  `docs/graph-studio.md`.
-
-- **fix(model,graph): real-provider e2e now runs.** Two defects surfaced when
-  exercising a real Ollama model: `model_runtime/providers/base.py` imported a
-  nonexistent `model_runtime.models` (now `harness.models`), and the planner
-  rejected common model edge shapes (`from`/`to`, `sourcePort`/`targetPort`,
-  `{node, port}` handles) plus a missing title. The planner now normalizes those
-  aliases and defaults the workflow name. The opt-in e2e was run against the
-  configured Ollama model and passed chat-to-graph, step planning and an agent
-  node. Tests: `test_model_runtime.py`, `test_graph_planner.py`. docs updated:
-  `docs/graph-studio.md`.
-
-- **docs(graph): refresh the remaining-work list.** Known limitations now reflect
-  the shipped planner/delegate nodes, the documented external-cron path and the
-  health watch; "Next milestone" names multi-process Fabric workers as the main
-  remaining item. no doc beyond `docs/graph-studio.md`; no runtime change.
-
-- **fix(harness): code-context lookup, response-block routing and embedding
-  circuit cooldown.** These pre-existing working-tree fixes landed with the
-  crawl commit: `code/intel/context.py` resolves `find_references` ONCE per name
-  (the old loop re-ran the same SQL per test file), `persistence/index.py` adds
-  caller/callee-name indexes, `request_intent.py` routes "return it as an inline
-  block" to a response deliverable (not a code-workspace edit), and
-  `search/embeddings/service.py` keeps a tripped circuit open for 30 s instead of
-  re-arming it on every `configure()`. Tests: `test_intel.py`,
-  `test_code_request_intent.py`, `test_search_embeddings.py`. no doc change —
-  internal performance/routing fixes; contracts unchanged.
-
-- **feat(chat): the fan-out card now looks like a "best of N" panel and opens a
-  live agent view.** Each part renders a deterministic **bot face** (from the
-  agent id, never a vendor logo), the agent/model + its approach, the live
-  activity and the runtime's `step/maxSteps` bar/percent. The card shows a short
-  fan-out `title` (best_of defaults to its goal), `X of N done`, and **no cost**.
-  Clicking the card opens a portaled frosted dialog
-  (`parallel-agents-dialog.tsx`) with each agent's full sub-question, status,
-  step counter, tokens and a `recent[]` activity timeline. A
-  `tool.requested(delegate)` now paints a provisional "Agents starting" card
-  until the real `delegation.started` arrives (and it is dropped if the call is
-  refused). The same card is wired into the main chat, the floating dock, bot
-  chats and group rooms. Tests: `parallel-agents-panel.test.tsx`,
-  `delegation-reducer.test.ts`, `events.test.ts`, `test_delegation_progress.py`.
-  docs updated: `docs/harness/roadmap/phase-07-delegation.md`, `docs/NAVIGATION.md`;
-  regenerated `docs/harness/tool-registry.json`.
 
