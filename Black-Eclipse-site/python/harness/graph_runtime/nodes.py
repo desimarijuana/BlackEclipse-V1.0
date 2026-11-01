@@ -20,7 +20,9 @@ import re
 import time
 import urllib.error
 import urllib.request
-from typing import Any
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from datetime import date, datetime, timezone
+from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
 from .agent_nodes import build_agent_nodes
@@ -29,6 +31,7 @@ from .finance_nodes import build_finance_nodes
 from .quant_nodes import build_quant_nodes
 from .research_nodes import build_research_nodes
 from .table_nodes import build_table_nodes
+from .values import MISSING, coerce_number, resolve_path
 from .trading_nodes import build_trading_nodes
 from .registry import (
     ConfigField,
@@ -37,216 +40,11 @@ from .registry import (
     NodeRegistry,
 )
 from .model import ExecutionMode, PortDef, PortKind, PortType, SideEffect
+# Re-exported: these used to live here and are still imported from `nodes`.
+from .formula import FormulaError, evaluate_formula  # noqa: F401
+from .template import render_template  # noqa: F401
 
 _ALL = tuple(ExecutionMode)
-
-# ── Safe formula language ────────────────────────────────────────────────────
-# A tiny arithmetic language — never `eval`. Numbers, the variables `x`/`y` (and
-# `value`/`index`/`acc` for the loop primitives), the constants pi/e, parentheses,
-# a whitelist of functions, and comparisons/logic (`< <= > >= == != && || !`
-# yielding 1.0/0.0 so the language stays numeric).
-
-MAX_FORMULA_TOKENS = 256
-_ALLOWED_FUNCTIONS = {
-    "abs": abs, "min": min, "max": max, "round": round,
-    "floor": math.floor, "ceil": math.ceil, "sqrt": math.sqrt,
-    "log": math.log, "exp": math.exp,
-}
-_CONSTANTS = {"pi": math.pi, "e": math.e}
-
-_TOKEN_RE = re.compile(
-    r"\s*(?:(\d+\.?\d*|\.\d+)|([A-Za-z_][A-Za-z_0-9]*)"
-    r"|(\*\*|<=|>=|==|!=|&&|\|\||[+\-*/%(),<>!]))"
-)
-
-
-class FormulaError(ValueError):
-    """A formula could not be parsed or evaluated. Never a crash—always a
-    node-level failure the user can read."""
-
-
-def _tokenize(expression: str) -> list[tuple[str, str]]:
-    tokens: list[tuple[str, str]] = []
-    pos = 0
-    while pos < len(expression):
-        match = _TOKEN_RE.match(expression, pos)
-        if not match:
-            raise FormulaError(f"unexpected character at position {pos}")
-        number, name, symbol = match.group(1), match.group(2), match.group(3)
-        if number:
-            tokens.append(("number", number))
-        elif name:
-            tokens.append(("name", name))
-        else:
-            tokens.append(("op", symbol))
-        pos = match.end()
-        if len(tokens) > MAX_FORMULA_TOKENS:
-            raise FormulaError("formula is too long")
-    return tokens
-
-
-class _Parser:
-    def __init__(self, tokens: list[tuple[str, str]], variables: dict[str, float]) -> None:
-        self._tokens = tokens
-        self._pos = 0
-        self._vars = variables
-
-    def _peek(self) -> tuple[str, str] | None:
-        return self._tokens[self._pos] if self._pos < len(self._tokens) else None
-
-    def _next(self) -> tuple[str, str]:
-        token = self._peek()
-        if token is None:
-            raise FormulaError("unexpected end of formula")
-        self._pos += 1
-        return token
-
-    def parse(self) -> float:
-        value = self._or()
-        if self._peek() is not None:
-            raise FormulaError(f"unexpected {self._peek()[1]!r}")
-        return value
-
-    # Comparisons and logic yield 1.0 / 0.0 so the language stays numeric
-    # (a filter keeps an item when its expression is non-zero).
-
-    def _or(self) -> float:
-        value = self._and()
-        while self._peek() == ("op", "||"):
-            self._next()
-            rhs = self._and()
-            value = 1.0 if (value != 0 or rhs != 0) else 0.0
-        return value
-
-    def _and(self) -> float:
-        value = self._comparison()
-        while self._peek() == ("op", "&&"):
-            self._next()
-            rhs = self._comparison()
-            value = 1.0 if (value != 0 and rhs != 0) else 0.0
-        return value
-
-    def _comparison(self) -> float:
-        value = self._expr()
-        while True:
-            token = self._peek()
-            if not (token and token[0] == "op" and token[1] in ("<", "<=", ">", ">=", "==", "!=")):
-                return value
-            self._next()
-            rhs = self._expr()
-            operations = {
-                "<": value < rhs,
-                "<=": value <= rhs,
-                ">": value > rhs,
-                ">=": value >= rhs,
-                "==": value == rhs,
-                "!=": value != rhs,
-            }
-            value = 1.0 if operations[token[1]] else 0.0
-
-    def _expr(self) -> float:
-        value = self._term()
-        while True:
-            token = self._peek()
-            if token and token[0] == "op" and token[1] in ("+", "-"):
-                self._next()
-                rhs = self._term()
-                value = value + rhs if token[1] == "+" else value - rhs
-            else:
-                return value
-
-    def _term(self) -> float:
-        value = self._power()
-        while True:
-            token = self._peek()
-            if token and token[0] == "op" and token[1] in ("*", "/", "%"):
-                self._next()
-                rhs = self._power()
-                if token[1] == "*":
-                    value *= rhs
-                elif token[1] == "/":
-                    if rhs == 0:
-                        raise FormulaError("division by zero")
-                    value /= rhs
-                else:
-                    if rhs == 0:
-                        raise FormulaError("modulo by zero")
-                    value %= rhs
-            else:
-                return value
-
-    def _power(self) -> float:
-        value = self._unary()
-        token = self._peek()
-        if token and token[0] == "op" and token[1] == "**":
-            self._next()
-            return value ** self._power()
-        return value
-
-    def _unary(self) -> float:
-        token = self._peek()
-        if token and token[0] == "op" and token[1] in ("-", "+", "!"):
-            self._next()
-            value = self._unary()
-            if token[1] == "-":
-                return -value
-            if token[1] == "!":
-                return 0.0 if value != 0 else 1.0
-            return value
-        return self._atom()
-
-    def _atom(self) -> float:
-        token = self._next()
-        if token[0] == "number":
-            return float(token[1])
-        if token[0] == "op" and token[1] == "(":
-            value = self._or()
-            closing = self._next()
-            if closing != ("op", ")"):
-                raise FormulaError("missing closing parenthesis")
-            return value
-        if token[0] == "name":
-            name = token[1]
-            if self._peek() == ("op", "("):
-                self._next()
-                args: list[float] = []
-                if self._peek() != ("op", ")"):
-                    args.append(self._or())
-                    while self._peek() == ("op", ","):
-                        self._next()
-                        args.append(self._or())
-                closing = self._next()
-                if closing != ("op", ")"):
-                    raise FormulaError(f"missing closing parenthesis after {name}(")
-                function = _ALLOWED_FUNCTIONS.get(name)
-                if function is None:
-                    raise FormulaError(f"unknown function {name!r}")
-                try:
-                    return float(function(*args))
-                except (TypeError, ValueError, OverflowError) as exc:
-                    raise FormulaError(f"{name}(): {exc}") from exc
-            if name in self._vars:
-                return float(self._vars[name])
-            if name in _CONSTANTS:
-                return _CONSTANTS[name]
-            raise FormulaError(f"unknown name {name!r}")
-        raise FormulaError(f"unexpected token {token[1]!r}")
-
-
-def evaluate_formula(expression: str, variables: dict[str, float]) -> float:
-    """Evaluate a bounded arithmetic expression. Raises FormulaError."""
-    if len(expression) > 400:
-        raise FormulaError("formula is too long")
-    tokens = _tokenize(expression)
-    if not tokens:
-        raise FormulaError("formula is empty")
-    try:
-        numeric = float(_Parser(tokens, variables).parse())
-    except OverflowError as exc:
-        raise FormulaError("formula produced a value outside the supported range") from exc
-    if not math.isfinite(numeric):
-        raise FormulaError("formula produced a non-finite value")
-    return numeric
 
 
 # ── Executors ────────────────────────────────────────────────────────────────
@@ -359,33 +157,25 @@ def _exec_json_parse(context: NodeExecContext) -> dict[str, Any]:
         return {"value": text}
 
 
-_PLACEHOLDER_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z_0-9]*)\s*\}\}")
-
-
-def render_template(template: str, values: dict[str, Any]) -> str:
-    """Render ``{{name}}`` placeholders. Unknown names are an error, not silent."""
-    missing: list[str] = []
-
-    def replace(match: re.Match[str]) -> str:
-        name = match.group(1)
-        if name not in values:
-            missing.append(name)
-            return match.group(0)
-        value = values[name]
-        if isinstance(value, (dict, list)):
-            return json.dumps(value, sort_keys=True)
-        return "" if value is None else str(value)
-
-    rendered = _PLACEHOLDER_RE.sub(replace, template)
-    if missing:
-        raise ValueError(f"template references unknown input(s): {', '.join(sorted(set(missing)))}")
-    return rendered
 
 
 def _exec_template(context: NodeExecContext) -> dict[str, Any]:
     template = context.config.get("template", "")
     values = {key: context.inputs.get(key) for key in ("a", "b")}
-    return {"text": render_template(template, values)}
+    return {"text": render_template(template, values), "_control": ["done"]}
+
+
+def _formula_operand(value: Any, key: str) -> float:
+    """Accept a number or a series payload (its latest computed value)."""
+    resolved = _numeric_operand(value)
+    if isinstance(resolved, bool) or not isinstance(resolved, (int, float)):
+        if isinstance(value, dict) and "values" in value:
+            raise ValueError(
+                f'input "{key}" is a series with no computed value yet — '
+                "its warm-up still needs more points"
+            )
+        raise ValueError(f'input "{key}" must be a number, got {type(value).__name__}')
+    return float(resolved)
 
 
 def _exec_formula(context: NodeExecContext) -> dict[str, Any]:
@@ -395,10 +185,8 @@ def _exec_formula(context: NodeExecContext) -> dict[str, Any]:
         value = context.inputs.get(key)
         if value is None:
             continue
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(f"input {key!r} must be a number")
-        variables[key] = float(value)
-    return {"result": evaluate_formula(expression, variables)}
+        variables[key] = _formula_operand(value, key)
+    return {"result": evaluate_formula(expression, variables), "_control": ["done"]}
 
 
 def _numeric_operand(value: Any) -> Any:
@@ -451,7 +239,14 @@ def _exec_condition(context: NodeExecContext) -> dict[str, Any]:
         result = bool(comparisons[operator])
     else:
         raise ValueError(f"unsupported operator {operator!r}")
+    context.emit(f"{'true' if result else 'false'} ({operator}: {_summary_value(value)})")
     return {"result": result, "_control": ["true"] if result else ["false"]}
+
+
+def _summary_value(value: Any, limit: int = 40) -> str:
+    """A short, single-line rendering for a node's log line."""
+    text = str(value)
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _compare_equal(value: Any, compare_to: str) -> bool:
@@ -467,12 +262,35 @@ def _compare_equal(value: Any, compare_to: str) -> bool:
     return ("" if value is None else str(value)) == compare_to
 
 
+def _merge_present(value: Any) -> bool:
+    """A branch is PRESENT unless it is null or empty.
+
+    `0` and `false` are real values, so they count as present; an empty list,
+    string or object does not. This is what makes "one branch produced rows and
+    the other produced nothing" behave the way the node name promises.
+    """
+    if value is None:
+        return False
+    if isinstance(value, (str, list, dict)) and len(value) == 0:
+        return False
+    return True
+
+
 def _exec_merge(context: NodeExecContext) -> dict[str, Any]:
     a = context.inputs.get("a")
     b = context.inputs.get("b")
-    if context.config.get("strategy", "first") == "object":
-        return {"value": {"a": a, "b": b}}
-    return {"value": a if a is not None else b}
+    strategy = str(context.config.get("strategy") or "first_present").strip().lower()
+    if strategy == "object":
+        context.emit("merged a, b into one object")
+        return {"value": {"a": a, "b": b}, "_control": ["done"]}
+    if strategy in ("first", "first_present"):
+        # Legacy `first` shares this behaviour: an empty/None branch is ABSENT,
+        # so a populated `b` is no longer shadowed by an empty `a`.
+        value = a if _merge_present(a) else b
+        source = "a" if _merge_present(a) else ("b" if _merge_present(b) else "none")
+        context.emit(f"merged {source}" if source != "none" else "no input on a or b")
+        return {"value": value, "_control": ["done"]}
+    raise ValueError(f"unsupported merge strategy {strategy!r}")
 
 
 def _exec_output(context: NodeExecContext) -> dict[str, Any]:
@@ -506,19 +324,42 @@ def _as_numeric_items(value: Any, node_label: str) -> list[float]:
     return numbers
 
 
+def _switch_cases(raw: Any) -> list[str]:
+    """Comma-separated, or a JSON array when a case itself contains a comma."""
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"cases is not valid JSON: {exc}") from exc
+        if not isinstance(parsed, list):
+            raise ValueError("cases must be a JSON array of strings")
+        return [str(item) for item in parsed]
+    return [name.strip() for name in text.split(",") if name.strip()]
+
+
 def _exec_switch(context: NodeExecContext) -> dict[str, Any]:
     value = context.inputs.get("value")
-    raw_cases = str(context.config.get("cases", ""))
-    names = [name.strip() for name in raw_cases.split(",") if name.strip()]
+    names = _switch_cases(context.config.get("cases"))
     matched = -1
     for index, name in enumerate(names):
         if _compare_equal(value, name):
             matched = index
             break
+    context.emit(
+        f"case {matched + 1} of {len(names)}" if matched >= 0 else "default (no case matched)"
+    )
+    fired = ["matched"] if matched >= 0 else ["default"]
+    # A per-case output lets one Switch own a 3-way branch; older graphs that
+    # only wire `matched` are unaffected (firing an unwired port is a no-op).
+    if 0 <= matched < 8:
+        fired.append(f"case{matched + 1}")
     return {
         "caseIndex": matched,
         "matched": matched >= 0,
-        "_control": ["matched"] if matched >= 0 else ["default"],
+        "_control": fired,
     }
 
 
@@ -542,7 +383,13 @@ def _as_items(value: Any, node_label: str) -> list[Any]:
 
 
 def _item_scope(item: Any, index: int) -> dict[str, float]:
-    """Bind `index`, `value` and an object's numeric fields for the formula."""
+    """Bind `index`, `value` and an object's numeric fields for the formula.
+
+    A row field that is absent or non-numeric is NOT bound — referencing it is an
+    error ("unknown name") instead of silently reading 0. A silent zero made
+    `filter` drop every row of a text field and made `map` emit zeros, which is
+    the one thing this runtime must never do.
+    """
     scope: dict[str, float] = {"index": float(index)}
     if isinstance(item, dict):
         for key, value in item.items():
@@ -550,7 +397,6 @@ def _item_scope(item: Any, index: int) -> dict[str, float]:
                 continue
             if _IDENT.match(str(key)):
                 scope[str(key)] = float(value)
-        scope.setdefault("value", 0.0)
     else:
         scope["value"] = float(item)
     return scope
@@ -559,10 +405,12 @@ def _item_scope(item: Any, index: int) -> dict[str, float]:
 def _exec_map(context: NodeExecContext) -> dict[str, Any]:
     items = _as_items(context.inputs.get("items"), "logic.map")
     expression = context.config.get("expression", "value")
-    return {"items": [
+    mapped = [
         evaluate_formula(expression, _item_scope(item, index))
         for index, item in enumerate(items)
-    ]}
+    ]
+    context.emit(f"mapped {len(mapped)} item(s)")
+    return {"items": mapped, "_control": ["done"]}
 
 
 def _exec_filter(context: NodeExecContext) -> dict[str, Any]:
@@ -572,7 +420,8 @@ def _exec_filter(context: NodeExecContext) -> dict[str, Any]:
         item for index, item in enumerate(items)
         if evaluate_formula(expression, _item_scope(item, index)) != 0
     ]
-    return {"items": kept, "dropped": len(items) - len(kept)}
+    context.emit(f"kept {len(kept)} of {len(items)} item(s)")
+    return {"items": kept, "dropped": len(items) - len(kept), "_control": ["done"]}
 
 
 def _exec_reduce(context: NodeExecContext) -> dict[str, Any]:
@@ -586,7 +435,8 @@ def _exec_reduce(context: NodeExecContext) -> dict[str, Any]:
         scope = _item_scope(item, index)
         scope["acc"] = accumulator
         accumulator = evaluate_formula(expression, scope)
-    return {"value": accumulator}
+    context.emit(f"reduced {len(items)} item(s) → {accumulator:g}")
+    return {"value": accumulator, "_control": ["done"]}
 
 
 def _exec_wait(context: NodeExecContext) -> dict[str, Any]:
@@ -603,26 +453,61 @@ def _exec_wait(context: NodeExecContext) -> dict[str, Any]:
         # time instead of occupying a worker thread.
         from .model import DeferredWait  # noqa: PLC0415
 
-        raise DeferredWait(milliseconds / 1000.0, {"waitedMs": milliseconds})
+        raise DeferredWait(milliseconds / 1000.0, {"waitedMs": milliseconds, "_control": ["done"]})
     if milliseconds > MAX_WAIT_MS:
         raise ValueError(
             f"ms is bounded to {MAX_WAIT_MS} in a non-durable run "
             f"(durable jobs may wait up to {DURABLE_MAX_WAIT_MS})"
         )
+    # Poll in short slices so a cancelled run does not hold a worker for the whole
+    # requested duration, and report the time actually waited rather than the time
+    # asked for.
+    waited_ms = 0
     if milliseconds:
-        time.sleep(milliseconds / 1000.0)
-    return {"waitedMs": milliseconds}
+        deadline = time.monotonic() + milliseconds / 1000.0
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                waited_ms = milliseconds
+                break
+            if context.should_cancel():
+                waited_ms = max(0, milliseconds - int(remaining * 1000))
+                context.emit(f"wait cancelled after {waited_ms} ms")
+                break
+            time.sleep(min(0.1, remaining))
+    context.emit(f"waited {waited_ms} ms")
+    return {"waitedMs": waited_ms, "_control": ["done"]}
 
 
 def _exec_stop(context: NodeExecContext) -> dict[str, Any]:
-    context.emit(str(context.config.get("message", "")) or "run stopped")
-    return {"stopped": True}
+    message = str(context.config.get("message") or "") or "run stopped"
+    status = str(context.config.get("status") or "succeeded").strip().lower()
+    if status not in ("succeeded", "failed"):
+        raise ValueError(f"unsupported stop status {status!r}")
+    context.emit(message)
+    # `_stop` is read by the executor: the node still SUCCEEDS (so `stops_run`
+    # skips the rest of the graph), and the requested status becomes the run's.
+    return {"stopped": True, "_stop": {"status": status, "message": message}}
 
 
 def _exec_gate(context: NodeExecContext) -> dict[str, Any]:
-    # The executor only runs a gate when its control input fired (see
-    # `executor.GraphExecutor._control_satisfied`), so a gate is pure passthrough.
-    return {"value": context.inputs.get("value")}
+    # The executor only runs a gate when at least one control input fired (see
+    # `executor.GraphExecutor._control_satisfied`). `require: all` turns it into
+    # a join: every WIRED control input must have fired.
+    require = str(context.config.get("require") or "any").strip().lower()
+    if require not in ("any", "all"):
+        raise ValueError(f"unsupported gate requirement {require!r}")
+    fired = context.control_fired
+    if require == "all":
+        missing = sorted(port for port, ok in fired.items() if not ok)
+        if missing:
+            return {"_skip": f"not all control inputs fired (missing: {', '.join(missing)})"}
+    wired = len(fired)
+    context.emit(
+        f"gate passed ({sum(fired.values())}/{wired} control inputs fired)"
+        if wired else "gate passed"
+    )
+    return {"value": context.inputs.get("value"), "_control": ["done"]}
 
 
 # ── Definitions ──────────────────────────────────────────────────────────────
@@ -869,32 +754,61 @@ def build_default_registry() -> NodeRegistry:
         type="transform.template", version="1.0.0", label="Template",
         category="transform",
         inputs=(
+            _port("in", "Run", PortType.ANY, kind=PortKind.CONTROL, optional=True),
             _port("a", "A", PortType.ANY, optional=True),
             _port("b", "B", PortType.ANY, optional=True),
         ),
-        outputs=(_port("text", "Text", PortType.STRING),),
+        outputs=(
+            _port("text", "Text", PortType.STRING),
+            _port("done", "Done", PortType.ANY, kind=PortKind.CONTROL),
+        ),
         config_fields=(ConfigField("template", "string", "{{a}}", max_length=4_000),),
         allowed_modes=_ALL, executor=_exec_template,
+        metadata={
+            "docs": (
+                "Render {{a}}, {{a.price}} or {{a.price:.2f}}; {{a?}} is blank "
+                "when the value is null, while a bare {{a}} fails. "
+                "{{#each a}}…{{/each}} renders one block per row."
+            ),
+        },
     ))
     registry.register(NodeDef(
         type="transform.formula", version="1.0.0", label="Formula",
         category="transform",
         inputs=(
-            _port("x", "X", PortType.NUMBER),
-            _port("y", "Y", PortType.NUMBER, optional=True),
+            _port("in", "Run", PortType.ANY, kind=PortKind.CONTROL, optional=True),
+            # ANY, not number: a series payload ("{last, values}") resolves to
+            # its latest point, exactly like logic.condition does.
+            _port("x", "X", PortType.ANY),
+            _port("y", "Y", PortType.ANY, optional=True),
         ),
-        outputs=(_port("result", "Result", PortType.NUMBER),),
+        outputs=(
+            _port("result", "Result", PortType.NUMBER),
+            _port("done", "Done", PortType.ANY, kind=PortKind.CONTROL),
+        ),
         config_fields=(ConfigField("expression", "string", "x", max_length=400),),
         capabilities=("compute.safe",),
         allowed_modes=_ALL, executor=_exec_formula,
+        metadata={
+            "docs": (
+                "Safe arithmetic over x/y (numbers or series). Functions: if, div, "
+                "nz, clamp, min, max, abs, round, floor, ceil, sqrt, log, log10, "
+                "exp, pow, sign. round() is half-up."
+            ),
+        },
     ))
     registry.register(NodeDef(
         type="logic.condition", version="1.0.0", label="If / else",
         category="logic",
-        inputs=(_port("value", "Value", PortType.ANY),),
+        inputs=(
+            _port("in", "Run", PortType.ANY, kind=PortKind.CONTROL, optional=True),
+            _port("value", "Value", PortType.ANY),
+        ),
         outputs=(
-            _port("true", "True", PortType.ANY, kind=PortKind.CONTROL),
-            _port("false", "False", PortType.ANY, kind=PortKind.CONTROL),
+            # The label IS the sentence: dragging from "If false" is unambiguous
+            # in a way that a dot called `false` never was. Ids are unchanged.
+            _port("true", "If true", PortType.ANY, kind=PortKind.CONTROL),
+            _port("false", "If false", PortType.ANY, kind=PortKind.CONTROL),
             _port("result", "Result", PortType.BOOLEAN, optional=True),
         ),
         config_fields=(
@@ -908,12 +822,24 @@ def build_default_registry() -> NodeRegistry:
         type="logic.merge", version="1.0.0", label="Merge",
         category="logic",
         inputs=(
+            _port("in", "Run", PortType.ANY, kind=PortKind.CONTROL, optional=True),
             _port("a", "A", PortType.ANY),
             _port("b", "B", PortType.ANY, optional=True),
         ),
-        outputs=(_port("value", "Value", PortType.ANY),),
-        config_fields=(ConfigField("strategy", "enum", "first", enum=("first", "object")),),
+        outputs=(
+            _port("value", "Value", PortType.ANY),
+            _port("done", "Done", PortType.ANY, kind=PortKind.CONTROL),
+        ),
+        config_fields=(ConfigField(
+            "strategy", "enum", "first_present",
+            enum=("first", "first_present", "object"),
+        ),),
         allowed_modes=_ALL, executor=_exec_merge,
+        metadata={"docs": (
+            "A branch is PRESENT unless it is null or empty, so a populated `b` is "
+            "no longer shadowed by an empty `a`. `first` is the legacy name for "
+            "`first_present`; `object` returns {a, b}."
+        )},
     ))
     registry.register(NodeDef(
         type="output.result", version="1.0.0", label="Result",
@@ -928,30 +854,62 @@ def build_default_registry() -> NodeRegistry:
         type="flow.gate", version="1.0.0", label="Gate",
         category="logic",
         inputs=(
-            _port("in", "In", PortType.ANY, kind=PortKind.CONTROL),
+            _port("in", "Run", PortType.ANY, kind=PortKind.CONTROL),
+            _port("in2", "Run 2", PortType.ANY, kind=PortKind.CONTROL, optional=True),
+            _port("in3", "Run 3", PortType.ANY, kind=PortKind.CONTROL, optional=True),
             _port("value", "Value", PortType.ANY, optional=True),
         ),
-        outputs=(_port("value", "Value", PortType.ANY),),
+        outputs=(
+            _port("value", "Value", PortType.ANY),
+            _port("done", "Done", PortType.ANY, kind=PortKind.CONTROL),
+        ),
+        config_fields=(ConfigField("require", "enum", "any", enum=("any", "all")),),
         allowed_modes=_ALL, executor=_exec_gate,
-        metadata={"docs": "Runs only when its control input fires — the if/else branch primitive."},
+        metadata={
+            "docs": (
+                "Runs when a control input fires. `require: all` makes it a join: "
+                "every WIRED control input must have fired, otherwise it is skipped."
+            ),
+        },
     ))
     registry.register(NodeDef(
         type="logic.switch", version="1.0.0", label="Switch",
         category="logic",
-        inputs=(_port("value", "Value", PortType.ANY),),
+        inputs=(
+            _port("in", "Run", PortType.ANY, kind=PortKind.CONTROL, optional=True),
+            _port("value", "Value", PortType.ANY),
+        ),
         outputs=(
-            _port("matched", "Matched", PortType.ANY, kind=PortKind.CONTROL),
-            _port("default", "Default", PortType.ANY, kind=PortKind.CONTROL),
+            # "Any match" (not "Matched"): it fires on EVERY match, which read as
+            # the matched-branch output. The id stays `matched` for saved graphs.
+            _port("matched", "Any match", PortType.ANY, kind=PortKind.CONTROL),
+            _port("default", "No match", PortType.ANY, kind=PortKind.CONTROL),
             _port("caseIndex", "Case index", PortType.NUMBER),
+            *(
+                _port(f"case{index}", f"Case {index}", PortType.ANY, kind=PortKind.CONTROL)
+                for index in range(1, 9)
+            ),
         ),
         config_fields=(ConfigField("cases", "string", "", max_length=400),),
         allowed_modes=_ALL, executor=_exec_switch,
+        metadata={
+            "docs": (
+                "Fires `matched` plus `caseN` (first match wins), or `default`. "
+                "Up to eight per-case outputs; `cases` is comma-separated or a JSON array."
+            ),
+        },
     ))
     registry.register(NodeDef(
         type="logic.map", version="1.0.0", label="Map",
         category="logic",
-        inputs=(_port("items", "Items", PortType.ARRAY),),
-        outputs=(_port("items", "Items", PortType.ARRAY),),
+        inputs=(
+            _port("in", "Run", PortType.ANY, kind=PortKind.CONTROL, optional=True),
+            _port("items", "Items", PortType.ARRAY),
+        ),
+        outputs=(
+            _port("items", "Items", PortType.ARRAY),
+            _port("done", "Done", PortType.ANY, kind=PortKind.CONTROL),
+        ),
         config_fields=(ConfigField("expression", "string", "value", max_length=400),),
         capabilities=("compute.safe",),
         allowed_modes=_ALL, executor=_exec_map,
@@ -959,10 +917,14 @@ def build_default_registry() -> NodeRegistry:
     registry.register(NodeDef(
         type="logic.filter", version="1.0.0", label="Filter",
         category="logic",
-        inputs=(_port("items", "Items", PortType.ARRAY),),
+        inputs=(
+            _port("in", "Run", PortType.ANY, kind=PortKind.CONTROL, optional=True),
+            _port("items", "Items", PortType.ARRAY),
+        ),
         outputs=(
             _port("items", "Items", PortType.ARRAY),
             _port("dropped", "Dropped", PortType.NUMBER),
+            _port("done", "Done", PortType.ANY, kind=PortKind.CONTROL),
         ),
         config_fields=(ConfigField("expression", "string", "value != 0", max_length=400),),
         capabilities=("compute.safe",),
@@ -971,8 +933,14 @@ def build_default_registry() -> NodeRegistry:
     registry.register(NodeDef(
         type="logic.reduce", version="1.0.0", label="Reduce",
         category="logic",
-        inputs=(_port("items", "Items", PortType.ARRAY),),
-        outputs=(_port("value", "Value", PortType.NUMBER),),
+        inputs=(
+            _port("in", "Run", PortType.ANY, kind=PortKind.CONTROL, optional=True),
+            _port("items", "Items", PortType.ARRAY),
+        ),
+        outputs=(
+            _port("value", "Value", PortType.NUMBER),
+            _port("done", "Done", PortType.ANY, kind=PortKind.CONTROL),
+        ),
         config_fields=(
             ConfigField("expression", "string", "acc + value", max_length=400),
             ConfigField("initial", "number", 0),
@@ -983,8 +951,11 @@ def build_default_registry() -> NodeRegistry:
     registry.register(NodeDef(
         type="logic.wait", version="1.0.0", label="Wait",
         category="logic",
-        inputs=(_port("in", "In", PortType.ANY, kind=PortKind.CONTROL, optional=True),),
-        outputs=(_port("waitedMs", "Waited", PortType.NUMBER),),
+        inputs=(_port("in", "Run", PortType.ANY, kind=PortKind.CONTROL, optional=True),),
+        outputs=(
+            _port("waitedMs", "Waited", PortType.NUMBER),
+            _port("done", "Done", PortType.ANY, kind=PortKind.CONTROL),
+        ),
         config_fields=(ConfigField("ms", "integer", 0, minimum=0, maximum=DURABLE_MAX_WAIT_MS),),
         allowed_modes=_ALL, executor=_exec_wait,
         test_run_limits={"ms": TEST_RUN_MAX_WAIT_MS},
@@ -992,10 +963,14 @@ def build_default_registry() -> NodeRegistry:
     registry.register(NodeDef(
         type="flow.subworkflow", version="1.0.0", label="Subworkflow",
         category="logic",
-        inputs=(_port("input", "Input", PortType.ANY, optional=True),),
+        inputs=(
+            _port("in", "Run", PortType.ANY, kind=PortKind.CONTROL, optional=True),
+            _port("input", "Input", PortType.ANY, optional=True),
+        ),
         outputs=(
             _port("output", "Output", PortType.ANY),
             _port("runId", "Run id", PortType.STRING),
+            _port("done", "Done", PortType.ANY, kind=PortKind.CONTROL),
         ),
         config_fields=(
             ConfigField("workflowId", "string", "", max_length=80),
@@ -1013,7 +988,12 @@ def build_default_registry() -> NodeRegistry:
     registry.register(NodeDef(
         type="logic.stop", version="1.0.0", label="Stop",
         category="logic",
-        inputs=(_port("in", "In", PortType.ANY, kind=PortKind.CONTROL, optional=True),),
+        inputs=(
+            _port("in", "Run", PortType.ANY, kind=PortKind.CONTROL, optional=True),
+            # Carrying a value through Stop makes it usable as a run terminal:
+            # the executor reads `inputs["value"]` for the run output.
+            _port("value", "Output", PortType.ANY, optional=True),
+        ),
         outputs=(_port("stopped", "Stopped", PortType.BOOLEAN),),
         config_fields=(
             ConfigField("message", "string", "", max_length=400),
