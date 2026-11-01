@@ -1,6 +1,19 @@
 # Change Log
 
 ## 2026-11-01
+- **docs(graph): integration / HTTP / webhook node improvement plan.** Added
+  `docs/graph-studio-integration-nodes-plan.md`: a verified audit of the
+  integration category (only `integration.http@1.0.0`; no `trigger.webhook`
+  despite the stale "three triggers" note; webhooks cannot act because every
+  run is a test run) and an implementation-ready plan. It covers the
+  redirect-based SSRF gap in `_exec_http`, an additive `integration.http@1.1.0`
+  contract (query/body modes/retries/response headers/ok/duration), a signed
+  inbound `trigger.webhook` with a `WorkflowWebhook` model and public
+  `/api/webhooks/[slug]` endpoint, an "armed" pinned-version authority model
+  (safe by default), safe-mode vs armed-mode semantics, the test matrix, the
+  ticket breakdown, and the decisions needed. No code changed.
+  Docs updated: `docs/graph-studio-integration-nodes-plan.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 - **feat(graph): first-run tour + a labelled node diagram; U4 deferred.** Closes
   the legibility plan. (1) New `graph-onboarding.tsx`: a three-card tour
   (a node is one step · connectors are labelled, round = value / square = branch ·
