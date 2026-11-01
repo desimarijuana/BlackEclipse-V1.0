@@ -242,7 +242,7 @@ export function RunPanel({
   const hasInput = runInputText.trim().length > 0;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="graph-panel flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
         <button
           type="button"

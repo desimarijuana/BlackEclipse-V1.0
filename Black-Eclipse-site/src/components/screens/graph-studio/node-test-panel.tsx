@@ -193,6 +193,9 @@ export function NodeTestPanel({
             <span>succeeded</span>
             <span>· {result.durationMs} ms</span>
             <span>· {Object.keys(result.outputs).length} output(s)</span>
+            {(result.firedControls?.length ?? 0) > 0 && (
+              <span className="text-sky-300">· fired {result.firedControls?.join(', ')}</span>
+            )}
           </div>
           <div>
             <div className="mb-1 text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">

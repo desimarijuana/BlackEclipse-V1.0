@@ -227,6 +227,8 @@ export interface NodeTestResult {
     timeoutMs: number;
   };
   outputs: Record<string, unknown>;
+  /** Control outputs the executor fired (e.g. a transform node's "done"). */
+  firedControls?: string[];
   logs: string[];
   durationMs: number;
 }
@@ -245,7 +247,7 @@ export interface DatasetSummary {
   name: string;
   valueType: string;
   bytes: number;
-  rows: number;
+  rows?: number | null;
   contentHash: string;
   createdAt: string;
   expiresAt?: string | null;

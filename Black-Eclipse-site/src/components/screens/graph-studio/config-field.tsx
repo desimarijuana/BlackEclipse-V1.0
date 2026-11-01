@@ -374,6 +374,21 @@ function InlineRow({ field, children }: { field: ConfigFieldDef; children: React
   );
 }
 
+function parseJsonRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value !== 'string' || !value.trim()) return {};
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 export function ConfigField({
   field, value, variant, wired = false, disabled = false, onCommit,
 }: ConfigFieldProps) {
@@ -434,10 +449,12 @@ export function ConfigField({
   }
 
   if (field.kind === 'keyvalue') {
+    const editable = field.jsonString ? parseJsonRecord(value) : value;
+    const commitRecord = (next: unknown) => onCommit(field.jsonString ? JSON.stringify(next) : next);
     return wrap(
       inline
-        ? <InlineJsonInput value={value} disabled={disabled} onCommit={onCommit} />
-        : <KeyValueEditor value={value} onChange={onCommit} />,
+        ? <InlineJsonInput value={editable} disabled={disabled} onCommit={commitRecord} />
+        : <KeyValueEditor value={editable} onChange={commitRecord} />,
     );
   }
 

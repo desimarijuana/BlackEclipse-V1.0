@@ -16,6 +16,8 @@ import { cn } from '@/lib/utils';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
 import { useWorkflowCatalog } from '@/lib/graph-studio/catalog-store';
 import { createWorkflow, saveWorkflow, WorkflowApiError } from '@/lib/graph-studio/persistence-client';
+import { AUTO_SAVE_DELAY_MS, shouldAutoSave } from '@/lib/graph-studio/autosave';
+import { contentHash } from '@/lib/graph-studio/hash';
 import {
   cancelGraphRun, getGraphRun, isTerminal, isRunTerminalEvent, nodeStatusFromEvent,
   openGraphRunStream, startWorkflowRun, GraphRunApiError,
@@ -58,6 +60,7 @@ export function GraphStudioScreen({
   const ir = useGraphEditor((s) => s.ir);
   const workflowId = useGraphEditor((s) => s.workflowId);
   const baseVersion = useGraphEditor((s) => s.baseVersion);
+  const serverContentHash = useGraphEditor((s) => s.serverContentHash);
   const dirty = useGraphEditor((s) => s.dirty);
   const diagnostics = useGraphEditor((s) => s.diagnostics);
   const selection = useGraphEditor((s) => s.selection);
@@ -90,6 +93,17 @@ export function GraphStudioScreen({
   // never pops the inspector open.
   const [inspectedNodeId, setInspectedNodeId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Auto-save is ON by default (persisted per browser). Invalid graphs are
+  // never auto-saved, exactly like the Save button.
+  const [autoSave, setAutoSave] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      return window.localStorage.getItem('be_graph_autosave_v1') !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const autoSavingRef = useRef(false);
   const [runBusy, setRunBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -197,6 +211,29 @@ export function GraphStudioScreen({
     }
     return ok;
   }, [workflowId, load, markSaved, refreshCatalog]);
+
+  // Auto-save: a short pause after the last edit persists the graph, so an
+  // operator never loses work by closing the tab. The policy is a pure function
+  // (`shouldAutoSave`) so it matches the Save button exactly.
+  useEffect(() => {
+    const currentHash = ir ? contentHash(ir) : null;
+    const allowed = shouldAutoSave({
+      enabled: autoSave,
+      dirty,
+      busy,
+      errors: errorCount,
+      hasWorkflow: Boolean(workflowId),
+      hasIr: Boolean(ir),
+      changed: Boolean(currentHash) && currentHash !== serverContentHash,
+    });
+    if (!allowed || autoSavingRef.current) return;
+    const timer = setTimeout(() => {
+      if (autoSavingRef.current) return;
+      autoSavingRef.current = true;
+      void save().finally(() => { autoSavingRef.current = false; });
+    }, AUTO_SAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [autoSave, workflowId, ir, dirty, busy, errorCount, save, serverContentHash]);
 
   // Fallback poll for environments where SSE is unavailable/disconnects. The
   // runtime owns the run; this only reflects what it reports.
@@ -426,10 +463,12 @@ export function GraphStudioScreen({
               'flex shrink-0 items-center gap-1 text-[10px] font-medium',
               dirty ? 'text-amber-400' : 'text-emerald-400/90',
             )}
-            title={dirty ? 'Unsaved changes' : 'All changes saved'}
+            title={dirty
+              ? (autoSave ? 'Unsaved — auto-save will persist shortly' : 'Unsaved changes')
+              : 'All changes saved'}
           >
             <span className={cn('h-1.5 w-1.5 rounded-full', dirty ? 'bg-amber-400' : 'bg-emerald-400')} />
-            {dirty ? 'Unsaved' : 'Saved'}
+            {busy ? 'Saving…' : dirty ? 'Unsaved' : 'Saved'}
           </span>
           {notice && <span className="shrink-0 truncate text-[10px] text-primary">{notice}</span>}
         </div>
@@ -484,6 +523,32 @@ export function GraphStudioScreen({
             <WarningCircle size={12} />
             <span className={cn(errorCount > 0 && 'tabular-nums')}>{errorCount > 0 ? errorCount : 'Issues'}</span>
           </Button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setAutoSave((current) => {
+                const next = !current;
+                try {
+                  window.localStorage.setItem('be_graph_autosave_v1', next ? 'on' : 'off');
+                } catch { /* storage may be unavailable; keep the in-memory choice */ }
+                return next;
+              });
+            }}
+            aria-pressed={autoSave}
+            title={autoSave
+              ? 'Auto-save is on — edits are persisted after a short pause'
+              : 'Auto-save is off — use Save (Ctrl+S)'}
+            className={cn(
+              'flex cursor-pointer items-center gap-1.5 rounded-md border px-2 py-1 text-[10.5px] font-medium transition-colors',
+              autoSave
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15'
+                : 'border-white/10 bg-background/60 text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <span className={cn('h-1.5 w-1.5 rounded-full', autoSave ? 'bg-emerald-400' : 'bg-slate-500')} />
+            Auto-save
+          </button>
 
           <Button
             type="button"
@@ -590,7 +655,7 @@ export function GraphStudioScreen({
         </div>
 
         {rightPanel && (
-          <aside className="flex w-[380px] max-w-[85vw] shrink-0 flex-col border-l border-white/10 bg-background/40">
+          <aside className="graph-panel flex w-[380px] max-w-[85vw] shrink-0 flex-col border-l border-white/10">
             {rightPanel === 'node' && (
               <NodeInspector
                 onClose={() => {

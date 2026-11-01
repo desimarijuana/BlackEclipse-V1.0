@@ -70,6 +70,15 @@ is missing, the frost does not render and it reads as a flat panel:
    energy inside vs. outside it — or simply screenshot and look. If the checker
    still reads sharp through the panel, the frost is broken no matter what the
    computed style says.
+6. **Canvas nodes cannot frost.** Graph Studio renders nodes inside React Flow's
+   transformed viewport (`.react-flow__viewport` has a `transform`), which is a
+   backdrop root: a node's `backdrop-filter` can only sample that subtree, so the
+   canvas grid/edges behind it are never blurred and show straight through a
+   translucent tint. `.node-card` is therefore intentionally a **near-opaque**
+   graphite gradient (alpha ≥ 0.95), not a glass surface — do not "fix" it by
+   lowering the alpha or adding `backdrop-blur-*`. The family look comes from the
+   inset highlight and soft shadow. The same applies to any HTML overlaid inside
+   a transformed/zoomed canvas layer.
 
 ### ECharts tooltip overlays (charts, heatmaps, curves)
 
