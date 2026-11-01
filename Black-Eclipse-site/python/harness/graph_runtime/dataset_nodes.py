@@ -15,7 +15,7 @@ import json
 from typing import Any
 
 from .datasets import DatasetError, require_dataset_store
-from .model import ExecutionMode, PortDef, PortType, SideEffect
+from .model import ExecutionMode, PortDef, PortKind, PortType, SideEffect
 from .registry import ConfigField, NodeDef, NodeExecContext
 
 _ALL = tuple(ExecutionMode)
@@ -46,7 +46,7 @@ def exec_dataset_save(context: NodeExecContext) -> dict[str, Any]:
     except DatasetError as exc:
         raise ValueError(str(exc)) from exc
     context.emit(f"dataset {meta['ref']} · {meta['bytes']} bytes")
-    return {"ref": meta["ref"], "meta": meta}
+    return {"ref": meta["ref"], "meta": meta, "_control": ["done"]}
 
 
 def exec_dataset_load(context: NodeExecContext) -> dict[str, Any]:
@@ -63,7 +63,7 @@ def exec_dataset_load(context: NodeExecContext) -> dict[str, Any]:
     except DatasetError as exc:
         raise ValueError(str(exc)) from exc
     context.emit(f"loaded dataset {meta['ref']} · {meta['bytes']} bytes")
-    return {"value": value, "meta": meta}
+    return {"value": value, "meta": meta, "_control": ["done"]}
 
 
 def build_dataset_nodes() -> list[NodeDef]:
@@ -73,10 +73,14 @@ def build_dataset_nodes() -> list[NodeDef]:
             version="1.0.0",
             label="Save dataset",
             category="data",
-            inputs=(PortDef(id="value", name="Value", type=PortType.ANY),),
+            inputs=(
+                PortDef(id="in", name="Run", type=PortType.ANY, kind=PortKind.CONTROL, optional=True),
+                PortDef(id="value", name="Value", type=PortType.ANY),
+            ),
             outputs=(
                 PortDef(id="ref", name="Ref", type=PortType.STRING),
                 PortDef(id="meta", name="Meta", type=PortType.OBJECT),
+                PortDef(id="done", name="Done", type=PortType.ANY, kind=PortKind.CONTROL),
             ),
             config_fields=(
                 ConfigField("name", "string", "", max_length=200),
@@ -99,10 +103,14 @@ def build_dataset_nodes() -> list[NodeDef]:
             version="1.0.0",
             label="Load dataset",
             category="data",
-            inputs=(PortDef(id="ref", name="Ref", type=PortType.STRING),),
+            inputs=(
+                PortDef(id="in", name="Run", type=PortType.ANY, kind=PortKind.CONTROL, optional=True),
+                PortDef(id="ref", name="Ref", type=PortType.STRING),
+            ),
             outputs=(
                 PortDef(id="value", name="Value", type=PortType.ANY),
                 PortDef(id="meta", name="Meta", type=PortType.OBJECT),
+                PortDef(id="done", name="Done", type=PortType.ANY, kind=PortKind.CONTROL),
             ),
             config_fields=(
                 ConfigField("ref", "string", "", max_length=200),

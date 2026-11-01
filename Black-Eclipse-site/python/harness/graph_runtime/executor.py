@@ -39,6 +39,7 @@ from .model import (
     RunDeferred,
     RunEvent,
     RunStatus,
+    RunStopRequest,
     SideEffect,
     WorkflowIR,
 )
@@ -74,6 +75,31 @@ def _numeric_state(value: Any) -> float:
             if key in value:
                 return _numeric_state(value[key])
     return 0.0
+
+
+def _loop_scope(state: Any, index: int) -> dict[str, float]:
+    """Names a loop condition can read.
+
+    The legacy numeric projection (`value`) stays for compatibility, but a body
+    that returns an object also exposes its numeric and boolean fields, so a
+    `{done: true}` state can be tested (`done != 1`) instead of silently reading
+    as 0 and exiting on the first iteration.
+    """
+    scope: dict[str, float] = {"index": float(index), "iterations": float(index)}
+    if isinstance(state, bool):
+        scope["value"] = 1.0 if state else 0.0
+    elif isinstance(state, (int, float)):
+        scope["value"] = float(state)
+    elif isinstance(state, dict):
+        for key, value in state.items():
+            if isinstance(value, bool):
+                scope[str(key)] = 1.0 if value else 0.0
+            elif isinstance(value, (int, float)):
+                scope[str(key)] = float(value)
+        scope.setdefault("value", _numeric_state(state))
+    else:
+        scope["value"] = 0.0
+    return scope
 
 
 def _preview(value: Any) -> Any:
@@ -161,9 +187,18 @@ class GraphExecutor:
         self._load_child_run = load_child_run
         self._allow_defer = allow_defer
         self._deferred: Optional[DeferredWait] = None
+        # Set by `logic.stop`: the node still succeeds (so `stops_run` skips the
+        # rest), and this carries the status/message the run should finish with.
+        self._stop_request: Optional[dict[str, Any]] = None
         self._terminal_outputs: dict[str, Any] = {}
 
         self._inputs_map = plan_inputs(ir)
+        # Reverse of the wiring: which (node, control handle) pairs actually go
+        # somewhere. Used to report a branch that fired into nothing.
+        self._outgoing: dict[tuple[str, str], int] = {}
+        for edge in ir.edges:
+            key = (edge.source, edge.source_handle)
+            self._outgoing[key] = self._outgoing.get(key, 0) + 1
         self._nodes = {node.id: node for node in ir.nodes}
         self._outputs: dict[str, dict[str, Any]] = {}  # node_id → {handle: value}
         # Control outputs a node FIRED (`_control` in its result). Control ports
@@ -272,28 +307,79 @@ class GraphExecutor:
 
     # ── a single node ──────────────────────────────────────────────────────
 
+    def _control_state(self, node_id: str) -> dict[str, bool]:
+        """Which WIRED control inputs fired. Unwired control inputs are absent.
+
+        Control ports gate execution, not values: a wired input counts when an
+        upstream node succeeded AND fired that handle.
+        """
+        definition = self._defs[node_id]
+        state: dict[str, bool] = {}
+        for port in definition.inputs:
+            if port.kind != PortKind.CONTROL:
+                continue
+            wires = self._inputs_map.get(f"{node_id}:{port.id}", [])
+            if not wires:
+                continue
+            state[port.id] = any(
+                self._node_runs.get(source_id) is not None
+                and self._node_runs[source_id].status == NodeStatus.SUCCEEDED
+                and source_handle in self._fired.get(source_id, set())
+                for source_id, source_handle in wires
+            )
+        return state
+
     def _control_satisfied(self, node_id: str) -> bool:
         """A node that declares CONTROL inputs runs only when an upstream node
         fired one of them. Nodes without control inputs are unaffected."""
-        definition = self._defs[node_id]
-        control_inputs = [p for p in definition.inputs if p.kind == PortKind.CONTROL]
-        if not control_inputs:
-            return True
-        wired = [f"{node_id}:{port.id}" for port in control_inputs if self._inputs_map.get(f"{node_id}:{port.id}")]
-        if not wired:
+        state = self._control_state(node_id)
+        if not state:
             # An UNWIRED control input gates nothing — the node runs on dataflow
             # alone (e.g. a standalone `wait` or `stop`).
             return True
-        for key in wired:
-            for source_id, source_handle in self._inputs_map.get(key, []):
-                source = self._node_runs.get(source_id)
-                if (
-                    source is not None
-                    and source.status == NodeStatus.SUCCEEDED
-                    and source_handle in self._fired.get(source_id, set())
-                ):
-                    return True
-        return False
+        return any(state.values())
+
+    def _control_skip_reason(self, node_id: str) -> str:
+        """Name the wires that did not fire, so a skip is actionable."""
+        definition = self._defs[node_id]
+        names = {port.id: port.name for port in definition.inputs}
+        state = self._control_state(node_id)
+        missing = [
+            f'"{names.get(port_id, port_id)}" from {source_id}'
+            for port_id, fired in state.items()
+            if not fired
+            for source_id, _handle in self._inputs_map.get(f"{node_id}:{port_id}", [])
+        ]
+        if not missing:
+            return "its control input did not fire"
+        return f'its control input did not fire ({", ".join(sorted(set(missing)))} was skipped)'
+
+
+    def _control_fired(self, node_id: str, definition: NodeDef) -> dict[str, bool]:
+        """Deprecated alias for `_control_state`; kept for callers added mid-merge."""
+        return self._control_state(node_id)
+
+    def _report_dead_branch(self, node_id: str, definition: NodeDef, fired: list[str]) -> None:
+        """Say so when a branch decision went nowhere.
+
+        Only nodes with MORE THAN ONE control output are a decision (`condition`,
+        `switch`). A node that fires a single `done` has not chosen between
+        alternatives, so an unwired `done` is not a mistake and stays quiet.
+        """
+        control_outs = [p for p in definition.outputs if p.kind == PortKind.CONTROL]
+        if len(control_outs) < 2 or not fired:
+            return
+        if any(self._outgoing.get((node_id, name)) for name in fired):
+            return
+        labels = []
+        for name in fired:
+            port = definition.output_port(name)
+            labels.append(port.name if port is not None else name)
+        self._emit(
+            "node.log",
+            f"branch {', '.join(labels)} fired but nothing is connected to it — the run continues with no effect",
+            node_id,
+        )
 
     def _run_node(self, node_id: str) -> None:
         record = self._node_runs[node_id]
@@ -307,7 +393,7 @@ class GraphExecutor:
 
         if not self._control_satisfied(node_id):
             record.status = NodeStatus.SKIPPED
-            record.error = "its control input did not fire"
+            record.error = self._control_skip_reason(node_id)
             record.error_code = "control_not_fired"
             record.finished_at = now_iso()
             self._emit("node.skipped", record.error, node_id)
@@ -348,17 +434,23 @@ class GraphExecutor:
                 # A durable wait succeeded (checkpointed) and the RUN pauses; the
                 # Fabric job is requeued instead of holding this worker thread.
                 record.duration_ms = int((time.monotonic() - started) * 1000)
-                record.outputs = {key: _preview(value) for key, value in exc.outputs.items()}
+                deferred_outputs = dict(exc.outputs)
+                deferred_fired = deferred_outputs.pop("_control", [])
+                record.outputs = {key: _preview(value) for key, value in deferred_outputs.items()}
                 record.status = NodeStatus.SUCCEEDED
                 record.finished_at = now_iso()
-                self._outputs[node_id] = dict(exc.outputs)
-                self._fired[node_id] = set()
+                self._outputs[node_id] = deferred_outputs
+                fired_names = (
+                    [str(name) for name in deferred_fired]
+                    if isinstance(deferred_fired, list) else []
+                )
+                self._fired[node_id] = set(fired_names)
                 self._emit(
                     "node.deferred",
                     f"paused for {exc.wake_after_seconds:.3f}s; the job will resume",
                     node_id,
                 )
-                self._notify_node(record, dict(exc.outputs), [], False, None)
+                self._notify_node(record, dict(deferred_outputs), fired_names, False, None)
                 self._deferred = exc
                 return
             except _NodeTimeout as exc:
@@ -374,10 +466,40 @@ class GraphExecutor:
                 # Control outputs are declared as `_control` in the result and
                 # are never carried as values.
                 fired = result.pop("_control", []) if isinstance(result, dict) else []
-                problem = self._validate_outputs(node_id, definition, result)
+                fired_names = [str(name) for name in fired] if isinstance(fired, list) else []
+                # A node may end the RUN with an explicit outcome (`logic.stop`).
+                # It is a reserved key exactly like `_control`: never an output.
+                stop_request = result.pop("_stop", None) if isinstance(result, dict) else None
+                if isinstance(stop_request, dict):
+                    self._stop_request = RunStopRequest.model_validate(stop_request).model_dump()
+                skip_reason = result.pop("_skip", None) if isinstance(result, dict) else None
+                if isinstance(skip_reason, str) and skip_reason:
+                    # A node asked to be SKIPPED (e.g. an `all` gate whose inputs
+                    # did not all fire). Its outputs never become available, so
+                    # downstream data nodes are skipped like any other branch.
+                    record.status = NodeStatus.SKIPPED
+                    record.error = skip_reason
+                    record.error_code = "skipped_by_node"
+                    record.finished_at = now_iso()
+                    self._fired[node_id] = set()
+                    self._outputs.pop(node_id, None)
+                    self._emit("node.skipped", skip_reason, node_id)
+                    self._notify_node(record, {}, [], False, None)
+                    return
+                declared_controls = {
+                    port.id for port in definition.outputs if port.kind == PortKind.CONTROL
+                }
+                undeclared = sorted({name for name in fired_names if name not in declared_controls})
+                # Firing a name that is not a declared control output would route
+                # to nowhere and look like a successful branch. Refuse it.
+                problem = (
+                    f"fired control output(s) that are not declared: {', '.join(undeclared)}"
+                    if undeclared
+                    else self._validate_outputs(node_id, definition, result)
+                )
                 if problem is None:
-                    fired_names = [str(name) for name in fired] if isinstance(fired, list) else []
                     self._fired[node_id] = set(fired_names)
+                    self._report_dead_branch(node_id, definition, fired_names)
                     self._outputs[node_id] = result
                     terminal_done = bool(definition.terminal)
                     terminal_value = None
@@ -434,6 +556,8 @@ class GraphExecutor:
             allow_defer=self._allow_defer,
             allow_network=self._grants.allow_network,
             test_run=self._grants.test_run,
+            control_fired=self._control_state(node_id),
+            should_cancel=self._cancel.is_set,
         )
 
         def call() -> dict[str, Any]:
@@ -460,12 +584,8 @@ class GraphExecutor:
     def _loop_condition(self, expression: str, state: Any, index: int) -> bool:
         from .nodes import evaluate_formula  # noqa: PLC0415 - avoids an import cycle
 
-        value = _numeric_state(state)
         try:
-            return evaluate_formula(
-                expression,
-                {"value": value, "index": float(index), "iterations": float(index)},
-            ) != 0
+            return evaluate_formula(expression, _loop_scope(state, index)) != 0
         except Exception as exc:  # noqa: BLE001 - a bad condition is a node error
             raise ValueError(f"loop condition failed: {exc}") from exc
 
@@ -542,6 +662,7 @@ class GraphExecutor:
         state = inputs.get("input")
         results: list[Any] = []
         iterations = 0
+        failures = 0
         started = time.monotonic()
         for index in range(iterations_to_run):
             if self._cancel.is_set():
@@ -576,19 +697,34 @@ class GraphExecutor:
             except ValueError as exc:
                 if not continue_on_error:
                     raise
+                failures += 1
                 results.append({"error": str(exc)})
                 iterations += 1
 
         if kind == "flow.for_each":
+            self._emit(
+                "node.log",
+                f"{iterations} iteration(s), {failures} failed"
+                + (", stopped early" if stopped else ""),
+                node_id,
+            )
             return {
                 "results": results,
                 "iterations": iterations,
                 "stopped": stopped,
+                "_control": ["done"],
             }
+        self._emit(
+            "node.log",
+            f"{iterations} iteration(s), {failures} failed"
+            + (", stopped early" if stopped else ""),
+            node_id,
+        )
         return {
             "state": state,
             "iterations": iterations,
             "stopped": stopped,
+            "_control": ["done"],
         }
 
     def _run_subworkflow(
@@ -667,7 +803,8 @@ class GraphExecutor:
                 pass
         if run.status != RunStatus.SUCCEEDED:
             raise ValueError(f"subworkflow {key} {run.status.value}: {run.error or 'failed'}")
-        return {"output": run.output, "runId": run.id}
+        self._emit("node.log", f"child {key} succeeded in {run.duration_ms} ms", node_id)
+        return {"output": run.output, "runId": run.id, "_control": ["done"]}
 
     def _validate_outputs(self, node_id: str, definition: NodeDef, result: Any) -> Optional[str]:
         if not isinstance(result, dict):
@@ -752,10 +889,14 @@ class GraphExecutor:
 
         cancelled = self._cancel.is_set()
         failed = any(r.status == NodeStatus.FAILED for r in self._node_runs.values())
+        stop = self._stop_request
+        stop_failed = bool(stop and str(stop.get("status") or "") == "failed")
         if deferred is not None:
             status = RunStatus.QUEUED
         else:
-            status = RunStatus.CANCELLED if cancelled else (RunStatus.FAILED if failed else RunStatus.SUCCEEDED)
+            status = RunStatus.CANCELLED if cancelled else (
+                RunStatus.FAILED if (failed or stop_failed) else RunStatus.SUCCEEDED
+            )
         duration_ms = int((time.monotonic() - started) * 1000)
         if deferred is not None:
             self._emit(
@@ -766,6 +907,8 @@ class GraphExecutor:
             self._emit("run.succeeded", f"completed in {duration_ms} ms")
         elif status == RunStatus.CANCELLED:
             self._emit("run.cancelled", "run cancelled")
+        elif stop_failed:
+            self._emit("run.stopped", str(stop.get("message") or "run stopped"))
         else:
             first = next((r for r in self._node_runs.values() if r.status == NodeStatus.FAILED), None)
             self._emit("run.failed", first.error if first and first.error else "one or more nodes failed")
@@ -776,6 +919,12 @@ class GraphExecutor:
             output = next(iter(terminal_values.values()))
         elif terminal_values:
             output = terminal_values
+
+        run_error = next(
+            (r.error for r in self._node_runs.values() if r.status == NodeStatus.FAILED), None,
+        )
+        if stop_failed:
+            run_error = str(stop.get("message") or "run stopped")
 
         run = GraphRun(
             id=self._run_id,
@@ -788,7 +937,7 @@ class GraphExecutor:
             startedAt=started_at,
             finishedAt=None if deferred is not None else now_iso(),
             durationMs=duration_ms,
-            error=next((r.error for r in self._node_runs.values() if r.status == NodeStatus.FAILED), None),
+            error=run_error,
             ownerId=self._owner_id,
             output=output,
             nodeRuns=[self._node_runs[n.node_id] for n in sorted(self._plan.nodes, key=lambda p: (p.layer, p.node_id))],

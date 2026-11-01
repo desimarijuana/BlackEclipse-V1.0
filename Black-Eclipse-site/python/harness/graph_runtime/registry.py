@@ -80,6 +80,13 @@ class NodeExecContext:
     # browser, MCP or broker tools while it can still reason and read locally.
     allow_network: bool = False
     test_run: bool = False
+    # Which of THIS node's wired control inputs fired (keyed by input port id).
+    # A gate can then express an AND ("every wired branch arrived") without the
+    # scheduler special-casing node types. Empty when nothing is wired.
+    control_fired: dict[str, bool] = field(default_factory=dict)
+    # Polled by long-running but pure nodes (`logic.wait`) so cancellation does
+    # not have to wait for the node to return. Never a resource handle.
+    should_cancel: Callable[[], bool] = lambda: False  # noqa: E731
 
 
 @dataclass

@@ -265,6 +265,18 @@ class DeferredWait(Exception):
         self.outputs = outputs
 
 
+class RunStopRequest(_Model):
+    """A node asked the RUN to end with an explicit outcome (`logic.stop`).
+
+    It travels as the reserved ``_stop`` key of an executor result — the same
+    convention as ``_control`` — so the node itself still succeeds while the run
+    status is decided by the node, not by the absence of failures.
+    """
+
+    status: Literal["succeeded", "failed"] = "succeeded"
+    message: str = ""
+
+
 class RunDeferred(Exception):
     """The executor paused a durable run; the Fabric job is requeued at wake time."""
 
@@ -298,6 +310,7 @@ __all__ = [
     "WorkflowIR",
     "DeferredWait",
     "RunDeferred",
+    "RunStopRequest",
     "Diagnostic",
     "PlanNode",
     "ExecutionPlan",

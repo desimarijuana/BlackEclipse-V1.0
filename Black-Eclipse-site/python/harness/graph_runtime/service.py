@@ -187,6 +187,11 @@ class GraphService:
 
         if not isinstance(outputs, dict):
             raise NodeTestError("The executor returned a non-object result.", 500)
+        # Control outputs gate execution; they are not values. Report them
+        # separately so the tester can show which branch would fire.
+        fired = outputs.pop("_control", [])
+        if not isinstance(fired, list):
+            fired = []
         for port in definition.outputs:
             if port.id in outputs:
                 problem = validate_port_value(port.type, outputs[port.id])
@@ -204,6 +209,7 @@ class GraphService:
                 "timeoutMs": definition.timeout_ms,
             },
             "outputs": outputs,
+            "firedControls": [str(name) for name in fired],
             "logs": logs,
             "durationMs": int((time.monotonic() - started) * 1000),
         }

@@ -16,7 +16,7 @@ Three shapes, all bounded by `maxIterations` and an optional wall-clock budget:
 
 from __future__ import annotations
 
-from .model import ExecutionMode, PortDef, PortType, SideEffect
+from .model import ExecutionMode, PortDef, PortKind, PortType, SideEffect
 from .registry import ConfigField, NodeDef
 
 _ALL = tuple(ExecutionMode)
@@ -37,12 +37,14 @@ def build_loop_nodes() -> list[NodeDef]:
             type="flow.for_each", version="1.0.0", label="For each",
             category="logic", orchestrated=True,
             inputs=(
+                PortDef(id="in", name="Run", type=PortType.ANY, kind=PortKind.CONTROL, optional=True),
                 PortDef(id="items", name="Items", type=PortType.ARRAY),
             ),
             outputs=(
                 PortDef(id="results", name="Results", type=PortType.ARRAY),
                 PortDef(id="iterations", name="Iterations", type=PortType.NUMBER),
                 PortDef(id="stopped", name="Stopped early", type=PortType.BOOLEAN),
+                PortDef(id="done", name="Done", type=PortType.ANY, kind=PortKind.CONTROL),
             ),
             config_fields=(
                 *_pinned_fields(),
@@ -63,17 +65,20 @@ def build_loop_nodes() -> list[NodeDef]:
             type="flow.repeat", version="1.0.0", label="Repeat",
             category="logic", orchestrated=True,
             inputs=(
+                PortDef(id="in", name="Run", type=PortType.ANY, kind=PortKind.CONTROL, optional=True),
                 PortDef(id="input", name="Input", type=PortType.ANY, optional=True),
             ),
             outputs=(
                 PortDef(id="state", name="State", type=PortType.ANY),
                 PortDef(id="iterations", name="Iterations", type=PortType.NUMBER),
                 PortDef(id="stopped", name="Stopped early", type=PortType.BOOLEAN),
+                PortDef(id="done", name="Done", type=PortType.ANY, kind=PortKind.CONTROL),
             ),
             config_fields=(
                 *_pinned_fields(),
                 ConfigField("count", "integer", 1, minimum=1, maximum=MAX_ITERATIONS),
                 ConfigField("maxDurationMs", "integer", 0, minimum=0, maximum=MAX_DURATION_MS),
+                ConfigField("continueOnError", "boolean", False),
             ),
             capabilities=(), side_effects=SideEffect.NONE, allowed_modes=_ALL,
             timeout_ms=3_600_000,
@@ -86,18 +91,21 @@ def build_loop_nodes() -> list[NodeDef]:
             type="flow.while", version="1.0.0", label="While",
             category="logic", orchestrated=True,
             inputs=(
+                PortDef(id="in", name="Run", type=PortType.ANY, kind=PortKind.CONTROL, optional=True),
                 PortDef(id="input", name="Initial state", type=PortType.ANY, optional=True),
             ),
             outputs=(
                 PortDef(id="state", name="Final state", type=PortType.ANY),
                 PortDef(id="iterations", name="Iterations", type=PortType.NUMBER),
                 PortDef(id="stopped", name="Stopped early", type=PortType.BOOLEAN),
+                PortDef(id="done", name="Done", type=PortType.ANY, kind=PortKind.CONTROL),
             ),
             config_fields=(
                 *_pinned_fields(),
                 ConfigField("condition", "string", "value > 0", max_length=500),
                 ConfigField("maxIterations", "integer", 100, minimum=1, maximum=MAX_ITERATIONS),
                 ConfigField("maxDurationMs", "integer", 0, minimum=0, maximum=MAX_DURATION_MS),
+                ConfigField("continueOnError", "boolean", False),
             ),
             capabilities=(), side_effects=SideEffect.NONE, allowed_modes=_ALL,
             timeout_ms=3_600_000,
