@@ -59,6 +59,34 @@ const EXAMPLES: Record<string, string> = {
     'series · kind sma · period 50  →  values series (warm-up points are null)',
   'quant.zscore':
     'values · period 20  →  z-score series',
+  'quant.resample':
+    'series 1h · targetInterval 1d  →  daily OHLCV (buckets with too few hours marked partial)',
+  'quant.benchmark':
+    'backtest result (includeSeries on) · benchmark 1d  →  alpha, beta, tracking error, IR',
+  'quant.grade':
+    'metrics + trades + Monte Carlo  →  grade B (76/100), 1 warning flag',
+  'quant.robustness':
+    'series · paramSpaceJson · costMultipliersJson [1,2,5]  →  verdict "fragile" + conclusions',
+  'quant.trade_analysis':
+    'trades + the bars they traded  →  per-regime P&L, concentration, unclassified count',
+  'quant.multiple_testing':
+    'optimize trials + backtest result  →  deflated Sharpe 0.62, PBO 41%',
+  'quant.align':
+    '{ AAPL: bars, MSFT: bars } · join inner · fill none  →  common timestamps + per-symbol missing counts',
+  'quant.regime':
+    'daily bars · fast 20 / slow 50  →  labels up_normal / down_high …, warm-up `unknown`',
+  'quant.position_size':
+    'price 190 · stop 4.5 · percent_risk 1% · equity 100k  →  222 units (notional 42,180)',
+  'quant.portfolio_backtest':
+    '{ AAPL: bars, MSFT: bars } · preset ema_cross  →  one book, combined equity + trades',
+  'quant.costs':
+    'orders [{buy 100 @ 190}] · kind transaction · commission 0.05%  →  total 9.5',
+  'quant.edge_report':
+    'backtest result (includeSeries on) + Monte Carlo  →  Markdown report + chart specs + grade',
+  'quant.options_strategy':
+    'bull call spread 490/510 · spot 500 · 30 days · IV 22%  →  payoff curve, break-even 502, net Greeks',
+  'quant.futures_continuous':
+    'ES MAR + JUN contracts · roll 2024-03-15 · adjustment difference  →  one continuous OHLCV proxy',
 };
 
 export function exampleFor(nodeType: string): string | undefined {

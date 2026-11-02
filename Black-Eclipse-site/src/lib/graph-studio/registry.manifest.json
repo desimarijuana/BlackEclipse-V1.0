@@ -646,6 +646,298 @@
       "terminal": false
     },
     {
+      "type": "finance.bond",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "Bond data",
+      "description": "Reads price/yield and derives duration and convexity when inputs exist.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "bond",
+          "name": "Bond",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "slow",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "seriesType",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "finance.funding_rate",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "Funding rate",
+      "description": "Reads a perpetual funding rate, optionally with its history.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "funding",
+          "name": "Funding",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "exchange",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "realtime",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        },
+        {
+          "name": "history",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "finance.fx_rate",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "FX rate",
+      "description": "Reads a foreign-exchange rate (pair, or base + quote).",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "rate",
+          "name": "FX rate",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "base",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "realtime",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        },
+        {
+          "name": "quote",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "finance.history",
       "version": "1.0.0",
       "category": "finance",
@@ -869,6 +1161,378 @@
       "terminal": false
     },
     {
+      "type": "finance.instrument",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "Instrument",
+      "description": "Resolves a symbol to its canonical identity through the data bridge.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "instrument",
+          "name": "Instrument",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "finance.liquidations",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "Liquidations",
+      "description": "Reads forced-liquidation totals for a coin on one futures exchange.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "liquidations",
+          "name": "Liquidations",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "exchange",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "intraday",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "window",
+          "kind": "string",
+          "default": "24h",
+          "constraints": {
+            "maxLength": 20
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "finance.long_short_ratio",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "Long/short ratio",
+      "description": "Reads the global long/short account ratio history for a futures pair.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "ratio",
+          "name": "Ratio",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "exchange",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "intraday",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        },
+        {
+          "name": "interval",
+          "kind": "string",
+          "default": "1h",
+          "constraints": {
+            "maxLength": 10
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 48,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "finance.market_cap",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "Market cap",
+      "description": "Reads market capitalisation and the share basis it uses.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "marketCap",
+          "name": "Market cap",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "daily",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "finance.market_data",
       "version": "1.0.0",
       "category": "finance",
@@ -925,6 +1589,389 @@
             "min": 1,
             "max": 5000,
             "integer": true
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "finance.onchain",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "On-chain metrics",
+      "description": "Reads account-scoped on-chain metrics for an EVM address.",
+      "inputs": [
+        {
+          "id": "address",
+          "name": "Address",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "metrics",
+          "name": "Metrics",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "address",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 100
+          }
+        },
+        {
+          "name": "chain",
+          "kind": "string",
+          "default": "ethereum",
+          "constraints": {
+            "maxLength": 30
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "intraday",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "finance.open_interest",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "Open interest",
+      "description": "Reads futures open interest with native/derived field labels.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "openInterest",
+          "name": "Open interest",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "exchange",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "intraday",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "window",
+          "kind": "string",
+          "default": "24h",
+          "constraints": {
+            "maxLength": 20
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "finance.options_chain",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "Options chain",
+      "description": "Reads an options chain; Greeks are provider-sourced or calculated, never zero-filled.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "chain",
+          "name": "Chain",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "expiration",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "daily",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        },
+        {
+          "name": "greeks",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "finance.orderbook",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "Order book",
+      "description": "Reads the top-of-book depth and spread through the market gateway.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "book",
+          "name": "Order book",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "depth",
+          "kind": "number",
+          "default": 20,
+          "constraints": {
+            "min": 1,
+            "max": 200,
+            "integer": true
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "realtime",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
           }
         },
         {
@@ -1010,6 +2057,392 @@
           "default": "",
           "constraints": {
             "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "finance.supply",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "Crypto supply",
+      "description": "Reads circulating/total/max supply and FDV for a crypto asset.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "supply",
+          "name": "Supply",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "daily",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "finance.trades",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "Trade tape",
+      "description": "Reads recent trades (with provider or inferred side) from the gateway.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "trades",
+          "name": "Trades",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "end",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "realtime",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 100,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "start",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "finance.tvl",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "DeFi TVL",
+      "description": "Reads total value locked for a protocol or chain.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "tvl",
+          "name": "TVL",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "chain",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "daily",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "market.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "finance.volume",
+      "version": "1.0.0",
+      "category": "finance",
+      "label": "Volume stats",
+      "description": "Reads windowed volume with native/derived field labels.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "volume",
+          "name": "Volume",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "intraday",
+          "constraints": {
+            "enum": [
+              "realtime",
+              "intraday",
+              "daily",
+              "slow",
+              "any"
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "window",
+          "kind": "string",
+          "default": "1d",
+          "constraints": {
+            "maxLength": 20
           }
         }
       ],
@@ -1602,8 +3035,419 @@
               "POST",
               "PUT",
               "PATCH",
-              "DELETE"
+              "DELETE",
+              "HEAD",
+              "OPTIONS"
             ]
+          }
+        },
+        {
+          "name": "timeoutMs",
+          "kind": "number",
+          "default": 10000,
+          "constraints": {
+            "min": 1000,
+            "max": 60000,
+            "integer": true
+          }
+        },
+        {
+          "name": "url",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        }
+      ],
+      "capabilities": [
+        "network.egress"
+      ],
+      "sideEffects": "network",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "integration.http",
+      "version": "1.1.0",
+      "category": "integration",
+      "label": "HTTP request",
+      "description": "Calls an external HTTP endpoint with query, body modes, retries and bounded responses.",
+      "inputs": [
+        {
+          "id": "url",
+          "name": "URL",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "body",
+          "name": "Body",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "body",
+          "name": "Body",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "headers",
+          "name": "Headers",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "contentType",
+          "name": "Content type",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "durationMs",
+          "name": "Duration",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "truncated",
+          "name": "Truncated",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "bodyJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        },
+        {
+          "name": "bodyMode",
+          "kind": "string",
+          "default": "json",
+          "constraints": {
+            "enum": [
+              "json",
+              "text",
+              "form"
+            ]
+          }
+        },
+        {
+          "name": "credentialEnvJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 10000
+          }
+        },
+        {
+          "name": "failOnHttpError",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "followRedirects",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "headersJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 10000
+          }
+        },
+        {
+          "name": "maxRedirects",
+          "kind": "number",
+          "default": 3,
+          "constraints": {
+            "min": 0,
+            "max": 5,
+            "integer": true
+          }
+        },
+        {
+          "name": "maxResponseBytes",
+          "kind": "number",
+          "default": 1000000,
+          "constraints": {
+            "min": 1000,
+            "max": 10000000,
+            "integer": true
+          }
+        },
+        {
+          "name": "method",
+          "kind": "string",
+          "default": "GET",
+          "constraints": {
+            "enum": [
+              "GET",
+              "POST",
+              "PUT",
+              "PATCH",
+              "DELETE",
+              "HEAD",
+              "OPTIONS"
+            ]
+          }
+        },
+        {
+          "name": "onOversize",
+          "kind": "string",
+          "default": "error",
+          "constraints": {
+            "enum": [
+              "error",
+              "truncate"
+            ]
+          }
+        },
+        {
+          "name": "queryJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8000
+          }
+        },
+        {
+          "name": "responseType",
+          "kind": "string",
+          "default": "auto",
+          "constraints": {
+            "enum": [
+              "auto",
+              "json",
+              "text"
+            ]
+          }
+        },
+        {
+          "name": "retries",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 3,
+            "integer": true
+          }
+        },
+        {
+          "name": "retryBackoffMs",
+          "kind": "number",
+          "default": 500,
+          "constraints": {
+            "min": 100,
+            "max": 10000,
+            "integer": true
+          }
+        },
+        {
+          "name": "retryUnsafe",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "timeoutMs",
+          "kind": "number",
+          "default": 10000,
+          "constraints": {
+            "min": 1000,
+            "max": 60000,
+            "integer": true
+          }
+        },
+        {
+          "name": "url",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        }
+      ],
+      "capabilities": [
+        "network.egress"
+      ],
+      "sideEffects": "network",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "integration.webhook_send",
+      "version": "1.0.0",
+      "category": "integration",
+      "label": "Send webhook",
+      "description": "POSTs a JSON payload with an HMAC-SHA256 webhook signature.",
+      "inputs": [
+        {
+          "id": "url",
+          "name": "URL",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "body",
+          "name": "Body",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "body",
+          "name": "Body",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "durationMs",
+          "name": "Duration",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "bodyJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        },
+        {
+          "name": "deliveryId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "failOnHttpError",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "headersJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 10000
+          }
+        },
+        {
+          "name": "maxResponseBytes",
+          "kind": "number",
+          "default": 1000000,
+          "constraints": {
+            "min": 1000,
+            "max": 10000000,
+            "integer": true
+          }
+        },
+        {
+          "name": "retries",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 3,
+            "integer": true
+          }
+        },
+        {
+          "name": "retryBackoffMs",
+          "kind": "number",
+          "default": 500,
+          "constraints": {
+            "min": 100,
+            "max": 10000,
+            "integer": true
+          }
+        },
+        {
+          "name": "secretEnv",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 128
           }
         },
         {
@@ -2485,6 +4329,85 @@
       "terminal": true
     },
     {
+      "type": "quant.align",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Align instruments",
+      "description": "Aligns several instruments onto one timestamp axis with an explicit join and fill.",
+      "inputs": [
+        {
+          "id": "series",
+          "name": "Series map",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "aligned",
+          "name": "Aligned",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "metadata",
+          "name": "Metadata",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "column",
+          "kind": "string",
+          "default": "close",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "fill",
+          "kind": "string",
+          "default": "none",
+          "constraints": {
+            "enum": [
+              "none",
+              "ffill",
+              "zero"
+            ]
+          }
+        },
+        {
+          "name": "join",
+          "kind": "string",
+          "default": "inner",
+          "constraints": {
+            "enum": [
+              "inner",
+              "outer"
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "quant.backtest",
       "version": "1.0.0",
       "category": "quant",
@@ -2697,6 +4620,659 @@
           "default": "",
           "constraints": {
             "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.benchmark",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Benchmark comparison",
+      "description": "Alpha, beta, tracking error and information ratio against a benchmark series.",
+      "inputs": [
+        {
+          "id": "result",
+          "name": "Backtest result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "benchmark",
+          "name": "Benchmark OHLCV",
+          "type": "ohlcv",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "metrics",
+          "name": "Metrics",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetClass",
+          "kind": "string",
+          "default": "equity",
+          "constraints": {
+            "enum": [
+              "equity",
+              "crypto"
+            ]
+          }
+        },
+        {
+          "name": "interval",
+          "kind": "string",
+          "default": "1d",
+          "constraints": {
+            "enum": [
+              "1m",
+              "5m",
+              "15m",
+              "30m",
+              "1h",
+              "4h",
+              "1d",
+              "1w",
+              "1mo"
+            ]
+          }
+        },
+        {
+          "name": "riskFreeRate",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": -0.5,
+            "max": 0.5
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.beta",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Beta & alpha",
+      "description": "CAPM beta and annualized alpha against a benchmark.",
+      "inputs": [
+        {
+          "id": "asset",
+          "name": "Asset",
+          "type": "indicator",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "benchmark",
+          "name": "Benchmark",
+          "type": "indicator",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "beta",
+          "name": "Beta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "inputKind",
+          "kind": "string",
+          "default": "returns",
+          "constraints": {
+            "enum": [
+              "returns",
+              "prices"
+            ]
+          }
+        },
+        {
+          "name": "periodsPerYear",
+          "kind": "number",
+          "default": 252,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "riskFreeRate",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": -0.5,
+            "max": 0.5
+          }
+        },
+        {
+          "name": "window",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 2000,
+            "integer": true
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.correlation",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Correlation",
+      "description": "Pairwise correlation over the shared finite points, with an optional window.",
+      "inputs": [
+        {
+          "id": "a",
+          "name": "Series A",
+          "type": "indicator",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "b",
+          "name": "Series B",
+          "type": "indicator",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "correlation",
+          "name": "Correlation",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "method",
+          "kind": "string",
+          "default": "pearson",
+          "constraints": {
+            "enum": [
+              "pearson",
+              "spearman"
+            ]
+          }
+        },
+        {
+          "name": "window",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 2000,
+            "integer": true
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.costs",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Transaction costs",
+      "description": "One cost family over an order list, with the exact model made auditable.",
+      "inputs": [
+        {
+          "id": "orders",
+          "name": "Orders",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "costs",
+          "name": "Costs",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "total",
+          "name": "Total",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "executionJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        },
+        {
+          "name": "kind",
+          "kind": "string",
+          "default": "transaction",
+          "constraints": {
+            "enum": [
+              "transaction",
+              "slippage",
+              "spread",
+              "impact"
+            ]
+          }
+        },
+        {
+          "name": "randomSeed",
+          "kind": "number",
+          "default": 42,
+          "constraints": {
+            "min": 0,
+            "max": 2147483647,
+            "integer": true
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.drawdown",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Drawdown",
+      "description": "Computes the underwater curve and max/current drawdown.",
+      "inputs": [
+        {
+          "id": "values",
+          "name": "Values",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "values",
+          "name": "Values",
+          "type": "indicator",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "metrics",
+          "name": "Metrics",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "inputKind",
+          "kind": "string",
+          "default": "equity",
+          "constraints": {
+            "enum": [
+              "equity",
+              "returns"
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.edge_report",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Edge report",
+      "description": "Grades a backtest artifact and renders the Markdown report with its charts.",
+      "inputs": [
+        {
+          "id": "result",
+          "name": "Backtest result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "monteCarlo",
+          "name": "Monte Carlo",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "report",
+          "name": "Report (Markdown)",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "charts",
+          "name": "Charts",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "verdict",
+          "name": "Verdict",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.futures_continuous",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Continuous futures",
+      "description": "Splices ordered contracts at roll dates into one back-adjusted series.",
+      "inputs": [
+        {
+          "id": "contracts",
+          "name": "Contracts",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "series",
+          "name": "OHLCV",
+          "type": "ohlcv",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "metadata",
+          "name": "Metadata",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "adjustment",
+          "kind": "string",
+          "default": "difference",
+          "constraints": {
+            "enum": [
+              "none",
+              "difference",
+              "ratio"
+            ]
+          }
+        },
+        {
+          "name": "interval",
+          "kind": "string",
+          "default": "1d",
+          "constraints": {
+            "maxLength": 10
+          }
+        },
+        {
+          "name": "rollDatesJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.grade",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Edge verdict",
+      "description": "Grades the evidence behind an edge: an A–F verdict with components and flags.",
+      "inputs": [
+        {
+          "id": "metrics",
+          "name": "Metrics",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "trades",
+          "name": "Trades",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "monteCarlo",
+          "name": "Monte Carlo",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "result",
+          "name": "Result",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "verdict",
+          "name": "Verdict",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "flags",
+          "name": "Flags",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "goodTrades",
+          "kind": "number",
+          "default": 100,
+          "constraints": {
+            "min": 1,
+            "max": 100000,
+            "integer": true
+          }
+        },
+        {
+          "name": "highProbabilityOfLoss",
+          "kind": "number",
+          "default": 35,
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
+        },
+        {
+          "name": "minTrades",
+          "kind": "number",
+          "default": 30,
+          "constraints": {
+            "min": 1,
+            "max": 10000,
+            "integer": true
           }
         }
       ],
@@ -2988,6 +5564,106 @@
           "default": "",
           "constraints": {
             "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.multiple_testing",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Overfitting check",
+      "description": "Deflated Sharpe and Probability of Backtest Overfitting for a selected strategy.",
+      "inputs": [
+        {
+          "id": "result",
+          "name": "Backtest result",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "trials",
+          "name": "Trials",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "deflated",
+          "name": "Deflated Sharpe",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "pbo",
+          "name": "PBO",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "nSplits",
+          "kind": "number",
+          "default": 16,
+          "constraints": {
+            "min": 2,
+            "max": 64,
+            "integer": true
+          }
+        },
+        {
+          "name": "periodsPerYear",
+          "kind": "number",
+          "default": 252,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "returnsMatrixJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200000
+          }
+        },
+        {
+          "name": "trialSharpesJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
           }
         }
       ],
@@ -3549,6 +6225,727 @@
       "terminal": false
     },
     {
+      "type": "quant.options_strategy",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Options strategy",
+      "description": "Multi-leg expiry payoff, break-evens and boundedness, with Greeks when supplied.",
+      "inputs": [
+        {
+          "id": "legs",
+          "name": "Legs",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "spot",
+          "name": "Spot",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "timeToExpiry",
+          "name": "Time to expiry (years)",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "iv",
+          "name": "Implied volatility",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "analysis",
+          "name": "Analysis",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "points",
+          "kind": "number",
+          "default": 201,
+          "constraints": {
+            "min": 3,
+            "max": 2001,
+            "integer": true
+          }
+        },
+        {
+          "name": "riskFree",
+          "kind": "number",
+          "default": 0.05,
+          "constraints": {
+            "min": -0.5,
+            "max": 0.5
+          }
+        },
+        {
+          "name": "spotMax",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0
+          }
+        },
+        {
+          "name": "spotMin",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.portfolio_backtest",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Portfolio backtest",
+      "description": "Runs several strategies on one shared book over a {symbol: OHLCV} map.",
+      "inputs": [
+        {
+          "id": "series",
+          "name": "Series map",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "name": "Result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "metrics",
+          "name": "Metrics",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "trades",
+          "name": "Trades",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "atrMult",
+          "kind": "number",
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
+        },
+        {
+          "name": "atrPeriod",
+          "kind": "number",
+          "default": 14,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "fast",
+          "kind": "number",
+          "default": 12,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "includeSeries",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "initialCapital",
+          "kind": "number",
+          "default": 100000,
+          "constraints": {
+            "min": 1000,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "interval",
+          "kind": "string",
+          "default": "1d",
+          "constraints": {
+            "maxLength": 10
+          }
+        },
+        {
+          "name": "maxBars",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 20000,
+            "integer": true
+          }
+        },
+        {
+          "name": "overbought",
+          "kind": "number",
+          "default": 55,
+          "constraints": {
+            "min": 51,
+            "max": 99
+          }
+        },
+        {
+          "name": "oversold",
+          "kind": "number",
+          "default": 30,
+          "constraints": {
+            "min": 1,
+            "max": 49
+          }
+        },
+        {
+          "name": "preset",
+          "kind": "string",
+          "default": "ema_cross",
+          "constraints": {
+            "enum": [
+              "ema_cross",
+              "rsi_reversion"
+            ]
+          }
+        },
+        {
+          "name": "randomSeed",
+          "kind": "number",
+          "default": 42,
+          "constraints": {
+            "min": 0,
+            "max": 2147483647,
+            "integer": true
+          }
+        },
+        {
+          "name": "reward",
+          "kind": "number",
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
+        },
+        {
+          "name": "riskFreeRate",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": -0.5,
+            "max": 0.5
+          }
+        },
+        {
+          "name": "rsiPeriod",
+          "kind": "number",
+          "default": 14,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "sizePct",
+          "kind": "number",
+          "default": 90,
+          "constraints": {
+            "min": 1,
+            "max": 100
+          }
+        },
+        {
+          "name": "slow",
+          "kind": "number",
+          "default": 50,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "stopPct",
+          "kind": "number",
+          "default": 5,
+          "constraints": {
+            "min": 0.1,
+            "max": 100
+          }
+        },
+        {
+          "name": "strategiesJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40000
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.position_size",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Position size",
+      "description": "Computes a position size with the engine’s own PositionSizing contract.",
+      "inputs": [
+        {
+          "id": "price",
+          "name": "Price",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "atr",
+          "name": "ATR",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "stop",
+          "name": "Stop distance",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "size",
+          "name": "Size",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "quantity",
+          "name": "Quantity",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "atrMultiplier",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
+        },
+        {
+          "name": "contractMultiplier",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 0.0001,
+            "max": 10000
+          }
+        },
+        {
+          "name": "equity",
+          "kind": "number",
+          "default": 100000,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "kellyFraction",
+          "kind": "number",
+          "default": 0.5,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "name": "lotSize",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0
+          }
+        },
+        {
+          "name": "maxFraction",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 0,
+            "max": 10
+          }
+        },
+        {
+          "name": "method",
+          "kind": "string",
+          "default": "percent_equity",
+          "constraints": {
+            "enum": [
+              "fixed_quantity",
+              "fixed_dollar",
+              "percent_equity",
+              "percent_risk",
+              "atr",
+              "volatility",
+              "kelly",
+              "fractional_kelly",
+              "risk_parity",
+              "equal_weight"
+            ]
+          }
+        },
+        {
+          "name": "minQuantity",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0
+          }
+        },
+        {
+          "name": "payoff",
+          "kind": "number",
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 100
+          }
+        },
+        {
+          "name": "quantityPrecision",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 12,
+            "integer": true
+          }
+        },
+        {
+          "name": "realizedVol",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 10
+          }
+        },
+        {
+          "name": "value",
+          "kind": "number",
+          "default": 1
+        },
+        {
+          "name": "weight",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "name": "winRate",
+          "kind": "number",
+          "default": 0.5,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.regime",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Regime labels",
+      "description": "Labels every bar trend × volatility through the existing regime classifier.",
+      "inputs": [
+        {
+          "id": "series",
+          "name": "OHLCV",
+          "type": "ohlcv",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "regimes",
+          "name": "Regimes",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "atrPeriod",
+          "kind": "number",
+          "default": 14,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "fast",
+          "kind": "number",
+          "default": 20,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "highVolRatio",
+          "kind": "number",
+          "default": 1.5,
+          "constraints": {
+            "min": 1,
+            "max": 10
+          }
+        },
+        {
+          "name": "lowVolRatio",
+          "kind": "number",
+          "default": 0.67,
+          "constraints": {
+            "min": 0.01,
+            "max": 1
+          }
+        },
+        {
+          "name": "slow",
+          "kind": "number",
+          "default": 50,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "trendThreshold",
+          "kind": "number",
+          "default": 0.5,
+          "constraints": {
+            "min": 0,
+            "max": 10
+          }
+        },
+        {
+          "name": "volBaseline",
+          "kind": "number",
+          "default": 100,
+          "constraints": {
+            "min": 1,
+            "max": 2000,
+            "integer": true
+          }
+        },
+        {
+          "name": "volPeriod",
+          "kind": "number",
+          "default": 20,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.resample",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Resample OHLCV",
+      "description": "Aggregates bars into a wider interval with documented, partial-marked buckets.",
+      "inputs": [
+        {
+          "id": "series",
+          "name": "OHLCV",
+          "type": "ohlcv",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "series",
+          "name": "OHLCV",
+          "type": "ohlcv",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "metadata",
+          "name": "Metadata",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "sourceInterval",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 10
+          }
+        },
+        {
+          "name": "targetInterval",
+          "kind": "string",
+          "default": "1d",
+          "constraints": {
+            "enum": [
+              "1m",
+              "5m",
+              "15m",
+              "30m",
+              "1h",
+              "4h",
+              "1d",
+              "1w",
+              "1mo"
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "quant.returns",
       "version": "1.0.0",
       "category": "quant",
@@ -3594,6 +6991,444 @@
             "min": 1,
             "max": 500,
             "integer": true
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.risk_metrics",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Risk metrics",
+      "description": "Computes volatility, Sharpe/Sortino, drawdown, VaR/CVaR, skew and kurtosis.",
+      "inputs": [
+        {
+          "id": "values",
+          "name": "Values",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "metrics",
+          "name": "Metrics",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "confidence",
+          "kind": "number",
+          "default": 0.95,
+          "constraints": {
+            "min": 0.5,
+            "max": 0.999
+          }
+        },
+        {
+          "name": "inputKind",
+          "kind": "string",
+          "default": "returns",
+          "constraints": {
+            "enum": [
+              "returns",
+              "prices"
+            ]
+          }
+        },
+        {
+          "name": "periodsPerYear",
+          "kind": "number",
+          "default": 252,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "riskFreeRate",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": -0.5,
+            "max": 0.5
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.robustness",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Robustness",
+      "description": "Parameter sensitivity, cost sensitivity, concentration and regime splits → a verdict.",
+      "inputs": [
+        {
+          "id": "series",
+          "name": "OHLCV",
+          "type": "ohlcv",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "name": "Result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "metrics",
+          "name": "Metrics",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "conclusions",
+          "name": "Conclusions",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "atrMult",
+          "kind": "number",
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
+        },
+        {
+          "name": "atrPeriod",
+          "kind": "number",
+          "default": 14,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "concentrationThreshold",
+          "kind": "number",
+          "default": 0.8,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "name": "concentrationTopN",
+          "kind": "number",
+          "default": 5,
+          "constraints": {
+            "min": 1,
+            "max": 100,
+            "integer": true
+          }
+        },
+        {
+          "name": "costMaterialDrop",
+          "kind": "number",
+          "default": 0.5,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "name": "costMultipliersJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "fast",
+          "kind": "number",
+          "default": 12,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "initialCapital",
+          "kind": "number",
+          "default": 100000,
+          "constraints": {
+            "min": 1000,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "interval",
+          "kind": "string",
+          "default": "1d",
+          "constraints": {
+            "maxLength": 10
+          }
+        },
+        {
+          "name": "minTrades",
+          "kind": "number",
+          "default": 30,
+          "constraints": {
+            "min": 1,
+            "max": 10000,
+            "integer": true
+          }
+        },
+        {
+          "name": "objective",
+          "kind": "string",
+          "default": "sharpe",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "overbought",
+          "kind": "number",
+          "default": 55,
+          "constraints": {
+            "min": 51,
+            "max": 99
+          }
+        },
+        {
+          "name": "oversold",
+          "kind": "number",
+          "default": 30,
+          "constraints": {
+            "min": 1,
+            "max": 49
+          }
+        },
+        {
+          "name": "paramSpaceJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        },
+        {
+          "name": "preset",
+          "kind": "string",
+          "default": "ema_cross",
+          "constraints": {
+            "enum": [
+              "ema_cross",
+              "rsi_reversion"
+            ]
+          }
+        },
+        {
+          "name": "randomSeed",
+          "kind": "number",
+          "default": 42,
+          "constraints": {
+            "min": 0,
+            "max": 2147483647,
+            "integer": true
+          }
+        },
+        {
+          "name": "reward",
+          "kind": "number",
+          "default": 2,
+          "constraints": {
+            "min": 0.1,
+            "max": 20
+          }
+        },
+        {
+          "name": "riskFreeRate",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": -0.5,
+            "max": 0.5
+          }
+        },
+        {
+          "name": "rsiPeriod",
+          "kind": "number",
+          "default": 14,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "sizePct",
+          "kind": "number",
+          "default": 90,
+          "constraints": {
+            "min": 1,
+            "max": 100
+          }
+        },
+        {
+          "name": "slow",
+          "kind": "number",
+          "default": 50,
+          "constraints": {
+            "min": 2,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "splits",
+          "kind": "number",
+          "default": 2,
+          "constraints": {
+            "min": 1,
+            "max": 20,
+            "integer": true
+          }
+        },
+        {
+          "name": "stopPct",
+          "kind": "number",
+          "default": 5,
+          "constraints": {
+            "min": 0.1,
+            "max": 100
+          }
+        },
+        {
+          "name": "strategyJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "quant.compute"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "quant.trade_analysis",
+      "version": "1.0.0",
+      "category": "quant",
+      "label": "Trade analysis",
+      "description": "Reads a trade log against the regime, trend and volatility at each entry.",
+      "inputs": [
+        {
+          "id": "trades",
+          "name": "Trades",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "series",
+          "name": "OHLCV",
+          "type": "ohlcv",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "analysis",
+          "name": "Analysis",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "maxEntries",
+          "kind": "number",
+          "default": 400,
+          "constraints": {
+            "min": 1,
+            "max": 5000,
+            "integer": true
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
           }
         }
       ],
@@ -4655,7 +8490,7 @@
       "version": "1.0.0",
       "category": "trading",
       "label": "Broker account",
-      "description": "Reads the broker account and positions for a connection.",
+      "description": "Reads the broker account envelope for a connection.",
       "inputs": [],
       "outputs": [
         {
@@ -4669,6 +8504,22 @@
         {
           "id": "status",
           "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
           "type": "string",
           "kind": "data",
           "optional": false,
@@ -4702,7 +8553,7 @@
       "version": "1.0.0",
       "category": "trading",
       "label": "Broker bars",
-      "description": "The broker's own OHLCV series for symbols JDDS cannot proxy.",
+      "description": "The broker's own OHLCV series for symbols JDDS cannot proxy, with a derived ATR.",
       "inputs": [
         {
           "id": "symbol",
@@ -4723,8 +8574,48 @@
           "nullable": false
         },
         {
+          "id": "summary",
+          "name": "Bar summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "atr",
+          "name": "ATR(14)",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "contractSize",
+          "name": "Contract size",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
           "id": "status",
           "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
           "type": "string",
           "kind": "data",
           "optional": false,
@@ -4820,6 +8711,22 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
@@ -4847,12 +8754,20 @@
       "version": "1.0.0",
       "category": "trading",
       "label": "Close position",
-      "description": "Closes one position (full/partial) or all positions. Risk-reducing.",
+      "description": "Closes one position (full/partial), a whole symbol, or all positions. Risk-reducing.",
       "inputs": [
         {
           "id": "ticket",
           "name": "Ticket",
           "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
           "kind": "data",
           "optional": true,
           "nullable": false
@@ -4882,6 +8797,22 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
@@ -4906,6 +8837,14 @@
             "min": 0,
             "max": 1000,
             "integer": true
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
           }
         }
       ],
@@ -4967,6 +8906,22 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
@@ -5003,6 +8958,14 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "decision",
+          "name": "Risk decision",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
         }
       ],
       "outputs": [
@@ -5025,6 +8988,22 @@
         {
           "id": "orderId",
           "name": "Order id",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "Sent",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
           "type": "string",
           "kind": "data",
           "optional": false,
@@ -5060,6 +9039,77 @@
       "terminal": false
     },
     {
+      "type": "trading.broker_positions",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Broker positions",
+      "description": "The broker's open positions as a structured list.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "positions",
+          "name": "Positions",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "count",
+          "name": "Count",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "trading.broker_quote",
       "version": "1.0.0",
       "category": "trading",
@@ -5087,6 +9137,22 @@
         {
           "id": "status",
           "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
           "type": "string",
           "kind": "data",
           "optional": false,
@@ -5271,6 +9337,54 @@
           "kind": "data",
           "optional": true,
           "nullable": false
+        },
+        {
+          "id": "account",
+          "name": "Broker/paper account",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "positions",
+          "name": "Open positions",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "equity",
+          "name": "Equity",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "grossExposure",
+          "name": "Gross exposure",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "openPositions",
+          "name": "Open positions",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "dailyPnl",
+          "name": "Daily P&L",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
         }
       ],
       "outputs": [
@@ -5294,6 +9408,14 @@
           "id": "approved",
           "name": "Approved",
           "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "state",
+          "name": "Risk state & sources",
+          "type": "object",
           "kind": "data",
           "optional": false,
           "nullable": false
@@ -5459,8 +9581,10 @@
       ],
       "sideEffects": "none",
       "allowedModes": [
+        "backtest",
         "live",
-        "paper"
+        "paper",
+        "research"
       ],
       "terminal": false
     },
@@ -5967,6 +10091,76 @@
       "configFields": [],
       "capabilities": [
         "schedule.manage"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trigger.webhook",
+      "version": "1.0.0",
+      "category": "trigger",
+      "label": "Webhook",
+      "description": "Starts a run from a verified inbound HTTP webhook.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "start",
+          "name": "Start",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "headers",
+          "name": "Headers",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "query",
+          "name": "Query",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "method",
+          "name": "Method",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "receivedAt",
+          "name": "Received at",
+          "type": "datetime",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [],
+      "capabilities": [
+        "webhook.receive"
       ],
       "sideEffects": "none",
       "allowedModes": [

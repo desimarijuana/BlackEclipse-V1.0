@@ -180,6 +180,11 @@ after `order_send` marks the ledger `unknown` and tells the operator to check th
 terminal. Eclipse does not resend, because MetaTrader has no client order id and a
 blind retry can double the position.
 
+**A ledger row is traceable.** Beyond the digest, status and fills, `BrokerOrder`
+records `runId` and `nodeId` when a Graph Studio node submitted the order (the
+paper account's fill log already did). An operator can therefore go from a
+position back to the workflow run that opened it.
+
 **What `order_check` proves.** Volume step/min/max, stops distance, symbol trade
 mode, filling mode, pending-price side, and the margin impact. `order_check` is
 not a promise the fill will happen; it is the broker's pre-trade verdict.
@@ -292,11 +297,17 @@ mandate pins the workflow. An expired arm or a revoked/expired mandate refuses
 the order. The mandate never arms the account and the arm never authorizes an
 order by itself; the operator creates both, and the agent can do neither.
 
-**Reads and risk-reducing exits.** `trading.broker_account`, `broker_quote` and
-`broker_bars` are read nodes for the broker's own account/quotes/OHLCV (including
-symbols JDDS may not carry). `trading.broker_close`, `broker_modify` and
-`broker_cancel` are risk-reducing: they need no arm, approval or mandate, because
-an expired arm must never trap a position. They still require a pinned
+**Reads and risk-reducing exits.** `trading.broker_account` reads the account
+envelope, `trading.broker_positions` returns the open positions as a structured
+list plus a `count`, and `broker_quote` / `broker_bars` read the broker's own
+quotes and OHLCV (including symbols JDDS may not carry). Every read and every
+exit returns `ok` plus a `reason`, so a graph branches on the outcome instead of
+comparing status strings; `broker_bars` also returns the same deterministic
+ATR(14), 20-bar range and contract size the chat tool computes, so a graph does
+not recompute them. `trading.broker_close` closes one ticket, a whole symbol or
+everything; `broker_modify` and `broker_cancel` move a bracket or cancel a
+working order. All four are risk-reducing: they need no arm, approval or mandate,
+because an expired arm must never trap a position. They still require a pinned
 `connectionId`.
 
 **Agent-driven chat execution.** Settings → Broker connection can create and

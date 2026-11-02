@@ -39,6 +39,18 @@ describe('config field presentation', () => {
     expect(inlineFieldsFor(def)).toBe(inlineFieldsFor(def));
   });
 
+  it('never shows a newer version’s fields on a saved older node', () => {
+    const v1 = getNodeDefinition('integration.http', '1.0.0')!;
+    const v11 = getNodeDefinition('integration.http', '1.1.0')!;
+    const oldKeys = fieldsFor(v1).map((field) => field.key);
+    const newKeys = fieldsFor(v11).map((field) => field.key);
+    expect(oldKeys).not.toContain('retries');
+    expect(newKeys).toContain('retries');
+    expect(fieldsFor(v11).find((field) => field.key === 'bodyMode')?.kind).toBe('select');
+    expect(fieldsFor(v11).find((field) => field.key === 'bodyMode')?.options?.map((option) => option.value))
+      .toEqual(['json', 'text', 'form']);
+  });
+
   it('uses the declared labels and select options for high-traffic nodes', () => {
     const def = getNodeDefinition('finance.history')!;
     const fields = fieldsFor(def);

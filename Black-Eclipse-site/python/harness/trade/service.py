@@ -711,6 +711,7 @@ class BrokerService:
         mandate_id: str = "",
         run_id: str = "",
         workflow_id: str = "",
+        node_id: str = "",
     ) -> dict[str, Any]:
         """Consume the authorization and send exactly one order. Never retries."""
         if approval_id and mandate_id:
@@ -871,6 +872,8 @@ class BrokerService:
                 digest=intent.digest,
                 approval_id=approval_id,
                 mandate_id=mandate_id,
+                run_id=run_id,
+                node_id=node_id,
             )
             self.connections.record_event(
                 connection.id, "submit", "sent",
@@ -879,6 +882,7 @@ class BrokerService:
                     "orderId": ledger["id"],
                     "mandateId": mandate_id or None,
                     "runId": run_id or None,
+                    "nodeId": node_id or None,
                 },
             )
             try:

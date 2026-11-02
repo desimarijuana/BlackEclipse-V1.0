@@ -110,6 +110,70 @@ def _require_gateway() -> Any:
     return _market_gateway
 
 
+# Public seams for the gateway-backed read nodes in `market_read_nodes.py`.
+# They are the SAME helpers the quote/history nodes already use — a new read
+# node must not grow a second gateway path, a second error shape or invented
+# provenance.
+def require_market_gateway() -> Any:
+    return _require_gateway()
+
+
+def run_market_gateway(factory: Callable[[], Any]) -> Any:
+    return _run_gateway(factory)
+
+
+def market_gateway_result(result: Any) -> dict[str, Any]:
+    return _gateway_result(result)
+
+
+def market_gateway_provenance(
+    payload: dict[str, Any],
+    *,
+    kind: str,
+    symbol: Optional[str] = None,
+    extra: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Provenance for ANY normalized gateway record.
+
+    The record's own ``meta`` is authoritative; a field the provider did not
+    report stays ``None`` rather than being guessed. ``kind`` names the read,
+    ``symbol`` is only a fallback when the record carries no identity.
+    """
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    provenance: dict[str, Any] = {
+        "kind": kind,
+        "provider": meta.get("provider"),
+        "symbol": meta.get("symbol") or symbol,
+        "assetType": meta.get("asset_type"),
+        "freshness": meta.get("freshness"),
+        "quality": meta.get("quality"),
+        "dataStatus": meta.get("data_status"),
+        "asOf": meta.get("event_time") or payload.get("timestamp"),
+        "retrievedAt": meta.get("retrieved_at") or now_iso(),
+        "warnings": list(meta.get("warnings") or []),
+    }
+    if provenance["symbol"]:
+        provenance["symbol"] = str(provenance["symbol"]).upper()
+    if extra:
+        provenance.update(extra)
+    return provenance
+
+
+def numeric_series(payload: Any, label: str) -> Any:
+    """The primary numeric series of an INDICATOR payload (public seam)."""
+    return _numeric_series(payload, label)
+
+
+def series_payload(
+    kind: str,
+    outputs: dict[str, Any],
+    *,
+    extra: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """The shared INDICATOR output shape (public seam for quant nodes)."""
+    return _series_payload(kind, outputs, extra=extra)
+
+
 def _default_provider(symbol: str, interval: str, limit: int) -> dict[str, Any]:
     if _series_store is None:
         raise SeriesUnavailable(

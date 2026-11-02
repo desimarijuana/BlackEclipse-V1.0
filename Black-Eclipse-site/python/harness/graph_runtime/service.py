@@ -116,14 +116,16 @@ class GraphService:
         inputs: Any,
         mode: ExecutionMode = ExecutionMode.RESEARCH,
         owner_id: str = "local",
+        allow_network: bool = False,
     ) -> dict[str, Any]:
         """Run ONE registered node with explicit inputs — never a graph.
 
         This is the editor's "Test node" action. It is intentionally narrow:
-        the executor is pure, the hard per-node timeout is enforced, and the
-        safe envelope allows only `none`/`read` side effects. Network, write,
-        trading, model and local-write nodes are refused here; they must be
-        tested through an authorized run so a "test" can never act on the world.
+        the hard per-node timeout is enforced, and the safe envelope allows only
+        `none`/`read` side effects by default. An operator may explicitly grant
+        network for a single HTTP test (`allow_network`); write, trading, model
+        and local-write nodes are always refused so a "test" can never act on
+        the world beyond the confirmed request.
         """
         definition = self._registry.get(node_type, version)
         if definition is None:
@@ -144,10 +146,12 @@ class GraphService:
         if problems:
             raise NodeTestError("; ".join(problems), 400)
 
-        if definition.side_effects not in (SideEffect.NONE, SideEffect.READ):
+        network_test = definition.side_effects == SideEffect.NETWORK and allow_network
+        if definition.side_effects not in (SideEffect.NONE, SideEffect.READ) and not network_test:
             raise NodeTestError(
                 f'"{definition.type}" has the "{definition.side_effects.value}" side effect. '
-                "A per-node test runs in a safe envelope; use an authorized run to test it.",
+                "A per-node test runs in a safe envelope; use an authorized run to test it"
+                + (' (network may be granted explicitly).' if definition.side_effects == SideEffect.NETWORK else "."),
                 403,
             )
 
@@ -166,9 +170,11 @@ class GraphService:
             mode=mode,
             inputs=inputs,
             config=coerce_config(definition, config),
+            node_version=definition.version,
             emit=logs.append,
             user_id=owner_id,
             test_run=True,
+            allow_network=network_test,
         )
         started = time.monotonic()
         pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="node-test")
@@ -299,6 +305,7 @@ class GraphService:
         grants: RunGrants,
         subworkflows: Optional[dict[str, WorkflowIR]],
         run_input: Any,
+        trigger_context: Optional[dict[str, Any]] = None,
         callback_base_url: str = "",
     ) -> dict[str, Any]:
         return {
@@ -311,6 +318,9 @@ class GraphService:
             "workflowVersion": workflow_version,
             "ownerId": owner_id,
             "runInput": run_input,
+            # A verified inbound webhook's bounded context. The body is also in
+            # runInput; this adds headers/query/method/delivery identity.
+            "triggerContext": trigger_context,
             "grants": self._grants_payload(grants),
             # A durable job outlives the process that started it. The worker
             # re-resolves model credentials from the front door on resume; the
@@ -368,6 +378,7 @@ class GraphService:
         grants: Optional[RunGrants] = None,
         subworkflows: Optional[dict[str, WorkflowIR]] = None,
         run_input: Any = None,
+        trigger_context: Optional[dict[str, Any]] = None,
         model_settings: Optional[dict[str, Any]] = None,
         callback_base_url: str = "",
         callback_token: Optional[str] = None,
@@ -390,6 +401,7 @@ class GraphService:
             run_id=run_id, grants=grants, owner_id=owner_id,
             workflow_version=workflow_version,
             subworkflows=subworkflows, run_input=run_input,
+            trigger_context=trigger_context,
             on_event=self._event_callback(run_id),
             on_node_finished=self._node_callback(run_id),
             model_settings=model_settings,
@@ -421,6 +433,7 @@ class GraphService:
         grants: Optional[RunGrants] = None,
         subworkflows: Optional[dict[str, WorkflowIR]] = None,
         run_input: Any = None,
+        trigger_context: Optional[dict[str, Any]] = None,
         model_settings: Optional[dict[str, Any]] = None,
         callback_base_url: str = "",
         callback_token: Optional[str] = None,
@@ -459,6 +472,7 @@ class GraphService:
                 ir, run_id=run_id, workflow_version=workflow_version,
                 owner_id=owner_id, grants=grants,
                 subworkflows=subworkflows, run_input=run_input,
+                trigger_context=trigger_context,
                 callback_base_url=callback_base_url,
             )
             timeout_ms = max(60_000, min(3_600_000, ir.settings.timeout_ms or 3_600_000))
@@ -498,6 +512,7 @@ class GraphService:
                     owner_id=owner_id,
                     workflow_version=workflow_version,
                     subworkflows=subworkflows, run_input=run_input,
+                    trigger_context=trigger_context,
                     model_settings=model_settings,
                     callback_base_url=callback_base_url,
                     callback_token=callback_token,
@@ -614,6 +629,7 @@ class GraphService:
             workflow_version=payload.get("workflowVersion"),
             subworkflows=subworkflows,
             run_input=payload.get("runInput"),
+            trigger_context=payload.get("triggerContext"),
             resume=resume,
             model_settings=model_settings,
             callback_base_url=callback_base_url,

@@ -64,7 +64,7 @@ def install_graph_layer(service: Any) -> bool:
             import os  # noqa: PLC0415
 
             from ..agents import get_agent  # noqa: PLC0415
-            from ..schemas import AgentConfig, ModelSettings, RunInput, RunRequest  # noqa: PLC0415
+            from ..schemas import ModelSettings, RunInput, RunRequest  # noqa: PLC0415
 
             if not context.model_settings:
                 raise ValueError(
@@ -86,15 +86,11 @@ def install_graph_layer(service: Any) -> bool:
                 preset = presets.get(agent_id, version) if presets is not None else None
                 if preset is None:
                     raise ValueError(f"unknown agent {agent_id!r}") from None
-                base = AgentConfig(
-                    id=preset["id"],
-                    name=preset["name"],
-                    systemPrompt=preset["systemPrompt"],
-                    tools=list(preset.get("tools") or []),
-                    maxSteps=int(preset.get("maxSteps") or 8),
-                    allowMcpTools=bool(preset.get("allowMcpTools")),
-                    allowPluginTools=bool(preset.get("allowPluginTools")),
-                )
+                # The SAME projection a normal (non-graph) run uses, so a preset
+                # cannot behave differently on the two surfaces.
+                from ..agent_presets import agent_config_from_preset  # noqa: PLC0415
+
+                base = agent_config_from_preset(preset)
             if context.test_run or not context.allow_network:
                 # A test/dry run may call the model but must not reach the
                 # world. Narrow the declared allowlist DOWN to the read-only

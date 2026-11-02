@@ -25,6 +25,9 @@ from .registry import ConfigField, NodeDef, NodeExecContext
 
 _PAPER = (ExecutionMode.PAPER,)
 _BROKER = (ExecutionMode.PAPER, ExecutionMode.LIVE)
+# A risk check has no side effect, so it is meaningful in a backtest too: the
+# same limits that gate a live order should gate a simulated one.
+_RISK = tuple(ExecutionMode)
 MAX_QUANTITY = 1_000_000_000.0
 
 _paper_store: Any = None
@@ -98,25 +101,107 @@ def _risk_rules(config: dict[str, Any]) -> RiskRules:
     )
 
 
+def _number_input(context: NodeExecContext, handle: str) -> float | None:
+    """A wired number, or None. A non-numeric wire is a node data error."""
+    raw = context.inputs.get(handle)
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, bool):
+        raise ValueError(f"{handle} must be a number, not a boolean")
+    try:
+        return float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{handle} must be a number") from exc
+
+
+def _account_payload(raw: Any) -> dict[str, Any]:
+    """Accept a service read envelope (`data`) or a bare account snapshot."""
+    if not isinstance(raw, dict):
+        return {}
+    data = raw.get("data")
+    body = data if isinstance(data, dict) else raw
+    return body if isinstance(body, dict) else {}
+
+
+def _position_rows(raw: Any) -> list[dict[str, Any]]:
+    """Accept a list, a service envelope, or an object holding either."""
+    if isinstance(raw, list):
+        return [row for row in raw if isinstance(row, dict)]
+    if isinstance(raw, dict):
+        for key in ("data", "positions", "rows", "items"):
+            value = raw.get(key)
+            if isinstance(value, list):
+                return [row for row in value if isinstance(row, dict)]
+    return []
+
+
+def _first_number(source: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = source.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    return None
+
+
 def exec_risk_check(context: NodeExecContext) -> dict[str, Any]:
     intent = _intent(context)
     price = _price(context, intent)
     config = context.config
+    account = _account_payload(context.inputs.get("account"))
+    positions_wired = context.inputs.get("positions") is not None
+    positions = _position_rows(context.inputs.get("positions"))
+
+    # Every figure the engine reads is either wired, derived from the broker's
+    # own account/positions, or typed into config. The `state` map records which,
+    # so a gate cannot silently run on a stale number.
+    state: dict[str, dict[str, Any]] = {}
+
+    def resolve(
+        name: str,
+        default: float,
+        derived: tuple[str, float | None] | None = None,
+    ) -> float:
+        wired = _number_input(context, name)
+        if wired is not None:
+            state[name] = {"value": wired, "source": "input"}
+            return wired
+        if derived is not None and derived[1] is not None:
+            state[name] = {"value": float(derived[1]), "source": derived[0]}
+            return float(derived[1])
+        value = float(config.get(name, default) or 0.0)
+        state[name] = {"value": value, "source": "config"}
+        return value
+
+    equity = resolve(
+        "equity", 100_000.0,
+        ("account", _first_number(account, "equity", "balance", "bookValue")),
+    )
+    if equity <= 0:
+        raise ValueError("equity must be greater than zero")
+    open_positions = int(resolve(
+        "openPositions", 0,
+        ("positions", float(len(positions)) if positions_wired else None),
+    ))
+    gross_exposure = resolve("grossExposure", 0.0)
+    current_symbol_value = resolve("currentSymbolValue", 0.0)
+    daily_pnl = resolve("dailyPnl", 0.0)
+    daily_start_equity = float(config.get("dailyStartEquity", 0.0) or 0.0) or None
+
     stop_distance = float(config.get("stopDistance", 0) or 0) or None
     try:
         decision = RiskEngine(_risk_rules(config)).evaluate(RiskContext(
-            equity=float(config.get("equity", 100_000.0)),
+            equity=equity,
             side=intent["side"],
             price=price,
             proposed_quantity=float(intent["quantity"]),
             is_opening=bool(config.get("isOpening", True)),
-            current_symbol_value=float(config.get("currentSymbolValue", 0.0)),
-            gross_exposure=float(config.get("grossExposure", 0.0)),
-            open_positions=int(config.get("openPositions", 0)),
+            current_symbol_value=current_symbol_value,
+            gross_exposure=gross_exposure,
+            open_positions=open_positions,
             stop_distance=stop_distance,
             has_stop=bool(config.get("hasStop", False)) or stop_distance is not None,
-            daily_pnl=float(config.get("dailyPnl", 0.0)),
-            daily_start_equity=float(config.get("dailyStartEquity", 0.0)) or None,
+            daily_pnl=daily_pnl,
+            daily_start_equity=daily_start_equity,
         ))
     except Exception as exc:  # noqa: BLE001 - a bad limit is a node data error
         raise ValueError(f"risk check failed: {exc}") from exc
@@ -124,14 +209,17 @@ def exec_risk_check(context: NodeExecContext) -> dict[str, Any]:
     adjusted = dict(intent)
     adjusted["quantity"] = decision.quantity if decision.allowed else 0.0
     adjusted["price"] = price
+    equity_source = state["equity"]["source"]
     context.emit(
         f"risk {intent['side']} {intent['symbol']}: "
         + ("approved" if decision.allowed else "rejected")
+        + f" (equity {equity:g} from {equity_source})"
     )
     return {
         "intent": adjusted,
         "decision": decision.to_dict(),
         "approved": decision.allowed,
+        "state": state,
     }
 
 
@@ -142,8 +230,25 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
     operator-created mandate is the authorization; the broker service still
     applies the connection's policy, the money guardrails and the demo-account
     check, and consumes one mandate use atomically.
+
+    An optional `decision` wire is honored when present: a rejected risk check
+    stops the order here, so wiring the gate to the intent alone can never send
+    an order the gate refused.
     """
     intent = _intent(context)
+    decision = context.inputs.get("decision")
+    if isinstance(decision, dict) and decision.get("allowed") is False:
+        reasons = [str(reason) for reason in (decision.get("reasons") or [])]
+        context.emit(
+            f"broker order rejected by risk: {'; '.join(reasons) or 'risk not allowed'}"
+        )
+        return {
+            "result": {"status": "REJECTED", "sent": False, "reasons": reasons},
+            "status": "REJECTED",
+            "orderId": "",
+            "ok": False,
+            "reason": "; ".join(reasons) or "risk decision not allowed",
+        }
     connection_id = str(context.config.get("connectionId") or "").strip()
     mandate_id = str(context.config.get("mandateId") or "").strip()
     if not connection_id:
@@ -170,17 +275,21 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
         mandate_id=mandate_id,
         run_id=context.run_id,
         workflow_id=getattr(context, "workflow_id", ""),
+        node_id=context.node_id,
     )
     status = str(result.get("status") or "UNKNOWN")
+    reasons = [str(reason) for reason in (result.get("reasons") or [])]
+    ok = status in ("filled", "placed")
     if status in ("filled", "placed", "unknown"):
         context.emit(f"broker order {status} ({result.get('orderId')})")
     else:
-        reasons = "; ".join(result.get("reasons") or []) or status
-        context.emit(f"broker order {status}: {reasons}")
+        context.emit(f"broker order {status}: {'; '.join(reasons) or status}")
     return {
         "result": result,
         "status": status,
         "orderId": str(result.get("orderId") or ""),
+        "ok": ok,
+        "reason": "" if ok else ("; ".join(reasons) or status),
     }
 
 
@@ -280,21 +389,33 @@ def build_trading_nodes() -> list[NodeDef]:
             inputs=(
                 PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
                 PortDef(id="price", name="Price", type=PortType.NUMBER, optional=True),
+                PortDef(id="account", name="Broker/paper account", type=PortType.OBJECT, optional=True),
+                PortDef(id="positions", name="Open positions", type=PortType.OBJECT, optional=True),
+                PortDef(id="equity", name="Equity", type=PortType.NUMBER, optional=True),
+                PortDef(id="grossExposure", name="Gross exposure", type=PortType.NUMBER, optional=True),
+                PortDef(id="openPositions", name="Open positions", type=PortType.NUMBER, optional=True),
+                PortDef(id="dailyPnl", name="Daily P&L", type=PortType.NUMBER, optional=True),
             ),
             outputs=(
                 PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
                 PortDef(id="decision", name="Decision", type=PortType.OBJECT),
                 PortDef(id="approved", name="Approved", type=PortType.BOOLEAN),
+                PortDef(id="state", name="Risk state & sources", type=PortType.OBJECT),
             ),
             config_fields=risk_fields,
             capabilities=("trading.risk",),
             side_effects=SideEffect.NONE,
-            allowed_modes=_BROKER,
+            allowed_modes=_RISK,
             executor=exec_risk_check,
             metadata={
                 "docs": (
                     "Pure pre-trade gate over harness/quant/risk.py. A limit of 0 "
-                    "disables that limit. A rejection is an outcome, not an error."
+                    "disables that limit. A rejection is an outcome, not an error. "
+                    "Equity and open-position count are derived from a wired "
+                    "account/positions when available, and the `state` output names "
+                    "the source of every figure (input, account, positions, config). "
+                    "Gross exposure and per-symbol value stay explicit because a "
+                    "position list carries lots, not notional."
                 ),
             },
         ),
@@ -339,11 +460,14 @@ def build_trading_nodes() -> list[NodeDef]:
             category="trading",
             inputs=(
                 PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
+                PortDef(id="decision", name="Risk decision", type=PortType.OBJECT, optional=True),
             ),
             outputs=(
                 PortDef(id="result", name="Result", type=PortType.OBJECT),
                 PortDef(id="status", name="Status", type=PortType.STRING),
                 PortDef(id="orderId", name="Order id", type=PortType.STRING),
+                PortDef(id="ok", name="Sent", type=PortType.BOOLEAN),
+                PortDef(id="reason", name="Reason", type=PortType.STRING),
             ),
             config_fields=(
                 ConfigField("connectionId", "string", "", max_length=80),
@@ -361,7 +485,9 @@ def build_trading_nodes() -> list[NodeDef]:
                     "the mandate is the authorization. The connection must be demo; "
                     "live trading nodes are refused by the compiler. The broker service "
                     "still applies policy, money guardrails and the account-mode check, "
-                    "and consumes one mandate use atomically."
+                    "and consumes one mandate use atomically. A rejected risk `decision` "
+                    "wire stops the order before it reaches the broker; `ok` is true "
+                    "only for a filled or placed order."
                 ),
             },
         ),

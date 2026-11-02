@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS BrokerOrder (
   digest       TEXT NOT NULL,
   approvalId   TEXT,
   mandateId    TEXT,
+  runId        TEXT,
+  nodeId       TEXT,
   status       TEXT NOT NULL,
   ticket       INTEGER,
   retcode      INTEGER,
@@ -187,6 +189,11 @@ class BrokerConnectionStore:
         ).fetchall()}
         if "mandateId" not in order_columns:
             self._db.execute("ALTER TABLE BrokerOrder ADD COLUMN mandateId TEXT")
+        # Phase P8: a graph order records which run/node placed it, exactly like
+        # the paper fill log, so a ledger row can be traced back to a workflow.
+        for name in ("runId", "nodeId"):
+            if name not in order_columns:
+                self._db.execute(f"ALTER TABLE BrokerOrder ADD COLUMN {name} TEXT")
         self._db.commit()
 
     # ── reads ───────────────────────────────────────────────────────────────
@@ -373,6 +380,8 @@ class BrokerConnectionStore:
             "digest": row["digest"],
             "approvalId": row["approvalId"],
             "mandateId": row["mandateId"] if "mandateId" in row.keys() else None,
+            "runId": row["runId"] if "runId" in row.keys() else None,
+            "nodeId": row["nodeId"] if "nodeId" in row.keys() else None,
             "status": row["status"],
             "ticket": row["ticket"],
             "retcode": row["retcode"],
@@ -392,15 +401,17 @@ class BrokerConnectionStore:
         digest: str,
         approval_id: str = "",
         mandate_id: str = "",
+        run_id: str = "",
+        node_id: str = "",
         status: str = "submitting",
     ) -> dict[str, Any]:
         now = now_iso()
         order_id = f"ord_{uuid.uuid4().hex[:12]}"
         self._db.execute(
             """INSERT INTO BrokerOrder
-               (id, connectionId, intent, digest, approvalId, mandateId, status,
-                createdAt, updatedAt)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, connectionId, intent, digest, approvalId, mandateId, runId, nodeId,
+                status, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 order_id,
                 str(connection_id),
@@ -408,6 +419,8 @@ class BrokerConnectionStore:
                 str(digest),
                 str(approval_id or "") or None,
                 str(mandate_id or "") or None,
+                str(run_id or "") or None,
+                str(node_id or "") or None,
                 str(status),
                 now,
                 now,

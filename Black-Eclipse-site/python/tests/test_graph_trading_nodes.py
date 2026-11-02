@@ -93,6 +93,71 @@ def test_risk_check_rejects_a_disabled_side_without_raising():
     assert "short" in result["decision"]["reasons"][0]
 
 
+def test_risk_check_reads_equity_from_a_wired_broker_account():
+    result = _exec(
+        "trading.risk_check",
+        {"equity": 1.0, "price": 100.0, "maxPositionPct": 10.0},
+        {
+            "intent": _intent(quantity=50.0),
+            "account": {"available": True, "data": {"equity": 10_000.0, "balance": 9_000.0}},
+        },
+    )
+    # 10% of the ACCOUNT equity (10_000), not the stale config value (1.0).
+    assert result["state"]["equity"] == {"value": 10_000.0, "source": "account"}
+    assert result["intent"]["quantity"] == pytest.approx(10.0)
+
+
+def test_risk_check_reads_a_paper_account_book_value():
+    result = _exec(
+        "trading.risk_check",
+        {"equity": 1.0, "price": 100.0},
+        {"intent": _intent(), "account": {"cash": 5_000.0, "bookValue": 12_000.0}},
+    )
+    assert result["state"]["equity"] == {"value": 12_000.0, "source": "account"}
+
+
+def test_risk_check_counts_a_wired_position_list():
+    result = _exec(
+        "trading.risk_check",
+        {"equity": 10_000.0, "price": 100.0, "maxOpenPositions": 2},
+        {
+            "intent": _intent(quantity=1.0),
+            "positions": [{"ticket": 1}, {"ticket": 2}],
+        },
+    )
+    assert result["state"]["openPositions"] == {"value": 2.0, "source": "positions"}
+    assert result["approved"] is False
+    assert any("position" in reason for reason in result["decision"]["reasons"])
+
+
+def test_risk_check_names_config_as_the_source_when_nothing_is_wired():
+    result = _exec(
+        "trading.risk_check",
+        {"equity": 10_000.0, "price": 100.0},
+        {"intent": _intent()},
+    )
+    assert result["state"]["equity"]["source"] == "config"
+    assert result["state"]["grossExposure"]["source"] == "config"
+
+
+def test_a_wired_number_beats_the_account():
+    result = _exec(
+        "trading.risk_check",
+        {"equity": 10_000.0, "price": 100.0},
+        {"intent": _intent(), "equity": 25_000.0, "account": {"equity": 10_000.0}},
+    )
+    assert result["state"]["equity"] == {"value": 25_000.0, "source": "input"}
+
+
+def test_a_non_numeric_state_wire_is_a_data_error():
+    with pytest.raises(ValueError, match="equity must be a number"):
+        _exec(
+            "trading.risk_check",
+            {"equity": 10_000.0, "price": 100.0},
+            {"intent": _intent(), "equity": "lots"},
+        )
+
+
 def test_paper_order_fills_with_slippage_and_commission():
     result = _exec(
         "trading.paper_order",
@@ -216,6 +281,28 @@ def test_compiler_allows_a_pinned_live_broker_order_with_an_explicit_grant():
         ),
     )
     assert allowed.executable is True, [d.message for d in allowed.diagnostics]
+
+
+def test_compiler_allows_the_pure_risk_gate_in_a_backtest():
+    ir = WorkflowIR.model_validate({
+        "irVersion": 1, "id": "wf_bt", "name": "Backtest gate",
+        "meta": {"createdAt": "", "updatedAt": "", "tags": []},
+        "nodes": [
+            _node("trig", "trigger.manual"),
+            _node("risk", "trading.risk_check", {"price": 100.0}),
+            _node("out", "output.result"),
+        ],
+        "edges": [
+            _edge("e1", "trig", "start", "risk", "intent"),
+            _edge("e2", "risk", "decision", "out", "value"),
+        ],
+        "settings": {"executionMode": "backtest", "failFast": False, "maxConcurrency": 1, "timeoutMs": 0},
+        "requiredCapabilities": ["trading.risk"],
+    })
+    compiled = compile_workflow(ir, REGISTRY, RunGrants(
+        test_run=False, granted_capabilities=frozenset({"trading.risk"}),
+    ))
+    assert compiled.executable is True, [d.message for d in compiled.diagnostics]
 
 
 def test_compiler_refuses_live_and_an_ungranted_paper_run():

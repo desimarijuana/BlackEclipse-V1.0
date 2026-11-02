@@ -11,7 +11,15 @@
 
 import { z } from 'zod';
 import { AGENT_DEFINITIONS } from './registry-agents';
+import { INTEGRATION_DEFINITIONS } from './registry-integration';
+import {
+  MARKET_READ_DEFINITIONS,
+  QUANT_METRIC_DEFINITIONS,
+  QUANT_VALIDATION_DEFINITIONS,
+} from './registry-market';
 import { LOOP_DEFINITIONS } from './registry-loops';
+import { QUANT_ADVANCED_DEFINITIONS } from './registry-quant-advanced';
+import { QUANT_STRUCTURE_DEFINITIONS } from './registry-quant-structure';
 import { TRANSFORM_DEFINITIONS } from './registry-transform';
 import { TRADING_DEFINITIONS } from './registry-trading';
 import { WRITE_DEFINITIONS } from './registry-write';
@@ -58,6 +66,29 @@ const DEFINITIONS: NodeDefinition[] = [
     sideEffects: 'none',
     allowedModes: ALL_MODES,
     docs: 'Zero-config. Its cron, timezone and enabled state live on a WorkflowSchedule linked to this node (see the Schedule tab), so the graph and the scheduler cannot drift apart.',
+  },
+  {
+    type: 'trigger.webhook',
+    version: '1.0.0',
+    category: 'trigger',
+    label: 'Webhook',
+    description: 'Starts a run from a verified inbound HTTP webhook.',
+    icon: 'globe',
+    inputs: [],
+    outputs: [
+      port({ id: 'start', name: 'Start', type: 'any' }),
+      port({ id: 'headers', name: 'Headers', type: 'object' }),
+      port({ id: 'query', name: 'Query', type: 'object' }),
+      port({ id: 'method', name: 'Method', type: 'string' }),
+      port({ id: 'receivedAt', name: 'Received at', type: 'datetime' }),
+      port({ id: 'meta', name: 'Meta', type: 'object' }),
+    ],
+    configSchema: z.object({}),
+    defaultConfig: () => ({}),
+    capabilities: ['webhook.receive'],
+    sideEffects: 'none',
+    allowedModes: ALL_MODES,
+    docs: 'Zero-config at the node: the WorkflowWebhook linked by nodeId owns the endpoint, secret, method filter, response mode and armed grants. The front door verifies HMAC (or a token) and the replay window before starting the run. Safe mode is a read-only test run; an operator can arm the webhook to grant network against a pinned workflow version.',
   },
   {
     type: 'data.value',
@@ -234,7 +265,9 @@ const DEFINITIONS: NodeDefinition[] = [
     ],
     configSchema: z.object({
       url: z.string().max(2_000).default(''),
-      method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('GET'),
+      method: z
+        .enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'])
+        .default('GET'),
       bodyJson: z.string().max(20_000).default(''),
       headersJson: z.string().max(10_000).default(''),
       credentialEnvJson: z.string().max(10_000).default(''),
@@ -249,6 +282,7 @@ const DEFINITIONS: NodeDefinition[] = [
     allowedModes: ALL_MODES,
     docs: 'SSRF-checked, no loopback, 1 MB response cap. headersJson adds plain headers; credentialEnvJson maps a header to an ENV VAR name resolved by the runtime (values are never stored). Transport-managed headers are refused. Only runs in an operator run with network access explicitly granted.',
   },
+  ...INTEGRATION_DEFINITIONS,
   {
     type: 'finance.quote',
     version: '1.0.0',
@@ -376,6 +410,15 @@ const DEFINITIONS: NodeDefinition[] = [
     allowedModes: ALL_MODES,
     docs: 'Indicator math lives in the quant engine and is independently tested.',
   },
+  // The remaining gateway READ capabilities + pure risk/return metrics. Their
+  // Python twins live in `graph_runtime/market_read_nodes.py` and
+  // `graph_runtime/quant_metrics_nodes.py`; `registry.manifest.json` keeps the
+  // two sides in lockstep.
+  ...MARKET_READ_DEFINITIONS,
+  ...QUANT_METRIC_DEFINITIONS,
+  ...QUANT_VALIDATION_DEFINITIONS,
+  ...QUANT_STRUCTURE_DEFINITIONS,
+  ...QUANT_ADVANCED_DEFINITIONS,
   ...AGENT_DEFINITIONS,
   ...LOOP_DEFINITIONS,
   ...WRITE_DEFINITIONS,

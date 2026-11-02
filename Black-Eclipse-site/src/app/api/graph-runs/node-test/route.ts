@@ -2,8 +2,9 @@
 // The editor's "Test node" action. Unlike /runs, this does NOT load a persisted
 // workflow: the node type, config and inputs come from the (possibly unsaved)
 // editor. The Python runtime therefore re-validates everything and runs the
-// executor in its safe envelope (only none/read side effects; write, trading,
-// network and model nodes are refused), with the node's own hard timeout.
+// executor in its safe envelope (none/read by default; write, trading and model
+// nodes are refused). A `network` node may run only when the operator explicitly
+// set `allowNetwork`, which still performs just the one confirmed request.
 // Nothing is persisted.
 
 import { NextResponse } from "next/server";
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
     config?: unknown;
     inputs?: unknown;
     mode?: unknown;
+    allowNetwork?: unknown;
   };
 
   const nodeType = typeof body.nodeType === "string" ? body.nodeType.trim() : "";
@@ -74,6 +76,7 @@ export async function POST(request: Request) {
         config: config.value,
         inputs: inputs.value,
         mode,
+        allowNetwork: body.allowNetwork === true,
       }),
     });
     const data = await res.json().catch(() => ({}));

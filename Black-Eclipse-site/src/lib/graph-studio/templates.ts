@@ -185,12 +185,186 @@ function dataPipeline(): WorkflowIR {
   );
 }
 
+function webhookHttp(): WorkflowIR {
+  return buildGraph(
+    'Webhook to HTTP (demo)',
+    'An inbound signed webhook calls a public echo API and returns the response and status. Open the Webhook tab, create the endpoint, then arm it with network access.',
+    [
+      { id: 'hook', type: 'trigger.webhook' },
+      {
+        id: 'http',
+        type: 'integration.http',
+        config: {
+          url: 'https://postman-echo.com/get',
+          method: 'GET',
+          queryJson: '{"demo":"eclipse"}',
+          responseType: 'auto',
+          failOnHttpError: true,
+          timeoutMs: 15_000,
+        },
+      },
+      { id: 'response', type: 'output.result', config: { label: 'HTTP response' } },
+      { id: 'status', type: 'output.result', config: { label: 'HTTP status' } },
+    ],
+    [
+      { source: 'hook', sourceHandle: 'start', target: 'http', targetHandle: 'body' },
+      { source: 'http', sourceHandle: 'body', target: 'response', targetHandle: 'value' },
+      { source: 'http', sourceHandle: 'status', target: 'status', targetHandle: 'value' },
+    ],
+  );
+}
+
+function signedWebhookDemo(): WorkflowIR {
+  return buildGraph(
+    'Signed webhook (demo)',
+    'Manual trigger → signed outbound webhook. Set ECLIPSE_DEMO_WEBHOOK_SECRET in the runtime environment, then run as an operator with network access.',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      {
+        id: 'send',
+        type: 'integration.webhook_send',
+        config: {
+          url: 'https://postman-echo.com/post',
+          bodyJson: '{"event":"demo","source":"eclipse"}',
+          secretEnv: 'ECLIPSE_DEMO_WEBHOOK_SECRET',
+          deliveryId: 'eclipse-demo-1',
+        },
+      },
+      { id: 'result', type: 'output.result', config: { label: 'Delivery' } },
+    ],
+    [
+      { source: 'trigger', sourceHandle: 'start', target: 'send', targetHandle: 'body' },
+      { source: 'send', sourceHandle: 'body', target: 'result', targetHandle: 'value' },
+    ],
+  );
+}
+
+function backtestVerdict(): WorkflowIR {
+  return buildGraph(
+    'Backtest and grade',
+    'Read daily bars, backtest an EMA cross, stress its robustness, and grade the evidence. A stored series must exist for the symbol first (research-data tools).',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      { id: 'market', type: 'finance.market_data', config: { symbol: 'AAPL', interval: '1d', lookback: 500 } },
+      {
+        id: 'backtest',
+        type: 'quant.backtest',
+        config: { preset: 'ema_cross', fast: 12, slow: 50, includeSeries: true },
+      },
+      { id: 'robustness', type: 'quant.robustness', config: { preset: 'ema_cross', fast: 12, slow: 50 } },
+      { id: 'grade', type: 'quant.grade' },
+      { id: 'result', type: 'output.result', config: { label: 'Verdict summary' } },
+      { id: 'detail', type: 'output.result', config: { label: 'Verdict detail' } },
+      { id: 'conclusions', type: 'output.result', config: { label: 'Robustness conclusions' } },
+    ],
+    [
+      { source: 'trigger', sourceHandle: 'start', target: 'market', targetHandle: 'symbol' },
+      { source: 'market', sourceHandle: 'series', target: 'backtest', targetHandle: 'series' },
+      { source: 'market', sourceHandle: 'series', target: 'robustness', targetHandle: 'series' },
+      { source: 'backtest', sourceHandle: 'metrics', target: 'grade', targetHandle: 'metrics' },
+      { source: 'backtest', sourceHandle: 'trades', target: 'grade', targetHandle: 'trades' },
+      { source: 'backtest', sourceHandle: 'result', target: 'grade', targetHandle: 'result' },
+      { source: 'grade', sourceHandle: 'summary', target: 'result', targetHandle: 'value' },
+      { source: 'grade', sourceHandle: 'verdict', target: 'detail', targetHandle: 'value' },
+      { source: 'robustness', sourceHandle: 'conclusions', target: 'conclusions', targetHandle: 'value' },
+    ],
+  );
+}
+
+function riskSnapshot(): WorkflowIR {
+  return buildGraph(
+    'Risk snapshot',
+    'Read daily bars, compute volatility/Sharpe/VaR directly from the bars, and capture the live quote. Needs a configured market-data provider.',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      {
+        id: 'bars',
+        type: 'finance.history',
+        config: { symbol: 'AAPL', interval: '1d', limit: 250, freshness: 'slow' },
+      },
+      { id: 'risk', type: 'quant.risk_metrics', config: { inputKind: 'prices', periodsPerYear: 252 } },
+      { id: 'quote', type: 'finance.quote', config: { symbol: 'AAPL', freshness: 'intraday' } },
+      { id: 'result', type: 'output.result', config: { label: 'Risk metrics' } },
+      { id: 'price', type: 'output.result', config: { label: 'Live quote' } },
+    ],
+    [
+      { source: 'trigger', sourceHandle: 'start', target: 'bars', targetHandle: 'symbol' },
+      { source: 'trigger', sourceHandle: 'start', target: 'quote', targetHandle: 'symbol' },
+      { source: 'bars', sourceHandle: 'series', target: 'risk', targetHandle: 'values' },
+      { source: 'risk', sourceHandle: 'metrics', target: 'result', targetHandle: 'value' },
+      { source: 'quote', sourceHandle: 'quote', target: 'price', targetHandle: 'value' },
+    ],
+  );
+}
+
+function derivativesMonitor(): WorkflowIR {
+  return buildGraph(
+    'Derivatives monitor',
+    'Read funding, open interest and liquidations for one perpetual and capture each summary. Crypto provider required.',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      { id: 'funding', type: 'finance.funding_rate', config: { symbol: 'BTC-USD', freshness: 'realtime' } },
+      { id: 'oi', type: 'finance.open_interest', config: { symbol: 'BTC-USD', window: '24h' } },
+      { id: 'liq', type: 'finance.liquidations', config: { symbol: 'BTC-USD', window: '24h' } },
+      { id: 'fundingOut', type: 'output.result', config: { label: 'Funding' } },
+      { id: 'oiOut', type: 'output.result', config: { label: 'Open interest' } },
+      { id: 'liqOut', type: 'output.result', config: { label: 'Liquidations' } },
+    ],
+    [
+      { source: 'trigger', sourceHandle: 'start', target: 'funding', targetHandle: 'symbol' },
+      { source: 'trigger', sourceHandle: 'start', target: 'oi', targetHandle: 'symbol' },
+      { source: 'trigger', sourceHandle: 'start', target: 'liq', targetHandle: 'symbol' },
+      { source: 'funding', sourceHandle: 'summary', target: 'fundingOut', targetHandle: 'value' },
+      { source: 'oi', sourceHandle: 'summary', target: 'oiOut', targetHandle: 'value' },
+      { source: 'liq', sourceHandle: 'summary', target: 'liqOut', targetHandle: 'value' },
+    ],
+  );
+}
+
+function ratesCheck(): WorkflowIR {
+  return buildGraph(
+    'FX + bond yield check',
+    'Read an FX pair and a government yield, then capture both summaries and provenance.',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      { id: 'fx', type: 'finance.fx_rate', config: { base: 'EUR', quote: 'USD', freshness: 'realtime' } },
+      { id: 'bond', type: 'finance.bond', config: { symbol: 'US10Y', seriesType: 'treasury', freshness: 'slow' } },
+      { id: 'fxOut', type: 'output.result', config: { label: 'FX rate' } },
+      { id: 'bondOut', type: 'output.result', config: { label: 'Bond yield' } },
+      { id: 'fxMeta', type: 'output.result', config: { label: 'FX provenance' } },
+    ],
+    [
+      { source: 'trigger', sourceHandle: 'start', target: 'fx', targetHandle: 'symbol' },
+      { source: 'trigger', sourceHandle: 'start', target: 'bond', targetHandle: 'symbol' },
+      { source: 'fx', sourceHandle: 'summary', target: 'fxOut', targetHandle: 'value' },
+      { source: 'bond', sourceHandle: 'summary', target: 'bondOut', targetHandle: 'value' },
+      { source: 'fx', sourceHandle: 'provenance', target: 'fxMeta', targetHandle: 'value' },
+    ],
+  );
+}
+
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   { id: 'blank', name: 'Blank', description: 'A trigger and a result. Start here.', build: blank },
   { id: 'if-else', name: 'If / else', description: 'Branch on a value with control gates.', build: ifElse },
   { id: 'market-scan', name: 'Market scan', description: 'Stored bars → SMA → z-score → branch.', build: marketScan },
   { id: 'price-check', name: 'Price + indicator', description: 'Market data → SMA → branch.', build: priceCheck },
+  { id: 'risk-snapshot', name: 'Risk snapshot', description: 'Daily bars → risk metrics → quote.', build: riskSnapshot },
+  {
+    id: 'derivatives-monitor',
+    name: 'Derivatives monitor',
+    description: 'Funding + open interest + liquidations.',
+    build: derivativesMonitor,
+  },
+  { id: 'rates-check', name: 'FX + bond yield', description: 'FX pair and a government yield.', build: ratesCheck },
+  {
+    id: 'backtest-verdict',
+    name: 'Backtest and grade',
+    description: 'Bars → EMA-cross backtest → edge verdict (A–F).',
+    build: backtestVerdict,
+  },
   { id: 'http-fetch', name: 'HTTP request', description: 'Fetch an external endpoint.', build: httpFetch },
+  { id: 'webhook-http', name: 'Webhook to HTTP', description: 'Signed inbound webhook → public API → result.', build: webhookHttp },
+  { id: 'signed-webhook', name: 'Signed webhook', description: 'Manual trigger → signed outbound webhook.', build: signedWebhookDemo },
   { id: 'data-pipeline', name: 'Data pipeline', description: 'Six data nodes wired end to end.', build: dataPipeline },
 ];
 

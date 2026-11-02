@@ -161,10 +161,25 @@ def resolve_agent(request: RunRequest) -> AgentConfig:
 
     Python owns the agent definitions, so the front door sends only an id and
     the runtime supplies the system prompt + tool allowlist from its presets.
+
+    The built-in ids come from `agents.py`; anything else is a user-authored
+    `AgentPreset` (versioned on `agent-memory.db`). Both surfaces must resolve
+    here, because a bot's scheduled `run_agent` enters through this function and
+    not through the front door.
     """
     if request.agent is not None:
         return request.agent
-    return get_agent(request.agentId or DEFAULT_AGENT_ID)
+    agent_id = request.agentId or DEFAULT_AGENT_ID
+    try:
+        return get_agent(agent_id)
+    except ValueError:
+        from .agent_presets import agent_config_from_preset, get_preset_store  # noqa: PLC0415
+
+        store = get_preset_store()
+        preset = store.get(agent_id) if store is not None else None
+        if preset is None:
+            raise
+        return agent_config_from_preset(preset)
 
 
 DEFAULT_CHAT_MAX_STEPS = 24

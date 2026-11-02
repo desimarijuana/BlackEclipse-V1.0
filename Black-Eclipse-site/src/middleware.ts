@@ -30,7 +30,10 @@ export const config = {
 // (Slack/WhatsApp/generic) cannot present a session cookie. Authenticity is
 // proven inside the handler by an HMAC over the raw body, so the middleware gate
 // is bypassed for it — the signature is the gate.
-const PUBLIC_PREFIXES = ["/login", "/api/auth/", "/api/channels/webhook/", "/figure"];
+// `/api/webhooks/` is the same shape for workflow webhooks: the handler proves
+// authenticity with an HMAC over the raw body (or a token header), so the
+// session gate is bypassed there and nowhere else.
+const PUBLIC_PREFIXES = ["/login", "/api/auth/", "/api/channels/webhook/", "/api/webhooks/", "/figure"];
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p));

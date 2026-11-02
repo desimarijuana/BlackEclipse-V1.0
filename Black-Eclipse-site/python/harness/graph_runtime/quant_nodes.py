@@ -705,3 +705,13 @@ __all__ = [
     "exec_montecarlo",
     "exec_oos",
 ]
+
+# ── Public seams for the validation pack ────────────────────────────────────
+# The adaptation of an OHLCV payload + strategy config and the default parameter
+# space are identical for a research run and a validation run. Expose the same
+# helpers instead of copying them, so the two packs cannot disagree about what a
+# valid strategy input is.
+prepare_quant = _prepare_quant
+param_space_from_config = _param_space
+preset_spec = _preset_spec
+STRATEGY_FIELDS = _STRATEGY_FIELDS

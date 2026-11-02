@@ -1101,6 +1101,7 @@ model Workflow {
 
   versions  WorkflowVersion[]
   schedules WorkflowSchedule[]
+  webhooks  WorkflowWebhook[]
 
   @@index([owner, updatedAt])
   @@index([archived])
@@ -1138,6 +1139,60 @@ model WorkflowSchedule {
   @@index([enabled, nextRunAt])
   @@index([workflowId])
   @@index([workflowId, nodeId])
+}
+
+// A verified inbound webhook linked to a trigger.webhook node. The secret is
+// AES-256-GCM encrypted at rest (the same connector-secret store as connector
+// credentials) and shown once on create/rotate. `mode: safe` runs the normal
+// read-only TEST envelope; `mode: armed` pins the workflow version and the
+// grants the operator confirmed, and refuses to run if the graph changed.
+model WorkflowWebhook {
+  id                String   @id @default(cuid())
+  workflowId        String
+  // The trigger.webhook node this endpoint belongs to. Null is allowed for a
+  // webhook created before the node link existed; it still receives.
+  nodeId            String?
+  name              String
+  // URL path segment. Random and not a secret: the secret is the signature/token.
+  slug              String   @unique
+  secretCipher      String
+  secretHint        String
+  enabled           Boolean  @default(true)
+  mode              String   @default("safe") // safe | armed
+  allowedMethods    String   @default("[\"POST\"]")
+  responseMode      String   @default("immediate") // immediate | wait
+  responseTimeoutMs Int      @default(10000)
+  verificationMode  String   @default("hmac") // hmac | token | both
+  // Set when armed: the exact workflow version + content hash + grants that the
+  // operator confirmed. Any mismatch refuses the delivery until re-armed.
+  version           Int?
+  grantsJson        String?
+  lastReceivedAt    DateTime?
+  lastRunId         String?
+  lastStatus        String?
+  lastError         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workflow Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId, nodeId])
+  @@index([enabled])
+}
+
+// Idempotency/replay window for a webhook delivery. `deliveryId` is the caller's
+// X-Eclipse-Delivery (or Idempotency-Key); a duplicate returns the prior run
+// instead of starting a second one. Rows expire and are purged opportunistically.
+model WorkflowWebhookReceipt {
+  id         String   @id @default(cuid())
+  webhookId  String
+  deliveryId String
+  runId      String?
+  receivedAt DateTime @default(now())
+  expiresAt  DateTime
+
+  @@unique([webhookId, deliveryId])
+  @@index([expiresAt])
 }
 
 // One immutable snapshot of a workflow's canonical IR.

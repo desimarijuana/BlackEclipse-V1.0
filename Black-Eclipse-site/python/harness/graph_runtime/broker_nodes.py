@@ -17,6 +17,8 @@ from typing import Any
 from .model import ExecutionMode, PortDef, PortType, SideEffect
 from .registry import ConfigField, NodeDef, NodeExecContext
 
+from ..trade.analysis import bar_summary
+
 _ALL = tuple(ExecutionMode)
 _TIMEFRAMES = ("M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1")
 
@@ -57,14 +59,82 @@ def _number(context: NodeExecContext, handle: str, config_key: str | None = None
         raise ValueError(f"{handle} must be a number") from exc
 
 
+def _reason(result: dict[str, Any] | None) -> str:
+    """The broker's own explanation, or nothing.
+
+    The service nests the adapter verdict under `result` for close/modify/cancel
+    and puts it at the top level for reads, so both are inspected.
+    """
+    if not isinstance(result, dict):
+        return ""
+    error = result.get("error")
+    if isinstance(error, dict):
+        text = str(error.get("reason") or error.get("message") or "").strip()
+        code = str(error.get("code") or "").strip()
+        if text:
+            return f"{code}: {text}" if code else text
+        if code:
+            return code
+    nested = result.get("result")
+    for source in (result, nested if isinstance(nested, dict) else {}):
+        reasons = [str(item) for item in (source.get("reasons") or []) if str(item).strip()]
+        if reasons:
+            return "; ".join(reasons)
+        name = str(source.get("retcodeName") or "").strip()
+        if name:
+            return name
+    return ""
+
+
+def _batch_close(result: dict[str, Any]) -> dict[str, Any]:
+    """One verdict for a multi-ticket close, naming every ticket that failed."""
+    closed = int(result.get("closed") or 0)
+    failures = [
+        row for row in (result.get("results") or [])
+        if isinstance(row, dict) and not row.get("ok")
+    ]
+    ok = closed > 0 and not failures
+    if ok:
+        reason = ""
+    elif failures:
+        reason = "; ".join(
+            f"ticket {row.get('ticket')}: {_reason(row) or 'refused'}" for row in failures
+        )
+    else:
+        reason = _reason(result) or "no position was closed"
+    return {
+        "result": result,
+        "status": "closed" if ok else "rejected",
+        "ok": ok,
+        "reason": reason,
+    }
+
+
+def _read_output(handle: str, result: dict[str, Any]) -> dict[str, Any]:
+    """A read envelope as an honest `ok`/`reason` pair plus the raw payload."""
+    ok = bool(result.get("available"))
+    return {
+        handle: result,
+        "status": "ok" if ok else "unavailable",
+        "ok": ok,
+        "reason": "" if ok else (_reason(result) or "the broker is unavailable"),
+    }
+
+
 def exec_broker_account(context: NodeExecContext) -> dict[str, Any]:
-    result = _service().account(_connection(context))
-    return {"account": result, "status": "connected" if result.get("available") else "unavailable"}
+    return _read_output("account", _service().account(_connection(context)))
 
 
 def exec_broker_quote(context: NodeExecContext) -> dict[str, Any]:
-    result = _service().quote(_connection(context), _symbol(context))
-    return {"quote": result, "status": "ok" if result.get("available") else "unavailable"}
+    return _read_output("quote", _service().quote(_connection(context), _symbol(context)))
+
+
+def exec_broker_positions(context: NodeExecContext) -> dict[str, Any]:
+    result = _service().positions(_connection(context))
+    rows = result.get("data") if isinstance(result.get("data"), list) else []
+    output = _read_output("positions", result)
+    output["count"] = len(rows)
+    return output
 
 
 def exec_broker_bars(context: NodeExecContext) -> dict[str, Any]:
@@ -76,7 +146,14 @@ def exec_broker_bars(context: NodeExecContext) -> dict[str, Any]:
     result = _service().bars(
         _connection(context), _symbol(context), timeframe=timeframe, count=count,
     )
-    return {"bars": result, "status": "ok" if result.get("available") else "unavailable"}
+    output = _read_output("bars", result)
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    summary = bar_summary(data.get("bars") or [])
+    output["summary"] = summary
+    output["atr"] = summary.get("atr")
+    output["contractSize"] = data.get("contractSize") or 0
+    output["tickSize"] = data.get("tickSize") or 0
+    return output
 
 
 def exec_broker_close(context: NodeExecContext) -> dict[str, Any]:
@@ -84,16 +161,40 @@ def exec_broker_close(context: NodeExecContext) -> dict[str, Any]:
     connection_id = _connection(context)
     ticket = _number(context, "ticket")
     volume = _number(context, "volume")
+    symbol = str(context.inputs.get("symbol") or context.config.get("symbol") or "").strip().upper()
+    deviation = int(context.config.get("deviation", 20) or 20)
     if bool(context.config.get("closeAll")):
-        result = service.close_positions(connection_id)
-    elif ticket is not None:
+        return _batch_close(service.close_positions(connection_id, deviation=deviation))
+    if ticket is not None:
         result = service.close_position(
-            connection_id, int(ticket), volume=volume,
-            deviation=int(context.config.get("deviation", 20) or 20),
+            connection_id, int(ticket), volume=volume, deviation=deviation,
         )
-    else:
-        raise ValueError("broker close needs a ticket input or closeAll = true")
-    return {"result": result, "status": "closed" if result.get("closed") else "rejected"}
+        closed = bool(result.get("closed"))
+        return {
+            "result": result,
+            "status": "closed" if closed else "rejected",
+            "ok": closed,
+            "reason": "" if closed else (_reason(result) or "the broker did not close it"),
+        }
+    if symbol:
+        positions = service.positions(connection_id)
+        rows = positions.get("data") if isinstance(positions.get("data"), list) else []
+        tickets = [
+            int(row.get("ticket") or 0)
+            for row in rows
+            if str(row.get("symbol") or "").upper() == symbol
+        ]
+        if not tickets:
+            return {
+                "result": {"status": "NO_POSITION", "symbol": symbol},
+                "status": "no_position",
+                "ok": False,
+                "reason": f"no open {symbol} position to close",
+            }
+        return _batch_close(
+            service.close_positions(connection_id, tickets=tickets, deviation=deviation)
+        )
+    raise ValueError("broker close needs a ticket, a symbol, or closeAll = true")
 
 
 def exec_broker_modify(context: NodeExecContext) -> dict[str, Any]:
@@ -105,19 +206,34 @@ def exec_broker_modify(context: NodeExecContext) -> dict[str, Any]:
         stop_loss=_number(context, "stopLoss"),
         take_profit=_number(context, "takeProfit"),
     )
-    return {"result": result, "status": "modified" if result.get("modified") else "rejected"}
-
+    modified = bool(result.get("modified")) or bool(result.get("ok"))
+    return {
+        "result": result,
+        "status": "modified" if modified else "rejected",
+        "ok": modified,
+        "reason": "" if modified else (_reason(result) or "the broker did not modify it"),
+    }
 
 def exec_broker_cancel(context: NodeExecContext) -> dict[str, Any]:
     ticket = _number(context, "ticket")
     if ticket is None:
         raise ValueError("broker cancel needs a ticket input")
     result = _service().cancel_order(_connection(context), int(ticket))
-    return {"result": result, "status": "cancelled" if result.get("cancelled") else "rejected"}
+    cancelled = bool(result.get("cancelled"))
+    return {
+        "result": result,
+        "status": "cancelled" if cancelled else "rejected",
+        "ok": cancelled,
+        "reason": "" if cancelled else (_reason(result) or "the broker did not cancel it"),
+    }
 
 
 def build_broker_nodes() -> list[NodeDef]:
     connection = ConfigField("connectionId", "string", "", max_length=80)
+    ok_ports = (
+        PortDef(id="ok", name="OK", type=PortType.BOOLEAN),
+        PortDef(id="reason", name="Reason", type=PortType.STRING),
+    )
     return [
         NodeDef(
             type="trading.broker_account", version="1.0.0", label="Broker account",
@@ -125,11 +241,26 @@ def build_broker_nodes() -> list[NodeDef]:
             outputs=(
                 PortDef(id="account", name="Account", type=PortType.OBJECT),
                 PortDef(id="status", name="Status", type=PortType.STRING),
+                *ok_ports,
             ),
             config_fields=(connection,),
             capabilities=("trading.broker.read",), side_effects=SideEffect.READ,
             allowed_modes=_ALL, executor=exec_broker_account,
-            metadata={"docs": "Reads the broker account/positions envelope. Honest UNAVAILABLE, never a fake balance."},
+            metadata={"docs": "Reads the broker account envelope. Honest UNAVAILABLE, never a fake balance; `ok` is false when the read failed and `reason` names why."},
+        ),
+        NodeDef(
+            type="trading.broker_positions", version="1.0.0", label="Broker positions",
+            category="trading",
+            outputs=(
+                PortDef(id="positions", name="Positions", type=PortType.OBJECT),
+                PortDef(id="count", name="Count", type=PortType.NUMBER),
+                PortDef(id="status", name="Status", type=PortType.STRING),
+                *ok_ports,
+            ),
+            config_fields=(connection,),
+            capabilities=("trading.broker.read",), side_effects=SideEffect.READ,
+            allowed_modes=_ALL, executor=exec_broker_positions,
+            metadata={"docs": "The broker's current positions as a structured list (ticket, symbol, side, volume, prices, SL/TP, profit). Feed it to a risk check as the `positions` input or branch on `count`."},
         ),
         NodeDef(
             type="trading.broker_quote", version="1.0.0", label="Broker quote",
@@ -138,6 +269,7 @@ def build_broker_nodes() -> list[NodeDef]:
             outputs=(
                 PortDef(id="quote", name="Quote", type=PortType.OBJECT),
                 PortDef(id="status", name="Status", type=PortType.STRING),
+                *ok_ports,
             ),
             config_fields=(connection, ConfigField("symbol", "string", "", max_length=40)),
             capabilities=("trading.broker.read",), side_effects=SideEffect.READ,
@@ -150,7 +282,11 @@ def build_broker_nodes() -> list[NodeDef]:
             inputs=(PortDef(id="symbol", name="Symbol", type=PortType.STRING, optional=True),),
             outputs=(
                 PortDef(id="bars", name="Bars", type=PortType.OBJECT),
+                PortDef(id="summary", name="Bar summary", type=PortType.OBJECT),
+                PortDef(id="atr", name="ATR(14)", type=PortType.NUMBER),
+                PortDef(id="contractSize", name="Contract size", type=PortType.NUMBER),
                 PortDef(id="status", name="Status", type=PortType.STRING),
+                *ok_ports,
             ),
             config_fields=(
                 connection,
@@ -160,28 +296,31 @@ def build_broker_nodes() -> list[NodeDef]:
             ),
             capabilities=("trading.broker.read",), side_effects=SideEffect.READ,
             allowed_modes=_ALL, executor=exec_broker_bars,
-            metadata={"docs": "The broker's own OHLCV series (server time), for symbols JDDS cannot proxy."},
+            metadata={"docs": "The broker's own OHLCV series (server time), for symbols JDDS cannot proxy. Also returns the same deterministic ATR(14) / 20-bar range / contract size the chat tool computes, so a graph does not have to recompute them."},
         ),
         NodeDef(
             type="trading.broker_close", version="1.0.0", label="Close position",
             category="trading",
             inputs=(
                 PortDef(id="ticket", name="Ticket", type=PortType.NUMBER, optional=True),
+                PortDef(id="symbol", name="Symbol", type=PortType.STRING, optional=True),
                 PortDef(id="volume", name="Volume", type=PortType.NUMBER, optional=True),
             ),
             outputs=(
                 PortDef(id="result", name="Result", type=PortType.OBJECT),
                 PortDef(id="status", name="Status", type=PortType.STRING),
+                *ok_ports,
             ),
             config_fields=(
                 connection,
+                ConfigField("symbol", "string", "", max_length=40),
                 ConfigField("closeAll", "boolean", False),
                 ConfigField("deviation", "integer", 20, minimum=0, maximum=1_000),
             ),
             capabilities=("trading.broker",), side_effects=SideEffect.TRADING,
             allowed_modes=(ExecutionMode.PAPER, ExecutionMode.LIVE),
             executor=exec_broker_close,
-            metadata={"docs": "Risk-reducing: closes one ticket (full/partial) or all positions; no arm/approval/mandate."},
+            metadata={"docs": "Risk-reducing: closes one ticket (full/partial), every position in a symbol, or all positions; no arm/approval/mandate."},
         ),
         NodeDef(
             type="trading.broker_modify", version="1.0.0", label="Modify position",
@@ -194,6 +333,7 @@ def build_broker_nodes() -> list[NodeDef]:
             outputs=(
                 PortDef(id="result", name="Result", type=PortType.OBJECT),
                 PortDef(id="status", name="Status", type=PortType.STRING),
+                *ok_ports,
             ),
             config_fields=(connection,),
             capabilities=("trading.broker",), side_effects=SideEffect.TRADING,
@@ -208,6 +348,7 @@ def build_broker_nodes() -> list[NodeDef]:
             outputs=(
                 PortDef(id="result", name="Result", type=PortType.OBJECT),
                 PortDef(id="status", name="Status", type=PortType.STRING),
+                *ok_ports,
             ),
             config_fields=(connection,),
             capabilities=("trading.broker",), side_effects=SideEffect.TRADING,
@@ -221,6 +362,7 @@ def build_broker_nodes() -> list[NodeDef]:
 __all__ = [
     "build_broker_nodes",
     "exec_broker_account",
+    "exec_broker_positions",
     "exec_broker_quote",
     "exec_broker_bars",
     "exec_broker_close",

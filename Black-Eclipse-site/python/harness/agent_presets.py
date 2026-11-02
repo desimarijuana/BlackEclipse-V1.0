@@ -352,8 +352,33 @@ def get_preset_store() -> Optional[AgentPresetStore]:
     return _STORE
 
 
+def agent_config_from_preset(
+    preset: dict[str, Any], *, max_steps: Optional[int] = None,
+) -> "AgentConfig":
+    """Project a stored preset snapshot onto the run plane's `AgentConfig`.
+
+    The ONE place a preset row becomes a runnable agent. Graph nodes
+    (`bootstrap._agent_runner`) and ordinary runs (`graph.resolve_agent`, which
+    is what a bot's scheduled `run_agent` uses) must agree, or a preset would
+    work in one surface and fail in the other.
+    """
+    from .schemas import AgentConfig  # noqa: PLC0415 - schemas is a leaf module
+
+    steps = int(max_steps or preset.get("maxSteps") or 8)
+    return AgentConfig(
+        id=str(preset["id"]),
+        name=str(preset["name"]),
+        systemPrompt=str(preset["systemPrompt"]),
+        tools=list(preset.get("tools") or []),
+        maxSteps=max(1, min(steps, MAX_STEPS)),
+        allowMcpTools=bool(preset.get("allowMcpTools")),
+        allowPluginTools=bool(preset.get("allowPluginTools")),
+    )
+
+
 __all__ = [
     "AgentPresetStore",
+    "agent_config_from_preset",
     "get_preset_store",
     "set_preset_store",
 ]

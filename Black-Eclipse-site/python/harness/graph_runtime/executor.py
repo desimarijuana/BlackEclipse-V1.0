@@ -147,6 +147,7 @@ class GraphExecutor:
         workflow_version: Optional[int] = None,
         subworkflows: Optional[dict[str, WorkflowIR]] = None,
         run_input: Any = None,
+        trigger_context: Optional[dict[str, Any]] = None,
         depth: int = 0,
         subworkflow_stack: tuple[str, ...] = (),
         resume: Optional[ResumeState] = None,
@@ -172,6 +173,7 @@ class GraphExecutor:
         self._workflow_version = workflow_version
         self._subworkflows = subworkflows or {}
         self._run_input = run_input
+        self._trigger_context = trigger_context
         self._depth = depth
         self._subworkflow_stack = subworkflow_stack
         self._resume = resume or ResumeState()
@@ -549,6 +551,8 @@ class GraphExecutor:
             config=config,
             emit=lambda message: self._emit("node.log", message, node_id),
             run_input=self._run_input,
+            node_version=definition.version,
+            trigger_context=self._trigger_context,
             model_settings=self._model_settings,
             callback_base_url=self._callback_base_url,
             callback_token=self._callback_token,

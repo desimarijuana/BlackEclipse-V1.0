@@ -97,6 +97,9 @@ class RunRequest(BaseModel):
     # same key the durable job payload uses), so accept that alias; `input`
     # still works for direct callers and older payloads.
     input: Any = Field(default=None, alias="runInput")
+    # Verified inbound-trigger context (webhook headers/query/method/delivery).
+    # Authenticated by the front door; never contains a secret or signature.
+    triggerContext: Optional[dict[str, Any]] = Field(default=None, alias="triggerContext")  # noqa: N815
     # Front-door base URL for run-scoped credential re-resolution after a
     # restart. The response carries the key in memory only, never this payload.
     callbackBaseUrl: Optional[str] = Field(default=None, alias="callbackBaseUrl")  # noqa: N815
@@ -125,6 +128,9 @@ class NodeTestRequest(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     inputs: dict[str, Any] = Field(default_factory=dict)
     mode: str = Field(default="research", max_length=20)
+    # Explicit operator confirmation for a single network node test. Write,
+    # trading and model nodes are still refused.
+    allowNetwork: bool = Field(default=False, alias="allowNetwork")  # noqa: N815
 
     model_config = {"populate_by_name": True}
 
@@ -152,6 +158,7 @@ def test_node(
             inputs=body.inputs,
             mode=mode,
             owner_id=owner,
+            allow_network=body.allowNetwork,
         )
     except NodeTestError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
@@ -176,6 +183,7 @@ def start_run(body: RunRequest, request: Request, _: bool = Depends(require_oper
             grants=_grants(body),
             subworkflows=_bundle(body.subworkflows),
             run_input=body.input,
+            trigger_context=body.triggerContext,
             model_settings=body.modelSettings,
             callback_base_url=body.callbackBaseUrl or "",
         )

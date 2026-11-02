@@ -15,6 +15,9 @@ type Override = Omit<ConfigFieldDef, 'key'> & { key: string };
 const opts = (...values: string[]): ConfigFieldDef['options'] =>
   values.map((value) => ({ value, label: value }));
 
+/** Bar intervals the quant pack accepts (resample + benchmark annualization). */
+const QUANT_INTERVALS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1mo'];
+
 /** One-line explanations shared by every node that uses the key. */
 const KEY_HELP: Record<string, string> = {
 
@@ -62,7 +65,13 @@ const KEY_HELP: Record<string, string> = {
   simulations: 'Number of Monte Carlo paths.',
   ruinThreshold: 'Equity fraction that counts as ruin (0–1).',
   oosFraction: 'Fraction of bars held out for out-of-sample testing.',
-  confidence: 'Bootstrap confidence level (0–1).',
+  targetInterval: 'Interval to aggregate the bars up to (never finer than the source).',
+  sourceInterval: 'Interval of the incoming bars; blank reads it from the series payload.',
+  assetClass: 'Annualization convention: equities use ~252 sessions, crypto 365.',
+  minTrades: 'Closed trades needed before an edge can be told apart from luck.',
+  goodTrades: 'Trade count that earns a full sample score.',
+  highProbabilityOfLoss: 'Monte Carlo loss probability (%) that raises a warning.',
+  confidence: 'Confidence level (0–1) for a bootstrap or historical VaR/CVaR.',
   trainBars: 'Bars per training window.',
   testBars: 'Bars per test window.',
   stepBars: 'Bars to advance between windows.',
@@ -95,6 +104,19 @@ const KEY_HELP: Record<string, string> = {
   closeAll: 'Close every open position on the connection.',
   deviation: 'Maximum price deviation in points.',
   continueOnError: 'Keep looping when one iteration fails.',
+  depth: 'Levels of book depth to request.',
+  window: 'Aggregation window, e.g. 1d or 24h.',
+  exchange: 'Optional exchange or venue filter; empty = the gateway default.',
+  expiration: 'Optional expiration (YYYY-MM-DD); empty = the nearest listed.',
+  greeks: 'Calculate Black-Scholes Greeks when the provider does not supply them.',
+  seriesType: 'Optional bond series type, e.g. treasury or corporate.',
+  chain: 'Protocol/chain name, or an EVM chain for an address.',
+  address: 'Account address to inspect.',
+  history: 'Historical funding points to return (0 = current only).',
+  base: 'Base currency of the FX pair.',
+  quote: 'Quote currency of the FX pair.',
+  inputKind: 'How the incoming series is interpreted before the math runs.',
+  periodsPerYear: 'Annualization factor (252 trading days by default).',
 };
 
 /** A stable section for fields that otherwise have no explicit override. */
@@ -111,9 +133,22 @@ const GROUP_BY_KEY: Record<string, string> = {
   tasksJson: 'Agent',
   url: 'Request',
   method: 'Request',
+  queryJson: 'Request',
   headersJson: 'Request',
-  bodyJson: 'Request',
-  credentialEnvJson: 'Request',
+  bodyJson: 'Body',
+  bodyMode: 'Body',
+  credentialEnvJson: 'Auth',
+  secretEnv: 'Auth',
+  deliveryId: 'Advanced',
+  responseType: 'Response',
+  maxResponseBytes: 'Response',
+  onOversize: 'Response',
+  failOnHttpError: 'Response',
+  followRedirects: 'Advanced',
+  maxRedirects: 'Advanced',
+  retries: 'Advanced',
+  retryBackoffMs: 'Advanced',
+  retryUnsafe: 'Advanced',
   timeoutMs: 'Request',
   maxPositionPct: 'Risk limits',
   maxGrossExposure: 'Risk limits',
@@ -152,12 +187,14 @@ const REQUIRED_FIELDS: Record<string, string[]> = {
   'flow.subworkflow': ['workflowId'],
   'trading.broker_order': ['connectionId', 'mandateId'],
   'trading.broker_account': ['connectionId'],
+  'trading.broker_positions': ['connectionId'],
   'trading.broker_quote': ['connectionId'],
   'trading.broker_bars': ['connectionId'],
   'trading.broker_close': ['connectionId'],
   'trading.broker_modify': ['connectionId'],
   'trading.broker_cancel': ['connectionId'],
   'integration.http': ['url'],
+  'integration.webhook_send': ['url', 'secretEnv'],
 };
 
 // Shared quant parameter presentation. Every quant node reuses the same
@@ -236,6 +273,9 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
   'trading.broker_account': [
     { key: 'connectionId', label: 'Broker connection', kind: 'text' },
   ],
+  'trading.broker_positions': [
+    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
+  ],
   'trading.broker_quote': [
     { key: 'connectionId', label: 'Broker connection', kind: 'text' },
     { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'XAUUSD' },
@@ -248,6 +288,7 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
   ],
   'trading.broker_close': [
     { key: 'connectionId', label: 'Broker connection', kind: 'text' },
+    { key: 'symbol', label: 'Symbol (close all in it)', kind: 'text', inline: true, placeholder: 'XAUUSD' },
     { key: 'closeAll', label: 'Close all positions', kind: 'boolean' },
     { key: 'deviation', label: 'Deviation (points)', kind: 'number', min: 0, max: 1_000 },
   ],
@@ -441,10 +482,37 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
   ],
   'integration.http': [
     { key: 'url', label: 'URL', kind: 'text', inline: true, placeholder: 'https://…' },
-    { key: 'method', label: 'Method', kind: 'select', inline: true, options: opts('GET', 'POST', 'PUT', 'PATCH', 'DELETE') },
+    { key: 'method', label: 'Method', kind: 'select', inline: true, options: opts('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS') },
     { key: 'bodyJson', label: 'Body', kind: 'json' },
     { key: 'headersJson', label: 'Headers', kind: 'json' },
     { key: 'credentialEnvJson', label: 'Credentials (ENV names)', kind: 'json' },
+    { key: 'timeoutMs', label: 'Timeout (ms)', kind: 'number', min: 1_000, max: 60_000 },
+  ],
+  // `1.1.0` extras. The type-level overrides above still apply; these add the
+  // controls that version introduced without showing them on a saved 1.0.0 node.
+  'integration.http@1.1.0': [
+    { key: 'queryJson', label: 'Query params (JSON)', kind: 'json', group: 'Request' },
+    { key: 'bodyMode', label: 'Body format', kind: 'select', options: opts('json', 'text', 'form'), group: 'Body' },
+    { key: 'responseType', label: 'Parse response as', kind: 'select', options: opts('auto', 'json', 'text'), group: 'Response' },
+    { key: 'maxResponseBytes', label: 'Max response bytes', kind: 'number', min: 1_000, max: 10_000_000, group: 'Response' },
+    { key: 'onOversize', label: 'If response is too big', kind: 'select', options: opts('error', 'truncate'), group: 'Response' },
+    { key: 'failOnHttpError', label: 'Fail on 4xx/5xx', kind: 'boolean', group: 'Response' },
+    { key: 'followRedirects', label: 'Follow redirects', kind: 'boolean', group: 'Advanced', help: 'Every hop is SSRF-checked; HTTPS cannot downgrade to HTTP.' },
+    { key: 'maxRedirects', label: 'Max redirects', kind: 'number', min: 0, max: 5, group: 'Advanced' },
+    { key: 'retries', label: 'Retries', kind: 'number', min: 0, max: 3, group: 'Advanced', help: 'Only network errors, 408, 429 and 5xx are retried.' },
+    { key: 'retryBackoffMs', label: 'Retry backoff (ms)', kind: 'number', min: 100, max: 10_000, group: 'Advanced' },
+    { key: 'retryUnsafe', label: 'Retry POST/PATCH', kind: 'boolean', group: 'Advanced' },
+  ],
+  'integration.webhook_send': [
+    { key: 'url', label: 'URL', kind: 'text', inline: true, placeholder: 'https://…' },
+    { key: 'secretEnv', label: 'Signing secret (ENV name)', kind: 'text', inline: true, placeholder: 'WEBHOOK_SECRET' },
+    { key: 'bodyJson', label: 'Body', kind: 'json' },
+    { key: 'headersJson', label: 'Extra headers', kind: 'json' },
+    { key: 'deliveryId', label: 'Delivery id', kind: 'text', placeholder: 'auto' },
+    { key: 'failOnHttpError', label: 'Fail on 4xx/5xx', kind: 'boolean' },
+    { key: 'retries', label: 'Retries', kind: 'number', min: 0, max: 3 },
+    { key: 'retryBackoffMs', label: 'Retry backoff (ms)', kind: 'number', min: 100, max: 10_000 },
+    { key: 'maxResponseBytes', label: 'Max response bytes', kind: 'number', min: 1_000, max: 10_000_000 },
     { key: 'timeoutMs', label: 'Timeout (ms)', kind: 'number', min: 1_000, max: 60_000 },
   ],
   'finance.quote': [
@@ -466,6 +534,213 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, quick: 1, placeholder: 'AAPL' },
     { key: 'interval', label: 'Interval', kind: 'select', inline: true, quick: 2, options: opts('1m', '5m', '15m', '1h', '1d') },
     { key: 'lookback', label: 'Lookback bars', kind: 'number', min: 1, max: 5_000 },
+  ],
+  'finance.instrument': [
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'AAPL' },
+    { key: 'market', label: 'Market', kind: 'text', placeholder: 'auto' },
+  ],
+  'finance.orderbook': [
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'BTC-USD' },
+    { key: 'depth', label: 'Depth', kind: 'number', inline: true, min: 1, max: 200 },
+    { key: 'market', label: 'Market', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'finance.trades': [
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'AAPL' },
+    { key: 'limit', label: 'Trades', kind: 'number', inline: true, min: 1, max: 1_000 },
+    { key: 'market', label: 'Market', kind: 'text' },
+    { key: 'start', label: 'Start', kind: 'text', placeholder: 'ISO date' },
+    { key: 'end', label: 'End', kind: 'text', placeholder: 'ISO date' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'finance.volume': [
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'AAPL' },
+    { key: 'window', label: 'Window', kind: 'text', inline: true, placeholder: '1d' },
+    { key: 'market', label: 'Market', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'finance.market_cap': [
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'AAPL' },
+    { key: 'market', label: 'Market', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'finance.fx_rate': [
+    { key: 'symbol', label: 'Pair', kind: 'text', inline: true, placeholder: 'EURUSD', help: 'A pair such as EURUSD. Leave empty to use Base + Quote.' },
+    { key: 'base', label: 'Base', kind: 'text', inline: true, placeholder: 'EUR', help: 'Base currency; requires Quote when no pair is set.' },
+    { key: 'quote', label: 'Quote', kind: 'text', placeholder: 'USD', help: 'Quote currency; requires Base when no pair is set.' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'finance.options_chain': [
+    { key: 'symbol', label: 'Underlying', kind: 'text', inline: true, placeholder: 'AAPL' },
+    { key: 'expiration', label: 'Expiration', kind: 'text', inline: true, placeholder: 'YYYY-MM-DD' },
+    { key: 'market', label: 'Market', kind: 'text' },
+    { key: 'greeks', label: 'Calculate Greeks', kind: 'boolean' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'finance.bond': [
+    { key: 'symbol', label: 'Bond / tenor', kind: 'text', inline: true, placeholder: 'US10Y' },
+    { key: 'seriesType', label: 'Series type', kind: 'text', inline: true, placeholder: 'treasury' },
+    { key: 'market', label: 'Market', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'finance.funding_rate': [
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'BTC-USD' },
+    { key: 'history', label: 'History points', kind: 'number', inline: true, min: 0, max: 500 },
+    { key: 'exchange', label: 'Exchange', kind: 'text', placeholder: 'auto' },
+    { key: 'market', label: 'Market', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'finance.open_interest': [
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'BTC-USD' },
+    { key: 'window', label: 'Window', kind: 'text', inline: true, placeholder: '24h' },
+    { key: 'exchange', label: 'Exchange', kind: 'text', placeholder: 'auto' },
+    { key: 'market', label: 'Market', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'finance.supply': [
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'BTC' },
+    { key: 'market', label: 'Market', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'finance.tvl': [
+    { key: 'symbol', label: 'Protocol / chain', kind: 'text', inline: true, placeholder: 'aave' },
+    { key: 'chain', label: 'Chain', kind: 'text', inline: true, placeholder: 'ethereum' },
+    { key: 'market', label: 'Market', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'finance.onchain': [
+    { key: 'address', label: 'Address', kind: 'text', inline: true, placeholder: '0x…' },
+    { key: 'chain', label: 'Chain', kind: 'text', inline: true, placeholder: 'ethereum' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'finance.liquidations': [
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'BTC' },
+    { key: 'window', label: 'Window', kind: 'text', inline: true, placeholder: '24h' },
+    { key: 'exchange', label: 'Exchange', kind: 'text', placeholder: 'auto' },
+    { key: 'market', label: 'Market', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'finance.long_short_ratio': [
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'BTC' },
+    { key: 'interval', label: 'Interval', kind: 'text', inline: true, placeholder: '1h' },
+    { key: 'limit', label: 'Points', kind: 'number', min: 1, max: 500 },
+    { key: 'exchange', label: 'Exchange', kind: 'text', placeholder: 'auto' },
+    { key: 'market', label: 'Market', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
+  ],
+  'quant.risk_metrics': [
+    { key: 'inputKind', label: 'Input', kind: 'select', inline: true, options: opts('returns', 'prices') },
+    { key: 'confidence', label: 'VaR confidence', kind: 'number', inline: true, min: 0.5, max: 0.999, step: 0.001 },
+    { key: 'riskFreeRate', label: 'Risk-free rate', kind: 'number', min: -0.5, max: 0.5, step: 0.001 },
+    { key: 'periodsPerYear', label: 'Periods / year', kind: 'number', min: 1, max: 1_000 },
+  ],
+  'quant.drawdown': [
+    { key: 'inputKind', label: 'Input', kind: 'select', inline: true, options: opts('equity', 'returns') },
+  ],
+  'quant.correlation': [
+    { key: 'method', label: 'Method', kind: 'select', inline: true, options: opts('pearson', 'spearman') },
+    { key: 'window', label: 'Rolling window (0 = full)', kind: 'number', inline: true, min: 0, max: 2_000 },
+  ],
+  'quant.beta': [
+    { key: 'inputKind', label: 'Input', kind: 'select', inline: true, options: opts('returns', 'prices') },
+    { key: 'window', label: 'Rolling window (0 = full)', kind: 'number', inline: true, min: 0, max: 2_000 },
+    { key: 'riskFreeRate', label: 'Risk-free rate', kind: 'number', min: -0.5, max: 0.5, step: 0.001 },
+    { key: 'periodsPerYear', label: 'Periods / year', kind: 'number', min: 1, max: 1_000 },
+  ],
+  'quant.grade': [
+    { key: 'minTrades', label: 'Minimum trades', kind: 'number', inline: true, min: 1, max: 10_000 },
+    { key: 'goodTrades', label: 'Good trade count', kind: 'number', min: 1, max: 100_000 },
+    { key: 'highProbabilityOfLoss', label: 'High loss probability (%)', kind: 'number', min: 0, max: 100, step: 0.1 },
+  ],
+  'quant.benchmark': [
+    { key: 'interval', label: 'Interval', kind: 'select', inline: true, options: opts(...QUANT_INTERVALS) },
+    { key: 'assetClass', label: 'Asset class', kind: 'select', inline: true, options: opts('equity', 'crypto') },
+    { key: 'riskFreeRate', label: 'Risk-free rate', kind: 'number', min: -0.5, max: 0.5, step: 0.001 },
+  ],
+  'quant.resample': [
+    { key: 'targetInterval', label: 'Target interval', kind: 'select', inline: true, options: opts(...QUANT_INTERVALS) },
+    { key: 'sourceInterval', label: 'Source interval (blank = from series)', kind: 'text', inline: true, placeholder: '1h' },
+  ],
+  'quant.robustness': [
+    ...quantInstrument, ...quantStrategy, ...quantRisk,
+    ...pickQuantAdvanced('randomSeed', 'objective', 'paramSpaceJson'),
+    { key: 'costMultipliersJson', label: 'Cost multipliers (JSON)', kind: 'json', group: 'Robustness', placeholder: '[1, 2, 5]' },
+    { key: 'costMaterialDrop', label: 'Material cost drop', kind: 'number', group: 'Robustness', min: 0, max: 1, step: 0.01 },
+    { key: 'concentrationTopN', label: 'Concentration top N', kind: 'number', group: 'Robustness', min: 1, max: 100 },
+    { key: 'concentrationThreshold', label: 'Concentration threshold', kind: 'number', group: 'Robustness', min: 0, max: 1, step: 0.01 },
+    { key: 'minTrades', label: 'Minimum trades', kind: 'number', group: 'Robustness', min: 1, max: 10_000 },
+    { key: 'splits', label: 'Regime splits', kind: 'number', group: 'Robustness', min: 1, max: 20 },
+  ],
+  'quant.trade_analysis': [
+    { key: 'maxEntries', label: 'Max analysed entries', kind: 'number', inline: true, min: 1, max: 5_000 },
+    { key: 'symbol', label: 'Symbol (blank = from series)', kind: 'text', inline: true, placeholder: 'AAPL' },
+  ],
+  'quant.multiple_testing': [
+    { key: 'periodsPerYear', label: 'Periods / year', kind: 'number', inline: true, min: 1, max: 1_000 },
+    { key: 'nSplits', label: 'CSCV splits', kind: 'number', min: 2, max: 64 },
+    { key: 'trialSharpesJson', label: 'Trial Sharpes (JSON)', kind: 'text', placeholder: '[1.2, 0.8, …]' },
+    { key: 'returnsMatrixJson', label: 'Returns matrix (JSON)', kind: 'text', placeholder: '[[…], […]]' },
+  ],
+  'quant.align': [
+    { key: 'join', label: 'Join', kind: 'select', inline: true, options: opts('inner', 'outer') },
+    { key: 'column', label: 'Column', kind: 'text', inline: true, placeholder: 'close' },
+    { key: 'fill', label: 'Fill', kind: 'select', inline: true, options: opts('none', 'ffill', 'zero') },
+  ],
+  'quant.regime': [
+    { key: 'fast', label: 'Fast trend window', kind: 'number', inline: true, min: 1, max: 500 },
+    { key: 'slow', label: 'Slow trend window', kind: 'number', inline: true, min: 2, max: 500 },
+    { key: 'atrPeriod', label: 'ATR period', kind: 'number', min: 1, max: 500 },
+    { key: 'volPeriod', label: 'Volatility window', kind: 'number', min: 1, max: 500 },
+    { key: 'volBaseline', label: 'Volatility baseline', kind: 'number', min: 1, max: 2_000 },
+    { key: 'trendThreshold', label: 'Trend threshold (ATR)', kind: 'number', min: 0, max: 10, step: 0.1 },
+    { key: 'highVolRatio', label: 'High-vol ratio', kind: 'number', min: 1, max: 10, step: 0.1 },
+    { key: 'lowVolRatio', label: 'Low-vol ratio', kind: 'number', min: 0.01, max: 1, step: 0.01 },
+  ],
+  'quant.position_size': [
+    { key: 'method', label: 'Method', kind: 'select', inline: true, options: opts(
+      'fixed_quantity', 'fixed_dollar', 'percent_equity', 'percent_risk', 'atr',
+      'volatility', 'kelly', 'fractional_kelly', 'risk_parity', 'equal_weight',
+    ) },
+    { key: 'value', label: 'Method value', kind: 'number', inline: true },
+    { key: 'equity', label: 'Equity', kind: 'number', inline: true, min: 0 },
+    { key: 'atrMultiplier', label: 'ATR multiplier', kind: 'number', min: 0.1, max: 20, step: 0.1 },
+    { key: 'maxFraction', label: 'Max equity fraction', kind: 'number', min: 0, max: 10, step: 0.05 },
+    { key: 'kellyFraction', label: 'Kelly fraction', kind: 'number', min: 0, max: 1, step: 0.05 },
+    { key: 'winRate', label: 'Win rate', kind: 'number', min: 0, max: 1, step: 0.01 },
+    { key: 'payoff', label: 'Win/loss payoff', kind: 'number', min: 0.1, max: 100, step: 0.1 },
+    { key: 'realizedVol', label: 'Realized volatility', kind: 'number', min: 0, max: 10, step: 0.01 },
+    { key: 'weight', label: 'Target weight', kind: 'number', min: 0, max: 1, step: 0.01 },
+    { key: 'minQuantity', label: 'Venue minimum', kind: 'number', min: 0 },
+    { key: 'lotSize', label: 'Lot size', kind: 'number', min: 0 },
+    { key: 'quantityPrecision', label: 'Quantity precision', kind: 'number', min: 0, max: 12 },
+    { key: 'contractMultiplier', label: 'Contract multiplier', kind: 'number', min: 0.0001, max: 10_000 },
+  ],
+  'quant.portfolio_backtest': [
+    // A portfolio has no single `symbol` and no single `strategyJson`; those two
+    // single-series fields are dropped from the shared presentation blocks.
+    ...quantInstrument.filter((field) => field.key !== 'symbol'),
+    ...quantStrategy.filter((field) => field.key !== 'strategyJson'),
+    ...quantRisk,
+    ...pickQuantAdvanced('randomSeed', 'maxBars', 'includeSeries'),
+    { key: 'strategiesJson', label: 'Strategies (JSON array)', kind: 'json', group: 'Strategy', help: 'One StrategySpec per strategy; each must declare universe.symbols. Empty = the preset on every symbol.' },
+  ],
+  'quant.costs': [
+    { key: 'kind', label: 'Cost family', kind: 'select', inline: true, options: opts('transaction', 'slippage', 'spread', 'impact') },
+    { key: 'executionJson', label: 'Execution model (JSON)', kind: 'json', help: 'The engine’s execution block: commission, slippage, spread, marketImpact.' },
+    { key: 'randomSeed', label: 'Random seed', kind: 'number' },
+  ],
+  'quant.edge_report': [],
+  'quant.options_strategy': [
+    { key: 'spotMin', label: 'Payoff range min', kind: 'number', inline: true, min: 0 },
+    { key: 'spotMax', label: 'Payoff range max', kind: 'number', inline: true, min: 0 },
+    { key: 'points', label: 'Payoff points', kind: 'number', inline: true, min: 3, max: 2_001 },
+    { key: 'riskFree', label: 'Risk-free rate', kind: 'number', min: -0.5, max: 0.5, step: 0.001 },
+  ],
+  'quant.futures_continuous': [
+    { key: 'rollDatesJson', label: 'Roll dates (JSON)', kind: 'json', inline: true, placeholder: '["2024-03-15"]' },
+    { key: 'adjustment', label: 'Adjustment', kind: 'select', inline: true, options: opts('none', 'difference', 'ratio') },
+    { key: 'symbol', label: 'Series symbol', kind: 'text', inline: true, placeholder: 'CONTINUOUS' },
+    { key: 'interval', label: 'Interval', kind: 'select', options: opts(...QUANT_INTERVALS) },
   ],
   'video.render': [
     { key: 'title', label: 'Title', kind: 'text', inline: true },
@@ -582,7 +857,7 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'evidenceIds', label: 'Evidence ids', kind: 'json' },
   ],
   'trading.risk_check': [
-    { key: 'equity', label: 'Equity', kind: 'number', inline: true, min: 1 },
+    { key: 'equity', label: 'Equity', kind: 'number', inline: true, min: 1, help: 'Used only when no `equity`/`account` input is wired.' },
     { key: 'price', label: 'Price', kind: 'number', min: 0 },
     { key: 'maxPositionPct', label: 'Max position %', kind: 'number', min: 0, max: 100 },
     { key: 'maxLeverage', label: 'Max leverage', kind: 'number', min: 0, max: 100 },
@@ -619,7 +894,12 @@ const cache = new WeakMap<NodeDefinition, ConfigFieldDef[]>();
 
 function buildFields(def: NodeDefinition): ConfigFieldDef[] {
   const defaults = def.defaultConfig();
-  const overrides = new Map((FIELD_OVERRIDES[def.type] ?? []).map((field) => [field.key, field]));
+  // A type-level override applies to every version; a `type@version` entry
+  // refines it for one version (an older saved node never grows a new field).
+  const exact = FIELD_OVERRIDES[`${def.type}@${def.version}`] ?? [];
+  const overrides = new Map(
+    [...(FIELD_OVERRIDES[def.type] ?? []), ...exact].map((field) => [field.key, field]),
+  );
   const keys = [...Object.keys(defaults)];
   for (const key of overrides.keys()) {
     if (!keys.includes(key)) keys.push(key);

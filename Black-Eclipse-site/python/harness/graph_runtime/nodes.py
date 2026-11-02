@@ -18,13 +18,11 @@ import math
 import os
 import re
 import time
-import urllib.error
-import urllib.request
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from datetime import date, datetime, timezone
 from typing import Any, Callable, Optional
-from urllib.parse import urlparse
 
+from . import http_client
 from .agent_nodes import build_agent_nodes
 from .dataset_nodes import build_dataset_nodes
 from .finance_nodes import build_finance_nodes
@@ -74,6 +72,39 @@ def _exec_trigger(context: NodeExecContext) -> dict[str, Any]:
 
     seed = context.config.get("seed") or ""
     return {"start": seed if seed != "" else None}
+
+
+def _exec_webhook_trigger(context: NodeExecContext) -> dict[str, Any]:
+    """Emit a verified inbound webhook.
+
+    The front door has already authenticated the request and verified the
+    signature/replay window; the runtime only receives the bounded context. The
+    body is also `start`, so a webhook workflow reads it exactly like a manual
+    trigger's run input.
+    """
+    ctx = context.trigger_context or {}
+    body = ctx.get("body")
+    if body is None:
+        body = context.run_input
+    # A trigger that is executed without an inbound context (the editor's
+    # single-node test, or a manual run that contains this node) still has to
+    # satisfy the declared datetime port. The receive time is the only sensible
+    # value; the real webhook path always supplies the front door's timestamp.
+    received_at = str(ctx.get("receivedAt") or "").strip()
+    if not received_at:
+        received_at = datetime.now(timezone.utc).isoformat()
+    return {
+        "start": body,
+        "headers": ctx.get("headers") or {},
+        "query": ctx.get("query") or {},
+        "method": str(ctx.get("method") or "POST"),
+        "receivedAt": received_at,
+        "meta": {
+            "webhookId": str(ctx.get("webhookId") or ""),
+            "deliveryId": str(ctx.get("deliveryId") or ""),
+            "signatureVerified": bool(ctx.get("signatureVerified", False)),
+        },
+    }
 
 
 def coerce_value(raw: Any, data_type: str) -> Any:
@@ -513,174 +544,129 @@ def _exec_gate(context: NodeExecContext) -> dict[str, Any]:
 # ── Definitions ──────────────────────────────────────────────────────────────
 
 
-MAX_HTTP_RESPONSE_BYTES = 1_000_000
-MAX_HTTP_HEADERS = 20
-
-_HEADER_NAME = re.compile(r"^[A-Za-z0-9-]{1,64}$")
-_FORBIDDEN_HEADERS = frozenset({
-    "host", "content-length", "transfer-encoding", "connection", "upgrade",
-})
-# Secrets have no safe place in a graph's config/run record yet; a credential
-# REFERENCE is not implemented, so these names are refused rather than stored.
-_SENSITIVE_HEADERS = frozenset({
-    "authorization", "proxy-authorization", "cookie", "set-cookie",
-    "x-api-key", "api-key", "x-auth-token", "x-access-token",
-})
+MAX_HTTP_RESPONSE_BYTES = http_client.MAX_RESPONSE_BYTES
+MAX_HTTP_HEADERS = http_client.MAX_HEADERS
 
 
-def _custom_headers(raw: str) -> dict[str, str]:
-    text = str(raw or "").strip()
-    if not text:
-        return {}
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"headersJson is not valid JSON: {exc}") from exc
-    if not isinstance(parsed, dict):
-        raise ValueError("headersJson must be a JSON object")
-    if len(parsed) > MAX_HTTP_HEADERS:
-        raise ValueError(f"headersJson is bounded to {MAX_HTTP_HEADERS} headers")
-    out: dict[str, str] = {}
-    for name, value in parsed.items():
-        header = str(name).strip()
-        if not _HEADER_NAME.match(header):
-            raise ValueError(f"invalid header name {header!r}")
-        lowered = header.lower()
-        if lowered in _FORBIDDEN_HEADERS:
-            raise ValueError(f"header {header!r} is managed by the transport")
-        if lowered in _SENSITIVE_HEADERS:
-            raise ValueError(
-                f"header {header!r} is refused: credentials and cookies are not "
-                "accepted by a graph HTTP node yet"
-            )
-        if not isinstance(value, str):
-            raise ValueError(f"header {header!r} must be a string")
-        if len(value) > 1_000 or "\r" in value or "\n" in value:
-            raise ValueError(f"header {header!r} has an invalid value")
-        out[header] = value
-    return out
-
-
-_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
-
-
-def _credential_headers(raw: str) -> dict[str, str]:
-    """Resolve `header -> ENV_VAR` references from THIS runtime's environment.
-
-    The config carries only the variable NAME. Values are never logged, stored
-    in a run record, or returned in an error.
-    """
-    text = str(raw or "").strip()
-    if not text:
-        return {}
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"credentialEnvJson is not valid JSON: {exc}") from exc
-    if not isinstance(parsed, dict):
-        raise ValueError("credentialEnvJson must be a JSON object")
-    if len(parsed) > 10:
-        raise ValueError("credentialEnvJson is bounded to 10 headers")
-    out: dict[str, str] = {}
-    for name, variable in parsed.items():
-        header = str(name).strip()
-        if not _HEADER_NAME.match(header):
-            raise ValueError(f"invalid credential header name {header!r}")
-        if header.lower() in _FORBIDDEN_HEADERS:
-            raise ValueError(f"header {header!r} is managed by the transport")
-        env_name = str(variable or "").strip()
-        if not _ENV_NAME.match(env_name):
-            raise ValueError(f"credentialEnvJson for {header!r} must name an environment variable")
-        value = os.environ.get(env_name)
-        if not value:
-            raise ValueError(
-                f"credential variable {env_name} for header {header!r} is not set in the runtime environment"
-            )
-        if len(value) > 4_000 or "\r" in value or "\n" in value:
-            raise ValueError(f"credential variable {env_name} has an invalid value")
-        out[header] = value
-    return out
+def _legacy_http_body(result: http_client.HttpResult) -> Any:
+    """`1.0.0` wrapped non-JSON text as `{text, contentType}`. Keep that exact
+    shape for saved graphs; `1.1.0` emits the parsed value directly."""
+    if isinstance(result.body, (dict, list)) or result.body is None:
+        return result.body
+    return {"text": result.body, "contentType": result.content_type}
 
 
 def _exec_http(context: NodeExecContext) -> dict[str, Any]:
     """A bounded, SSRF-checked HTTP call.
 
     The permission envelope already gates this node behind an explicit network
-    grant. The executor adds the second layer: HTTPS/HTTP only, no loopback,
-    no embedded credentials, a hard timeout and a response size cap.
+    grant. `http_client` adds the second layer: a check on the URL and on every
+    redirect hop, no loopback, no embedded credentials, retries, a hard timeout
+    and a response size cap.
     """
-    from ..mcp.ssrf import check_outbound_url  # noqa: PLC0415
+    config = context.config
+    method = str(config.get("method") or "GET").strip().upper()
+    result = http_client.request(
+        url=str(context.inputs.get("url") or config.get("url") or ""),
+        method=method,
+        query_json=str(config.get("queryJson") or ""),
+        headers_json=str(config.get("headersJson") or ""),
+        credential_env_json=str(config.get("credentialEnvJson") or ""),
+        payload=context.inputs.get("body"),
+        body_json=str(config.get("bodyJson") or ""),
+        body_mode=str(config.get("bodyMode") or "json"),
+        response_type=str(config.get("responseType") or "auto"),
+        max_response_bytes=int(config.get("maxResponseBytes") or MAX_HTTP_RESPONSE_BYTES),
+        on_oversize=str(config.get("onOversize") or "error"),
+        follow_redirects=bool(config.get("followRedirects", False)),
+        max_redirects=int(config.get("maxRedirects", 3)),
+        # `1.0.0` treated every HTTP status as a successful node result.
+        fail_on_http_error=bool(config.get("failOnHttpError", False)),
+        retries=int(config.get("retries") or 0),
+        retry_backoff_ms=int(config.get("retryBackoffMs") or 500),
+        retry_unsafe=bool(config.get("retryUnsafe", False)),
+        timeout_ms=int(config.get("timeoutMs") or 10_000),
+    )
+    context.emit(
+        f"{method} {http_client.redact_url(result.url)} -> {result.status} "
+        f"({result.duration_ms} ms)"
+    )
+    if context.node_version in ("", "1.0.0"):
+        return {"status": result.status, "body": _legacy_http_body(result)}
+    return {
+        "status": result.status,
+        "body": result.body,
+        "headers": result.headers,
+        "ok": result.ok,
+        "contentType": result.content_type,
+        "durationMs": result.duration_ms,
+        "truncated": result.truncated,
+    }
 
-    url = str(context.config.get("url") or "").strip()
-    if not url:
-        raise ValueError("url is required")
-    safe, reason = check_outbound_url(url)
-    if not safe:
-        raise ValueError(f"blocked URL: {reason}")
-    host = (urlparse(url).hostname or "").lower()
-    if host in ("localhost", "127.0.0.1", "::1", "[::1]"):
-        raise ValueError("loopback URLs are not allowed from a graph HTTP node")
 
-    method = str(context.config.get("method") or "GET").upper()
-    if method not in ("GET", "POST", "PUT", "PATCH", "DELETE"):
-        raise ValueError(f"unsupported HTTP method {method!r}")
-    try:
-        timeout_ms = int(context.config.get("timeoutMs", 10_000))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("timeoutMs must be a whole number") from exc
-    timeout_s = max(1.0, min(timeout_ms, 60_000) / 1000.0)
+def _exec_webhook_send(context: NodeExecContext) -> dict[str, Any]:
+    """POST a JSON payload signed with an HMAC-SHA256 webhook signature.
 
+    The secret is an ENV VAR NAME in the config; the value is read here and
+    never stored in the graph, the run record or an error.
+    """
+    import uuid  # noqa: PLC0415 - effectful node, keeps the core imports pure
+
+    config = context.config
+    secret_env = str(config.get("secretEnv") or "").strip()
+    if not secret_env:
+        raise ValueError("secretEnv is required")
+    secret = os.environ.get(secret_env)
+    if not secret:
+        raise ValueError(f"secret variable {secret_env} is not set in the runtime environment")
     payload = context.inputs.get("body")
     if payload is None:
-        raw_body = str(context.config.get("bodyJson") or "").strip()
-        if raw_body:
+        raw = str(config.get("bodyJson") or "").strip()
+        if raw:
             try:
-                payload = json.loads(raw_body)
+                payload = json.loads(raw)
             except json.JSONDecodeError as exc:
                 raise ValueError(f"bodyJson is not valid JSON: {exc}") from exc
-    data = None
-    headers = {"Accept": "application/json, text/plain;q=0.9, */*;q=0.8"}
-    plain = _custom_headers(str(context.config.get("headersJson") or ""))
-    credentials = _credential_headers(str(context.config.get("credentialEnvJson") or ""))
-    overlap = {name.lower() for name in plain} & {name.lower() for name in credentials}
-    if overlap:
-        raise ValueError(
-            "a header cannot be set by both headersJson and credentialEnvJson: "
-            + ", ".join(sorted(overlap))
-        )
-    headers.update(plain)
-    headers.update(credentials)
-    if payload is not None and method in ("POST", "PUT", "PATCH", "DELETE"):
-        data = json.dumps(payload, sort_keys=True).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-
-    request = urllib.request.Request(url, data=data, method=method, headers=headers)
+    if payload is None:
+        payload = {}
     try:
-        with urllib.request.urlopen(request, timeout=timeout_s) as response:
-            status = int(getattr(response, "status", 200))
-            raw = response.read(MAX_HTTP_RESPONSE_BYTES + 1)
-            content_type = response.headers.get_content_type() if response.headers else ""
-    except urllib.error.HTTPError as exc:
-        status = int(exc.code)
-        raw = exc.read(MAX_HTTP_RESPONSE_BYTES + 1)
-        content_type = exc.headers.get_content_type() if exc.headers else ""
-    except urllib.error.URLError as exc:
-        raise ValueError(f"network error: {exc.reason}") from exc
-    except TimeoutError as exc:
-        raise ValueError(f"HTTP request timed out after {timeout_ms} ms") from exc
-
-    if len(raw) > MAX_HTTP_RESPONSE_BYTES:
-        raise ValueError(f"response exceeds {MAX_HTTP_RESPONSE_BYTES} bytes")
-    text = raw.decode("utf-8", errors="replace")
-    if "json" in content_type or text.lstrip().startswith(("{", "[")):
-        try:
-            body: Any = json.loads(text) if text.strip() else None
-        except json.JSONDecodeError:
-            body = {"text": text, "contentType": content_type}
-    else:
-        body = {"text": text, "contentType": content_type}
-    context.emit(f"{method} {url} → {status}")
-    return {"status": status, "body": body}
+        body_bytes = json.dumps(payload, sort_keys=True).encode("utf-8")
+        plain = http_client.plain_headers(str(config.get("headersJson") or ""))
+    except http_client.HttpRequestError as exc:
+        raise ValueError(str(exc)) from exc
+    if len(body_bytes) > http_client.MAX_REQUEST_BYTES:
+        raise ValueError(f"request body exceeds {http_client.MAX_REQUEST_BYTES} bytes")
+    timestamp = str(int(time.time()))
+    delivery = str(config.get("deliveryId") or uuid.uuid4())
+    signed = dict(plain)
+    signed["X-Eclipse-Signature"] = http_client.sign_webhook(secret, timestamp, body_bytes)
+    signed["X-Eclipse-Timestamp"] = timestamp
+    signed["X-Eclipse-Delivery"] = delivery
+    result = http_client.request(
+        url=str(context.inputs.get("url") or config.get("url") or ""),
+        method="POST",
+        headers_json=json.dumps(signed),
+        payload=payload,
+        body_mode="json",
+        response_type="auto",
+        max_response_bytes=int(config.get("maxResponseBytes") or MAX_HTTP_RESPONSE_BYTES),
+        on_oversize="truncate",
+        follow_redirects=False,
+        fail_on_http_error=bool(config.get("failOnHttpError", True)),
+        retries=int(config.get("retries") or 0),
+        retry_backoff_ms=int(config.get("retryBackoffMs") or 500),
+        retry_unsafe=True,
+        timeout_ms=int(config.get("timeoutMs") or 10_000),
+    )
+    context.emit(
+        f"webhook {delivery} -> {http_client.redact_url(result.url)} {result.status}"
+    )
+    return {
+        "status": result.status,
+        "ok": result.ok,
+        "body": result.body,
+        "durationMs": result.duration_ms,
+    }
 
 
 def _port(port_id: str, name: str, port_type: PortType, **kwargs: Any) -> PortDef:
@@ -710,6 +696,24 @@ def build_default_registry() -> NodeRegistry:
         config_fields=(),
         capabilities=("schedule.manage",),
         allowed_modes=_ALL, timeout_ms=5_000, executor=_exec_trigger,
+    ))
+    registry.register(NodeDef(
+        type="trigger.webhook", version="1.0.0", label="Webhook",
+        category="trigger",
+        outputs=(
+            _port("start", "Start", PortType.ANY),
+            _port("headers", "Headers", PortType.OBJECT),
+            _port("query", "Query", PortType.OBJECT),
+            _port("method", "Method", PortType.STRING),
+            _port("receivedAt", "Received at", PortType.DATETIME),
+            _port("meta", "Meta", PortType.OBJECT),
+        ),
+        # Zero-config at the node: the WorkflowWebhook linked by nodeId owns the
+        # endpoint, secret, method filter, response mode and armed grants.
+        config_fields=(),
+        capabilities=("webhook.receive",),
+        allowed_modes=_ALL, timeout_ms=5_000, executor=_exec_webhook_trigger,
+        metadata={"docs": "Inbound HTTP webhook verified by the front door (HMAC + timestamp or token)."},
     ))
     registry.register(NodeDef(
         type="data.value", version="1.0.0", label="Constant / input",
@@ -1014,7 +1018,7 @@ def build_default_registry() -> NodeRegistry:
         ),
         config_fields=(
             ConfigField("url", "string", "", max_length=2_000),
-            ConfigField("method", "enum", "GET", enum=("GET", "POST", "PUT", "PATCH", "DELETE")),
+            ConfigField("method", "enum", "GET", enum=("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")),
             ConfigField("bodyJson", "string", "", max_length=20_000),
             ConfigField("headersJson", "string", "", max_length=10_000),
             ConfigField("credentialEnvJson", "string", "", max_length=10_000),
@@ -1025,6 +1029,78 @@ def build_default_registry() -> NodeRegistry:
         allowed_modes=_ALL,
         executor=_exec_http,
         metadata={"docs": "SSRF-checked, no loopback, bounded response; requires an explicit network grant."},
+    ))
+    registry.register(NodeDef(
+        type="integration.http", version="1.1.0", label="HTTP request",
+        category="integration",
+        inputs=(
+            _port("url", "URL", PortType.STRING, optional=True),
+            _port("body", "Body", PortType.ANY, optional=True),
+        ),
+        outputs=(
+            _port("status", "Status", PortType.NUMBER),
+            _port("body", "Body", PortType.ANY),
+            _port("headers", "Headers", PortType.OBJECT),
+            _port("ok", "OK", PortType.BOOLEAN),
+            _port("contentType", "Content type", PortType.STRING),
+            _port("durationMs", "Duration", PortType.NUMBER),
+            _port("truncated", "Truncated", PortType.BOOLEAN),
+        ),
+        config_fields=(
+            ConfigField("url", "string", "", max_length=2_000),
+            ConfigField("method", "enum", "GET", enum=("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")),
+            ConfigField("queryJson", "string", "", max_length=8_000),
+            ConfigField("bodyJson", "string", "", max_length=20_000),
+            ConfigField("bodyMode", "enum", "json", enum=("json", "text", "form")),
+            ConfigField("headersJson", "string", "", max_length=10_000),
+            ConfigField("credentialEnvJson", "string", "", max_length=10_000),
+            ConfigField("responseType", "enum", "auto", enum=("auto", "json", "text")),
+            ConfigField("maxResponseBytes", "integer", 1_000_000, minimum=1_000, maximum=10_000_000),
+            ConfigField("onOversize", "enum", "error", enum=("error", "truncate")),
+            ConfigField("followRedirects", "boolean", False),
+            ConfigField("maxRedirects", "integer", 3, minimum=0, maximum=5),
+            ConfigField("failOnHttpError", "boolean", True),
+            ConfigField("retries", "integer", 0, minimum=0, maximum=3),
+            ConfigField("retryBackoffMs", "integer", 500, minimum=100, maximum=10_000),
+            ConfigField("retryUnsafe", "boolean", False),
+            ConfigField("timeoutMs", "integer", 10_000, minimum=1_000, maximum=60_000),
+        ),
+        capabilities=("network.egress",),
+        side_effects=SideEffect.NETWORK,
+        allowed_modes=_ALL,
+        executor=_exec_http,
+        metadata={"docs": "SSRF-checked on every redirect hop; retries, query/body modes, headers and bounded response. Requires an explicit network grant."},
+    ))
+    registry.register(NodeDef(
+        type="integration.webhook_send", version="1.0.0", label="Send webhook",
+        category="integration",
+        inputs=(
+            _port("url", "URL", PortType.STRING, optional=True),
+            _port("body", "Body", PortType.ANY, optional=True),
+        ),
+        outputs=(
+            _port("status", "Status", PortType.NUMBER),
+            _port("ok", "OK", PortType.BOOLEAN),
+            _port("body", "Body", PortType.ANY),
+            _port("durationMs", "Duration", PortType.NUMBER),
+        ),
+        config_fields=(
+            ConfigField("url", "string", "", max_length=2_000),
+            ConfigField("bodyJson", "string", "", max_length=20_000),
+            ConfigField("secretEnv", "string", "", max_length=128),
+            ConfigField("headersJson", "string", "", max_length=10_000),
+            ConfigField("deliveryId", "string", "", max_length=200),
+            ConfigField("failOnHttpError", "boolean", True),
+            ConfigField("retries", "integer", 0, minimum=0, maximum=3),
+            ConfigField("retryBackoffMs", "integer", 500, minimum=100, maximum=10_000),
+            ConfigField("maxResponseBytes", "integer", 1_000_000, minimum=1_000, maximum=10_000_000),
+            ConfigField("timeoutMs", "integer", 10_000, minimum=1_000, maximum=60_000),
+        ),
+        capabilities=("network.egress",),
+        side_effects=SideEffect.NETWORK,
+        allowed_modes=_ALL,
+        executor=_exec_webhook_send,
+        metadata={"docs": "Signed outbound webhook (X-Eclipse-Signature/Timestamp/Delivery); the secret is an env-var reference."},
     ))
     # Local dataset refs (large-payload seam). The store is bound at boot.
     for definition in build_dataset_nodes():
@@ -1037,8 +1113,40 @@ def build_default_registry() -> NodeRegistry:
     # same contracts are mirrored in the TS registry.
     for definition in build_finance_nodes():
         registry.register(definition)
+    # The remaining gateway READ capabilities (order book, options, FX, bonds,
+    # crypto metrics). Same gateway, same provenance, same honest failure.
+    from .market_read_nodes import build_market_read_nodes  # noqa: PLC0415
+
+    for definition in build_market_read_nodes():
+        registry.register(definition)
     # Quant research nodes reuse the tested engine; no backtest math here.
     for definition in build_quant_nodes():
+        registry.register(definition)
+    # Pure risk/return metrics over an indicator series (no engine, no state).
+    from .quant_metrics_nodes import build_quant_metric_nodes  # noqa: PLC0415
+
+    for definition in build_quant_metric_nodes():
+        registry.register(definition)
+    # Validation over what the research nodes measured: the edge verdict, a
+    # benchmark comparison and a timeframe aggregation. Adapters only.
+    from .quant_validation_nodes import build_quant_validation_nodes  # noqa: PLC0415
+
+    for definition in build_quant_validation_nodes():
+        registry.register(definition)
+    # Structure: multi-instrument alignment, regime labels and position sizing.
+    from .quant_structure_nodes import build_quant_structure_nodes  # noqa: PLC0415
+
+    for definition in build_quant_structure_nodes():
+        registry.register(definition)
+    # Portfolio accounting: several strategies on one book, one engine.
+    from .quant_portfolio_nodes import build_quant_portfolio_nodes  # noqa: PLC0415
+
+    for definition in build_quant_portfolio_nodes():
+        registry.register(definition)
+    # Instrument-specific: multi-leg options and continuous futures.
+    from .quant_instruments_nodes import build_quant_instrument_nodes  # noqa: PLC0415
+
+    for definition in build_quant_instrument_nodes():
         registry.register(definition)
     # Local research/evidence reads over the existing EvidenceStore.
     for definition in build_research_nodes():

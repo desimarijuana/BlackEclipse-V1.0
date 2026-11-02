@@ -64,6 +64,13 @@ class NodeExecContext:
     # The caller-supplied input for this run. A subworkflow receives its
     # parent node's input here; a top-level run normally leaves it None.
     run_input: Any = None
+    # The node contract version being executed. Used only to keep an older
+    # version's output shape stable while a newer version adds outputs.
+    node_version: str = ""
+    # Bounded context for an inbound trigger (a verified webhook: body,
+    # headers, query, method, receivedAt, webhookId, deliveryId). Authenticated
+    # by the front door; never contains a secret or a signature.
+    trigger_context: Optional[dict[str, Any]] = None
     # Model credentials are resolved by the front door and held IN MEMORY for
     # this run only. They are deliberately excluded from the durable Fabric job
     # payload, so a restart makes agent nodes fail honestly rather than persist a

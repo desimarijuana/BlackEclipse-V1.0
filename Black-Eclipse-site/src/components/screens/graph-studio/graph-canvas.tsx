@@ -35,12 +35,16 @@ import { getNodeDefinition } from '@/lib/graph-studio/registry';
 import { fieldsFor, inlineFieldsFor } from '@/lib/graph-studio/config-fields';
 import { unwiredRequiredInputs, visiblePorts } from '@/lib/graph-studio/node-ports';
 import {
-  canTestNode, missingRequiredInputs, type NodeTestUiState,
+  canTestNode, canTestNodeWithNetwork, missingRequiredInputs, type NodeTestUiState,
 } from '@/lib/graph-studio/node-test-ui';
 import {
   listSchedules, SCHEDULES_CHANGED_EVENT, type WorkflowSchedule,
 } from '@/lib/graph-studio/schedule-client';
 import type { ScheduleNodeSummary } from '@/lib/graph-studio/schedule-summary';
+import {
+  listWebhooks, WEBHOOKS_CHANGED_EVENT, type WorkflowWebhook,
+} from '@/lib/graph-studio/webhook-client';
+import type { WebhookNodeSummary } from '@/lib/graph-studio/webhook-summary';
 import { canConnect } from '@/lib/graph-studio/patches';
 import { buildDuplicateNodes, buildClipboard } from '@/lib/graph-studio/edit-ops';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
@@ -140,6 +144,14 @@ function sameNodeData(a: EclipseNodeData, b: EclipseNodeData): boolean {
     && a.schedule?.timezone === b.schedule?.timezone
     && a.schedule?.nextRunAt === b.schedule?.nextRunAt
     && a.schedule?.lastStatus === b.schedule?.lastStatus
+    && a.webhook?.id === b.webhook?.id
+    && a.webhook?.enabled === b.webhook?.enabled
+    && a.webhook?.mode === b.webhook?.mode
+    && a.webhook?.version === b.webhook?.version
+    && a.webhook?.endpoint === b.webhook?.endpoint
+    && a.webhook?.lastStatus === b.webhook?.lastStatus
+    && a.webhook?.lastReceivedAt === b.webhook?.lastReceivedAt
+    && a.webhook?.lastError === b.webhook?.lastError
     && a.extraFields === b.extraFields
     && a.expanded === b.expanded
     && a.accent === b.accent
@@ -160,6 +172,7 @@ function buildNodes(
   testStates: Record<string, NodeTestUiState>,
   expandedNodes: Record<string, boolean>,
   schedules: WorkflowSchedule[],
+  webhooks: WorkflowWebhook[],
   prev: Node<EclipseNodeData>[],
   callbacks: NodeCallbacks,
 ): Node<EclipseNodeData>[] {
@@ -180,6 +193,11 @@ function buildNodes(
     schedules
       .filter((schedule) => schedule.nodeId)
       .map((schedule) => [schedule.nodeId as string, schedule]),
+  );
+  const webhookByNode = new Map<string, WorkflowWebhook>(
+    webhooks
+      .filter((webhook) => webhook.nodeId)
+      .map((webhook) => [webhook.nodeId as string, webhook]),
   );
   return ir.nodes.map((node) => {
     const def = getNodeDefinition(node.type, node.version);
@@ -214,6 +232,19 @@ function buildNodes(
           catchUp: linkedSchedule.catchUp,
         }
       : undefined;
+    const linkedWebhook = node.type === 'trigger.webhook' ? webhookByNode.get(node.id) : undefined;
+    const webhook: WebhookNodeSummary | undefined = linkedWebhook
+      ? {
+          id: linkedWebhook.id,
+          enabled: linkedWebhook.enabled,
+          mode: linkedWebhook.mode,
+          version: linkedWebhook.version,
+          endpoint: linkedWebhook.endpoint,
+          lastStatus: linkedWebhook.lastStatus,
+          lastReceivedAt: linkedWebhook.lastReceivedAt,
+          lastError: linkedWebhook.lastError,
+        }
+      : undefined;
     const data: EclipseNodeData = {
       label: node.label ?? def?.label ?? node.type,
       type: node.type,
@@ -234,8 +265,9 @@ function buildNodes(
       warningCount: count.warning,
       runStatus: statuses.get(node.id),
       testState: testStates[node.id],
-      testable: def ? canTestNode(def) : false,
+      testable: def ? canTestNode(def) || canTestNodeWithNetwork(def) : false,
       schedule,
+      webhook,
       accent: 'var(--primary)',
       ...callbacks,
     };
@@ -464,6 +496,7 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
   const [testStates, setTestStates] = useState<Record<string, NodeTestUiState>>({});
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   const [schedules, setSchedules] = useState<WorkflowSchedule[]>([]);
+  const [webhooks, setWebhooks] = useState<WorkflowWebhook[]>([]);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const pointerRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const nodesRef = useRef(nodes);
@@ -489,6 +522,29 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
     return () => {
       live = false;
       window.removeEventListener(SCHEDULES_CHANGED_EVENT, load);
+      window.clearInterval(timer);
+    };
+  }, [workflowId]);
+
+  // Webhook nodes show their endpoint/arm state on the card. Refresh on workflow
+  // change and after any webhook mutation (the public route writes last status).
+  useEffect(() => {
+    if (!workflowId) {
+      setWebhooks([]);
+      return;
+    }
+    let live = true;
+    const load = () => {
+      void listWebhooks(workflowId)
+        .then((items) => { if (live) setWebhooks(items); })
+        .catch(() => {});
+    };
+    load();
+    window.addEventListener(WEBHOOKS_CHANGED_EVENT, load);
+    const timer = window.setInterval(load, 60_000);
+    return () => {
+      live = false;
+      window.removeEventListener(WEBHOOKS_CHANGED_EVENT, load);
       window.clearInterval(timer);
     };
   }, [workflowId]);
@@ -542,12 +598,20 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
     const definition = getNodeDefinition(node.type, node.version);
     if (!definition) return;
 
-    if (!canTestNode(definition)) {
+    const networkTest = definition.sideEffects === 'network';
+    if (!canTestNode(definition) && !canTestNodeWithNetwork(definition)) {
       setTestStates((prev) => ({
         ...prev,
         [nodeId]: { status: 'failed', error: 'This node has side effects; test it with an authorized run.' },
       }));
       return;
+    }
+    if (networkTest) {
+      const target = String(node.config.url ?? '').trim() || '(the configured URL)';
+      const confirmed = window.confirm(
+        `This test makes a real network request to:\n\n${target}\n\nOnly this single node runs. Continue?`,
+      );
+      if (!confirmed) return;
     }
 
     // A node test reuses the last run's inputs for this node. Ports with no
@@ -568,6 +632,7 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
         config: node.config,
         inputs,
         mode: state.ir?.settings.executionMode ?? 'research',
+        allowNetwork: networkTest,
       });
       setTestStates((prev) => ({
         ...prev,
@@ -619,9 +684,9 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
       setEdges([]);
       return;
     }
-    setNodes((prev) => buildNodes(ir, diagnostics, run, testStates, expandedNodes, schedules, prev, nodeCallbacks));
+    setNodes((prev) => buildNodes(ir, diagnostics, run, testStates, expandedNodes, schedules, webhooks, prev, nodeCallbacks));
     setEdges((prev) => buildEdges(ir, run, edgeCallbacks, prev));
-  }, [ir, diagnostics, run, testStates, expandedNodes, schedules, nodeCallbacks, edgeCallbacks]);
+  }, [ir, diagnostics, run, testStates, expandedNodes, schedules, webhooks, nodeCallbacks, edgeCallbacks]);
 
   // Programmatic selection (select-all / duplicate / paste) lands in the store.
   // React Flow owns selection during pointer interaction (and reports it back

@@ -37,8 +37,9 @@ import { ConfigField } from './config-field';
 import { PortValueEditor } from './port-value-editor';
 import { NodeTestPanel } from './node-test-panel';
 import { SchedulePanel } from './schedule-panel';
+import { WebhookPanel } from './webhook-panel';
 
-type InspectorTab = 'parameters' | 'test' | 'schedule' | 'settings' | 'output';
+type InspectorTab = 'parameters' | 'test' | 'schedule' | 'webhook' | 'settings' | 'output';
 
 function preview(value: unknown): string {
   if (value === undefined) return '—';
@@ -228,7 +229,13 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
   }, [isBrokerNode, brokerConnectionId]);
 
   useEffect(() => {
-    setTab(node?.type === 'trigger.schedule' ? 'schedule' : 'parameters');
+    setTab(
+      node?.type === 'trigger.schedule'
+        ? 'schedule'
+        : node?.type === 'trigger.webhook'
+          ? 'webhook'
+          : 'parameters',
+    );
     setJsonOpen(false);
     setJsonError(null);
     setParamQuery('');
@@ -332,6 +339,7 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
 
   const tabs: [InspectorTab, string][] = [];
   if (node.type === 'trigger.schedule') tabs.push(['schedule', 'Schedule']);
+  if (node.type === 'trigger.webhook') tabs.push(['webhook', 'Webhook']);
   tabs.push(
     ['parameters', 'Parameters'],
     ['test', 'Test'],
@@ -792,6 +800,10 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
 
         {tab === 'schedule' && (
           <SchedulePanel workflowId={currentWorkflowId} nodeId={node.id} />
+        )}
+
+        {tab === 'webhook' && (
+          <WebhookPanel workflowId={currentWorkflowId} nodeId={node.id} />
         )}
 
         {tab === 'test' && (

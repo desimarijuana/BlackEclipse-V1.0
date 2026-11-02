@@ -25,6 +25,16 @@ export function canTestNode(definition: NodeDefinition): boolean {
   return definition.sideEffects === 'none' || definition.sideEffects === 'read';
 }
 
+/**
+ * A network node may be tested only after an explicit operator confirmation.
+ * The runtime still refuses write/trading/model nodes, and the request itself
+ * is the only effect the test performs.
+ */
+export function canTestNodeWithNetwork(definition: NodeDefinition): boolean {
+  if (ORCHESTRATED.has(definition.type)) return false;
+  return definition.sideEffects === 'network';
+}
+
 export type NodeInputsResult =
   | { ok: true; value: Record<string, unknown> }
   | { ok: false; error: string };

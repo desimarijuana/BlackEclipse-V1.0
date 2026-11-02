@@ -34,6 +34,11 @@ export async function startPersistedRun(options: {
   authorization?: RunAuthorizationOptions;
   /** One-off value the trigger emits as Start (a manual run or webhook body). */
   runInput?: unknown;
+  /**
+   * Bounded, front-door-verified inbound-trigger context (webhook headers,
+   * query, method, delivery identity). Never contains a secret or signature.
+   */
+  triggerContext?: Record<string, unknown>;
   /** Kept for existing callers; a test run is the default. */
   testRun?: boolean;
 }): Promise<StartRunResult> {
@@ -126,6 +131,9 @@ export async function startPersistedRun(options: {
         subworkflows,
         // One-off trigger input for THIS run only; never persisted.
         ...(options.runInput !== undefined ? { runInput: options.runInput } : {}),
+        // Verified inbound-trigger context (webhook metadata), also never
+        // written into the workflow.
+        ...(options.triggerContext ? { triggerContext: options.triggerContext } : {}),
         // Computed from the registry + the persisted IR, never from a caller.
         ...authorized.authorization,
         ...(modelSettings ? { modelSettings } : {}),

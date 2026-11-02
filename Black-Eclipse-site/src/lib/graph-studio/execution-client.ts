@@ -240,6 +240,8 @@ export interface TestNodeOptions {
   inputs: Record<string, unknown>;
   /** The workflow's current mode; the runtime treats this as a test run. */
   mode?: string;
+  /** Explicit operator confirmation for a single network node test. */
+  allowNetwork?: boolean;
 }
 
 export interface DatasetSummary {

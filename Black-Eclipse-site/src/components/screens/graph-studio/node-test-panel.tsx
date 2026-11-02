@@ -43,12 +43,14 @@ export function NodeTestPanel({
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<NodeTestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [allowNetwork, setAllowNetwork] = useState(false);
 
   useEffect(() => {
     const literals = node.inputValues ?? {};
     setText(Object.keys(literals).length > 0 ? serialize(literals) : '{}');
     setResult(null);
     setError(null);
+    setAllowNetwork(false);
   }, [node.id, node.inputValues]);
 
   const lastInputs = nodeRun?.inputs ?? null;
@@ -58,7 +60,9 @@ export function NodeTestPanel({
   );
   const canUseLast = lastSerialized.length > 0 && lastSerialized.length <= MAX_PREFILL;
 
+  const network = definition.sideEffects === 'network';
   const safe = definition.sideEffects === 'none' || definition.sideEffects === 'read';
+  const canRun = safe || (network && allowNetwork);
   const isTrigger = definition.category === 'trigger';
 
   const currentInputs = (): { value: Record<string, unknown> } | { error: string } => {
@@ -96,6 +100,7 @@ export function NodeTestPanel({
         config: node.config,
         inputs: inputs.value,
         mode,
+        allowNetwork: network && allowNetwork,
       }));
     } catch (err) {
       setError(err instanceof GraphRunApiError ? err.message : err instanceof Error ? err.message : 'Test failed');
@@ -117,11 +122,25 @@ export function NodeTestPanel({
             would emit on a run.
           </p>
         )}
-        {!safe && (
+        {!safe && !network && (
           <p className="mt-1 text-[10px] leading-relaxed text-amber-300">
             This node has the “{definition.sideEffects}” side effect. Per-node tests only allow
-            none/read effects — test it with an authorized run.
+            none/read/confirmed-network effects — test it with an authorized run.
           </p>
+        )}
+        {network && (
+          <label className="mt-1 flex items-start gap-1.5 text-[10px] leading-relaxed text-amber-200">
+            <input
+              type="checkbox"
+              checked={allowNetwork}
+              onChange={(event) => setAllowNetwork(event.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Allow this one test to make the real network request to{' '}
+              <span className="font-mono">{String(node.config.url || '(configured url)')}</span>.
+            </span>
+          </label>
         )}
       </div>
 
@@ -173,8 +192,8 @@ export function NodeTestPanel({
       <button
         type="button"
         onClick={() => void run()}
-        disabled={running || !safe || missing.length > 0 || 'error' in parsed}
-        title={!safe ? 'Side-effect nodes need an authorized run' : 'Execute only this node'}
+        disabled={running || !canRun || missing.length > 0 || 'error' in parsed}
+        title={!canRun ? 'Confirm the network request (or use an authorized run) to test this node' : 'Execute only this node'}
         className="flex w-full items-center justify-center gap-1.5 rounded-md border border-emerald-400/30 bg-emerald-500/10 px-2 py-1.5 text-[11px] text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-40"
       >
         <Play size={11} /> {running ? 'Testing…' : 'Test node'}

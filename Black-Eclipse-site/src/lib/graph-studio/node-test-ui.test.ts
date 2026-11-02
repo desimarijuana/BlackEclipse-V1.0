@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getNodeDefinition } from './registry';
 import {
   canTestNode,
+  canTestNodeWithNetwork,
   inputsText,
   missingRequiredInputs,
   parseNodeInputs,
@@ -15,6 +16,13 @@ describe('node test UI helpers', () => {
     expect(canTestNode(getNodeDefinition('integration.http')!)).toBe(false);
     expect(canTestNode(getNodeDefinition('agent.research')!)).toBe(false);
     expect(canTestNode(getNodeDefinition('flow.subworkflow')!)).toBe(false);
+  });
+
+  it('offers network nodes only through the explicit confirmation path', () => {
+    expect(canTestNodeWithNetwork(getNodeDefinition('integration.http')!)).toBe(true);
+    expect(canTestNodeWithNetwork(getNodeDefinition('integration.webhook_send')!)).toBe(true);
+    expect(canTestNodeWithNetwork(getNodeDefinition('file.write')!)).toBe(false);
+    expect(canTestNodeWithNetwork(getNodeDefinition('trigger.manual')!)).toBe(false);
   });
 
   it('parses inputs as a JSON object', () => {

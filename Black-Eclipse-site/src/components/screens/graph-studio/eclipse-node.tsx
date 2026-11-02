@@ -18,6 +18,7 @@ import type { NodeTestUiState } from '@/lib/graph-studio/node-test-ui';
 import {
   describeSchedule, formatNextFire, type ScheduleNodeSummary,
 } from '@/lib/graph-studio/schedule-summary';
+import { webhookPathLabel, type WebhookNodeSummary } from '@/lib/graph-studio/webhook-summary';
 import { ConfigField } from './config-field';
 import { nodeIcon } from './node-icons';
 
@@ -53,6 +54,8 @@ export interface EclipseNodeData extends Record<string, unknown> {
   testable: boolean;
   /** Linked schedule for a trigger.schedule node (read-only summary). */
   schedule?: ScheduleNodeSummary;
+  /** Linked endpoint for a trigger.webhook node (read-only summary). */
+  webhook?: WebhookNodeSummary;
   /** Hue shared by the selected outline and every wire leaving this node. */
   accent: string;
   onConfigCommit?: (nodeId: string, key: string, value: unknown) => void;
@@ -215,6 +218,42 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
           ) : (
             <div className="text-[10px] text-muted-foreground">
               No schedule yet â€” open the <span className="text-foreground">Schedule</span> tab.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* A webhook node carries its endpoint and arm state on the card. */}
+      {data.type === 'trigger.webhook' && (
+        <div className="relative z-10 border-t border-black/10 px-3 py-2 dark:border-white/10">
+          {data.webhook ? (
+            <>
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span
+                  className={cn(
+                    'h-1.5 w-1.5 rounded-full',
+                    data.webhook.enabled ? 'bg-emerald-400' : 'bg-slate-500',
+                  )}
+                />
+                <span className="text-foreground">
+                  {data.webhook.enabled ? 'Active' : 'Paused'} · {data.webhook.mode === 'armed' ? 'armed' : 'safe'}
+                </span>
+                <span className="ml-auto truncate text-muted-foreground">
+                  {data.webhook.lastStatus ?? 'never received'}
+                </span>
+              </div>
+              <div className="mt-0.5 truncate font-mono text-[9.5px] text-muted-foreground" title={data.webhook.endpoint}>
+                {webhookPathLabel(data.webhook.endpoint)}
+              </div>
+              {data.webhook.lastError && (
+                <div className="mt-0.5 truncate text-[9px] text-rose-300" title={data.webhook.lastError}>
+                  {data.webhook.lastError}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="text-[10px] text-muted-foreground">
+              No webhook yet — open the <span className="text-foreground">Webhook</span> tab.
             </div>
           )}
         </div>

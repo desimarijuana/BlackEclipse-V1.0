@@ -1,6 +1,6 @@
 ---
 title: Graph Studio — Integration, HTTP & Webhook Node Plan
-status: Proposed
+status: In progress (P0 implemented)
 last-verified: 2026-11-01
 ---
 
@@ -21,9 +21,34 @@ work breakdown.
 before the ticket starts. An accepted decision becomes an app-level ADR in
 `skills/ARCHITECT.md` (mirrored into `docs/DECISIONS.md`).
 
+## 0. Implementation status (2026-11-01)
+
+| Item | Status | Notes |
+| --- | --- | --- |
+| HTTP redirect/SSRF fix | **done** | `http_client.py` re-checks every hop, caps redirects, refuses HTTPS→HTTP, redacts logs. |
+| `integration.http@1.1.0` | **done** | query/body modes, retries, response cap, `ok`/`headers`/`durationMs`/`truncated`; `1.0.0` stays registered and keeps its output shape. |
+| `trigger.webhook@1.0.0` | **done** | zero-config node + `triggerContext` plumbing through run-server → Python service → executor. |
+| `WorkflowWebhook` + receipts | **done** | `prisma/schema.prisma`; applied with `prisma db push` (no migration directory in this repo). |
+| Public `/api/webhooks/[slug]` | **done** | HMAC + timestamp replay window, token mode, 64 KiB cap, rate limit, idempotency receipt, middleware exemption. |
+| Safe/armed authority | **done** | safe = test run; armed pins version + content hash + network grant; write/trading refused; digest re-checked per delivery. |
+| Webhook inspector + card | **done** | create/copy/rotate/pause/arm, last delivery/status/error. |
+| `integration.webhook_send` | **done** | signed outbound webhook. |
+| Test-with-network | **done** | explicit confirmation in the Test tab and card action. |
+| Demo templates + seed | **done** | `templates.ts` adds *Webhook to HTTP* and *Signed webhook*; `scripts/seed-integration-demo.mts` seeds both workflows, arms the inbound webhook and writes a signed-request helper. Verified live against postman-echo (inbound run 200; outbound signature echoed). |
+| Vault credential refs (P1.3) | not started | env-var references only, as D5 recommended for P0. |
+| `integration.graphql` / `integration.mcp_tool` (P2) | not started | catalogue remains generic-first. |
+| Dedicated "Respond to webhook" node | deferred | `wait` response mode returns the terminal output. |
+
+Decisions taken as recommended: **D1 A (armed, safe by default)**, **D2 HMAC
+default + optional token**, **D3 immediate `202` by default**, **D4 additive
+1.1.0**, **D5 env-only for now**, **D7 terminal output, no respond node**.
+
 ---
 
-## 1. Current state (verified in the tree)
+## 1. Current state (verified in the tree before implementation)
+
+> Historical audit. §0 is the live status; the defects below were the baseline
+> the implementation closed in P0.
 
 | Area | What exists | Where |
 | --- | --- | --- |
@@ -315,7 +340,7 @@ and invalidates the old secret immediately.
 
 | Option | Behaviour | Verdict |
 | --- | --- | --- |
-| **A. Armed webhook** | Default `safe` (test run). Operator can **Arm** the webhook: pins the current workflow version, derives grants exactly like `authorizeGraphRun`, stores `grantsJson` + content hash. Requests then start an operator run against the pinned version with those grants. Any graph/version/hash mismatch disables the arm with a clear error. | **Recommended** |
+| **A. Armed webhook** | Default `safe` (test run). Operator can **Arm** the webhook: pins the current workflow version, derives grants exactly like `authorizeGraphRun`, stores `grantsJson` + content hash. Requests then start an operator run against the pinned version with those grants. Deleting the pinned version or a digest mismatch refuses delivery; a later save does **not** move the pin (re-arm to pin a newer version). | **Recommended** |
 | B. Always test-run | Simple, but makes the feature unable to do the job it exists for. | Reject as the only mode |
 | C. Per-request approval | Impossible for unattended callers. | Reject |
 
@@ -323,7 +348,8 @@ Arming is an explicit UI confirmation (same dialog as operator runs), requires
 the workflow to be saved, and is refused when the graph needs trading, file
 writes, or any effect the operator run dialog does not support. Rotating the
 secret or editing the graph does not silently widen authority: the arm stores
-the exact version and digest it was granted for.
+the exact version and digest it was granted for, and keeps running that pinned
+version until the operator re-arms.
 
 ### 5.5 Response modes
 

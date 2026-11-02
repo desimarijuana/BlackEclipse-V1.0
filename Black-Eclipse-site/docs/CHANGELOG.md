@@ -1,6 +1,252 @@
 # Change Log
 
 ## 2026-11-01
+- **test(graph): end-to-end coverage for the quant pack.** Added
+  `python/tests/test_graph_quant_e2e.py`: one graph wires
+  `finance.market_data` into every quant node added in this work (backtest,
+  grade, regime, resample, robustness, benchmark, trade_analysis,
+  multiple_testing, edge_report, position_size, options_strategy, costs) and is
+  driven through the real `/graphs/runs` HTTP surface — compile, capability
+  authorization, layered execution, run rows and output validation included.
+  The bar provider is installed through the runtime's own
+  `set_series_provider` seam, so nothing is fabricated and no network is used.
+  It also pins two behaviours the unit suites could not show: a quant node
+  failure is reported on that node's run row (not swallowed), and a checkpoint
+  larger than the preview bound is stored as `{_truncated, preview}` rather than
+  dropped. 3 cases, ~11s. Docs updated: `docs/graph-studio.md`,
+  `docs/CHANGELOG.md`.
+- **ops: the harness size budget remains red and is NOT caused by the quant
+  work.** `npm run check:size` reports 6 budgeted directories over their
+  ceilings (`python/harness/.`, `code`, `routers`, `eclipse_memory`, `skills`,
+  `evaluation`) and the total ~38.7k lines over. Those directories hold the
+  parallel trading/broker and skill work, not `graph_runtime/` (which has no
+  per-directory budget). Raising those ceilings is a deliberate decision that
+  belongs to whoever owns that growth; this changelog records the state so it
+  cannot be mistaken for a quant regression. no doc change — operational note.
+- **feat(graph): trading nodes gate on live state and report honest outcomes.**
+  `trading.risk_check` now accepts `account`/`positions` plus numeric overrides
+  and derives equity and open-position count from the broker/paper account
+  before falling back to config; a new `state` output names the source of every
+  figure. It also runs in `research`/`backtest` mode (it is pure), so a backtest
+  can gate entries with the same limits. `trading.broker_order` honors an
+  optional `decision` input (a rejected risk check stops the order before the
+  broker) and returns `ok`/`reason`; `BrokerOrder` gained `runId`/`nodeId` so a
+  graph order is traceable from the ledger (additive columns, migrated in
+  `trade/store.py`). Added `trading.broker_positions`; every broker read/exit now
+  returns `ok`/`reason`, `trading.broker_bars` also returns the deterministic
+  ATR(14)/20-bar range/contract size, and `trading.broker_close` can close a whole
+  symbol. Contracts mirrored in `registry-trading.ts` / `config-fields.ts`;
+  manifest regenerated. Tests: `test_graph_broker_nodes.py`,
+  `test_graph_registry_parity.py` (cross-language port parity) and 7 new
+  `risk_check` cases. Docs updated: `docs/trading.md`, `docs/graph-studio.md`,
+  `docs/CHANGELOG.md`.
+- **ux(graph): readable market-node summaries, direct OHLCV metrics and starter
+  templates.** (1) Every gateway read node now emits a compact `summary` object
+  (symbol/provider/as-of plus the key figures for that capability — spread,
+  funding rate, liquidation totals, …) next to the full record and provenance,
+  so the node card and Output tab are readable without opening raw JSON.
+  (2) `quant.risk_metrics` and `quant.drawdown` accept OHLCV bars directly:
+  closes are used as price levels, the detected source wins over `inputKind`,
+  and the metrics report `source` — so `finance.history → quant.risk_metrics`
+  no longer needs an intermediate indicator node. (3) Added the `Risk snapshot`,
+  `Derivatives monitor` and `FX + bond yield` starter templates, and clarified
+  the FX pair-vs-base/quote inspector help. Contracts mirror in
+  `registry-market.ts` / `market_read_nodes.py` / `quant_metrics_nodes.py`;
+  manifest regenerated. Docs updated: `docs/graph-studio.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): instrument nodes — options payoffs and continuous futures.**
+  `quant.options_strategy` (`graph_runtime/quant_instruments_nodes.py` →
+  `quant/options.py` `analyze_option_strategy`) takes a leg list
+  (`type/strike/quantity/premium`, optional `multiplier`/`iv`) and returns the
+  expiry payoff curve, net premium, break-evens, max profit/loss and
+  boundedness. An unbounded tail stays `null` with `bounded: false`; net Greeks
+  appear only when a valuation spot AND a time-to-expiry are wired; the payoff
+  range is configured or derived from the strikes/spot and `spotRangeSource`
+  records which. `quant.futures_continuous` (`quant/futures.py`
+  `splice_continuous`) splices ordered contracts at `rollDatesJson` with
+  none/difference/ratio adjustment and emits an OHLCV series marked
+  `proxy: true` with the engine's note (a continuous series is a backtest proxy,
+  not a deliverable contract). Both mirrored in `registry-quant-advanced.ts`,
+  presented in `config-fields.ts`, exemplified in `node-examples.ts`, manifest
+  regenerated. Tests: `python/tests/test_graph_quant_instrument_nodes.py` (10:
+  spread payoff/break-even/boundedness, naked-call unboundedness, Greeks wiring,
+  derived range, half-configured range, engine leg errors, splice at roll,
+  unadjusted splice, bad roll schedule, empty contracts).
+  Also re-synced `docs/graph-studio.md` with the concurrent change that made
+  `quant.risk_metrics`/`quant.drawdown` accept OHLCV or raw number lists (their
+  `ANY` input ports were already in both registries; only the sentence was
+  stale). Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): quant tier-3 nodes — portfolio backtest, explicit costs, Edge
+  Report.** `quant.portfolio_backtest` (`graph_runtime/quant_portfolio_nodes.py`)
+  adapts the `{symbol: OHLCV}` map into one `MarketDataset` and drives the
+  existing `run_portfolio_backtest` (shared book/cash, per-strategy symbol
+  bindings). Default is one preset strategy per symbol; `strategiesJson`
+  supplies explicit `StrategySpec`s that must declare `universe.symbols`. The
+  engine's own double-claimed-symbol check and a missing-symbol check are the
+  explicit failures. `quant.costs` (`quant/costs.py` `simulate_costs`) computes
+  one cost family over an order list with the execution block as
+  `executionJson`; a model missing its input contributes zero and emits a
+  warning instead of inventing a cost. `quant.edge_report`
+  (`quant/edge_report.py` `build_edge_report`) renders the Markdown report,
+  bounded chart specs and verdict from a backtest artifact, naming absent
+  figures rather than drawing empty ones. Refactor: `series_map` is now public
+  and takes a node label so the shared `{symbol: rows}` adapter reports the
+  node that actually rejected the payload. New TS contract file
+  `registry-quant-advanced.ts` (`QUANT_ADVANCED_DEFINITIONS`), presentation in
+  `config-fields.ts` (the portfolio block drops the single-series `symbol` and
+  `strategyJson` labels), examples, manifest regenerated. Tests:
+  `python/tests/test_graph_quant_portfolio_nodes.py` (6: preset basket,
+  determinism, explicit specs, absent symbol, double claim, bad JSON) and five
+  new cases in `test_graph_quant_validation_nodes.py` (commission total,
+  frictionless zero with its warning, bad order/execution, report + charts +
+  verdict, missing artifact). Docs updated: `docs/graph-studio.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **docs(graph): bot, skill and agent node plan.** Added
+  `docs/graph-studio-bot-skill-nodes-plan.md`: verified inventory of the three
+  agent nodes, the bot-as-tagged-Automation model, and the absence of any skill
+  reference in either node registry; six Tier-1 node contracts (`agent.bot`,
+  `skill.invoke`, `agent.classify`, `agent.extract`, `agent.summarize`,
+  `agent.critique`); the `agent.bot` / `skill.invoke` execution sequences
+  (including the real status mapping and the `NodeExecContext` operator/grant
+  prerequisite); three bot-selectable surfaces (real agent presets in the create
+  dialog, "Reuse a bot" in Bots mode, an `agent.bot` picker in the inspector);
+  Tier-2/Tier-3 candidates; rejected alternatives; and the work breakdown.
+  Docs updated: `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): quant structure nodes — align, regime labels, position size.**
+  Added three executable COMPUTE nodes in
+  `graph_runtime/quant_structure_nodes.py`, each an adapter over a tested
+  engine: `quant.align` (`quant/transform.py` `align_rows`: `{symbol: rows}` in,
+  shared timestamp axis + per-symbol series + missing counts out; `fill: none`
+  by default, `ffill`/`zero` only on explicit request and `imputed` records
+  it), `quant.regime` (`quant/regime.py` `classify_series`: trend × volatility
+  label, confidence and counts per bar, with `warmupBars` naming the leading
+  bars before the trend filter has a reading) and `quant.position_size`
+  (`quant/sizing.py` `compute_quantity` with the engine's own `PositionSizing`:
+  `percent_risk`/`atr`/Kelly take their stop, ATR and trade statistics as
+  wired/config inputs and a missing one fails by name instead of returning
+  zero). New TS contract file `registry-quant-structure.ts`
+  (`QUANT_STRUCTURE_DEFINITIONS`), presentation in `config-fields.ts`, examples
+  in `node-examples.ts`, manifest regenerated (`npm run graph:manifest`).
+  Tests: `python/tests/test_graph_quant_structure_nodes.py` (13 cases: inner
+  join, null-vs-imputed gaps, single-payload refusal, warm-up trend bars,
+  classifier config rejection, percent-equity/percent-risk/ATR sizing, lot
+  rounding, venue minimum, and the named missing-input failures).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): quant validation pack phase 2 — robustness, trade analysis,
+  overfitting check.** Added `quant.robustness` (`quant/robustness.py`:
+  one-at-a-time parameter sweep from `paramSpaceJson` or the preset's default
+  space, cost-multiplier curve, trade concentration, chronological regime
+  splits → deterministic `robust` / `fragile` / `insufficient_evidence` verdict
+  plus conclusions that name their measurement), `quant.trade_analysis`
+  (`quant/trade_log.py`: regime/trend/volatility context per entry, per-regime
+  P&L, concentration and coverage; unmatched trades are counted and reported
+  `unclassified`), and `quant.multiple_testing`
+  (`quant/multiple_testing.py`: Deflated Sharpe from the selected return series
+  plus trial Sharpes wired from `quant.optimize` or `trialSharpesJson`, and PBO
+  via CSCV over `returnsMatrixJson`; trial Sharpes are de-annualized with
+  `periodsPerYear` because deflation is defined on per-period Sharpes). When
+  neither statistic is computable the node fails and names what is missing.
+  Also exposed the shared `prepare_quant` / `param_space_from_config` /
+  `STRATEGY_FIELDS` seams from `quant_nodes.py` so a validation run adapts the
+  OHLCV payload and strategy config exactly like the research nodes do, instead
+  of keeping a second copy. Mirrored in `registry-market.ts`, presented in
+  `config-fields.ts`, exemplified in `node-examples.ts`, manifest regenerated,
+  and the **Backtest and grade** starter template now also wires robustness
+  conclusions beside the verdict. Tests: `python/tests/test_graph_quant_validation_nodes.py` grew to 24 cases
+  (verdict determinism, insufficient-evidence, bad multiplier lists, entry
+  classification vs unclassified, DSR trial count/source, PBO from a matrix,
+  fallback Sharpes, and the explicit "nothing wired" failure).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): quant validation nodes — edge verdict, benchmark, resample.**
+  Added three executable COMPUTE nodes in
+  `graph_runtime/quant_validation_nodes.py`, each a thin adapter over an engine
+  that already existed but was unreachable from a graph: `quant.grade`
+  (`quant/verdict.py` `grade_edge` → A–F verdict, components, flags, and an
+  explicit `assumptions.notGradedOn` for axes it could not judge),
+  `quant.benchmark` (`quant/benchmark.py` → alpha/beta/correlation/tracking
+  error/IR against a benchmark OHLCV series, reading the equity curve from a
+  backtest result; `< 3` aligned returns is `available: false` with the reason)
+  and `quant.resample` (`quant/transform.py` → deterministic OHLCV aggregation
+  to a wider interval, partial buckets marked, finer targets refused). Mirrored
+  in `src/lib/graph-studio/registry-market.ts` (`QUANT_VALIDATION_DEFINITIONS`),
+  presented in `config-fields.ts`, exemplified in `node-examples.ts`, and
+  regenerated into `registry.manifest.json` (`npm run graph:manifest` — this
+  also brought the manifest back in sync with the pending market-read, webhook
+  and integration contracts already in the working tree). Added the
+  **Backtest and grade** starter template (`templates.ts`) so the pack is
+  discoverable from the gallery. Tests:
+  `python/tests/test_graph_quant_validation_nodes.py` (14 cases: components,
+  redistributed weights, critical-flag capping, equity-curve flags, missing
+  evidence failures, benchmark unavailability, bucket aggregation/partial
+  marking, finer-target refusal). Docs updated: `docs/graph-studio.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **demo(graph): integration nodes live in Overview.** Added two starter
+  templates — **Webhook to HTTP** (signed inbound webhook → `integration.http@1.1.0`
+  → response/status) and **Signed webhook** (`integration.webhook_send`) — and
+  `scripts/seed-integration-demo.mts`, which idempotently creates both demo
+  workflows, creates/arms the inbound `WorkflowWebhook` with network access, and
+  writes a gitignored signed-request helper to
+  `.black-eclipse/demo/webhook-demo.ps1` (the secret is never printed). Verified
+  end-to-end in the running app: the signed delivery started a run that fetched
+  `https://postman-echo.com/get?demo=eclipse` (`200`, `ok: true`), and the signed
+  outbound demo's run echoed `x-eclipse-signature`/`x-eclipse-timestamp` from
+  postman-echo. Seed data lives in the local (gitignored) `jdds.db`; the
+  templates and seed script are source.
+  Docs updated: `docs/graph-studio-integration-nodes-plan.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(graph): complete the gateway read surface + pure risk/return metrics.**
+  Added 15 executable READ nodes in `graph_runtime/market_read_nodes.py`
+  (`finance.instrument|orderbook|trades|volume|market_cap|fx_rate|
+  options_chain|bond|funding_rate|open_interest|supply|tvl|onchain|
+  liquidations|long_short_ratio`). Each reuses the EXISTING `MarketDataGateway`
+  through the same helper as `finance.quote`, returns a `provenance` object
+  built from the record's own `meta` (provider/freshness/quality/as-of/
+  retrieval time), and turns a gateway rejection into an explicit node failure
+  instead of a zero or a synthetic book. Added 4 pure COMPUTE nodes in
+  `graph_runtime/quant_metrics_nodes.py` (`quant.risk_metrics`, `quant.drawdown`,
+  `quant.correlation`, `quant.beta`): deterministic math over an INDICATOR
+  series, with undefined ratios reported as `null` plus a note, never `0`.
+  Both packs are mirrored in `src/lib/graph-studio/registry-market.ts`, get
+  inspector presentation in `config-fields.ts`, and were added to
+  `registry.manifest.json` (`npm run graph:manifest`). Tests:
+  `python/tests/test_graph_market_read_nodes.py` (registry/executability,
+  dispatch, provenance, honest failures, test-run execution) and
+  `python/tests/test_graph_quant_metrics_nodes.py` (hand-computed metrics,
+  drawdown/correlation/beta, graph wiring). Docs updated:
+  `docs/graph-studio.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(graph): HTTP 1.1.0, signed inbound/outbound webhooks, and the redirect
+  SSRF fix.** Implemented the integration plan's P0 (plus the P1 webhook/test
+  items). (1) New `graph_runtime/http_client.py`: manual redirects with an SSRF
+  re-check on **every** hop, hop cap, HTTPS→HTTP refusal, redacted logs, query
+  merge, body modes, response-type/cap (`error|truncate`), retries with
+  `Retry-After`, and credential-env resolution. (2) `integration.http@1.1.0`
+  (query, body modes, retries, `headers`/`ok`/`contentType`/`durationMs`/
+  `truncated`); `1.0.0` stays registered and keeps its exact output shape.
+  (3) `integration.webhook_send@1.0.0` signs
+  `X-Eclipse-Signature/Timestamp/Delivery`. (4) `trigger.webhook@1.0.0` is
+  zero-config; a new `WorkflowWebhook` + receipt model (Prisma, applied with
+  `db push`) owns the endpoint, encrypted secret, method filter, response mode
+  and arm state. (5) Public `POST|GET /api/webhooks/[slug]` (middleware-exempt):
+  HMAC/timestamp replay window or token, 64 KiB cap, per-endpoint rate limit,
+  delivery-idempotency receipt, safe mode = test run, armed mode = pinned
+  version + content hash + confirmed network grant; write/trading refused.
+  (6) `triggerContext` plumbing (run-server → Python service → executor) and the
+  webhook node's `start/headers/query/method/receivedAt/meta` outputs.
+  (7) Inspector **Webhook** tab + card summary (create/copy/rotate/pause/arm,
+  last delivery), and an explicit **Test with network** confirmation for HTTP
+  nodes (runtime refuses unless `allowNetwork`). Verified with
+  `webhook-crypto.test.ts`, the HTTP operator suite (redirect/retry/truncate/
+  SSRF cases), registry manifest parity, and a direct store arm/rotate check.
+  Docs updated: `docs/graph-studio.md`,
+  `docs/graph-studio-integration-nodes-plan.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`, plus app ADR-057 in `skills/ARCHITECT.md` (mirrored into
+  `docs/DECISIONS.md`). Schema: `prisma/schema.prisma` (`WorkflowWebhook`,
+  `WorkflowWebhookReceipt`) applied with `npx prisma db push`; `jdds.db` is not
+  committed.
 - **docs(graph): integration / HTTP / webhook node improvement plan.** Added
   `docs/graph-studio-integration-nodes-plan.md`: a verified audit of the
   integration category (only `integration.http@1.0.0`; no `trigger.webhook`

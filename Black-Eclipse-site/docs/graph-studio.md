@@ -436,11 +436,30 @@ only those scopes). The Python compiler re-checks the same envelope.
 symlinks) must stay inside the scope root, the payload is capped at 8 MB, and a
 normal write is atomic (temp file + replace). A test run never writes; an
 operator run is granted only the scopes it explicitly confirmed.
-`integration.http` is the first network node: SSRF-checked, loopback refused,
-1 MB response cap, 60 s ceiling, plain custom headers (`headersJson`) and
-credential REFERENCES (`credentialEnvJson`: header → env-var name, resolved by
-the runtime and never stored). Transport-managed headers are refused; a header
-cannot come from both sources.
+`integration.http@1.0.0` is kept for saved graphs. `integration.http@1.1.0`
+adds query params (`queryJson`), body modes (`json` / `text` / `form`), response
+type control, a configurable response cap with `error`/`truncate`, opt-in
+redirects, retries with `Retry-After`, `failOnHttpError`, and
+`headers`/`ok`/`contentType`/`durationMs`/`truncated` outputs. Both versions are
+SSRF-checked, loopback refused, bounded to 60 s, and accept plain custom headers
+(`headersJson`) plus credential REFERENCES (`credentialEnvJson`: header → env-var
+name, resolved by the runtime and never stored). Transport-managed headers are
+refused; a header cannot come from both sources.
+
+**Redirects are the security-critical part.** The executor does not let
+`urllib` follow redirects implicitly: `http_client.py` requests each hop with a
+no-redirect opener and re-runs the SSRF check on every `Location`, caps the hop
+count, and refuses an HTTPS → HTTP downgrade. (The previous 1.0.0 path checked
+only the first URL, so a public URL could redirect into loopback/link-local
+space.) Request URLs are logged without their query string, and credential
+values never appear in a log, run record, or error. Known residual: the check is
+host-based on the URL and each hop; it does not pin the resolved DNS address, so
+a hostile resolver/rebinding attack is outside this node's guarantee.
+
+`integration.webhook_send` is the signed outbound mirror: it POSTs JSON with
+`X-Eclipse-Signature` (`sha256` over `"<timestamp>.<body>"`),
+`X-Eclipse-Timestamp` and `X-Eclipse-Delivery`. Its signing secret is an ENV VAR
+name, not a value.
 
 **Determinism.** Executors are pure; the scheduler orders each layer by node id;
 node inputs come from succeeded upstream writers only (a node whose required
@@ -570,11 +589,38 @@ terminal run status, so “last status” cannot stay stuck at `started`. **Run 
 fires one schedule immediately in the same envelope without moving its clock.
 
 **Triggers.** All three trigger nodes are zero-config. Manual = the toolbar /
-UI; schedule = a `WorkflowSchedule` linked to the node (above); webhook =
-`POST /api/workflows/[id]/trigger`, where the request body becomes the trigger's
-`runInput`. The webhook deliberately runs inside the TEST-RUN envelope: a trigger
-reachable without a secret must not be able to act on the world (secret-signed
-webhooks are Phase 8/10 work).
+UI; schedule = a `WorkflowSchedule` linked to the node (above); webhook = a
+`WorkflowWebhook` linked to the node, edited in the inspector's **Webhook** tab.
+
+The legacy `POST /api/workflows/[id]/trigger` route stays for local/CRON_SECRET
+callers and keeps the test-run envelope. The real inbound endpoint is
+`POST|GET /api/webhooks/[slug]` (public by middleware design, authenticated by
+the handler):
+
+- **Proof.** HMAC-SHA256 over `"<timestamp>.<raw body>"` with a 300 s replay
+  window, or an `X-Eclipse-Token` header, or either — chosen per webhook. The
+  secret is AES-256-GCM encrypted at rest (the connector-secret store), shown
+  once on create/rotate, and never returned by a list response. A per-endpoint
+  rate limit and an optional `X-Eclipse-Delivery` idempotency receipt prevent
+  storms and double runs.
+- **Safe mode (default).** The delivery starts the normal read-only TEST run:
+  the webhook node emits the body/headers/query/method, but network, write and
+  trading nodes are still refused.
+- **Armed mode.** An operator can arm the webhook: it pins the current workflow
+  version, content hash and the network grant. Deliveries run that pinned
+  version as an operator run with only the confirmed grants. The digest is
+  re-checked on every delivery; a missing/changed pinned version, a write,
+  trading or agent/model node, or a graph that needs network without the grant
+  is refused with `409`. `trigger.webhook` itself is `sideEffects: none` and carries the
+  `webhook.receive` capability, so it never counts as an outbound network need.
+- **Response.** `immediate` returns `202 { accepted, runId }`; `wait` polls the
+  run for up to 30 s and returns `{ ok, runId, status, output }`, falling back to
+  `202` on timeout. A dedicated "respond to webhook" node is deferred; the
+  terminal output is the response body.
+- **Node outputs.** `start` (the parsed body, also the run input), `headers`,
+  `query`, `method`, `receivedAt`, and `meta`
+  (`webhookId`, `deliveryId`, `signatureVerified`). The run carries this as a
+  `triggerContext`; it is never written into the workflow.
 
 `trigger.manual` is deliberately **zero-config**, like n8n's Manual Trigger: it
 has no declared config fields. `Start` is the one-off run input (the Execution
@@ -590,9 +636,12 @@ existing graph does not silently change behaviour.
 `POST /graphs/nodes/test` runs ONE registered node (never a graph, never a
 persisted run) with explicit per-port `inputs` and the node's declared config.
 The runtime re-validates the config and inputs, enforces the node's own hard
-timeout, and only allows `none`/`read` side effects: network, write, trading,
-model and local-write nodes are refused with a 403 and must go through an
-authorized run.
+timeout, and allows `none`/`read` side effects by default: write, trading, model
+and local-write nodes are refused with a 403 and must go through an authorized
+run. A `network` node is refused **unless** the operator explicitly confirms it
+(`allowNetwork`): the inspector's Test tab and the card's hover Test action show
+the exact target URL and make only that one request. The default remains
+"refused"; the confirmation is never implied by a saved graph.
 
 Every node exposes this in three places: the inspector's **Test** tab, a **▶
 Test** button in the node's hover toolbar, and the footer of the **quick edit**
@@ -644,6 +693,130 @@ history cache as the agent tools. A gateway error is an explicit node failure
 (`DATA_NOT_AVAILABLE`, `SYMBOL_NOT_FOUND`, …), never a fabricated price.
 `finance.history` emits the standard OHLCV payload, so it feeds
 `finance.indicator` directly.
+
+**The rest of the gateway read surface.** `market_read_nodes.py` adds
+`finance.instrument`, `finance.orderbook`, `finance.trades`, `finance.volume`,
+`finance.market_cap`, `finance.fx_rate`, `finance.options_chain`,
+`finance.bond`, `finance.funding_rate`, `finance.open_interest`,
+`finance.supply`, `finance.tvl`, `finance.onchain`, `finance.liquidations` and
+`finance.long_short_ratio`. Each one calls the SAME `MarketDataGateway` and
+returns three outputs: the full record, a compact `summary` digest (spread,
+funding rate, liquidation totals, …) so the node card and Output tab are
+readable, and a `provenance` object derived from the record's own metadata
+(provider, freshness, quality, as-of, retrieval time). A capability the gateway
+rejects is the node's error, never a zero, an empty book or a guessed rate. All
+are `market.read` / `read`, so a test run may execute them.
+
+**Pure risk/return metrics.** `quant_metrics_nodes.py` adds
+`quant.risk_metrics`, `quant.drawdown`, `quant.correlation` and `quant.beta`.
+They compute over a series only — no engine, no provider, no state — so the
+result is fully deterministic. `quant.risk_metrics` and `quant.drawdown` accept
+an INDICATOR series, a raw number list or OHLCV bars (their close); the detected
+source picks the default interpretation and `inputKind` still overrides it.
+`quant.correlation` and `quant.beta` take INDICATOR series and support an
+optional rolling window. An undefined ratio (a flat series has no
+Sharpe ratio) is `null` with a note, never `0`.
+
+Starter templates `Risk snapshot`, `Derivatives monitor` and `FX + bond yield`
+wire the new read/metric nodes end to end; the template validation test builds
+and validates all three.
+
+**Validation: what a measurement is worth.** `quant_validation_nodes.py` adds
+adapters over engines that already existed but were unreachable from a graph.
+`quant.grade` runs `harness/quant/verdict.py` (`grade_edge`) over a
+backtest's metrics, trades, optional Monte Carlo and optional result object,
+and returns an A–F `verdict` with the four components, the flags and a
+one-sentence `summary`. An axis it cannot judge (no Monte Carlo, no trades) has
+its weight redistributed and is named in `assumptions.notGradedOn` — never
+scored as zero or as perfect — and a critical flag caps the grade.
+`quant.benchmark` runs `harness/quant/benchmark.py` against a benchmark OHLCV
+series and returns alpha, beta, correlation, tracking error and information
+ratio; it reads the equity curve from a backtest result, so that backtest must
+run with `includeSeries` on (the error says so). Fewer than three aligned
+returns is `available: false` with the reason, never a zero.
+`quant.resample` runs `harness/quant/transform.py` to aggregate bars into a
+wider interval — open=first, high=max, low=min, close=last, volume=sum in UTC
+buckets — marks a bucket with too few members `partial`, and refuses a finer
+target rather than manufacturing prices. It is the node that lets a 1m or 1h
+feed drive a daily-parameter strategy.
+
+Three more nodes answer "would this survive being traded?".
+`quant.robustness` runs `harness/quant/robustness.py`: a one-at-a-time
+parameter sweep (from `paramSpaceJson`, or the preset's documented default
+space), a cost-multiplier curve (`costMultipliersJson`), trade concentration
+and chronological regime splits, combined into a deterministic verdict —
+`robust`, `fragile` or `insufficient_evidence` — plus plain-language
+`conclusions` that each name the measurement behind them. A strategy is never
+called robust unless every check passes.
+`quant.trade_analysis` reads a trade log against the conditions it traded in
+(`harness/quant/trade_log.py`): regime/trend/volatility at each entry,
+per-regime P&L, concentration and coverage. A trade whose symbol has no bars is
+counted in the totals and reported `unclassified` — it is never given a regime
+it was not measured in.
+`quant.multiple_testing` runs `harness/quant/multiple_testing.py`: the
+**Deflated Sharpe Ratio** (Bailey & López de Prado 2014) over the selected
+return series and the trial Sharpes — wired from `quant.optimize`'s
+leaderboard/trials, or supplied as `trialSharpesJson` — and the **Probability
+of Backtest Overfitting** (CSCV) over a `returnsMatrixJson` of one return series
+per configuration. The node de-annualizes trial Sharpes with
+`periodsPerYear`, because the engine's deflation formula is defined on
+per-period Sharpes. A missing input is `available: false` with the reason; when
+neither statistic can be computed the node fails and names both.
+
+**Structure: timeframes, regimes, size.** `quant_structure_nodes.py` adds the
+three pieces a single-series workflow was missing. `quant.align` runs
+`transform.align_rows` over a `{symbol: OHLCV rows}` map and returns the shared
+timestamp axis plus per-symbol series and missing counts; `fill: none` is the
+default and keeps a gap `null`, while `ffill`/`zero` impute only when asked and
+the payload's `imputed` flag records that they did. `quant.regime` runs
+`regime.classify_series` and returns, per symbol, the trend × volatility label
+and confidence for every bar, the label counts and `warmupBars` — the leading
+bars before the trend filter has a reading are `flat`, and the payload says how
+many there were. `quant.position_size` runs `sizing.compute_quantity` with the
+same `PositionSizing` contract the engine executes, so the size a graph computes
+is the size a backtest would have used: `percent_risk` needs the wired `stop`
+distance, `atr` needs the wired ATR, Kelly needs the configured win rate and
+payoff, and a method whose input is missing fails naming it rather than
+returning zero. The quantity is a plain number, so it feeds an order intent
+(the trading nodes take a full intent, not a bare size).
+
+**Portfolio, costs, report.** Three Tier-3 nodes close the remaining gaps.
+`quant.portfolio_backtest` runs `harness/quant/engine.py`'s
+`run_portfolio_backtest` over the same `{symbol: OHLCV}` map `quant.align`
+produces — one shared book, shared cash and one equity curve, with each
+strategy bound to its own symbols. By default it builds one preset strategy per
+symbol in the map; `strategiesJson` replaces that with explicit
+`StrategySpec`s that must each declare `universe.symbols`. A symbol claimed by
+two strategies, referenced but absent from the map, or an invalid spec is an
+explicit failure (the engine's own conflict check is what rejects the double
+claim). `quant.costs` runs `harness/quant/costs.py` for one cost family —
+`transaction`, `slippage`, `spread` or `impact` — over an order list and returns
+per-order values, the total and the exact model used. The execution block is
+passed as `executionJson` (the engine's own `commission`/`slippage`/`spread`/
+`marketImpact` shape); a model that lacks its input (volume for impact, a bar
+spread for historical spread) contributes zero **and says so in a warning**,
+rather than inventing a cost. `quant.edge_report` runs
+`harness/quant/edge_report.py` to produce the Markdown Edge Report and its
+bounded chart specs from the same artifact the verdict grades; a report without
+a Monte Carlo or an equity curve names the missing figures instead of drawing
+empty ones.
+
+**Instruments: options and futures.** `quant_instruments_nodes.py` adds the two
+instrument-specific nodes. `quant.options_strategy` runs
+`harness/quant/options.py` over a leg list
+(`[{type, strike, quantity, premium}]`, optional `multiplier`/`iv`) and returns
+the expiry payoff curve, break-evens, net premium, max profit/loss and
+boundedness. A leg set with an unbounded tail reports `maxProfit: null` with
+`bounded: false` — it never invents a finite maximum. Net Greeks are added only
+when **both** a valuation spot and a time-to-expiry are wired, because a Greek
+without them would be a fabrication. The payoff range is either configured
+(`spotMin`/`spotMax`) or derived from the strikes and the wired spot; the
+payload records which in `spotRangeSource`. `quant.futures_continuous` runs
+`harness/quant/futures.py` over ordered contracts plus `rollDatesJson` and
+returns an OHLCV series with `none`/`difference`/`ratio` adjustment. The output
+is explicitly a **proxy** (`proxy: true`, the engine's own note): a continuous
+series is not a deliverable contract, and the most recent contract stays
+unadjusted.
 
 **Quant backtest.** `quant.backtest` adapts the graph's OHLCV payload into a
 `BarSeries`/`MarketDataset` and calls `harness/quant/engine.py`. It accepts the
@@ -713,7 +886,16 @@ door fails honestly rather than fetching directly.
 `harness/quant/risk.py` (position, gross exposure, leverage, open-position,
 daily-loss and risk-per-trade limits; `0` disables a limit). It may reduce an
 order's size or reject it, and a rejection is an outcome with reasons, not an
-exception. `trading.paper_order` is the execution adapter: it fills at a
+exception. It reads the state it gates on from a wired account and position list
+(`broker_account` / `broker_positions` / the paper account) before falling back to
+its config, and its `state` output names the source of every figure (`input`,
+`account`, `positions` or `config`) so a gate cannot silently run on a stale
+number. Because it has no side effect it also runs in `research` and `backtest`
+mode, so a backtest can gate entries with the same limits as the live path.
+Gross exposure and per-symbol value stay explicit: a position list carries lots,
+not notional.
+
+`trading.paper_order` is the execution adapter: it fills at a
 supplied reference price with explicit slippage and commission and returns a
 paper fill. By default it also records the fill in a durable PAPER account
 (`GraphPaperAccount` / `GraphPaperFill` on `agent-memory.db`): cash, signed
@@ -724,13 +906,29 @@ supplied. It never contacts a broker, never reads a live quote, and only runs
 in PAPER mode behind the operator's paper-trading confirmation. There is no
 live adapter; LIVE mode is refused.
 
+**Broker reads and exits.** `trading.broker_account` and
+`trading.broker_positions` read the broker's own account and position list;
+`broker_quote` and `broker_bars` read its quotes and OHLCV series (with a
+deterministic ATR(14), 20-bar range and contract size derived from the bars).
+Every read and every exit node returns `ok` and `reason` alongside the raw
+envelope, so a `logic.condition` branches on a boolean instead of string
+comparing `status`. `trading.broker_close` closes one ticket (full or partial), a
+whole symbol, or everything; `broker_modify` and `broker_cancel` move a bracket
+or cancel a working order. They are risk-reducing, so they carry no mandate,
+approval or live arm — but they still require a pinned `connectionId`.
+
 `trading.broker_order` is the demo-broker adapter added in P3. It takes an
 `intent` plus a `connectionId` and `mandateId`, runs only in PAPER mode, and calls
-the SAME `BrokerService.submit_order` path as a manual order. The operator-created
+the SAME `BrokerService.submit_order` path as a manual order. An optional wired
+`decision` is honored: a rejected risk check stops the order before it reaches
+the broker, so wiring the gate to the intent alone can never send a refused
+order. `ok` is true only for a filled or placed order and `reason` carries the
+refusal. The operator-created
 mandate is the authorization (allowed symbols, per-order `maxMargin`, `maxOrders`,
 expiry; immediate revoke), and each use is counted atomically. The connection must
 be a demo MT5 connection; live trading nodes remain refused by the compiler and the
-front door. See `docs/trading.md`.
+front door. The ledger row records the `runId` and `nodeId` that placed it. See
+`docs/trading.md`.
 
 **Custom agent presets.** Settings › Agents creates an operator-authored preset:
 a name, system prompt, max-step bound, an explicit tool allowlist and optional
@@ -1024,17 +1222,21 @@ Phases 3–4:
 - `npm run build` — production build succeeds; `/api/graph-runs/*`,
   `/api/workflows/[id]/{runs,trigger,schedules}` and `/api/workflow-schedules/*`
   registered.
-- Python graph suites — **234 tests pass** (model/registry/formula, compiler,
-  executor, control flow, service, HTTP API, SSE replay, finance/video nodes,
-  gateway quote/history, tabular transforms, quant backtest/walk-forward/
-  optimizer/Monte Carlo/OOS, paper risk gate/execution adapter and LIVE refusal,
-  agent planning/delegation, chat-to-graph validation, health telemetry/watch,
-  bounded crawl,
-  local research/evidence + live web search/fetch/claim verification, agent
-  node, operator-run/HTTP safety, registry parity, datasets, subworkflows,
-  durable dispatch/resume), including a real
+- Python graph suites — **482 tests pass** (3 expected skips: two opt-in
+  agent E2E checks and a Windows symlink case). Coverage: model/registry/
+  formula, compiler, executor, control flow, service, HTTP API, SSE replay,
+  finance/video nodes, gateway quote/history, the market-read surface, tabular
+  transforms, the quant pack (backtest/walk-forward/optimizer/Monte Carlo/OOS,
+  metrics, validation, structure, portfolio, options/futures, costs, report),
+  paper risk gate/execution adapter and LIVE refusal, agent
+  planning/delegation, chat-to-graph validation, health telemetry/watch, bounded
+  crawl, local research/evidence + live web search/fetch/claim verification,
+  agent node, operator-run/HTTP safety, registry parity, datasets,
+  subworkflows, durable dispatch/resume, plus a real
   Fabric manager + graph worker integration test and full-stack API tests on a
-  temp database. `test_graph_agent_e2e.py` is an OPT-IN real-provider check:
+  temp database. `test_graph_quant_e2e.py` is the quant pack's end-to-end
+  guard: it runs every added quant node through `/graphs/runs` in one graph.
+  `test_graph_agent_e2e.py` is an OPT-IN real-provider check:
   skipped unless `HARNESS_E2E=1` plus provider/model env vars (API key only for
   remote providers). It passed locally against the configured Ollama model,
   covering chat-to-graph, step planning and an agent node.
