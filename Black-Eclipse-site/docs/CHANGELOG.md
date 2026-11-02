@@ -1,6 +1,12 @@
 # Change Log
 
 ## 2026-11-02
+- **fix(graph): adapter-pack registration split out of `nodes.py`.** The Tier
+  2/3 packs pushed `graph_runtime/nodes.py` to 1218 lines (ceiling 1200); the
+  wiring now lives in `graph_runtime/node_packs.py` (`register_extra_packs`),
+  and `graph.py` is re-pinned 2355→2370 for the AgentPreset fallback. Targeted
+  graph/size tests green (79). no doc change — internal split, contracts
+  unchanged.
 - **chore(docs): rotated the changelog window.** Ran
   `scripts/rotate-changelog.js --write` to archive the oldest dated section into
   `docs/changelog/2026-10.md` (window of 7 preserved). no doc change — mechanical

@@ -24,17 +24,11 @@ from typing import Any, Callable, Optional
 
 from . import http_client
 from .agent_nodes import build_agent_nodes
-from .agent_structured_nodes import build_structured_agent_nodes
-from .approval_nodes import build_approval_nodes
 from .dataset_nodes import build_dataset_nodes
 from .finance_nodes import build_finance_nodes
-from .memory_nodes import build_memory_nodes
-from .output_nodes import build_output_nodes
+from .node_packs import register_extra_packs
 from .quant_nodes import build_quant_nodes
 from .research_nodes import build_research_nodes
-from .skill_nodes import build_skill_nodes
-from .team_nodes import build_team_nodes
-from .utility_nodes import build_utility_nodes
 from .table_nodes import build_table_nodes
 from .values import MISSING, coerce_number, resolve_path
 from .trading_nodes import build_trading_nodes
@@ -1171,26 +1165,9 @@ def build_default_registry() -> NodeRegistry:
     # The agent node is a thin adapter over the existing run plane.
     for definition in build_agent_nodes():
         registry.register(definition)
-    # A skill node is a thin adapter over the existing SKILL runtime
-    # (`execute_skill`): same permissions, same version resolution.
-    for definition in build_skill_nodes():
-        registry.register(definition)
-    # One bounded structured model call each — no tools, no agent loop.
-    for definition in build_structured_agent_nodes():
-        registry.register(definition)
-    # Pure primitives (assert / fallback / extract) and the memory adapters.
-    for definition in build_utility_nodes():
-        registry.register(definition)
-    for definition in build_memory_nodes():
-        registry.register(definition)
-    # Committee run + the two output adapters (chart spec, channel notify).
-    for definition in build_team_nodes():
-        registry.register(definition)
-    for definition in build_output_nodes():
-        registry.register(definition)
-    # The human-approval gate (durable runs pause and re-check).
-    for definition in build_approval_nodes():
-        registry.register(definition)
+    # The adapter packs (skills, structured calls, primitives, memory, the
+    # committee run, outputs and the approval gate) live in `node_packs.py`.
+    register_extra_packs(registry)
     # Bounded loops (Phase 4): a body subworkflow + an explicit cap, never a
     # graph cycle.
     from .loop_nodes import build_loop_nodes  # noqa: PLC0415

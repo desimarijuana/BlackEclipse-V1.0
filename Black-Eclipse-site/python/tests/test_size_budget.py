@@ -149,7 +149,10 @@ RATCHET_PY: dict[str, int] = {
     # injection and a re-export remain here. May only shrink.
     # Re-pinned 2344->2355 for the per-run trade-surface narrowing seam (the
     # logic lives in `trading_intent.py`; only the call is here). May only shrink.
-    "graph.py": 2355,
+    # Re-pinned 2355->2370 to the measured tree: resolving user-authored
+    # `AgentPreset`s for scheduled/bot runs (the fallback in `_agent_config`).
+    # The preset logic lives in `agent_presets/`; only the fallback is here.
+    "graph.py": 2370,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
