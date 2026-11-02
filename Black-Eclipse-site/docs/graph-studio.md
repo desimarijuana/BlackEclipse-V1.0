@@ -885,12 +885,74 @@ engine: evidence, claims, citations, conflicts, coverage, deterministic claim
 verification and a Markdown report. They are local reads (`research.read` is
 granted to test runs) - no web request and no model call.
 
+The analysis pack (`research_analysis_nodes.py`, all pure `research.read`) adds
+the questions the raw reads cannot answer: `research.latest` resolves an exact
+run or the newest run matching a question; `research.sources` lists stored
+sources with domain/type/date filters and content/family dedupe;
+`research.gaps` names unanswered questions, rejected claims and uncited
+material claims; `research.freshness` applies the engine's fail-closed
+point-in-time rules and returns every rejection reason; `research.conflict_scan`
+runs the deterministic detector over evidence that was never scanned;
+`research.citation_audit` builds citations when none are wired and validates
+traceability; `research.supersession` exposes restatement/amendment chains;
+`research.quality` surfaces the engine's explainable quality score with its
+disclaimer; `research.entities` reads the evidence-anchored entity graph; and
+`research.claims_verify` verifies many claims at once. All of them may run in a
+test run. Conflict rows are normalized at the read boundary (legacy `OPEN` is
+`UNRESOLVED`, `DISMISSED` is `RESOLVED`) and `candidates` is decoded, so the
+nodes and the engine speak one vocabulary. `report` no longer fails without a
+run row: it emits an `UNAVAILABLE` answer from the stored rows and reports
+`runRow: false`.
+
+Two bounded local writes complete a cold-start graph:
+`research.start_run` creates the run row (question/objective/as-of) and is
+idempotent per question/objective, and `research.snapshot` freezes selected
+sections into the store's immutable snapshot table. Both declare
+`research.write`, which is not a test-run capability, so a test run is refused
+by the existing compiler gate.
+
+The network adapters reuse the same engine and bridge:
+`research.fetch_many` fetches 1-10 known URLs (search results) with bounded
+concurrency, content-hash dedupe and optional evidence persistence, and reports
+a failed URL as a row while an entirely failed batch is an explicit error;
+`research.scrape` collects table/record rows through the bridge's `web_collect`
+capability with no model; `research.extract_facts` runs the engine's
+model-assisted, span-validated fact extractor over fetched pages — a proposal
+that does not validate is a rejection note, never evidence; and
+`research.deep_dive` invokes the existing `ResearchEngine` end to end with its
+own budget caps and a hard timeout, returning the run id so the local read
+nodes can inspect it. All are network effects (except `extract_facts`, a model
+effect) and are refused in a test run.
+
+External research can be brought into the same store with
+`research.ingest`: it normalizes an `agent.research` blob, an MCP tool result or
+a manual claim set into `Evidence`/`Claim`/`Source` rows, keeping the origin and
+`eclipseVerified: false` on every row. It never verifies a claim and never copies
+an external answer as the run's answer; a later `research.claim_verify` is the
+deterministic local check. `research.diff` compares two runs answering the same
+question (snapshots preferred when present): evidence added/removed by content
+hash, claim-status changes, opened/resolved conflicts, source changes and
+coverage deltas. Runs answering different questions are refused as
+incomparable rather than loosely diffed. `research.queries` closes the loop: it
+turns a question, the named gaps and weak claims into concrete search queries
+(including a disconfirming query per weak claim and an optional primary-source
+`site:` query) with no store, network or model, so the plan is inspectable and
+reproducible before any search runs. The `Research brief` starter template wires
+the read path end to end: stored run → evidence → conflict scan → citation
+audit → report.
+
 The live half reuses the same engine instead of inventing a second web path:
 `research.web_search` calls the configured search-provider chain (results are
 pointers, never evidence) and `research.web_fetch` fetches one page through the
 SSRF-hardened `web_fetch` bridge capability and returns its extracted text. When
 `web_fetch` has a `researchId`, it saves the same `Evidence` the `web_extract`
 tool saves, so a graph can search, fetch, then verify with the local nodes.
+Search over-fetches, then applies the domain filters and URL dedupe, so the
+requested count is not silently reduced; crawl reports
+`linkDiscovery: "failed"` instead of pretending a page had no links.
+`research.claim_verify` now applies the run's conflicts plus `asOf`/`freshness`
+(the same rules the engine uses), and with no wired ids it falls back to the
+claim's recorded evidence links.
 Both are declared `network` side effects: a test run refuses them and an
 operator run must explicitly confirm network access. They depend on the app's
 data bridge (`context.callbackBaseUrl`), so a headless runtime with no front
@@ -932,7 +994,11 @@ a `logic.condition` branches on a boolean instead of string comparing `status`.
 PAPER book, emitting its positions as rows so they can feed a risk check.
 `trading.broker_close` closes one ticket (full or partial), a
 whole symbol, or everything; `broker_modify` and `broker_cancel` move a bracket
-or cancel a working order. They are risk-reducing, so they carry no mandate,
+or cancel a working order. `trading.broker_modify_order` re-prices a **working**
+order (keeping its type/time/expiration, read back as `verified`) and
+`trading.broker_symbol` returns static symbol facts with no tick required — trade
+mode, contract size, volume limits, stops/freeze levels — so a closed market is
+still answerable. All of these are risk-reducing or reads: they carry no mandate,
 approval or live arm — but they still require a pinned `connectionId`.
 
 **Building and dry-running an order.** `trading.order_intent` builds the validated
@@ -949,14 +1015,28 @@ check ran; `allowed` means the order would pass. `trading.broker_order` with
 the symbol step and capped at its maximum), `trading.bracket` (ATR × multiple or
 an explicit stop distance → direction-aware SL/TP with reward:risk),
 `trading.spread_guard` (a trade passes only while the broker's spread is within
-the cap) and `trading.session_filter` (broker `tradeMode` + an explicit UTC clock
-window; the window is Eclipse's filter, not the broker's session calendar).
-Three risk-reducing management nodes need no arm, approval or mandate:
-`trading.break_even` (moves the stop to entry after `triggerR` of profit measured
-from the position's own stop), `trading.trail_stop` (tightens only, never widens)
-and `trading.partial_close` (a fraction or explicit volume, floored to the symbol
-step when a quote is wired). Each reports `moved`/`closed` plus `ok` and the
+the cap) and `trading.session_filter` (broker `tradeMode` plus the broker's own
+`sessionDeals` in server time when the terminal reports them, otherwise an
+explicit UTC window; `basis` says which). Three risk-reducing management nodes
+need no arm, approval or mandate: `trading.break_even` (moves the stop to entry
+after `triggerR` of profit measured from the position's own stop),
+`trading.trail_stop` (tightens only, never widens) and `trading.partial_close`
+(a fraction or explicit volume, floored to the symbol step from a wired quote or
+the broker's own `symbol_info`). Each reports `moved`/`closed` plus `ok` and the
 broker's refusal reason.
+
+**Lifecycle and reliability.** `trading.await_fill` polls the ledger to a terminal
+state or a deadline (`timedOut` = still working, not an error). `trading.reconcile`
+refreshes the durable broker mirror; `trading.drift_check` reports in-flight ledger
+orders with no broker match, broker positions the ledger never recorded, and a
+mirror older than `maxAgeSeconds` — `syncFirst` refreshes the mirror first (the
+broker stays authoritative) and remaining drift is only reported. Both
+`trading.broker_order` and `trading.paper_order` take
+`dedupe: none | key | day`: the claim is recorded before the send, so a scheduled
+graph that fires twice sends once and a skipped run returns `status: "SKIPPED"` with
+`skipped: true`. `trading.paper_valuation` marks the PAPER book to prices the graph
+supplies (equity, market value, unrealized/total PnL); a symbol with no price is
+listed in `unpriced`, never valued at zero.
 
 `trading.broker_order` is the demo-broker adapter added in P3. It takes an
 `intent` plus a `connectionId` and `mandateId`, runs only in PAPER mode, and calls

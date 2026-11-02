@@ -20,7 +20,7 @@ claim about the broker's session calendar (the adapter does not expose one).
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .model import ExecutionMode, PortDef, PortType, SideEffect
@@ -253,6 +253,14 @@ def _parse_when(raw: Any) -> datetime:
     return moment.astimezone(timezone.utc)
 
 
+def _in_minute_window(minute: int, start: int, end: int) -> bool:
+    if start == end:
+        return True  # a full-day session
+    if start < end:
+        return start <= minute < end
+    return minute >= start or minute < end  # wraps over midnight
+
+
 def session_state(
     moment: datetime,
     *,
@@ -261,24 +269,50 @@ def session_state(
     weekdays: str,
     trade_mode: str = "",
     side: str = "",
+    sessions: list[dict[str, Any]] | None = None,
+    server_offset_minutes: float = 0.0,
 ) -> tuple[bool, str]:
-    """The pure decision behind `trading.session_filter` (exposed for tests)."""
-    allowed_days = {
-        item.strip().lower()[:3] for item in str(weekdays or "").split(",") if item.strip()
-    }
-    if allowed_days and moment.strftime("%a").lower()[:3] not in allowed_days:
-        return False, f"{moment.strftime('%A')} is outside the configured weekdays"
-    start_minute = _minutes(start)
-    end_minute = _minutes(end)
-    if start_minute != end_minute:
-        minute = moment.hour * 60 + moment.minute
-        inside = (
-            start_minute <= minute < end_minute
-            if start_minute < end_minute
-            else (minute >= start_minute or minute < end_minute)
-        )
+    """The pure decision behind `trading.session_filter` (exposed for tests).
+
+    With broker `sessions`, the calendar comes from the broker (evaluated in the
+    broker's server time via `server_offset_minutes`) and the configured UTC
+    window is not used. Without them, the UTC window and weekday list apply.
+    """
+    if sessions:
+        server = moment + timedelta(minutes=float(server_offset_minutes or 0))
+        minute = server.hour * 60 + server.minute
+        inside = False
+        for item in sessions:
+            if not isinstance(item, dict):
+                continue
+            try:
+                day = int(item.get("day"))
+                opens = _minutes(str(item.get("from") or ""))
+                closes = _minutes(str(item.get("to") or ""))
+            except (TypeError, ValueError):
+                continue
+            if day == server.weekday() and _in_minute_window(minute, opens, closes):
+                inside = True
+                break
         if not inside:
-            return False, f"{moment.strftime('%H:%M')}Z is outside the {start}-{end}Z window"
+            return False, (
+                f"{server.strftime('%a %H:%M')} server time is outside the "
+                f"broker's {server.strftime('%A')} trade sessions"
+            )
+    else:
+        allowed_days = {
+            item.strip().lower()[:3] for item in str(weekdays or "").split(",") if item.strip()
+        }
+        if allowed_days and moment.strftime("%a").lower()[:3] not in allowed_days:
+            return False, f"{moment.strftime('%A')} is outside the configured weekdays"
+        start_minute = _minutes(start)
+        end_minute = _minutes(end)
+        if start_minute != end_minute:
+            minute = moment.hour * 60 + moment.minute
+            if not _in_minute_window(minute, start_minute, end_minute):
+                return False, (
+                    f"{moment.strftime('%H:%M')}Z is outside the {start}-{end}Z window"
+                )
 
     mode = str(trade_mode or "").strip().lower()
     if mode == "disabled":
@@ -294,16 +328,38 @@ def session_state(
     return True, ""
 
 
+def _session_rows(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, dict)]
+
+
+def _server_offset(context: NodeExecContext, moment: datetime, quote: dict[str, Any]) -> float:
+    """Minutes the broker's server clock is ahead of UTC.
+
+    A wired quote carries the broker's own server timestamp, so the offset is
+    measured from it (rounded to the minute). Without one, the explicit config
+    value is used — it is never inferred from the local clock.
+    """
+    server_ms = quote.get("serverTimeMs")
+    if isinstance(server_ms, (int, float)) and not isinstance(server_ms, bool) and server_ms > 0:
+        return round((float(server_ms) / 1000.0 - moment.timestamp()) / 60.0)
+    return float(context.config.get("serverOffsetMinutes", 0.0) or 0.0)
+
+
 def exec_session_filter(context: NodeExecContext) -> dict[str, Any]:
-    """Combine the broker's trade mode with an explicit UTC clock window."""
+    """Combine the broker's trade mode and sessions with an explicit clock window."""
     quote = _payload(context.inputs.get("quote"))
+    facts = _payload(context.inputs.get("symbolInfo"))
     side = str(
         context.inputs.get("side") or context.config.get("side") or ""
     ).strip().lower()
     if side and side not in ("buy", "sell"):
         raise ValueError("side must be buy or sell when set")
     moment = _parse_when(context.inputs.get("time") or context.config.get("time"))
-    trade_mode = str(quote.get("tradeMode") or "")
+    trade_mode = str(facts.get("tradeMode") or quote.get("tradeMode") or "")
+    sessions = _session_rows(facts.get("sessionDeals")) if facts.get("sessionsAvailable") else []
+    offset = _server_offset(context, moment, quote) if sessions else 0.0
     open_now, reason = session_state(
         moment,
         start=str(context.config.get("startUtc") or "00:00"),
@@ -311,14 +367,19 @@ def exec_session_filter(context: NodeExecContext) -> dict[str, Any]:
         weekdays=str(context.config.get("weekdays") or "mon,tue,wed,thu,fri,sat,sun"),
         trade_mode=trade_mode,
         side=side,
+        sessions=sessions,
+        server_offset_minutes=offset,
     )
+    basis = "brokerSession" if sessions else "clockWindow"
     context.emit(
         f"session {moment.strftime('%a %H:%M')}Z: "
         + ("open" if open_now else f"closed ({reason})")
+        + f" [{basis}]"
     )
     return {
         "open": open_now,
         "tradeMode": trade_mode,
+        "basis": basis,
         "ok": True,
         "reason": reason,
     }
@@ -438,12 +499,14 @@ def build_calc_nodes() -> list[NodeDef]:
             category="trading",
             inputs=(
                 PortDef(id="quote", name="Broker quote", type=PortType.OBJECT, optional=True),
+                PortDef(id="symbolInfo", name="Broker symbol facts", type=PortType.OBJECT, optional=True),
                 PortDef(id="side", name="Side", type=PortType.STRING, optional=True),
                 PortDef(id="time", name="Time (ISO, UTC)", type=PortType.DATETIME, optional=True),
             ),
             outputs=(
                 PortDef(id="open", name="Open", type=PortType.BOOLEAN),
                 PortDef(id="tradeMode", name="Broker trade mode", type=PortType.STRING),
+                PortDef(id="basis", name="Calendar basis", type=PortType.STRING),
                 PortDef(id="ok", name="OK", type=PortType.BOOLEAN),
                 PortDef(id="reason", name="Reason", type=PortType.STRING),
             ),
@@ -454,6 +517,7 @@ def build_calc_nodes() -> list[NodeDef]:
                     "weekdays", "string", "mon,tue,wed,thu,fri,sat,sun", max_length=40,
                 ),
                 ConfigField("side", "enum", "", enum=("", "buy", "sell")),
+                ConfigField("serverOffsetMinutes", "number", 0.0, minimum=-1_440.0, maximum=1_440.0),
             ),
             capabilities=("trading.guard",),
             side_effects=SideEffect.NONE,
@@ -461,12 +525,15 @@ def build_calc_nodes() -> list[NodeDef]:
             executor=exec_session_filter,
             metadata={
                 "docs": (
-                    "Open only inside the UTC window (start == end means all day) and "
-                    "on the configured weekdays, plus the broker's own tradeMode from "
-                    "a wired broker_quote (disabled / close_only / long_only / "
-                    "short_only / unknown all block). The window is Eclipse's clock "
-                    "filter — the adapter exposes no session calendar, so this does "
-                    "not claim to know the broker's holiday schedule."
+                    "Open only when the broker's own trade SESSIONS say so (a wired "
+                    "broker_symbol carrying `sessionDeals`; evaluated in server time "
+                    "using the quote's server clock, or `serverOffsetMinutes`), or — "
+                    "when the terminal reports no sessions — inside the configured "
+                    "UTC window and weekdays. The broker's tradeMode always applies "
+                    "(disabled / close_only / long_only / short_only / unknown block). "
+                    "`basis` says which calendar was used. No holiday schedule is "
+                    "invented: MetaTrader's Python API does not reliably expose "
+                    "sessions, and an empty table falls back to the window."
                 ),
             },
         ),

@@ -88,26 +88,65 @@ def _matches(evidence: dict[str, Any], query: str) -> bool:
         return True
     haystack = " ".join([
         str(evidence.get("claimText") or ""),
-        str(evidence.get("rawText") or ""),
+        str(evidence.get("rawText") or "")[:20_000],
         str(evidence.get("sourceUrl") or ""),
-        json.dumps(evidence.get("structuredValue"), sort_keys=True, default=str),
+        json.dumps(evidence.get("structuredValue"), sort_keys=True, default=str)[:20_000],
     ]).lower()
     return query.lower() in haystack
+
+
+# Legacy conflict rows predate the engine's two-status vocabulary. Normalize at
+# the READ boundary so every node (and the report) speaks the same language as
+# `web_verify.detect_conflicts`.
+_CONFLICT_STATUS = {
+    "OPEN": "UNRESOLVED",
+    "UNRESOLVED": "UNRESOLVED",
+    "MATERIAL": "UNRESOLVED",
+    "RESOLVED": "RESOLVED",
+    "DISMISSED": "RESOLVED",
+    "EXPLAINED": "EXPLAINED",
+    "NON_MATERIAL": "EXPLAINED",
+}
+
+
+def _conflict_status(value: Any) -> str:
+    return _CONFLICT_STATUS.get(str(value or "").strip().upper(), "UNRESOLVED")
+
+
+def _conflict_rows(store: Any, research_id: str) -> list[dict[str, Any]]:
+    """Read conflicts with a normalized status and a decoded candidate list."""
+    rows: list[dict[str, Any]] = []
+    for row in store.list_conflicts(research_id):
+        data = dict(row)
+        data["status"] = _conflict_status(data.get("status"))
+        data["material"] = bool(data.get("material", True))
+        candidates = data.get("candidates")
+        if isinstance(candidates, str):
+            try:
+                candidates = json.loads(candidates)
+            except (TypeError, ValueError):
+                candidates = []
+        data["candidates"] = candidates if isinstance(candidates, list) else []
+        rows.append(data)
+    return rows
 
 
 def exec_evidence(context: NodeExecContext) -> dict[str, Any]:
     store = _require_store()
     research_id = _research_id(context)
     query = str(context.config.get("query") or "").strip()
-    rows = [row for row in store.list_evidence(research_id) if _matches(row, query)]
-    rows = rows[: _limit(context)]
-    context.emit(f"{len(rows)} evidence item(s) for {research_id}")
+    matched = [row for row in store.list_evidence(research_id) if _matches(row, query)]
+    rows = matched[: _limit(context)]
+    context.emit(f"{len(rows)}/{len(matched)} evidence item(s) for {research_id}")
     return {
         "evidence": rows,
         "summary": {
             "researchId": research_id,
             "query": query,
             "count": len(rows),
+            "total": len(matched),
+            "truncated": len(rows) < len(matched),
+            "status": "EMPTY" if not matched else "OK",
         },
     }
 
@@ -115,23 +154,115 @@ def exec_evidence(context: NodeExecContext) -> dict[str, Any]:
 def exec_citations(context: NodeExecContext) -> dict[str, Any]:
     store = _require_store()
     research_id = _research_id(context)
-    citations = store.list_citations(research_id)[: _limit(context)]
-    claims = store.list_claims(research_id)[: _limit(context)]
-    return {"citations": citations, "claims": claims}
+    limit = _limit(context)
+    all_citations = store.list_citations(research_id)
+    all_claims = store.list_claims(research_id)
+    return {
+        "citations": all_citations[:limit],
+        "claims": all_claims[:limit],
+        "summary": {
+            "researchId": research_id,
+            "citations": len(all_citations),
+            "claims": len(all_claims),
+            "returned": len(all_citations[:limit]) + len(all_claims[:limit]),
+            "truncated": len(all_citations) > limit or len(all_claims) > limit,
+            "status": "OK",
+        },
+    }
 
 
 def exec_conflicts(context: NodeExecContext) -> dict[str, Any]:
     store = _require_store()
     research_id = _research_id(context)
-    conflicts = store.list_conflicts(research_id)[: _limit(context)]
-    return {"conflicts": conflicts}
+    rows = _conflict_rows(store, research_id)
+    limit = _limit(context)
+    unresolved = [row for row in rows if row["status"] == "UNRESOLVED" and row["material"]]
+    return {
+        "conflicts": rows[:limit],
+        "summary": {
+            "researchId": research_id,
+            "count": len(rows[:limit]),
+            "total": len(rows),
+            "unresolved": len(unresolved),
+            "truncated": len(rows) > limit,
+            "status": "OK",
+        },
+    }
+
+
+def _gaps(
+    store: Any,
+    research_id: str,
+    *,
+    include_optional: bool = False,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """What is still missing, in the same terms the engine uses.
+
+    A gap is a named, actionable absence — never a guessed value. `question`
+    gaps come from the mandate's required questions; `claim` gaps are claims the
+    verifier rejected; `citation` gaps are supported material claims with no
+    citation row. With no run data at all there is one `evidence` gap.
+    """
+    questions = store.list_questions(research_id)
+    claims = store.list_claims(research_id)
+    citations = store.list_citations(research_id)
+    evidence = store.list_evidence(research_id)
+    gaps: list[dict[str, Any]] = []
+
+    if not evidence and not claims and not questions:
+        gaps.append({
+            "kind": "evidence",
+            "reason": "no evidence has been recorded for this research run",
+        })
+
+    for question in questions:
+        if question.get("answered"):
+            continue
+        if not question.get("required") and not include_optional:
+            continue
+        gaps.append({
+            "kind": "question",
+            "id": question.get("id"),
+            "text": question.get("question"),
+            "intent": question.get("intent"),
+            "reason": "required question is unanswered" if question.get("required")
+            else "optional question is unanswered",
+        })
+
+    cited_claims = {
+        str(row.get("claimId")) for row in citations if row.get("claimId")
+    }
+    for claim in claims:
+        status = str(claim.get("status") or "").upper()
+        if status in ("UNSUPPORTED", "CONTRADICTED", "OUTDATED"):
+            gaps.append({
+                "kind": "claim",
+                "id": claim.get("id"),
+                "text": claim.get("text"),
+                "status": status,
+                "reason": f"claim is {status.lower()}",
+            })
+        elif (
+            str(claim.get("kind") or "FACT").upper() in ("FACT", "CALCULATION")
+            and claim.get("id")
+            and str(claim.get("id")) not in cited_claims
+            and status not in ("CALCULATED",)
+        ):
+            gaps.append({
+                "kind": "citation",
+                "id": claim.get("id"),
+                "text": claim.get("text"),
+                "reason": "material claim has no citation",
+            })
+    return gaps[:limit]
 
 
 def _summary(store: Any, research_id: str) -> dict[str, Any]:
     evidence = store.list_evidence(research_id)
     claims = store.list_claims(research_id)
     citations = store.list_citations(research_id)
-    conflicts = store.list_conflicts(research_id)
+    conflicts = _conflict_rows(store, research_id)
     questions = store.list_questions(research_id)
     supported = [
         claim for claim in claims
@@ -139,93 +270,145 @@ def _summary(store: Any, research_id: str) -> dict[str, Any]:
     ]
     unresolved = [
         conflict for conflict in conflicts
-        if str(conflict.get("status") or "").upper() not in ("RESOLVED", "DISMISSED")
+        if conflict["status"] == "UNRESOLVED" and conflict["material"]
     ]
     required = [question for question in questions if question.get("required")]
     answered = [question for question in required if question.get("answered")]
-    coverage = (len(answered) / len(required)) if required else (1.0 if evidence else 0.0)
+    if required:
+        coverage = len(answered) / len(required)
+    else:
+        # With no mandate questions, coverage is what the graph can actually
+        # prove: claims supported by evidence. No evidence/no claims is 0, not 1.
+        coverage = 0.0 if not evidence else ((len(supported) / len(claims)) if claims else 0.0)
     claim_support = (len(supported) / len(claims)) if claims else 0.0
+    cited = {str(row.get("claimId")) for row in citations if row.get("claimId")}
+    uncited = [
+        claim for claim in claims
+        if str(claim.get("kind") or "FACT").upper() in ("FACT", "CALCULATION")
+        and str(claim.get("id") or "") not in cited
+    ]
+    gaps = _gaps(store, research_id)
     if not evidence:
         status = "EMPTY"
+        verdict = "INSUFFICIENT"
     elif unresolved or (claims and len(supported) < len(claims)) or coverage < 1:
         status = "PARTIAL"
+        verdict = "PARTIAL"
+    elif not claims:
+        status = "PARTIAL"
+        verdict = "INSUFFICIENT"
     else:
         status = "COMPLETE"
+        verdict = "COMPLETE"
     return {
         "researchId": research_id,
         "status": status,
+        "verdict": verdict,
         "evidence": len(evidence),
         "claims": len(claims),
         "supportedClaims": len(supported),
         "claimSupport": round(claim_support, 4),
         "citations": len(citations),
+        "uncitedClaims": len(uncited),
         "conflicts": len(conflicts),
         "unresolvedConflicts": len(unresolved),
         "questions": len(questions),
         "answeredQuestions": len(answered),
         "questionCoverage": round(coverage, 4),
+        "gaps": gaps,
     }
 
 
 def exec_completeness(context: NodeExecContext) -> dict[str, Any]:
     store = _require_store()
-    summary = _summary(store, _research_id(context))
+    research_id = _research_id(context)
+    summary = _summary(store, research_id)
+    summary["runRow"] = store.get_run(research_id) is not None
     return {"summary": summary}
+
+
+def _md_text(value: Any) -> str:
+    """Neutralize raw HTML in untrusted page/claim text; keep the Markdown."""
+    return str(value or "").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def exec_report(context: NodeExecContext) -> dict[str, Any]:
     store = _require_store()
     research_id = _research_id(context)
+    try:
+        max_items = int(context.config.get("maxItems", 50))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("maxItems must be a whole number") from exc
+    max_items = max(1, min(max_items, MAX_ITEMS))
     run = store.get_run(research_id)
-    if run is None:
-        raise ValueError(f"research run {research_id!r} was not found")
+    run_row = run is not None
     summary = _summary(store, research_id)
-    claims = store.list_claims(research_id)[:20]
-    citations = store.list_citations(research_id)[:20]
-    conflicts = store.list_conflicts(research_id)[:20]
-    evidence = store.list_evidence(research_id)[:20]
+    claims = store.list_claims(research_id)[:max_items]
+    citations = store.list_citations(research_id)[:max_items]
+    conflicts = _conflict_rows(store, research_id)[:max_items]
+    evidence = store.list_evidence(research_id)[:max_items]
+    sources = store.list_sources(research_id)[:max_items]
 
+    question = (run or {}).get("question") or research_id
+    answer = (run or {}).get("answer")
     lines = [
-        f"# {run.get('question') or research_id}",
+        f"# {_md_text(question)}",
         "",
-        str(run.get("answer") or "_No synthesized answer was recorded._"),
+        _md_text(answer) if answer else "UNAVAILABLE — no synthesized answer was recorded.",
         "",
         f"_Evidence: {summary['evidence']} · Claims: {summary['claims']} · "
-        f"Citations: {summary['citations']} · Conflicts: {summary['unresolvedConflicts']} unresolved_",
+        f"Citations: {summary['citations']} · "
+        f"Conflicts: {summary['unresolvedConflicts']} unresolved · "
+        f"Verdict: {summary['verdict']}_",
         "",
     ]
     if claims:
         lines.append("## Claims")
         for claim in claims:
             lines.append(
-                f"- [{claim.get('status') or 'UNKNOWN'}] {claim.get('text') or ''} "
+                f"- [{claim.get('status') or 'UNKNOWN'}] {_md_text(claim.get('text'))} "
                 f"(confidence {claim.get('confidence')})"
             )
         lines.append("")
     if citations:
         lines.append("## Citations")
-        for citation in citations:
-            title = citation.get("title") or citation.get("sourceUrl") or "source"
-            locator = citation.get("locator") or citation.get("section") or ""
+        for index, citation in enumerate(citations, start=1):
+            title = _md_text(citation.get("title") or citation.get("sourceUrl") or "source")
+            locator = _md_text(citation.get("locator") or citation.get("section") or "")
             page = f" p.{citation['page']}" if citation.get("page") else ""
-            lines.append(f"- {title} — {citation.get('sourceUrl') or ''}{page} {locator}".rstrip())
+            lines.append(f"- [{index}] {title} — {_md_text(citation.get('sourceUrl') or '')}{page} {locator}".rstrip())
         lines.append("")
     if conflicts:
         lines.append("## Conflicts")
         for conflict in conflicts:
             lines.append(
                 f"- [{conflict.get('status') or 'UNKNOWN'}] "
-                f"{conflict.get('metric') or 'metric'} {conflict.get('period') or ''}: "
-                f"{conflict.get('explanation') or ''}"
+                f"{_md_text(conflict.get('metric') or 'metric')} "
+                f"{_md_text(conflict.get('period') or '')}: "
+                f"{_md_text(conflict.get('explanation') or '')}"
             )
+        lines.append("")
+    gaps = summary.get("gaps") or []
+    if gaps:
+        lines.append("## Gaps")
+        for gap in gaps[:max_items]:
+            label = gap.get("text") or gap.get("reason") or gap.get("kind")
+            lines.append(f"- [{gap.get('kind')}] {_md_text(label)} — {_md_text(gap.get('reason'))}")
+        lines.append("")
+    if sources:
+        lines.append("## Sources")
+        for source in sources:
+            title = _md_text(source.get("publisher") or source.get("canonicalUrl") or "source")
+            published = f" · published {source['publishedAt']}" if source.get("publishedAt") else ""
+            lines.append(f"- {title} — {_md_text(source.get('canonicalUrl') or '')}{published}")
         lines.append("")
     if evidence:
         lines.append("## Evidence")
         for item in evidence:
             text = item.get("claimText") or item.get("rawText") or ""
-            lines.append(f"- {str(text)[:400]} ({item.get('sourceUrl') or 'source'})")
+            lines.append(f"- {_md_text(str(text)[:400])} ({_md_text(item.get('sourceUrl') or 'source')})")
     report = "\n".join(lines).strip() + "\n"
-    return {"report": report, "summary": summary}
+    return {"report": report, "summary": {**summary, "runRow": run_row}}
 
 
 def _run_async(coro: Any) -> Any:
@@ -271,17 +454,52 @@ def exec_web_search(context: NodeExecContext) -> dict[str, Any]:
     )
     include = _string_list(context.config.get("domains"), name="domains")
     exclude = _string_list(context.config.get("excludeDomains"), name="excludeDomains")
+    provider = str(context.config.get("provider") or "").strip()
+    research_id = str(
+        context.inputs.get("researchId") or context.config.get("researchId") or ""
+    ).strip()
+    save_sources = bool(context.config.get("saveSources", False)) and bool(research_id)
+    store = _require_store() if save_sources else None
 
     registry = build_default_registry(_bridge_for(context))
-    response = _run_async(registry.search(query, kind="web", limit=limit))
+    # Ask for more than `limit`, then filter and dedupe. Filtering AFTER the
+    # provider's limit silently returned fewer results than the operator asked
+    # for whenever a domain filter was set.
+    request_limit = min(MAX_SEARCH_RESULTS, max(limit, limit * 3))
+    response = _run_async(registry.search(
+        query, kind="web", limit=request_limit,
+        preference=provider or None,
+    ))
     results = []
+    seen: set[str] = set()
+    saved = 0
     for result in response.results:
         domain = str(getattr(result, "domain", "") or "").lower()
         if include and not any(domain.endswith(d) for d in (d.lower() for d in include)):
             continue
         if exclude and any(domain.endswith(d) for d in (d.lower() for d in exclude)):
             continue
-        results.append(result.model_dump())
+        url = str(getattr(result, "url", "") or "").strip()
+        if url and url in seen:
+            continue
+        if url:
+            seen.add(url)
+        payload = result.model_dump()
+        results.append(payload)
+        if save_sources and store is not None and url:
+            try:
+                from ..research.web_sources import make_source  # noqa: PLC0415
+
+                source = make_source(
+                    url,
+                    title=payload.get("title"),
+                ).model_dump()
+                store.save_source(source, research_id=research_id)
+                saved += 1
+            except Exception:  # noqa: BLE001 - saving a pointer must not fail the search
+                saved = saved
+        if len(results) >= limit:
+            break
     context.emit(
         f"{len(results)} result(s) for {query!r} via {response.provider or 'search'}"
     )
@@ -292,8 +510,14 @@ def exec_web_search(context: NodeExecContext) -> dict[str, Any]:
             "status": response.status,
             "provider": response.provider,
             "count": len(results),
+            "requested": limit,
+            "providerResults": len(response.results),
+            "filtered": len(response.results) - len(results),
+            "truncated": len(results) < len(response.results),
             "domains": include,
             "excludeDomains": exclude,
+            "providerPreference": provider or None,
+            "savedSources": saved,
             "diagnostics": response.diagnostics,
             "error": response.error,
             "note": "Search results are pointers, not evidence; fetch a page before citing it.",
@@ -377,17 +601,21 @@ def exec_web_fetch(context: NodeExecContext) -> dict[str, Any]:
     return {"text": text, "page": page}
 
 
-def _page_links(context: NodeExecContext, url: str) -> list[str]:
-    """Links from ONE page through the bridge's deterministic collector."""
+def _page_links(context: NodeExecContext, url: str) -> tuple[list[str], bool]:
+    """Links from ONE page through the bridge's deterministic collector.
+
+    Returns `(links, ok)`. `ok` is False when the collector was unavailable, so
+    a caller can distinguish "no links on this page" from "discovery failed".
+    """
     try:
         payload = _run_async(_bridge_for(context).fetch("web_collect", {
             "url": url, "selector": "a", "attribute": "href", "maxRows": 50,
         }))
     except Exception:  # noqa: BLE001 - link discovery is best-effort
-        return []
+        return [], False
     rows = payload.get("rows") if isinstance(payload, dict) else None
     if not isinstance(rows, list):
-        return []
+        return [], False
     links: list[str] = []
     for row in rows:
         value = row.get("href") if isinstance(row, dict) else row
@@ -398,7 +626,7 @@ def _page_links(context: NodeExecContext, url: str) -> list[str]:
         if parts.scheme not in ("http", "https") or not parts.hostname:
             continue
         links.append(absolute.split("#", 1)[0])
-    return links
+    return links, True
 
 
 def exec_web_crawl(context: NodeExecContext) -> dict[str, Any]:
@@ -421,17 +649,24 @@ def exec_web_crawl(context: NodeExecContext) -> dict[str, Any]:
         default=4_000, low=500, high=MAX_FETCH_CHARS,
     )
     same_domain = bool(context.config.get("sameDomain", True))
+    max_depth = _bounded_int(
+        context.config.get("maxDepth"), name="maxDepth", default=2, low=0, high=2,
+    )
+    delay_ms = _bounded_int(
+        context.config.get("delayMs"), name="delayMs", default=0, low=0, high=2_000,
+    )
     start_host = (urlsplit(start).hostname or "").lower()
     if not start_host:
         raise ValueError("url must be an absolute http(s) URL")
     bridge = _bridge_for(context)
-    queue: list[str] = [start]
+    queue: list[tuple[str, int]] = [(start, 0)]
     seen: set[str] = {start}
     pages: list[dict[str, Any]] = []
     failures = 0
+    link_failures = 0
 
     while queue and len(pages) < max_pages:
-        current = queue.pop(0)
+        current, depth = queue.pop(0)
         result = _run_async(fetch(current, bridge=bridge))
         if not result.ok or not result.text:
             failures += 1
@@ -440,28 +675,37 @@ def exec_web_crawl(context: NodeExecContext) -> dict[str, Any]:
                 "error": result.error or "empty content", "title": result.title,
             })
             continue
-        links = _page_links(context, result.url)
+        links, link_ok = _page_links(context, result.url)
+        if not link_ok:
+            link_failures += 1
         allowed: list[str] = []
-        for link in links:
-            host = (urlsplit(link).hostname or "").lower()
-            if not host or (same_domain and host != start_host):
-                continue
-            if link in seen:
-                continue
-            seen.add(link)
-            allowed.append(link)
-            if len(seen) >= max_pages * 5:
-                break
-        queue.extend(allowed[: max_pages * 2])
+        if depth < max_depth:
+            for link in links:
+                host = (urlsplit(link).hostname or "").lower()
+                if not host or (same_domain and host != start_host):
+                    continue
+                if link in seen:
+                    continue
+                seen.add(link)
+                allowed.append(link)
+                if len(seen) >= max_pages * 5:
+                    break
+        queue.extend((link, depth + 1) for link in allowed[: max_pages * 2])
         pages.append({
             "url": result.url,
             "title": result.title,
             "status": "OK",
+            "depth": depth,
             "text": result.text[:max_chars],
             "truncated": len(result.text) > max_chars,
             "contentHash": result.contentHash,
+            "linkDiscovery": "ok" if link_ok else "failed",
             "links": allowed[:20],
         })
+        if delay_ms and queue and len(pages) < max_pages:
+            import time  # noqa: PLC0415
+
+            time.sleep(delay_ms / 1000.0)
 
     fetched = [page for page in pages if page.get("status") == "OK"]
     if not fetched:
@@ -476,8 +720,11 @@ def exec_web_crawl(context: NodeExecContext) -> dict[str, Any]:
             "startUrl": start,
             "sameDomain": same_domain,
             "requestedPages": max_pages,
+            "maxDepth": max_depth,
+            "delayMs": delay_ms,
             "fetched": len(fetched),
             "failed": failures,
+            "linkDiscoveryFailed": link_failures,
             "status": "OK" if failures == 0 else "PARTIAL",
         },
     }
@@ -485,7 +732,7 @@ def exec_web_crawl(context: NodeExecContext) -> dict[str, Any]:
 
 def exec_claim_verify(context: NodeExecContext) -> dict[str, Any]:
     """Verify ONE claim against stored evidence with the existing verifier."""
-    from ..research.web_contracts import Claim, Evidence  # noqa: PLC0415
+    from ..research.web_contracts import Claim, Evidence, SourceConflict  # noqa: PLC0415
     from ..research.web_verify import verify_claim  # noqa: PLC0415
 
     store = _require_store()
@@ -502,6 +749,22 @@ def exec_claim_verify(context: NodeExecContext) -> dict[str, Any]:
         name="evidenceIds",
     )
     if not evidence_ids:
+        # Fall back to the links the run already recorded for this exact claim
+        # text. This is the same relationship the engine persisted; nothing is
+        # inferred from prose alone.
+        wanted = text.strip().lower()
+        match = next(
+            (row for row in store.list_claims(research_id)
+             if str(row.get("text") or "").strip().lower() == wanted),
+            None,
+        )
+        if match is not None and match.get("id"):
+            evidence_ids = [
+                str(row.get("evidenceId"))
+                for row in store.list_claim_evidence(str(match["id"]))
+                if row.get("evidenceId")
+            ]
+    if not evidence_ids:
         raise ValueError("evidenceIds is required: name at least one evidence id")
 
     rows = {
@@ -512,14 +775,18 @@ def exec_claim_verify(context: NodeExecContext) -> dict[str, Any]:
     missing = [eid for eid in evidence_ids if eid not in rows]
     if missing:
         raise ValueError(f"unknown evidence id(s) for {research_id}: {', '.join(missing)}")
+    conflicts = [SourceConflict(**row) for row in _conflict_rows(store, research_id)]
     claim = verify_claim(
         Claim(text=text, evidenceIds=evidence_ids),
         {eid: Evidence(**rows[eid]) for eid in evidence_ids},
+        conflicts=conflicts,
+        as_of=str(context.config.get("asOf") or "") or None,
+        freshness=str(context.config.get("freshness") or "") or None,
     )
     context.emit(f"claim status {claim.status} (confidence {claim.confidence})")
     return {
         "claim": claim.model_dump(),
-        "supported": claim.status == "SUPPORTED",
+        "supported": claim.status in ("SUPPORTED", "CALCULATED"),
         "status": claim.status,
     }
 
@@ -551,6 +818,35 @@ def _number(value: Any) -> Optional[float]:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return max(0.0, min(float(value), 1.0))
+
+
+_AUTHORITY_SIGNAL = {
+    "official_filing": (1.0, "primary filing"),
+    "government": (1.0, "government source"),
+    "regulator": (1.0, "regulator source"),
+    "investor_relations": (0.9, "investor-relations source"),
+    "company": (0.7, "company source"),
+    "financial_data": (0.7, "financial-data source"),
+    "academic": (0.7, "academic source"),
+    "news": (0.5, "news source"),
+    "industry": (0.5, "industry source"),
+    "analyst": (0.5, "analyst source"),
+    "documentation": (0.5, "documentation source"),
+    "blog": (0.2, "blog source"),
+    "social": (0.1, "social source"),
+    "forum": (0.1, "forum source"),
+    "wiki": (0.2, "wiki source"),
+}
+
+
+def _authority_for(source_type: Any) -> tuple[Optional[float], Optional[str]]:
+    """The recorded source-type authority signal, or no signal at all.
+
+    Only a type the item ALREADY carries is scored. An item with an unknown or
+    missing `sourceType` gets no authority component — never a guessed one.
+    """
+    value = str(source_type or "").strip().lower()
+    return _AUTHORITY_SIGNAL.get(value, (None, None))
 
 
 def _age_days(iso: Any, now: datetime) -> Optional[float]:
@@ -591,13 +887,18 @@ def exec_source_rank(context: NodeExecContext) -> dict[str, Any]:
         confidence = _number(item.get("confidence"))
         age = _age_days(item.get("publishedAt") or item.get("retrievedAt"), now)
         freshness = None if age is None else round(0.5 ** (age / half_life), 4)
-        components = [value for value in (confidence, freshness) if value is not None]
+        authority, authority_label = _authority_for(item.get("sourceType"))
+        components = [
+            value for value in (confidence, freshness, authority) if value is not None
+        ]
         score = round(sum(components) / len(components), 4) if components else None
         reasons: list[str] = []
         if confidence is not None:
             reasons.append(f"confidence {confidence:.2f}")
         if age is not None:
             reasons.append(f"published {age:.1f}d ago")
+        if authority is not None:
+            reasons.append(f"{authority_label} authority {authority:.2f}")
         if score is None:
             reasons.append("no confidence or date recorded")
         ranking.append({
@@ -605,6 +906,7 @@ def exec_source_rank(context: NodeExecContext) -> dict[str, Any]:
             "score": score,
             "confidence": confidence,
             "freshness": freshness,
+            "authority": authority,
             "ageDays": None if age is None else round(age, 2),
             "reasons": reasons,
         })
@@ -682,6 +984,7 @@ def build_research_nodes() -> list[NodeDef]:
             outputs=(
                 PortDef(id="citations", name="Citations", type=PortType.ARRAY),
                 PortDef(id="claims", name="Claims", type=PortType.ARRAY),
+                PortDef(id="summary", name="Summary", type=PortType.OBJECT),
             ),
             config_fields=(
                 ConfigField("researchId", "string", "", max_length=200),
@@ -696,7 +999,10 @@ def build_research_nodes() -> list[NodeDef]:
             type="research.conflicts", version="1.0.0", label="Conflicts",
             category="research",
             inputs=_research_input(),
-            outputs=(PortDef(id="conflicts", name="Conflicts", type=PortType.ARRAY),),
+            outputs=(
+                PortDef(id="conflicts", name="Conflicts", type=PortType.ARRAY),
+                PortDef(id="summary", name="Summary", type=PortType.OBJECT),
+            ),
             config_fields=(
                 ConfigField("researchId", "string", "", max_length=200),
                 ConfigField("limit", "integer", 100, minimum=1, maximum=MAX_ITEMS),
@@ -725,17 +1031,23 @@ def build_research_nodes() -> list[NodeDef]:
                 PortDef(id="report", name="Report", type=PortType.STRING),
                 PortDef(id="summary", name="Summary", type=PortType.OBJECT),
             ),
-            config_fields=(ConfigField("researchId", "string", "", max_length=200),),
+            config_fields=(
+                ConfigField("researchId", "string", "", max_length=200),
+                ConfigField("maxItems", "integer", 50, minimum=1, maximum=MAX_ITEMS),
+            ),
             capabilities=("research.read",),
             side_effects=SideEffect.READ,
             allowed_modes=_ALL,
             executor=exec_report,
-            metadata={"docs": "Deterministic Markdown from the stored answer, claims, citations, conflicts and evidence."},
+            metadata={"docs": "Deterministic Markdown from the stored answer, claims, citations, conflicts, gaps, sources and evidence. A missing run row yields an UNAVAILABLE answer, not an error."},
         ),
         NodeDef(
             type="research.web_search", version="1.0.0", label="Web search",
             category="research",
-            inputs=(PortDef(id="query", name="Query", type=PortType.STRING, optional=True),),
+            inputs=(
+                PortDef(id="query", name="Query", type=PortType.STRING, optional=True),
+                PortDef(id="researchId", name="Research id", type=PortType.STRING, optional=True),
+            ),
             outputs=(
                 PortDef(id="results", name="Results", type=PortType.ARRAY),
                 PortDef(id="summary", name="Summary", type=PortType.OBJECT),
@@ -745,8 +1057,11 @@ def build_research_nodes() -> list[NodeDef]:
                 ConfigField("limit", "integer", 8, minimum=1, maximum=MAX_SEARCH_RESULTS),
                 ConfigField("domains", "array", []),
                 ConfigField("excludeDomains", "array", []),
+                ConfigField("provider", "string", "", max_length=80),
+                ConfigField("researchId", "string", "", max_length=200),
+                ConfigField("saveSources", "boolean", False),
             ),
-            capabilities=("network.egress",),
+            capabilities=("network.egress", "research.read", "research.write"),
             side_effects=SideEffect.NETWORK,
             allowed_modes=_ALL,
             timeout_ms=20_000,
@@ -796,6 +1111,8 @@ def build_research_nodes() -> list[NodeDef]:
                 ConfigField("maxPages", "integer", 5, minimum=1, maximum=10),
                 ConfigField("maxChars", "integer", 4_000, minimum=500, maximum=MAX_FETCH_CHARS),
                 ConfigField("sameDomain", "boolean", True),
+                ConfigField("maxDepth", "integer", 2, minimum=0, maximum=2),
+                ConfigField("delayMs", "integer", 0, minimum=0, maximum=2_000),
             ),
             capabilities=("network.egress",),
             side_effects=SideEffect.NETWORK,
@@ -826,12 +1143,14 @@ def build_research_nodes() -> list[NodeDef]:
                 ConfigField("researchId", "string", "", max_length=200),
                 ConfigField("claim", "string", "", max_length=MAX_CLAIM_CHARS),
                 ConfigField("evidenceIds", "array", []),
+                ConfigField("asOf", "string", "", max_length=40),
+                ConfigField("freshness", "string", "", max_length=40),
             ),
             capabilities=("research.read",),
             side_effects=SideEffect.READ,
             allowed_modes=_ALL,
             executor=exec_claim_verify,
-            metadata={"docs": "Local claim verification against stored evidence (no model call)."},
+            metadata={"docs": "Local claim verification against stored evidence (no model call). Conflicts and point-in-time rules are applied; with no evidence ids it uses the run's recorded claim links."},
         ),
     ]
 

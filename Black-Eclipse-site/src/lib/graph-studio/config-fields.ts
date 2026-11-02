@@ -10,6 +10,10 @@
 
 import type { ConfigFieldDef, NodeDefinition } from './types';
 import { MEMORY_TYPES } from './registry-utility';
+import {
+  TRADING_FIELD_OVERRIDES,
+  TRADING_REQUIRED_FIELDS,
+} from './config-fields-trading';
 
 type Override = Omit<ConfigFieldDef, 'key'> & { key: string };
 
@@ -190,22 +194,9 @@ const REQUIRED_FIELDS: Record<string, string[]> = {
   'flow.while': ['workflowId'],
   'flow.parallel': ['workflowId'],
   'flow.subworkflow': ['workflowId'],
-  'trading.broker_order': ['connectionId', 'mandateId'],
-  'trading.order_preview': ['connectionId'],
-  'trading.broker_account': ['connectionId'],
-  'trading.broker_positions': ['connectionId'],
-  'trading.broker_orders': ['connectionId'],
-  'trading.broker_fills': ['connectionId'],
-  'trading.broker_quote': ['connectionId'],
-  'trading.broker_bars': ['connectionId'],
-  'trading.broker_close': ['connectionId'],
-  'trading.broker_modify': ['connectionId'],
-  'trading.broker_cancel': ['connectionId'],
-  'trading.break_even': ['connectionId'],
-  'trading.trail_stop': ['connectionId'],
-  'trading.partial_close': ['connectionId'],
   'integration.http': ['url'],
   'integration.webhook_send': ['url', 'secretEnv'],
+  ...TRADING_REQUIRED_FIELDS,
 };
 
 // Shared quant parameter presentation. Every quant node reuses the same
@@ -276,68 +267,6 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
   'data.json.parse': [
     { key: 'text', label: 'JSON text', kind: 'code', help: 'Used when the Text port is not wired. The wire wins when connected.' },
     { key: 'strict', label: 'Strict', kind: 'boolean', help: 'Reject invalid JSON instead of passing the raw text through.' },
-  ],
-  'trading.broker_order': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-    { key: 'mandateId', label: 'Mandate (live/paper)', kind: 'text' },
-    { key: 'dryRun', label: 'Dry run (preview only)', kind: 'boolean', help: 'Sends nothing and creates no approval; `ok` then means the order would be allowed.' },
-  ],
-  'trading.order_preview': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-    { key: 'mandateId', label: 'Mandate (optional)', kind: 'text', help: 'Also check the mandate scope. Verifying does not consume a use.' },
-  ],
-  'trading.order_intent': [
-    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'EURUSD' },
-    { key: 'side', label: 'Side', kind: 'select', inline: true, options: opts('buy', 'sell') },
-    { key: 'orderType', label: 'Order type', kind: 'select', inline: true, options: opts('market', 'limit', 'stop') },
-    { key: 'quantity', label: 'Quantity', kind: 'number', min: 0, help: 'Wired values win over these.' },
-    { key: 'price', label: 'Order price', kind: 'number', min: 0, help: 'Required for a limit or stop order.' },
-    { key: 'stopLoss', label: 'Stop loss', kind: 'number', min: 0, inline: true },
-    { key: 'takeProfit', label: 'Take profit', kind: 'number', min: 0, inline: true },
-    { key: 'timeInForce', label: 'Time in force', kind: 'select', options: opts('gtc', 'day') },
-  ],
-  'trading.paper_account': [
-    { key: 'accountId', label: 'Paper account', kind: 'text', inline: true },
-    { key: 'initialCash', label: 'Initial cash', kind: 'number', min: 0 },
-  ],
-  'trading.broker_account': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-  ],
-  'trading.broker_positions': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-  ],
-  'trading.broker_orders': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-  ],
-  'trading.broker_fills': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-    { key: 'limit', label: 'Max fills', kind: 'number', min: 1, max: 200 },
-  ],
-  'trading.order_ledger': [
-    { key: 'connectionId', label: 'Broker connection (optional)', kind: 'text' },
-    { key: 'limit', label: 'Max rows', kind: 'number', min: 1, max: 200 },
-  ],
-  'trading.broker_quote': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'XAUUSD' },
-  ],
-  'trading.broker_bars': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'XAUUSD' },
-    { key: 'timeframe', label: 'Timeframe', kind: 'select', options: opts('M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1') },
-    { key: 'count', label: 'Bars', kind: 'number', min: 1, max: 500 },
-  ],
-  'trading.broker_close': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-    { key: 'symbol', label: 'Symbol (close all in it)', kind: 'text', inline: true, placeholder: 'XAUUSD' },
-    { key: 'closeAll', label: 'Close all positions', kind: 'boolean' },
-    { key: 'deviation', label: 'Deviation (points)', kind: 'number', min: 0, max: 1_000 },
-  ],
-  'trading.broker_modify': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-  ],
-  'trading.broker_cancel': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
   ],
   'file.write': [
     { key: 'path', label: 'Path (relative)', kind: 'text', inline: true, placeholder: 'reports/aapl.csv', help: 'Relative to the scope root; ".." and absolute paths are refused.' },
@@ -951,12 +880,16 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
   ],
   'research.report': [
     { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'maxItems', label: 'Max items / section', kind: 'number', min: 1, max: 1_000 },
   ],
   'research.web_search': [
     { key: 'query', label: 'Query', kind: 'text', inline: true },
     { key: 'limit', label: 'Results', kind: 'number', inline: true, min: 1, max: 15 },
     { key: 'domains', label: 'Include domains', kind: 'json' },
     { key: 'excludeDomains', label: 'Exclude domains', kind: 'json' },
+    { key: 'provider', label: 'Provider preference', kind: 'text', placeholder: 'leave empty for the ordered chain' },
+    { key: 'researchId', label: 'Research id (to save sources)', kind: 'text' },
+    { key: 'saveSources', label: 'Save result pointers as sources', kind: 'boolean' },
   ],
   'research.web_fetch': [
     { key: 'url', label: 'URL', kind: 'text', inline: true, placeholder: 'https://…' },
@@ -969,73 +902,148 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'maxPages', label: 'Max pages', kind: 'number', min: 1, max: 10 },
     { key: 'maxChars', label: 'Max chars / page', kind: 'number', min: 500, max: 100_000 },
     { key: 'sameDomain', label: 'Same domain', kind: 'boolean' },
+    { key: 'maxDepth', label: 'Max link depth', kind: 'number', min: 0, max: 2 },
+    { key: 'delayMs', label: 'Delay between pages (ms)', kind: 'number', min: 0, max: 2_000 },
   ],
   'research.claim_verify': [
     { key: 'claim', label: 'Claim', kind: 'text', inline: true },
     { key: 'researchId', label: 'Research id', kind: 'text' },
     { key: 'evidenceIds', label: 'Evidence ids', kind: 'json' },
+    { key: 'asOf', label: 'As of', kind: 'text', placeholder: '2026-01-01T00:00:00Z' },
+    { key: 'freshness', label: 'Freshness', kind: 'text', placeholder: 'any | day | week | month | quarter | year' },
   ],
-  'trading.risk_check': [
-    { key: 'equity', label: 'Equity', kind: 'number', inline: true, min: 1, help: 'Used only when no `equity`/`account` input is wired.' },
-    { key: 'price', label: 'Price', kind: 'number', min: 0 },
-    { key: 'maxPositionPct', label: 'Max position %', kind: 'number', min: 0, max: 100 },
-    { key: 'maxLeverage', label: 'Max leverage', kind: 'number', min: 0, max: 100 },
-    { key: 'requireStop', label: 'Require stop', kind: 'boolean' },
+  'research.latest': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'questionMatch', label: 'Question contains', kind: 'text', inline: true },
+    { key: 'latest', label: 'Newest match', kind: 'boolean' },
+    { key: 'limit', label: 'Scan limit', kind: 'number', min: 1, max: 50 },
   ],
-  'trading.size_by_risk': [
-    { key: 'equity', label: 'Equity', kind: 'number', inline: true, min: 1, help: 'Replaced by the wired equity input.' },
-    { key: 'entry', label: 'Entry price', kind: 'number', min: 0 },
-    { key: 'stop', label: 'Stop price', kind: 'number', min: 0 },
-    { key: 'riskPct', label: 'Risk per trade %', kind: 'number', min: 0.01, max: 100 },
-    { key: 'contractSize', label: 'Contract size', kind: 'number', min: 0, help: 'A wired broker_quote supplies this and the volume limits.' },
-    { key: 'volumeStep', label: 'Volume step', kind: 'number', min: 0 },
-    { key: 'volumeMin', label: 'Volume min (0 = none)', kind: 'number', min: 0 },
-    { key: 'volumeMax', label: 'Volume max (0 = none)', kind: 'number', min: 0 },
+  'research.sources': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'limit', label: 'Limit', kind: 'number', inline: true, min: 1, max: 1_000 },
+    { key: 'domain', label: 'Domain', kind: 'text' },
+    { key: 'sourceType', label: 'Source type', kind: 'text' },
+    { key: 'publishedAfter', label: 'Published after', kind: 'text', placeholder: '2026-01-01' },
+    { key: 'dedupe', label: 'Dedupe by content/family', kind: 'boolean' },
   ],
-  'trading.bracket': [
-    { key: 'side', label: 'Side', kind: 'select', inline: true, options: opts('buy', 'sell') },
-    { key: 'entry', label: 'Entry price', kind: 'number', min: 0 },
-    { key: 'atrMultiple', label: 'ATR multiple', kind: 'number', min: 0.01, help: 'Used when no stop distance is set.' },
-    { key: 'stopDistance', label: 'Stop distance (price)', kind: 'number', min: 0, help: 'Wins over the ATR.' },
-    { key: 'rewardRisk', label: 'Reward : risk', kind: 'number', min: 0, help: '0 emits no target.' },
+  'research.gaps': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'includeOptional', label: 'Include optional questions', kind: 'boolean' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 500 },
   ],
-  'trading.spread_guard': [
-    { key: 'maxSpreadPoints', label: 'Max spread (points)', kind: 'number', min: 0.01 },
+  'research.freshness': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'asOf', label: 'As of', kind: 'text', placeholder: '2026-01-01T00:00:00Z' },
+    { key: 'freshness', label: 'Freshness', kind: 'text' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
   ],
-  'trading.session_filter': [
-    { key: 'startUtc', label: 'Start (UTC)', kind: 'text', inline: true, placeholder: '09:00' },
-    { key: 'endUtc', label: 'End (UTC)', kind: 'text', inline: true, placeholder: '17:00', help: 'Start == end means all day.' },
-    { key: 'weekdays', label: 'Weekdays', kind: 'text', placeholder: 'mon,tue,wed,thu,fri' },
-    { key: 'side', label: 'Side (for trade-mode checks)', kind: 'select', options: [
-      { value: '', label: 'Any / none' }, { value: 'buy', label: 'buy' }, { value: 'sell', label: 'sell' },
-    ] },
+  'research.conflict_scan': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'tolerance', label: 'Numeric tolerance', kind: 'number', inline: true, min: 0, max: 1, step: 0.001 },
+    { key: 'mergeStored', label: 'Merge stored conflicts', kind: 'boolean' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
   ],
-  'trading.break_even': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-    { key: 'triggerR', label: 'Trigger (R)', kind: 'number', min: 0.01 },
-    { key: 'offset', label: 'Offset (price)', kind: 'number', help: 'Lock in slightly above/below entry.' },
+  'research.citation_audit': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'requireCitations', label: 'Require citations', kind: 'boolean', inline: true },
+    { key: 'asOf', label: 'As of', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'text' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
   ],
-  'trading.trail_stop': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-    { key: 'distance', label: 'Trail distance (price)', kind: 'number', min: 0 },
-    { key: 'minStep', label: 'Minimum move', kind: 'number', min: 0, help: 'Ignore improvements smaller than this.' },
+  'research.supersession': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
   ],
-  'trading.partial_close': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-    { key: 'fraction', label: 'Fraction to close', kind: 'number', min: 0, max: 1, step: 0.05 },
-    { key: 'deviation', label: 'Deviation (points)', kind: 'number', min: 0, max: 1_000 },
+  'research.quality': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'freshness', label: 'Freshness', kind: 'text' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
   ],
-  'trading.paper_order': [
-    { key: 'price', label: 'Price', kind: 'number', inline: true, min: 0 },
-    { key: 'accountId', label: 'Paper account', kind: 'text', inline: true },
-    { key: 'initialCash', label: 'Initial cash', kind: 'number', min: 0 },
-    { key: 'commissionPct', label: 'Commission %', kind: 'number', min: 0, max: 10 },
-    { key: 'slippagePct', label: 'Slippage %', kind: 'number', min: 0, max: 10 },
-    { key: 'persist', label: 'Persist fill', kind: 'boolean' },
+  'research.entities': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'name', label: 'Entity name', kind: 'text' },
+    { key: 'kind', label: 'Kind', kind: 'text' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
+  ],
+  'research.claims_verify': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'asOf', label: 'As of', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'text' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 200 },
+  ],
+  'research.start_run': [
+    { key: 'question', label: 'Question', kind: 'text', inline: true },
+    { key: 'researchId', label: 'Research id (optional)', kind: 'text' },
+    { key: 'objective', label: 'Objective', kind: 'text' },
+    { key: 'depth', label: 'Depth', kind: 'text', placeholder: 'quick | standard | deep' },
+    { key: 'asOf', label: 'As of', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'text' },
+  ],
+  'research.snapshot': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'include', label: 'Sections', kind: 'text', placeholder: 'all | sources,evidence,claims,…' },
+  ],
+  'research.fetch_many': [
+    { key: 'urls', label: 'URLs', kind: 'json' },
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'maxChars', label: 'Max chars / page', kind: 'number', min: 500, max: 100_000 },
+    { key: 'allowBrowser', label: 'Allow browser escalation', kind: 'boolean' },
+    { key: 'concurrency', label: 'Concurrency', kind: 'number', inline: true, min: 1, max: 4 },
+    { key: 'dedupe', label: 'Dedupe by content hash', kind: 'boolean' },
+    { key: 'saveEvidence', label: 'Save evidence to the run', kind: 'boolean' },
+  ],
+  'research.scrape': [
+    { key: 'url', label: 'URL', kind: 'text', inline: true, placeholder: 'https://…' },
+    { key: 'selector', label: 'Selector', kind: 'text' },
+    { key: 'attribute', label: 'Attribute', kind: 'text' },
+    { key: 'fields', label: 'Fields', kind: 'json' },
+    { key: 'tables', label: 'Collect tables', kind: 'boolean' },
+    { key: 'maxRows', label: 'Max rows', kind: 'number', min: 1, max: 200 },
+  ],
+  'research.extract_facts': [
+    { key: 'objective', label: 'Objective', kind: 'text', inline: true },
+    { key: 'legsJson', label: 'Fact legs', kind: 'json' },
+    { key: 'permittedTiers', label: 'Permitted source tiers', kind: 'json' },
+    { key: 'timeoutMs', label: 'Timeout (ms)', kind: 'number', min: 10_000, max: 180_000 },
+  ],
+  'research.deep_dive': [
+    { key: 'question', label: 'Question', kind: 'text', inline: true },
+    { key: 'depth', label: 'Depth', kind: 'select', inline: true, options: opts('quick', 'standard', 'deep', 'financial', 'forensic') },
+    { key: 'freshness', label: 'Freshness', kind: 'text' },
+    { key: 'asOf', label: 'As of', kind: 'text' },
+    { key: 'minSources', label: 'Min sources', kind: 'number', min: 1, max: 20 },
+    { key: 'maxSources', label: 'Max sources', kind: 'number', min: 1, max: 30 },
+    { key: 'maxQueries', label: 'Max queries', kind: 'number', min: 1, max: 30 },
+    { key: 'maxTimeSeconds', label: 'Max time (s)', kind: 'number', min: 10, max: 600 },
+    { key: 'citationsRequired', label: 'Require citations', kind: 'boolean' },
+    { key: 'primarySourcesRequired', label: 'Require primary sources', kind: 'boolean' },
+  ],
+  'research.ingest': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'question', label: 'Question (when creating a run)', kind: 'text' },
+    { key: 'sourceLabel', label: 'Source label', kind: 'text', inline: true, placeholder: 'mcp:server/tool' },
+    { key: 'createRun', label: 'Create the run row', kind: 'boolean' },
+    { key: 'limit', label: 'Max rows / collection', kind: 'number', min: 1, max: 200 },
+  ],
+  'research.diff': [
+    { key: 'baseId', label: 'Base research id', kind: 'text', inline: true },
+    { key: 'compareId', label: 'Compare research id', kind: 'text', inline: true },
+    { key: 'byContentHash', label: 'Match evidence by content hash', kind: 'boolean' },
+    { key: 'useSnapshots', label: 'Prefer snapshots', kind: 'boolean' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
+  ],
+  'research.queries': [
+    { key: 'question', label: 'Question', kind: 'text', inline: true },
+    { key: 'claimsJson', label: 'Claims to test', kind: 'json' },
+    { key: 'includeCounterEvidence', label: 'Add disconfirming queries', kind: 'boolean', inline: true },
+    { key: 'includePrimarySources', label: 'Add a primary-source query', kind: 'boolean' },
+    { key: 'siteFilter', label: 'Site filter', kind: 'text', placeholder: 'sec.gov' },
+    { key: 'maxQueries', label: 'Max queries', kind: 'number', min: 1, max: 20 },
   ],
   'output.result': [
     { key: 'label', label: 'Result label', kind: 'text', inline: true },
   ],
+  ...TRADING_FIELD_OVERRIDES,
 };
 
 function inferKind(value: unknown): ConfigFieldDef['kind'] {

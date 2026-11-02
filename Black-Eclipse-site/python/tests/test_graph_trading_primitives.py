@@ -24,6 +24,10 @@ class FakeService:
         self._close = close or {"available": True, "closed": True,
                                 "result": {"ok": True, "verified": True,
                                            "remainingVolume": 0.2}}
+        self._symbol_info: dict = {
+            "available": True,
+            "data": {"volumeStep": 0.1, "volumeMin": 0.05, "tradeMode": "full"},
+        }
 
     def _record(self, name, *args, **kwargs):
         self.calls.append((name, args, kwargs))
@@ -31,6 +35,10 @@ class FakeService:
     def positions(self, connection_id):
         self._record("positions", connection_id)
         return {"available": True, "data": list(self._positions)}
+
+    def symbol_info(self, connection_id, symbol):
+        self._record("symbol_info", connection_id, symbol)
+        return self._symbol_info
 
     def modify_position(self, connection_id, ticket, *, stop_loss=None, take_profit=None):
         self._record("modify_position", connection_id, ticket, stop_loss=stop_loss)
@@ -293,6 +301,81 @@ def test_an_unknown_trade_mode_is_refused_not_assumed():
     assert open_now is False
 
 
+def test_broker_sessions_govern_the_calendar_when_available():
+    sessions = [{"day": 0, "from": "09:00", "to": "17:00"}]  # Monday
+    kwargs = {"start": "00:00", "end": "00:00", "weekdays": "mon,tue,wed,thu,fri,sat,sun",
+              "sessions": sessions}
+    assert session_state(_utc("2026-11-02T10:00:00"), **kwargs)[0] is True
+    open_now, reason = session_state(_utc("2026-11-02T18:00:00"), **kwargs)
+    assert open_now is False
+    assert "trade sessions" in reason
+
+
+def test_broker_sessions_are_evaluated_in_server_time():
+    sessions = [{"day": 0, "from": "09:00", "to": "17:00"}]
+    kwargs = {"start": "00:00", "end": "00:00", "weekdays": "mon,tue,wed,thu,fri,sat,sun",
+              "sessions": sessions, "server_offset_minutes": 180}
+    # 07:30 UTC == 10:30 server: inside the session.
+    assert session_state(_utc("2026-11-02T07:30:00"), **kwargs)[0] is True
+    # The same instant with no offset is 07:30, before the session opens.
+    assert session_state(
+        _utc("2026-11-02T07:30:00"),
+        start="00:00", end="00:00", weekdays="mon,tue,wed,thu,fri,sat,sun",
+        sessions=sessions,
+    )[0] is False
+
+
+def test_a_session_window_that_opens_after_midnight_is_not_confused():
+    sessions = [{"day": 0, "from": "22:00", "to": "02:00"}]  # Monday night
+    kwargs = {"start": "00:00", "end": "00:00", "weekdays": "mon,tue,wed,thu,fri,sat,sun",
+              "sessions": sessions}
+    assert session_state(_utc("2026-11-02T23:00:00"), **kwargs)[0] is True
+    # 01:00 Tuesday is the next session day, which the broker did not declare.
+    assert session_state(_utc("2026-11-03T01:00:00"), **kwargs)[0] is False
+
+
+def test_the_session_node_uses_broker_sessions_and_the_quote_clock():
+    moment = datetime(2026, 11, 2, 7, 30, tzinfo=timezone.utc)
+    server_ms = int(datetime(2026, 11, 2, 10, 30, tzinfo=timezone.utc).timestamp() * 1000)
+    result = _exec(
+        "trading.session_filter",
+        {"startUtc": "00:00", "endUtc": "00:00"},
+        {
+            "symbolInfo": {"data": {
+                "sessionsAvailable": True,
+                "sessionDeals": [{"day": 0, "from": "09:00", "to": "17:00"}],
+            }},
+            "quote": {"data": {"serverTimeMs": server_ms}},
+            "time": moment.isoformat(),
+        },
+    )
+    assert result["open"] is True
+    assert result["basis"] == "brokerSession"
+
+
+def test_the_session_node_falls_back_to_its_clock_window():
+    result = _exec(
+        "trading.session_filter",
+        {"startUtc": "09:00", "endUtc": "17:00"},
+        {"symbolInfo": {"data": {"sessionsAvailable": False, "sessionDeals": []}},
+         "time": "2026-11-02T10:00:00Z"},
+    )
+    assert result["open"] is True
+    assert result["basis"] == "clockWindow"
+
+
+def test_the_session_node_reads_the_symbol_facts_when_wired():
+    result = _exec(
+        "trading.session_filter",
+        {"startUtc": "00:00", "endUtc": "00:00"},
+        {"symbolInfo": {"available": True, "data": {"tradeMode": "close_only"}},
+         "time": "2026-11-02T10:00:00Z"},
+    )
+    assert result["open"] is False
+    assert result["tradeMode"] == "close_only"
+    assert "close-only" in result["reason"]
+
+
 def test_the_session_node_reads_the_quote_and_an_explicit_time():
     result = _exec(
         "trading.session_filter",
@@ -429,6 +512,30 @@ def test_a_partial_close_floors_to_the_symbol_step(service):
         {"ticket": 12, "quote": {"data": {"volumeStep": 0.1}}},
     )
     assert result["volume"] == pytest.approx(0.3)
+
+
+def test_a_partial_close_reads_the_symbol_step_when_no_quote_is_wired(service):
+    service._positions[1]["volume"] = 1.0
+    result = _exec(
+        "trading.partial_close", {"connectionId": "brk_1", "fraction": 0.33},
+        {"ticket": 12},
+    )
+    assert result["volume"] == pytest.approx(0.3)
+    assert service.calls[0][0] == "positions"
+    assert service.calls[1][0] == "symbol_info"
+
+
+def test_a_partial_close_below_the_symbol_minimum_closes_nothing(service):
+    service._positions[1]["volume"] = 0.1
+    service._symbol_info = {
+        "available": True, "data": {"volumeStep": 0.01, "volumeMin": 0.05},
+    }
+    result = _exec(
+        "trading.partial_close", {"connectionId": "brk_1", "fraction": 0.3},
+        {"ticket": 12},
+    )
+    assert result["closed"] is False
+    assert "below the symbol minimum" in result["reason"]
 
 
 def test_a_fraction_below_one_step_closes_nothing(service):

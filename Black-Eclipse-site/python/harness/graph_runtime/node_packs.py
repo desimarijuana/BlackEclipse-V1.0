@@ -18,6 +18,10 @@ from .agent_structured_nodes import build_structured_agent_nodes
 from .approval_nodes import build_approval_nodes
 from .memory_nodes import build_memory_nodes
 from .output_nodes import build_output_nodes
+from .research_analysis_nodes import build_research_analysis_nodes
+from .research_network_nodes import build_research_network_nodes
+from .research_query_nodes import build_research_query_nodes
+from .research_write_nodes import build_research_write_nodes
 from .skill_nodes import build_skill_nodes
 from .team_nodes import build_team_nodes
 from .utility_nodes import build_utility_nodes
@@ -37,6 +41,16 @@ PACKS = (
     build_output_nodes,
     # The human-approval gate (durable runs pause and re-check).
     build_approval_nodes,
+    # Store-backed research analysis: gaps, freshness, conflict scan, citation
+    # audit, supersession, quality, entities and batch verification. Pure reads.
+    build_research_analysis_nodes,
+    # The two bounded local writes (run bootstrap + immutable snapshot).
+    build_research_write_nodes,
+    # Network adapters over the same engine: batch fetch, scrape, validated fact
+    # extraction and the one-shot deep dive.
+    build_research_network_nodes,
+    # Pure query expansion (the loop primitive: gaps/claims → search queries).
+    build_research_query_nodes,
 )
 
 

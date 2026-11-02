@@ -308,7 +308,18 @@ not recompute them. `trading.broker_close` closes one ticket, a whole symbol or
 everything; `broker_modify` and `broker_cancel` move a bracket or cancel a
 working order. All four are risk-reducing: they need no arm, approval or mandate,
 because an expired arm must never trap a position. They still require a pinned
-`connectionId`.
+`connectionId`. `trading.broker_modify_order` changes a **working** (pending)
+order's price and/or bracket; it carries the order's own type, time and
+expiration across the modify, so a day order cannot silently become a resting GTC
+one, and it reads the order back (`verified`) before reporting success.
+`trading.broker_symbol` returns the static symbol facts — trade mode, contract
+size, volume min/max/step, stops and freeze levels, filling mask — with **no tick
+required**, so it answers while the market is closed. It also reads the broker's
+**trade sessions** best-effort into `sessionDeals` (day 0 = Monday, `HH:MM`,
+server time): MetaTrader's Python API does not reliably expose them (the
+functions are missing or return nothing in several builds, reported to
+MetaQuotes), so `sessionsAvailable` is explicit and an empty table is reported
+with its reason rather than an invented calendar.
 
 **Dry run before arming.** `trading.order_preview` runs the same preview the
 manual path uses — broker `order_check`, connection policy, money guardrails and,
@@ -339,9 +350,11 @@ wired `broker_quote`), `trading.bracket` (direction-aware SL/TP from ATR ×
 multiple or an explicit stop distance, with a reward:risk multiple),
 `trading.spread_guard` (allowed only while the broker's spread is within the cap;
 a quote with no spread is not a tight spread) and `trading.session_filter` (the
-broker's own `tradeMode` from a wired quote plus an explicit UTC window and
-weekday list — the window is Eclipse's clock filter, not a claim about the
-broker's session calendar, which the adapter does not expose).
+broker's own trade mode plus, in order of preference, the broker's `sessionDeals`
+evaluated in server time — the quote's server clock gives the offset, or an
+explicit `serverOffsetMinutes` — or the configured UTC window and weekdays when
+the terminal reports no sessions; `basis` says which calendar was used). No
+holiday schedule is invented either way.
 
 Three position-management nodes are risk-reducing and therefore need no arm,
 approval or mandate, exactly like close/modify: `trading.break_even` measures the
@@ -349,8 +362,38 @@ position's own R from its entry and stop and moves the stop to entry after
 `triggerR` of profit; `trading.trail_stop` keeps the stop a fixed distance behind
 price and only ever tightens it (a worse candidate is refused, never applied);
 `trading.partial_close` closes a fraction (or an explicit volume), flooring to
-the symbol step when a `broker_quote` is wired. Each reports `moved`/`closed`
-plus `ok` and the broker's own refusal reason.
+the symbol step — from a wired `broker_quote`, or from the broker's own
+`symbol_info` when no quote is wired — and refusing a volume below the symbol
+minimum. Each reports `moved`/`closed` plus `ok` and the broker's own refusal
+reason.
+
+**Lifecycle and reliability.** `trading.await_fill` polls Eclipse's own ledger
+until an order is filled, rejected, cancelled, expired or unknown, or the
+deadline passes; `timedOut` means it is still working (an ordinary outcome for a
+limit order), and the node never sends or cancels anything. `trading.reconcile`
+runs the same sync path as the route, copying the broker's deals, positions and
+sync state into the mirror — it never changes broker state, and a failed sync
+keeps the last good mirror. `trading.drift_check` compares the ledger with that
+mirror and reports three things: in-flight ledger orders that match no position,
+working order or deal; broker positions the ledger never recorded; and how old
+the mirror is (`maxAgeSeconds`, 0 disables). `syncFirst` refreshes the mirror
+through the normal sync path before comparing — that is the only repair offered,
+and it keeps the broker authoritative. Remaining drift is reported, never
+rewritten.
+
+**An unattended graph cannot double-send.** `trading.broker_order` and
+`trading.paper_order` take `dedupe: none | key | day`. `key` uses the node's
+`idempotencyKey`; `day` uses the node id plus the UTC date. The claim is written
+to `GraphTradingGuard` on `agent-memory.db` **before** the send, so a scheduled
+run that fires twice sends once — and an ambiguous failure is never retried
+automatically either (double-sending is worse than a missed order). A skipped run
+returns `status: "SKIPPED"` with `skipped: true`.
+
+**PAPER mark-to-market.** `trading.paper_account` reports cash and cost basis;
+`trading.paper_valuation` marks the same book to prices the graph supplies (a
+symbol→price map, or one symbol + price) and returns equity, market value,
+unrealized and total PnL. It never fetches a price: a missing symbol is listed in
+`unpriced` and valued at nothing rather than at zero.
 
 **Agent-driven chat execution.** Settings → Broker connection can create and
 revoke mandates. On a **live** connection, ask Eclipse to analyze a market and place
@@ -489,13 +532,15 @@ overlap, so the stored cursor is advisory, not authoritative.
 | Registry | `python/harness/trade/registry.py` |
 | Store (`agent-memory.db`) | `python/harness/trade/store.py` |
 | Service | `python/harness/trade/service.py` |
+| Symbol facts | `python/harness/trade/symbols.py` |
 | Order preview | `python/harness/trade/preview.py` |
 | Pre-trade limits | `python/harness/trade/policy.py` |
 | Demo mandates | `python/harness/trade/mandates.py` |
 | Approval + guardrail seam | `python/harness/trade/authorizer.py` |
 | MT5 adapter | `python/harness/trade/adapters/mt5.py` |
+| MT5 wire tables | `python/harness/trade/adapters/mt5_contract.py` |
 | Reconciliation | `python/harness/trade/reconcile.py` |
-| Graph node | `python/harness/graph_runtime/trading_nodes.py`, `trading_calc_nodes.py`, `trading_ops_nodes.py`, `broker_nodes.py`, `src/lib/graph-studio/registry-trading.ts` |
+| Graph node | `python/harness/graph_runtime/trading_nodes.py`, `trading_calc_nodes.py`, `trading_ops_nodes.py`, `trading_lifecycle_nodes.py`, `broker_nodes.py`, `src/lib/graph-studio/registry-trading.ts` |
 | Tools | `python/harness/trade/tools.py` |
 | Boot wiring | `python/harness/trade/bootstrap.py`, `service.py` |
 | Routes | `python/harness/routers/trading.py` |

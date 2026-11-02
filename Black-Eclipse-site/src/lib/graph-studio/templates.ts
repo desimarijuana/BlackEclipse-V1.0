@@ -343,6 +343,32 @@ function ratesCheck(): WorkflowIR {
   );
 }
 
+function researchBrief(): WorkflowIR {
+  return buildGraph(
+    'Research brief',
+    'Resolve a stored research run, read its evidence, scan conflicts, audit citations and build a report.',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      { id: 'latest', type: 'research.latest', config: { questionMatch: 'NVDA revenue' } },
+      { id: 'evidence', type: 'research.evidence', config: { limit: 200 } },
+      { id: 'scan', type: 'research.conflict_scan', config: { mergeStored: true } },
+      { id: 'audit', type: 'research.citation_audit', config: { requireCitations: true } },
+      { id: 'report', type: 'research.report', config: { maxItems: 50 } },
+      { id: 'result', type: 'output.result', config: { label: 'Research report' } },
+      { id: 'conflicts', type: 'output.result', config: { label: 'Conflicts found' } },
+    ],
+    [
+      { source: 'trigger', sourceHandle: 'start', target: 'latest', targetHandle: 'question' },
+      { source: 'latest', sourceHandle: 'researchId', target: 'evidence', targetHandle: 'researchId' },
+      { source: 'evidence', sourceHandle: 'evidence', target: 'scan', targetHandle: 'evidence' },
+      { source: 'evidence', sourceHandle: 'evidence', target: 'audit', targetHandle: 'evidence' },
+      { source: 'latest', sourceHandle: 'researchId', target: 'report', targetHandle: 'researchId' },
+      { source: 'report', sourceHandle: 'report', target: 'result', targetHandle: 'value' },
+      { source: 'scan', sourceHandle: 'conflicts', target: 'conflicts', targetHandle: 'value' },
+    ],
+  );
+}
+
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   { id: 'blank', name: 'Blank', description: 'A trigger and a result. Start here.', build: blank },
   { id: 'if-else', name: 'If / else', description: 'Branch on a value with control gates.', build: ifElse },
@@ -366,6 +392,12 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   { id: 'webhook-http', name: 'Webhook to HTTP', description: 'Signed inbound webhook → public API → result.', build: webhookHttp },
   { id: 'signed-webhook', name: 'Signed webhook', description: 'Manual trigger → signed outbound webhook.', build: signedWebhookDemo },
   { id: 'data-pipeline', name: 'Data pipeline', description: 'Six data nodes wired end to end.', build: dataPipeline },
+  {
+    id: 'research-brief',
+    name: 'Research brief',
+    description: 'Stored run → evidence → conflict scan → citation audit → report.',
+    build: researchBrief,
+  },
 ];
 
 export function buildTemplate(id: string): WorkflowIR | null {

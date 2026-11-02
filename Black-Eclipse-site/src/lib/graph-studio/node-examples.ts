@@ -95,6 +95,44 @@ const EXAMPLES: Record<string, string> = {
     'bull call spread 490/510 · spot 500 · 30 days · IV 22%  →  payoff curve, break-even 502, net Greeks',
   'quant.futures_continuous':
     'ES MAR + JUN contracts · roll 2024-03-15 · adjustment difference  →  one continuous OHLCV proxy',
+  'research.latest':
+    'questionMatch "NVDA revenue"  →  the newest matching researchId + run row',
+  'research.sources':
+    'domain "sec.gov" · publishedAfter "2026-01-01"  →  deduped sources, plus excludedUndated count',
+  'research.gaps':
+    'run with one unanswered required question  →  [{ kind: "question", … }], hasGaps = true',
+  'research.freshness':
+    'asOf "2026-06-30" · freshness "quarter"  →  admissible evidence + every rejection reason',
+  'research.conflict_scan':
+    'evidence with revenue 100 and 110 (same period)  →  one UNRESOLVED conflict, never a winner',
+  'research.citation_audit':
+    'a SUPPORTED claim with no citation  →  ok false, coverage 0.8, issue names the claim',
+  'research.supersession':
+    '10-K amendment with provenance.supersedesEvidenceId  →  currentByKey points at the amendment',
+  'research.quality':
+    'sources + evidence + claims  →  score 0.72 (MODERATE), components + disclaimer',
+  'research.entities':
+    'run about NVDA  →  entities and relations, unanchored count 0',
+  'research.claims_verify':
+    '3 claims · run has an unresolved revenue conflict  →  that claim is CONTRADICTED',
+  'research.start_run':
+    'question "Did NVDA revenue grow?"  →  r_ab12… (same id on a re-run, existing run untouched)',
+  'research.snapshot':
+    'include "all"  →  snapshotId r_ab12…_v1, version 1, per-section counts',
+  'research.fetch_many':
+    'web_search results (8 URLs) · concurrency 2  →  8 pages, duplicate content fetched once',
+  'research.scrape':
+    'SEC filing page · tables true · maxRows 200  →  rows + first two tables',
+  'research.extract_facts':
+    'pages from a 10-K · legs [{ metric: "revenue", period: "FY2025" }]  →  validated evidence or a named rejection',
+  'research.deep_dive':
+    'question "Did NVDA revenue grow?" · depth standard  →  researchId + answer + coverage, readable by research.evidence',
+  'research.ingest':
+    'agent.research blob (3 evidence, 1 claim) · sourceLabel "agent:analyst"  →  stored with eclipseVerified false',
+  'research.diff':
+    'baseId r_a · compareId r_b (same question)  →  +2 evidence, 1 claim SUPPORTED→CONTRADICTED, 1 conflict opened',
+  'research.queries':
+    'question "Did revenue grow?" · 1 CONTRADICTED claim  →  answer, primary-source, support and disconfirming queries',
 };
 
 export function exampleFor(nodeType: string): string | undefined {

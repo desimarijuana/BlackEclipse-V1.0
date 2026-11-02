@@ -69,6 +69,13 @@ class BrokerAdapter(ABC):
     def quote(self, symbol: str) -> dict[str, Any]:
         ...
 
+    def symbol_info(self, symbol: str) -> dict[str, Any]:
+        """Static symbol facts (no tick). Default: this broker cannot report them."""
+        raise AdapterUnavailable(
+            "SYMBOL_INFO_NOT_SUPPORTED",
+            f"{self.kind or 'this broker'} cannot report symbol information",
+        )
+
     def close(self) -> None:
         """Release any shared session. Safe to call more than once."""
 
@@ -117,6 +124,16 @@ class TradingAdapter(BrokerAdapter):
         raise AdapterUnavailable(
             "MODIFY_NOT_SUPPORTED",
             f"{self.kind or 'this broker'} cannot modify positions",
+        )
+
+    def modify_order(
+        self, ticket: int, price: float | None = None,
+        stop_loss: float | None = None, take_profit: float | None = None,
+    ) -> dict[str, Any]:
+        """Change a working (pending) order. Default: this broker cannot modify orders."""
+        raise AdapterUnavailable(
+            "ORDER_MODIFY_NOT_SUPPORTED",
+            f"{self.kind or 'this broker'} cannot modify working orders",
         )
 
     def deals_since(self, since_ms: int) -> list[dict[str, Any]]:

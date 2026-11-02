@@ -1,6 +1,109 @@
 # Change Log
 
 ## 2026-11-02
+- **feat(graph): `research.queries` + `Research brief` template (plan complete).**
+  `research_query_nodes.py` adds a pure query-expansion node: a question, the
+  gaps a run named and weak claims become answer/support/counter-evidence/
+  primary-source queries (deduped, capped, no store/network/model). It is the
+  loop primitive Wave A exposed and pairs with `flow.parallel` +
+  `research.web_search`. Added the `research-brief` starter template (stored run
+  → evidence → conflict scan → citation audit → report). The remaining Wave D
+  candidates (`counter_evidence`, `save_claim`, `calculate`, `notebook`) are
+  explicitly declined in the plan with reasons. Tests: 3 new query cases (19 in
+  the analysis suite) + all 178 graph-studio vitest tests (template validation
+  included). Docs updated: `docs/graph-studio.md`,
+  `docs/graph-studio-research-nodes-plan.md` (status Implemented),
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(graph): `research.ingest` + `research.diff` (Wave C complete).**
+  `research_write_nodes.py` adds `ingest`, which normalizes an
+  `agent.research` blob, an MCP tool result or a manual claim set into
+  `Evidence`/`Claim`/`Source` rows: it derives stable ids, keeps the origin and
+  `eclipseVerified: false` on every row, never verifies a claim and never copies
+  an external answer as the run answer (the run is status `INGESTED`). Rows
+  without an absolute http(s) URL are skipped and reported, and re-ingesting the
+  same payload is idempotent. `research_analysis_nodes.py` adds `diff`: two runs
+  on the SAME question are compared with snapshots preferred when present —
+  evidence added/removed by content hash, claim-status transitions, opened/
+  resolved material conflicts, source URL changes and coverage deltas; different
+  questions are refused as incomparable. Tests:
+  `python/tests/test_graph_research_write_nodes.py` (10 cases: origin/verified
+  flags, no answer copy, idempotence, skipped rows, derived run id, diff
+  evidence/claims/conflicts/sources, incomparable refusal, snapshot preference).
+  Docs updated: `docs/graph-studio.md`,
+  `docs/graph-studio-research-nodes-plan.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): research network adapters (Wave B) + ranking/search/crawl polish.**
+  `research_network_nodes.py` + `registry-research.ts` add `fetch_many`
+  (1-10 known URLs, concurrency 1-4, content-hash dedupe, optional evidence
+  persistence, failed URLs as rows and a failed batch as an explicit error),
+  `scrape` (deterministic table/record collection through the bridge's
+  `web_collect`, honest page status), `extract_facts` (the engine's
+  model-assisted but span-validated extractor; an unvalidated proposal is a
+  rejection note) and `deep_dive` (the existing `ResearchEngine` with budget
+  caps, a 600 s hard timeout and a returned run id). Also: `web_search` accepts
+  a provider preference and optional source persistence (`saveSources`);
+  `web_crawl` takes `maxDepth`/`delayMs`; `source_rank` scores recorded
+  source-type authority (primary/secondary/tertiary); the report numbers its
+  citations. Tests: `python/tests/test_graph_research_network_nodes.py` (10
+  cases) + expanded research/analysis/team suites (55 green) and the
+  registry/executor/compiler suites (114 green). Docs updated:
+  `docs/graph-studio.md`, `docs/graph-studio-research-nodes-plan.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(graph): `research.start_run` + `research.snapshot` (Wave C partial).**
+  `research_write_nodes.py` + `registry-research.ts`: `start_run` creates the
+  run row a cold graph needs and is idempotent per question/objective (a
+  content-derived `r_…` id; an existing run is never overwritten);
+  `snapshot` freezes the selected sections (sources/evidence/claims/citations/
+  conflicts/questions, or all) into the store's immutable, versioned snapshot
+  table and returns the version. Both declare `research.write`; the existing
+  compiler capability gate refuses them in a test run (the capability is not in
+  `TEST_RUN_CAPABILITIES`). Tests: 5 new cases in
+  `test_graph_research_analysis_nodes.py`, including the test-run refusal and
+  the missing-run error. Docs updated: `docs/graph-studio.md`,
+  `docs/graph-studio-research-nodes-plan.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): research analysis pack + research-node fixes (Wave A).** Added
+  ten local `research.*` nodes in `python/harness/graph_runtime/
+  research_analysis_nodes.py` (registered from `node_packs.py` to keep
+  `nodes.py` under its size ceiling) and `src/lib/graph-studio/
+  registry-research.ts`: `latest` (exact/newest run), `sources` (domain/type/
+  date filters + content/family dedupe), `gaps` (unanswered questions, rejected
+  and uncited claims), `freshness` (engine fail-closed point-in-time filter),
+  `conflict_scan` (deterministic detection over unscanned evidence),
+  `citation_audit` (build + validate traceability), `supersession` (revision
+  chains), `quality` (explainable score + disclaimer), `entities` (anchored
+  graph) and `claims_verify` (batch). All are `research.read`/`read`, so a test
+  run can exercise them. Fixes in the shipped nodes: conflict status is
+  normalized (`OPEN`→`UNRESOLVED`, `DISMISSED`→`RESOLVED`) and `candidates` is
+  decoded; `claim_verify` now passes the run's conflicts + `asOf`/`freshness`
+  (and falls back to recorded claim links); reads report `total`/`truncated`;
+  `completeness` gets a real coverage model, `verdict` and `gaps`; `report`
+  degrades to `UNAVAILABLE` without a run row instead of raising, escapes raw
+  HTML, adds Sources/Gaps sections and a bounded `maxItems`; `web_search`
+  over-fetches then filters/dedupes; `web_crawl` reports `linkDiscovery`
+  failures. `manifest.ts` now sorts by codepoint for byte-identical manifests
+  across ICU versions. Tests: `python/tests/
+  test_graph_research_analysis_nodes.py` (11 cases) + existing
+  research/registry/parity suites; graph-studio vitest 178 green. Docs updated:
+  `docs/graph-studio.md`, `docs/graph-studio-research-nodes-plan.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **docs(graph): research & evidence node plan.** Audited the ten shipped
+  `research.*` nodes and wrote an implementation-ready plan:
+  `docs/graph-studio-research-nodes-plan.md`. Records twelve defects (R1–R12)
+  with file:line grounding — `claim_verify` never passes conflicts/asOf/
+  freshness, conflict-status vocabulary drift (`OPEN` vs `UNRESOLVED`) and
+  undecoded `candidates`, silent truncation, the completeness coverage
+  fallback, report injection/missing-run-row failure, the undeclared store
+  write in `web_fetch`, post-limit domain filtering in `web_search`, swallowed
+  link-discovery failures in `web_crawl`, and `source_rank` ignoring recorded
+  authority. Proposes 17 new nodes in three waves (local reads:
+  latest/sources/gaps/freshness/conflict_scan/citation_audit/supersession/
+  quality/entities/claims_verify; network: fetch_many/extract_facts/scrape/
+  deep_dive; local writes: start_run/snapshot/ingest/diff), plus decisions,
+  capability/effect rules (`research.write`, extract=model), limits, file
+  split (`registry-research.ts`, `research_*_nodes.py`), reference graph, test
+  matrix and acceptance gates. Docs updated: `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`. Implementation not started.
 - **fix(graph): adapter-pack registration split out of `nodes.py`.** The Tier
   2/3 packs pushed `graph_runtime/nodes.py` to 1218 lines (ceiling 1200); the
   wiring now lives in `graph_runtime/node_packs.py` (`register_extra_packs`),
@@ -97,6 +200,73 @@
   per-directory budget). Raising those ceilings is a deliberate decision that
   belongs to whoever owns that growth; this changelog records the state so it
   cannot be mistaken for a quant regression. no doc change — operational note.
+- **feat(trade): broker sessions (best-effort), symbol-aware partial closes and a
+  pre-check sync.** `symbol_info` now reads the broker's TRADE sessions into
+  `sessionDeals` (day 0 = Monday, `HH:MM`, server time). MetaTrader's Python API
+  does not reliably expose them — the functions are missing or return nothing in
+  several builds (reported to MetaQuotes) — so the read is defensive, skips a
+  boundary that is not a clock value, and reports `sessionsAvailable: false` with
+  the reason instead of inventing a calendar. `trading.session_filter` now PREFERS
+  broker sessions, evaluated in server time from the quote's own server clock (or
+  an explicit `serverOffsetMinutes`), and falls back to its UTC window when the
+  terminal reports none; a new `basis` output says which calendar was used.
+  `trading.partial_close` reads the symbol's own `volumeStep`/`volumeMin` through
+  `symbol_info` when no quote is wired, and refuses a close below the symbol
+  minimum. `trading.drift_check` gained `syncFirst`, which refreshes the mirror
+  through the normal sync path before comparing (the broker stays authoritative;
+  remaining drift is still only reported). Refactor: session parsing and the MT5
+  wire tables live in `trade/adapters/mt5_contract.py`, keeping `mt5.py` (1239
+  lines) inside its pinned size budget. Tests: 6 session cases (broker calendar,
+  server offset, midnight-adjacent session, node using the quote clock, UTC
+  fallback), 2 partial-close symbol-facts cases, 2 drift pre-sync cases and a
+  simulated-terminal session read (MT5 Monday=1 → our 0). Docs updated:
+  `docs/trading.md`, `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(trade): working-order modify, static symbol facts, and a smaller
+  trading-node core.** Added `trading.broker_modify_order` (change a WORKING
+  order's price/SL/TP, carrying its own type/time/expiration across the modify and
+  reading it back as `verified`; risk-reducing, no arm/approval/mandate) and
+  `trading.broker_symbol` (static symbol facts — trade mode, contract size, volume
+  min/max/step, stops/freeze levels, filling mask — with no tick, so it answers
+  when the market is closed). `trading.session_filter` now also accepts
+  `symbolInfo`, so a trade-mode check needs no quote. Adapter contract gained
+  `modify_order` (TradingAdapter) and `symbol_info` (BrokerAdapter, read-only
+  default raises `SYMBOL_INFO_NOT_SUPPORTED`); MT5 implements both, and the
+  service exposes `modify_order`/`symbol_info` (`trade/symbols.py` keeps the
+  service under its size ceiling). **Session calendars are deliberately not
+  implemented**: the adapter does not expose the terminal's session table, and
+  deriving one from local time would be a guess — the code and docs say so.
+  Refactor: paper executors moved to `graph_runtime/trading_paper_nodes.py`, with
+  shared intent parsing in `trading_common.py` and the store/guard in
+  `trading_store.py`; `trading_nodes.py` drops from 980 to 605 lines and
+  `set_paper_store` stays re-exported. The MT5 wire tables and pure record
+  builders moved to `trade/adapters/mt5_contract.py` (imported back, so every
+  call site and test import is unchanged), keeping `mt5.py` inside its pinned
+  size budget; the simulator gained `TRADE_ACTION_MODIFY` + `orders_get(ticket=)`
+  and four simulated adapter cases (re-price verified, ignored modify unverified,
+  missing order named, symbol facts with no tick). Service-level coverage lives
+  in `test_broker_symbol_and_modify.py` (6: honest unavailable, mode gate,
+  unsupported path, field passthrough). Docs updated:
+  `docs/trading.md`, `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): order lifecycle, drift reporting, paper valuation and a
+  double-send guard.** New nodes: `trading.await_fill` (poll the ledger to a
+  terminal state or deadline; `timedOut` is an outcome), `trading.reconcile` (the
+  same sync path as the route; never changes broker state), `trading.drift_check`
+  (in-flight ledger orders with no broker match, untracked broker positions,
+  mirror age — reports, never repairs) and `trading.paper_valuation`
+  (mark-to-market to supplied prices; unpriced symbols listed, never zeroed).
+  `trading.broker_order` and `trading.paper_order` gained
+  `dedupe: none|key|day` + `idempotencyKey` and a `skipped` output; the claim is
+  written to the new `GraphTradingGuard` table on `agent-memory.db` BEFORE the
+  send, so a scheduled run that fires twice sends once. They live in
+  `graph_runtime/trading_lifecycle_nodes.py` (+ the paper guard in
+  `paper_store.py`), aggregated by `build_trading_nodes`; contracts mirrored in
+  `registry-trading.ts` / `config-fields.ts`; manifest regenerated. Tests:
+  `python/tests/test_graph_trading_lifecycle.py` (20: await filled/timeout/
+  terminal/missing, sync success/failure, drift clean/unmatched/untracked/stale/
+  never-synced/unreadable, valuation priced/unpriced/single-symbol, dedupe
+  day/key/no-key/none for paper and once-only for broker orders). Docs updated:
+  `docs/trading.md`, `docs/graph-studio.md`, `docs/CHANGELOG.md`.
 - **feat(graph): trading-system primitives — sizing, brackets, guards and position
   management.** Pure nodes (no broker): `trading.size_by_risk` (equity risk budget
   ÷ stop distance × contract size → volume, floored to the symbol step and capped

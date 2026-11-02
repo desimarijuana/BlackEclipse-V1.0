@@ -118,6 +118,23 @@ class FakeService:
             "result": {"ok": False, "retcodeName": "INVALID_STOPS", "reasons": ["invalid stops"]},
         }
 
+    def modify_order(self, connection_id, ticket, *, price=None, stop_loss=None, take_profit=None):
+        self._record("modify_order", connection_id, ticket, price=price,
+                     stop_loss=stop_loss, take_profit=take_profit)
+        return {
+            "available": True,
+            "modified": True,
+            "result": {"ok": True, "price": price or 1.09, "verified": True},
+        }
+
+    def symbol_info(self, connection_id, symbol):
+        self._record("symbol_info", connection_id, symbol)
+        return {
+            "available": True,
+            "data": {"symbol": str(symbol).upper(), "tradeMode": "full",
+                     "contractSize": 100_000, "volumeStep": 0.01},
+        }
+
     def submit_order(self, connection_id, payload, **kwargs):
         self._record("submit_order", connection_id, payload, **kwargs)
         return {"status": "filled", "orderId": "ord_1", "sent": True, "filled": True}
@@ -333,6 +350,35 @@ def test_close_by_symbol_is_a_named_outcome_when_nothing_is_held(service):
     assert result["ok"] is False
     assert result["status"] == "no_position"
     assert "GBPUSD" in result["reason"]
+
+
+def test_a_working_order_can_be_re_priced(service):
+    result = _exec(
+        "trading.broker_modify_order", {"connectionId": "brk_1"},
+        {"ticket": 21, "price": 1.12, "stopLoss": 1.11},
+    )
+    assert result["ok"] is True
+    assert result["status"] == "modified"
+    name, _args, kwargs = service.calls[-1]
+    assert name == "modify_order"
+    assert kwargs["price"] == pytest.approx(1.12)
+    assert kwargs["stop_loss"] == pytest.approx(1.11)
+
+
+def test_modify_order_needs_a_field_to_change(service):
+    with pytest.raises(ValueError, match="pass a price"):
+        _exec(
+            "trading.broker_modify_order", {"connectionId": "brk_1"}, {"ticket": 21},
+        )
+
+
+def test_broker_symbol_reports_the_trade_mode(service):
+    result = _exec(
+        "trading.broker_symbol", {"connectionId": "brk_1", "symbol": "xauusd"}, {},
+    )
+    assert result["ok"] is True
+    assert result["tradeMode"] == "full"
+    assert result["symbol"]["data"]["contractSize"] == 100_000
 
 
 def test_a_refused_modify_surfaces_the_broker_reason(service):

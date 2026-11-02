@@ -18,6 +18,7 @@ class SimTerminal:
     TRADE_ACTION_PENDING = 5
     TRADE_ACTION_SLTP = 6
     TRADE_ACTION_REMOVE = 8
+    TRADE_ACTION_MODIFY = 7
     ORDER_TYPE_BUY = 0
     ORDER_TYPE_SELL = 1
     ORDER_TYPE_BUY_LIMIT = 2
@@ -55,6 +56,7 @@ class SimTerminal:
         self.check_retcode = 0
         self.drop_bracket = False
         self.ignore_bracket = False
+        self.ignore_modify_order = False
         self.fill_fraction = 1.0
         self.connected = True
         self.symbols = {
@@ -159,8 +161,10 @@ class SimTerminal:
             rows = [row for row in rows if row.symbol == symbol]
         return tuple(rows)
 
-    def orders_get(self, *, magic: int | None = None):
+    def orders_get(self, *, ticket: int | None = None, magic: int | None = None):
         rows = list(self.orders.values())
+        if ticket is not None:
+            rows = [row for row in rows if row.ticket == int(ticket)]
         if magic is not None:
             rows = [row for row in rows if row.magic == int(magic)]
         return tuple(rows)
@@ -217,6 +221,16 @@ class SimTerminal:
             if not self.ignore_bracket and ticket in self.positions:
                 self.positions[ticket].sl = float(request.get("sl") or 0)
                 self.positions[ticket].tp = float(request.get("tp") or 0)
+            return self._result(10009, ticket, 0, 0.0, 0.0)
+        if action == self.TRADE_ACTION_MODIFY:
+            ticket = int(request.get("order") or 0)
+            if ticket not in self.orders:
+                return self._result(10035, ticket, 0, 0.0, 0.0)
+            if not self.ignore_modify_order:
+                order = self.orders[ticket]
+                order.price_open = float(request.get("price") or 0)
+                order.sl = float(request.get("sl") or 0)
+                order.tp = float(request.get("tp") or 0)
             return self._result(10009, ticket, 0, 0.0, 0.0)
         if action == self.TRADE_ACTION_DEAL:
             return self._deal_send(request)

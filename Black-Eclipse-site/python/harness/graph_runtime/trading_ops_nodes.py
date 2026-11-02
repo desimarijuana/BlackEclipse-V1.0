@@ -257,6 +257,21 @@ def exec_partial_close(context: NodeExecContext) -> dict[str, Any]:
 
     quote = _quote(context)
     step = float(quote.get("volumeStep") or 0.0)
+    minimum = float(quote.get("volumeMin") or 0.0)
+    if step <= 0:
+        # No quote wired: ask the broker for the symbol's own volume step. A
+        # symbol-facts read that fails falls back to the broker's judgement — the
+        # adapter refuses an off-step volume by name rather than Eclipse guessing.
+        symbol = str(position.get("symbol") or "").strip()
+        if symbol:
+            try:
+                facts = service.symbol_info(connection_id, symbol)
+            except Exception:  # noqa: BLE001 - a failed read must not block the close
+                facts = {}
+            data = facts.get("data") if isinstance(facts, dict) else None
+            if isinstance(data, dict):
+                step = float(data.get("volumeStep") or 0.0)
+                minimum = float(data.get("volumeMin") or 0.0)
     if step > 0:
         # Floor to the broker's own step; rounding up could exceed what is held.
         volume = math.floor(volume / step + 1e-9) * step
@@ -266,6 +281,12 @@ def exec_partial_close(context: NodeExecContext) -> dict[str, Any]:
             "moved": False, "closed": False, "stopLoss": position.get("stopLoss"),
             "volume": 0.0, "ok": False,
             "reason": "the requested fraction is smaller than one volume step",
+        }
+    if minimum > 0 and volume < minimum:
+        return {
+            "moved": False, "closed": False, "stopLoss": position.get("stopLoss"),
+            "volume": 0.0, "ok": False,
+            "reason": f"the close volume {volume:g} is below the symbol minimum {minimum:g}",
         }
     if volume >= held - 1e-8:
         volume = held  # a full fraction is a full close, not an overshoot

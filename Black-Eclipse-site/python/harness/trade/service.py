@@ -920,6 +920,25 @@ class BrokerService:
             stop_loss=stop_loss, take_profit=take_profit,
         )
 
+    def modify_order(
+        self, connection_id: str, ticket: int, *,
+        price: Optional[float] = None,
+        stop_loss: Optional[float] = None, take_profit: Optional[float] = None,
+    ) -> dict[str, Any]:
+        """Re-price/re-bracket a working order. Risk-reducing: no approval."""
+        from .positions import modify_order  # noqa: PLC0415
+
+        return modify_order(
+            self, connection_id, ticket, price=price,
+            stop_loss=stop_loss, take_profit=take_profit,
+        )
+
+    def symbol_info(self, connection_id: str, symbol: str) -> dict[str, Any]:
+        """Static symbol facts from the broker (no tick required)."""
+        from .symbols import symbol_info  # noqa: PLC0415 - avoids an import cycle
+
+        return symbol_info(self, connection_id, symbol)
+
     def ledger_orders(
         self, connection_id: Optional[str] = None, limit: int = 50,
     ) -> list[dict[str, Any]]:
