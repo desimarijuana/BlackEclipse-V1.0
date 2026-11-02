@@ -20,6 +20,7 @@ from typing import Any
 
 from ..quant.risk import RiskContext, RiskEngine
 from ..quant.strategy import RiskRules
+from ..persistence import now_iso
 from .model import ExecutionMode, PortDef, PortType, SideEffect
 from .registry import ConfigField, NodeDef, NodeExecContext
 
@@ -85,6 +86,28 @@ def _optional_pct(value: Any) -> float | None:
     except (TypeError, ValueError) as exc:
         raise ValueError("risk limits must be numbers (0 disables a limit)") from exc
     return number if number > 0 else None
+
+
+def _claim_guard(context: NodeExecContext, scope: str) -> bool:
+    """Claim this node's idempotency slot, or False when it was already used.
+
+    `dedupe: none` (the default) sends every run. `key` uses the node's
+    `idempotencyKey`; `day` uses the node id plus the UTC date. The claim happens
+    BEFORE the send, so an ambiguous failure is never automatically repeated.
+    """
+    mode = str(context.config.get("dedupe") or "none").strip().lower()
+    if mode == "none":
+        return True
+    if mode == "key":
+        key = str(context.config.get("idempotencyKey") or "").strip()
+        if not key:
+            raise ValueError("dedupe 'key' needs a non-empty idempotencyKey")
+        suffix = f"key:{key}"
+    elif mode == "day":
+        suffix = f"day:{now_iso()[:10]}:{context.node_id}"
+    else:
+        raise ValueError("dedupe must be none, key or day")
+    return _require_paper_store().claim_guard(scope, suffix)
 
 
 def _risk_rules(config: dict[str, Any]) -> RiskRules:
@@ -246,6 +269,7 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
             "status": "PREVIEW_ALLOWED" if preview["allowed"] else "PREVIEW_REFUSED",
             "orderId": "",
             "ok": preview["allowed"],
+            "skipped": False,
             "reason": preview["reason"],
         }
     decision = context.inputs.get("decision")
@@ -259,6 +283,7 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
             "status": "REJECTED",
             "orderId": "",
             "ok": False,
+            "skipped": False,
             "reason": "; ".join(reasons) or "risk decision not allowed",
         }
     connection_id = str(context.config.get("connectionId") or "").strip()
@@ -270,6 +295,16 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
             "a mandateId is required for an unattended broker order; create one in "
             "Settings › Trading"
         )
+    if not _claim_guard(context, f"broker:{connection_id}"):
+        context.emit("broker order skipped: this idempotency key was already used")
+        return {
+            "result": {"status": "SKIPPED", "sent": False},
+            "status": "SKIPPED",
+            "orderId": "",
+            "ok": False,
+            "skipped": True,
+            "reason": "this node already sent an order for the same key/period",
+        }
     from ..trade.bootstrap import get_service  # noqa: PLC0415 - avoids an import cycle
 
     service = get_service()
@@ -301,6 +336,7 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
         "status": status,
         "orderId": str(result.get("orderId") or ""),
         "ok": ok,
+        "skipped": False,
         "reason": "" if ok else ("; ".join(reasons) or status),
     }
 
@@ -315,6 +351,7 @@ def exec_paper_order(context: NodeExecContext) -> dict[str, Any]:
             "status": "REJECTED",
             "intent": intent,
             "account": None,
+            "skipped": False,
             "reasons": list(decision.get("reasons") or []),
         }
 
@@ -330,6 +367,16 @@ def exec_paper_order(context: NodeExecContext) -> dict[str, Any]:
     commission = abs(notional) * commission_pct / 100.0
     account_id = str(context.config.get("accountId") or "paper").strip()[:80] or "paper"
     persist = bool(context.config.get("persist", True))
+    if not _claim_guard(context, f"paper:{account_id}"):
+        context.emit("paper order skipped: this idempotency key was already used")
+        return {
+            "fill": None,
+            "status": "SKIPPED",
+            "intent": intent,
+            "account": None,
+            "skipped": True,
+            "reasons": ["this node already filled an order for the same key/period"],
+        }
     account = None
     if persist:
         account = _require_paper_store().apply_fill(
@@ -368,6 +415,7 @@ def exec_paper_order(context: NodeExecContext) -> dict[str, Any]:
         "status": "FILLED",
         "intent": intent,
         "account": account,
+        "skipped": False,
         "reasons": [],
     }
 
@@ -548,6 +596,92 @@ def exec_paper_account(context: NodeExecContext) -> dict[str, Any]:
     }
 
 
+def exec_paper_valuation(context: NodeExecContext) -> dict[str, Any]:
+    """Mark the PAPER book to a supplied price map (never a fetched guess)."""
+    account_id = str(context.config.get("accountId") or "paper").strip()[:80] or "paper"
+    initial_cash = float(context.config.get("initialCash", 100_000.0) or 0)
+    store = _require_paper_store()
+    account = store.snapshot(account_id, initial_cash=initial_cash)
+
+    raw_prices = context.inputs.get("prices")
+    prices: dict[str, float] = {}
+    if isinstance(raw_prices, dict):
+        for key, value in raw_prices.items():
+            try:
+                prices[str(key).strip().upper()] = float(value)
+            except (TypeError, ValueError):
+                continue
+    single = _number_input(context, "price")
+    symbol = str(context.inputs.get("symbol") or context.config.get("symbol") or "").strip().upper()
+    if single is not None and symbol:
+        prices[symbol] = single
+    if not prices:
+        return {
+            "valuation": None,
+            "equity": None,
+            "unrealizedPnl": None,
+            "ok": False,
+            "reason": (
+                "no prices to mark against: wire a symbol→price map on `prices`, or "
+                "a symbol with `price`"
+            ),
+        }
+
+    rows: list[dict[str, Any]] = []
+    market_value = 0.0
+    unrealized = 0.0
+    unpriced: list[str] = []
+    for name, item in sorted((account.get("positions") or {}).items()):
+        if not isinstance(item, dict):
+            continue
+        quantity = float(item.get("quantity") or 0)
+        average = float(item.get("averagePrice") or 0)
+        price = prices.get(str(name).upper())
+        row = {
+            "symbol": name,
+            "quantity": quantity,
+            "averagePrice": average,
+            "price": price,
+        }
+        if price is None:
+            unpriced.append(str(name))
+            row["marketValue"] = None
+            row["unrealizedPnl"] = None
+        else:
+            row["marketValue"] = round(quantity * price, 8)
+            row["unrealizedPnl"] = round((price - average) * quantity, 8)
+            market_value += quantity * price
+            unrealized += (price - average) * quantity
+        rows.append(row)
+
+    realized = float(account.get("realizedPnl") or 0)
+    equity = float(account.get("cash") or 0) + market_value
+    valuation = {
+        "accountId": account_id,
+        "cash": account.get("cash"),
+        "marketValue": round(market_value, 8),
+        "equity": round(equity, 8),
+        "unrealizedPnl": round(unrealized, 8),
+        "realizedPnl": round(realized, 8),
+        "totalPnl": round(realized + unrealized, 8),
+        "positions": rows,
+        "unpriced": unpriced,
+        "basis": "supplied prices",
+    }
+    reason = (
+        f"no price for {', '.join(unpriced)}; the book is valued without it"
+        if unpriced else ""
+    )
+    context.emit(f"paper valuation {account_id}: equity {equity:g}")
+    return {
+        "valuation": valuation,
+        "equity": round(equity, 8),
+        "unrealizedPnl": round(unrealized, 8),
+        "ok": True,
+        "reason": reason,
+    }
+
+
 def build_trading_nodes() -> list[NodeDef]:
     risk_fields = (
         ConfigField("equity", "number", 100_000.0, minimum=1.0, maximum=1_000_000_000_000),
@@ -570,7 +704,7 @@ def build_trading_nodes() -> list[NodeDef]:
         ConfigField("allowLong", "boolean", True),
         ConfigField("allowShort", "boolean", True),
     )
-    return [
+    nodes = [
         NodeDef(
             type="trading.risk_check", version="1.0.0", label="Risk check",
             category="trading",
@@ -655,12 +789,15 @@ def build_trading_nodes() -> list[NodeDef]:
                 PortDef(id="status", name="Status", type=PortType.STRING),
                 PortDef(id="orderId", name="Order id", type=PortType.STRING),
                 PortDef(id="ok", name="Sent", type=PortType.BOOLEAN),
+                PortDef(id="skipped", name="Skipped (already sent)", type=PortType.BOOLEAN),
                 PortDef(id="reason", name="Reason", type=PortType.STRING),
             ),
             config_fields=(
                 ConfigField("connectionId", "string", "", max_length=80),
                 ConfigField("mandateId", "string", "", max_length=80),
                 ConfigField("dryRun", "boolean", False),
+                ConfigField("dedupe", "enum", "none", enum=("none", "key", "day")),
+                ConfigField("idempotencyKey", "string", "", max_length=120),
             ),
             capabilities=("trading.broker",),
             side_effects=SideEffect.TRADING,
@@ -782,6 +919,12 @@ def build_trading_nodes() -> list[NodeDef]:
         ),
     ]
 
+    # Phase 9 primitives live in their own modules to keep this file small; the
+    # trading category owns the aggregation so `nodes.py` needs no new import.
+    from .trading_calc_nodes import build_calc_nodes  # noqa: PLC0415 - leaf modules
+    from .trading_ops_nodes import build_ops_nodes  # noqa: PLC0415 - leaf modules
+
+    return nodes + build_calc_nodes() + build_ops_nodes()
 
 __all__ = [
     "build_trading_nodes",

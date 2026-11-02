@@ -531,6 +531,20 @@ declared cap:
 | `flow.for_each` | Runs the body once per array item; returns `results` | `maxIterations` (≤ 1 000), `maxDurationMs` |
 | `flow.repeat` | Runs the body `count` times, passing the previous output on | `count` (≤ 1 000), `maxDurationMs` |
 | `flow.while` | Runs while a safe numeric condition holds (`value`, `index`, `iterations`) | `maxIterations`, `maxDurationMs` |
+| `flow.parallel` | Runs the body once per array item **concurrently**; results keep the input order | `maxItems` (≤ 100), `concurrency` (≤ 8, never above the graph's `maxConcurrency`) |
+
+**Parallelism.** Independent nodes already run in the same layer concurrently,
+bounded by the workflow's `maxConcurrency` setting. `flow.parallel` is the
+dynamic case: a bounded fan-out over data. Its concurrency is
+`min(config, workflow.maxConcurrency, itemCount, 8)` — a node can never fan out
+wider than the graph was authorized to, and never wider than a hard cap that
+protects this machine. Results are collected in **input order** (`pool.map`
+yields in order), so a run stays deterministic even though completion order is
+not. Each item is a durable child run with the loop's id scheme
+(`<parent>:<node>:i<N>`), so a resumed parent reuses a succeeded item. A failed
+item is recorded as `{"error": ...}` in `results` and counted in `summary`;
+`continueOnError` off makes the node fail naming the first failure. The body is
+compiled with the SAME grants, so a parallel item can never widen authority.
 
 Every iteration is its own durable child run (`<parent>:<node>:i<N>`), which is
 also the loop checkpoint: a parent resumed after a crash reuses a succeeded
@@ -929,6 +943,20 @@ hand-assembling a JSON object; a pending order without a price is an error.
 mandate scope — sending nothing and creating no approval card. `ok` means the
 check ran; `allowed` means the order would pass. `trading.broker_order` with
 `dryRun` takes the same path, so a workflow can be validated before it can send.
+
+**Trading-system primitives.** Pure nodes that never touch a broker:
+`trading.size_by_risk` (equity risk budget + stop distance → volume, floored to
+the symbol step and capped at its maximum), `trading.bracket` (ATR × multiple or
+an explicit stop distance → direction-aware SL/TP with reward:risk),
+`trading.spread_guard` (a trade passes only while the broker's spread is within
+the cap) and `trading.session_filter` (broker `tradeMode` + an explicit UTC clock
+window; the window is Eclipse's filter, not the broker's session calendar).
+Three risk-reducing management nodes need no arm, approval or mandate:
+`trading.break_even` (moves the stop to entry after `triggerR` of profit measured
+from the position's own stop), `trading.trail_stop` (tightens only, never widens)
+and `trading.partial_close` (a fraction or explicit volume, floored to the symbol
+step when a quote is wired). Each reports `moved`/`closed` plus `ok` and the
+broker's refusal reason.
 
 `trading.broker_order` is the demo-broker adapter added in P3. It takes an
 `intent` plus a `connectionId` and `mandateId`, runs only in PAPER mode, and calls

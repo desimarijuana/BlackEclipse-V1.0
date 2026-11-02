@@ -59,6 +59,25 @@ class ResumeState:
 
 _MISSING = object()
 
+# `flow.parallel` guards. The node can never fan out wider than the workflow's
+# own `maxConcurrency` budget, and never wider than this hard cap.
+HARD_MAX_PARALLEL = 8
+MAX_PARALLEL_ITEMS = 100
+
+
+def parallel_workers(configured: Any, plan_max: Any, count: int) -> int:
+    """The concurrency actually used: config, capped by the plan's budget."""
+    try:
+        wanted = int(configured or 1)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("concurrency must be a whole number") from exc
+    try:
+        budget = int(plan_max or 1)
+    except (TypeError, ValueError):
+        budget = 1
+    return max(1, min(wanted, budget, max(1, int(count)), HARD_MAX_PARALLEL))
+
+
 
 def _numeric_state(value: Any) -> float:
     """A bounded numeric projection for a loop condition.
@@ -583,6 +602,8 @@ class GraphExecutor:
 
         def call() -> dict[str, Any]:
             if definition.orchestrated:
+                if definition.type == "flow.parallel":
+                    return self._run_parallel(node_id, inputs, config, definition)
                 if definition.type in ("flow.for_each", "flow.repeat", "flow.while"):
                     return self._run_loop(node_id, inputs, config, definition)
                 return self._run_subworkflow(node_id, inputs, config, definition)
@@ -745,6 +766,122 @@ class GraphExecutor:
             "state": state,
             "iterations": iterations,
             "stopped": stopped,
+            "_control": ["done"],
+        }
+
+    def _run_parallel(
+        self,
+        node_id: str,
+        inputs: dict[str, Any],
+        config: dict[str, Any],
+        definition: NodeDef,
+    ) -> dict[str, Any]:
+        """Run a pinned body workflow once per item CONCURRENTLY, bounded.
+
+        The bound is `concurrency` (hard cap 8), further capped by the workflow's
+        `maxConcurrency` setting — the operator-visible budget for this graph. A
+        node can therefore never fan out wider than the graph was authorized to.
+
+        Results keep the INPUT order (pool.map yields in order), so a run is
+        deterministic even though completion order is not. Each item is a durable
+        child run with the same id scheme as a loop, so a resumed parent reuses a
+        succeeded item.
+        """
+        workflow_id = str(config.get("workflowId") or "").strip()
+        try:
+            version = int(config.get("version", 0))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("parallel body version must be a whole number") from exc
+        if not workflow_id:
+            raise ValueError("flow.parallel needs a pinned body workflow")
+        if version < 1:
+            raise ValueError("parallel body version must be pinned (>= 1)")
+        key = f"{workflow_id}@{version}"
+        if key not in self._subworkflows:
+            raise ValueError(f"parallel body {key} was not supplied to this run")
+
+        raw_items = inputs.get("items")
+        if not isinstance(raw_items, list):
+            raise ValueError("flow.parallel needs an array on its items input")
+        try:
+            limit = max(1, min(int(config.get("maxItems", 25)), MAX_PARALLEL_ITEMS))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("parallel item bound must be a number") from exc
+        items = raw_items[:limit]
+        truncated = len(raw_items) > limit
+        continue_on_error = bool(config.get("continueOnError", True))
+
+        if not items:
+            self._emit("node.log", "no items to map", node_id)
+            return {
+                "results": [],
+                "summary": {
+                    "total": 0, "succeeded": 0, "failed": 0, "cancelled": 0,
+                    "concurrency": 0, "truncated": truncated,
+                },
+                "_control": ["done"],
+            }
+
+        workers = parallel_workers(
+            config.get("concurrency", 4), self._ir.settings.max_concurrency, len(items),
+        )
+
+        def run_one(index: int) -> tuple[int, Any, Optional[str], bool]:
+            if self._cancel.is_set():
+                return index, None, None, True
+            child_id = f"{self._run_id}:{node_id}:i{index}"
+            prior = self._child_output(child_id)
+            if prior is not _MISSING:
+                self._emit("node.log", f"parallel item {index + 1} reused", node_id)
+                return index, prior, None, False
+            try:
+                result = self._run_subworkflow(
+                    node_id, {"input": items[index]}, config, definition, iteration=index,
+                )
+                return index, result.get("output"), None, False
+            except Exception as exc:  # noqa: BLE001 - one failed item is data, not a crash
+                return index, None, f"{type(exc).__name__}: {exc}", False
+
+        results: list[Any] = [None] * len(items)
+        failures: list[dict[str, Any]] = []
+        cancelled = 0
+        # pool.map yields in INPUT order, which is what makes the results stable.
+        with ThreadPoolExecutor(
+            max_workers=workers, thread_name_prefix=f"graph-parallel-{node_id}",
+        ) as pool:
+            for index, output, error, skipped in pool.map(run_one, range(len(items))):
+                if skipped:
+                    cancelled += 1
+                    results[index] = {"cancelled": True}
+                elif error is not None:
+                    failures.append({"index": index, "error": error})
+                    results[index] = {"error": error}
+                else:
+                    results[index] = output
+
+        if failures and not continue_on_error:
+            first = failures[0]
+            raise ValueError(
+                f"parallel item {first['index']} failed: {first['error']}"
+            )
+        succeeded = len(items) - len(failures) - cancelled
+        self._emit(
+            "node.log",
+            f"{len(items)} item(s) with concurrency {workers}, "
+            f"{len(failures)} failed" + (", truncated" if truncated else ""),
+            node_id,
+        )
+        return {
+            "results": results,
+            "summary": {
+                "total": len(items),
+                "succeeded": succeeded,
+                "failed": len(failures),
+                "cancelled": cancelled,
+                "concurrency": workers,
+                "truncated": truncated,
+                "failures": failures,
+            },
             "_control": ["done"],
         }
 
@@ -999,4 +1136,4 @@ def _effective_config(definition: NodeDef, ir: WorkflowIR, node_id: str) -> dict
     return coerce_config(definition, node.config if node else {})
 
 
-__all__ = ["GraphExecutor", "ResumeState"]
+__all__ = ["GraphExecutor", "ResumeState", "parallel_workers"]

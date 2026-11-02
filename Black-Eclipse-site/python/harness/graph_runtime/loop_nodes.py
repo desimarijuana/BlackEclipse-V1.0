@@ -115,6 +115,35 @@ def build_loop_nodes() -> list[NodeDef]:
                 "maxDurationMs; neither cap may be omitted in the UI."
             )},
         ),
+        NodeDef(
+            type="flow.parallel", version="1.0.0", label="Parallel map",
+            category="logic", orchestrated=True,
+            inputs=(
+                PortDef(id="in", name="Run", type=PortType.ANY, kind=PortKind.CONTROL, optional=True),
+                PortDef(id="items", name="Items", type=PortType.ARRAY),
+            ),
+            outputs=(
+                PortDef(id="results", name="Results", type=PortType.ARRAY),
+                PortDef(id="summary", name="Summary", type=PortType.OBJECT),
+                PortDef(id="done", name="Done", type=PortType.ANY, kind=PortKind.CONTROL),
+            ),
+            config_fields=(
+                *_pinned_fields(),
+                ConfigField("maxItems", "integer", 25, minimum=1, maximum=100),
+                ConfigField("concurrency", "integer", 4, minimum=1, maximum=8),
+                ConfigField("continueOnError", "boolean", True),
+            ),
+            capabilities=(), side_effects=SideEffect.NONE, allowed_modes=_ALL,
+            timeout_ms=1_800_000,
+            metadata={"docs": (
+                "Runs a pinned body workflow once per array item CONCURRENTLY, bounded "
+                "by `concurrency` (hard cap 8) and by the workflow's maxConcurrency "
+                "setting. Results keep the INPUT order. Each item is a durable child "
+                "run (`<parent>:<node>:i<N>`), so a resumed parent reuses a succeeded "
+                "item. A failed item is reported as {error} unless continueOnError "
+                "is off, in which case the node fails naming the first failure."
+            )},
+        ),
     ]
 
 

@@ -331,6 +331,27 @@ while an account envelope does not and is refused at compile time.
 cost and realized PnL — and emits its positions as rows too; `exists` is false
 until the first fill.
 
+**Trading-system primitives.** Four pure nodes turn an intent into a sized,
+bracketed, guarded order and never call a broker: `trading.size_by_risk` (volume
+from an equity risk budget and a stop distance, floored to the symbol's volume
+step and capped at its maximum — contract size / step / min / max come from a
+wired `broker_quote`), `trading.bracket` (direction-aware SL/TP from ATR ×
+multiple or an explicit stop distance, with a reward:risk multiple),
+`trading.spread_guard` (allowed only while the broker's spread is within the cap;
+a quote with no spread is not a tight spread) and `trading.session_filter` (the
+broker's own `tradeMode` from a wired quote plus an explicit UTC window and
+weekday list — the window is Eclipse's clock filter, not a claim about the
+broker's session calendar, which the adapter does not expose).
+
+Three position-management nodes are risk-reducing and therefore need no arm,
+approval or mandate, exactly like close/modify: `trading.break_even` measures the
+position's own R from its entry and stop and moves the stop to entry after
+`triggerR` of profit; `trading.trail_stop` keeps the stop a fixed distance behind
+price and only ever tightens it (a worse candidate is refused, never applied);
+`trading.partial_close` closes a fraction (or an explicit volume), flooring to
+the symbol step when a `broker_quote` is wired. Each reports `moved`/`closed`
+plus `ok` and the broker's own refusal reason.
+
 **Agent-driven chat execution.** Settings → Broker connection can create and
 revoke mandates. On a **live** connection, ask Eclipse to analyze a market and place
 one order: the agent calls `order_preview` and the approval appears above the chat
@@ -474,7 +495,7 @@ overlap, so the stored cursor is advisory, not authoritative.
 | Approval + guardrail seam | `python/harness/trade/authorizer.py` |
 | MT5 adapter | `python/harness/trade/adapters/mt5.py` |
 | Reconciliation | `python/harness/trade/reconcile.py` |
-| Graph node | `python/harness/graph_runtime/trading_nodes.py`, `src/lib/graph-studio/registry-trading.ts` |
+| Graph node | `python/harness/graph_runtime/trading_nodes.py`, `trading_calc_nodes.py`, `trading_ops_nodes.py`, `broker_nodes.py`, `src/lib/graph-studio/registry-trading.ts` |
 | Tools | `python/harness/trade/tools.py` |
 | Boot wiring | `python/harness/trade/bootstrap.py`, `service.py` |
 | Routes | `python/harness/routers/trading.py` |

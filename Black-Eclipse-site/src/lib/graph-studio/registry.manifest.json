@@ -3208,6 +3208,111 @@
       "terminal": false
     },
     {
+      "type": "flow.parallel",
+      "version": "1.0.0",
+      "category": "logic",
+      "label": "Parallel map",
+      "description": "Runs a pinned body workflow once per item, concurrently and bounded.",
+      "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "items",
+          "name": "Items",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "results",
+          "name": "Results",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "concurrency",
+          "kind": "number",
+          "default": 4,
+          "constraints": {
+            "min": 1,
+            "max": 8,
+            "integer": true
+          }
+        },
+        {
+          "name": "continueOnError",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "maxItems",
+          "kind": "number",
+          "default": 25,
+          "constraints": {
+            "min": 1,
+            "max": 100,
+            "integer": true
+          }
+        },
+        {
+          "name": "version",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 1,
+            "max": 1000000,
+            "integer": true
+          }
+        },
+        {
+          "name": "workflowId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        }
+      ],
+      "capabilities": [],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "flow.repeat",
       "version": "1.0.0",
       "category": "logic",
@@ -9877,6 +9982,261 @@
       "terminal": false
     },
     {
+      "type": "trading.bracket",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Bracket",
+      "description": "Direction-aware stop and target from an ATR multiple or explicit distance.",
+      "inputs": [
+        {
+          "id": "entry",
+          "name": "Entry price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "atr",
+          "name": "ATR",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "side",
+          "name": "Side",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "stopLoss",
+          "name": "Stop loss",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "takeProfit",
+          "name": "Take profit",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "riskDistance",
+          "name": "Risk distance",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "rewardDistance",
+          "name": "Reward distance",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "basis",
+          "name": "Basis",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "atrMultiple",
+          "kind": "number",
+          "default": 1.5,
+          "constraints": {
+            "min": 0.01,
+            "max": 1000
+          }
+        },
+        {
+          "name": "entry",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "rewardRisk",
+          "kind": "number",
+          "default": 2,
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
+        },
+        {
+          "name": "side",
+          "kind": "string",
+          "default": "buy",
+          "constraints": {
+            "enum": [
+              "buy",
+              "sell"
+            ]
+          }
+        },
+        {
+          "name": "stopDistance",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.bracket"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.break_even",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Break even",
+      "description": "Moves the stop to entry after triggerR. Risk-reducing.",
+      "inputs": [
+        {
+          "id": "ticket",
+          "name": "Ticket",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "price",
+          "name": "Current price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "moved",
+          "name": "Stop moved",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "stopLoss",
+          "name": "Stop loss",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "closed",
+          "name": "Closed",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "offset",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": -1000000,
+            "max": 1000000
+          }
+        },
+        {
+          "name": "triggerR",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 0.01,
+            "max": 100
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker"
+      ],
+      "sideEffects": "trading",
+      "allowedModes": [
+        "live",
+        "paper"
+      ],
+      "terminal": false
+    },
+    {
       "type": "trading.broker_account",
       "version": "1.0.0",
       "category": "trading",
@@ -11276,6 +11636,151 @@
       "terminal": false
     },
     {
+      "type": "trading.partial_close",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Partial close",
+      "description": "Closes a fraction or an explicit volume of one position. Risk-reducing.",
+      "inputs": [
+        {
+          "id": "ticket",
+          "name": "Ticket",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "volume",
+          "name": "Volume",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "fraction",
+          "name": "Fraction (0-1)",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "quote",
+          "name": "Broker quote",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "closed",
+          "name": "Closed",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "volume",
+          "name": "Closed volume",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "remainingVolume",
+          "name": "Remaining volume",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "verified",
+          "name": "Read back",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "moved",
+          "name": "Stop moved",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "stopLoss",
+          "name": "Stop loss",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "deviation",
+          "kind": "number",
+          "default": 20,
+          "constraints": {
+            "min": 0,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "fraction",
+          "kind": "number",
+          "default": 0.5,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker"
+      ],
+      "sideEffects": "trading",
+      "allowedModes": [
+        "live",
+        "paper"
+      ],
+      "terminal": false
+    },
+    {
       "type": "trading.risk_check",
       "version": "1.0.0",
       "category": "trading",
@@ -11545,6 +12050,491 @@
         "live",
         "paper",
         "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.session_filter",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Session filter",
+      "description": "UTC clock window plus the broker trade mode. Open or closed.",
+      "inputs": [
+        {
+          "id": "quote",
+          "name": "Broker quote",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "side",
+          "name": "Side",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "time",
+          "name": "Time (ISO, UTC)",
+          "type": "datetime",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "open",
+          "name": "Open",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "tradeMode",
+          "name": "Broker trade mode",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "endUtc",
+          "kind": "string",
+          "default": "00:00",
+          "constraints": {
+            "maxLength": 5
+          }
+        },
+        {
+          "name": "side",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "enum": [
+              "",
+              "buy",
+              "sell"
+            ]
+          }
+        },
+        {
+          "name": "startUtc",
+          "kind": "string",
+          "default": "00:00",
+          "constraints": {
+            "maxLength": 5
+          }
+        },
+        {
+          "name": "weekdays",
+          "kind": "string",
+          "default": "mon,tue,wed,thu,fri,sat,sun",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.guard"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.size_by_risk",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Size by risk",
+      "description": "Volume from an equity risk budget, a stop distance and contract size.",
+      "inputs": [
+        {
+          "id": "equity",
+          "name": "Equity",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "entry",
+          "name": "Entry price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "stop",
+          "name": "Stop price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "quote",
+          "name": "Broker quote",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "quantity",
+          "name": "Quantity",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "riskBudget",
+          "name": "Risk budget",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "riskAtStop",
+          "name": "Risk at stop",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "capped",
+          "name": "Capped at max volume",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "contractSize",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 0,
+            "max": 1000000
+          }
+        },
+        {
+          "name": "entry",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "equity",
+          "kind": "number",
+          "default": 100000,
+          "constraints": {
+            "min": 1,
+            "max": 1000000000000
+          }
+        },
+        {
+          "name": "riskPct",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 0.01,
+            "max": 100
+          }
+        },
+        {
+          "name": "stop",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "volumeMax",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000
+          }
+        },
+        {
+          "name": "volumeMin",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000
+          }
+        },
+        {
+          "name": "volumeStep",
+          "kind": "number",
+          "default": 0.01,
+          "constraints": {
+            "min": 0,
+            "max": 1000000
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.sizing"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.spread_guard",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Spread guard",
+      "description": "Blocks a trade while the broker spread is wider than the cap.",
+      "inputs": [
+        {
+          "id": "quote",
+          "name": "Broker quote",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "spreadPoints",
+          "name": "Spread (points)",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "ok",
+          "name": "Within cap",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "spreadPoints",
+          "name": "Spread (points)",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "maxSpreadPoints",
+          "name": "Cap (points)",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "maxSpreadPoints",
+          "kind": "number",
+          "default": 10,
+          "constraints": {
+            "min": 0.01,
+            "max": 100000
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.guard"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.trail_stop",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Trail stop",
+      "description": "Tightens the stop behind price, never widening risk.",
+      "inputs": [
+        {
+          "id": "ticket",
+          "name": "Ticket",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "price",
+          "name": "Current price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "distance",
+          "name": "Distance",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "moved",
+          "name": "Stop moved",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "stopLoss",
+          "name": "Stop loss",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "closed",
+          "name": "Closed",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "distance",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "minStep",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker"
+      ],
+      "sideEffects": "trading",
+      "allowedModes": [
+        "live",
+        "paper"
       ],
       "terminal": false
     },

@@ -197,7 +197,7 @@ are cheap and unlock better unattended graphs, so they are the best next pair.
 
 | Item | Blocker |
 | --- | --- |
-| `flow.parallel` | `executor.py` schedules layers sequentially; a bounded fan-out needs a concurrency budget in the plan and in `RunGrants`. Do not bolt threads onto a node. **Still open.** |
+| `flow.parallel` | **Shipped:** `executor._run_parallel` + `parallel_workers`, `loop_nodes.py`, `registry-loops.ts`. Same-layer nodes already ran concurrently; this is the dynamic fan-out over data. Concurrency = `min(config, workflow.maxConcurrency, items, 8)` — the plan's `maxConcurrency` is the ceiling, never a node's wish. Input-order results (deterministic), a durable child per item, `continueOnError`, and the compiler's subworkflow diagnostics all extended to it. |
 | `logic.human_approval` | **Shipped** (`approval_nodes.py` + `registry-utility.ts`). Requests a `graph_approval` row in the ONE approval store (kind + run/node keyed, TTL ≤ 24 h), and the decision is NOT consumed so a resume reads the same answer. New runtime primitive: `DeferredWait(rerun=True)` — the executor leaves the node **PENDING** (nothing checkpointed) so a resumed durable job re-enters it; without that flag a deferred node is checkpointed as succeeded and the gate would silently pass. Synchronous runs poll up to `maxWaitS` then fail honestly; denials name the approver; test runs never request. |
 | `output.video` | `video.render` exists; a second video node adds nothing. **Stays rejected.** |
 

@@ -43,6 +43,8 @@ const EXAMPLES: Record<string, string> = {
     'input 1000 · condition "value < 2000" · body "x * 1.07"  →  State 2104.85 after 11 iterations',
   'flow.for_each':
     'items [1000, 1500] · body "x * 1.07"  →  Results [1070, 1605], Iterations = 2',
+  'flow.parallel':
+    'items [1, 2, 3] · concurrency 2 · body "x * 2"  →  Results = [2, 4, 6] in INPUT order',
   'flow.subworkflow':
     'input "AAPL"  →  the child runs and Output = its terminal value',
   'transform.template':

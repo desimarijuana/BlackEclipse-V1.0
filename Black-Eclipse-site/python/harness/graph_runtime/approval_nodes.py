@@ -54,7 +54,16 @@ def _decided_by(decision: dict[str, Any]) -> str:
     return str(decision.get("decidedBy") or "").strip()
 
 
-def _request_args(context: NodeExecContext) -> dict[str, Any]:
+def exec_human_approval(context: NodeExecContext) -> dict[str, Any]:
+    if context.test_run:
+        # A test run must not create a pending request in the operator's queue.
+        raise ValueError(
+            "logic.human_approval needs a real decision; run it as an operator run "
+            "and approve it in Approvals (a test run never requests one)"
+        )
+    if _runner is None:
+        raise ValueError("the approval store is not configured in this graph runtime")
+
     title = str(context.config.get("title") or "").strip() or "Approval required"
     message = str(
         context.inputs.get("message") or context.config.get("message") or ""
@@ -66,7 +75,7 @@ def _request_args(context: NodeExecContext) -> dict[str, Any]:
         ttl_hours = int(context.config.get("ttlHours", 12))
     except (TypeError, ValueError) as exc:
         raise ValueError("TTL must be a whole number of hours") from exc
-    return {
+    args = {
         "requestKey": f"graph:{context.run_id}:{context.node_id}",
         "digest": _digest(context, title, message[:1_000]),
         "title": title[:200],
@@ -74,18 +83,6 @@ def _request_args(context: NodeExecContext) -> dict[str, Any]:
         "risk": risk,
         "ttlHours": max(1, min(ttl_hours, 24)),
     }
-
-
-def exec_human_approval(context: NodeExecContext) -> dict[str, Any]:
-    if context.test_run:
-        # A test run must not create a pending request in the operator's queue.
-        raise ValueError(
-            "logic.human_approval needs a real decision; run it as an operator run "
-            "and approve it in Approvals (a test run never requests one)"
-        )
-    if _runner is None:
-        raise ValueError("the approval store is not configured in this graph runtime")
-    args = _request_args(context)
 
     decision = _runner(context, args)
     if not isinstance(decision, dict):

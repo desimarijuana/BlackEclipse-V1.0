@@ -7,6 +7,26 @@
   and `graph.py` is re-pinned 2355→2370 for the AgentPreset fallback. Targeted
   graph/size tests green (79). no doc change — internal split, contracts
   unchanged.
+- **feat(graph): `flow.parallel` — bounded concurrent map (the last plan item).**
+  The runtime already ran same-layer nodes concurrently (bounded by the
+  workflow's `maxConcurrency`); this adds the DYNAMIC fan-out over data.
+  `executor._run_parallel` + `parallel_workers`: concurrency is
+  `min(config, workflow.maxConcurrency, itemCount, 8)`, so a node can never fan
+  out wider than the graph was authorized to. Results are collected in **input
+  order** (`pool.map`), keeping runs deterministic; each item is a durable child
+  run (`<parent>:<node>:i<N>`), so a resumed parent reuses a succeeded item. A
+  failed item is `{"error": ...}` in `results` and counted in `summary`;
+  `continueOnError` off fails the node naming the first failure. Cancellation is
+  checked per item. The compiler's subworkflow diagnostics
+  (`missing`/`cycle`/`depth`/nested-graph errors) now cover it too. Contract in
+  `loop_nodes.py` + `registry-loops.ts`, presentation/`maxItems`/
+  `concurrency` help in `config-fields.ts`, example added, manifest regenerated.
+  Tests: `python/tests/test_graph_parallel.py` (9 cases: input-order results,
+  per-item failure with/without `continueOnError`, truncation, empty list,
+  compile-time missing body, checkpoint reuse, the concurrency clamp, and a
+  timing proof that three 300 ms items finish under the serial cost).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
 - **chore(docs): rotated the changelog window.** Ran
   `scripts/rotate-changelog.js --write` to archive the oldest dated section into
   `docs/changelog/2026-10.md` (window of 7 preserved). no doc change — mechanical
@@ -77,6 +97,26 @@
   per-directory budget). Raising those ceilings is a deliberate decision that
   belongs to whoever owns that growth; this changelog records the state so it
   cannot be mistaken for a quant regression. no doc change — operational note.
+- **feat(graph): trading-system primitives — sizing, brackets, guards and position
+  management.** Pure nodes (no broker): `trading.size_by_risk` (equity risk budget
+  ÷ stop distance × contract size → volume, floored to the symbol step and capped
+  at its maximum; refuses rather than bumping below-minimum sizes),
+  `trading.bracket` (ATR × multiple or explicit stop distance → direction-aware
+  SL/TP with reward:risk), `trading.spread_guard` (missing spread is never treated
+  as tight) and `trading.session_filter` (broker `tradeMode` from a wired quote +
+  explicit UTC window/weekdays; documented as our clock filter, not the broker's
+  calendar). Risk-reducing management nodes (arm/approval/mandate-free, like
+  close/modify): `trading.break_even` (R measured from the position's own stop),
+  `trading.trail_stop` (tightens only, never widens) and `trading.partial_close`
+  (fraction/volume, floored to the symbol step from a wired quote). They live in
+  `graph_runtime/trading_calc_nodes.py` and `trading_ops_nodes.py`, aggregated by
+  `build_trading_nodes` so `nodes.py` gains no import; contracts mirrored in
+  `registry-trading.ts` / `config-fields.ts`; manifest regenerated. Tests:
+  `python/tests/test_graph_trading_primitives.py` (38: sizing math, step flooring,
+  min/max, bracket direction, guards, session windows incl. midnight wrap and
+  trade modes, break-even trigger/already/no-stop, trail direction and min step,
+  partial-close flooring). Docs updated: `docs/trading.md`,
+  `docs/graph-studio.md`, `docs/CHANGELOG.md`.
 - **feat(graph): read nodes, an intent builder and a no-side-effect order preview.**
   Added `trading.broker_orders`, `trading.broker_fills` and `trading.order_ledger`
   (broker working orders, reconciled deals, Eclipse's own submitted-order rows),

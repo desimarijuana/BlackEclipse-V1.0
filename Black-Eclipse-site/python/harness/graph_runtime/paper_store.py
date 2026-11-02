@@ -42,6 +42,16 @@ CREATE TABLE IF NOT EXISTS GraphPaperFill (
   createdAt   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_paper_fill_account ON GraphPaperFill(accountId, id);
+
+-- One row per claimed idempotency key. An unattended graph re-running on a
+-- schedule must not send the same order twice, so the claim happens BEFORE the
+-- send: a failed send is not retried automatically either (never double-fires).
+CREATE TABLE IF NOT EXISTS GraphTradingGuard (
+  scope     TEXT NOT NULL,
+  guardKey  TEXT NOT NULL,
+  createdAt TEXT NOT NULL,
+  PRIMARY KEY (scope, guardKey)
+);
 """
 
 
@@ -108,6 +118,16 @@ class PaperAccountStore:
             "createdAt": row["createdAt"],
             "updatedAt": row["updatedAt"],
         }
+
+    def claim_guard(self, scope: str, key: str) -> bool:
+        """Claim one idempotency key. False means it was already used."""
+        cursor = self._db.execute(
+            "INSERT OR IGNORE INTO GraphTradingGuard (scope, guardKey, createdAt)"
+            " VALUES (?, ?, ?)",
+            (str(scope), str(key), now_iso()),
+        )
+        self._db.commit()
+        return int(cursor.rowcount or 0) > 0
 
     def apply_fill(
         self,

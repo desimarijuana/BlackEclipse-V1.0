@@ -305,6 +305,7 @@ def compile_workflow(
 
         if definition.type in (
             "flow.subworkflow", "flow.for_each", "flow.repeat", "flow.while",
+            "flow.parallel",
         ):
             workflow_id = str(node.config.get("workflowId") or "").strip()
             try:
