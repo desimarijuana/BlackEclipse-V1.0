@@ -53,6 +53,15 @@ TEST_RUN_CAPABILITIES = frozenset({
     # count and TTL limits, so a test run may use them.
     "dataset.read",
     "dataset.write",
+    # Local file assets are bounded scratch on the same store, with size/count
+    # limits and no network path. A test run may parse an uploaded file and
+    # export a result (both local reads/writes).
+    "asset.read",
+    "asset.write",
+    # Image reads and vision calls are local/model work: no world effect. The
+    # vision store is read-only here and the call has no tools.
+    "image.read",
+    "model.vision",
     # Local evidence reads cannot affect the world.
     "research.read",
     # A model call is not a world effect. Its tool surface is narrowed by the

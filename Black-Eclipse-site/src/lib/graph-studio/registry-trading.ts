@@ -498,15 +498,17 @@ export const TRADING_DEFINITIONS: NodeDefinition[] = [
       weekdays: z.string().max(40).default('mon,tue,wed,thu,fri,sat,sun'),
       side: z.enum(['', 'buy', 'sell']).default(''),
       serverOffsetMinutes: z.number().min(-1_440).max(1_440).default(0),
+      sessionsJson: z.string().max(4_000).default(''),
     }),
     defaultConfig: () => ({
       startUtc: '00:00', endUtc: '00:00',
       weekdays: 'mon,tue,wed,thu,fri,sat,sun', side: '', serverOffsetMinutes: 0,
+      sessionsJson: '',
     }),
     capabilities: ['trading.guard'],
     sideEffects: 'none',
     allowedModes: ['research', 'backtest', 'paper', 'live'],
-    docs: 'Open only when the broker\'s own trade SESSIONS say so (a wired broker_symbol carrying sessionDeals; evaluated in server time from the quote\'s server clock or serverOffsetMinutes), or — when the terminal reports no sessions — inside the configured UTC window and weekdays. The broker\'s tradeMode always applies. `basis` says which calendar was used. No holiday schedule is invented: MetaTrader\'s Python API does not reliably expose sessions, and an empty table falls back to the window.',
+    docs: 'Open only when the broker\'s own trade SESSIONS say so (a wired broker_symbol carrying sessionDeals; evaluated in server time from the quote\'s server clock or serverOffsetMinutes), or by an explicit sessionsJson calendar when the terminal reports none, or - with neither - inside the configured UTC window and weekdays. The broker\'s tradeMode always applies. `basis` says which calendar was used (brokerSession / configuredSessions / clockWindow). No holiday schedule is invented: MetaTrader\'s Python API does not reliably expose sessions, and an empty table falls back to the window.',
   },
   {
     type: 'trading.size_by_risk',

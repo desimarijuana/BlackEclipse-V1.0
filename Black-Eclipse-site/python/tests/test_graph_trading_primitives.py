@@ -364,6 +364,61 @@ def test_the_session_node_falls_back_to_its_clock_window():
     assert result["basis"] == "clockWindow"
 
 
+def test_an_explicit_calendar_covers_a_broker_that_reports_no_sessions():
+    result = _exec(
+        "trading.session_filter",
+        {
+            "startUtc": "00:00", "endUtc": "00:00",
+            "sessionsJson": '[{"day": 0, "from": "09:00", "to": "17:00"}]',
+        },
+        {
+            "symbolInfo": {"data": {"sessionsAvailable": False, "sessionDeals": []}},
+            "time": "2026-11-02T10:00:00Z",
+        },
+    )
+    assert result["open"] is True
+    assert result["basis"] == "configuredSessions"
+
+    closed = _exec(
+        "trading.session_filter",
+        {
+            "startUtc": "00:00", "endUtc": "00:00",
+            "sessionsJson": '[{"day": 0, "from": "09:00", "to": "17:00"}]',
+        },
+        {"time": "2026-11-02T18:00:00Z"},
+    )
+    assert closed["open"] is False
+    assert "trade sessions" in closed["reason"]
+
+
+def test_broker_sessions_beat_the_configured_calendar():
+    result = _exec(
+        "trading.session_filter",
+        {
+            "startUtc": "00:00", "endUtc": "00:00",
+            "sessionsJson": '[{"day": 0, "from": "00:00", "to": "23:59"}]',
+        },
+        {
+            "symbolInfo": {"data": {
+                "sessionsAvailable": True,
+                "sessionDeals": [{"day": 0, "from": "09:00", "to": "17:00"}],
+            }},
+            "time": "2026-11-02T20:00:00Z",
+        },
+    )
+    assert result["open"] is False
+    assert result["basis"] == "brokerSession"
+
+
+def test_a_malformed_session_calendar_is_a_data_error():
+    with pytest.raises(ValueError, match="sessionsJson"):
+        _exec(
+            "trading.session_filter",
+            {"sessionsJson": '[{"day": 0}]'},
+            {"time": "2026-11-02T10:00:00Z"},
+        )
+
+
 def test_the_session_node_reads_the_symbol_facts_when_wired():
     result = _exec(
         "trading.session_filter",

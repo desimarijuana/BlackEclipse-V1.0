@@ -339,15 +339,17 @@ model JournalProfile {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  accounts   TradingAccount[]
-  strategies Strategy[]
-  setups     Setup[]
-  tags       Tag[]
-  days       JournalDay[]
-  trades     Trade[]
-  entries    JournalEntry[]
-  reviews    Review[]
-  watchlist  WatchlistItem[]
+  accounts          TradingAccount[]
+  strategies        Strategy[]
+  setups            Setup[]
+  tags              Tag[]
+  days              JournalDay[]
+  trades            Trade[]
+  entries           JournalEntry[]
+  reviews           Review[]
+  watchlist         WatchlistItem[]
+  brokerLinks       JournalBrokerLink[]
+  attributionRules  BrokerAttributionRule[]
 }
 
 // A trading account the journal tracks P&L against.
@@ -359,12 +361,73 @@ model TradingAccount {
   currency       String   @default("USD")
   initialBalance Float    @default(0)
   archived       Boolean  @default(false)
+  // Optional binding to a durable broker connection in the Python harness
+  // (`BrokerConnection.id`). The connection itself lives in agent-memory.db;
+  // this is only the identity used to project its trades into the journal.
+  brokerConnectionId String?
+  brokerLogin         Int?
+  brokerServer        String?
   createdAt      DateTime @default(now())
 
   profile JournalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   trades  Trade[]
+  links   JournalBrokerLink[]
 
   @@index([profileId])
+  @@index([profileId, brokerConnectionId])
+}
+
+// Binds one broker connection to the journal. The broker stays authoritative;
+// this row only says how to project its deals into journal trades.
+model JournalBrokerLink {
+  id             String   @id @default(cuid())
+  profileId      String
+  // Python harness `BrokerConnection.id`. No credential ever lives here.
+  connectionId   String
+  accountId      String?
+  enabled        Boolean  @default(true)
+  autoSync       Boolean  @default(false)
+  // How far back a first/repair sync should ask the broker for deals.
+  backfillDays   Int      @default(90)
+  lastDealAt     Int?
+  lastSyncedAt   DateTime?
+  // 'never' | 'ok' | 'error' | 'unavailable'
+  lastSyncStatus String   @default("never")
+  lastError      String?
+  /// JSON: { "EURUSD.a": "EURUSD" }
+  symbolMap      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  profile JournalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  account TradingAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+
+  @@unique([profileId, connectionId])
+  @@index([profileId])
+}
+
+// Turns broker metadata (magic number / comment / symbol) into journal
+// attribution (strategy, setup, tags). Rules are user-editable and applied at
+// projection time; they never overwrite a user's own attribution once set.
+model BrokerAttributionRule {
+  id           String   @id @default(cuid())
+  profileId    String
+  connectionId String?
+  magic        Int?
+  // Case-insensitive substring match on the broker deal comment.
+  commentMatch String?
+  // Case-insensitive glob, `*` wildcard (e.g. "XAU*").
+  symbolMatch  String?
+  strategyId   String?
+  setupId      String?
+  /// JSON string[] of tag names to seed.
+  tagNames     String?
+  priority     Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  profile JournalProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, connectionId, priority])
 }
 
 // A trading strategy / playbook. Rules are stored as structured rows so the
@@ -521,9 +584,23 @@ model Trade {
   checklist    String? // JSON: { ruleId: boolean }
   status       String  @default("closed") // 'open' | 'closed'
   // Provenance: 'manual' (user-entered or CSV-imported) vs 'demo' (seeded
-  // sample data). Demo rows are real records but clearly labelled, and can be
-  // removed without touching anything the user created.
+  // sample data) vs 'broker' (projected from a reconciled broker deal).
+  // Demo rows are real records but clearly labelled, and can be removed
+  // without touching anything the user created.
   source       String  @default("manual")
+
+  // ── Broker provenance (only set for source='broker') ──────────────────
+  // Stable dedupe key: "mt5:<connectionId>:<positionTicket>". Unique per
+  // profile so a repeated sync is idempotent and never duplicates a trade.
+  externalId           String?
+  brokerConnectionId   String?
+  brokerPositionTicket Int?
+  // 'computed' = derived from entry/exit/qty; 'broker' = the broker's own
+  // net profit is authoritative (forex/CFD cannot be recomputed this way).
+  pnlBasis             String  @default("computed")
+  // Set when the user explicitly deletes a broker-sourced trade; sync then
+  // leaves that externalId alone instead of resurrecting it.
+  ignoredAt            DateTime?
 
   // ── Auto-computed metrics (never user-entered) ────────────────────────
   // Gross P&L excludes costs; `pnl` is NET (gross − commission − fee).
@@ -554,12 +631,14 @@ model Trade {
   tags          TradeTag[]
   marketContext MarketContext?
 
+  @@unique([profileId, externalId])
   @@index([profileId, entryTime])
   @@index([profileId, symbol])
   @@index([profileId, strategyId])
   @@index([profileId, setupId])
   @@index([profileId, session])
   @@index([profileId, dayId])
+  @@index([brokerConnectionId, brokerPositionTicket])
 }
 
 // Event-sourcing-ready execution log. Each change to a trade (entry modified,

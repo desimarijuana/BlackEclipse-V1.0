@@ -119,6 +119,11 @@ def exec_await_fill(context: NodeExecContext) -> dict[str, Any]:
 
 
 def exec_reconcile(context: NodeExecContext) -> dict[str, Any]:
+    if context.test_run:
+        raise ValueError(
+            "a test run must not write the broker mirror; run this graph as an "
+            "operator run to sync"
+        )
     result = _service().sync_connection(_connection(context))
     ok = bool(result.get("ok"))
     reason = "" if ok else (_error_text(result.get("error")) or "the sync failed")
@@ -138,6 +143,11 @@ def exec_drift_check(context: NodeExecContext) -> dict[str, Any]:
     limit = int(context.config.get("limit", 100) or 100)
     max_age = float(context.config.get("maxAgeSeconds", 300) or 0)
     if bool(context.config.get("syncFirst")):
+        if context.test_run:
+            raise ValueError(
+                "a test run must not write the broker mirror; set syncFirst off or "
+                "run this graph as an operator run"
+            )
         sync = service.sync_connection(connection_id)
         if not sync.get("ok"):
             raise ValueError(

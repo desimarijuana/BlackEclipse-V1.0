@@ -22,6 +22,7 @@ _ALL = tuple(ExecutionMode)
 MAX_DELEGATE_TASKS = 6
 
 AgentRunner = Callable[[NodeExecContext, dict[str, Any], str], dict[str, Any]]
+AgentTaskRunner = Callable[[NodeExecContext, dict[str, Any], str], dict[str, Any]]
 PlanRunner = Callable[[NodeExecContext, str], dict[str, Any]]
 # `(bot_id) -> bot dict | None`. Bound at boot to the automation store so this
 # module never imports the scheduler.
@@ -29,6 +30,7 @@ BotResolver = Callable[[str], Optional[dict[str, Any]]]
 _runner: Optional[AgentRunner] = None
 _plan_runner: Optional[PlanRunner] = None
 _bot_resolver: Optional[BotResolver] = None
+_task_runner: Optional[AgentTaskRunner] = None
 
 
 def set_agent_runner(runner: Optional[AgentRunner]) -> None:
@@ -44,6 +46,12 @@ def set_plan_runner(runner: Optional[PlanRunner]) -> None:
 def set_bot_resolver(resolver: Optional[BotResolver]) -> None:
     global _bot_resolver
     _bot_resolver = resolver
+
+
+def set_agent_task_runner(runner: Optional[AgentTaskRunner]) -> None:
+    """The n8n-style agent node runner (instructions/tools/memory aware)."""
+    global _task_runner
+    _task_runner = runner
 
 
 def _tasks(context: NodeExecContext) -> list[dict[str, str]]:
@@ -146,8 +154,11 @@ def exec_research_agent(context: NodeExecContext) -> dict[str, Any]:
         raise ValueError("the agent runtime is not configured in this graph runtime")
     config = {
         "agent": str(context.config.get("agent") or "eclipse-agent"),
+        "agentVersion": int(context.config.get("agentVersion", 0)),
         "objective": objective,
         "maxSteps": int(context.config.get("maxSteps", 8)),
+        "instructions": str(context.config.get("instructions") or ""),
+        "tools": _tools_list(context.config.get("tools")),
     }
     result = _runner(context, config, objective)
     if not isinstance(result, dict):
@@ -190,8 +201,11 @@ def exec_delegate_agent(context: NodeExecContext) -> dict[str, Any]:
         try:
             result = _runner(context, {
                 "agent": agent,
+                "agentVersion": int(context.config.get("agentVersion", 0)),
                 "objective": task["objective"],
                 "maxSteps": max_steps,
+                "instructions": str(context.config.get("instructions") or ""),
+                "tools": _tools_list(context.config.get("tools")),
             }, task["objective"])
             if not isinstance(result, dict):
                 raise ValueError("the agent runner returned no structured result")
@@ -279,10 +293,132 @@ def exec_bot_agent(context: NodeExecContext) -> dict[str, Any]:
         "agent": agent,
         "objective": objective,
         "maxSteps": max_steps,
+        "instructions": str(context.config.get("instructions") or ""),
+        "tools": _tools_list(context.config.get("tools")),
     }, objective)
     if not isinstance(result, dict):
         raise ValueError("the agent runner returned no structured result")
     return result
+
+
+def _bounded_json(value: Any, limit: int = 4_000) -> str:
+    try:
+        text = json.dumps(value, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        text = str(value)
+    return text[:limit]
+
+
+def _tools_list(raw: Any) -> list[str]:
+    if isinstance(raw, list):
+        parts = [str(item) for item in raw]
+    else:
+        parts = str(raw or "").split(",")
+    out: list[str] = []
+    for part in parts:
+        value = str(part).strip()
+        if value and value not in out:
+            out.append(value)
+    return out[:64]
+
+
+def _json_from_text(text: str) -> Any:
+    cleaned = (text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:].lstrip()
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        from ..vision.analyze import extract_json  # noqa: PLC0415
+
+        return extract_json(cleaned)
+
+
+def exec_agent_task(context: NodeExecContext) -> dict[str, Any]:
+    task = str(
+        context.inputs.get("task") or context.config.get("task") or ""
+    ).strip()
+    if not task:
+        raise ValueError("agent.task needs a task (wire one or fill Task)")
+    parts = [task]
+    if bool(context.config.get("includeInput", True)) and context.inputs.get("input") is not None:
+        parts.append(f"Input (JSON):\n{_bounded_json(context.inputs['input'])}")
+    if context.inputs.get("context") is not None:
+        parts.append(f"Context (JSON):\n{_bounded_json(context.inputs['context'])}")
+    objective = "\n\n".join(parts)
+
+    memory_mode = str(context.config.get("memoryMode") or "read").strip().lower()
+    if memory_mode not in ("none", "read", "write", "read_write"):
+        raise ValueError(f"unknown memoryMode {memory_mode!r}")
+    if context.test_run and memory_mode in ("write", "read_write"):
+        raise ValueError(
+            "agent.task memory writes are refused in a test run; use an operator run"
+        )
+    if _task_runner is None:
+        raise ValueError("the agent runtime is not configured in this graph runtime")
+    config = {
+        "agent": str(context.config.get("agent") or "eclipse-agent"),
+        "agentVersion": int(context.config.get("agentVersion", 0)),
+        "maxSteps": int(context.config.get("maxSteps", 8)),
+        "instructions": str(context.config.get("instructions") or ""),
+        "tools": _tools_list(context.config.get("tools")),
+        "memoryMode": memory_mode,
+        "memoryScope": str(context.config.get("memoryScope") or "workflow"),
+        "memoryLimit": int(context.config.get("memoryLimit", 8)),
+        "memoryImportance": float(context.config.get("memoryImportance", 0.5)),
+    }
+    result = _task_runner(context, config, objective)
+    if not isinstance(result, dict):
+        raise ValueError("the agent runner returned no structured result")
+    finding = result.get("finding") if isinstance(result.get("finding"), dict) else {}
+    output = str(finding.get("text") or "")
+    output_mode = str(context.config.get("outputMode") or "text").strip().lower()
+    if output_mode not in ("text", "json"):
+        raise ValueError(f"unknown outputMode {output_mode!r}")
+
+    data: Any = None
+    valid = bool(output.strip())
+    issues: list[str] = []
+    if output_mode == "json":
+        parsed = _json_from_text(output)
+        if not isinstance(parsed, dict):
+            valid = False
+            issues.append("the agent did not return a JSON object")
+        else:
+            data = parsed
+            schema_text = str(context.config.get("outputSchemaJson") or "").strip()
+            if schema_text:
+                try:
+                    schema = json.loads(schema_text)
+                except json.JSONDecodeError as exc:
+                    valid = False
+                    issues.append(f"output schema is not valid JSON: {exc}")
+                else:
+                    from .agent_structured import validate_extraction  # noqa: PLC0415
+
+                    valid, schema_issues = validate_extraction(data, schema)
+                    issues.extend(schema_issues)
+                    if not valid:
+                        data = None
+    context.emit(
+        f"agent {config['agent']} · {'json' if output_mode == 'json' else 'text'}"
+        + ("" if valid else " · invalid output")
+    )
+    return {
+        "output": output,
+        "data": data,
+        "finding": finding,
+        "run": {
+            "runId": finding.get("runId"),
+            "status": finding.get("status"),
+            "tokens": finding.get("tokens"),
+            "toolCalls": finding.get("toolCalls"),
+        },
+        "valid": valid,
+        "issues": issues,
+    }
 
 
 def build_agent_nodes() -> list[NodeDef]:
@@ -302,6 +438,8 @@ def build_agent_nodes() -> list[NodeDef]:
                 ConfigField("agentVersion", "integer", 0, minimum=0, maximum=1_000_000),
                 ConfigField("objective", "string", "", max_length=2_000),
                 ConfigField("maxSteps", "integer", 8, minimum=1, maximum=32),
+                ConfigField("instructions", "string", "", max_length=8_000),
+                ConfigField("tools", "string", "", max_length=2_000),
             ),
             capabilities=("agent.run",),
             side_effects=SideEffect.MODEL,
@@ -354,6 +492,8 @@ def build_agent_nodes() -> list[NodeDef]:
                 ConfigField("agentVersion", "integer", 0, minimum=0, maximum=1_000_000),
                 ConfigField("maxSteps", "integer", 8, minimum=1, maximum=32),
                 ConfigField("maxTasks", "integer", 4, minimum=1, maximum=MAX_DELEGATE_TASKS),
+                ConfigField("instructions", "string", "", max_length=8_000),
+                ConfigField("tools", "string", "", max_length=2_000),
             ),
             capabilities=("agent.run",),
             side_effects=SideEffect.MODEL,
@@ -382,6 +522,8 @@ def build_agent_nodes() -> list[NodeDef]:
                 ConfigField("botId", "string", "", max_length=120),
                 ConfigField("objective", "string", "", max_length=2_000),
                 ConfigField("maxSteps", "integer", 8, minimum=1, maximum=32),
+                ConfigField("instructions", "string", "", max_length=8_000),
+                ConfigField("tools", "string", "", max_length=2_000),
             ),
             capabilities=("agent.run",),
             side_effects=SideEffect.MODEL,
@@ -398,6 +540,52 @@ def build_agent_nodes() -> list[NodeDef]:
                 ),
             },
         ),
+        NodeDef(
+            type="agent.task", version="1.0.0", label="Agent",
+            category="agent",
+            inputs=(
+                PortDef(id="input", name="Input", type=PortType.ANY, optional=True),
+                PortDef(id="context", name="Context", type=PortType.OBJECT, optional=True),
+                PortDef(id="task", name="Task", type=PortType.STRING, optional=True),
+            ),
+            outputs=(
+                PortDef(id="output", name="Output", type=PortType.STRING),
+                PortDef(id="data", name="Data", type=PortType.OBJECT, nullable=True),
+                PortDef(id="finding", name="Finding", type=PortType.RESEARCH_FINDING),
+                PortDef(id="run", name="Run", type=PortType.OBJECT),
+                PortDef(id="valid", name="Valid", type=PortType.BOOLEAN),
+                PortDef(id="issues", name="Issues", type=PortType.ARRAY),
+            ),
+            config_fields=(
+                ConfigField("agent", "string", "eclipse-agent", max_length=80),
+                ConfigField("agentVersion", "integer", 0, minimum=0, maximum=1_000_000),
+                ConfigField("task", "string", "", max_length=4_000),
+                ConfigField("instructions", "string", "", max_length=8_000),
+                ConfigField("tools", "string", "", max_length=2_000),
+                ConfigField("maxSteps", "integer", 8, minimum=1, maximum=32),
+                ConfigField("memoryMode", "enum", "read", enum=("none", "read", "write", "read_write")),
+                ConfigField("memoryScope", "enum", "workflow", enum=("general", "workflow", "run")),
+                ConfigField("memoryLimit", "integer", 8, minimum=1, maximum=50),
+                ConfigField("memoryImportance", "number", 0.5, minimum=0.0, maximum=1.0),
+                ConfigField("outputMode", "enum", "text", enum=("text", "json")),
+                ConfigField("outputSchemaJson", "string", "", max_length=20_000),
+                ConfigField("includeInput", "boolean", True),
+            ),
+            capabilities=("agent.run",),
+            side_effects=SideEffect.MODEL,
+            allowed_modes=_ALL,
+            timeout_ms=600_000,
+            executor=exec_agent_task,
+            metadata={
+                "docs": (
+                    "The n8n-style Agent node: instructions + task + agent preset + "
+                    "tool allowlist + memory mode + a declared output shape. It runs "
+                    "ONE bounded turn on the existing agent plane; a JSON output is "
+                    "checked against the schema and reports valid=false on mismatch. "
+                    "Memory writes are refused in a test run."
+                ),
+            },
+        ),
     ]
 
 
@@ -406,8 +594,10 @@ __all__ = [
     "agent_result_payload",
     "agent_run_identity",
     "build_agent_nodes",
+    "exec_agent_task",
     "exec_bot_agent",
     "set_agent_runner",
+    "set_agent_task_runner",
     "set_bot_resolver",
     "set_plan_runner",
     "exec_research_agent",

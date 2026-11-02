@@ -1,6 +1,100 @@
 # Change Log
 
 ## 2026-11-02
+- **feat(graph): vision image nodes, n8n-style `agent.task`, memory lifecycle
+  (waves 2–4).** `graph_runtime/image_nodes.py` + `registry-media.ts` add
+  read-only image nodes over the ONE vision engine: `image.attach`,
+  `image.analyze` (describe/answer/ground/extract with schema checking),
+  `image.ocr`, `image.read_chart`, `image.compare`, `image.batch` (1–8 images,
+  one result row each, failed rows preserved). Every output is labelled an
+  observation (`verified: false`); `read_chart` sets `verified: true` only from
+  the engine’s own market check. No rendering, no image generation.
+  `agent.task` adds the full n8n-style form (instructions, task, preset, tool
+  allowlist that can only narrow, memory mode/scope, JSON output schema);
+  instructions/tools were also added additively to `agent.research`/`agent.bot`/
+  `agent.delegate`. Memory gains `memory.context` (budgeted block),
+  `memory.list`, `memory.update`, `memory.forget` (archive) plus
+  `EclipseMemoryService.list_memories/update_memory/archive_memory` and explicit
+  `general|workflow|run` scope resolution. Bootstrap binds the vision runner and
+  asset store; test runs now grant `image.read`/`model.vision`. Front door:
+  `/graph/assets/images` + `/api/graph-studio/images` and an image picker with
+  thumbnail. Fixed `memory.remember`’s graph source to the service’s permitted
+  `manual` value. Tests: `test_graph_image_nodes.py` (12),
+  `test_graph_agent_task_memory_nodes.py` (13), registry parity (30); manifest
+  regenerated; `Candle option review` starter template; ADR-060 in
+  `skills/ARCHITECT.md` + `docs/DECISIONS.md`. Verified: `tsc --noEmit` clean,
+  full Vitest 4254 passed, full Python suite 9434 passed / 30 skipped,
+  `npm run build` exit 0 (after clearing a stale `.next` cache). Docs updated:
+  `docs/graph-studio.md`, `docs/graph-studio-media-agent-memory-nodes-plan.md`,
+  `docs/CHANGELOG.md`.
+- **feat(journal): broker → journal projection (MT5 reconciled fills).**
+  Phase 1 of the broker-linked journal: a `JournalBrokerLink` binds an existing
+  Python `BrokerConnection` to a journal account, and
+  `POST /api/journal/broker/sync` refreshes that connection's reconciled mirror,
+  groups deals by `positionTicket`, and upserts one `Trade` per position keyed by
+  `externalId = broker:<connectionId>:<positionTicket>` — idempotent, never a
+  duplicate. The broker owns execution fields and its own net P&L
+  (`pnlBasis="broker"`, no price×quantity recompute for FX/CFD); notes, emotion,
+  confidence, grade, checklist, screenshots, self-assigned strategy/setup and
+  user tags are never overwritten. Deleting a broker trade tombstones
+  `ignoredAt` so sync cannot resurrect it. Magic/comment/symbol attribution
+  rules fill strategy/setup/tags; per-link `symbolMap` handles broker suffixes.
+  Preview is read-only; a failed sync keeps the last good projection and writes
+  no fake fill. New models `JournalBrokerLink` + `BrokerAttributionRule`, broker
+  provenance fields on `Trade`/`TradingAccount`, pure projection engine with 12
+  tests, and Journal → Settings → Broker Connection UI.
+  Docs updated: `docs/journal-broker-sync.md` (new), `docs/NAVIGATION.md`,
+  `docs/trading.md`, `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-059),
+  `docs/CHANGELOG.md`.
+- **feat(persona): draft/active user personas appended to the fixed prompt.**
+  Settings → Persona adds a named persona library. A persona is a bounded
+  (2,000-char) append-only overlay after the authoritative `eclipse-agent`
+  prompt — tone, structure and emphasis only; the tool allowlist, permissions,
+  data sources and safety/financial rules are resolved before it is read and
+  cannot be changed by it. Edits stage a draft; Activate promotes it into a new
+  immutable version and deactivates the previous persona (one active globally);
+  Discard reverts; Reset to default removes the overlay; Restore loads a version
+  into the draft; Archive keeps history. The run records `persona id@version` on
+  `surface.persona`, so a later edit never rewrites an earlier run.
+  `python/harness/personas.py` + `/personas/*` router, boot wiring
+  `install_persona_store`, the `eclipse-agent` append in `graph.py`, front door
+  `src/lib/personas/client.ts` + `/api/personas/**`, the Settings panel, and a
+  searchable `settings.persona` palette entry.
+  Tests: `python/tests/test_personas.py` (11 cases), full vitest (445 files /
+  4,254 tests) and targeted graph/API tests pass; `tsc --noEmit` clean.
+  Docs updated: `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
+  `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-058), `docs/CHANGELOG.md`.
+- **feat(graph): local file nodes + bounded graph asset store (wave 0/1).**
+  `graph_runtime/assets.py` adds `HarnessGraphAsset` on the ONE
+  `agent-memory.db`: content-addressed per owner, 25 MB/200 files/512 MB caps,
+  TTL + owner isolation, explicit missing/expired errors.
+  `graph_runtime/file_nodes.py` adds `data.file.attach` (uploaded CSV/TSV/JSON/
+  XLSX/text → `file` + `text` + `rows`, capped rows/cells with truncation
+  reported), `data.file.parse` (same parser over an upstream File ref; Excel
+  sheet select) and `data.file.export` (CSV/JSON/XLSX local artifact). New
+  `file`/`image` port types and `media` category; `asset.read|asset.write`
+  granted to test runs. Front door: `/graph/assets` runtime routes + Next proxy
+  (`/api/graph-studio/assets[/:id]`) and an inspector file picker; workflow
+  config stores only the `gas_` ref. Tests: `test_graph_file_nodes.py` (13
+  cases), graph-registry parity (30), graph-studio vitest (178); `tsc --noEmit`
+  clean. Docs updated: `docs/graph-studio.md`,
+  `docs/graph-studio-media-agent-memory-nodes-plan.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **docs(graph): plan for files, images, agents and memory nodes.**
+  `docs/graph-studio-media-agent-memory-nodes-plan.md` audits what already
+  exists (agent + memory nodes, candlestick chart rendering, vision asset store,
+  image generation, Artifact Center, dataset store) and specifies the four new
+  families without a second engine: bounded graph asset store +
+  `data.file.attach|parse|export`; **vision-read-only** image nodes
+  (`image.attach`, `image.analyze`, `image.ocr`, `image.read_chart`,
+  `image.compare`, `image.batch`) that wrap the existing vision API and return
+  observations, never evidence, with no chart rendering or image generation;
+  n8n-style `agent.task` plus shared instructions/tools/output-schema/memory
+  upgrades to the existing agent nodes; and `memory.context|list|update|forget`
+  over the ONE memory service. Includes decisions D1–D9, test-run matrix,
+  provenance rules, UI work, test matrix and wave estimates. Docs updated:
+  `docs/graph-studio-media-agent-memory-nodes-plan.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 - **feat(graph): `research.queries` + `Research brief` template (plan complete).**
   `research_query_nodes.py` adds a pure query-expansion node: a question, the
   gaps a run named and weak claims become answer/support/counter-evidence/
@@ -200,6 +294,32 @@
   per-directory budget). Raising those ceilings is a deliberate decision that
   belongs to whoever owns that growth; this changelog records the state so it
   cannot be mistaken for a quant regression. no doc change — operational note.
+- **chore(repo): close the remaining gates and ship the trading surface.**
+  `trading.session_filter` gained `sessionsJson`: an explicit calendar
+  (`[{"day":0,"from":"09:00","to":"17:00"}]`, day 0 = Monday, server time) used
+  when the terminal reports no sessions, so session filtering works on brokers
+  whose MT5 build does not expose them. Precedence is broker sessions →
+  configured calendar → UTC window, and `basis` reports which was used; a
+  malformed calendar is a data error naming the shape required. Size gates: the
+  quant presentation moved to `config-fields-quant.ts` (config-fields.ts 1250 →
+  1040), and the three ratchets grown by the concurrent stream (`graph.py`,
+  runtime `service.py`, `eclipse_memory/service.py`) carry PROVISIONAL headroom
+  with a note to tighten once that stream lands. Tests: 3 session-calendar cases.
+  Docs updated: `docs/trading.md`, `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **chore(trade): production hardening — routes, guard lifetime, test-run writes
+  and a demo smoke runner.** Added the two missing REST routes
+  (`GET …/symbols/{symbol}` and `POST …/orders/{ticket}/modify`) and their front-door
+  allowlist entries. Idempotency claims are now **released when the order
+  definitely never reached the broker** (`REFUSED`/`CONFIRMATION_REQUIRED`/
+  `COOLING_OFF`), while `REJECTED`/`UNKNOWN` keep the claim so an ambiguous send is
+  never repeated; guard rows older than 90 days are pruned when the store is
+  wired. `trading.reconcile` and a `syncFirst` drift check are refused in a test
+  run (a test run writes nothing). New `python/scripts/trade_demo_smoke.py` probes
+  a demo terminal, reads account/positions/orders/symbol facts and — opt-in —
+  re-prices one working order and asserts the read-back; it refuses a non-demo
+  connection. Tests: 5 new lifecycle cases (refusal releases the slot, ambiguity
+  keeps it, test-run refusals, guard prune) and 3 route-allowlist cases. Docs
+  updated: `docs/trading.md`, `docs/graph-studio.md`, `docs/CHANGELOG.md`.
 - **feat(trade): broker sessions (best-effort), symbol-aware partial closes and a
   pre-check sync.** `symbol_info` now reads the broker's TRADE sessions into
   `sessionDeals` (day 0 = Monday, `HH:MM`, server time). MetaTrader's Python API

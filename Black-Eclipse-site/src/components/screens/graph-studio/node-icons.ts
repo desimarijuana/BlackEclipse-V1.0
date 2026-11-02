@@ -39,6 +39,7 @@ const CATEGORY_FALLBACK: Record<NodeCategory, LucideIcon> = {
   skills: Sparkles,
   research: Globe,
   trading: Activity,
+  media: FileCode2,
   output: Check,
 };
 

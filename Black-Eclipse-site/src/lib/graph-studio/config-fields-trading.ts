@@ -144,6 +144,7 @@ export const TRADING_FIELD_OVERRIDES: Record<string, Override[]> = {
       { value: '', label: 'Any / none' }, { value: 'buy', label: 'buy' }, { value: 'sell', label: 'sell' },
     ] },
     { key: 'serverOffsetMinutes', label: 'Server offset (min)', kind: 'number', min: -1_440, max: 1_440, help: 'Broker server clock vs UTC. Used only when broker sessions exist and no quote supplies a server time.' },
+    { key: 'sessionsJson', label: 'Session calendar (JSON)', kind: 'json', help: 'Used when the terminal reports no sessions. [{"day":0,"from":"09:00","to":"17:00"}], day 0 = Monday, server time.' },
   ],
   'trading.break_even': [
     { key: 'connectionId', label: 'Broker connection', kind: 'text' },

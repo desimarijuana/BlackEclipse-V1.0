@@ -16,7 +16,7 @@ import {
   ChevronRight, Cpu,
   CircleDashed, RefreshCcw, Boxes, PanelLeft, Eye as EyeIcon,
   Loader2, Search, AlertCircle, Volume2, BarChart3,
-  GitBranch, Plug, Handshake, ChatsCircle, Wallet,
+  GitBranch, Plug, Handshake, ChatsCircle, Wallet, UsersThree,
 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { GitPanel } from "./git-panel";
@@ -39,6 +39,7 @@ import { VoiceSettingsPanel } from "./voice-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources } from "./provider-registry-panel";
 import { AIProviderSettings } from "./ai-provider-settings";
 import { AgentsSettingsPanel } from "@/components/settings/agents-settings";
+import { PersonaSettingsPanel } from "@/components/settings/personas-settings";
 import { NewsFeedsPanel } from "./news-feeds-panel";
 import { SearchRetrievalSettings } from "./search-retrieval-settings";
 import { useModelCatalog } from "@/lib/agent/model-catalog";
@@ -181,13 +182,13 @@ let settingsCache: SettingsSnapshot | null = readCachedSnapshot();
 //   data           — local chats/watchlist/portfolio + reset
 //   system         — JDDS status, health, internal integrations
 export type SectionId =
-  | "general" | "sound" | "voice" | "ai" | "agents" | "investor-eye" | "economics" | "market" | "news"
+  | "general" | "persona" | "sound" | "voice" | "ai" | "agents" | "investor-eye" | "economics" | "market" | "news"
   | "analytics" | "sidebar" | "alerts" | "data" | "git" | "mcp" | "system" | "security"
   | "money-guardrails" | "connections" | "trading";
 
 /** Valid settings sub-view ids, for the palette's settings sub-pages. */
 export const SETTINGS_SECTIONS: readonly SectionId[] = [
-  "general", "sound", "voice", "ai", "agents", "investor-eye", "economics", "market", "news",
+  "general", "persona", "sound", "voice", "ai", "agents", "investor-eye", "economics", "market", "news",
   "analytics", "sidebar", "alerts", "data", "git", "mcp", "system", "security",
   "money-guardrails", "connections", "trading",
 ] as const;
@@ -469,6 +470,7 @@ export function Settings({
     terms: string[];
   }[] = [
     { id: "general", label: "General", desc: "Startup, theme, branding & preferences", icon: Palette, group: "Personalize", terms: ["general", "start", "startup", "start screen", "home", "landing", "last screen", "resume", "market", "currency", "timezone", "refresh", "confirm", "delete", "safety", "theme", "branding", "logo", "favicon", "app name", "font", "typography", "monospace", "primary", "accent", "colors", "bullish", "bearish", "radius", "density", "glow", "aurora", "chart", "charts", "candles", "palette", "series", "animation", "preset", "language", "translate", "locale", "accessibility", "a11y", "motion", "contrast", "text size", "screen reader", "rtl", "chatbot", "chat bot", "chat page", "conversation font", "chat font", "background", "wallpaper", "wordmark", "backdrop"] },
+    { id: "persona", label: "Persona", desc: "Tone, style & chat instructions", icon: UsersThree, group: "Personalize", terms: ["persona", "personas", "personality", "system prompt", "prompt", "instructions", "tone", "voice", "style", "format", "draft", "active", "activate", "reset", "customize", "chat behavior", "behaviour"] },
     { id: "sound", label: "Sound", desc: "UI sounds & feedback", icon: Volume2, group: "Personalize", terms: ["sound", "sounds", "audio", "volume", "click", "tick", "toggle", "feedback", "notification", "voice", "pack", "mute", "muted", "silence", "chime", "beep"] },
     { id: "voice", label: "Voice", desc: "Read aloud & dictation", icon: Volume2, group: "Personalize", terms: ["voice", "tts", "text to speech", "text-to-speech", "read aloud", "read out loud", "speak", "speech", "narration", "audio", "rate", "pitch", "auto speak", "accessibility", "dictation", "microphone", "mic", "whisper", "transcribe", "transcription", "voice input"] },
     { id: "sidebar", label: "Sidebar & Navigation", desc: "Menu & shortcuts", icon: PanelLeft, group: "Personalize", terms: ["sidebar", "navigation", "menu", "shortcuts", "keys", "reorder"] },
@@ -717,6 +719,20 @@ export function Settings({
                   description="Talk to Eclipse and hear it answer. Dictate prompts with Whisper or your browser's speech recognition, and read assistant replies aloud with your browser's own voices — choose the engine, language and pacing here."
                 />
                 <VoiceSettingsPanel />
+              </div>
+            )}
+
+            {/* ── Persona ─────────────────────────────────────────────────
+                A bounded, append-only overlay on the built-in prompt. Personas
+                change voice, never tools or permissions; one is active. */}
+            {section === "persona" && (
+              <div className="animate-fade-in-up">
+                <SectionHeader
+                  icon={UsersThree}
+                  title="Persona"
+                  description="Shape how Eclipse talks without changing what it can do. A persona appends tone, structure and emphasis guidance after the fixed Eclipse prompt; tools, permissions and safety rules stay untouched. Keep several and activate one."
+                />
+                <PersonaSettingsPanel />
               </div>
             )}
 

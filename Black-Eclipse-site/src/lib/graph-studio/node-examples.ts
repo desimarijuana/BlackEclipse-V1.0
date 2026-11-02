@@ -61,6 +61,34 @@ const EXAMPLES: Record<string, string> = {
     'value "1000", dataType number  →  1000',
   'data.json.parse':
     'text "[1, 2, 3]"  →  [1, 2, 3]',
+  'data.file.attach':
+    'upload "bars.csv" (date,open,high,low,close)  →  File ref + 240 rows + columns',
+  'data.file.parse':
+    'File ref from an upstream export  →  Rows + Columns (sheet 2 for an Excel workbook)',
+  'data.file.export':
+    'rows 240 candles  →  a downloadable "export.csv" asset',
+  'image.attach':
+    'upload "setup-a.png"  →  Image ref + 1280×720 metadata',
+  'image.analyze':
+    'Image + "Describe each candle"  →  description + observations (verified: false)',
+  'image.ocr':
+    'a broker screenshot  →  text + spans with pixel boxes',
+  'image.read_chart':
+    'a 1h chart screenshot, symbol AAPL  →  trend/patterns/levels; verified only if the market check agreed',
+  'image.compare':
+    'candidate vs reference, mode both  →  same false, score 0.91, changed regions',
+  'image.batch':
+    '8 candle images + 3 questions  →  one result row per image (ok/description/observations)',
+  'agent.task':
+    'task "Review this setup" + input rows  →  text, or a schema-checked JSON object',
+  'memory.context':
+    'query "risk rules"  →  budgeted prompt block + recorded drop count',
+  'memory.list':
+    'scope workflow  →  the records saved by this workflow',
+  'memory.update':
+    'memory id + corrected content  →  the updated record (operator run)',
+  'memory.forget':
+    'memory id  →  archived record, never hard-deleted',
   'finance.market_data':
     'symbol AAPL · interval 1d · lookback 200  →  OHLCV series + provenance',
   'finance.indicator':

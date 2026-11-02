@@ -18,7 +18,7 @@ from typing import Any
 from .model import ExecutionMode, PortDef, PortType, SideEffect
 from .registry import ConfigField, NodeDef, NodeExecContext
 from .trading_common import number_input, order_intent, order_price
-from .trading_store import claim_guard, require_paper_store
+from .trading_store import claim_guard, release_guard, require_paper_store
 
 _PAPER = (ExecutionMode.PAPER,)
 
@@ -49,7 +49,8 @@ def exec_paper_order(context: NodeExecContext) -> dict[str, Any]:
     commission = abs(notional) * commission_pct / 100.0
     account_id = str(context.config.get("accountId") or "paper").strip()[:80] or "paper"
     persist = bool(context.config.get("persist", True))
-    if not claim_guard(context, f"paper:{account_id}"):
+    _claimed, _guard_key = claim_guard(context, f"paper:{account_id}")
+    if not _claimed:
         context.emit("paper order skipped: this idempotency key was already used")
         return {
             "fill": None,
@@ -61,17 +62,23 @@ def exec_paper_order(context: NodeExecContext) -> dict[str, Any]:
         }
     account = None
     if persist:
-        account = require_paper_store().apply_fill(
-            account_id,
-            symbol=intent["symbol"],
-            side=intent["side"],
-            quantity=float(intent["quantity"]),
-            price=fill_price,
-            commission=commission,
-            initial_cash=float(context.config.get("initialCash", 100_000.0)),
-            run_id=context.run_id,
-            node_id=context.node_id,
-        )
+        try:
+            account = require_paper_store().apply_fill(
+                account_id,
+                symbol=intent["symbol"],
+                side=intent["side"],
+                quantity=float(intent["quantity"]),
+                price=fill_price,
+                commission=commission,
+                initial_cash=float(context.config.get("initialCash", 100_000.0)),
+                run_id=context.run_id,
+                node_id=context.node_id,
+            )
+        except Exception:
+            # A local write failure is not an ambiguous broker send: give the
+            # slot back so the next run can retry the fill.
+            release_guard(f"paper:{account_id}", _guard_key)
+            raise
     fill = {
         "status": "FILLED",
         "mode": "paper",

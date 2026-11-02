@@ -23,7 +23,12 @@ from ..quant.strategy import RiskRules
 from .model import ExecutionMode, PortDef, PortType, SideEffect
 from .registry import ConfigField, NodeDef, NodeExecContext
 from .trading_common import MAX_QUANTITY, number_input, order_intent, order_price
-from .trading_store import claim_guard, set_paper_store
+from .trading_store import claim_guard, release_guard, set_paper_store
+
+#: Ledger statuses that mean the order never reached the broker. A guard slot is
+#: released for these so a refusal does not burn the day/key; `REJECTED` and
+#: `UNKNOWN` are NOT here — both may have reached the broker, so the slot stays.
+_NOT_SENT = frozenset({"REFUSED", "CONFIRMATION_REQUIRED", "COOLING_OFF"})
 
 _BROKER = (ExecutionMode.PAPER, ExecutionMode.LIVE)
 # A risk check has no side effect, so it is meaningful in a backtest too: the
@@ -212,7 +217,9 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
             "a mandateId is required for an unattended broker order; create one in "
             "Settings › Trading"
         )
-    if not claim_guard(context, f"broker:{connection_id}"):
+    scope = f"broker:{connection_id}"
+    claimed, guard_key = claim_guard(context, scope)
+    if not claimed:
         context.emit("broker order skipped: this idempotency key was already used")
         return {
             "result": {"status": "SKIPPED", "sent": False},
@@ -226,6 +233,7 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
 
     service = get_service()
     if service is None:
+        release_guard(scope, guard_key)
         raise ValueError("broker connectivity is unavailable in this runtime")
 
     payload = dict(intent)
@@ -242,6 +250,10 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
         node_id=context.node_id,
     )
     status = str(result.get("status") or "UNKNOWN")
+    if status in _NOT_SENT:
+        # The service refused before a send (policy, guardrail, confirmation or
+        # cooling-off), so nothing reached the broker: give the slot back.
+        release_guard(scope, guard_key)
     reasons = [str(reason) for reason in (result.get("reasons") or [])]
     ok = status in ("filled", "placed")
     if status in ("filled", "placed", "unknown"):

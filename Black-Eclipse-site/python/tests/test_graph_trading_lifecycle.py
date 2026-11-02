@@ -26,6 +26,7 @@ class FakeService:
         self.working: list[dict] = []
         self.recon = {"positions": [], "fills": [], "state": {}}
         self.submitted: list[dict] = []
+        self.submit_status = "filled"
 
     def _record(self, name, *args, **kwargs):
         self.calls.append((name, args, kwargs))
@@ -56,7 +57,13 @@ class FakeService:
     def submit_order(self, connection_id, payload, **kwargs):
         self._record("submit_order", connection_id, payload, **kwargs)
         self.submitted.append(payload)
-        return {"status": "filled", "orderId": f"ord_{len(self.submitted)}", "sent": True}
+        status = self.submit_status
+        return {
+            "status": status,
+            "orderId": f"ord_{len(self.submitted)}" if status not in ("REFUSED", "UNKNOWN") else "",
+            "sent": status not in ("REFUSED",),
+            "reasons": [] if status == "filled" else ["refused by policy"],
+        }
 
 
 @pytest.fixture
@@ -81,12 +88,12 @@ def paper_store(tmp_path):
         memory.close()
 
 
-def _exec(node_type: str, config: dict, inputs: dict, node_id: str = "n1"):
+def _exec(node_type: str, config: dict, inputs: dict, node_id: str = "n1", test_run: bool = False):
     definition = REGISTRY.get(node_type)
     assert definition is not None and definition.executor is not None
     return definition.executor(NodeExecContext(
         node_id=node_id, run_id="run", mode=ExecutionMode.PAPER,
-        inputs=inputs, config=config,
+        inputs=inputs, config=config, test_run=test_run,
     ))
 
 
@@ -348,3 +355,81 @@ def test_broker_order_dedupe_sends_only_once(service, paper_store):
     assert second["status"] == "SKIPPED"
     assert second["skipped"] is True
     assert len(service.submitted) == 1
+
+
+def test_a_definite_refusal_gives_the_dedupe_slot_back(service, paper_store):
+    config = {
+        "connectionId": "brk_1", "mandateId": "mnd_1",
+        "dedupe": "key", "idempotencyKey": "retry-me",
+    }
+    service.submit_status = "REFUSED"
+    refused = _exec("trading.broker_order", config, {"intent": _intent()})
+    assert refused["status"] == "REFUSED"
+    # Nothing reached the broker, so the next run may try again.
+    service.submit_status = "filled"
+    retried = _exec("trading.broker_order", config, {"intent": _intent()})
+    assert retried["status"] == "filled"
+    assert len(service.submitted) == 2
+
+
+def test_an_ambiguous_result_keeps_the_dedupe_slot(service, paper_store):
+    config = {
+        "connectionId": "brk_1", "mandateId": "mnd_1",
+        "dedupe": "key", "idempotencyKey": "maybe-sent",
+    }
+    service.submit_status = "UNKNOWN"
+    first = _exec("trading.broker_order", config, {"intent": _intent()})
+    assert first["status"] == "UNKNOWN"
+    # The order may have reached the broker: never resend automatically.
+    service.submit_status = "filled"
+    second = _exec("trading.broker_order", config, {"intent": _intent()})
+    assert second["status"] == "SKIPPED"
+    assert len(service.submitted) == 1
+
+
+def test_reconcile_is_refused_in_a_test_run(service):
+    with pytest.raises(ValueError, match="must not write the broker mirror"):
+        _exec("trading.reconcile", {"connectionId": "brk_1"}, {}, test_run=True)
+    assert service.calls == []
+
+
+def test_drift_check_with_sync_first_is_refused_in_a_test_run(service):
+    with pytest.raises(ValueError, match="must not write the broker mirror"):
+        _exec(
+            "trading.drift_check",
+            {"connectionId": "brk_1", "syncFirst": True},
+            {},
+            test_run=True,
+        )
+
+
+def test_a_plain_drift_check_is_allowed_in_a_test_run(service):
+    _clean(service)
+    result = _exec("trading.drift_check", {"connectionId": "brk_1"}, {}, test_run=True)
+    assert result["ok"] is True
+    assert service.calls[0][0] != "sync_connection"
+
+
+def test_a_failed_paper_write_gives_the_dedupe_slot_back(paper_store, monkeypatch):
+    config = {"price": 100.0, "dedupe": "key", "idempotencyKey": "paper-once"}
+
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(paper_store, "apply_fill", boom)
+    with pytest.raises(RuntimeError, match="disk full"):
+        _exec("trading.paper_order", config, {"intent": _intent()})
+
+    monkeypatch.undo()
+    retried = _exec("trading.paper_order", config, {"intent": _intent()})
+    assert retried["status"] == "FILLED"
+
+
+def test_old_guard_rows_are_pruned(paper_store):
+    paper_store.claim_guard("paper:test", "day:old")
+    paper_store._db.execute(
+        "UPDATE GraphTradingGuard SET createdAt='2000-01-01T00:00:00+00:00'"
+    )
+    paper_store._db.commit()
+    assert paper_store.prune_guards(90) == 1
+    assert paper_store.claim_guard("paper:test", "day:old") is True

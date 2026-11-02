@@ -11,6 +11,7 @@
 
 import { z } from 'zod';
 import { AGENT_DEFINITIONS } from './registry-agents';
+import { FILE_DEFINITIONS } from './registry-files';
 import { INTEGRATION_DEFINITIONS } from './registry-integration';
 import {
   MARKET_READ_DEFINITIONS,
@@ -18,6 +19,7 @@ import {
   QUANT_VALIDATION_DEFINITIONS,
 } from './registry-market';
 import { LOOP_DEFINITIONS } from './registry-loops';
+import { MEDIA_DEFINITIONS } from './registry-media';
 import { QUANT_ADVANCED_DEFINITIONS } from './registry-quant-advanced';
 import { QUANT_STRUCTURE_DEFINITIONS } from './registry-quant-structure';
 import { RESEARCH_ANALYSIS_DEFINITIONS } from './registry-research';
@@ -202,6 +204,7 @@ const DEFINITIONS: NodeDefinition[] = [
     allowedModes: ALL_MODES,
     docs: 'The read side of data.dataset.save; the ref names a payload in the runtime\'s own dataset store.',
   },
+  ...FILE_DEFINITIONS,
   ...TRANSFORM_DEFINITIONS,
   {
     type: 'logic.condition',
@@ -428,6 +431,7 @@ const DEFINITIONS: NodeDefinition[] = [
   ...LOOP_DEFINITIONS,
   ...WRITE_DEFINITIONS,
   ...UTILITY_DEFINITIONS,
+  ...MEDIA_DEFINITIONS,
   ...OUTPUT_DEFINITIONS,
   // ── Control flow (Phase 4) ──────────────────────────────────────────────
   // Control ports gate EXECUTION, not values: a node that declares control

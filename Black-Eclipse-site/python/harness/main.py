@@ -44,6 +44,7 @@ from .persistence import now_iso
 from .research.engine import run_research
 from .research.mandate import parse_mandate
 from .routers.agent_presets import router as agent_presets_router
+from .routers.personas import router as personas_router
 from .routers.browser import browser_health, router as browser_router
 from .routers.code import router as code_router
 from .routers.channels import router as channels_router
@@ -70,6 +71,7 @@ from .routers.fabric import router as fabric_router
 from .routers.financial import router as financial_router
 from .routers.finance_guardrails import router as finance_guardrails_router
 from .routers.git import router as git_router
+from .routers.graph_assets import router as graph_assets_router
 from .routers.graphs import router as graphs_router
 from .routers.grants import router as grants_router
 from .routers.jobs import router as jobs_router
@@ -116,6 +118,7 @@ install_sdk(app)
 
 # Route groups extracted into `harness/routers/` (public surface: `harness.main:app`).
 app.include_router(agent_presets_router)
+app.include_router(personas_router)
 app.include_router(a2a_router)
 app.include_router(team_router)
 app.include_router(advisory_router)
@@ -143,6 +146,7 @@ app.include_router(financial_router)
 app.include_router(finance_guardrails_router)
 app.include_router(git_router)
 app.include_router(grants_router)
+app.include_router(graph_assets_router)
 app.include_router(graphs_router)
 app.include_router(jobs_router)
 app.include_router(learning_router)

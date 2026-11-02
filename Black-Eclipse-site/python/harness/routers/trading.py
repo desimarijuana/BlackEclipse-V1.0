@@ -370,6 +370,56 @@ async def trading_position_modify(
         raise _refusal(exc) from None
 
 
+@router.get("/trading/connections/{connection_id}/symbols/{symbol}")
+async def trading_symbol_info(
+    connection_id: str,
+    symbol: str,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Static symbol facts (trade mode, contract, volume limits, sessions)."""
+    try:
+        return _brokers().symbol_info(connection_id, symbol)
+    except KeyError:
+        raise _not_found(connection_id) from None
+    except TradeRefused as exc:
+        raise _refusal(exc) from None
+
+
+@router.post("/trading/connections/{connection_id}/orders/{ticket}/modify")
+async def trading_order_modify(
+    connection_id: str,
+    ticket: int,
+    body: dict[str, Any] = Body(default={}),
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Re-price/re-bracket a WORKING order. Risk-reducing: no approval."""
+    values = {key: body.get(key) for key in ("price", "stopLoss", "takeProfit")}
+    if all(value is None for value in values.values()):
+        raise _refusal(
+            TradeRefused("INVALID_REQUEST", "pass price, stopLoss and/or takeProfit")
+        )
+    try:
+        return _brokers().modify_order(
+            connection_id,
+            ticket,
+            price=float(values["price"]) if values["price"] is not None else None,
+            stop_loss=(
+                float(values["stopLoss"]) if values["stopLoss"] is not None else None
+            ),
+            take_profit=(
+                float(values["takeProfit"]) if values["takeProfit"] is not None else None
+            ),
+        )
+    except (TypeError, ValueError):
+        raise _refusal(
+            TradeRefused("INVALID_REQUEST", "price/stopLoss/takeProfit must be numbers")
+        ) from None
+    except KeyError:
+        raise _not_found(connection_id) from None
+    except TradeRefused as exc:
+        raise _refusal(exc) from None
+
+
 @router.post("/trading/connections/{connection_id}/positions/close")
 async def trading_positions_close(
     connection_id: str,

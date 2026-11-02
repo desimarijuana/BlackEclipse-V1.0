@@ -20,6 +20,8 @@ const PORT_COLORS: Record<PortType, string> = {
   evidence: '#facc15',
   agent_result: '#c084fc',
   execution_result: '#38bdf8',
+  file: '#eab308',
+  image: '#f472b6',
   any: '#94a3b8',
 };
 

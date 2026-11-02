@@ -1016,8 +1016,9 @@ the symbol step and capped at its maximum), `trading.bracket` (ATR × multiple o
 an explicit stop distance → direction-aware SL/TP with reward:risk),
 `trading.spread_guard` (a trade passes only while the broker's spread is within
 the cap) and `trading.session_filter` (broker `tradeMode` plus the broker's own
-`sessionDeals` in server time when the terminal reports them, otherwise an
-explicit UTC window; `basis` says which). Three risk-reducing management nodes
+`sessionDeals` in server time when the terminal reports them, then an explicit
+`sessionsJson` calendar, then an explicit UTC window; `basis` says which). Three
+risk-reducing management nodes
 need no arm, approval or mandate: `trading.break_even` (moves the stop to entry
 after `triggerR` of profit measured from the position's own stop),
 `trading.trail_stop` (tightens only, never widens) and `trading.partial_close`
@@ -1034,7 +1035,11 @@ broker stays authoritative) and remaining drift is only reported. Both
 `trading.broker_order` and `trading.paper_order` take
 `dedupe: none | key | day`: the claim is recorded before the send, so a scheduled
 graph that fires twice sends once and a skipped run returns `status: "SKIPPED"` with
-`skipped: true`. `trading.paper_valuation` marks the PAPER book to prices the graph
+`skipped: true`. A refusal that never reached the broker
+(`REFUSED`/`CONFIRMATION_REQUIRED`/`COOLING_OFF`) gives the claim back, while
+`REJECTED`/`UNKNOWN` keep it; a test run never writes the broker mirror, so
+`trading.reconcile` and a `syncFirst` drift check are refused there.
+`trading.paper_valuation` marks the PAPER book to prices the graph
 supplies (equity, market value, unrealized/total PnL); a symbol with no price is
 listed in `unpriced`, never valued at zero.
 
@@ -1120,6 +1125,37 @@ policy, dedupe/conflict resolution and retention apply; `recall` returns the sam
 bounded `context` block an agent receives. `remember` writes durable state, so it
 declares the `memory.write` capability and a test run is refused (at compile
 time by the capability envelope, and again in the executor).
+
+The memory pack now covers the read/write lifecycle. `memory.context` produces a
+deterministic prompt block under a token budget (lowest-importance records are
+dropped first and the count is reported, no model call); `memory.list` browses by
+scope/type/status without inventing a query; `memory.update` corrects
+content/subject/importance; `memory.forget` soft-archives (never hard-deletes).
+Scopes are `general`, `workflow` (`workflow:<id>`), `run` (`run:<id>`) or a
+literal named scope; a missing workflow id fails by name rather than silently
+writing to `general`. Update/forget are operator-run only.
+
+**Agent task (n8n-style).** `agent.task` is the general Agent node: Instructions
++ Task + Agent preset + tool allowlist + memory mode + output shape. It runs ONE
+bounded turn on the existing agent plane; instructions are appended to the
+preset's system prompt and the tool allowlist can only NARROW the preset (an
+unavailable tool fails by name). `memoryMode` is `none`/`read`/`write`/
+`read_write`; a write stores the final answer as a `summary` memory and is
+refused in a test run. `outputMode: json` parses the answer and checks it against
+`outputSchemaJson`; a mismatch returns `data: null`, `valid: false` and the
+issues — never a coerced object. The wired Input and Context are appended as
+bounded JSON, never spliced in as instructions.
+
+**Vision images (read-only).** `image.attach` uploads/references an image in the
+vision asset store; `image.analyze` (describe/answer/ground/extract),
+`image.ocr`, `image.read_chart`, `image.compare` and `image.batch` wrap the ONE
+vision engine (`vision/orchestrate`) — no rendering, no image generation. Every
+result is labelled `kind: "observation"`, `verified: false`, with the
+provider/model/warnings. `image.read_chart` sets `verified: true` only when the
+engine's own market-data check confirmed the reading. `image.batch` applies the
+same 1–5 questions to 1–8 candidate images and returns one row per image; a
+failed image is a row with `ok: false` and the batch never aborts silently.
+Vision calls are a model effect (no tools), so a test run may read an image.
 
 **Structured calls.** Four nodes are ONE bounded model call each, not an agent
 turn: `agent.classify` (text → the one declared label + confidence + scores),
@@ -1333,6 +1369,20 @@ is reported as not found, not as a forbidden row. The `local_write` side-effect
 class exists so a test run can use datasets while external
 write/network/trading remain refused.
 
+**Local files.** `data.file.attach` turns an uploaded CSV/TSV/JSON/XLSX/text
+file into a graph input. The bytes live in the runtime's own
+`HarnessGraphAsset` table on `agent-memory.db` (content-addressed per owner), and
+the workflow stores only the `gas_` ref plus metadata — never the file itself.
+The inspector has an upload/replace picker; the front door proxies the bytes to
+`/graph/assets` (`src/app/api/graph-studio/assets`). `data.file.parse` runs the
+same parser over a File reference produced upstream (choose a sheet for Excel).
+`data.file.export` writes rows back to a downloadable local asset (CSV/JSON/
+XLSX); it is a `local_write`, so a test run may export. Limits: 25 MB per file,
+200 files and 512 MB total per owner, plus 20 000 rows / 200 000 cells per parse;
+truncation is reported, never silently dropped. A missing or expired ref is an
+explicit failure. The parser is deliberately local: no network fetch, no second
+JDDS, and no fabricated rows.
+
 **Honest data.** Every payload carries provenance (`provider`, `symbol`,
 `interval`, `adjusted`, `rows`, `asOf`, `retrievedAt`). An empty vault is a
 FAILURE with an actionable message ("fetch them first … the graph never
@@ -1340,7 +1390,8 @@ fabricates a price") — never a synthetic series, never a silent zero.
 
 **Test-run policy.** A test run implicitly grants the read-only / local-compute
 capabilities (`market.read`, `quant.compute`, `compute.safe`, `dataset.read`,
-`dataset.write`) plus `agent.run` — a model call is not a world effect — so a
+`dataset.write`, `asset.read`, `asset.write`, `image.read`, `model.vision`) plus
+`agent.run` — a model call is not a world effect — so a
 finance graph can be exercised from the UI. Agent tools are narrowed to
 `DRY_RUN_TOOLS` in that run. External write/network/trading nodes stay refused.
 

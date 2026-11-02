@@ -14,6 +14,8 @@ describe("trading route allowlist", () => {
     expect(isAllowedTradingRoute("GET", ["connections", "brk_abc123", "fills"])).toBe(true);
     expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "sync"])).toBe(true);
     expect(isAllowedTradingRoute("GET", ["connections", "brk_abc123", "quote"])).toBe(true);
+    expect(isAllowedTradingRoute("GET", ["connections", "brk_abc123", "symbols", "XAUUSD"])).toBe(true);
+    expect(isAllowedTradingRoute("GET", ["connections", "brk_abc123", "symbols", "EURUSD.a"])).toBe(true);
   });
 
   it("allows connection management and a probe", () => {
@@ -33,6 +35,7 @@ describe("trading route allowlist", () => {
     expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "orders", "preview"])).toBe(true);
     expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "orders", "submit"])).toBe(true);
     expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "orders", "12345", "cancel"])).toBe(true);
+    expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "orders", "12345", "modify"])).toBe(true);
     expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "positions", "12345", "close"])).toBe(true);
     expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "positions", "12345", "modify"])).toBe(true);
     expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "positions", "close"])).toBe(true);

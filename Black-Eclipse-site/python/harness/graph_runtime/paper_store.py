@@ -129,6 +129,27 @@ class PaperAccountStore:
         self._db.commit()
         return int(cursor.rowcount or 0) > 0
 
+    def release_guard(self, scope: str, key: str) -> None:
+        """Give a claim back when the order DEFINITELY did not reach the broker."""
+        self._db.execute(
+            "DELETE FROM GraphTradingGuard WHERE scope=? AND guardKey=?",
+            (str(scope), str(key)),
+        )
+        self._db.commit()
+
+    def prune_guards(self, days: int = 90) -> int:
+        """Drop guard rows older than `days` so the table cannot grow forever."""
+        from datetime import datetime, timedelta, timezone
+
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=max(1, int(days)))
+        ).isoformat()
+        cursor = self._db.execute(
+            "DELETE FROM GraphTradingGuard WHERE createdAt < ?", (cutoff,)
+        )
+        self._db.commit()
+        return int(cursor.rowcount or 0)
+
     def apply_fill(
         self,
         account_id: str,

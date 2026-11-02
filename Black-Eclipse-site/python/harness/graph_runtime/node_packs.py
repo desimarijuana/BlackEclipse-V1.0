@@ -16,6 +16,8 @@ from typing import Any
 
 from .agent_structured_nodes import build_structured_agent_nodes
 from .approval_nodes import build_approval_nodes
+from .file_nodes import build_file_nodes
+from .image_nodes import build_image_nodes
 from .memory_nodes import build_memory_nodes
 from .output_nodes import build_output_nodes
 from .research_analysis_nodes import build_research_analysis_nodes
@@ -36,6 +38,10 @@ PACKS = (
     # Pure primitives (assert / fallback / extract) and the memory adapters.
     build_utility_nodes,
     build_memory_nodes,
+    # Bounded local file assets (uploaded files -> text/rows, export back).
+    build_file_nodes,
+    # Vision-read image adapters (no rendering, no generation).
+    build_image_nodes,
     # Committee run + the two output adapters (chart spec, channel notify).
     build_team_nodes,
     build_output_nodes,

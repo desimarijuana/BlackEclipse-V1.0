@@ -369,6 +369,45 @@ function researchBrief(): WorkflowIR {
   );
 }
 
+function candleReview(): WorkflowIR {
+  return buildGraph(
+    'Candle option review',
+    'Read several candidate candle images, then ask an agent to compare the readings and pick the best setup.',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      {
+        id: 'batch',
+        type: 'image.batch',
+        config: {
+          questionsJson: '["Describe the candle anatomy.","What pattern is this and what would confirm it?"]',
+          mode: 'analyze',
+          concurrency: 1,
+          maxImages: 8,
+        },
+      },
+      {
+        id: 'agent',
+        type: 'agent.task',
+        config: {
+          task: 'Compare the image readings and say which candle option best matches a valid entry setup. Explain why and state what is unverified.',
+          memoryMode: 'read',
+          memoryScope: 'workflow',
+          outputMode: 'text',
+          includeInput: true,
+        },
+      },
+      { id: 'summary', type: 'output.result', config: { label: 'Batch summary' } },
+      { id: 'result', type: 'output.result', config: { label: 'Option review' } },
+    ],
+    [
+      { source: 'trigger', sourceHandle: 'start', target: 'batch', targetHandle: 'images' },
+      { source: 'batch', sourceHandle: 'results', target: 'agent', targetHandle: 'input' },
+      { source: 'batch', sourceHandle: 'summary', target: 'summary', targetHandle: 'value' },
+      { source: 'agent', sourceHandle: 'output', target: 'result', targetHandle: 'value' },
+    ],
+  );
+}
+
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   { id: 'blank', name: 'Blank', description: 'A trigger and a result. Start here.', build: blank },
   { id: 'if-else', name: 'If / else', description: 'Branch on a value with control gates.', build: ifElse },
@@ -392,6 +431,12 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   { id: 'webhook-http', name: 'Webhook to HTTP', description: 'Signed inbound webhook → public API → result.', build: webhookHttp },
   { id: 'signed-webhook', name: 'Signed webhook', description: 'Manual trigger → signed outbound webhook.', build: signedWebhookDemo },
   { id: 'data-pipeline', name: 'Data pipeline', description: 'Six data nodes wired end to end.', build: dataPipeline },
+  {
+    id: 'candle-review',
+    name: 'Candle option review',
+    description: 'Read 1–8 candle images, then compare the readings with an agent.',
+    build: candleReview,
+  },
   {
     id: 'research-brief',
     name: 'Research brief',

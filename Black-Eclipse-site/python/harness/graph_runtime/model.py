@@ -48,6 +48,10 @@ class PortType(str, Enum):
     EVIDENCE = "evidence"
     AGENT_RESULT = "agent_result"
     EXECUTION_RESULT = "execution_result"
+    # Local asset references (graph asset store / vision asset store). They
+    # carry a small metadata object, never the bytes themselves.
+    FILE = "file"
+    IMAGE = "image"
     ANY = "any"
 
 

@@ -389,6 +389,382 @@ function parseJsonRecord(value: unknown): Record<string, unknown> {
   }
 }
 
+interface AssetMeta {
+  assetId: string;
+  name: string;
+  mime: string;
+  bytes: number;
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes < 1_024) return `${bytes} B`;
+  if (bytes < 1_048_576) return `${(bytes / 1_024).toFixed(1)} KB`;
+  return `${(bytes / 1_048_576).toFixed(1)} MB`;
+}
+
+/**
+ * Upload / replace one local file. The workflow stores only the asset id; the
+ * bytes live in the bounded graph asset store, never in the saved document.
+ */
+function FileAssetPicker({
+  value, disabled, inline, onCommit,
+}: {
+  value: unknown;
+  disabled?: boolean;
+  inline: boolean;
+  onCommit: (value: unknown) => void;
+}) {
+  const assetId = typeof value === 'string' ? value : '';
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [meta, setMeta] = useState<AssetMeta | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!assetId) {
+      setMeta(null);
+      return;
+    }
+    let live = true;
+    fetch(`/api/graph-studio/assets/${encodeURIComponent(assetId)}`)
+      .then((res) => res.json())
+      .then((body) => {
+        if (!live) return;
+        const asset = body?.asset as AssetMeta | undefined;
+        if (asset?.assetId) setMeta(asset);
+      })
+      .catch(() => { /* keep the ref; the runtime will report a missing file */ });
+    return () => { live = false; };
+  }, [assetId]);
+
+  const upload = async (file: File) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/graph-studio/assets', { method: 'POST', body: form });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error || 'Upload failed');
+      const asset = body.asset as AssetMeta;
+      setMeta(asset);
+      onCommit(asset.assetId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className={cn('nodrag nopan', inline ? 'space-y-1' : 'space-y-1.5')}>
+      <input
+        ref={inputRef}
+        type="file"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void upload(file);
+        }}
+      />
+      {assetId ? (
+        <div className={cn(
+          'flex items-center gap-2 rounded-[5px] border border-black/10 bg-background/60 px-2 dark:border-white/10',
+          inline ? 'h-7 text-[10.5px]' : 'py-1.5 text-[11px]',
+        )}>
+          <span className="min-w-0 flex-1 truncate" title={meta?.name ?? assetId}>
+            {meta?.name ?? assetId}
+          </span>
+          {meta && (
+            <span className="shrink-0 text-[9.5px] text-muted-foreground">
+              {formatBytes(meta.bytes)}
+            </span>
+          )}
+          {!disabled && (
+            <>
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                className="shrink-0 rounded border border-white/10 px-1.5 py-0.5 text-[9.5px] text-muted-foreground hover:text-foreground"
+              >
+                Replace
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMeta(null); onCommit(''); }}
+                className="shrink-0 text-[9.5px] text-muted-foreground hover:text-rose-400"
+                title="Remove the file reference"
+              >
+                Remove
+              </button>
+            </>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          disabled={disabled || busy}
+          onClick={() => inputRef.current?.click()}
+          className={cn(
+            BASE_INPUT,
+            'nodrag nopan flex w-full items-center justify-center gap-1.5 border-dashed text-muted-foreground hover:border-primary/40 hover:text-foreground',
+            inline ? 'h-7 text-[10px]' : 'py-3 text-[11px]',
+          )}
+        >
+          {busy ? 'Uploading…' : 'Choose a file…'}
+        </button>
+      )}
+      {!inline && (
+        <p className="text-[9.5px] leading-snug text-muted-foreground/70">
+          Stored locally in the bounded graph asset store. Only the file reference is saved
+          in the workflow; the file is never uploaded anywhere.
+        </p>
+      )}
+      {error && <p className="text-[9.5px] leading-snug text-rose-400">{error}</p>}
+    </div>
+  );
+}
+
+interface ImageMeta {
+  assetId: string;
+  name: string;
+  mime: string;
+  width: number;
+  height: number;
+  bytes: number;
+}
+
+/**
+ * Upload / replace one local image. The bytes live in the vision asset store;
+ * the workflow stores only the asset id.
+ */
+function ImageAssetPicker({
+  value, disabled, inline, onCommit,
+}: {
+  value: unknown;
+  disabled?: boolean;
+  inline: boolean;
+  onCommit: (value: unknown) => void;
+}) {
+  const assetId = typeof value === 'string' ? value : '';
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [meta, setMeta] = useState<ImageMeta | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!assetId) { setMeta(null); return; }
+    let live = true;
+    fetch(`/api/graph-studio/images/${encodeURIComponent(assetId)}`)
+      .then((res) => res.json())
+      .then((body) => {
+        if (!live) return;
+        const image = body?.image as ImageMeta | undefined;
+        if (image?.assetId) setMeta(image);
+      })
+      .catch(() => { /* keep the ref; the runtime reports a missing image */ });
+    return () => { live = false; };
+  }, [assetId]);
+
+  const upload = async (file: File) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/graph-studio/images', { method: 'POST', body: form });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body?.error || 'Upload failed');
+      const image = body.image as ImageMeta;
+      setMeta(image);
+      onCommit(image.assetId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className={cn('nodrag nopan', inline ? 'space-y-1' : 'space-y-1.5')}>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void upload(file);
+        }}
+      />
+      {assetId ? (
+        <div className={cn(
+          'flex items-center gap-2 rounded-[5px] border border-black/10 bg-background/60 px-1.5 dark:border-white/10',
+          inline ? 'h-9' : 'py-1.5',
+        )}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`/api/graph-studio/images/${encodeURIComponent(assetId)}/content`}
+            alt={meta?.name ?? 'image'}
+            className={cn('shrink-0 rounded object-cover', inline ? 'h-7 w-7' : 'h-12 w-12')}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[10.5px]" title={meta?.name ?? assetId}>
+              {meta?.name ?? assetId}
+            </div>
+            {meta && !inline && (
+              <div className="text-[9.5px] text-muted-foreground">
+                {meta.width}×{meta.height} · {formatBytes(meta.bytes)}
+              </div>
+            )}
+          </div>
+          {!disabled && (
+            <>
+              <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                className="shrink-0 rounded border border-white/10 px-1.5 py-0.5 text-[9.5px] text-muted-foreground hover:text-foreground"
+              >
+                Replace
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMeta(null); onCommit(''); }}
+                className="shrink-0 text-[9.5px] text-muted-foreground hover:text-rose-400"
+              >
+                Remove
+              </button>
+            </>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          disabled={disabled || busy}
+          onClick={() => inputRef.current?.click()}
+          className={cn(
+            BASE_INPUT,
+            'nodrag nopan flex w-full items-center justify-center gap-1.5 border-dashed text-muted-foreground hover:border-primary/40 hover:text-foreground',
+            inline ? 'h-7 text-[10px]' : 'py-5 text-[11px]',
+          )}
+        >
+          {busy ? 'Uploading…' : 'Choose an image…'}
+        </button>
+      )}
+      {!inline && (
+        <p className="text-[9.5px] leading-snug text-muted-foreground/70">
+          Stored locally. Image readings are model observations, never verified market data.
+        </p>
+      )}
+      {error && <p className="text-[9.5px] leading-snug text-rose-400">{error}</p>}
+    </div>
+  );
+}
+
+function parseImageIds(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item)).filter(Boolean);
+  if (typeof value !== 'string' || !value.trim()) return [];
+  const text = value.trim();
+  try {
+    const parsed = text.startsWith('[') ? JSON.parse(text) : text.split(/[,\n]/);
+    return Array.isArray(parsed) ? parsed.map((item) => String(item).trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Multi-image picker for nodes that read several candidate options. */
+function ImageListPicker({
+  value, disabled, onCommit,
+}: {
+  value: unknown;
+  disabled?: boolean;
+  onCommit: (value: unknown) => void;
+}) {
+  const ids = parseImageIds(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const add = async (files: FileList) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const added: string[] = [];
+      for (const file of Array.from(files).slice(0, 8 - ids.length)) {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch('/api/graph-studio/images', { method: 'POST', body: form });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body?.error || `Upload failed for ${file.name}`);
+        added.push(String(body.image.assetId));
+      }
+      onCommit(JSON.stringify([...ids, ...added]));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setBusy(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className="nodrag nopan space-y-1.5">
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept="image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff"
+        className="hidden"
+        onChange={(event) => {
+          if (event.target.files?.length) void add(event.target.files);
+        }}
+      />
+      {ids.length > 0 && (
+        <div className="grid grid-cols-4 gap-1.5">
+          {ids.map((id, index) => (
+            <div key={`${id}-${index}`} className="group relative overflow-hidden rounded border border-white/10">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/graph-studio/images/${encodeURIComponent(id)}/content`}
+                alt={`option ${index + 1}`}
+                className="aspect-square w-full object-cover"
+              />
+              <span className="absolute left-0.5 top-0.5 rounded bg-black/70 px-1 text-[8.5px] text-white">
+                {index + 1}
+              </span>
+              {!disabled && (
+                <button
+                  type="button"
+                  onClick={() => onCommit(JSON.stringify(ids.filter((_, i) => i !== index)))}
+                  className="absolute right-0.5 top-0.5 hidden rounded bg-black/70 px-1 text-[9px] text-white group-hover:block"
+                  title="Remove"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={disabled || busy || ids.length >= 8}
+          onClick={() => inputRef.current?.click()}
+          className={cn(BASE_INPUT, 'flex-1 border-dashed py-1.5 text-[10.5px] text-muted-foreground hover:text-foreground')}
+        >
+          {busy ? 'Uploading…' : ids.length >= 8 ? '8 images (max)' : `Add images (${ids.length}/8)…`}
+        </button>
+      </div>
+      {error && <p className="text-[9.5px] leading-snug text-rose-400">{error}</p>}
+    </div>
+  );
+}
+
 export function ConfigField({
   field, value, variant, wired = false, disabled = false, onCommit,
 }: ConfigFieldProps) {
@@ -445,6 +821,34 @@ export function ConfigField({
         <span className="h-1 w-1 rounded-full bg-primary" />
         From wire
       </span>,
+    );
+  }
+
+  if (field.kind === 'file') {
+    return wrap(
+      <FileAssetPicker
+        value={value}
+        disabled={disabled}
+        inline={inline}
+        onCommit={onCommit}
+      />,
+    );
+  }
+
+  if (field.kind === 'image') {
+    return wrap(
+      <ImageAssetPicker
+        value={value}
+        disabled={disabled}
+        inline={inline}
+        onCommit={onCommit}
+      />,
+    );
+  }
+
+  if (field.kind === 'images') {
+    return wrap(
+      <ImageListPicker value={value} disabled={disabled} onCommit={onCommit} />,
     );
   }
 

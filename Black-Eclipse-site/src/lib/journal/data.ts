@@ -85,6 +85,11 @@ export function toTradeRecord(t: {
   checklist?: string | null;
   status: string;
   source?: string | null;
+  externalId?: string | null;
+  brokerConnectionId?: string | null;
+  brokerPositionTicket?: number | null;
+  pnlBasis?: string | null;
+  ignoredAt?: Date | null;
   accountId?: string | null;
   strategyId: string | null;
   setupId: string | null;
@@ -128,7 +133,11 @@ export function toTradeRecord(t: {
     grade: t.grade ?? null,
     checklist: t.checklist ?? null,
     status: t.status as TradeRecord["status"],
-    source: (t.source === "demo" ? "demo" : "manual") as TradeRecord["source"],
+    source: (t.source === "demo" || t.source === "broker" ? t.source : "manual") as TradeRecord["source"],
+    externalId: t.externalId ?? null,
+    brokerConnectionId: t.brokerConnectionId ?? null,
+    brokerPositionTicket: t.brokerPositionTicket ?? null,
+    pnlBasis: t.pnlBasis === "broker" ? "broker" : "computed",
     strategyId: t.strategyId,
     strategyName: t.strategy?.name,
     setupId: t.setupId,
@@ -162,7 +171,9 @@ const tradeInclude = {
 /** Load all closed trades for a profile as TradeRecords. */
 export async function loadTrades(profileId: string): Promise<TradeRecord[]> {
   const rows = await prisma.trade.findMany({
-    where: { profileId },
+    // A broker-sourced trade the user explicitly deleted is ignored, not
+    // re-projected: `ignoredAt` is a tombstone for its externalId.
+    where: { profileId, ignoredAt: null },
     include: tradeInclude,
     orderBy: { entryTime: "asc" },
   });
@@ -287,8 +298,23 @@ export async function createTrade(profileId: string, input: CreateTradeInput) {
   return toTradeRecord(trade);
 }
 
-/** Delete a trade. */
+/**
+ * Delete a trade.
+ *
+ * A broker-sourced trade is tombstoned instead of destroyed: the next sync
+ * would otherwise recreate it from the broker's history. `ignoredAt` keeps the
+ * externalId out of every read while leaving the audit trail intact.
+ */
 export async function deleteTrade(profileId: string, tradeId: string): Promise<boolean> {
+  const trade = await prisma.trade.findFirst({
+    where: { id: tradeId, profileId },
+    select: { id: true, source: true },
+  });
+  if (!trade) return false;
+  if (trade.source === "broker") {
+    await prisma.trade.update({ where: { id: trade.id }, data: { ignoredAt: new Date() } });
+    return true;
+  }
   const result = await prisma.trade.deleteMany({ where: { id: tradeId, profileId } });
   return result.count > 0;
 }

@@ -19,6 +19,7 @@ claim about the broker's session calendar (the adapter does not expose one).
 
 from __future__ import annotations
 
+import json
 import math
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -334,6 +335,37 @@ def _session_rows(raw: Any) -> list[dict[str, Any]]:
     return [item for item in raw if isinstance(item, dict)]
 
 
+def _configured_sessions(raw: Any) -> list[dict[str, Any]]:
+    """An operator-supplied calendar, for brokers whose terminal reports none."""
+    if raw is None or raw == "" or raw == []:
+        return []
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "sessionsJson must be a JSON array like "
+            '[{"day": 0, "from": "09:00", "to": "17:00"}]'
+        ) from exc
+    if not isinstance(parsed, list):
+        raise ValueError("sessionsJson must be a JSON array of session windows")
+    sessions: list[dict[str, Any]] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            raise ValueError("each sessionsJson entry must be an object")
+        try:
+            day = int(item.get("day"))
+            opens = str(item.get("from") or "")
+            closes = str(item.get("to") or "")
+            _minutes(opens)
+            _minutes(closes)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "each sessionsJson entry needs day (0=Monday..6) and HH:MM from/to"
+            ) from exc
+        sessions.append({"day": day, "from": opens, "to": closes})
+    return sessions
+
+
 def _server_offset(context: NodeExecContext, moment: datetime, quote: dict[str, Any]) -> float:
     """Minutes the broker's server clock is ahead of UTC.
 
@@ -358,7 +390,16 @@ def exec_session_filter(context: NodeExecContext) -> dict[str, Any]:
         raise ValueError("side must be buy or sell when set")
     moment = _parse_when(context.inputs.get("time") or context.config.get("time"))
     trade_mode = str(facts.get("tradeMode") or quote.get("tradeMode") or "")
-    sessions = _session_rows(facts.get("sessionDeals")) if facts.get("sessionsAvailable") else []
+    broker_sessions = (
+        _session_rows(facts.get("sessionDeals")) if facts.get("sessionsAvailable") else []
+    )
+    sessions = broker_sessions or _configured_sessions(context.config.get("sessionsJson"))
+    if broker_sessions:
+        basis = "brokerSession"
+    elif sessions:
+        basis = "configuredSessions"
+    else:
+        basis = "clockWindow"
     offset = _server_offset(context, moment, quote) if sessions else 0.0
     open_now, reason = session_state(
         moment,
@@ -370,7 +411,6 @@ def exec_session_filter(context: NodeExecContext) -> dict[str, Any]:
         sessions=sessions,
         server_offset_minutes=offset,
     )
-    basis = "brokerSession" if sessions else "clockWindow"
     context.emit(
         f"session {moment.strftime('%a %H:%M')}Z: "
         + ("open" if open_now else f"closed ({reason})")
@@ -518,6 +558,7 @@ def build_calc_nodes() -> list[NodeDef]:
                 ),
                 ConfigField("side", "enum", "", enum=("", "buy", "sell")),
                 ConfigField("serverOffsetMinutes", "number", 0.0, minimum=-1_440.0, maximum=1_440.0),
+                ConfigField("sessionsJson", "string", "", max_length=4_000),
             ),
             capabilities=("trading.guard",),
             side_effects=SideEffect.NONE,
@@ -527,13 +568,15 @@ def build_calc_nodes() -> list[NodeDef]:
                 "docs": (
                     "Open only when the broker's own trade SESSIONS say so (a wired "
                     "broker_symbol carrying `sessionDeals`; evaluated in server time "
-                    "using the quote's server clock, or `serverOffsetMinutes`), or — "
-                    "when the terminal reports no sessions — inside the configured "
-                    "UTC window and weekdays. The broker's tradeMode always applies "
-                    "(disabled / close_only / long_only / short_only / unknown block). "
-                    "`basis` says which calendar was used. No holiday schedule is "
+                    "using the quote's server clock, or `serverOffsetMinutes`), or by "
+                    "an explicit `sessionsJson` calendar when the terminal reports "
+                    "none, or — with neither — inside the configured UTC window and "
+                    "weekdays. The broker's tradeMode always applies (disabled / "
+                    "close_only / long_only / short_only / unknown block). `basis` "
+                    "says which calendar was used (brokerSession / "
+                    "configuredSessions / clockWindow). No holiday schedule is "
                     "invented: MetaTrader's Python API does not reliably expose "
-                    "sessions, and an empty table falls back to the window."
+                    "sessions, and an empty table falls back."
                 ),
             },
         ),

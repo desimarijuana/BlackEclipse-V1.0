@@ -54,6 +54,14 @@
           }
         },
         {
+          "name": "instructions",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8000
+          }
+        },
+        {
           "name": "maxSteps",
           "kind": "number",
           "default": 8,
@@ -65,6 +73,14 @@
         },
         {
           "name": "objective",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "tools",
           "kind": "string",
           "default": "",
           "constraints": {
@@ -290,6 +306,14 @@
           }
         },
         {
+          "name": "instructions",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8000
+          }
+        },
+        {
           "name": "maxSteps",
           "kind": "number",
           "default": 8,
@@ -315,6 +339,14 @@
           "default": "",
           "constraints": {
             "maxLength": 20000
+          }
+        },
+        {
+          "name": "tools",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
           }
         }
       ],
@@ -528,6 +560,14 @@
           }
         },
         {
+          "name": "instructions",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8000
+          }
+        },
+        {
           "name": "maxSteps",
           "kind": "number",
           "default": 8,
@@ -539,6 +579,14 @@
         },
         {
           "name": "objective",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "tools",
           "kind": "string",
           "default": "",
           "constraints": {
@@ -612,6 +660,222 @@
               "prose",
               "bullets"
             ]
+          }
+        }
+      ],
+      "capabilities": [
+        "agent.run"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "agent.task",
+      "version": "1.0.0",
+      "category": "agent",
+      "label": "Agent",
+      "description": "Runs one bounded agent turn with a prompt, task, tools and memory.",
+      "inputs": [
+        {
+          "id": "input",
+          "name": "Input",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "context",
+          "name": "Context",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "task",
+          "name": "Task",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "output",
+          "name": "Output",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "data",
+          "name": "Data",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "finding",
+          "name": "Finding",
+          "type": "research_finding",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "run",
+          "name": "Run",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "valid",
+          "name": "Valid",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "issues",
+          "name": "Issues",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "agent",
+          "kind": "string",
+          "default": "eclipse-agent",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "agentVersion",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000,
+            "integer": true
+          }
+        },
+        {
+          "name": "includeInput",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "instructions",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8000
+          }
+        },
+        {
+          "name": "maxSteps",
+          "kind": "number",
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 32,
+            "integer": true
+          }
+        },
+        {
+          "name": "memoryImportance",
+          "kind": "number",
+          "default": 0.5,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "name": "memoryLimit",
+          "kind": "number",
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 50,
+            "integer": true
+          }
+        },
+        {
+          "name": "memoryMode",
+          "kind": "string",
+          "default": "read",
+          "constraints": {
+            "enum": [
+              "none",
+              "read",
+              "write",
+              "read_write"
+            ]
+          }
+        },
+        {
+          "name": "memoryScope",
+          "kind": "string",
+          "default": "workflow",
+          "constraints": {
+            "enum": [
+              "general",
+              "workflow",
+              "run"
+            ]
+          }
+        },
+        {
+          "name": "outputMode",
+          "kind": "string",
+          "default": "text",
+          "constraints": {
+            "enum": [
+              "text",
+              "json"
+            ]
+          }
+        },
+        {
+          "name": "outputSchemaJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        },
+        {
+          "name": "task",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
+        },
+        {
+          "name": "tools",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
           }
         }
       ],
@@ -953,6 +1217,350 @@
       ],
       "capabilities": [],
       "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "data.file.attach",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "File",
+      "description": "Turns an uploaded local file into text or rows.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "file",
+          "name": "File",
+          "type": "file",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "text",
+          "name": "Text",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "rows",
+          "name": "Rows",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "delimiter",
+          "kind": "string",
+          "default": ",",
+          "constraints": {
+            "maxLength": 4
+          }
+        },
+        {
+          "name": "encoding",
+          "kind": "string",
+          "default": "utf-8-sig",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "header",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "maxRows",
+          "kind": "number",
+          "default": 5000,
+          "constraints": {
+            "min": 1,
+            "max": 20000,
+            "integer": true
+          }
+        },
+        {
+          "name": "parseAs",
+          "kind": "string",
+          "default": "auto",
+          "constraints": {
+            "enum": [
+              "auto",
+              "text",
+              "json",
+              "csv",
+              "tsv",
+              "xlsx",
+              "binary"
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "asset.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "data.file.export",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Export file",
+      "description": "Exports rows to a downloadable local CSV, JSON or Excel file.",
+      "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "rows",
+          "name": "Rows",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "artifact",
+          "name": "Artifact",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "name",
+          "name": "Name",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "bytes",
+          "name": "Bytes",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "format",
+          "kind": "string",
+          "default": "csv",
+          "constraints": {
+            "enum": [
+              "csv",
+              "json",
+              "xlsx"
+            ]
+          }
+        },
+        {
+          "name": "includeHeader",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "maxRows",
+          "kind": "number",
+          "default": 5000,
+          "constraints": {
+            "min": 1,
+            "max": 20000,
+            "integer": true
+          }
+        },
+        {
+          "name": "name",
+          "kind": "string",
+          "default": "export",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "rowsJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 1000000
+          }
+        }
+      ],
+      "capabilities": [
+        "asset.write"
+      ],
+      "sideEffects": "local_write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "data.file.parse",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Parse file",
+      "description": "Parses a file reference into rows, columns and text.",
+      "inputs": [
+        {
+          "id": "file",
+          "name": "File",
+          "type": "file",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "rows",
+          "name": "Rows",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "columns",
+          "name": "Columns",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "text",
+          "name": "Text",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "delimiter",
+          "kind": "string",
+          "default": ",",
+          "constraints": {
+            "maxLength": 4
+          }
+        },
+        {
+          "name": "encoding",
+          "kind": "string",
+          "default": "utf-8-sig",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "header",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "maxRows",
+          "kind": "number",
+          "default": 5000,
+          "constraints": {
+            "min": 1,
+            "max": 20000,
+            "integer": true
+          }
+        },
+        {
+          "name": "parseAs",
+          "kind": "string",
+          "default": "auto",
+          "constraints": {
+            "enum": [
+              "auto",
+              "text",
+              "json",
+              "csv",
+              "tsv",
+              "xlsx",
+              "binary"
+            ]
+          }
+        },
+        {
+          "name": "sheet",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 120
+          }
+        }
+      ],
+      "capabilities": [
+        "asset.read"
+      ],
+      "sideEffects": "read",
       "allowedModes": [
         "backtest",
         "live",
@@ -3627,6 +4235,623 @@
       "terminal": false
     },
     {
+      "type": "image.analyze",
+      "version": "1.0.0",
+      "category": "media",
+      "label": "Analyze image",
+      "description": "One bounded vision read: describe, answer, ground or extract JSON.",
+      "inputs": [
+        {
+          "id": "image",
+          "name": "Image",
+          "type": "image",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "question",
+          "name": "Question",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "description",
+          "name": "Description",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "observations",
+          "name": "Observations",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "data",
+          "name": "Data",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "maxObservations",
+          "kind": "number",
+          "default": 60,
+          "constraints": {
+            "min": 1,
+            "max": 200,
+            "integer": true
+          }
+        },
+        {
+          "name": "mode",
+          "kind": "string",
+          "default": "describe",
+          "constraints": {
+            "enum": [
+              "describe",
+              "answer",
+              "ground",
+              "extract"
+            ]
+          }
+        },
+        {
+          "name": "question",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
+        },
+        {
+          "name": "region",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "schemaJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        }
+      ],
+      "capabilities": [
+        "image.read",
+        "model.vision"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "image.attach",
+      "version": "1.0.0",
+      "category": "media",
+      "label": "Image",
+      "description": "Uploads or references one local image.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "image",
+          "name": "Image",
+          "type": "image",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "notes",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 500
+          }
+        }
+      ],
+      "capabilities": [
+        "image.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "image.batch",
+      "version": "1.0.0",
+      "category": "media",
+      "label": "Read image options",
+      "description": "Applies the same questions to 1–8 images, one result per image.",
+      "inputs": [
+        {
+          "id": "images",
+          "name": "Images",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "results",
+          "name": "Results",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "failed",
+          "name": "Failed",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetIds",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8000
+          }
+        },
+        {
+          "name": "concurrency",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 1,
+            "max": 3,
+            "integer": true
+          }
+        },
+        {
+          "name": "maxImages",
+          "kind": "number",
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 8,
+            "integer": true
+          }
+        },
+        {
+          "name": "mode",
+          "kind": "string",
+          "default": "analyze",
+          "constraints": {
+            "enum": [
+              "analyze",
+              "read_chart",
+              "ocr"
+            ]
+          }
+        },
+        {
+          "name": "outputSchemaJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        },
+        {
+          "name": "questionsJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 10000
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "image.read",
+        "model.vision"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "image.compare",
+      "version": "1.0.0",
+      "category": "media",
+      "label": "Compare images",
+      "description": "Compares two images (pixel diff and/or visual description).",
+      "inputs": [
+        {
+          "id": "a",
+          "name": "Candidate",
+          "type": "image",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "b",
+          "name": "Reference",
+          "type": "image",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "same",
+          "name": "Same",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "score",
+          "name": "Similarity",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "differences",
+          "name": "Differences",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "compareAssetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "mode",
+          "kind": "string",
+          "default": "both",
+          "constraints": {
+            "enum": [
+              "pixel",
+              "visual",
+              "both"
+            ]
+          }
+        },
+        {
+          "name": "question",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "threshold",
+          "kind": "number",
+          "default": 0.02,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        }
+      ],
+      "capabilities": [
+        "image.read",
+        "model.vision"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "image.ocr",
+      "version": "1.0.0",
+      "category": "media",
+      "label": "Read text (OCR)",
+      "description": "Extracts text and pixel spans from an image.",
+      "inputs": [
+        {
+          "id": "image",
+          "name": "Image",
+          "type": "image",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "text",
+          "name": "Text",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "spans",
+          "name": "Spans",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "language",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "region",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        }
+      ],
+      "capabilities": [
+        "image.read",
+        "model.vision"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "image.read_chart",
+      "version": "1.0.0",
+      "category": "media",
+      "label": "Read chart",
+      "description": "Reads a chart image into trend, patterns, candles and levels.",
+      "inputs": [
+        {
+          "id": "image",
+          "name": "Image",
+          "type": "image",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "question",
+          "name": "Question",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "reading",
+          "name": "Reading",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "description",
+          "name": "Description",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "verified",
+          "name": "Verified",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "question",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "timeframe",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "image.read",
+        "market.read",
+        "model.vision"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "integration.http",
       "version": "1.0.0",
       "category": "integration",
@@ -5249,6 +6474,300 @@
       "terminal": false
     },
     {
+      "type": "memory.context",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Memory context",
+      "description": "Builds a deterministic, budgeted memory prompt block.",
+      "inputs": [
+        {
+          "id": "query",
+          "name": "Query",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "context",
+          "name": "Context",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "memories",
+          "name": "Memories",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "count",
+          "name": "Count",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "dropped",
+          "name": "Dropped",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "budgetTokens",
+          "kind": "number",
+          "default": 1200,
+          "constraints": {
+            "min": 128,
+            "max": 8000,
+            "integer": true
+          }
+        },
+        {
+          "name": "format",
+          "kind": "string",
+          "default": "bullets",
+          "constraints": {
+            "enum": [
+              "bullets",
+              "prose",
+              "compact"
+            ]
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 50,
+            "integer": true
+          }
+        },
+        {
+          "name": "query",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "scope",
+          "kind": "string",
+          "default": "general",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "types",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 300
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "memory.forget",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Forget memory",
+      "description": "Soft-forgets (archives) one memory record.",
+      "inputs": [
+        {
+          "id": "memoryId",
+          "name": "Memory id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "memory",
+          "name": "Memory",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "forgotten",
+          "name": "Forgotten",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "memoryId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "reason",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 500
+          }
+        }
+      ],
+      "capabilities": [
+        "memory.write"
+      ],
+      "sideEffects": "local_write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "memory.list",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "List memories",
+      "description": "Browses stored memories by scope, type and status.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "memories",
+          "name": "Memories",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "count",
+          "name": "Count",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "scopes",
+          "name": "Scopes",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "types",
+          "name": "Types",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "includeInactive",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 50,
+          "constraints": {
+            "min": 1,
+            "max": 200,
+            "integer": true
+          }
+        },
+        {
+          "name": "memoryType",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "scope",
+          "kind": "string",
+          "default": "general",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "status",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "subject",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "memory.recall",
       "version": "1.0.0",
       "category": "data",
@@ -5422,6 +6941,100 @@
           "constraints": {
             "maxLength": 200
           }
+        }
+      ],
+      "capabilities": [
+        "memory.write"
+      ],
+      "sideEffects": "local_write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "memory.update",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Update memory",
+      "description": "Corrects one memory record.",
+      "inputs": [
+        {
+          "id": "memoryId",
+          "name": "Memory id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "content",
+          "name": "Content",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "memory",
+          "name": "Memory",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "updated",
+          "name": "Updated",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "content",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
+        },
+        {
+          "name": "importance",
+          "kind": "number",
+          "default": 0.5,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "name": "memoryId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "subject",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "updateImportance",
+          "kind": "boolean",
+          "default": false
         }
       ],
       "capabilities": [
@@ -14749,6 +16362,14 @@
           "constraints": {
             "min": -1440,
             "max": 1440
+          }
+        },
+        {
+          "name": "sessionsJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
           }
         },
         {

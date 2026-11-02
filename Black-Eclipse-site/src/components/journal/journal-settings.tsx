@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Settings, Plus, Trash2, Check } from '@/lib/icons';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { BrokerSyncSettings } from './broker-sync-settings';
 
 interface Account { id: string; name: string; broker: string | null; currency: string; initialBalance: number; archived: boolean }
 interface Profile { name: string; currency: string; accountSize: number; riskPerTrade: number }
@@ -170,6 +171,18 @@ export function JournalSettings({ onChanged }: { onChanged?: () => void }) {
                   <Plus size={13} /> Add
                 </button>
               </div>
+            </section>
+
+            {/* Broker sync */}
+            <section>
+              <h3 className="mb-1 text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
+                Broker Connection
+              </h3>
+              <p className="mb-3 text-[10px] text-muted-foreground/70">
+                Project reconciled broker trades into this journal. The broker stays the source
+                of truth; notes and reviews you write here are never overwritten.
+              </p>
+              <BrokerSyncSettings accounts={accounts.map((a) => ({ id: a.id, name: a.name }))} />
             </section>
           </div>
         </DialogContent>

@@ -10,6 +10,7 @@
 
 import type { ConfigFieldDef, NodeDefinition } from './types';
 import { MEMORY_TYPES } from './registry-utility';
+import { QUANT_FIELD_OVERRIDES } from './config-fields-quant';
 import {
   TRADING_FIELD_OVERRIDES,
   TRADING_REQUIRED_FIELDS,
@@ -20,8 +21,6 @@ type Override = Omit<ConfigFieldDef, 'key'> & { key: string };
 const opts = (...values: string[]): ConfigFieldDef['options'] =>
   values.map((value) => ({ value, label: value }));
 
-/** Bar intervals the quant pack accepts (resample + benchmark annualization). */
-const QUANT_INTERVALS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1mo'];
 
 /** One-line explanations shared by every node that uses the key. */
 const KEY_HELP: Record<string, string> = {
@@ -189,6 +188,10 @@ const GROUP_BY_KEY: Record<string, string> = {
 /** Parameters the inspector marks with a required asterisk. */
 const REQUIRED_FIELDS: Record<string, string[]> = {
   'file.write': ['path'],
+  'data.file.attach': ['assetId'],
+  'image.attach': ['assetId'],
+  'memory.update': ['memoryId'],
+  'memory.forget': ['memoryId'],
   'flow.for_each': ['workflowId'],
   'flow.repeat': ['workflowId'],
   'flow.while': ['workflowId'],
@@ -201,58 +204,6 @@ const REQUIRED_FIELDS: Record<string, string[]> = {
 
 // Shared quant parameter presentation. Every quant node reuses the same
 // strategy/risk vocabulary, so one definition keeps the labels consistent.
-const quantInstrument: Override[] = [
-  { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, group: 'Instrument & series', placeholder: 'AAPL' },
-  { key: 'interval', label: 'Interval', kind: 'select', inline: true, group: 'Instrument & series', options: opts('1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1mo') },
-];
-const quantStrategy: Override[] = [
-  { key: 'preset', label: 'Strategy preset', kind: 'select', inline: true, group: 'Strategy', options: opts('ema_cross', 'rsi_reversion') },
-  { key: 'fast', label: 'Fast EMA', kind: 'number', group: 'Strategy', min: 2, max: 500 },
-  { key: 'slow', label: 'Slow EMA', kind: 'number', group: 'Strategy', min: 2, max: 2_000 },
-  { key: 'rsiPeriod', label: 'RSI period', kind: 'number', group: 'Strategy', min: 2, max: 500 },
-  { key: 'oversold', label: 'Oversold level', kind: 'number', group: 'Strategy', min: 0, max: 100 },
-  { key: 'overbought', label: 'Overbought level', kind: 'number', group: 'Strategy', min: 0, max: 100 },
-  { key: 'atrPeriod', label: 'ATR period', kind: 'number', group: 'Strategy', min: 2, max: 500 },
-  { key: 'atrMult', label: 'ATR multiple', kind: 'number', group: 'Strategy', min: 0, max: 100 },
-  { key: 'strategyJson', label: 'Custom strategy (JSON)', kind: 'json', group: 'Strategy', help: 'A full StrategySpec. Leave empty to use the preset.' },
-];
-const quantRisk: Override[] = [
-  { key: 'initialCapital', label: 'Initial capital', kind: 'number', group: 'Risk & costs', min: 1 },
-  { key: 'sizePct', label: 'Position size %', kind: 'number', group: 'Risk & costs', min: 1, max: 100 },
-  { key: 'stopPct', label: 'Stop loss %', kind: 'number', group: 'Risk & costs', min: 0, max: 100 },
-  { key: 'reward', label: 'Reward : risk', kind: 'number', group: 'Risk & costs', min: 0, max: 100 },
-  { key: 'riskFreeRate', label: 'Risk-free rate', kind: 'number', group: 'Risk & costs' },
-];
-const quantAdvanced: Override[] = [
-  { key: 'randomSeed', label: 'Random seed', kind: 'number', group: 'Advanced' },
-  { key: 'maxBars', label: 'Max bars (0 = all)', kind: 'number', group: 'Advanced', min: 0 },
-  { key: 'includeSeries', label: 'Include series curves', kind: 'boolean', group: 'Advanced' },
-  { key: 'objective', label: 'Objective', kind: 'select', group: 'Advanced', options: opts('sharpe', 'sortino', 'total_return', 'calmar', 'profit_factor') },
-  { key: 'method', label: 'Method', kind: 'select', group: 'Advanced', options: opts('grid', 'random', 'evolutionary', 'bayesian', 'trade_reshuffle', 'return_bootstrap', 'regime_block') },
-  { key: 'maxEvaluations', label: 'Max evaluations', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'paramSpaceJson', label: 'Parameter space (JSON)', kind: 'json', group: 'Advanced' },
-  { key: 'objectivesJson', label: 'Objectives (JSON)', kind: 'json', group: 'Advanced' },
-  { key: 'leaderboardSize', label: 'Leaderboard size', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'trainBars', label: 'Train bars', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'testBars', label: 'Test bars', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'stepBars', label: 'Step bars', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'anchored', label: 'Anchored windows', kind: 'boolean', group: 'Advanced' },
-  { key: 'simulations', label: 'Simulations', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'ruinThreshold', label: 'Ruin threshold', kind: 'number', group: 'Advanced', min: 0, max: 1, step: 0.01 },
-  { key: 'regimeMix', label: 'Regime mix', kind: 'select', group: 'Advanced', options: opts('resample', 'preserve') },
-  { key: 'regimeBlockLength', label: 'Regime block length', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'perturbationPct', label: 'Perturbation %', kind: 'number', group: 'Advanced', min: 0, max: 100, step: 0.1 },
-  { key: 'perturbationJson', label: 'Perturbation (JSON)', kind: 'json', group: 'Advanced' },
-  { key: 'executionPerturbationJson', label: 'Execution perturbation (JSON)', kind: 'json', group: 'Advanced' },
-  { key: 'oosFraction', label: 'OOS fraction', kind: 'number', group: 'Advanced', min: 0, max: 1, step: 0.01 },
-  { key: 'oosStartIndex', label: 'OOS start index', kind: 'number', group: 'Advanced', min: 0 },
-  { key: 'bootstrapIterations', label: 'Bootstrap iterations', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'confidence', label: 'Confidence', kind: 'number', group: 'Advanced', min: 0, max: 1, step: 0.01 },
-];
-
-const pickQuantAdvanced = (...keys: string[]): Override[] =>
-  quantAdvanced.filter((field) => keys.includes(field.key));
-
 const FIELD_OVERRIDES: Record<string, Override[]> = {
   // trigger.manual is deliberately zero-config (n8n-style): Start is the run
   // input or null. Stored defaults belong in data.value / data.set_variables.
@@ -260,6 +211,90 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
   'data.value': [
     { key: 'value', label: 'Value', kind: 'textarea', inline: true, help: 'A literal. Object/array types accept JSON; a wired input overrides it.' },
     { key: 'dataType', label: 'Type', kind: 'select', inline: true, options: opts('string', 'number', 'boolean', 'object', 'array') },
+  ],
+  'data.file.attach': [
+    { key: 'assetId', label: 'File', kind: 'file', inline: true, quick: 1, required: true, help: 'Upload or replace a CSV/TSV/JSON/XLSX/text file. Stored locally; only the file reference is saved in the workflow.' },
+    {
+      key: 'parseAs',
+      label: 'Parse as',
+      kind: 'select',
+      inline: true,
+      options: opts('auto', 'text', 'json', 'csv', 'tsv', 'xlsx', 'binary'),
+      help: 'auto detects by extension then MIME. binary returns metadata only.',
+    },
+    { key: 'header', label: 'First row is a header', kind: 'boolean' },
+    { key: 'delimiter', label: 'Delimiter', kind: 'text', placeholder: ',', help: 'CSV/TSV only. TSV defaults to a tab even when this is blank.' },
+    { key: 'maxRows', label: 'Max rows', kind: 'number', min: 1, max: 20_000, help: 'Rows beyond this are dropped and reported as truncated.' },
+    { key: 'encoding', label: 'Encoding', kind: 'text', placeholder: 'utf-8-sig', help: 'Text/CSV/JSON encoding. Use the file’s real encoding.' },
+  ],
+  'data.file.parse': [
+    { key: 'assetId', label: 'File', kind: 'file', inline: true, quick: 1, help: 'Used when no File input is wired.' },
+    {
+      key: 'parseAs',
+      label: 'Parse as',
+      kind: 'select',
+      inline: true,
+      options: opts('auto', 'text', 'json', 'csv', 'tsv', 'xlsx', 'binary'),
+    },
+    { key: 'sheet', label: 'Excel sheet', kind: 'text', placeholder: 'first sheet', help: 'Blank uses the workbook’s first sheet.' },
+    { key: 'header', label: 'First row is a header', kind: 'boolean' },
+    { key: 'delimiter', label: 'Delimiter', kind: 'text', placeholder: ',' },
+    { key: 'maxRows', label: 'Max rows', kind: 'number', min: 1, max: 20_000 },
+    { key: 'encoding', label: 'Encoding', kind: 'text', placeholder: 'utf-8-sig' },
+  ],
+  'data.file.export': [
+    { key: 'format', label: 'Format', kind: 'select', inline: true, options: opts('csv', 'json', 'xlsx') },
+    { key: 'name', label: 'File name', kind: 'text', inline: true, placeholder: 'export', help: 'The extension is appended when missing.' },
+    { key: 'includeHeader', label: 'Include header row', kind: 'boolean' },
+    { key: 'rowsJson', label: 'Rows (JSON)', kind: 'code', help: 'Used when the Rows input is not wired. An array of objects or arrays.' },
+    { key: 'maxRows', label: 'Max rows', kind: 'number', min: 1, max: 20_000 },
+  ],
+  'image.attach': [
+    { key: 'assetId', label: 'Image', kind: 'image', inline: true, quick: 1, required: true, help: 'Upload or replace a PNG/JPEG/WebP/GIF/BMP/TIFF. The bytes are stored locally; only the asset id is saved in the workflow.' },
+    { key: 'notes', label: 'Notes', kind: 'text', help: 'Optional note for the operator. Never sent to the model.' },
+  ],
+  'image.analyze': [
+    { key: 'assetId', label: 'Image', kind: 'image', inline: true, quick: 1, help: 'Used when no Image input is wired.' },
+    {
+      key: 'mode',
+      label: 'Mode',
+      kind: 'select',
+      inline: true,
+      options: opts('describe', 'answer', 'ground', 'extract'),
+      help: 'describe · answer a question · ground elements with boxes · extract a JSON object checked against a schema.',
+    },
+    { key: 'question', label: 'Question', kind: 'textarea', help: 'Required in answer mode. A wired Question wins.' },
+    { key: 'schemaJson', label: 'Output schema (JSON)', kind: 'code', help: 'extract mode only. A JSON Schema subset; a mismatch returns data: null and the issues.' },
+    { key: 'region', label: 'Region (x,y,w,h)', kind: 'text', placeholder: '0,0,640,480', help: 'Blank analyzes the whole image.' },
+    { key: 'maxObservations', label: 'Max observations', kind: 'number', min: 1, max: 200 },
+  ],
+  'image.ocr': [
+    { key: 'assetId', label: 'Image', kind: 'image', inline: true, quick: 1 },
+    { key: 'language', label: 'Language', kind: 'text', placeholder: 'auto' },
+    { key: 'region', label: 'Region (x,y,w,h)', kind: 'text', placeholder: '0,0,640,480' },
+  ],
+  'image.read_chart': [
+    { key: 'assetId', label: 'Chart image', kind: 'image', inline: true, quick: 1 },
+    { key: 'question', label: 'Question', kind: 'textarea', help: 'Optional. A wired Question wins.' },
+    { key: 'symbol', label: 'Symbol (for verification)', kind: 'text', inline: true, placeholder: 'AAPL', help: 'When set, the engine can cross-check the reading against market data. Without it, verified is false.' },
+    { key: 'market', label: 'Market', kind: 'text', placeholder: 'auto' },
+    { key: 'timeframe', label: 'Timeframe', kind: 'text', placeholder: '1h' },
+  ],
+  'image.compare': [
+    { key: 'assetId', label: 'Candidate', kind: 'image', inline: true, quick: 1 },
+    { key: 'compareAssetId', label: 'Reference', kind: 'image', inline: true, quick: 2 },
+    { key: 'mode', label: 'Mode', kind: 'select', inline: true, options: opts('pixel', 'visual', 'both'), help: 'pixel is deterministic; visual asks the model; both reports which basis produced Same.' },
+    { key: 'threshold', label: 'Pixel threshold', kind: 'number', min: 0, max: 1, step: 0.01 },
+    { key: 'question', label: 'What to compare', kind: 'textarea' },
+  ],
+  'image.batch': [
+    { key: 'assetIds', label: 'Candidate images', kind: 'images', help: 'Upload up to 8 images. Used when Images is not wired; a wired array wins.' },
+    { key: 'questionsJson', label: 'Questions (JSON array or one per line)', kind: 'textarea', help: '1–5 questions applied to every image. One result row per image.' },
+    { key: 'mode', label: 'Mode', kind: 'select', inline: true, options: opts('analyze', 'read_chart', 'ocr') },
+    { key: 'concurrency', label: 'Concurrency', kind: 'number', inline: true, min: 1, max: 3 },
+    { key: 'maxImages', label: 'Max images', kind: 'number', min: 1, max: 8 },
+    { key: 'symbol', label: 'Symbol (read_chart)', kind: 'text', placeholder: 'AAPL' },
+    { key: 'outputSchemaJson', label: 'Output schema (JSON)', kind: 'code', help: 'analyze mode only; each row is checked against it.' },
   ],
   'data.set_variables': [
     { key: 'variables', label: 'Variables', kind: 'keyvalue', help: 'Named values merged over the input object. Configured keys win.' },
@@ -598,125 +633,26 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'market', label: 'Market', kind: 'text' },
     { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
   ],
-  'quant.risk_metrics': [
-    { key: 'inputKind', label: 'Input', kind: 'select', inline: true, options: opts('returns', 'prices') },
-    { key: 'confidence', label: 'VaR confidence', kind: 'number', inline: true, min: 0.5, max: 0.999, step: 0.001 },
-    { key: 'riskFreeRate', label: 'Risk-free rate', kind: 'number', min: -0.5, max: 0.5, step: 0.001 },
-    { key: 'periodsPerYear', label: 'Periods / year', kind: 'number', min: 1, max: 1_000 },
-  ],
-  'quant.drawdown': [
-    { key: 'inputKind', label: 'Input', kind: 'select', inline: true, options: opts('equity', 'returns') },
-  ],
-  'quant.correlation': [
-    { key: 'method', label: 'Method', kind: 'select', inline: true, options: opts('pearson', 'spearman') },
-    { key: 'window', label: 'Rolling window (0 = full)', kind: 'number', inline: true, min: 0, max: 2_000 },
-  ],
-  'quant.beta': [
-    { key: 'inputKind', label: 'Input', kind: 'select', inline: true, options: opts('returns', 'prices') },
-    { key: 'window', label: 'Rolling window (0 = full)', kind: 'number', inline: true, min: 0, max: 2_000 },
-    { key: 'riskFreeRate', label: 'Risk-free rate', kind: 'number', min: -0.5, max: 0.5, step: 0.001 },
-    { key: 'periodsPerYear', label: 'Periods / year', kind: 'number', min: 1, max: 1_000 },
-  ],
-  'quant.grade': [
-    { key: 'minTrades', label: 'Minimum trades', kind: 'number', inline: true, min: 1, max: 10_000 },
-    { key: 'goodTrades', label: 'Good trade count', kind: 'number', min: 1, max: 100_000 },
-    { key: 'highProbabilityOfLoss', label: 'High loss probability (%)', kind: 'number', min: 0, max: 100, step: 0.1 },
-  ],
-  'quant.benchmark': [
-    { key: 'interval', label: 'Interval', kind: 'select', inline: true, options: opts(...QUANT_INTERVALS) },
-    { key: 'assetClass', label: 'Asset class', kind: 'select', inline: true, options: opts('equity', 'crypto') },
-    { key: 'riskFreeRate', label: 'Risk-free rate', kind: 'number', min: -0.5, max: 0.5, step: 0.001 },
-  ],
-  'quant.resample': [
-    { key: 'targetInterval', label: 'Target interval', kind: 'select', inline: true, options: opts(...QUANT_INTERVALS) },
-    { key: 'sourceInterval', label: 'Source interval (blank = from series)', kind: 'text', inline: true, placeholder: '1h' },
-  ],
-  'quant.robustness': [
-    ...quantInstrument, ...quantStrategy, ...quantRisk,
-    ...pickQuantAdvanced('randomSeed', 'objective', 'paramSpaceJson'),
-    { key: 'costMultipliersJson', label: 'Cost multipliers (JSON)', kind: 'json', group: 'Robustness', placeholder: '[1, 2, 5]' },
-    { key: 'costMaterialDrop', label: 'Material cost drop', kind: 'number', group: 'Robustness', min: 0, max: 1, step: 0.01 },
-    { key: 'concentrationTopN', label: 'Concentration top N', kind: 'number', group: 'Robustness', min: 1, max: 100 },
-    { key: 'concentrationThreshold', label: 'Concentration threshold', kind: 'number', group: 'Robustness', min: 0, max: 1, step: 0.01 },
-    { key: 'minTrades', label: 'Minimum trades', kind: 'number', group: 'Robustness', min: 1, max: 10_000 },
-    { key: 'splits', label: 'Regime splits', kind: 'number', group: 'Robustness', min: 1, max: 20 },
-  ],
-  'quant.trade_analysis': [
-    { key: 'maxEntries', label: 'Max analysed entries', kind: 'number', inline: true, min: 1, max: 5_000 },
-    { key: 'symbol', label: 'Symbol (blank = from series)', kind: 'text', inline: true, placeholder: 'AAPL' },
-  ],
-  'quant.multiple_testing': [
-    { key: 'periodsPerYear', label: 'Periods / year', kind: 'number', inline: true, min: 1, max: 1_000 },
-    { key: 'nSplits', label: 'CSCV splits', kind: 'number', min: 2, max: 64 },
-    { key: 'trialSharpesJson', label: 'Trial Sharpes (JSON)', kind: 'text', placeholder: '[1.2, 0.8, …]' },
-    { key: 'returnsMatrixJson', label: 'Returns matrix (JSON)', kind: 'text', placeholder: '[[…], […]]' },
-  ],
-  'quant.align': [
-    { key: 'join', label: 'Join', kind: 'select', inline: true, options: opts('inner', 'outer') },
-    { key: 'column', label: 'Column', kind: 'text', inline: true, placeholder: 'close' },
-    { key: 'fill', label: 'Fill', kind: 'select', inline: true, options: opts('none', 'ffill', 'zero') },
-  ],
-  'quant.regime': [
-    { key: 'fast', label: 'Fast trend window', kind: 'number', inline: true, min: 1, max: 500 },
-    { key: 'slow', label: 'Slow trend window', kind: 'number', inline: true, min: 2, max: 500 },
-    { key: 'atrPeriod', label: 'ATR period', kind: 'number', min: 1, max: 500 },
-    { key: 'volPeriod', label: 'Volatility window', kind: 'number', min: 1, max: 500 },
-    { key: 'volBaseline', label: 'Volatility baseline', kind: 'number', min: 1, max: 2_000 },
-    { key: 'trendThreshold', label: 'Trend threshold (ATR)', kind: 'number', min: 0, max: 10, step: 0.1 },
-    { key: 'highVolRatio', label: 'High-vol ratio', kind: 'number', min: 1, max: 10, step: 0.1 },
-    { key: 'lowVolRatio', label: 'Low-vol ratio', kind: 'number', min: 0.01, max: 1, step: 0.01 },
-  ],
-  'quant.position_size': [
-    { key: 'method', label: 'Method', kind: 'select', inline: true, options: opts(
-      'fixed_quantity', 'fixed_dollar', 'percent_equity', 'percent_risk', 'atr',
-      'volatility', 'kelly', 'fractional_kelly', 'risk_parity', 'equal_weight',
-    ) },
-    { key: 'value', label: 'Method value', kind: 'number', inline: true },
-    { key: 'equity', label: 'Equity', kind: 'number', inline: true, min: 0 },
-    { key: 'atrMultiplier', label: 'ATR multiplier', kind: 'number', min: 0.1, max: 20, step: 0.1 },
-    { key: 'maxFraction', label: 'Max equity fraction', kind: 'number', min: 0, max: 10, step: 0.05 },
-    { key: 'kellyFraction', label: 'Kelly fraction', kind: 'number', min: 0, max: 1, step: 0.05 },
-    { key: 'winRate', label: 'Win rate', kind: 'number', min: 0, max: 1, step: 0.01 },
-    { key: 'payoff', label: 'Win/loss payoff', kind: 'number', min: 0.1, max: 100, step: 0.1 },
-    { key: 'realizedVol', label: 'Realized volatility', kind: 'number', min: 0, max: 10, step: 0.01 },
-    { key: 'weight', label: 'Target weight', kind: 'number', min: 0, max: 1, step: 0.01 },
-    { key: 'minQuantity', label: 'Venue minimum', kind: 'number', min: 0 },
-    { key: 'lotSize', label: 'Lot size', kind: 'number', min: 0 },
-    { key: 'quantityPrecision', label: 'Quantity precision', kind: 'number', min: 0, max: 12 },
-    { key: 'contractMultiplier', label: 'Contract multiplier', kind: 'number', min: 0.0001, max: 10_000 },
-  ],
-  'quant.portfolio_backtest': [
-    // A portfolio has no single `symbol` and no single `strategyJson`; those two
-    // single-series fields are dropped from the shared presentation blocks.
-    ...quantInstrument.filter((field) => field.key !== 'symbol'),
-    ...quantStrategy.filter((field) => field.key !== 'strategyJson'),
-    ...quantRisk,
-    ...pickQuantAdvanced('randomSeed', 'maxBars', 'includeSeries'),
-    { key: 'strategiesJson', label: 'Strategies (JSON array)', kind: 'json', group: 'Strategy', help: 'One StrategySpec per strategy; each must declare universe.symbols. Empty = the preset on every symbol.' },
-  ],
-  'quant.costs': [
-    { key: 'kind', label: 'Cost family', kind: 'select', inline: true, options: opts('transaction', 'slippage', 'spread', 'impact') },
-    { key: 'executionJson', label: 'Execution model (JSON)', kind: 'json', help: 'The engine’s execution block: commission, slippage, spread, marketImpact.' },
-    { key: 'randomSeed', label: 'Random seed', kind: 'number' },
-  ],
-  'quant.edge_report': [],
-  'quant.options_strategy': [
-    { key: 'spotMin', label: 'Payoff range min', kind: 'number', inline: true, min: 0 },
-    { key: 'spotMax', label: 'Payoff range max', kind: 'number', inline: true, min: 0 },
-    { key: 'points', label: 'Payoff points', kind: 'number', inline: true, min: 3, max: 2_001 },
-    { key: 'riskFree', label: 'Risk-free rate', kind: 'number', min: -0.5, max: 0.5, step: 0.001 },
-  ],
-  'quant.futures_continuous': [
-    { key: 'rollDatesJson', label: 'Roll dates (JSON)', kind: 'json', inline: true, placeholder: '["2024-03-15"]' },
-    { key: 'adjustment', label: 'Adjustment', kind: 'select', inline: true, options: opts('none', 'difference', 'ratio') },
-    { key: 'symbol', label: 'Series symbol', kind: 'text', inline: true, placeholder: 'CONTINUOUS' },
-    { key: 'interval', label: 'Interval', kind: 'select', options: opts(...QUANT_INTERVALS) },
-  ],
   'agent.team': [
     { key: 'objective', label: 'Objective', kind: 'text', inline: true, quick: 1, port: 'objective', help: 'What the committee decides on. A wired objective wins.' },
     { key: 'universe', label: 'Universe', kind: 'text', help: 'Optional symbols/instruments the committee covers.' },
     { key: 'horizon', label: 'Horizon', kind: 'text', help: 'Optional time horizon, e.g. 1-3 months.' },
     { key: 'timeoutS', label: 'Timeout (s)', kind: 'number', min: 30, max: 3_600 },
+  ],
+  'agent.task': [
+    { key: 'instructions', label: 'Instructions', kind: 'textarea', group: 'Prompt', help: 'Appended to the agent preset’s system prompt. The preset still owns its base rules.' },
+    { key: 'task', label: 'Task', kind: 'textarea', group: 'Task', inline: true, quick: 1, help: 'What this turn must do. A wired Task wins.' },
+    { key: 'includeInput', label: 'Include the wired Input as JSON', kind: 'boolean', group: 'Task' },
+    { key: 'agent', label: 'Agent preset', kind: 'text', group: 'Agent', inline: true, quick: 2 },
+    { key: 'agentVersion', label: 'Version (0 = latest)', kind: 'number', group: 'Agent', min: 0 },
+    { key: 'maxSteps', label: 'Max steps', kind: 'number', group: 'Agent', min: 1, max: 32 },
+    { key: 'tools', label: 'Tool allowlist', kind: 'text', group: 'Tools', placeholder: 'get_market_data, research_search', help: 'Comma separated. It can only narrow the preset’s tools; an unavailable tool fails by name.' },
+    { key: 'memoryMode', label: 'Memory', kind: 'select', group: 'Memory', inline: true, options: opts('none', 'read', 'write', 'read_write'), help: 'read recalls memory into the prompt; write stores the final answer as a summary. Writes need an operator run.' },
+    { key: 'memoryScope', label: 'Memory scope', kind: 'select', group: 'Memory', options: opts('general', 'workflow', 'run') },
+    { key: 'memoryLimit', label: 'Recall limit', kind: 'number', group: 'Memory', min: 1, max: 50 },
+    { key: 'memoryImportance', label: 'Write importance', kind: 'number', group: 'Memory', min: 0, max: 1, step: 0.1 },
+    { key: 'outputMode', label: 'Output', kind: 'select', group: 'Output', inline: true, options: opts('text', 'json') },
+    { key: 'outputSchemaJson', label: 'Output schema (JSON)', kind: 'code', group: 'Output', help: 'json mode only. On a mismatch, Data is null and Valid is false with the issues.' },
   ],
   'output.chart': [
     { key: 'kind', label: 'Chart', kind: 'select', inline: true, options: opts('line', 'area', 'bar', 'scatter', 'pie', 'donut') },
@@ -764,6 +700,33 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'subject', label: 'Subject', kind: 'text' },
     { key: 'importance', label: 'Importance', kind: 'number', min: 0, max: 1, step: 0.1 },
   ],
+  'memory.context': [
+    { key: 'query', label: 'Query', kind: 'text', inline: true, quick: 1 },
+    { key: 'types', label: 'Memory types', kind: 'text', help: 'Comma separated; blank reads every allowed type.' },
+    { key: 'limit', label: 'Recall limit', kind: 'number', min: 1, max: 50 },
+    { key: 'budgetTokens', label: 'Budget (tokens)', kind: 'number', min: 128, max: 8_000, help: 'Lowest-importance records are dropped first; the drop count is reported.' },
+    { key: 'format', label: 'Format', kind: 'select', inline: true, options: opts('bullets', 'prose', 'compact') },
+    { key: 'scope', label: 'Scope', kind: 'text', placeholder: 'general', help: 'general · workflow · run, or a literal named scope.' },
+  ],
+  'memory.list': [
+    { key: 'memoryType', label: 'Type', kind: 'text', placeholder: 'semantic' },
+    { key: 'scope', label: 'Scope', kind: 'text', placeholder: 'general' },
+    { key: 'status', label: 'Status', kind: 'text', placeholder: 'active' },
+    { key: 'subject', label: 'Subject', kind: 'text' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 200 },
+    { key: 'includeInactive', label: 'Include archived/inactive', kind: 'boolean' },
+  ],
+  'memory.update': [
+    { key: 'memoryId', label: 'Memory id', kind: 'text', inline: true, quick: 1, required: true },
+    { key: 'content', label: 'New content', kind: 'textarea', help: 'Leave blank to change only the subject or importance.' },
+    { key: 'subject', label: 'Subject', kind: 'text' },
+    { key: 'updateImportance', label: 'Change importance', kind: 'boolean' },
+    { key: 'importance', label: 'Importance', kind: 'number', min: 0, max: 1, step: 0.1 },
+  ],
+  'memory.forget': [
+    { key: 'memoryId', label: 'Memory id', kind: 'text', inline: true, quick: 1, required: true },
+    { key: 'reason', label: 'Reason', kind: 'text', help: 'Recorded on the archive event.' },
+  ],
   'agent.classify': [
     { key: 'labels', label: 'Labels (comma separated)', kind: 'text', inline: true, quick: 1, help: 'At least two. The model must return one of these exactly; anything else fails the node.' },
     { key: 'instructions', label: 'Instructions', kind: 'textarea', help: 'Optional guidance for the classifier. It cannot widen the label set.' },
@@ -800,51 +763,6 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'fast', label: 'Fast', kind: 'number', min: 1, max: 500 },
     { key: 'slow', label: 'Slow', kind: 'number', min: 1, max: 500 },
     { key: 'signal', label: 'Signal', kind: 'number', min: 1, max: 500 },
-  ],
-  'quant.backtest': [
-    ...quantInstrument, ...quantStrategy, ...quantRisk,
-    ...pickQuantAdvanced('randomSeed', 'maxBars', 'includeSeries'),
-  ],
-  'quant.walkforward': [
-    ...quantInstrument, ...quantStrategy, ...quantRisk,
-    ...pickQuantAdvanced(
-      'randomSeed', 'maxEvaluations', 'method', 'objective', 'paramSpaceJson',
-      'trainBars', 'testBars', 'stepBars', 'anchored',
-    ),
-  ],
-  'quant.optimize': [
-    ...quantInstrument, ...quantStrategy, ...quantRisk,
-    ...pickQuantAdvanced(
-      'randomSeed', 'maxEvaluations', 'method', 'objective', 'paramSpaceJson',
-      'objectivesJson', 'leaderboardSize',
-    ),
-  ],
-  'quant.montecarlo': [
-    ...quantInstrument, ...quantStrategy, ...quantRisk,
-    ...pickQuantAdvanced(
-      'randomSeed', 'method', 'simulations', 'ruinThreshold', 'regimeMix',
-      'regimeBlockLength', 'perturbationPct', 'perturbationJson',
-      'executionPerturbationJson',
-    ),
-  ],
-  'quant.oos': [
-    ...quantInstrument, ...quantStrategy, ...quantRisk,
-    ...pickQuantAdvanced(
-      'randomSeed', 'oosFraction', 'oosStartIndex', 'bootstrapIterations',
-      'confidence', 'objective',
-    ),
-  ],
-  'quant.returns': [
-    { key: 'kind', label: 'Returns', kind: 'select', inline: true, options: opts('simple', 'log') },
-    { key: 'period', label: 'Period', kind: 'number', inline: true, min: 1, max: 500 },
-  ],
-  'quant.zscore': [
-    { key: 'period', label: 'Period', kind: 'number', inline: true, min: 2, max: 500 },
-  ],
-  'quant.volatility': [
-    { key: 'period', label: 'Period', kind: 'number', inline: true, min: 2, max: 500 },
-    { key: 'annualize', label: 'Annualize', kind: 'boolean', inline: true },
-    { key: 'periodsPerYear', label: 'Periods / year', kind: 'number', min: 1, max: 1_000 },
   ],
   'agent.research': [
     { key: 'objective', label: 'Objective', kind: 'text', inline: true, quick: 1, port: 'query' },
@@ -1044,6 +962,7 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'label', label: 'Result label', kind: 'text', inline: true },
   ],
   ...TRADING_FIELD_OVERRIDES,
+  ...QUANT_FIELD_OVERRIDES,
 };
 
 function inferKind(value: unknown): ConfigFieldDef['kind'] {

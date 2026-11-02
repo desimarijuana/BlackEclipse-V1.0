@@ -5,8 +5,14 @@
 
 export type Direction = "LONG" | "SHORT";
 export type TradeStatus = "open" | "closed";
-/** Provenance of a trade: user-entered vs seeded sample data. */
-export type TradeSource = "manual" | "demo";
+/**
+ * Provenance of a trade:
+ *  - `manual`: user-entered or CSV-imported
+ *  - `demo`:   seeded sample data (clearly labelled, removable)
+ *  - `broker`: projected from a reconciled broker deal; the broker owns the
+ *              execution fields and P&L
+ */
+export type TradeSource = "manual" | "demo" | "broker";
 
 /** A normalized trade record the analytics engine consumes. */
 export interface TradeRecord {
@@ -37,8 +43,14 @@ export interface TradeRecord {
   /** JSON: { [ruleId]: boolean } — pre-trade checklist state. */
   checklist?: string | null;
   status: TradeStatus;
-  /** 'manual' (user/CSV) or 'demo' (seeded sample). Never fabricated prices. */
+  /** 'manual' (user/CSV), 'demo' (seeded sample) or 'broker'. Never fabricated prices. */
   source?: TradeSource;
+  /** Broker provenance. Null for manual/CSV/demo rows. */
+  externalId?: string | null;
+  brokerConnectionId?: string | null;
+  brokerPositionTicket?: number | null;
+  /** 'broker' means the broker's net profit is authoritative, not the math. */
+  pnlBasis?: "computed" | "broker";
   strategyId?: string | null;
   strategyName?: string | null;
   setupId?: string | null;

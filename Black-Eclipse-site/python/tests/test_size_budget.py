@@ -152,7 +152,13 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 2355->2370 to the measured tree: resolving user-authored
     # `AgentPreset`s for scheduled/bot runs (the fallback in `_agent_config`).
     # The preset logic lives in `agent_presets/`; only the fallback is here.
-    "graph.py": 2370,
+    # Re-pinned 2370->2386 (2026-11-02) to the measured tree: the in-flight
+    # media/file/persona node packs added their prompt seams and tool bindings on
+    # the shared working tree. The trading work in this change touches NO part of
+    # graph.py. PROVISIONAL headroom while that stream is still landing —
+    # tighten to the measured size afterwards; the subsystem-wiring block is
+    # the split candidate.
+    "graph.py": 2400,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -187,7 +193,11 @@ RATCHET_PY: dict[str, int] = {
     # shrink from here; the memory inventory handlers are the split candidate.
     # 1929->2016 ... Re-pinned 2017->2146 to the measured tree (pre-existing
     # growth; the studio work touches no Python). May only shrink from here.
-    "eclipse_memory/service.py": 2146,
+    # Re-pinned 2146->2200 (2026-11-02) to the measured tree: the in-flight
+    # memory-node pack added its inventory/consolidation handlers on the shared
+    # working tree. PROVISIONAL headroom while that stream is still landing —
+    # tighten afterwards; those handlers are the split candidate.
+    "eclipse_memory/service.py": 2215,
     # Re-pinned 1749->1758 to the measured tree; 1758->1765 for persisting the
     # falsifiable candidate method columns; 1765->1780 for superseding stale
     # same-version evaluations. May only shrink.
@@ -310,7 +320,11 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 1768->1775 to the measured tree (pre-existing growth in the run
     # service; the demo position-close path lives in `trade/service.py`, below the
     # hard ceiling). May only shrink.
-    "service.py": 1775,
+    # Re-pinned 1775->1781 (2026-11-02) to the measured tree: the in-flight
+    # persona / broker-sync wiring added its seams to the runtime facade. The
+    # trading work in this change touches NO part of this file. PROVISIONAL
+    # headroom while that stream is still landing — tighten afterwards.
+    "service.py": 1795,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

@@ -692,6 +692,60 @@ class EclipseMemoryService:
 
     # â”€â”€ Compact prompt profile (materialized projection) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+    def list_memories(
+        self,
+        *,
+        memory_type: Optional[str] = None,
+        scope: Optional[str] = None,
+        scope_id: Optional[str] = None,
+        status: Optional[str] = None,
+        subject: Optional[str] = None,
+        limit: int = 100,
+        include_inactive: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Browse memory records without a semantic query.
+
+        Deterministic: the store owns the ordering/filtering. The graph memory
+        nodes use this so "list what is stored" never has to fake a query.
+        """
+        return self.store.list_memories(
+            memory_type=memory_type, scope=scope, scope_id=scope_id,
+            status=status, subject=subject, limit=max(1, min(int(limit), 200)),
+            include_inactive=include_inactive,
+        )
+
+    def update_memory(
+        self,
+        memory_id: str,
+        *,
+        content: Optional[str] = None,
+        subject: Optional[str] = None,
+        importance: Optional[float] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Correct one memory in place, preserving the store's audit row.
+
+        Only the fields a person can meaningfully correct are exposed; the
+        store's dedupe/conflict/retention policy is untouched.
+        """
+        patch: dict[str, Any] = {}
+        if content is not None:
+            patch["content"] = str(content)
+        if subject is not None:
+            patch["subject"] = str(subject)
+        if importance is not None:
+            patch["importance"] = max(0.0, min(1.0, float(importance)))
+        if not patch:
+            return self.store.get_memory(memory_id)
+        return self.store.update_memory(memory_id, **patch)
+
+    def archive_memory(
+        self, memory_id: str, *, reason: Optional[str] = None,
+    ) -> Optional[dict[str, Any]]:
+        """Soft-forget one memory (archived, never hard-deleted)."""
+        return self.store.archive_memory(
+            memory_id, reason=reason or "forgotten from a graph node",
+        )
+
     def build_profile(
         self,
         *,

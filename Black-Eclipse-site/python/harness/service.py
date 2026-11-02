@@ -507,6 +507,12 @@ class AgenticService:
         from .artifacts.bootstrap import install_artifact_layer  # noqa: PLC0415
 
         install_artifact_layer(self)
+        # User personas (Settings → Persona): a bounded, append-only overlay on
+        # the built-in prompt, stored on the same connection. Independent of the
+        # graph layer; a failure only leaves personas unavailable.
+        from .personas import install_persona_store  # noqa: PLC0415
+
+        install_persona_store(self)
         # The Graph runtime: the compiler + deterministic executor for the
         # canonical Workflow IR the visual editor authors. Boot wiring lives in
         # `graph_runtime/bootstrap.py` (NOT `graph.py`, which is the tool loop);

@@ -162,6 +162,8 @@ Endpoints (operator-gated):
 | `POST` | `/trading/connections/{id}/orders/preview` | validate + `order_check` + request approval; sends nothing |
 | `POST` | `/trading/connections/{id}/orders/submit` | consume the approval and `order_send` once |
 | `POST` | `/trading/connections/{id}/orders/{ticket}/cancel` | cancel a working order (risk-reducing; no approval) |
+| `POST` | `/trading/connections/{id}/orders/{ticket}/modify` | re-price / re-bracket a working order (risk-reducing; no approval) |
+| `GET` | `/trading/connections/{id}/symbols/{symbol}` | static symbol facts (trade mode, contract, volume limits, sessions); no tick needed |
 | `POST` | `/trading/connections/{id}/positions/{ticket}/close` | close a position, fully or with `volume` (risk-reducing; no approval, no arm) |
 | `POST` | `/trading/connections/{id}/positions/{ticket}/modify` | move SL/TP (risk-reducing; no approval, no arm) |
 | `POST` | `/trading/connections/{id}/positions/close` | close every open position (or `tickets`) |
@@ -350,11 +352,11 @@ wired `broker_quote`), `trading.bracket` (direction-aware SL/TP from ATR ×
 multiple or an explicit stop distance, with a reward:risk multiple),
 `trading.spread_guard` (allowed only while the broker's spread is within the cap;
 a quote with no spread is not a tight spread) and `trading.session_filter` (the
-broker's own trade mode plus, in order of preference, the broker's `sessionDeals`
-evaluated in server time — the quote's server clock gives the offset, or an
-explicit `serverOffsetMinutes` — or the configured UTC window and weekdays when
-the terminal reports no sessions; `basis` says which calendar was used). No
-holiday schedule is invented either way.
+broker's own trade mode plus a calendar in this order: the broker's
+`sessionDeals` evaluated in server time — the quote's server clock gives the
+offset, or an explicit `serverOffsetMinutes` — then an explicit `sessionsJson`
+calendar for terminals that report none, then the configured UTC window and
+weekdays; `basis` says which was used). No holiday schedule is invented.
 
 Three position-management nodes are risk-reducing and therefore need no arm,
 approval or mandate, exactly like close/modify: `trading.break_even` measures the
@@ -379,15 +381,26 @@ working order or deal; broker positions the ledger never recorded; and how old
 the mirror is (`maxAgeSeconds`, 0 disables). `syncFirst` refreshes the mirror
 through the normal sync path before comparing — that is the only repair offered,
 and it keeps the broker authoritative. Remaining drift is reported, never
-rewritten.
+rewritten. **A test run never writes the mirror**: `trading.reconcile` and a
+`syncFirst` drift check are refused when the run is a test run, because a test
+run performs no writes.
+
+**One-command demo verification.** `python/scripts/trade_demo_smoke.py` probes the
+terminal, reads the account/positions/orders, checks the static symbol facts (and
+reports whether the terminal exposes session windows), and — with
+`--modify-order TICKET --price …` — re-prices one working demo order and asserts
+the broker read back what was asked. Without that flag it is read-only, and it
+refuses to run against a non-demo connection.
 
 **An unattended graph cannot double-send.** `trading.broker_order` and
 `trading.paper_order` take `dedupe: none | key | day`. `key` uses the node's
 `idempotencyKey`; `day` uses the node id plus the UTC date. The claim is written
 to `GraphTradingGuard` on `agent-memory.db` **before** the send, so a scheduled
-run that fires twice sends once — and an ambiguous failure is never retried
-automatically either (double-sending is worse than a missed order). A skipped run
-returns `status: "SKIPPED"` with `skipped: true`.
+run that fires twice sends once. When the service refuses **before** a send
+(`REFUSED`, `CONFIRMATION_REQUIRED`, `COOLING_OFF`) the claim is **given back**,
+so a policy refusal does not burn the day; `REJECTED` and `UNKNOWN` keep it,
+because either may have reached the broker and a blind retry can double the
+position. Guard rows older than 90 days are pruned when the store is wired.
 
 **PAPER mark-to-market.** `trading.paper_account` reports cash and cost basis;
 `trading.paper_valuation` marks the same book to prices the graph supplies (a
@@ -522,6 +535,13 @@ order. Manual `POST .../sync` always works.
 process clock can be hours behind or ahead (the current demo is +2h); a tight
 local-time cursor silently drops the newest fill. Dedupe by deal ticket absorbs the
 overlap, so the stored cursor is advisory, not authoritative.
+
+**Journal projection.** The reconciled mirror is also the input to the
+trading journal: `POST /api/journal/broker/sync` groups `BrokerFill` deals by
+`positionTicket` and upserts one journal `Trade` per position, keeping the
+broker authoritative for execution and the journal user-owned for notes,
+reviews and self-assigned attribution. It never writes broker state. See
+`docs/journal-broker-sync.md` (ADR-059).
 
 ## Surface
 

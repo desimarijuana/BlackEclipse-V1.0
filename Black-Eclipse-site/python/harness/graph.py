@@ -1288,13 +1288,30 @@ async def execute_run(
         allowed, surface_resolution = apply_trade_surface(
             request.input.query, allowed, surface_resolution
         )
+    # Settings → Persona: a bounded user overlay appended to the authoritative
+    # prompt for the ordinary chat agent. It is style/emphasis only — the tool
+    # allowlist above was already resolved, so the block cannot widen it. Read
+    # ONCE at run start and recorded on the run (`surface.persona`), so a later
+    # edit never rewrites what an earlier run saw.
+    persona_meta: Optional[dict[str, Any]] = None
+    if agent.id == DEFAULT_AGENT_ID:
+        from .personas import active_persona_prompt  # noqa: PLC0415
+
+        persona_block, persona_meta = active_persona_prompt()
+        if persona_block:
+            system_prompt = f"{system_prompt}\n\n{persona_block}"
+
     # Round 3 / W2 (ADR-H280): publish the surface resolution on the run, so a
     # missing tool is always explainable - the run names what the surface added,
     # what the autonomy profile removed and what a disabled store removed. The
-    # write is additive and cannot widen anything.
+    # write is additive and cannot widen anything. The active persona rides
+    # alongside it as provenance (id@version), never as a permission.
+    surface_payload = surface_resolution.to_dict()
+    if persona_meta is not None:
+        surface_payload["persona"] = persona_meta
     store.update_run(
         request.runId,
-        surface=surface_resolution.to_dict(),
+        surface=surface_payload,
         autonomy=surface_resolution.autonomy,
         workspaceId=request.workspaceId,
     )

@@ -1,17 +1,17 @@
 {
-  "_comment": "The harness size budget (Round 3 / W7, ADR-H288). The TOTAL is the binding constraint; the per-module ratchet lives in python/tests/test_size_budget.py. Raising a ceiling is allowed but must be a deliberate edit to this file - the point is that growth cannot happen silently. The V2 terminal merge removed the direct sandbox path (ADR-H311); reconciling origin/main's live-preflight and outage guards added 24 evaluation lines, so the committed ceiling is the measured merged tree.",
-  "totalLines": 383467,
+  "_comment": "The harness size budget (Round 3 / W7, ADR-H288). The TOTAL is the binding constraint; the per-module ratchet lives in python/tests/test_size_budget.py. Raising a ceiling is allowed but must be a deliberate edit to this file - the point is that growth cannot happen silently. Reconciled on 2026-11-02 to the measured merged tree: the in-flight media/file/persona node packs and the journal broker-sync work grew `routers`, `eclipse_memory`, `skills`, `code` and the harness root. These ceilings are measured, not padded; the split remains with the streams that grew them.",
+  "totalLines": 435028,
   "directories": {
-    ".": 25101,
+    ".": 28373,
     "quant": 19665,
-    "code": 18197,
-    "routers": 17214,
+    "code": 18312,
+    "routers": 19364,
     "research": 16053,
-    "eclipse_memory": 11448,
+    "eclipse_memory": 12680,
     "execution/application": 11177,
     "mcp": 9657,
-    "skills": 9620,
-    "evaluation": 11741,
+    "skills": 10241,
+    "evaluation": 12048,
     "portfolio": 9290,
     "browser": 9176
   }
