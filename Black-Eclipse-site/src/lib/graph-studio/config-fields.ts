@@ -9,6 +9,7 @@
 // overrides. Presentation only: persisted config and semantics are untouched.
 
 import type { ConfigFieldDef, NodeDefinition } from './types';
+import { MEMORY_TYPES } from './registry-utility';
 
 type Override = Omit<ConfigFieldDef, 'key'> & { key: string };
 
@@ -23,6 +24,7 @@ const KEY_HELP: Record<string, string> = {
 
   objective: 'What the agent should do. A wired query overrides this.',
   agent: 'Agent preset id. Pick a built-in or a preset from Settings › Agents.',
+  botId: 'Saved bot to run. The graph resolves it at run time; a deleted bot fails by name.',
   agentVersion: '0 uses the preset’s current version; a positive value pins a snapshot.',
   maxSteps: 'Maximum model turns for one bounded run.',
   maxTasks: 'Maximum delegated tasks (1–6).',
@@ -186,8 +188,11 @@ const REQUIRED_FIELDS: Record<string, string[]> = {
   'flow.while': ['workflowId'],
   'flow.subworkflow': ['workflowId'],
   'trading.broker_order': ['connectionId', 'mandateId'],
+  'trading.order_preview': ['connectionId'],
   'trading.broker_account': ['connectionId'],
   'trading.broker_positions': ['connectionId'],
+  'trading.broker_orders': ['connectionId'],
+  'trading.broker_fills': ['connectionId'],
   'trading.broker_quote': ['connectionId'],
   'trading.broker_bars': ['connectionId'],
   'trading.broker_close': ['connectionId'],
@@ -269,12 +274,42 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
   'trading.broker_order': [
     { key: 'connectionId', label: 'Broker connection', kind: 'text' },
     { key: 'mandateId', label: 'Mandate (live/paper)', kind: 'text' },
+    { key: 'dryRun', label: 'Dry run (preview only)', kind: 'boolean', help: 'Sends nothing and creates no approval; `ok` then means the order would be allowed.' },
+  ],
+  'trading.order_preview': [
+    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
+    { key: 'mandateId', label: 'Mandate (optional)', kind: 'text', help: 'Also check the mandate scope. Verifying does not consume a use.' },
+  ],
+  'trading.order_intent': [
+    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'EURUSD' },
+    { key: 'side', label: 'Side', kind: 'select', inline: true, options: opts('buy', 'sell') },
+    { key: 'orderType', label: 'Order type', kind: 'select', inline: true, options: opts('market', 'limit', 'stop') },
+    { key: 'quantity', label: 'Quantity', kind: 'number', min: 0, help: 'Wired values win over these.' },
+    { key: 'price', label: 'Order price', kind: 'number', min: 0, help: 'Required for a limit or stop order.' },
+    { key: 'stopLoss', label: 'Stop loss', kind: 'number', min: 0, inline: true },
+    { key: 'takeProfit', label: 'Take profit', kind: 'number', min: 0, inline: true },
+    { key: 'timeInForce', label: 'Time in force', kind: 'select', options: opts('gtc', 'day') },
+  ],
+  'trading.paper_account': [
+    { key: 'accountId', label: 'Paper account', kind: 'text', inline: true },
+    { key: 'initialCash', label: 'Initial cash', kind: 'number', min: 0 },
   ],
   'trading.broker_account': [
     { key: 'connectionId', label: 'Broker connection', kind: 'text' },
   ],
   'trading.broker_positions': [
     { key: 'connectionId', label: 'Broker connection', kind: 'text' },
+  ],
+  'trading.broker_orders': [
+    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
+  ],
+  'trading.broker_fills': [
+    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
+    { key: 'limit', label: 'Max fills', kind: 'number', min: 1, max: 200 },
+  ],
+  'trading.order_ledger': [
+    { key: 'connectionId', label: 'Broker connection (optional)', kind: 'text' },
+    { key: 'limit', label: 'Max rows', kind: 'number', min: 1, max: 200 },
   ],
   'trading.broker_quote': [
     { key: 'connectionId', label: 'Broker connection', kind: 'text' },
@@ -741,6 +776,84 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'adjustment', label: 'Adjustment', kind: 'select', inline: true, options: opts('none', 'difference', 'ratio') },
     { key: 'symbol', label: 'Series symbol', kind: 'text', inline: true, placeholder: 'CONTINUOUS' },
     { key: 'interval', label: 'Interval', kind: 'select', options: opts(...QUANT_INTERVALS) },
+  ],
+  'agent.team': [
+    { key: 'objective', label: 'Objective', kind: 'text', inline: true, quick: 1, port: 'objective', help: 'What the committee decides on. A wired objective wins.' },
+    { key: 'universe', label: 'Universe', kind: 'text', help: 'Optional symbols/instruments the committee covers.' },
+    { key: 'horizon', label: 'Horizon', kind: 'text', help: 'Optional time horizon, e.g. 1-3 months.' },
+    { key: 'timeoutS', label: 'Timeout (s)', kind: 'number', min: 30, max: 3_600 },
+  ],
+  'output.chart': [
+    { key: 'kind', label: 'Chart', kind: 'select', inline: true, options: opts('line', 'area', 'bar', 'scatter', 'pie', 'donut') },
+    { key: 'title', label: 'Title', kind: 'text', inline: true },
+    { key: 'xLabel', label: 'X label', kind: 'text' },
+    { key: 'yLabel', label: 'Y label', kind: 'text' },
+    { key: 'xField', label: 'X field (rows payload)', kind: 'text' },
+    { key: 'yField', label: 'Y field (rows payload)', kind: 'text' },
+  ],
+  'output.notify': [
+    { key: 'channel', label: 'Channel', kind: 'text', inline: true, quick: 1, help: 'A channel configured in Settings, e.g. telegram, slack, discord, google_chat, lark, webhook.' },
+    { key: 'destination', label: 'Destination', kind: 'text', inline: true, quick: 2, help: 'Chat / channel id the message goes to.' },
+    { key: 'title', label: 'Title', kind: 'text', help: 'Optional first line of the message.' },
+    { key: 'message', label: 'Message', kind: 'textarea', help: 'Used when the Message port is not wired.' },
+  ],
+  'research.source_rank': [
+    { key: 'halfLifeDays', label: 'Freshness half-life (days)', kind: 'number', inline: true, min: 1, max: 3_650, help: 'An item this old scores 0.5 on freshness. Confidence and freshness are averaged.' },
+  ],
+  'logic.human_approval': [
+    { key: 'title', label: 'Title', kind: 'text', inline: true, quick: 1, help: 'What the operator is approving.' },
+    { key: 'message', label: 'Message', kind: 'textarea', help: 'Shown on the approval card. The Message port wins.' },
+    { key: 'risk', label: 'Risk', kind: 'select', inline: true, options: opts('low', 'medium', 'high') },
+    { key: 'ttlHours', label: 'Expires after (hours)', kind: 'number', min: 1, max: 24, help: 'An expired request is never approved.' },
+    { key: 'pollSeconds', label: 'Re-check every (s)', kind: 'number', min: 2, max: 60, help: 'Also the durable job’s pause interval.' },
+    { key: 'maxWaitS', label: 'Max wait (s, synchronous runs)', kind: 'number', min: 10, max: 3_600 },
+  ],
+  'logic.assert': [
+    { key: 'expect', label: 'Expect', kind: 'select', inline: true, options: opts('truthy', 'falsy', 'present') },
+    { key: 'message', label: 'Failure message', kind: 'text', inline: true, quick: 1, help: 'Shown as the node error (and the run error with fail-fast).' },
+  ],
+  'data.extract': [
+    { key: 'path', label: 'Path', kind: 'text', inline: true, quick: 1, help: 'Dotted path, e.g. data.items.0.price. A numeric segment indexes a list.' },
+    { key: 'onMissing', label: 'When missing', kind: 'select', inline: true, options: opts('null', 'error') },
+  ],
+  'memory.recall': [
+    { key: 'query', label: 'Query', kind: 'text', inline: true, quick: 1 },
+    { key: 'types', label: 'Memory types', kind: 'text', help: 'Comma separated. Blank reads all types the policy allows.' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 50 },
+    { key: 'scope', label: 'Scope', kind: 'text', help: 'Blank uses the memory service default.' },
+  ],
+  'memory.remember': [
+    { key: 'content', label: 'Content', kind: 'textarea', inline: true, quick: 1 },
+    { key: 'memoryType', label: 'Type', kind: 'select', inline: true, options: MEMORY_TYPES.map((value) => ({ value, label: value })) },
+    { key: 'scope', label: 'Scope', kind: 'text' },
+    { key: 'subject', label: 'Subject', kind: 'text' },
+    { key: 'importance', label: 'Importance', kind: 'number', min: 0, max: 1, step: 0.1 },
+  ],
+  'agent.classify': [
+    { key: 'labels', label: 'Labels (comma separated)', kind: 'text', inline: true, quick: 1, help: 'At least two. The model must return one of these exactly; anything else fails the node.' },
+    { key: 'instructions', label: 'Instructions', kind: 'textarea', help: 'Optional guidance for the classifier. It cannot widen the label set.' },
+  ],
+  'agent.extract': [
+    { key: 'schemaJson', label: 'Target schema (JSON)', kind: 'code', help: 'JSON Schema subset used to CHECK the extraction: type, required, properties, items. Empty = no check.' },
+    { key: 'instructions', label: 'Instructions', kind: 'textarea', help: 'What to extract and how to read the text.' },
+  ],
+  'agent.summarize': [
+    { key: 'maxWords', label: 'Max words', kind: 'number', inline: true, min: 10, max: 2_000 },
+    { key: 'style', label: 'Style', kind: 'select', inline: true, options: opts('prose', 'bullets') },
+  ],
+  'agent.critique': [
+    { key: 'rubric', label: 'Rubric (optional)', kind: 'textarea', help: 'What counts as support. Blank uses the built-in rubric.' },
+  ],
+  'agent.bot': [
+    { key: 'botId', label: 'Bot', kind: 'text', quick: 1, help: 'Saved bot to run. Pick one above; the node resolves it at run time.' },
+    { key: 'objective', label: 'Objective (optional)', kind: 'text', quick: 2, port: 'query', help: 'Overrides the bot’s saved objective for this run. A wired query wins.' },
+    { key: 'maxSteps', label: 'Max steps', kind: 'number', min: 1, max: 32 },
+  ],
+  'skill.invoke': [
+    { key: 'skillId', label: 'Skill', kind: 'text', inline: true, quick: 1, help: 'Installed skill id. Pick one above; the runtime re-checks its status and permissions at run time.' },
+    { key: 'version', label: 'Version (blank = latest)', kind: 'text', help: 'Pin a skill version. Blank uses the registry’s current version.' },
+    { key: 'inputJson', label: 'Input (JSON)', kind: 'code', help: 'Used when the Input port is not wired; wired keys win over these.' },
+    { key: 'timeoutMs', label: 'Timeout (ms)', kind: 'number', min: 1_000, max: 900_000 },
   ],
   'video.render': [
     { key: 'title', label: 'Title', kind: 'text', inline: true },

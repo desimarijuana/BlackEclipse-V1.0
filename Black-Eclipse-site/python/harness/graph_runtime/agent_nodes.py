@@ -23,8 +23,12 @@ MAX_DELEGATE_TASKS = 6
 
 AgentRunner = Callable[[NodeExecContext, dict[str, Any], str], dict[str, Any]]
 PlanRunner = Callable[[NodeExecContext, str], dict[str, Any]]
+# `(bot_id) -> bot dict | None`. Bound at boot to the automation store so this
+# module never imports the scheduler.
+BotResolver = Callable[[str], Optional[dict[str, Any]]]
 _runner: Optional[AgentRunner] = None
 _plan_runner: Optional[PlanRunner] = None
+_bot_resolver: Optional[BotResolver] = None
 
 
 def set_agent_runner(runner: Optional[AgentRunner]) -> None:
@@ -35,6 +39,11 @@ def set_agent_runner(runner: Optional[AgentRunner]) -> None:
 def set_plan_runner(runner: Optional[PlanRunner]) -> None:
     global _plan_runner
     _plan_runner = runner
+
+
+def set_bot_resolver(resolver: Optional[BotResolver]) -> None:
+    global _bot_resolver
+    _bot_resolver = resolver
 
 
 def _tasks(context: NodeExecContext) -> list[dict[str, str]]:
@@ -215,6 +224,67 @@ def exec_delegate_agent(context: NodeExecContext) -> dict[str, Any]:
     }
 
 
+def exec_bot_agent(context: NodeExecContext) -> dict[str, Any]:
+    """Run a SAVED bot as one bounded turn.
+
+    The bot is resolved from the automation store (bound at boot) and its own
+    agent preset is used, so a bot answers as itself. It never registers a
+    trigger and never runs the bot's schedule: the graph is the caller.
+    """
+    bot_id = str(context.config.get("botId") or "").strip()
+    if not bot_id:
+        raise ValueError(
+            "agent.bot needs a bot: pick one in the inspector (Bot) "
+            "or set botId in the node config"
+        )
+    if _bot_resolver is None:
+        raise ValueError("the bot store is not configured in this graph runtime")
+    bot = _bot_resolver(bot_id)
+    if not isinstance(bot, dict):
+        raise ValueError(
+            f"bot {bot_id!r} was not found; pick another one (it may have been deleted)"
+        )
+    if not bool(bot.get("isBot", True)):
+        raise ValueError(f"automation {bot_id!r} is not a bot")
+    if str(bot.get("kind") or "agent") == "workflow":
+        # Nesting a workflow run inside a graph run is a second execution plane.
+        raise ValueError(
+            f"bot {bot_id!r} runs a workflow; use flow.subworkflow instead of "
+            "agent.bot (a graph never nests a scheduler run)"
+        )
+
+    objective = str(
+        context.inputs.get("query")
+        or context.config.get("objective")
+        or bot.get("objective")
+        or bot.get("name")
+        or ""
+    ).strip()
+    if not objective:
+        raise ValueError("agent.bot needs an objective: wire a query or fill Objective")
+    extra = context.inputs.get("context")
+    if isinstance(extra, dict) and extra:
+        # Bounded, labelled data — never instructions spliced into the objective.
+        objective = (
+            f"{objective}\n\nContext (JSON):\n"
+            f"{json.dumps(extra, ensure_ascii=False)[:2_000]}"
+        )
+
+    if _runner is None:
+        raise ValueError("the agent runtime is not configured in this graph runtime")
+    agent = str(bot.get("agentId") or "eclipse-agent")
+    max_steps = max(1, min(int(context.config.get("maxSteps", 8)), 32))
+    context.emit(f"running bot {bot.get('name') or bot_id} as {agent}")
+    result = _runner(context, {
+        "agent": agent,
+        "objective": objective,
+        "maxSteps": max_steps,
+    }, objective)
+    if not isinstance(result, dict):
+        raise ValueError("the agent runner returned no structured result")
+    return result
+
+
 def build_agent_nodes() -> list[NodeDef]:
     return [
         NodeDef(
@@ -297,6 +367,37 @@ def build_agent_nodes() -> list[NodeDef]:
                 ),
             },
         ),
+        NodeDef(
+            type="agent.bot", version="1.0.0", label="Run bot",
+            category="agent",
+            inputs=(
+                PortDef(id="query", name="Query", type=PortType.STRING, optional=True),
+                PortDef(id="context", name="Context", type=PortType.OBJECT, optional=True),
+            ),
+            outputs=(
+                PortDef(id="finding", name="Finding", type=PortType.RESEARCH_FINDING),
+                PortDef(id="evidence", name="Evidence", type=PortType.EVIDENCE),
+            ),
+            config_fields=(
+                ConfigField("botId", "string", "", max_length=120),
+                ConfigField("objective", "string", "", max_length=2_000),
+                ConfigField("maxSteps", "integer", 8, minimum=1, maximum=32),
+            ),
+            capabilities=("agent.run",),
+            side_effects=SideEffect.MODEL,
+            allowed_modes=_ALL,
+            timeout_ms=600_000,
+            executor=exec_bot_agent,
+            metadata={
+                "docs": (
+                    "Resolves a saved bot from the automation store and runs ONE "
+                    "bounded turn with the bot's own agent preset. No trigger is "
+                    "registered and the bot's schedule is never run. A workflow "
+                    "bot is refused (use flow.subworkflow); the bot's per-run "
+                    "model override is ignored in favour of the graph run's."
+                ),
+            },
+        ),
     ]
 
 
@@ -305,7 +406,9 @@ __all__ = [
     "agent_result_payload",
     "agent_run_identity",
     "build_agent_nodes",
+    "exec_bot_agent",
     "set_agent_runner",
+    "set_bot_resolver",
     "set_plan_runner",
     "exec_research_agent",
     "exec_plan_agent",

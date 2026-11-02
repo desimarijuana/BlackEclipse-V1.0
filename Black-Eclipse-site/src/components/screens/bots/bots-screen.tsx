@@ -236,6 +236,7 @@ export function BotsScreen({ active = true }: { active?: boolean }) {
         open={createOpen}
         onOpenChange={setCreateOpen}
         existingNames={bots.map((b) => b.name)}
+        bots={bots}
         onCreated={handleCreated}
       />
 

@@ -907,15 +907,28 @@ in PAPER mode behind the operator's paper-trading confirmation. There is no
 live adapter; LIVE mode is refused.
 
 **Broker reads and exits.** `trading.broker_account` and
-`trading.broker_positions` read the broker's own account and position list;
+`trading.broker_positions` read the broker's own account and position rows;
+`broker_orders` and `broker_fills` read its working orders and reconciled deals;
 `broker_quote` and `broker_bars` read its quotes and OHLCV series (with a
 deterministic ATR(14), 20-bar range and contract size derived from the bars).
-Every read and every exit node returns `ok` and `reason` alongside the raw
-envelope, so a `logic.condition` branches on a boolean instead of string
-comparing `status`. `trading.broker_close` closes one ticket (full or partial), a
+Every read and every exit node returns `ok` and `reason` alongside the payload, so
+a `logic.condition` branches on a boolean instead of string comparing `status`.
+`trading.order_ledger` reads Eclipse's own submitted-order rows (with the
+`runId`/`nodeId` that placed each) and `trading.paper_account` reads the durable
+PAPER book, emitting its positions as rows so they can feed a risk check.
+`trading.broker_close` closes one ticket (full or partial), a
 whole symbol, or everything; `broker_modify` and `broker_cancel` move a bracket
 or cancel a working order. They are risk-reducing, so they carry no mandate,
 approval or live arm — but they still require a pinned `connectionId`.
+
+**Building and dry-running an order.** `trading.order_intent` builds the validated
+intent (`quantity`/`volume`, market/limit/stop, SL/TP, time-in-force) instead of
+hand-assembling a JSON object; a pending order without a price is an error.
+`trading.order_preview` then answers "would this be allowed?" through the broker's
+`order_check`, the connection policy, the money guardrails and (optionally) the
+mandate scope — sending nothing and creating no approval card. `ok` means the
+check ran; `allowed` means the order would pass. `trading.broker_order` with
+`dryRun` takes the same path, so a workflow can be validated before it can send.
 
 `trading.broker_order` is the demo-broker adapter added in P3. It takes an
 `intent` plus a `connectionId` and `mandateId`, runs only in PAPER mode, and calls
@@ -938,7 +951,12 @@ not a Next.js setting. Every edit appends a version; the agent node pins
 `agent@version` (0 = current), and a pinned run keeps its snapshot. A preset that
 names a write/external tool requires the explicit “Allow effectful tools”
 acknowledgement; unknown tool names are refused at save time. The three built-ins
-remain code-resolved in `agents.py`.
+remain code-resolved in `agents.py`. Presets resolve on EVERY run path through
+`graph.resolve_agent` → `agent_presets.agent_config_from_preset`, the same
+projection `graph_runtime/bootstrap._agent_runner` uses — so one preset behaves
+identically in a graph node, an interactive bot turn and a bot's scheduled
+`run_agent` (which enters through `resolve_agent`, not the front door). A saved
+id the runtime does not know still raises the honest "Unknown agent" error.
 
 **Planner and delegate.** `agent.plan` makes ONE bounded model call with a strict
 step schema and returns 1–8 steps (stable ids, optional `dependsOn` on earlier
@@ -949,6 +967,99 @@ finding; a failed part is reported as `failed` with its error and the summary is
 test/dry run may execute them with the narrowed read-only tool surface, while an
 operator run keeps the preset's declared surface. Neither re-implements the
 agent loop or tool registry.
+
+**Human approval.** `logic.human_approval` is the gate an unattended run needs.
+It creates ONE approval of kind `graph_approval` in the runtime's existing
+single-use approval store (the same rows the Permissions panel decides), keyed by
+`graph:<runId>:<nodeId>` + a digest of the request text, and passes only after an
+operator approves; a denial fails the node and names the approver. The decision
+is **not consumed** — it gates that run+node, so a resumed run reads the same
+answer instead of asking again. A durable run does not hold a worker: the node
+raises `DeferredWait(..., rerun=True)`, which the executor treats differently
+from a time wait — the node is left **PENDING** (nothing checkpointed) and the
+resumed job re-enters it. A synchronous run polls up to `maxWaitS` (default
+300 s) and then fails honestly, leaving the request waiting in Approvals. A test
+run never creates a request.
+
+**Committee, charts and notifications.** `agent.team` runs the Institution
+committee through the existing team runtime (run → wait → finalize → synthesize)
+and returns the reconciled `decision`, the deterministic `synthesis` and the
+terminal `status`; COMPLETED/PARTIAL succeed, anything else fails with the
+status. It never places an order, never registers a trigger and refuses a test
+run (a committee is many model calls plus task/A2A state). `output.chart`
+normalizes a payload (a full spec, a number list, `{values, categories}`,
+`{series, categories}` or `{rows}` with X/Y fields) into a validated `ChartSpec`
+and the plotly figure the chart engine draws; when plotly is unavailable it
+returns `rendered: false` with the spec rather than a fake image.
+`output.notify` sends one message through the ONE channel service
+(`send_outbound`) to a configured channel + destination; a provider refusal fails
+the node with its reason, and the `network` effect means a test run can never
+send. `research.source_rank` is pure: it ranks evidence by the `confidence` and
+freshness the items ALREADY carry (exponential decay of publishedAt/retrievedAt
+with a configurable half-life); an item with neither is sorted last and counted
+`insufficient_signal` — no score is invented.
+
+**Utilities and memory.** Three deterministic primitives make unattended graphs
+stoppable and readable: `logic.assert` fails the node (and, with fail-fast, the
+run) with a named message unless the value is `truthy`, `falsy` or `present`
+(null/`""`/`[]`/`{}` are absent — the same rule `logic.merge` uses);
+`logic.fallback` returns the first *present* of three inputs plus which port it
+came from; `data.extract` reads a dotted path out of an object/array (a numeric
+segment indexes a list) and reports `found: false` + null — or fails by name when
+`onMissing` is `error` — rather than inventing a value. `memory.recall` and
+`memory.remember` are thin adapters over the ONE Eclipse memory service, so its
+policy, dedupe/conflict resolution and retention apply; `recall` returns the same
+bounded `context` block an agent receives. `remember` writes durable state, so it
+declares the `memory.write` capability and a test run is refused (at compile
+time by the capability envelope, and again in the executor).
+
+**Structured calls.** Four nodes are ONE bounded model call each, not an agent
+turn: `agent.classify` (text → the one declared label + confidence + scores),
+`agent.extract` (text → a JSON object, checked against a small schema subset:
+`type`/`required`/`properties`/`items`), `agent.summarize` (string, array or
+object → summary + key points) and `agent.critique` (finding + evidence →
+`supported`/`weak`/`contradicted`, issues, score). They use the model runtime
+directly with a strict response schema, so they cannot reach a tool at all and
+they have no `agent`/`maxSteps` knobs — there is no preset or tool loop to
+configure. The node owns the contract: a label outside the declared set, a
+verdict outside the three, a confidence/score outside 0..1 or an empty summary
+FAILS the node instead of being coerced; an extraction that does not match the
+schema reports `valid: false` with the issues on the run log rather than
+pretending the shape matched. `agent.critique`'s `score` is nullable because the
+model may omit it, and the node never invents one. They are `agent.run` +
+`model` nodes, so a test/dry run may call the model (no tools are bound at all).
+
+**Saved bots.** `agent.bot` runs a bot that already exists in Bots mode. It
+resolves the id against the automation store at run time (bound at boot), checks
+the same bot rule the workspace uses (`bot`/`monitor` tag or an `mon_` id), and
+runs ONE bounded turn with the bot's own agent preset and objective, so a saved
+bot can be a step in a graph. It never registers a trigger and never runs the
+bot's schedule — the graph is the caller — and the bot's per-run model override
+is ignored in favour of the run's resolved model settings. A **workflow** bot is
+refused by name (`use flow.subworkflow`): nesting a scheduler run inside a graph
+run is a second execution plane. An optional `context` object is appended to the
+objective as bounded, labelled `Context (JSON)` data, never as instructions. A
+deleted bot makes the node fail by name; the inspector's picker lists the live
+bots and marks workflow ones disabled rather than hiding them.
+
+**Skills.** `skill.invoke` runs an installed skill through the EXISTING skill
+runtime (`AgenticService.run_skill` → `skills/runtime.execute_skill`); the node
+only decides *which* `skill@version` and the inputs. It is ONE generic node, not
+one per installed skill: skills are runtime data while the registry is a static
+contract mirrored by the manifest, so the inspector resolves `skillId` against
+the live skill list (`listSkills`) instead. `inputJson` and the optional `input`
+port are merged per key, the wire winning. Status is the contract: only
+`completed` produces `output`/`result`/`evidence`; `blocked`, `denied`,
+`failed`, `cancelled` and `unavailable` all FAIL the node with the runtime's own
+code and message (a failed skill's partial transcript is never surfaced as an
+output). The skill's permission check runs in code inside the runtime; the node
+passes the run's `operator` flag (an operator run is `not testRun`) so an
+operator-authored permission set is honoured. A test/dry run may execute a skill
+only when every declared tool is in the read-only `DRY_RUN_TOOLS` set — otherwise
+the node fails and names the tools instead of running the procedure with its
+tools silently removed. It reuses the `agent.run` capability (a skill call is a
+model call on the same plane), and its `skills` category is the "Skills" group in
+the node library.
 
 **Chat-to-graph.** `POST /api/graphs/plan` → Python `POST /graphs/plan` turns a
 natural-language objective into a candidate workflow. The model receives the

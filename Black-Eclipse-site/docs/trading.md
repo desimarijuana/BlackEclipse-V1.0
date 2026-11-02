@@ -310,6 +310,27 @@ working order. All four are risk-reducing: they need no arm, approval or mandate
 because an expired arm must never trap a position. They still require a pinned
 `connectionId`.
 
+**Dry run before arming.** `trading.order_preview` runs the same preview the
+manual path uses — broker `order_check`, connection policy, money guardrails and,
+when a `mandateId` is set, the mandate's scope (verifying does not consume a use)
+— and creates **no approval**. Its `ok` means the check ran and `allowed` means the
+order would pass. With `dryRun = true`, `trading.broker_order` takes that path
+instead of submitting, so a whole workflow can be validated before a single order
+is sent.
+
+**Building and reading the graph's own records.** `trading.order_intent` builds
+the validated intent both execution adapters read (`quantity` and `volume`,
+market/limit/stop, SL/TP, time-in-force); a limit or stop order without a price is
+an error, never a market order in disguise. `trading.broker_positions`,
+`trading.broker_orders` and `trading.broker_fills` expose the broker's positions,
+working orders and reconciled deals as rows, and `trading.order_ledger` exposes
+Eclipse's own submitted-order rows (including the `runId`/`nodeId`). The row types
+match: `broker_positions` plugs straight into the risk gate's `positions` input,
+while an account envelope does not and is refused at compile time.
+`trading.paper_account` reads the durable PAPER book — cash, positions, average
+cost and realized PnL — and emits its positions as rows too; `exists` is false
+until the first fill.
+
 **Agent-driven chat execution.** Settings → Broker connection can create and
 revoke mandates. On a **live** connection, ask Eclipse to analyze a market and place
 one order: the agent calls `order_preview` and the approval appears above the chat
@@ -447,6 +468,7 @@ overlap, so the stored cursor is advisory, not authoritative.
 | Registry | `python/harness/trade/registry.py` |
 | Store (`agent-memory.db`) | `python/harness/trade/store.py` |
 | Service | `python/harness/trade/service.py` |
+| Order preview | `python/harness/trade/preview.py` |
 | Pre-trade limits | `python/harness/trade/policy.py` |
 | Demo mandates | `python/harness/trade/mandates.py` |
 | Approval + guardrail seam | `python/harness/trade/authorizer.py` |

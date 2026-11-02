@@ -48,8 +48,18 @@ def install_graph_layer(service: Any) -> bool:
             agent_result_payload,
             agent_run_identity,
             set_agent_runner,
+            set_bot_resolver,
             set_plan_runner,
         )
+        from .skill_nodes import set_skill_runner  # noqa: PLC0415
+        from .agent_structured_nodes import set_structured_runner  # noqa: PLC0415
+        from .memory_nodes import (  # noqa: PLC0415
+            set_memory_recall_runner,
+            set_memory_remember_runner,
+        )
+        from .team_nodes import set_team_runner  # noqa: PLC0415
+        from .output_nodes import set_notify_runner  # noqa: PLC0415
+        from .approval_nodes import set_approval_runner  # noqa: PLC0415
         from ..agent_presets import (  # noqa: PLC0415
             AgentPresetStore,
             get_preset_store,
@@ -145,6 +155,282 @@ def install_graph_layer(service: Any) -> bool:
 
         set_agent_runner(_agent_runner)
         set_plan_runner(_plan_runner)
+
+        def _skill_runner(context, config):
+            """Run ONE skill through the EXISTING skill runtime (`execute_skill`).
+
+            No second tool allowlist, permission check or version resolver: the
+            node only decides WHICH skill@version and the inputs, and maps the
+            result honestly.
+            """
+            import asyncio  # noqa: PLC0415
+            import os  # noqa: PLC0415
+
+            from ..schemas import ModelSettings  # noqa: PLC0415
+            from ..skills.runtime import SkillExecutionRequest  # noqa: PLC0415
+
+            if not context.model_settings:
+                raise ValueError(
+                    "model settings are unavailable for this run; start it as an "
+                    "operator run with a configured model provider"
+                )
+            skill_id = str(config.get("skillId") or "")
+            if context.test_run:
+                # A skill's declared tools are the surface `execute_skill` will
+                # bind. A test run may keep only read-only ones; refuse by name
+                # rather than run a procedure with its tools silently removed.
+                from ..agents import dry_run_tools  # noqa: PLC0415
+
+                registry = getattr(service, "skill_registry", None)
+                manifest = registry.manifest(skill_id) if registry is not None else None
+                if manifest is not None:
+                    required = list(getattr(manifest, "requiredTools", None) or [])
+                    allowed = set(dry_run_tools(required))
+                    missing = sorted(tool for tool in required if tool not in allowed)
+                    if missing:
+                        raise ValueError(
+                            "a test run cannot execute this skill: it requires "
+                            + ", ".join(missing)
+                            + " (only read-only tools run without an operator grant)"
+                        )
+            callback = context.callback_base_url or (
+                os.environ.get("HARNESS_CALLBACK_URL")
+                or f"http://127.0.0.1:{os.environ.get('PORT', '3000')}"
+            )
+            request = SkillExecutionRequest(
+                skillId=skill_id,
+                version=config.get("version"),
+                input=dict(config.get("input") or {}),
+                # One stable id per graph node, so a re-executed node links to the
+                # same parent trace instead of inventing a second lineage.
+                runId=f"graph:{context.run_id}:{context.node_id}",
+                parentRunId=f"graph:{context.run_id}",
+                executionMode="workflow",
+                userId=context.user_id,
+                operator=context.operator,
+                timeoutMs=config.get("timeoutMs"),
+                modelSettings=ModelSettings(**context.model_settings),
+                callbackBaseUrl=callback,
+                callbackToken=context.callback_token or os.environ.get("CRON_SECRET"),
+            )
+            result = asyncio.run(service.run_skill(request))
+            return result.model_dump() if hasattr(result, "model_dump") else dict(result)
+
+        set_skill_runner(_skill_runner)
+
+        def _structured_runner(context, op, args):
+            """ONE bounded structured model call — no tools, no agent loop."""
+            import asyncio  # noqa: PLC0415
+
+            from . import agent_structured  # noqa: PLC0415
+
+            if not context.model_settings:
+                raise ValueError(
+                    "model settings are unavailable for this run; start it as an "
+                    "operator run with a configured model provider"
+                )
+            operations = {
+                "classify": agent_structured.classify_json,
+                "extract": agent_structured.extract_json,
+                "summarize": agent_structured.summarize_json,
+                "critique": agent_structured.critique_json,
+            }
+            function = operations.get(op)
+            if function is None:
+                raise ValueError(f"unknown structured operation {op!r}")
+            return asyncio.run(
+                function(**args, model_settings=context.model_settings)
+            )
+
+        set_structured_runner(_structured_runner)
+
+        def _memory_recall_runner(context, args):
+            """Read the ONE memory service (policy + dedupe + recall-deny)."""
+            memory = getattr(service, "memory", None)
+            if memory is None:
+                raise ValueError("the memory service is unavailable in this runtime")
+            result = memory.retrieve(
+                query=args["query"],
+                memory_types=args["types"] or None,
+                scope=args["scope"],
+                limit=args["limit"],
+                run_id=context.run_id,
+            )
+            return {
+                "memories": list(getattr(result, "memories", None) or []),
+                "context": str(getattr(result, "context", "") or ""),
+            }
+
+        def _memory_remember_runner(context, args):
+            """Write one durable memory through the service (never re-implemented)."""
+            memory = getattr(service, "memory", None)
+            if memory is None:
+                raise ValueError("the memory service is unavailable in this runtime")
+            record = memory.write_memory(
+                memory_type=args["memoryType"],
+                content=args["content"],
+                source=f"graph:{context.run_id}",
+                scope=args["scope"],
+                subject=args["subject"],
+                source_run_id=context.run_id,
+                importance=args["importance"],
+                created_by=context.user_id,
+            )
+            keep = (
+                "id", "memoryType", "memory_type", "scope", "scopeId",
+                "status", "verification", "createdAt",
+            )
+            return {"memory": {key: record.get(key) for key in keep if key in record}}
+
+        set_memory_recall_runner(_memory_recall_runner)
+        set_memory_remember_runner(_memory_remember_runner)
+
+        def _team_runner(context, args):
+            """Run the committee through the EXISTING team runtime."""
+            import asyncio  # noqa: PLC0415
+
+            from ..institution.preset import build_team  # noqa: PLC0415
+
+            if not context.model_settings:
+                raise ValueError(
+                    "model settings are unavailable for this run; start it as an "
+                    "operator run with a configured model provider"
+                )
+            team_service = getattr(service, "team", None)
+            if team_service is None:
+                from ..team.bootstrap import install_team_layer  # noqa: PLC0415
+
+                try:
+                    install_team_layer(service)
+                except Exception as exc:  # noqa: BLE001 - reported honestly below
+                    raise ValueError(f"the team runtime is unavailable: {exc}") from exc
+                team_service = getattr(service, "team", None)
+            if team_service is None:
+                raise ValueError("the team runtime is unavailable")
+
+            team = build_team(
+                args["objective"],
+                universe=args["universe"],
+                horizon=args["horizon"],
+                constraints=[],
+            )
+
+            async def _go():
+                run = await team_service.run(
+                    team, model_settings=context.model_settings,
+                )
+                try:
+                    await team_service.wait(run.id, timeout_s=float(args["timeoutS"]))
+                except Exception:  # noqa: BLE001 - finalize reports the real state
+                    pass
+                final = await team_service.finalize(run.id)
+                synthesis = team_service.synthesize(run.id)
+                return run, final, synthesis
+
+            run, final, synthesis = asyncio.run(_go())
+            return {
+                "status": str(final.get("status") or ""),
+                "teamRunId": run.id,
+                "decision": final,
+                "synthesis": synthesis,
+                "error": None
+                if str(final.get("status") or "") in ("COMPLETED", "PARTIAL")
+                else f"team finished with status {final.get('status') or 'unknown'}",
+            }
+
+        set_team_runner(_team_runner)
+
+        def _notify_runner(context, args):
+            """Send through the ONE channel service (`send_outbound`)."""
+            import asyncio  # noqa: PLC0415
+
+            channels = getattr(service, "channels", None)
+            if channels is None:
+                from ..channels.bootstrap import install_channel_layer  # noqa: PLC0415
+
+                try:
+                    channels = install_channel_layer(service)
+                except Exception as exc:  # noqa: BLE001
+                    raise ValueError(f"the channel service is unavailable: {exc}") from exc
+            if channels is None:
+                raise ValueError("the channel service is unavailable")
+            return asyncio.run(
+                channels.send_outbound(
+                    args["channel"], args["destination"], args["message"],
+                )
+            )
+
+        set_notify_runner(_notify_runner)
+
+        def _approval_runner(context, args):
+            """Read/create ONE `graph_approval` in the single-use approval store.
+
+            The decision is not consumed: it gates this run+node, so a resumed
+            run reads the same answer instead of asking again.
+            """
+            store = getattr(service, "approvals", None)
+            if store is None:
+                raise ValueError("the approval store is unavailable in this runtime")
+
+            def view(record):
+                keep = (
+                    "id", "status", "decidedBy", "decidedAt", "reason",
+                    "expiresAt", "risk", "actionSummary",
+                )
+                return {key: record.get(key) for key in keep if key in record}
+
+            existing = store.find_active_kind(
+                kind="graph_approval",
+                request_key=args["requestKey"],
+                digest=args["digest"],
+            )
+            if existing is not None:
+                return {"status": "approved", "approval": view(existing)}
+            record = store.request_kind(
+                kind="graph_approval",
+                request_key=args["requestKey"],
+                digest=args["digest"],
+                effect="external_action",
+                run_id=context.run_id,
+                action_summary=args["title"],
+                affected_data=args["message"] or None,
+                risk=args["risk"],
+                ttl_seconds=args["ttlHours"] * 3600,
+                grant_scope="graph",
+            )
+            status = str((record or {}).get("status") or "").strip().lower()
+            mapped = status if status in ("approved", "denied") else "pending"
+            return {"status": mapped, "approval": view(record or {})}
+
+        set_approval_runner(_approval_runner)
+
+        def _bot_resolver(bot_id):
+            """Read one saved bot from the EXISTING automation store.
+
+            A bot is an `Automation` tagged `bot`/`monitor` (or an `mon_` id) —
+            the same rule the Bots workspace uses. Reading is all this does: it
+            never dispatches the automation or touches its schedule.
+            """
+            store = service.automation_store()
+            definition = store.get_automation(bot_id)
+            if definition is None:
+                return None
+            tags = list(getattr(definition, "tags", None) or [])
+            action = definition.action
+            return {
+                "id": definition.id,
+                "name": definition.name,
+                "isBot": (
+                    "bot" in tags
+                    or "monitor" in tags
+                    or str(definition.id).startswith("mon_")
+                ),
+                "kind": "workflow" if action.type == "execute_workflow" else "agent",
+                "agentId": action.agent_id or "eclipse-agent",
+                "objective": action.objective or definition.description or "",
+            }
+
+        set_bot_resolver(_bot_resolver)
         set_paper_store(PaperAccountStore(service.store))
 
         def _video_runner(context, symbols, title, mode):

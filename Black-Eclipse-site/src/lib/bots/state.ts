@@ -343,22 +343,11 @@ export function localTimezone(): string {
 }
 
 // ── Creation draft ───────────────────────────────────────────────────────────
-
-/** The agent presets a bot can run as (the backend's closed set). */
-export const BOT_AGENTS: ReadonlyArray<{ id: string; label: string }> = [
-  { id: 'eclipse-agent', label: 'Eclipse' },
-  { id: 'code-navigator', label: 'Code Navigator' },
-  { id: 'code-agent', label: 'Code Agent' },
-  // Institution committee seats. Their prompts/tool surfaces live in the Python
-  // `institution` preset, which registers these ids at boot.
-  { id: 'institution-analyst', label: 'Institution · Analyst' },
-  { id: 'institution-bull', label: 'Institution · Bull' },
-  { id: 'institution-bear', label: 'Institution · Bear' },
-  { id: 'institution-chair', label: 'Institution · Chair' },
-  { id: 'institution-trader', label: 'Institution · Trader' },
-  { id: 'institution-risk', label: 'Institution · Risk' },
-  { id: 'institution-pm', label: 'Institution · PM' },
-];
+// The selectable agents are NOT listed here. `useAgentChoices`
+// (`src/lib/agent-presets/use-agent-choices.ts`) merges the runtime's built-ins
+// with the operator's own presets, so a preset created in Settings › Agents is
+// selectable everywhere. A hardcoded list here is what made user presets
+// invisible in the bot dialog.
 
 export type ScheduleChoice =
   | 'manual' | 'once' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'interval' | 'cron'
@@ -557,13 +546,25 @@ export interface DraftIssue {
 }
 
 /** Validate a draft before saving. Mirrors the backend's hard rules so the user
- *  sees the error beside the field, not as a raw API failure. */
-export function validateDraft(draft: BotDraft): DraftIssue[] {
+ *  sees the error beside the field, not as a raw API failure.
+ *
+ *  `knownAgentIds` is optional so existing callers/tests keep working; when a
+ *  surface has the live agent list it should pass it, so a preset that was
+ *  deleted/archived surfaces as a field error instead of an unknown-agent run
+ *  failing later on the scheduler. */
+export function validateDraft(draft: BotDraft, knownAgentIds?: readonly string[]): DraftIssue[] {
   const issues: DraftIssue[] = [];
   if (!draft.name.trim()) issues.push({ field: 'name', message: 'Give the bot a name.' });
   if (!draft.objective.trim()) issues.push({ field: 'objective', message: 'Describe what the bot should do.' });
   if (draft.kind === 'workflow' && !draft.workflowId.trim()) {
     issues.push({ field: 'workflowId', message: 'Choose the workflow this bot runs.' });
+  }
+  if (
+    draft.kind === 'agent'
+    && knownAgentIds
+    && !knownAgentIds.includes(draft.agentId.trim())
+  ) {
+    issues.push({ field: 'agentId', message: 'Choose an agent that still exists.' });
   }
   if (draft.schedule === 'once') {
     if (!draft.runAt) issues.push({ field: 'runAt', message: 'Pick a date and time to run.' });

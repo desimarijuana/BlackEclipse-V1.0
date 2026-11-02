@@ -815,3 +815,51 @@ async def test_a_surface_guardrail_fails_a_run_that_breaks_it(store, monkeypatch
     assert result.error is not None
     assert result.error.code == "GUARDRAIL_TOOL_REQUIRED"
     assert store.get_run("run_test")["status"] == "failed"
+
+def test_agent_id_resolves_a_user_preset():
+    # A bot's scheduled `run_agent` enters through resolve_agent, not the front
+    # door, so a custom preset must resolve here too or the bot works in chat and
+    # fails on its schedule.
+    from harness.agent_presets import set_preset_store
+
+    class _Presets:
+        def get(self, preset_id, version=None):
+            if preset_id != "gold-analyst":
+                return None
+            return {
+                "id": "gold-analyst",
+                "name": "Gold analyst",
+                "systemPrompt": "You are a disciplined gold analyst.",
+                "tools": ["get_quote"],
+                "maxSteps": 6,
+                "allowMcpTools": False,
+                "allowPluginTools": False,
+            }
+
+    set_preset_store(_Presets())
+    try:
+        req = RunRequest(
+            runId="r",
+            input=RunInput(query="hi"),
+            agentId="gold-analyst",
+            modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
+            callbackBaseUrl="http://localhost:3000",
+        )
+        agent = graph_module.resolve_agent(req)
+        assert agent.id == "gold-analyst"
+        assert agent.tools == ["get_quote"]
+        assert agent.maxSteps == 6
+    finally:
+        set_preset_store(None)
+
+
+def test_unknown_agent_id_still_fails_without_a_preset():
+    req = RunRequest(
+        runId="r",
+        input=RunInput(query="hi"),
+        agentId="no-such-agent",
+        modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
+        callbackBaseUrl="http://localhost:3000",
+    )
+    with pytest.raises(ValueError, match="Unknown agent"):
+        graph_module.resolve_agent(req)

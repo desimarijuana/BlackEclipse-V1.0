@@ -202,7 +202,10 @@ nodes. The only local write it can grant is the whitelisted `video.render`
 exception: an operator may confirm PAPER trading,
 and only when the workflow mode is `paper` and the graph contains
 `trading.paper_order`. The compiler refuses LIVE mode, refuses an ungranted
-trading node, and refuses every trading node in a test run. `trading.paper_order`
+trading node, and refuses every trading node that has a `trading` side effect in
+a test run. `trading.risk_check` has no side effect (it only evaluates the risk
+engine), so it is allowed in a test/backtest run and can gate simulated entries
+with the same limits. `trading.paper_order`
 never contacts a broker or fetches a quote; it simulates a fill at a supplied
 price. Test runs never perform network, write or trading effects.
 

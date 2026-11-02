@@ -19,6 +19,17 @@ work breakdown, compatibility notes.
 before a ticket starts; accepted answers become an ADR in `skills/ARCHITECT.md`
 plus a section in `docs/graph-studio.md`.
 
+## 0. Progress
+
+| Item | Status | Notes |
+| --- | --- | --- |
+| M1 — bots show real agent presets (B1) | **done** | `src/lib/agent-presets/{choices,use-agent-choices}.ts` is the ONE option builder (built-ins + user presets, archived kept, unknown saved id preserved and rejected on save). `create-bot-dialog.tsx` renders it grouped; `state.ts` no longer hardcodes `BOT_AGENTS`. |
+| M1b — presets resolve on the runtime, not just the front door | **done** | `graph.resolve_agent` now falls back to `AgentPresetStore` via `agent_presets.agent_config_from_preset` (the same projection `bootstrap._agent_runner` uses). Without this a custom preset worked in chat and failed on a bot's schedule. |
+| M2 — `skill.invoke` | **done** | One generic node (`registry-skills.ts`, `skill_nodes.py`, category `skills`), picker over `listSkills`, `bootstrap._skill_runner` → `service.run_skill`. D2 resolved as `agent.run`; D3 as a new `skills` category; D4 as "no new port types" (`string`/`object`/`array`). `NodeExecContext` gained **only** `operator` (the planned `granted_capabilities` was dropped: skill permission grants and graph capabilities are different vocabularies, and passing one as the other could widen an actor). |
+| M3 — `agent.bot` + B2/B3 | **done** | `agent.bot` resolves a saved bot at run time (`agent_nodes.set_bot_resolver`, bound in `bootstrap` to `automation_store().get_automation`), runs one bounded turn with the bot's agent, refuses workflow bots by name, and never fires the schedule. Inspector picker lists live bots (workflow ones disabled, not hidden). B2: the New bot dialog has a "Start from" picker that copies brain/objective/schedule/face into a NEW bot; a copied schedule is created **draft** (paused), so two copies never fire at the same minute. |
+| Tier 2 — the rest of the candidates | **done** | `logic.assert` / `logic.fallback` / `data.extract` (`utility_nodes.py`); `memory.recall` / `memory.remember` (`memory_nodes.py`, runners bound to `service.memory`); `agent.team` (`team_nodes.py`, runner = run→wait→finalize→synthesize, operator-run only); `output.chart` (`output_nodes.py`, ChartSpec + plotly figure, `rendered: false` when plotly is absent); `output.notify` (`send_outbound` through the ONE channel service, `network` effect); `research.source_rank` (pure confidence + freshness decay, `insufficient_signal` when nothing is recorded). Intentional trim vs the original table: `output.chart` returns the spec/figure rather than a PNG artifact, and `research.source_rank` introduces no source-trust taxonomy (web `contentTrust` is always `UNTRUSTED`), ranking only on recorded signals. |
+| M4/M5 — classify/extract/summarize/critique | **done** | Four structured nodes in `agent_structured_nodes.py` / `registry-agents.ts`, one bounded model call each through `agent_structured.py` + `set_structured_runner` (no tools, no agent loop). Deviations from the table below, deliberate: **no `agent`/`maxSteps` config** (there is no preset or tool loop to bound), `agent.critique.score` is **nullable** (the model may omit it and the node never invents one), and `agent.summarize.text` is `any` so it accepts an array/object as well as a string. |
+
 ---
 
 ## 0. Current inventory (verified against the tree)
@@ -186,9 +197,9 @@ are cheap and unlock better unattended graphs, so they are the best next pair.
 
 | Item | Blocker |
 | --- | --- |
-| `flow.parallel` | `executor.py` schedules layers sequentially; a bounded fan-out needs a concurrency budget in the plan and in `RunGrants`. Do not bolt threads onto a node. |
-| `logic.human_approval` | Needs durable pause/resume plus the approvals plane (`service.approvals`). High value for live trading, but it is a project, not a node. |
-| `output.video` | `video.render` exists; a second video node adds nothing. |
+| `flow.parallel` | `executor.py` schedules layers sequentially; a bounded fan-out needs a concurrency budget in the plan and in `RunGrants`. Do not bolt threads onto a node. **Still open.** |
+| `logic.human_approval` | **Shipped** (`approval_nodes.py` + `registry-utility.ts`). Requests a `graph_approval` row in the ONE approval store (kind + run/node keyed, TTL ≤ 24 h), and the decision is NOT consumed so a resume reads the same answer. New runtime primitive: `DeferredWait(rerun=True)` — the executor leaves the node **PENDING** (nothing checkpointed) so a resumed durable job re-enters it; without that flag a deferred node is checkpointed as succeeded and the gate would silently pass. Synchronous runs poll up to `maxWaitS` then fail honestly; denials name the approver; test runs never request. |
+| `output.video` | `video.render` exists; a second video node adds nothing. **Stays rejected.** |
 
 ## 5. Rejected
 

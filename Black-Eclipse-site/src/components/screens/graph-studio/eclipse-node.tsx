@@ -86,6 +86,7 @@ const CATEGORY_LABEL: Record<NodeCategory, string> = {
   finance: 'Market data',
   quant: 'Quant',
   agent: 'Agent',
+  skills: 'Skill',
   research: 'Research',
   trading: 'Trading',
   output: 'Output',

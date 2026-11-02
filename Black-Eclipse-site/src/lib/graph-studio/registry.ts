@@ -20,8 +20,11 @@ import {
 import { LOOP_DEFINITIONS } from './registry-loops';
 import { QUANT_ADVANCED_DEFINITIONS } from './registry-quant-advanced';
 import { QUANT_STRUCTURE_DEFINITIONS } from './registry-quant-structure';
+import { SKILL_DEFINITIONS } from './registry-skills';
 import { TRANSFORM_DEFINITIONS } from './registry-transform';
 import { TRADING_DEFINITIONS } from './registry-trading';
+import { OUTPUT_DEFINITIONS } from './registry-output';
+import { UTILITY_DEFINITIONS } from './registry-utility';
 import { WRITE_DEFINITIONS } from './registry-write';
 import type { ExecutionMode, NodeDefinition, PortDef } from './types';
 
@@ -420,8 +423,11 @@ const DEFINITIONS: NodeDefinition[] = [
   ...QUANT_STRUCTURE_DEFINITIONS,
   ...QUANT_ADVANCED_DEFINITIONS,
   ...AGENT_DEFINITIONS,
+  ...SKILL_DEFINITIONS,
   ...LOOP_DEFINITIONS,
   ...WRITE_DEFINITIONS,
+  ...UTILITY_DEFINITIONS,
+  ...OUTPUT_DEFINITIONS,
   // ── Control flow (Phase 4) ──────────────────────────────────────────────
   // Control ports gate EXECUTION, not values: a node that declares control
   // inputs runs only when an upstream fired one of them.

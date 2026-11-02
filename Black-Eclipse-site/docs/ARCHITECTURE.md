@@ -437,6 +437,12 @@ Two mechanisms:
    orders (by magic) before disarming. An ambiguous send is recorded as `unknown`
    and never retried. P3 adds Graph Studio's `trading.broker_order` (paper mode only)
    under a bounded, revocable demo mandate; unattended live trading remains refused.
+   The graph surface reads the broker directly (`broker_account`,
+   `broker_positions`, `broker_quote`, `broker_bars`), gates on the broker's own
+   state (`trading.risk_check` derives equity and open positions from a wired
+   account and names every figure's source), and honors a rejected risk decision
+   before an order is sent. Every read and exit returns `ok`/`reason`, so a graph
+   branches on an outcome instead of a status string.
    P4 adds durable reconciliation (`trade/reconcile.py`) of broker deals, positions
    and order state; the background pass is opt-in and a failed sync is an error,
    never a fabricated fill. Paper fills remain Graph Studio's `trading.paper_order`. The

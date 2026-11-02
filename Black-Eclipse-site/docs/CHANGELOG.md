@@ -1,5 +1,53 @@
 # Change Log
 
+## 2026-11-02
+- **chore(docs): rotated the changelog window.** Ran
+  `scripts/rotate-changelog.js --write` to archive the oldest dated section into
+  `docs/changelog/2026-10.md` (window of 7 preserved). no doc change — mechanical
+  rotation, no contract or architecture change.
+- **feat(graph): `logic.human_approval` — the approval gate (Tier 3).**
+  `graph_runtime/approval_nodes.py` + `registry-utility.ts`: creates ONE
+  `graph_approval` in the runtime's existing single-use approval store (the same
+  rows the Permissions panel decides), keyed by `graph:<runId>:<nodeId>` and a
+  digest of the request text, with a ≤ 24 h TTL. The decision is **not
+  consumed** — it gates that run+node, so a resumed run reads the same answer.
+  Denials fail the node and name the approver. New runtime primitive:
+  **`DeferredWait(rerun=True)`** (`model.py` + `executor.py`): a rerun-deferred
+  node is left **PENDING** and its outputs/control are NOT checkpointed, so the
+  resumed durable job re-enters it — without this a deferred node was recorded
+  as succeeded and the gate would silently pass. Durable runs therefore pause
+  without holding a worker; synchronous runs poll up to `maxWaitS` (default
+  300 s) and then fail honestly, leaving the request in Approvals. Test runs
+  never create a request. Bootstrap binds `set_approval_runner` to
+  `service.approvals`. Manifest regenerated. Tests:
+  `python/tests/test_graph_approval_node.py` (10 cases) plus a durable
+  integration case in `test_graph_durable.py` proving the paused run leaves the
+  gate non-succeeded and finishes only after approval; parity green.
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+- **feat(graph): the rest of Tier 2 — committee, chart, notify, evidence
+  ranking.** Four nodes complete the plan's candidate set. `agent.team`
+  (`team_nodes.py`, `registry-agents.ts`) runs the Institution committee through
+  the existing team runtime (run → wait → finalize → synthesize), returns the
+  reconciled `decision`, deterministic `synthesis` and terminal `status`
+  (COMPLETED/PARTIAL succeed), never places an order or registers a trigger, and
+  refuses a test run. `output.chart` (`output_nodes.py`, `registry-output.ts`)
+  normalizes a spec / number list / `{values, categories}` / `{series,
+  categories}` / `{rows}` + X/Y fields into a validated `ChartSpec` and the
+  plotly figure the chart engine draws, reporting `rendered: false` (spec still
+  returned) when plotly is absent — never a fake image. `output.notify` sends
+  one message through the ONE channel service (`send_outbound`) with the
+  `network` effect, so a test run can never send and a provider refusal fails
+  the node with its reason. `research.source_rank` (pure, in `research_nodes.py`)
+  ranks evidence by the `confidence` and freshness the items already carry
+  (exponential decay of publishedAt/retrievedAt with a configurable half-life);
+  an item with neither is sorted last and counted `insufficient_signal`, so no
+  score is invented. Runners bound at boot (`set_team_runner`,
+  `set_notify_runner`). Manifest regenerated. Tests:
+  `python/tests/test_graph_team_output_nodes.py` (13 cases) + parity green.
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+
 ## 2026-11-01
 - **test(graph): end-to-end coverage for the quant pack.** Added
   `python/tests/test_graph_quant_e2e.py`: one graph wires
@@ -23,6 +71,26 @@
   per-directory budget). Raising those ceilings is a deliberate decision that
   belongs to whoever owns that growth; this changelog records the state so it
   cannot be mistaken for a quant regression. no doc change — operational note.
+- **feat(graph): read nodes, an intent builder and a no-side-effect order preview.**
+  Added `trading.broker_orders`, `trading.broker_fills` and `trading.order_ledger`
+  (broker working orders, reconciled deals, Eclipse's own submitted-order rows),
+  `trading.paper_account` (durable PAPER cash/positions/realized PnL, positions
+  also emitted as rows) and `trading.order_intent` (validated
+  symbol/side/quantity/type/price/SL/TP/TIF; a pending order without a price is an
+  error). `trading.order_preview` answers "would this be allowed?" through
+  `order_check` + policy + guardrails + optional mandate scope, and
+  `trading.broker_order` gained `dryRun` to use it. Approval creation is now
+  optional in `BrokerService.preview_order` (`record_approval=False`), so a graph
+  dry run leaves no approval cards. `broker_positions`/`risk_check.positions` are
+  now `array` ports, so position rows wire into the gate and an account envelope
+  is refused at compile time. Contracts mirrored in `registry-trading.ts` /
+  `config-fields.ts`; manifest regenerated. The preview body moved to
+  `trade/preview.py` (a delegate in `service.py`) to stay under the module size
+  ceiling. Tests: 30 broker-node cases (preview
+  never creates an approval, mandate verify is non-consuming, dry run sends
+  nothing, port-type wiring) and 3 paper-account cases. Docs updated:
+  `docs/trading.md`, `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
 - **feat(graph): trading nodes gate on live state and report honest outcomes.**
   `trading.risk_check` now accepts `account`/`positions` plus numeric overrides
   and derives equity and open-position count from the broker/paper account
@@ -39,7 +107,7 @@
   manifest regenerated. Tests: `test_graph_broker_nodes.py`,
   `test_graph_registry_parity.py` (cross-language port parity) and 7 new
   `risk_check` cases. Docs updated: `docs/trading.md`, `docs/graph-studio.md`,
-  `docs/CHANGELOG.md`.
+  `docs/ARCHITECTURE.md`, `docs/harness/security.md`, `docs/CHANGELOG.md`.
 - **ux(graph): readable market-node summaries, direct OHLCV metrics and starter
   templates.** (1) Every gateway read node now emits a compact `summary` object
   (symbol/provider/as-of plus the key figures for that capability — spread,
@@ -473,6 +541,114 @@
   config warning.
   no doc change — build configuration only; `docs/QUICKSTART.md` already
   describes `npm run build && npm start`.
+- **feat(bots): the bot brain picker shows real agent presets.** The New bot
+  dialog rendered a hardcoded `BOT_AGENTS` array, so a preset authored in
+  Settings › Agents was invisible (and the seven `institution-*` seats in that
+  array could not resolve as a standalone `run_agent`). The option list is now
+  built from the live runtime: `src/lib/agent-presets/choices.ts` (pure:
+  built-ins first, user presets by name, archived kept and flagged, an unknown
+  saved id appended and labelled) + `use-agent-choices.ts` (loader with a
+  built-in fallback). `create-bot-dialog.tsx` renders it grouped and rejects an
+  unknown agent before save; `validateDraft` takes an optional known-id list.
+  **Runtime fix:** `graph.resolve_agent` now falls back to `AgentPresetStore`
+  through the new `agent_presets.agent_config_from_preset`, the same projection
+  `graph_runtime/bootstrap._agent_runner` uses — a bot's scheduled `run_agent`
+  enters there, so without it a custom preset worked in chat and failed on its
+  schedule. Tests: `src/lib/agent-presets/choices.test.ts` (6 cases),
+  `python/tests/test_agent_presets.py` + `test_graph.py` (preset projection,
+  preset resolution, unknown-agent failure).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(graph): `skill.invoke` — installed skills run as a node.** One generic
+  node, not one per skill (skills are runtime data; the registry is a static
+  contract with a manifest + Python mirror). TS contract
+  `src/lib/graph-studio/registry-skills.ts` (`SKILL_DEFINITIONS`, category
+  `skills`, so the library has a "Skills" group), presentation in
+  `config-fields.ts`, `NodeCategory` + the three category maps updated, manifest
+  regenerated. Runtime `python/harness/graph_runtime/skill_nodes.py` is a thin
+  adapter: `bootstrap._skill_runner` calls the EXISTING
+  `AgenticService.run_skill` → `execute_skill`, so permissions, version
+  resolution and the tool check are the same ones chat uses. Status is the
+  contract — only `completed` yields `output`/`result`/`evidence`; `blocked` /
+  `denied` / `failed` / `cancelled` / `unavailable` fail the node with the
+  runtime's code and message, and a failed skill's partial transcript is never
+  surfaced. `inputJson` and the optional `input` port merge per key (wire wins).
+  `NodeExecContext` gained `operator` (filled as `not testRun` by the executor),
+  so an operator-authored permission set is honoured; a test run refuses by name
+  any skill whose declared tools are not all in `DRY_RUN_TOOLS`. The inspector
+  picks from the live skill list (`skills-browser.listSkills`) with status, tools
+  and description. Tests: `python/tests/test_graph_skill_node.py` (18 cases:
+  completed projection, pinned version, wire-vs-config merge, missing skill,
+  unbound runtime, bad payloads, five non-completed statuses, test-run compile,
+  operator default).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(bots): `agent.bot` node + "Start from" an existing bot.** A saved bot
+  can now be a step in a graph: `agent.bot` (`registry-agents.ts`,
+  `graph_runtime/agent_nodes.py`) resolves the id at run time through
+  `set_bot_resolver` (bound in `bootstrap` to
+  `automation_store().get_automation`, the same `bot`/`monitor`/`mon_` rule the
+  workspace uses) and runs ONE bounded turn with the bot's own agent preset and
+  objective. It never registers a trigger or runs the bot's schedule; a
+  **workflow** bot is refused by name (`use flow.subworkflow`), a deleted bot
+  fails by name, and an optional `context` object is appended as bounded
+  labelled JSON data (never instructions). The bot's per-run model override is
+  ignored — the graph run's resolved settings win. Inspector: a live bot picker
+  (workflow bots shown disabled). B2: the New bot dialog gained a **Start from**
+  picker that copies an existing bot's brain/objective/schedule/face into a NEW
+  bot; the original is untouched and a copied schedule is created `draft`
+  (paused), so two copies never fire at the same minute. Manifest regenerated.
+  Tests: 8 new cases in `python/tests/test_graph_agent_node.py` (own agent,
+  objective fallback, bounded context, workflow refusal, unknown bot, non-bot
+  automation, missing id/store, unbound runtime).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(graph): four structured agent nodes — classify, extract, summarize,
+  critique.** Each is ONE bounded model call with a strict response schema, not
+  an agent turn: `python/harness/graph_runtime/agent_structured.py` holds the
+  prompts + JSON schemas + `normalize_labels`/`validate_extraction`;
+  `agent_structured_nodes.py` holds the four contracts and executors, with the
+  model bound at boot through `set_structured_runner` (so tests substitute a
+  fake and the module imports no runtime). TS contracts in
+  `registry-agents.ts`, presentation in `config-fields.ts`, manifest
+  regenerated. The NODE owns the contract: a label outside the declared set, a
+  verdict outside supported/weak/contradicted, a confidence/score outside 0..1
+  or an empty summary fails the node instead of being coerced; an extraction
+  that does not match the schema (type/required/properties/items) returns
+  `valid: false` and logs the issues rather than pretending. Deliberate
+  deviations from the plan: no `agent`/`maxSteps` config (there is no preset or
+  tool loop to bound — these never bind a tool), `agent.critique.score` is
+  nullable (the model may omit it), and `agent.summarize.text` is `any` so it
+  takes an array/object as well as a string. Tests:
+  `python/tests/test_graph_structured_nodes.py` (20 cases).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(graph): utility + memory nodes — assert, fallback, extract, recall,
+  remember.** Five nodes: three deterministic primitives
+  (`logic.assert`: fails the node with a named message unless truthy/falsy/
+  present; `logic.fallback`: first PRESENT of three inputs + which port;
+  `data.extract`: dotted path with list indexes, `found: false` or a named
+  failure — never an invented value) in `utility_nodes.py`, and two adapters over
+  the ONE Eclipse memory service (`memory.recall` → `retrieve`, returning the
+  same bounded `context` block an agent gets; `memory.remember` → `write_memory`,
+  so dedupe/conflict/retention stay the service's) in `memory_nodes.py`. Runners
+  are bound at boot (`set_memory_recall_runner` / `set_memory_remember_runner`).
+  `memory.remember` declares `memory.write` + `local_write` and refuses a test
+  run (compile-time capability envelope, plus an executor guard). TS contracts in
+  the new `registry-utility.ts` (+ `MEMORY_TYPES`, asserted against the store by
+  test), presentation in `config-fields.ts`, examples for the two new logic nodes,
+  manifest regenerated. Tests: `python/tests/test_graph_utility_nodes.py` (20
+  cases incl. the MEMORY_TYPES drift guard); parity green.
+  Deliberately NOT shipped (recorded in the plan): `agent.team` (team runtime
+  seam), `output.notify` (delivery is automation-definition-scoped),
+  `output.chart` (artifact plane), `research.source_rank` (duplicates
+  conflicts/completeness and would invent a trust taxonomy).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
 
 ## 2026-10-31
 - **fix(graph): the template output cap is enforced while rendering.** Nested
@@ -2038,222 +2214,4 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   their CSS/keyframes, the handle glow and the now-unused incoming/outgoing
   flags. Nodes are a flat glass card; wires stay the accent colour. no doc change
   — visual restyle only.
-
-## 2026-10-26
-- **fix(customization): the "Custom theme" tile is now a real button.** It looked
-  like the preset tiles but was a non-interactive `div`, so clicking it did
-  nothing. It now commits an unsaved custom draft (same path as "Apply changes")
-  or, while a preset is selected, returns to the saved custom theme. The tile
-  shows the selected check once custom is active and previews the saved theme
-  when a preset is being browsed. no doc change — UI interaction fix; token and
-  preset contracts unchanged.
-- **fix(dashboard): market dropdown options were white-on-white.** The global
-  market `<select>` popup rendered on the native white background with light
-  text; options now carry the repo-standard `bg-[#121212] text-foreground` so
-  they are readable. No doc change — style fix only.
-- **feat(graph): n8n-style Graph Studio workspace and canvas UX.** Replaced the
-  cramped sidebar-tabs/right-rail layout with a full-bleed mode (app top bar and
-  sidebar hidden while active), a **Workflows home** gallery (search, templates,
-  prompt-to-graph, continue-editing), a slim editor header, and a collapsible
-  execution dock. Nodes are compact icon-led cards with hover actions, typed
-  ports, add-next/output "+" and run badges; edges expose insert-into-wire and
-  delete on hover. Added a Tab/"+" node search overlay filtered by port
-  compatibility, right-click menus, duplicate/copy/paste/select-all shortcuts,
-  and a wider Parameters/Settings/Output inspector (last-run output is read-only
-  from persisted runs). Compound edits are pure validated patches in the new
-  `edit-ops.ts`; IR/compiler/runtime/authorization contracts are unchanged.
-  Operator runs now use an explicit authorization dialog instead of
-  `window.confirm`. Docs: `docs/graph-studio.md`, `docs/NAVIGATION.md`.
-- **fix(graph): keep the main sidebar and use the full workspace width.** The
-  app sidebar is no longer hidden in Graph Studio; it stays as the Graph Studio
-  mode panel. The workflow home is now a full-width n8n-style table (Workflows /
-  Templates tabs, search, name/description/tags/owner/version/updated columns,
-  row actions) instead of a constrained card grid. Docs:
-  `docs/graph-studio.md`, `docs/NAVIGATION.md`.
-- **feat(tables,graph): Tables page + workflow cards.** Added a top-level
-  **Tables** tab (group `both`) that lists the existing `CustomDataset` tables and
-  opens a read-only row grid with provenance/retrieved timestamps; creation stays
-  in Settings → Market Data → Custom data sources. The Graph Studio mode panel now
-  links directly to **ChatBot** and **Tables**, and the workflow home is back to
-  the full-width **card gallery**. Docs: `docs/tables.md` (new),
-  `docs/graph-studio.md`, `docs/NAVIGATION.md`.
-- **fix(graph): restore the transparent frosted editor canvas.** The workflow
-  editor no longer paints a solid canvas/header fill; the dot grid sits on the
-  shell background again and nodes use the shared `.glass-card` surface. Hover
-  toolbars/edge controls use semi-transparent theme backgrounds so they work in
-  both light and dark. Docs: `docs/graph-studio.md`.
-- **feat(tables): editable spreadsheet tables.** Tables is now a real data store,
-  not a read-only dataset browser: create a table with typed columns, edit cells,
-  add/rename/delete columns, add/delete rows and search. Stored in new
-  `DataTable`/`DataTableRow` Prisma models (JDDS), exposed through
-  `/api/tables` and `/api/tables/[id]`; connector-fed datasets remain under
-  Settings → Data Sources. Docs: `docs/tables.md` (rewritten).
-- **feat(overview): Agentic Overview workflow dashboard.** Added an **Overview**
-  nav tab in Agentic mode with the workflow card gallery, New workflow / templates
-  / prompt-to-graph, and continue-editing. Opening or creating a workflow switches
-  to the Graph Studio editor. Docs: `docs/agentic-overview.md` (new), `docs/NAVIGATION.md`.
-- **fix(nav): Graph Studio uses the standard sidebar.** Removed the dedicated
-  Graph-mode Workflows panel: `graph-studio` is now a normal Agentic nav item,
-  so the sidebar lists ChatBot / Overview / Graph Studio / Tables like every other
-  page. `Alt+G` still opens Graph Studio (inside Agentic). Clicking Tables no
-  longer forces a mode switch. Docs: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
-  `docs/tables.md`.
-- **fix(nav,ui): Terminal boot fallback and consistent buttons.** A stored retired
-  `graph` mode is ignored and hydration falls back to Terminal; the new Overview /
-  Graph Studio / Tables surfaces now use the shared `Button` component (default /
-  outline / ghost / destructive variants) instead of one-off button chrome.
-  no doc change � retired-mode fallback + UI consistency only.
-- **fix(shell): collapsed sidebar keeps its icons.** When the sidebar is
-  collapsed, the Terminal / Agentic / Bots mode switcher becomes a compact icon
-  rail instead of disappearing, and the standard nav list keeps every page icon
-  reachable. no doc change � layout fix only.
-- **fix(bots): bot and group chats read chronologically again.** Threads were
-  rendered newest-first, so a question appeared below its own answer and new
-  turns jumped to the top. Both the bot chat and group room now render oldest →
-  newest, keep the thinking indicator at the bottom, and autoscroll the newest
-  message (including streamed text) into view. no doc change � presentation fix.
-
-- **fix(bots): QA hardening pass across Bots mode, deletion, delegation and scheduling.**
-  Bots are now identified by the `bot` tag (monitors tagged `bot`/`monitor`), so
-  jobs and event rules no longer appear in the Bots list, `bot_list`, the `@`
-  palette or the run watcher. The Schedule editor preserves event/condition
-  triggers instead of downgrading them to manual, and no longer wipes unsaved
-  edits on the 20s background hydrate. Deleting a bot now purges its private
-  memory through both the UI route and `bot_delete`, clears its thread/face and
-  removes it from rooms; group deletion purges member buckets too. Streaming bot
-  and group replies update memory only and persist once at the end. Switching
-  bots/rooms mid-stream remounts and aborts the old turn; retry is limited to the
-  latest failed reply; delegated turns no longer duplicate the prompt; parallel
-  approvals are keyed per approval id; group delegation honours the chosen model;
-  duplicate mention targets are collapsed; bots duplicate their model and run
-  policies. Also fixed the bot composer's global-model leak (interactive turns
-  use the bot's pinned model), group mentions using the shared parser, duplicate
-  names resolving to all matches, the Details avatar ignoring uploaded photos,
-  denied tools/tags rendering, mode-exit navigation, the missing sidebar
-  scheduler button, the finance starter pack being unreachable, and the first-run
-  unread seed. Docs updated: `docs/NAVIGATION.md`,
-  `docs/harness/automation-engine.md`.
-
-- **fix(nav): final navigation shape.** Graph Studio is its own top-level mode
-  again (mode switcher + `Alt+G` + mobile) but renders the STANDARD nav list, not
-  a custom Workflows panel. A fresh shell boots Terminal; a tab that chose a mode
-  keeps it for that session. Tables is Agentic-only (not shown in Terminal or
-  Graph mode). The collapsed sidebar does not show a mode-icon rail. This
-  supersedes the earlier same-day navigation notes above. Docs:
-  `docs/graph-studio.md`, `docs/tables.md`, `docs/NAVIGATION.md`.
-
-- **fix(nav): Overview and Tables are Graph-mode pages only.** Removed them
-  from the Agentic and Terminal menus; each mode now shows only its own pages
-  (plus the shared ChatBot). Docs: `docs/graph-studio.md`, `docs/tables.md`,
-  `docs/agentic-overview.md`, `docs/NAVIGATION.md`.
-
-- **fix(graph): cleaner workflow gallery.** The workflow gallery header is the
-  same on Overview and Graph Studio home — the redundant Home button and the
-  "Agentic workspace" eyebrow are gone. Workflow cards are rebuilt as taller
-  frosted cards with a status-accented icon, hover arrow, aligned metadata and a
-  separated action footer; template tiles match the same language. no doc change
-  — presentation only (the gallery contract is unchanged).
-
-- **refactor(graph): one Graph-mode page — Overview.** Retired the separate
-  Graph Studio nav tab (desktop sidebar, mobile bar, SDK nav manifest). Overview
-  now hosts the whole workspace: gallery in place, and opening/creating a
-  workflow switches that same page into the editor (back returns to the gallery).
-  Old `?tab=graph-studio` links alias to Overview. Overview is pinned directly
-  below ChatBot in Graph mode (desktop + mobile), regardless of saved custom
-  order. Docs: `docs/graph-studio.md`, `docs/agentic-overview.md`,
-  `docs/NAVIGATION.md`.
-
-- **fix(shell): stale chunks self-heal and Graph tabs preload.** Added a
-  `ChunkReloadGuard` that reloads once when a lazily-imported screen's chunk is
-  missing after a rebuild (this was why an old tab could open Graph Studio to a
-  blank page), and warmed the Graph Studio / Overview / Tables chunks while the
-  shell is idle so mode switches are immediate. no doc change — runtime
-  robustness/perf only.
-
-- **feat(graph): header on the gallery, full-bleed editor.** The app top bar is
-  visible on Overview again and is hidden only while the in-place graph editor
-  is open (the workspace reports its internal view to the shell). Docs:
-  `docs/graph-studio.md`.
-
-- **style(overview): use the theme accent for gallery icons and hover.**
-  Workflow-card and template icon tiles, hover borders, top hairline, arrows,
-  tag tints and “Open editor” now use the live `primary` (accent) token instead
-  of hard-coded sky blue, so they follow the user's theme. no doc change — style
-  only.
-
-- **fix(graph): canvas interaction is now industry-standard.** Single click
-  selects a node and **double-click opens the inspector** (n8n/Figma); box select
-  is **Shift+drag only** (Alt/right-drag removed); the pane uses grab/grabbing
-  and crosshair cursors; and the zoom controls include a **? Canvas shortcuts**
-  panel. Left-drag/Space/middle pan and wheel zoom are unchanged. Docs:
-  `docs/graph-studio.md`.
-
-- **fix(graph): n8n-style canvas gestures.** Box selection now works with
-  **Shift+drag** (React Flow's n8n default) in addition to Alt+drag and
-  right-drag; left-drag on the pane pans, wheel zooms, Space/middle-drag pans,
-  Ctrl/Cmd+click multi-selects. Docs: `docs/graph-studio.md`.
-
-- **feat(graph,nav): right-side node library, Workflows mode, glass node
-  material.** The add-node search now opens as a 400px right-side `glass-drawer`
-  (portaled, search + categories + keyboard nav, closes after insertion). The
-  mode formerly labelled Graph Studio is now **Workflows**; the editor header
-  uses an **Overview** breadcrumb back to the gallery and the sidebar footer
-  shows the active mode instead of always “Terminal”. Node cards use a new
-  `.node-card` layered glass material (true page blur is impossible inside React
-  Flow’s transformed viewport). Docs: `docs/graph-studio.md`,
-  `docs/NAVIGATION.md`.
-
-- **feat(graph): center-stage Start workflow button.** The editor now shows a
-  prominent run control centered at the bottom of the canvas. It executes the
-  saved version, and turns into **Save & run** when the graph has unsaved edits;
-  it is disabled with a reason when unsaved/invalid. Docs: `docs/graph-studio.md`.
-
-- **fix(graph): right-drag marquee + cleaner node cards.** Right-button drag on
-  the pane now draws a marquee and selects overlapping nodes (a plain right-click
-  still opens the pane context menu; Alt+drag remains). Removed the colored
-  accent bar along the left edge of every node. Docs: `docs/graph-studio.md`.
-
-- **feat(graph): port-row node cards.** Nodes are now 244px cards with an
-  identity header (icon + name + category) and one always-visible 26px row per
-  typed port, so multi-output nodes (If/else: Value / True / False / Result) grow
-  in height with labels beside their handles instead of hiding them behind a
-  hover overlay. Add-next stays a hover `+` clear of the port; wire drag still
-  works. no doc change — node presentation only.
-
-- **fix(graph): output handles are wireable again.** The invisible "add next
-  step" `+` button sat on top of each output port and swallowed the pointer-down,
-  so dragging a wire never started a connection. It is moved clear of the port
-  (and still appears on hover). no doc change — interaction bug fix.
-
-- **fix(theme): Custom theme tile is selectable again.** The unsaved/saved
-  "Custom theme" tile is now a real button: it applies an unsaved draft, or
-  returns to the saved custom theme after browsing a preset (instead of looking
-  dead / committing the preset under the custom label). no doc change — UI fix.
-
-- **feat(graph): editor affordances + roomier nodes.** Replaced the native
-  execution-mode `<select>` with the shared glass dropdown (fixes the broken
-  dark popup), surfaced **Tidy up layout** as a canvas-control button, added a
-  persistent **Add node** button on the canvas's right edge, and widened node
-  cards (214px) with an icon tile, tighter-but-roomier text hierarchy and larger
-  hover actions. Docs: `docs/graph-studio.md`.
-
-- **feat(graph): full-bleed Graph mode + redesigned editor header.** Graph mode
-  (Overview and its in-place editor) hides the app top bar. The editor header is
-  now 48px with a content-sized workflow name (no more stretched input), a dirty
-  dot, version chip, labeled execution-mode pill, grouped undo/redo and
-  issues/save/test actions. Docs: `docs/graph-studio.md`.
-
-- **fix(graph): pan by default, Alt+drag to box-select.** Canvas drag now pans
-  (the cursor stays in move mode); holding `Alt` while dragging draws the
-  marquee selection box. Node click-vs-drag inspector behaviour is unchanged.
-  Docs: `docs/graph-studio.md`.
-
-- **fix(graph): card hit targets and canvas selection.** A workflow card is now
-  one full-card click target (the footer/whitespace included; delete stays
-  separate), with a pointer cursor. The canvas draws a marquee selection when
-  dragging empty space (middle-mouse/Space pans). Clicking a node opens the
-  inspector; dragging it no longer does. React Flow now owns selection during
-  pointer interaction and the store mirror only applies programmatic changes,
-  fixing a `Maximum update depth` crash during marquee. Docs:
-  `docs/graph-studio.md`.
 

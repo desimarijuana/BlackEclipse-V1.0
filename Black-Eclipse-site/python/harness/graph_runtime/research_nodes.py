@@ -17,6 +17,7 @@ Nothing here re-implements search, fetching or verification: the engine modules
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import urljoin, urlsplit
 
@@ -527,8 +528,134 @@ def _research_input() -> tuple[PortDef, ...]:
     return (PortDef(id="researchId", name="Research id", type=PortType.STRING, optional=True),)
 
 
+# ── Evidence ranking (pure, no store) ────────────────────────────────────────
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _evidence_items(raw: Any) -> list[dict[str, Any]]:
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict)]
+    if isinstance(raw, dict):
+        for key in ("evidence", "items", "rows"):
+            value = raw.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+        if raw.get("evidenceId") or raw.get("claimText"):
+            return [raw]
+    return []
+
+
+def _number(value: Any) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return max(0.0, min(float(value), 1.0))
+
+
+def _age_days(iso: Any, now: datetime) -> Optional[float]:
+    if not isinstance(iso, str) or not iso.strip():
+        return None
+    text = iso.strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return max(0.0, (now - parsed).total_seconds() / 86_400.0)
+
+
+def exec_source_rank(context: NodeExecContext) -> dict[str, Any]:
+    """Rank evidence by the signals the items ALREADY carry.
+
+    Two components, both declared: `confidence` (0-1, as recorded upstream) and
+    `freshness` (an exponential decay of the published/retrieved date with a
+    configurable half-life). An item with neither has NO score — it is sorted
+    last and counted as `insufficient_signal`, never given an invented value.
+    """
+    items = _evidence_items(context.inputs.get("evidence"))
+    if not items:
+        raise ValueError(
+            "research.source_rank needs evidence items (wire an evidence array)"
+        )
+    try:
+        half_life = int(context.config.get("halfLifeDays", 30))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Half-life must be a whole number of days") from exc
+    half_life = max(1, min(half_life, 3_650))
+    now = _now()
+
+    ranking: list[dict[str, Any]] = []
+    for index, item in enumerate(items):
+        confidence = _number(item.get("confidence"))
+        age = _age_days(item.get("publishedAt") or item.get("retrievedAt"), now)
+        freshness = None if age is None else round(0.5 ** (age / half_life), 4)
+        components = [value for value in (confidence, freshness) if value is not None]
+        score = round(sum(components) / len(components), 4) if components else None
+        reasons: list[str] = []
+        if confidence is not None:
+            reasons.append(f"confidence {confidence:.2f}")
+        if age is not None:
+            reasons.append(f"published {age:.1f}d ago")
+        if score is None:
+            reasons.append("no confidence or date recorded")
+        ranking.append({
+            "index": index,
+            "score": score,
+            "confidence": confidence,
+            "freshness": freshness,
+            "ageDays": None if age is None else round(age, 2),
+            "reasons": reasons,
+        })
+
+    order = sorted(
+        range(len(items)),
+        key=lambda i: (ranking[i]["score"] is None, -(ranking[i]["score"] or 0.0), i),
+    )
+    ranked = [{**ranking[i], "rank": position + 1} for position, i in enumerate(order)]
+    scored = sum(1 for entry in ranking if entry["score"] is not None)
+    context.emit(f"ranked {len(items)} evidence item(s); {scored} with signals")
+    return {
+        "evidence": [items[i] for i in order],
+        "ranking": ranked,
+        "summary": {
+            "count": len(items),
+            "scored": scored,
+            "insufficient": len(items) - scored,
+            "halfLifeDays": half_life,
+        },
+    }
+
+
 def build_research_nodes() -> list[NodeDef]:
     return [
+        NodeDef(
+            type="research.source_rank", version="1.0.0", label="Rank evidence",
+            category="research",
+            inputs=(PortDef(id="evidence", name="Evidence", type=PortType.ARRAY, optional=True),),
+            outputs=(
+                PortDef(id="evidence", name="Ranked evidence", type=PortType.ARRAY),
+                PortDef(id="ranking", name="Ranking", type=PortType.ARRAY),
+                PortDef(id="summary", name="Summary", type=PortType.OBJECT),
+            ),
+            config_fields=(
+                ConfigField("halfLifeDays", "integer", 30, minimum=1, maximum=3_650),
+            ),
+            capabilities=(),
+            side_effects=SideEffect.NONE,
+            allowed_modes=_ALL,
+            executor=exec_source_rank,
+            metadata={
+                "docs": (
+                    "Pure ranking over the signals the items already carry: "
+                    "`confidence` and `freshness` (exponential decay of "
+                    "publishedAt/retrievedAt with a configurable half-life). An item "
+                    "with neither is sorted last and reported as insufficient_signal "
+                    "— no score is invented."
+                ),
+            },
+        ),
         NodeDef(
             type="research.evidence", version="1.0.0", label="Retrieve evidence",
             category="research",

@@ -154,6 +154,7 @@ export type NodeCategory =
   | 'finance'
   | 'quant'
   | 'agent'
+  | 'skills'
   | 'research'
   | 'trading'
   | 'output';

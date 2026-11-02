@@ -87,6 +87,10 @@ class NodeExecContext:
     # browser, MCP or broker tools while it can still reason and read locally.
     allow_network: bool = False
     test_run: bool = False
+    # True for an operator run (the reduced test envelope is False). The skill
+    # runtime's actor carries this so an operator-authored permission set is
+    # honoured — and a test run never widens it.
+    operator: bool = False
     # Which of THIS node's wired control inputs fired (keyed by input port id).
     # A gate can then express an AND ("every wired branch arrived") without the
     # scheduler special-casing node types. Empty when nothing is wired.

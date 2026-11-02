@@ -435,6 +435,20 @@ class GraphExecutor:
             except DeferredWait as exc:
                 # A durable wait succeeded (checkpointed) and the RUN pauses; the
                 # Fabric job is requeued instead of holding this worker thread.
+                if exc.rerun:
+                    # Approval gate: the node has NOT finished, so leave it
+                    # pending (nothing checkpointed) and let the resumed run
+                    # re-enter it to read the decision.
+                    record.duration_ms = int((time.monotonic() - started) * 1000)
+                    record.status = NodeStatus.PENDING
+                    record.finished_at = None
+                    self._emit(
+                        "node.deferred",
+                        f"waiting; the job will re-check in {exc.wake_after_seconds:.3f}s",
+                        node_id,
+                    )
+                    self._deferred = exc
+                    return
                 record.duration_ms = int((time.monotonic() - started) * 1000)
                 deferred_outputs = dict(exc.outputs)
                 deferred_fired = deferred_outputs.pop("_control", [])
@@ -560,6 +574,9 @@ class GraphExecutor:
             allow_defer=self._allow_defer,
             allow_network=self._grants.allow_network,
             test_run=self._grants.test_run,
+            # Every route that reaches this runtime is operator-gated; a TEST
+            # run is the explicit reduced envelope, never an operator grant.
+            operator=not self._grants.test_run,
             control_fired=self._control_state(node_id),
             should_cancel=self._cancel.is_set,
         )

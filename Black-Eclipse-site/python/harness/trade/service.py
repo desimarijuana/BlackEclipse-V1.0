@@ -20,7 +20,6 @@ from .authorizer import (
     cooling_remaining,
     evaluate_guardrails,
     money_intent_for,
-    request_approval,
     verify_approval,
 )
 from .mandates import TradingMandateStore
@@ -581,126 +580,22 @@ class BrokerService:
             "createdAt": approval.get("createdAt"),
         }
 
-    def preview_order(self, connection_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """Validate, price-check and request a single-use approval. Sends nothing."""
-        try:
-            connection, execution_mode = self._execution_connection(connection_id)
-        except TradeRefused as exc:
-            return {
-                "available": True,
-                "allowed": False,
-                "status": "REFUSED",
-                "mode": None,
-                "connectionId": connection_id,
-                "approval": None,
-                "error": exc.to_dict(),
-                "reasons": [exc.message],
-            }
-        intent = OrderIntent.from_payload(
-            payload, connection_id=connection.id, magic_default=self._magic(connection)
-        )
-        adapter = self._trading_adapter(connection)
-        try:
-            preview = adapter.order_preview(intent)
-        except AdapterUnavailable as exc:
-            raise TradeRefused(exc.code, exc.reason, status_code=503) from exc
-        except TradeRefused:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            raise TradeRefused(
-                "ADAPTER_ERROR", f"{connection.kind} adapter failed: {exc}", status_code=502
-            ) from exc
-        finally:
-            try:
-                adapter.close()
-            except Exception:  # noqa: BLE001
-                pass
+    def preview_order(
+        self, connection_id: str, payload: dict[str, Any], *,
+        record_approval: bool = True,
+    ) -> dict[str, Any]:
+        """Validate, price-check and request a single-use approval. Sends nothing.
 
-        try:
-            self._assert_account_mode(preview, execution_mode)
-        except TradeRefused as exc:
-            self.connections.record_event(
-                connection.id, "preview", "refused",
-                {"digest": intent.digest, "code": exc.code},
-            )
-            return {
-                "available": True,
-                "allowed": False,
-                "status": "REFUSED",
-                "mode": execution_mode,
-                "connectionId": connection.id,
-                "intent": intent.to_dict(),
-                "digest": intent.digest,
-                "preview": preview,
-                "policy": None,
-                "guardrail": None,
-                "approval": None,
-                "requiresTypedConfirmation": False,
-                "confirmPhrase": None,
-                "error": exc.to_dict(),
-                "reasons": [exc.message],
-            }
-        policy = TradePolicy.from_connection(connection).evaluate(preview)
-        money_intent = money_intent_for(connection, intent, preview)
-        verdict = evaluate_guardrails(self.guardrails, money_intent, record=False)
-        reasons = (
-            list(preview.get("reasons") or [])
-            + list(policy.get("reasons") or [])
-            + list(getattr(verdict, "reasons", []) or [])
+        `record_approval=False` runs the identical validation without creating an
+        approval row — the dry-run path a graph uses, so previewing a workflow
+        never leaves approval cards behind. The body lives in `trade/preview.py`
+        so this service stays below the module size ceiling.
+        """
+        from .preview import preview_order  # noqa: PLC0415 - avoids an import cycle
+
+        return preview_order(
+            self, connection_id, payload, record_approval=record_approval
         )
-        allowed = (
-            bool(preview.get("ok"))
-            and bool(policy.get("allowed"))
-            and str(verdict.decision) not in ("deny", "escalate")
-        )
-        if execution_mode == "live":
-            requires_typed = True
-            confirm_phrase = (
-                f"LIVE {intent.side.upper()} "
-                f"{float(preview.get('volume') or intent.volume):g} "
-                f"{preview.get('symbol') or intent.symbol}"
-            )
-        else:
-            requires_typed = bool(verdict.requires_typed_confirmation)
-            confirm_phrase = (
-                str(verdict.confirm_phrase) if requires_typed else None
-            )
-        approval = None
-        if allowed:
-            approval = request_approval(
-                self.approvals,
-                connection,
-                intent,
-                preview,
-                verdict,
-                risk="critical" if execution_mode == "live" else "high",
-            )
-            if str(approval.get("status")) == "denied":
-                allowed = False
-                reasons.append(
-                    "this exact order was denied; change the order to request a new decision"
-                )
-        self.connections.record_event(
-            connection.id,
-            "preview",
-            "allowed" if allowed else "refused",
-            {"digest": intent.digest, "rules": policy.get("rules") or []},
-        )
-        return {
-            "available": True,
-            "allowed": allowed,
-            "mode": execution_mode,
-            "connectionId": connection.id,
-            "intent": intent.to_dict(),
-            "digest": intent.digest,
-            "preview": preview,
-            "policy": policy,
-            "guardrail": verdict.to_dict(),
-            "approval": self._public_approval(approval),
-            "requiresTypedConfirmation": requires_typed,
-            "confirmPhrase": confirm_phrase,
-            "reasons": reasons,
-        }
 
     def submit_order(
         self,

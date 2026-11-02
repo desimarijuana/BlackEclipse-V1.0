@@ -15,6 +15,12 @@ const EXAMPLES: Record<string, string> = {
     'cases "buy, sell, hold" · value "sell"  →  case2 fires (plus Any match), Case index = 1',
   'logic.merge':
     'A is empty (skipped branch), B has 3 rows  →  value = the 3 rows',
+  'logic.assert':
+    'value 0 · expect "truthy"  →  node fails with "need at least one row"',
+  'logic.fallback':
+    'in1 empty, in2 null, in3 has 3 rows  →  Value = the 3 rows, Source = in3',
+  'logic.human_approval':
+    'message "Submit the order?"  →  the run pauses; after Approve, Value passes through and Done fires',
   'flow.gate':
     'Run fires  →  Value passes through, Done fires',
   'logic.map':

@@ -28,6 +28,7 @@ _BROKER = (ExecutionMode.PAPER, ExecutionMode.LIVE)
 # A risk check has no side effect, so it is meaningful in a backtest too: the
 # same limits that gate a live order should gate a simulated one.
 _RISK = tuple(ExecutionMode)
+_ALL_MODES = tuple(ExecutionMode)
 MAX_QUANTITY = 1_000_000_000.0
 
 _paper_store: Any = None
@@ -236,6 +237,17 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
     an order the gate refused.
     """
     intent = _intent(context)
+    if bool(context.config.get("dryRun")):
+        # A dry run is the preview path: broker order_check + policy +
+        # guardrails, no send and no approval row.
+        preview = exec_order_preview(context)
+        return {
+            "result": preview["result"],
+            "status": "PREVIEW_ALLOWED" if preview["allowed"] else "PREVIEW_REFUSED",
+            "orderId": "",
+            "ok": preview["allowed"],
+            "reason": preview["reason"],
+        }
     decision = context.inputs.get("decision")
     if isinstance(decision, dict) and decision.get("allowed") is False:
         reasons = [str(reason) for reason in (decision.get("reasons") or [])]
@@ -360,6 +372,182 @@ def exec_paper_order(context: NodeExecContext) -> dict[str, Any]:
     }
 
 
+def _input_or_config(
+    context: NodeExecContext, handle: str, config_key: str | None = None,
+) -> Any:
+    raw = context.inputs.get(handle)
+    if raw is None or raw == "":
+        raw = context.config.get(config_key or handle)
+    return raw
+
+
+def _positive_number(raw: Any, label: str) -> float | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be a number") from exc
+    if value <= 0:
+        raise ValueError(f"{label} must be greater than zero")
+    return value
+
+
+_ORDER_TYPES = ("market", "limit", "stop")
+_TIME_IN_FORCE = ("gtc", "day")
+
+
+def exec_order_intent(context: NodeExecContext) -> dict[str, Any]:
+    """Build ONE validated order intent from ports/config.
+
+    This is the canonical shape both execution adapters read, so a graph never
+    has to hand-assemble a JSON object: the builder normalizes the symbol and
+    side, checks that a pending order carries a price, and emits `quantity` and
+    `volume` (the paper adapter reads the first, the broker adapter accepts
+    either). Nothing is submitted.
+    """
+    symbol = str(_input_or_config(context, "symbol") or "").strip().upper()
+    if not symbol:
+        raise ValueError("the order intent needs a symbol (wire the port or set it on the node)")
+    side = str(_input_or_config(context, "side") or "").strip().lower()
+    if side not in ("buy", "sell"):
+        raise ValueError("the order intent side must be buy or sell")
+    order_type = str(_input_or_config(context, "orderType") or "market").strip().lower()
+    if order_type not in _ORDER_TYPES:
+        raise ValueError("orderType must be market, limit or stop")
+    time_in_force = str(_input_or_config(context, "timeInForce") or "gtc").strip().lower()
+    if time_in_force not in _TIME_IN_FORCE:
+        raise ValueError("timeInForce must be gtc or day")
+    quantity = _positive_number(_input_or_config(context, "quantity"), "quantity")
+    if quantity is None:
+        raise ValueError("the order intent needs a positive quantity")
+    if quantity > MAX_QUANTITY:
+        raise ValueError(f"quantity must be at most {MAX_QUANTITY:g}")
+    price = _positive_number(_input_or_config(context, "price"), "price")
+    if order_type in ("limit", "stop") and price is None:
+        raise ValueError(f"a {order_type} order needs a positive price")
+    stop_loss = _positive_number(_input_or_config(context, "stopLoss"), "stopLoss")
+    take_profit = _positive_number(_input_or_config(context, "takeProfit"), "takeProfit")
+
+    intent: dict[str, Any] = {
+        "symbol": symbol,
+        "side": side,
+        "quantity": quantity,
+        "volume": quantity,
+        "type": order_type,
+        "orderType": order_type,
+        "timeInForce": time_in_force,
+    }
+    if order_type != "market" and price is not None:
+        intent["price"] = price
+    if stop_loss is not None:
+        intent["stopLoss"] = stop_loss
+    if take_profit is not None:
+        intent["takeProfit"] = take_profit
+    context.emit(
+        f"intent {side} {quantity:g} {symbol} ({order_type})"
+        + (f" @ {price:g}" if price is not None else "")
+    )
+    return {"intent": intent, "ok": True, "reason": ""}
+
+
+def exec_order_preview(context: NodeExecContext) -> dict[str, Any]:
+    """Ask the broker + policy + guardrails whether an order would be allowed.
+
+    Nothing is sent and NO approval is created: this is the safe way to dry-run a
+    workflow. With a `mandateId` the mandate's scope is also checked (verify does
+    not consume a use), so a graph can confirm it would fit before it arms.
+    """
+    try:
+        intent = _intent(context)
+    except ValueError as exc:
+        # An unusable intent (missing symbol, zero quantity after a rejected risk
+        # check) is an outcome here, not an exception: nothing was sent.
+        return {
+            "result": {"status": "INVALID_INTENT", "reasons": [str(exc)]},
+            "allowed": False,
+            "ok": False,
+            "reason": str(exc),
+        }
+    connection_id = str(context.config.get("connectionId") or "").strip()
+    if not connection_id:
+        raise ValueError("connectionId is required for an order preview")
+    mandate_id = str(context.config.get("mandateId") or "").strip()
+    from ..trade.bootstrap import get_service  # noqa: PLC0415 - avoids an import cycle
+    from ..trade.model import TradeRefused  # noqa: PLC0415 - avoids an import cycle
+
+    service = get_service()
+    if service is None:
+        raise ValueError("broker connectivity is unavailable in this runtime")
+    payload = dict(intent)
+    if "volume" not in payload:
+        payload["volume"] = payload.get("quantity")
+    if "type" not in payload and "orderType" not in payload:
+        payload["type"] = "market"
+    try:
+        result = service.preview_order(connection_id, payload, record_approval=False)
+    except TradeRefused as exc:
+        result = {
+            "available": False,
+            "allowed": False,
+            "status": exc.code,
+            "error": exc.to_dict(),
+            "reasons": [exc.message],
+        }
+
+    allowed = bool(result.get("allowed"))
+    reasons = [str(reason) for reason in (result.get("reasons") or [])]
+    if mandate_id and result.get("available"):
+        try:
+            service.mandates.verify(
+                mandate_id,
+                connection_id=str(result.get("connectionId") or connection_id),
+                symbol=str(intent["symbol"]),
+                margin=float((result.get("preview") or {}).get("margin") or 0),
+                mode=str(result.get("mode") or ""),
+                workflow_id=getattr(context, "workflow_id", ""),
+            )
+        except TradeRefused as exc:
+            allowed = False
+            reasons.append(exc.message)
+
+    ok = bool(result.get("available"))
+    reason = "" if allowed else ("; ".join(reasons) or str(result.get("status") or ""))
+    context.emit(
+        f"preview {intent['side']} {intent['symbol']}: "
+        + ("would be allowed" if allowed else f"would be refused ({reason})")
+    )
+    return {"result": result, "allowed": allowed, "ok": ok, "reason": reason}
+
+
+def exec_paper_account(context: NodeExecContext) -> dict[str, Any]:
+    """Read the durable PAPER account snapshot (cash, positions, realized PnL)."""
+    account_id = str(context.config.get("accountId") or "paper").strip()[:80] or "paper"
+    initial_cash = float(context.config.get("initialCash", 100_000.0) or 0)
+    store = _require_paper_store()
+    account = store.snapshot(account_id, initial_cash=initial_cash)
+    exists = bool(account.get("createdAt"))
+    rows = [
+        {
+            "symbol": symbol,
+            "quantity": item.get("quantity"),
+            "averagePrice": item.get("averagePrice"),
+        }
+        for symbol, item in sorted((account.get("positions") or {}).items())
+        if isinstance(item, dict)
+    ]
+    context.emit(
+        f"paper account {account_id}: cash {account['cash']:g}, {len(rows)} position(s)"
+    )
+    return {
+        "account": account,
+        "positions": rows,
+        "exists": exists,
+        "ok": True,
+        "reason": "",
+    }
+
+
 def build_trading_nodes() -> list[NodeDef]:
     risk_fields = (
         ConfigField("equity", "number", 100_000.0, minimum=1.0, maximum=1_000_000_000_000),
@@ -390,7 +578,7 @@ def build_trading_nodes() -> list[NodeDef]:
                 PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
                 PortDef(id="price", name="Price", type=PortType.NUMBER, optional=True),
                 PortDef(id="account", name="Broker/paper account", type=PortType.OBJECT, optional=True),
-                PortDef(id="positions", name="Open positions", type=PortType.OBJECT, optional=True),
+                PortDef(id="positions", name="Open positions", type=PortType.ARRAY, optional=True),
                 PortDef(id="equity", name="Equity", type=PortType.NUMBER, optional=True),
                 PortDef(id="grossExposure", name="Gross exposure", type=PortType.NUMBER, optional=True),
                 PortDef(id="openPositions", name="Open positions", type=PortType.NUMBER, optional=True),
@@ -472,6 +660,7 @@ def build_trading_nodes() -> list[NodeDef]:
             config_fields=(
                 ConfigField("connectionId", "string", "", max_length=80),
                 ConfigField("mandateId", "string", "", max_length=80),
+                ConfigField("dryRun", "boolean", False),
             ),
             capabilities=("trading.broker",),
             side_effects=SideEffect.TRADING,
@@ -487,7 +676,107 @@ def build_trading_nodes() -> list[NodeDef]:
                     "still applies policy, money guardrails and the account-mode check, "
                     "and consumes one mandate use atomically. A rejected risk `decision` "
                     "wire stops the order before it reaches the broker; `ok` is true "
-                    "only for a filled or placed order."
+                    "only for a filled or placed order. With `dryRun` it runs the "
+                    "preview instead: nothing is sent, no approval is created, and "
+                    "`ok` means the order WOULD be allowed."
+                ),
+            },
+        ),
+        NodeDef(
+            type="trading.order_intent", version="1.0.0", label="Order intent",
+            category="trading",
+            inputs=(
+                PortDef(id="symbol", name="Symbol", type=PortType.STRING, optional=True),
+                PortDef(id="side", name="Side", type=PortType.STRING, optional=True),
+                PortDef(id="quantity", name="Quantity", type=PortType.NUMBER, optional=True),
+                PortDef(id="price", name="Order price", type=PortType.NUMBER, optional=True),
+                PortDef(id="stopLoss", name="Stop loss", type=PortType.NUMBER, optional=True),
+                PortDef(id="takeProfit", name="Take profit", type=PortType.NUMBER, optional=True),
+            ),
+            outputs=(
+                PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
+                PortDef(id="ok", name="OK", type=PortType.BOOLEAN),
+                PortDef(id="reason", name="Reason", type=PortType.STRING),
+            ),
+            config_fields=(
+                ConfigField("symbol", "string", "", max_length=40),
+                ConfigField("side", "enum", "buy", enum=("buy", "sell")),
+                ConfigField("orderType", "enum", "market", enum=_ORDER_TYPES),
+                ConfigField("quantity", "number", 0.0, minimum=0.0, maximum=MAX_QUANTITY),
+                ConfigField("price", "number", 0.0, minimum=0.0, maximum=1_000_000_000),
+                ConfigField("stopLoss", "number", 0.0, minimum=0.0, maximum=1_000_000_000),
+                ConfigField("takeProfit", "number", 0.0, minimum=0.0, maximum=1_000_000_000),
+                ConfigField("timeInForce", "enum", "gtc", enum=_TIME_IN_FORCE),
+            ),
+            capabilities=("trading.intent",),
+            side_effects=SideEffect.NONE,
+            allowed_modes=_RISK,
+            executor=exec_order_intent,
+            metadata={
+                "docs": (
+                    "Builds ONE validated order intent (symbol, side, quantity, "
+                    "type, price, SL/TP, time-in-force) for the execution adapters. "
+                    "A limit/stop order without a price is an error, never a market "
+                    "order in disguise. Pure: nothing is submitted and no broker is "
+                    "contacted."
+                ),
+            },
+        ),
+        NodeDef(
+            type="trading.order_preview", version="1.0.0", label="Order preview",
+            category="trading",
+            inputs=(
+                PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
+            ),
+            outputs=(
+                PortDef(id="result", name="Result", type=PortType.OBJECT),
+                PortDef(id="allowed", name="Would be allowed", type=PortType.BOOLEAN),
+                PortDef(id="ok", name="OK", type=PortType.BOOLEAN),
+                PortDef(id="reason", name="Reason", type=PortType.STRING),
+            ),
+            config_fields=(
+                ConfigField("connectionId", "string", "", max_length=80),
+                ConfigField("mandateId", "string", "", max_length=80),
+            ),
+            capabilities=("trading.broker.read",),
+            side_effects=SideEffect.READ,
+            allowed_modes=_ALL_MODES,
+            timeout_ms=45_000,
+            executor=exec_order_preview,
+            metadata={
+                "docs": (
+                    "The broker's order_check plus connection policy, money "
+                    "guardrails and (optionally) mandate scope — nothing is sent and "
+                    "no approval is created. `ok` means the check ran; `allowed` means "
+                    "the order would pass. Use it as the dry run for a whole workflow."
+                ),
+            },
+        ),
+        NodeDef(
+            type="trading.paper_account", version="1.0.0", label="Paper account",
+            category="trading",
+            outputs=(
+                PortDef(id="account", name="Paper account", type=PortType.OBJECT),
+                PortDef(id="positions", name="Position rows", type=PortType.ARRAY),
+                PortDef(id="exists", name="Has activity", type=PortType.BOOLEAN),
+                PortDef(id="ok", name="OK", type=PortType.BOOLEAN),
+                PortDef(id="reason", name="Reason", type=PortType.STRING),
+            ),
+            config_fields=(
+                ConfigField("accountId", "string", "paper", max_length=80),
+                ConfigField("initialCash", "number", 100_000.0, minimum=0.0, maximum=1_000_000_000_000),
+            ),
+            capabilities=("trading.paper",),
+            side_effects=SideEffect.READ,
+            allowed_modes=_PAPER,
+            executor=exec_paper_account,
+            metadata={
+                "docs": (
+                    "Reads the durable PAPER account: cash, positions and average "
+                    "cost, realized PnL and book value. `positions` is also emitted "
+                    "as rows so it can feed a risk check. `exists` is false until the "
+                    "first fill; the hypothetical cash shown then is the configured "
+                    "initial cash, not a trade."
                 ),
             },
         ),
@@ -500,4 +789,7 @@ __all__ = [
     "exec_broker_order",
     "exec_risk_check",
     "exec_paper_order",
+    "exec_order_intent",
+    "exec_order_preview",
+    "exec_paper_account",
 ]

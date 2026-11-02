@@ -6,7 +6,7 @@
 
 import {
   Activity, Bot, Check, Clock, FileCode2, GitBranch, Globe, ChartLine,
-  Play, Sigma, Sliders, type LucideIcon,
+  Play, Sigma, Sliders, Sparkles, type LucideIcon,
 } from '@/lib/icons';
 import type { NodeCategory } from '@/lib/graph-studio/types';
 
@@ -24,6 +24,7 @@ const ICONS: Record<string, LucideIcon> = {
   activity: Activity,
   bot: Bot,
   check: Check,
+  sparkles: Sparkles,
 };
 
 const CATEGORY_FALLBACK: Record<NodeCategory, LucideIcon> = {
@@ -35,6 +36,7 @@ const CATEGORY_FALLBACK: Record<NodeCategory, LucideIcon> = {
   finance: ChartLine,
   quant: Activity,
   agent: Bot,
+  skills: Sparkles,
   research: Globe,
   trading: Activity,
   output: Check,
