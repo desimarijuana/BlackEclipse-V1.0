@@ -1,6 +1,17 @@
 # Change Log
 
 ## 2026-11-01
+- **chore(ops): re-pin the harness size budget to the measured tree.** Reconciles
+  `scripts/size-budget.json` with the tree at the quant node-pack commit
+  (423,998 total; `python/harness/.` 27,905, `code` 18,312, `routers` 18,927,
+  `eclipse_memory` 12,626, `skills` 10,241, `evaluation` 12,048). This is a
+  deliberate checkpoint, not an allowance: the growth is the market-read nodes,
+  signed webhooks + `integration.http` 1.1.0, broker/trading nodes + paper risk
+  gate, the kit ratio calculator and the bot-skill plan — `graph_runtime/` has
+  no per-directory ceiling, so the quant packs are not what pushed it over. The
+  comment in the budget file says so, and the ratchet resumes from these
+  numbers. `npm run check:size` is green again on the committed tree.
+  Docs updated: `docs/CHANGELOG.md`.
 - **test(graph): end-to-end coverage for the quant pack.** Added
   `python/tests/test_graph_quant_e2e.py`: one graph wires
   `finance.market_data` into every quant node added in this work (backtest,
