@@ -13,24 +13,24 @@ function failure(err: unknown, fallback: string) {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
-    return NextResponse.json({ success: true, asset: await getGraphAsset(id) });
+    return NextResponse.json({ success: true, asset: await getGraphAsset(request, id) });
   } catch (err) {
     return failure(err, "file not found");
   }
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
-    await deleteGraphAsset(id);
+    await deleteGraphAsset(request, id);
     return NextResponse.json({ success: true, assetId: id });
   } catch (err) {
     return failure(err, "delete failed");

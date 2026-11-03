@@ -1231,7 +1231,16 @@
       "category": "data",
       "label": "File",
       "description": "Turns an uploaded local file into text or rows.",
-      "inputs": [],
+      "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        }
+      ],
       "outputs": [
         {
           "id": "file",
@@ -1449,6 +1458,14 @@
       "label": "Parse file",
       "description": "Parses a file reference into rows, columns and text.",
       "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
         {
           "id": "file",
           "name": "File",

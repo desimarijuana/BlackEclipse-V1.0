@@ -369,6 +369,35 @@ function researchBrief(): WorkflowIR {
   );
 }
 
+function fileImport(): WorkflowIR {
+  return buildGraph(
+    'File import',
+    'Upload a CSV/JSON/Excel file, parse it, select columns and return the rows.',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      {
+        id: 'when',
+        type: 'logic.condition',
+        config: { operator: 'neq', compareTo: 'skip' },
+        label: 'Run has started',
+      },
+      { id: 'file', type: 'data.file.attach', config: { parseAs: 'auto', header: true } },
+      {
+        id: 'select',
+        type: 'transform.select',
+        config: { fields: '', onMissing: 'null' },
+      },
+      { id: 'result', type: 'output.result', config: { label: 'Rows' } },
+    ],
+    [
+      { source: 'trigger', sourceHandle: 'start', target: 'when', targetHandle: 'value' },
+      { source: 'when', sourceHandle: 'true', target: 'file', targetHandle: 'in' },
+      { source: 'file', sourceHandle: 'rows', target: 'select', targetHandle: 'rows' },
+      { source: 'select', sourceHandle: 'rows', target: 'result', targetHandle: 'value' },
+    ],
+  );
+}
+
 function candleReview(): WorkflowIR {
   return buildGraph(
     'Candle option review',
@@ -436,6 +465,12 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     name: 'Candle option review',
     description: 'Read 1–8 candle images, then compare the readings with an agent.',
     build: candleReview,
+  },
+  {
+    id: 'file-import',
+    name: 'File import',
+    description: 'Upload a file, parse it, select columns and return the rows.',
+    build: fileImport,
   },
   {
     id: 'research-brief',

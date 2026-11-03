@@ -87,9 +87,13 @@ def _resolve_ref(context: NodeExecContext, *, config_key: str = "assetId") -> st
     return ref
 
 
-def _asset(ref: str) -> Any:
+def _owner(context: NodeExecContext) -> str:
+    return str(context.user_id or "local")[:120]
+
+
+def _asset(ref: str, owner: str) -> Any:
     store = _require_store()
-    asset = store.get(ref)
+    asset = store.get(ref, owner=owner)
     if asset is None:
         raise ValueError(f"image {ref!r} does not exist (it may have been deleted)")
     return asset
@@ -217,14 +221,14 @@ def _parse_extract(result: dict[str, Any]) -> Any:
 
 def exec_image_attach(context: NodeExecContext) -> dict[str, Any]:
     ref = _resolve_ref(context)
-    asset = _asset(ref)
+    asset = _asset(ref, _owner(context))
     context.emit(f"image {asset.asset_id} · {asset.width}×{asset.height}")
     return {"image": _image_object(asset), "meta": _image_object(asset)}
 
 
 def exec_image_analyze(context: NodeExecContext) -> dict[str, Any]:
     ref = _resolve_ref(context)
-    _asset(ref)
+    _asset(ref, _owner(context))
     mode = str(context.config.get("mode") or "describe").strip().lower()
     if mode not in ANALYZE_MODES:
         raise ValueError(f"unknown image analyze mode {mode!r}")
@@ -263,7 +267,7 @@ def exec_image_analyze(context: NodeExecContext) -> dict[str, Any]:
 
 def exec_image_ocr(context: NodeExecContext) -> dict[str, Any]:
     ref = _resolve_ref(context)
-    _asset(ref)
+    _asset(ref, _owner(context))
     options: dict[str, Any] = {}
     language = str(context.config.get("language") or "").strip()
     if language:
@@ -283,7 +287,7 @@ def exec_image_ocr(context: NodeExecContext) -> dict[str, Any]:
 
 def exec_image_read_chart(context: NodeExecContext) -> dict[str, Any]:
     ref = _resolve_ref(context)
-    _asset(ref)
+    _asset(ref, _owner(context))
     question = str(context.inputs.get("question") or context.config.get("question") or "").strip()
     options: dict[str, Any] = {}
     for key in ("symbol", "market", "timeframe"):
@@ -310,16 +314,17 @@ def exec_image_read_chart(context: NodeExecContext) -> dict[str, Any]:
 
 def exec_image_compare(context: NodeExecContext) -> dict[str, Any]:
     ref = _resolve_ref(context)
-    _asset(ref)
+    owner = _owner(context)
+    _asset(ref, owner)
     other_ref = _image_ref(context.inputs.get("b"))
     if not other_ref:
         configured = context.config.get("compareAssetId")
         other_ref = configured.strip() if isinstance(configured, str) else ""
     if not other_ref:
         raise ValueError("image.compare needs a second image (wire B or pick Compare image)")
-    other = _asset(other_ref)
+    other = _asset(other_ref, owner)
     store = _require_store()
-    other_bytes = store.open_bytes(other.asset_id)
+    other_bytes = store.open_bytes(other.asset_id, owner=owner)
     data_uri = f"data:{other.mime_type};base64,{base64.b64encode(other_bytes).decode('ascii')}"
     mode = str(context.config.get("mode") or "both").strip().lower()
     if mode not in COMPARE_MODES:
@@ -437,7 +442,7 @@ def exec_image_batch(context: NodeExecContext) -> dict[str, Any]:
         index, ref = pair
         row: dict[str, Any] = {"index": index, "assetId": ref, "name": ref}
         try:
-            asset = _asset(ref)
+            asset = _asset(ref, _owner(context))
             row["name"] = str((getattr(asset, "metadata", None) or {}).get("name") or ref)
             if mode == "ocr":
                 result = _run_vision(context, asset_id=ref, mode="ocr")
@@ -486,6 +491,13 @@ def exec_image_batch(context: NodeExecContext) -> dict[str, Any]:
     else:
         results = [one(pair) for pair in pairs]
     failed = [row for row in results if not row.get("ok")]
+    if failed and len(failed) == len(results):
+        # Zero successes is not a partial batch: fail loudly so a downstream
+        # agent never reasons over an empty result set.
+        raise ValueError(
+            f"all {len(results)} image read(s) failed: "
+            + "; ".join(str(row.get("error") or "unknown error") for row in failed[:3])
+        )
     summary = {
         "images": len(results),
         "succeeded": len(results) - len(failed),

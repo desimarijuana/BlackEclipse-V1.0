@@ -51,6 +51,20 @@ from .store import GraphRunStore
 
 log = logging.getLogger("harness.graph_runtime.service")
 
+# Capabilities that make a run NEED resolved model credentials. Anything that
+# calls a model (agents, skills, teams and vision) must be included, or a durable
+# job that resumes after a restart silently runs without a provider.
+MODEL_CAPABILITIES = frozenset({"agent.run", "model.vision"})
+
+
+def needs_model_credentials(required_capabilities: Optional[list[str]] = None) -> bool:
+    """True when a compiled plan can only run with model credentials.
+
+    `required_capabilities` is the plan's own list (registry-derived), never a
+    caller's claim.
+    """
+    return any(capability in MODEL_CAPABILITIES for capability in (required_capabilities or ()))
+
 
 class GraphCompileError(Exception):
     """A graph could not be compiled. Carries the full plan (with diagnostics)."""
@@ -407,7 +421,9 @@ class GraphService:
             model_settings=model_settings,
             callback_base_url=callback_base_url,
             callback_token=callback_token,
-            user_id=user_id,
+            # A graph's owner and its executor identity must agree; otherwise
+            # owner-scoped assets/datasets would be written under `local`.
+            user_id=owner_id or user_id,
             on_subworkflow=self._persist_subworkflow,
             load_child_run=self._store.get_run,
         )
@@ -516,7 +532,7 @@ class GraphService:
                     model_settings=model_settings,
                     callback_base_url=callback_base_url,
                     callback_token=callback_token,
-                    user_id=user_id,
+                    user_id=owner_id or user_id,
                     on_subworkflow=self._persist_subworkflow,
                     load_child_run=self._store.get_run,
                 )
@@ -609,7 +625,9 @@ class GraphService:
 
         self._store.mark_running(run_id)
         model_settings = self._model_settings.get(run_id)
-        if model_settings is None and "agent.run" in plan.required_capabilities:
+        # Every model-backed node type, not just agents: a vision-only graph that
+        # resumes after a runtime restart needs its credentials re-resolved too.
+        if model_settings is None and needs_model_credentials(plan.required_capabilities):
             # The job survived a restart: the in-memory credentials are gone, so
             # ask the front door to resolve them again. Never persisted here.
             model_settings = self._resolve_model_settings(run_id, payload)

@@ -1,6 +1,6 @@
 ---
 title: Graph Studio — Files, Images, Agents & Memory Node Plan
-status: Implemented (waves 0–5)
+status: Implemented + production-hardened (waves 0–5)
 last-verified: 2026-11-02
 ---
 
@@ -66,6 +66,23 @@ named scope (the run context has no project id, so `project` is not claimed).
 Graph memory writes use the service's permitted `manual` source and still pass
 through its capture policy; the existing `memory.remember` adapter was corrected
 from an invalid `graph:<run>` source at the same time.
+
+Production hardening: vision assets are owner-scoped (local keeps the legacy
+content id; other owners get a scoped id), the upload proxies forward the
+verified identity token, the graph run adopts that verified owner, and both
+upload routes enforce byte caps plus a per-owner rate limit. This closes the
+multi-user gap identified in the first production review. Pre-existing image
+rows migrate as `ownerId='local'`; after enabling authentication, re-upload (or
+explicitly migrate) older images for non-local users.
+
+Demo: `npm run demo:graph-media` seeds **File import (demo)** and **Candle option
+review (demo)** into Overview with real sample assets. Both pass end-to-end
+through the app API: the file workflow returns 24 rows, and the image workflow
+returns two real observations from `qwen2.5-vl` via the configured provider.
+Bugs found by the demo and fixed: `file`/`image` output ports now have runtime
+validators; re-analyzing an image no longer overwrites its stored name/source;
+`image.batch` fails if EVERY image read fails; vision replies bound their output
+tokens; and the spawned Python runtime now receives the stored provider keys.
 
 ---
 

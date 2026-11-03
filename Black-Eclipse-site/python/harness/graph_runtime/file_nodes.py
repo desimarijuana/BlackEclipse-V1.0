@@ -441,7 +441,7 @@ def build_file_nodes() -> list[NodeDef]:
             version="1.0.0",
             label="File",
             category="data",
-            inputs=(),
+            inputs=(PortDef(id="in", name="Run", type=PortType.ANY, kind=PortKind.CONTROL, optional=True),),
             outputs=(
                 PortDef(id="file", name="File", type=PortType.FILE),
                 PortDef(id="text", name="Text", type=PortType.STRING, nullable=True),
@@ -475,7 +475,10 @@ def build_file_nodes() -> list[NodeDef]:
             version="1.0.0",
             label="Parse file",
             category="data",
-            inputs=(PortDef(id="file", name="File", type=PortType.FILE, optional=True),),
+            inputs=(
+                PortDef(id="in", name="Run", type=PortType.ANY, kind=PortKind.CONTROL, optional=True),
+                PortDef(id="file", name="File", type=PortType.FILE, optional=True),
+            ),
             outputs=(
                 PortDef(id="rows", name="Rows", type=PortType.ARRAY, nullable=True),
                 PortDef(id="columns", name="Columns", type=PortType.ARRAY),

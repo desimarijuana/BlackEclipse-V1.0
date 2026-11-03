@@ -358,6 +358,10 @@ class ImageAsset:
     created_at: str = ""
     expires_at: Optional[str] = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Owner scope. The local operator keeps the historical content id; any
+    # other owner gets a scoped asset id so assets are not readable across
+    # tenants. Default keeps every existing record readable.
+    owner_id: str = "local"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

@@ -1156,6 +1156,13 @@ engine's own market-data check confirmed the reading. `image.batch` applies the
 same 1–5 questions to 1–8 candidate images and returns one row per image; a
 failed image is a row with `ok: false` and the batch never aborts silently.
 Vision calls are a model effect (no tools), so a test run may read an image.
+Image assets are **owner-scoped**: the front door forwards the verified identity
+token, the runtime resolves the owner from it (never from a query string when
+auth is on), and a non-local owner gets a scoped asset id. Graph runs use the
+same verified owner, so a node reads only the assets its run owner uploaded.
+Uploads are bounded and rate-limited per owner. Existing image rows migrate with
+`ownerId='local'`, so if authentication is enabled after upgrading, re-upload
+(or deliberately migrate) older images for non-local users.
 
 **Structured calls.** Four nodes are ONE bounded model call each, not an agent
 turn: `agent.classify` (text → the one declared label + confidence + scores),
@@ -1455,6 +1462,19 @@ capabilities (`market.read`, `quant.compute`, `compute.safe`, `dataset.read`,
 `agent.run` — a model call is not a world effect — so a
 finance graph can be exercised from the UI. Agent tools are narrowed to
 `DRY_RUN_TOOLS` in that run. External write/network/trading nodes stay refused.
+
+**Media demo.** `npm run demo:graph-media` seeds two real workflows into
+Overview: **File import (demo)** (generated CSV → File → Select → Result) and
+**Candle option review (demo)** (two generated candle images → vision batch →
+Result). The sample assets are written through the SAME graph/vision stores the
+nodes use, so the demo runs on real local data. Both were verified end-to-end
+through the app API: the file demo returns 24 rows, and the image demo returns
+two real observations (9 and 7 candles read, ~850–900 tokens each) from
+`qwen2.5-vl` via the configured provider. If no vision model is reachable the
+batch fails loudly with the provider reason instead of letting an agent reason
+over no readings. The seeder is idempotent — it reuses an existing demo rather
+than piling up versions; delete the workflow and re-run it to regenerate from the
+current templates.
 
 **Templates.** `Market scan (SMA z-score)` — stored bars → SMA(50) → z-score(20)
 → branch → result, plus a second output carrying the data provenance.

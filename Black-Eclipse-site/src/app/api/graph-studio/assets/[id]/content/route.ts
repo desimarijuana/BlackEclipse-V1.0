@@ -6,12 +6,12 @@ export const dynamic = "force-dynamic";
 
 // GET /api/graph-studio/assets/:id/content — stream/download the stored bytes.
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
-    const file = await getGraphAssetContent(id);
+    const file = await getGraphAssetContent(request, id);
     return new Response(new Blob([file.bytes], { type: file.mime }), {
       headers: {
         "Content-Type": file.mime,

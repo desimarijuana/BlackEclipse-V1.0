@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-10-23
+last-verified: 2026-11-02
 ---
 
 # Architecture
@@ -1887,6 +1887,11 @@ boot, but a REAL env var always wins and is never overwritten; removal only
 clears variables this process itself populated. That keeps the existing env-based
 consumers working with no per-provider refactor while preserving deployment
 authority. "Test" performs a real request and reports the real status code.
+The Python agent runtime inherits this env when it is spawned, and
+`python-runtime.ts` calls `applyStoredKeysToEnv()` again immediately before the
+spawn: the child is often started from instrumentation *before* the boot copy
+runs, and a keyless runtime fails every agent/vision call with "provider is not
+configured (missing API key)" until it happens to restart.
 
 **Do not run `prisma generate` without restarting the dev server.** A client
 generated before a schema change silently fails every write to that table;

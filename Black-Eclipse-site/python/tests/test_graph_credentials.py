@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from harness.graph_runtime import service as service_module
-from harness.graph_runtime.service import GraphService
+from harness.graph_runtime.service import GraphService, needs_model_credentials
 
 
 class _Response:
@@ -42,6 +42,15 @@ def _fake_http(monkeypatch):
     monkeypatch.setattr(service_module.httpx, "Client", _Client)
     monkeypatch.setenv("CRON_SECRET", "test-secret")
     yield
+
+
+def test_every_model_capability_needs_credentials():
+    # A vision-only graph resumes on a fresh process just like an agent graph.
+    assert needs_model_credentials(["image.read", "model.vision"]) is True
+    assert needs_model_credentials(["agent.run"]) is True
+    assert needs_model_credentials(["market.read", "quant.compute"]) is False
+    assert needs_model_credentials([]) is False
+    assert needs_model_credentials(None) is False
 
 
 def test_resolves_the_vault_from_the_persisted_callback_url():

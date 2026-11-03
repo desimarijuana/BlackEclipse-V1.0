@@ -37,6 +37,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `unsupported image type ${mime}` }, { status: 415 });
     }
     const asset = await uploadGraphImage(
+      request,
       safeName(entry.name || "image.png"),
       mime,
       await entry.arrayBuffer(),

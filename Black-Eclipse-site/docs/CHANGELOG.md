@@ -1,6 +1,44 @@
 # Change Log
 
 ## 2026-11-02
+- **fix(runtime): stored provider keys reach the spawned Python runtime; media demo passes.**
+  The runtime child is spawned from instrumentation BEFORE the boot step that
+  copies vault keys into `process.env`, so it started keyless and agent/vision
+  calls failed with "Provider 'openrouter' is not configured (missing API key)"
+  until some later restart. `python-runtime.ts` now calls
+  `applyStoredKeysToEnv()` immediately before the spawn (a real env var still
+  wins). Related vision fixes: outputs are bounded with `bind(max_tokens=…)` so
+  the account is charged for the reply rather than the model's full 16 384-token
+  generation budget, and a durable graph job re-resolves credentials for
+  `model.vision` runs too, not only `agent.run`. Verified through the app:
+  **Candle option review (demo)** returns two real observations (`qwen2.5-vl`,
+  903/847 tokens) and **File import (demo)** returns 24 rows. Tests: full Vitest
+  4282 passed; Python graph+vision suites 134 passed. Docs updated:
+  `docs/ARCHITECTURE.md`, `docs/graph-studio.md`,
+  `docs/graph-studio-media-agent-memory-nodes-plan.md`, `docs/CHANGELOG.md`.
+- **fix(desktop): a click always shows a live progress page; production builds are serialized.**
+  Double-clicking `start-eclipse.vbs` could look completely dead: the launcher
+  runs with a hidden console, so a cold build (minutes), a failing boot, or a
+  proxy that never bound produced no window and no error. The launcher now opens
+  a loopback progress page (`scripts/lib/desktop-splash.js`, default
+  `127.0.0.1:3197`) *first*; it names the real phase, shows the last server log
+  line, redirects to `https://blackeclipse/?desktop=1` when the app answers, and
+  shows an honest error panel (reason + log path) when boot fails instead of
+  exiting silently. A second click attaches to the running launcher's page; a
+  page left over from a dead launcher is ignored. `start-eclipse.vbs` now finds
+  Node on PATH or in the two standard install locations and reports a missing
+  Node with a dialog.
+  The root cause of the intermittent hang was two `next build` runs rewriting
+  the same `.next` directory at once (a terminal `npm run build` plus the
+  launcher, which saw no `BUILD_ID` because the other build had just wiped it).
+  `npm run build` now runs `scripts/build-prod.js`; `scripts/lib/server.js`
+  gained a machine-wide `.next-build.lock` used by `npm run build`, `npm run up`,
+  `black eclipse` and the desktop launcher, which waits for a running build and
+  reuses its output when the source is unchanged. The launcher also waits (with
+  a visible "a build is already running" phase) instead of starting a competing
+  build, and both boot paths now have deadlines that end in a readable error.
+  Docs updated: `docs/QUICKSTART.md`, `docs/environments.md`,
+  `docs/CHANGELOG.md`.
 - **fix(desktop): instant icon opens and a server that stops only when the last tab closes.**
   Clicking `start-eclipse.vbs` no longer calls `stopExisting()` first: if the
   production app already answers, the launcher opens the tab in ~0.1s instead of

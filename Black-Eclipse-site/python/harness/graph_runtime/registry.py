@@ -321,6 +321,13 @@ def validate_port_value(port_type: PortType, value: Any) -> Optional[str]:
         PortType.EXECUTION_RESULT,
     ):
         return None if isinstance(value, dict) else f"expected a {port_type.value} object"
+    if port_type in (PortType.FILE, PortType.IMAGE):
+        if isinstance(value, dict) and any(
+            isinstance(value.get(key), str) and value.get(key)
+            for key in ("assetId", "asset_id", "ref")
+        ):
+            return None
+        return f"expected a {port_type.value} reference ({{ assetId, name, ... }})"
     return f"unknown port type {port_type.value}"
 
 

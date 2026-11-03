@@ -403,10 +403,11 @@ def install_graph_layer(service: Any) -> bool:
             if store is None:
                 raise ValueError("the vision asset store is unavailable in this runtime")
             asset_id = str(request.get("assetId") or "")
-            asset = store.get(asset_id)
+            owner = str(context.user_id or "local")[:120]
+            asset = store.get(asset_id, owner=owner)
             if asset is None:
                 raise ValueError(f"image {asset_id!r} does not exist")
-            data = store.open_bytes(asset_id)
+            data = store.open_bytes(asset_id, owner=owner)
             if not data:
                 raise ValueError(f"image {asset_id!r} has no bytes")
             settings = context.model_settings

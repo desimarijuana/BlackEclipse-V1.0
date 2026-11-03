@@ -79,14 +79,48 @@ def _fail(exc: AssetError) -> HTTPException:
     return HTTPException(status_code=400, detail=str(exc))
 
 
+def _owner(request: Request, requested: str = "") -> str:
+    """The verified owner. A caller-supplied owner is used only in local mode."""
+    try:
+        from ..deps import identity_for  # noqa: PLC0415
+
+        identity = identity_for(request)
+        if identity.is_authenticated and identity.user_id:
+            return str(identity.user_id)[:120]
+        if identity.tenant_id:
+            return str(identity.tenant_id)[:120]
+    except Exception:  # noqa: BLE001 - never break an upload on identity resolution
+        pass
+    return (requested or "local").strip()[:120] or "local"
+
+
+def _rate_limit(request: Request, owner: str, *, cost: float = 1.0) -> None:
+    """A per-owner upload budget (defence in depth; the proxy should also limit)."""
+    try:
+        from ..security.ratelimit import default_limiter  # noqa: PLC0415
+
+        client = getattr(request.client, "host", "") if request.client else ""
+        if not default_limiter().allow(f"graph-asset:{owner or client}", cost=cost):
+            raise HTTPException(
+                status_code=429,
+                detail="too many uploads; wait a moment and retry",
+                headers={"Retry-After": "5"},
+            )
+    except HTTPException:
+        raise
+    except Exception:  # noqa: BLE001 - never fail closed on a limiter bug
+        pass
+
+
 @router.get("")
 def list_assets(
+    request: Request,
     limit: int = Query(default=50, ge=1, le=200),
     owner: Optional[str] = Query(default=None, max_length=120),
     _: bool = Depends(require_operator),
 ) -> dict[str, Any]:
     store = _store()
-    return {"assets": store.list(limit=limit, owner=owner)}
+    return {"assets": store.list(limit=limit, owner=_owner(request, owner or ""))}
 
 
 @router.post("")
@@ -98,6 +132,8 @@ async def upload_asset(
     ttlHours: int = Query(default=0, ge=0, le=8_760),  # noqa: N803
     _: bool = Depends(require_operator),
 ) -> dict[str, Any]:
+    resolved_owner = _owner(request, owner)
+    _rate_limit(request, resolved_owner)
     data = await _body(request, MAX_ASSET_BYTES)
     store = _store()
     try:
@@ -106,7 +142,7 @@ async def upload_asset(
             data,
             mime=mime,
             ttl_seconds=ttlHours * 3600,
-            owner=owner,
+            owner=resolved_owner,
         )
     except AssetError as exc:
         raise _fail(exc) from exc
@@ -132,6 +168,7 @@ def _image_meta(asset: Any, name: str = "") -> dict[str, Any]:
         "bytes": asset.byte_size,
         "sha256": asset.sha256,
         "createdAt": asset.created_at,
+        "ownerId": getattr(asset, "owner_id", "local"),
     }
 
 
@@ -145,6 +182,8 @@ async def upload_image(
     from ..vision.errors import VisionError  # noqa: PLC0415
     from ..vision.image import decode_bytes  # noqa: PLC0415
 
+    resolved_owner = _owner(request)
+    _rate_limit(request, resolved_owner)
     data = await _body(request, MAX_IMAGE_BYTES)
     try:
         decoded = decode_bytes(data, source=name, expected_mime=mime or None)
@@ -153,27 +192,32 @@ async def upload_image(
     store = _vision_store()
     asset = store.save(
         decoded, source_kind="upload", source_ref=name,
-        metadata={"name": name},
+        metadata={"name": name}, owner=resolved_owner,
     )
     return _image_meta(asset, name)
 
 
 @router.get("/images/{asset_id}")
-def image_meta(asset_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+def image_meta(
+    asset_id: str, request: Request, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
     store = _vision_store()
-    asset = store.get(asset_id)
+    asset = store.get(asset_id, owner=_owner(request))
     if asset is None:
         raise HTTPException(status_code=404, detail=f"image {asset_id!r} does not exist")
     return _image_meta(asset)
 
 
 @router.get("/images/{asset_id}/content")
-def image_content(asset_id: str, _: bool = Depends(require_operator)) -> Response:
+def image_content(
+    asset_id: str, request: Request, _: bool = Depends(require_operator),
+) -> Response:
     store = _vision_store()
-    asset = store.get(asset_id)
+    owner = _owner(request)
+    asset = store.get(asset_id, owner=owner)
     if asset is None:
         raise HTTPException(status_code=404, detail=f"image {asset_id!r} does not exist")
-    data = store.open_bytes(asset_id)
+    data = store.open_bytes(asset_id, owner=owner)
     if data is None:
         raise HTTPException(status_code=404, detail=f"image {asset_id!r} has no stored bytes")
     return Response(
@@ -184,9 +228,11 @@ def image_content(asset_id: str, _: bool = Depends(require_operator)) -> Respons
 
 
 @router.delete("/images/{asset_id}")
-def delete_image(asset_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+def delete_image(
+    asset_id: str, request: Request, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
     store = _vision_store()
-    removed = store.delete(asset_id)
+    removed = store.delete(asset_id, owner=_owner(request))
     if not removed:
         raise HTTPException(status_code=404, detail=f"image {asset_id!r} does not exist")
     return {"deleted": True, "assetId": asset_id}
@@ -195,12 +241,13 @@ def delete_image(asset_id: str, _: bool = Depends(require_operator)) -> dict[str
 @router.get("/{asset_id}")
 def asset_meta(
     asset_id: str,
+    request: Request,
     owner: str = Query(default="local", max_length=120),
     _: bool = Depends(require_operator),
 ) -> dict[str, Any]:
     store = _store()
     try:
-        return store.get(asset_id, owner=owner)
+        return store.get(asset_id, owner=_owner(request, owner))
     except AssetError as exc:
         raise _fail(exc) from exc
 
@@ -208,13 +255,15 @@ def asset_meta(
 @router.get("/{asset_id}/content")
 def asset_content(
     asset_id: str,
+    request: Request,
     owner: str = Query(default="local", max_length=120),
     _: bool = Depends(require_operator),
 ) -> Response:
     store = _store()
     try:
-        meta = store.get(asset_id, owner=owner)
-        data = store.open_bytes(asset_id, owner=owner)
+        resolved = _owner(request, owner)
+        meta = store.get(asset_id, owner=resolved)
+        data = store.open_bytes(asset_id, owner=resolved)
     except AssetError as exc:
         raise _fail(exc) from exc
     return Response(
@@ -230,11 +279,12 @@ def asset_content(
 @router.delete("/{asset_id}")
 def delete_asset(
     asset_id: str,
+    request: Request,
     owner: str = Query(default="local", max_length=120),
     _: bool = Depends(require_operator),
 ) -> dict[str, Any]:
     store = _store()
-    removed = store.delete(asset_id, owner=owner)
+    removed = store.delete(asset_id, owner=_owner(request, owner))
     if not removed:
         raise HTTPException(status_code=404, detail=f"file {asset_id!r} does not exist")
     return {"deleted": True, "assetId": asset_id}

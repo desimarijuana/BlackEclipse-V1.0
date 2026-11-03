@@ -31,10 +31,10 @@ class FakeStore:
     def __init__(self) -> None:
         self.assets = {item.asset_id: item for item in (_asset("img_a"), _asset("img_b", "b.png"))}
 
-    def get(self, asset_id: str):
+    def get(self, asset_id: str, *, owner=None):
         return self.assets.get(asset_id)
 
-    def open_bytes(self, asset_id: str) -> bytes:
+    def open_bytes(self, asset_id: str, *, owner=None) -> bytes:
         return b"\x89PNG\r\n\x1a\n" if asset_id in self.assets else b""
 
 
@@ -179,6 +179,14 @@ def test_batch_reads_each_image_and_reports_a_failed_row(vision):
 def test_batch_requires_questions(vision):
     with pytest.raises(ValueError, match="at least one question"):
         exec_image_batch(_ctx({"assetIds": '["img_a"]'}))
+
+
+def test_batch_fails_when_every_image_fails(vision):
+    with pytest.raises(ValueError, match="all 2 image read"):
+        exec_image_batch(_ctx({
+            "assetIds": '["img_missing_1","img_missing_2"]',
+            "questionsJson": '["Describe it."]',
+        }))
 
 
 def test_test_run_can_read_an_image(vision):

@@ -39,8 +39,11 @@ class ImageAdapter:
             page.unit = "px"
             if ctx.asset_store is not None:
                 try:
-                    asset = ctx.asset_store.save(decoded, run_id=ctx.run_id, source_kind="document",
-                                                 source_ref=(name or "")[:500])
+                    asset = ctx.asset_store.save(
+                        decoded, run_id=ctx.run_id, source_kind="document",
+                        source_ref=(name or "")[:500],
+                        owner=getattr(ctx, "user_id", None) or "local",
+                    )
                     image.asset_id = asset.asset_id
                 except Exception:  # noqa: BLE001
                     pass

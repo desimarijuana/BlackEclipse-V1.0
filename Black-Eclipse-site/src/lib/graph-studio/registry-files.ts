@@ -24,7 +24,7 @@ export const FILE_DEFINITIONS: NodeDefinition[] = [
     label: 'File',
     description: 'Turns an uploaded local file into text or rows.',
     icon: 'text',
-    inputs: [],
+    inputs: [port({ id: 'in', name: 'Run', type: 'any', kind: 'control', optional: true })],
     outputs: [
       port({ id: 'file', name: 'File', type: 'file' }),
       port({ id: 'text', name: 'Text', type: 'string', nullable: true }),
@@ -55,7 +55,10 @@ export const FILE_DEFINITIONS: NodeDefinition[] = [
     label: 'Parse file',
     description: 'Parses a file reference into rows, columns and text.',
     icon: 'text',
-    inputs: [port({ id: 'file', name: 'File', type: 'file', optional: true })],
+    inputs: [
+      port({ id: 'in', name: 'Run', type: 'any', kind: 'control', optional: true }),
+      port({ id: 'file', name: 'File', type: 'file', optional: true }),
+    ],
     outputs: [
       port({ id: 'rows', name: 'Rows', type: 'array', nullable: true }),
       port({ id: 'columns', name: 'Columns', type: 'array' }),

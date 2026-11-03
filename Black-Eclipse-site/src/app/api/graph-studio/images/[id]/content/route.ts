@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { HarnessRuntimeUnavailable } from "@/lib/harness";
 import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtime";
-import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
+import { runtimeProxyHeaders } from "@/lib/harness/runtime-identity";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/graph-studio/images/:id/content — stream the stored image bytes.
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
@@ -16,11 +16,10 @@ export async function GET(
       return NextResponse.json({ error: "The Python agent runtime is not available." }, { status: 503 });
     }
     const { id } = await params;
-    const token = runtimeCallbackToken();
     const res = await fetch(
       `${HARNESS_PY_URL}/graph/assets/images/${encodeURIComponent(id)}/content`,
       {
-        headers: { ...(token ? { "X-Harness-Operator": token } : {}) },
+        headers: await runtimeProxyHeaders(request),
         signal: AbortSignal.timeout(30_000),
       },
     );

@@ -444,6 +444,7 @@ def _store_asset(
         asset = store.save(
             decoded, run_id=ctx.run_id, session_id=ctx.session_id,
             source_kind=input.source_kind, source_ref=str(input.source)[:500], expires_at=expires_at,
+            owner=ctx.user_id or "local",
         )
         return asset.asset_id
     except VisionError as exc:

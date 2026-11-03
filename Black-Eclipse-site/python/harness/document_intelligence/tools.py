@@ -382,7 +382,8 @@ async def document_render(args: dict[str, Any], ctx: ToolContext) -> tuple[str, 
     try:
         rendered = render_page(data or b"", kind=validated.kind, page_index=int(args.get("page", 0) or 0),
                                 scale=float(args.get("scale", 2.0) or 2.0), name=name or "",
-                                cfg=cfg, asset_store=_asset_store(ctx), run_id=getattr(ctx, "run_id", None))
+                                cfg=cfg, asset_store=_asset_store(ctx), run_id=getattr(ctx, "run_id", None),
+                                owner=getattr(ctx, "user_id", None) or "local")
     except DocumentError as exc:
         return (_err_text(exc), exc.to_dict())
     return (f"Rendered {validated.kind} page {args.get('page', 0)} ({rendered.width}x{rendered.height}, "

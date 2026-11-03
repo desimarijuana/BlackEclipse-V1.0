@@ -400,6 +400,19 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
     // config into the child env so a bot uses the operator's configured provider
     // and model. A real env var always wins; this only fills the gaps.
     const extraEnv: Record<string, string> = {};
+    // Provider keys saved from Settings live encrypted in JDDS and are copied
+    // into THIS process's env during startup. The child is often spawned from
+    // instrumentation BEFORE that copy runs, so without an explicit apply here
+    // the runtime starts keyless and every agent/vision call fails with
+    // "provider is not configured (missing API key)" until it happens to be
+    // restarted later. `applyStoredKeysToEnv` never overwrites a real env var,
+    // so a deployment-provided key still wins.
+    try {
+      const { applyStoredKeysToEnv } = await import("@/lib/provider-keys");
+      await applyStoredKeysToEnv();
+    } catch (err) {
+      console.warn("[harness] could not apply stored provider keys for the runtime:", err);
+    }
     try {
       const { getLLMConfig } = await import("@/lib/settings");
       const cfg = await getLLMConfig();

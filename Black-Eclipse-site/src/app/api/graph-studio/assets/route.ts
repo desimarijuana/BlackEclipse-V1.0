@@ -16,9 +16,9 @@ function safeName(raw: string): string {
   return cleaned;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    return NextResponse.json({ success: true, assets: await listGraphAssets() });
+    return NextResponse.json({ success: true, assets: await listGraphAssets(request) });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;
     return NextResponse.json(
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     const name = safeName(entry.name || "upload.dat");
     const mime = (entry.type || "application/octet-stream").slice(0, 120);
     const bytes = await entry.arrayBuffer();
-    const asset = await uploadGraphAsset(name, mime, bytes);
+    const asset = await uploadGraphAsset(request, name, mime, bytes);
     return NextResponse.json({ success: true, asset });
   } catch (err) {
     if (err instanceof HarnessRuntimeUnavailable) {

@@ -253,7 +253,7 @@ def test_node(
             status_code=400,
             detail="mode must be research, backtest, paper or live",
         ) from exc
-    owner = (request.headers.get("x-harness-user") or "local").strip() or "local"
+    owner = _owner(request)
     try:
         return _graph_service().test_node(
             node_type=body.nodeType,
@@ -278,7 +278,7 @@ def compile_graph(body: CompileRequest, _: bool = Depends(require_operator)) -> 
 @router.post("/graphs/runs", status_code=201)
 def start_run(body: RunRequest, request: Request, _: bool = Depends(require_operator)) -> dict[str, Any]:
     ir = _parse_ir(body.ir)
-    owner = (request.headers.get("x-harness-user") or "local").strip() or "local"
+    owner = _owner(request)
     try:
         run = _graph_service().start_run(
             ir,

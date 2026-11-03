@@ -346,7 +346,9 @@ async def vision_asset_list(args: dict[str, Any], ctx: ToolContext) -> tuple[str
     if store is None:
         return ("No vision asset store is available.", {"status": "unavailable"})
     run_id = str(args.get("run_id") or getattr(ctx, "run_id", "") or "")
-    assets = store.list_for_run(run_id) if run_id else []
+    assets = store.list_for_run(
+        run_id, owner=getattr(ctx, "user_id", None) or "local",
+    ) if run_id else []
     data = {"type": "vision_assets", "count": len(assets), "assets": [a.to_dict() for a in assets]}
     return f"{len(assets)} vision asset(s) recorded for this run.", data
 
@@ -372,6 +374,7 @@ async def image_generate(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
     if store is not None:
         try:
             asset = store.save(generated.decoded, run_id=getattr(ctx, "run_id", None),
+                               owner=getattr(ctx, "user_id", None) or "local",
                                source_kind="generated", source_ref=prompt[:200])
             asset_id = asset.asset_id
         except VisionError:

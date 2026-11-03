@@ -5,7 +5,7 @@
 // parsed or persisted on the Next side.
 
 import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtime";
-import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
+import { runtimeProxyHeaders } from "@/lib/harness/runtime-identity";
 import { HarnessRuntimeUnavailable } from "@/lib/harness/python-client";
 
 export interface GraphAssetMeta {
@@ -19,7 +19,11 @@ export interface GraphAssetMeta {
   expiresAt: string | null;
 }
 
-async function runtimeFetch(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<Response> {
+async function runtimeFetch(
+  request: Request,
+  path: string,
+  init: RequestInit & { timeoutMs?: number } = {},
+): Promise<Response> {
   const healthy = await ensurePythonRuntime();
   if (!healthy) {
     throw new HarnessRuntimeUnavailable(
@@ -27,11 +31,10 @@ async function runtimeFetch(path: string, init: RequestInit & { timeoutMs?: numb
     );
   }
   const { timeoutMs = 120_000, ...rest } = init;
-  const operatorToken = runtimeCallbackToken();
   return fetch(`${HARNESS_PY_URL}${path}`, {
     ...rest,
     headers: {
-      ...(operatorToken ? { "X-Harness-Operator": operatorToken } : {}),
+      ...(await runtimeProxyHeaders(request)),
       ...(rest.headers ?? {}),
     },
     signal: AbortSignal.timeout(timeoutMs),
@@ -46,12 +49,13 @@ async function readError(res: Response): Promise<string> {
 }
 
 export async function uploadGraphAsset(
+  request: Request,
   name: string,
   mime: string,
   bytes: ArrayBuffer,
 ): Promise<GraphAssetMeta> {
-  const query = new URLSearchParams({ name, mime, owner: "local" });
-  const res = await runtimeFetch(`/graph/assets?${query.toString()}`, {
+  const query = new URLSearchParams({ name, mime });
+  const res = await runtimeFetch(request, `/graph/assets?${query.toString()}`, {
     method: "POST",
     headers: { "Content-Type": "application/octet-stream" },
     body: bytes,
@@ -61,8 +65,8 @@ export async function uploadGraphAsset(
   return (await res.json()) as GraphAssetMeta;
 }
 
-export async function listGraphAssets(limit = 100): Promise<GraphAssetMeta[]> {
-  const res = await runtimeFetch(`/graph/assets?limit=${limit}&owner=local`, {
+export async function listGraphAssets(request: Request, limit = 100): Promise<GraphAssetMeta[]> {
+  const res = await runtimeFetch(request, `/graph/assets?limit=${limit}`, {
     method: "GET",
     timeoutMs: 30_000,
   });
@@ -71,8 +75,8 @@ export async function listGraphAssets(limit = 100): Promise<GraphAssetMeta[]> {
   return Array.isArray(body.assets) ? body.assets : [];
 }
 
-export async function getGraphAsset(assetId: string): Promise<GraphAssetMeta> {
-  const res = await runtimeFetch(`/graph/assets/${encodeURIComponent(assetId)}?owner=local`, {
+export async function getGraphAsset(request: Request, assetId: string): Promise<GraphAssetMeta> {
+  const res = await runtimeFetch(request, `/graph/assets/${encodeURIComponent(assetId)}`, {
     method: "GET",
     timeoutMs: 30_000,
   });
@@ -81,9 +85,10 @@ export async function getGraphAsset(assetId: string): Promise<GraphAssetMeta> {
 }
 
 export async function getGraphAssetContent(
+  request: Request,
   assetId: string,
 ): Promise<{ bytes: ArrayBuffer; mime: string; name: string }> {
-  const res = await runtimeFetch(`/graph/assets/${encodeURIComponent(assetId)}/content?owner=local`, {
+  const res = await runtimeFetch(request, `/graph/assets/${encodeURIComponent(assetId)}/content`, {
     method: "GET",
     timeoutMs: 60_000,
   });
@@ -98,8 +103,8 @@ export async function getGraphAssetContent(
   };
 }
 
-export async function deleteGraphAsset(assetId: string): Promise<void> {
-  const res = await runtimeFetch(`/graph/assets/${encodeURIComponent(assetId)}?owner=local`, {
+export async function deleteGraphAsset(request: Request, assetId: string): Promise<void> {
+  const res = await runtimeFetch(request, `/graph/assets/${encodeURIComponent(assetId)}`, {
     method: "DELETE",
     timeoutMs: 30_000,
   });
@@ -118,12 +123,13 @@ export interface GraphImageMeta {
 }
 
 export async function uploadGraphImage(
+  request: Request,
   name: string,
   mime: string,
   bytes: ArrayBuffer,
 ): Promise<GraphImageMeta> {
   const query = new URLSearchParams({ name, mime });
-  const res = await runtimeFetch(`/graph/assets/images?${query.toString()}`, {
+  const res = await runtimeFetch(request, `/graph/assets/images?${query.toString()}`, {
     method: "POST",
     headers: { "Content-Type": "application/octet-stream" },
     body: bytes,
@@ -133,8 +139,8 @@ export async function uploadGraphImage(
   return (await res.json()) as GraphImageMeta;
 }
 
-export async function getGraphImage(assetId: string): Promise<GraphImageMeta> {
-  const res = await runtimeFetch(`/graph/assets/images/${encodeURIComponent(assetId)}`, {
+export async function getGraphImage(request: Request, assetId: string): Promise<GraphImageMeta> {
+  const res = await runtimeFetch(request, `/graph/assets/images/${encodeURIComponent(assetId)}`, {
     method: "GET",
     timeoutMs: 30_000,
   });
@@ -142,8 +148,8 @@ export async function getGraphImage(assetId: string): Promise<GraphImageMeta> {
   return (await res.json()) as GraphImageMeta;
 }
 
-export async function deleteGraphImage(assetId: string): Promise<void> {
-  const res = await runtimeFetch(`/graph/assets/images/${encodeURIComponent(assetId)}`, {
+export async function deleteGraphImage(request: Request, assetId: string): Promise<void> {
+  const res = await runtimeFetch(request, `/graph/assets/images/${encodeURIComponent(assetId)}`, {
     method: "DELETE",
     timeoutMs: 30_000,
   });
