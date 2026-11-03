@@ -25,6 +25,22 @@ from ..graph_runtime.service import GraphCompileError, GraphService, NodeTestErr
 router = APIRouter(tags=["graphs"])
 
 
+def _owner(request: Request) -> str:
+    """The verified owner, never a caller-supplied label when auth is on."""
+    try:
+        from ..deps import identity_for  # noqa: PLC0415
+
+        identity = identity_for(request)
+        if identity.is_authenticated:
+            if identity.user_id:
+                return str(identity.user_id)[:120]
+            if identity.tenant_id:
+                return str(identity.tenant_id)[:120]
+    except Exception:  # noqa: BLE001 - never break a route on identity resolution
+        pass
+    return (request.headers.get("x-harness-user") or "local").strip()[:120] or "local"
+
+
 def _graph_service() -> GraphService:
     graph_service = getattr(service, "graphs", None)
     if graph_service is None:
@@ -80,6 +96,94 @@ class PlanRequest(BaseModel):
     workflowId: Optional[str] = None  # noqa: N815
 
     model_config = {"populate_by_name": True}
+
+
+class AssistRequest(BaseModel):
+    instruction: str = Field(min_length=1, max_length=8_000)
+    mode: str = Field(default="edit", pattern="^(edit|ask)$")
+    ir: dict[str, Any]
+    selection: Optional[dict[str, Any]] = None
+    history: list[dict[str, Any]] = Field(default_factory=list)
+    lastRun: Optional[dict[str, Any]] = None  # noqa: N815
+    modelSettings: Optional[dict[str, Any]] = None  # noqa: N815
+
+    model_config = {"populate_by_name": True}
+
+
+def _preview_output(value: Any) -> Any:
+    if value is None:
+        return None
+    try:
+        text = json.dumps(value, default=str)
+    except Exception:  # noqa: BLE001 - a preview must never break the run result
+        text = str(value)
+    return text[:2_000]
+
+
+def _summarize_assistant_run(run: Any) -> dict[str, Any]:
+    """The model sees failures and a bounded node table, not the whole record."""
+    failed = [
+        {
+            "nodeId": node.node_id,
+            "label": node.label,
+            "error": node.error,
+            "errorCode": node.error_code,
+        }
+        for node in run.node_runs
+        if node.status.value == "failed"
+    ]
+    return {
+        "ok": run.status.value == "succeeded",
+        "status": run.status.value,
+        "error": run.error,
+        "durationMs": run.duration_ms,
+        "failed": failed,
+        "nodes": [
+            {
+                "nodeId": node.node_id,
+                "type": node.node_type,
+                "status": node.status.value,
+                "error": node.error,
+                "durationMs": node.duration_ms,
+            }
+            for node in run.node_runs[:50]
+        ],
+        "output": _preview_output(run.output),
+    }
+
+
+def _assistant_runner(
+    request: Request,
+    model_settings: Optional[dict[str, Any]],
+) -> Any:
+    """Assistant-initiated execution is ALWAYS a test run.
+
+    Network, trading and external writes are refused by the compiler; the model
+    receives that refusal and tells the user to use the operator run. Credentials
+    never leave memory and are never persisted with the run.
+    """
+
+    async def run(ir: WorkflowIR) -> dict[str, Any]:
+        try:
+            record = await asyncio.to_thread(
+                _graph_service().run_sync,
+                ir,
+                owner_id=_owner(request),
+                grants=GraphRunGrants(test_run=True),
+                model_settings=model_settings,
+            )
+        except GraphCompileError as exc:
+            return {
+                "ok": False,
+                "status": "refused",
+                "error": str(exc),
+                "diagnostics": [item.model_dump(by_alias=True) for item in exc.plan.diagnostics],
+            }
+        except Exception as exc:  # noqa: BLE001 - a failed run is data for the model
+            return {"ok": False, "status": "error", "error": str(exc)[:500]}
+        return _summarize_assistant_run(record)
+
+    return run
 
 
 class RunRequest(BaseModel):
@@ -214,6 +318,63 @@ async def plan_graph(body: PlanRequest, _: bool = Depends(require_operator)) -> 
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return result
+
+
+@router.post("/graphs/assist")
+async def assist_graph(
+    body: AssistRequest,
+    request: Request,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """In-editor assistant: propose validated edit operations. Nothing is saved."""
+    from ..graph_runtime.assistant import assist_graph as _assist  # noqa: PLC0415
+
+    try:
+        return await _assist(
+            body.instruction,
+            ir_payload=body.ir,
+            model_settings=body.modelSettings,
+            registry=_graph_service()._registry,
+            selection=body.selection,
+            history=body.history,
+            mode=body.mode,
+            last_run=body.lastRun,
+            runner=_assistant_runner(request, body.modelSettings),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/graphs/assist/stream")
+async def assist_graph_stream(
+    body: AssistRequest,
+    request: Request,
+    _: bool = Depends(require_operator),
+) -> StreamingResponse:
+    """The same assistant turn, streamed as Server-Sent Events."""
+    from ..graph_runtime.assistant import stream_assist  # noqa: PLC0415
+
+    async def events() -> Any:
+        async for chunk in stream_assist(
+            body.instruction,
+            ir_payload=body.ir,
+            model_settings=body.modelSettings,
+            registry=_graph_service()._registry,
+            selection=body.selection,
+            history=body.history,
+            mode=body.mode,
+            last_run=body.lastRun,
+            runner=_assistant_runner(request, body.modelSettings),
+        ):
+            if await request.is_disconnected():
+                break
+            yield chunk
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/graphs/datasets")

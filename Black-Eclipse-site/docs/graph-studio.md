@@ -1,7 +1,7 @@
 ---
 title: Graph Studio — Visual Workflow Engineering
 status: Current
-last-verified: 2026-10-31
+last-verified: 2026-11-02
 ---
 
 # Graph Studio
@@ -377,7 +377,7 @@ If the stream disconnects, the UI falls back to bounded polling.
 | **4 — Control flow, scheduling & triggers** | Control-flow node pack, unattended schedules, webhook trigger, run recovery | **Implemented & verified** (distributed/Fabric-backed durability is the remaining piece) |
 | **5 — Finance & quant node library** | Market-data + indicator node executors | **Implemented & verified** (first pack: market data, indicator, returns, z-score, volatility) |
 | 6 — Backtest & simulation | Strategy graphs, metrics | **Implemented & verified** (backtest, walk-forward, optimizer, Monte Carlo and out-of-sample holdout; all reuse `quant/`) |
-| 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Implemented** (research agent, structured step planner, bounded task delegation, live web research, validated chat→IR) |
+| 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR, in-editor assistant | **Implemented** (research agent, structured step planner, bounded task delegation, live web research, validated chat→IR, streaming tool-calling graph assistant with bounded test-run/fix loop) |
 | 8 — Paper trading & safety | Execution adapter, risk controls, modes | **Implemented & verified** (`trading.risk_check` + `trading.paper_order` with a durable paper account, PAPER-only; live and ungranted trading refused) |
 | 9 — Advanced engineering | Subworkflows, debugging, diffing | **Implemented** (subworkflows; post-run step inspector; structural version diff) |
 | 10 — Hardening & verification | Tests, security, observability | **Implemented** (operator health telemetry: run/node counts, durations, queue wait, failure codes, slowest nodes) |
@@ -1218,6 +1218,67 @@ dry-runs the compiler. Only a plan with zero errors becomes a `WorkflowIR`
 rejected plan returns its diagnostics. Model credentials are resolved by the
 front door and used in memory only. The planner is one bounded model call: no
 auto-repair loop, no subworkflows, and no live mode.
+
+**In-editor assistant (tool-calling, not one JSON blob).** `POST
+/api/graphs/assist` → Python `POST /graphs/assist` is the assistant that edits
+the graph the operator is looking at. It deliberately does NOT ask a model to
+emit a whole workflow: `graph_runtime/assistant.py` runs a bounded tool loop
+(max 12 rounds, max 30 operations per turn) over a **working copy** of the IR.
+Tools are `search_nodes` and `get_node_schema` (both read the real registry, so
+the model can find "any node" without holding all ~170 definitions in context),
+`add_node` (optional `after_node_id` auto-wire), `connect_nodes` (typed-port and
+cycle checks), `update_node_config` (coerced + validated), `remove_node`,
+`rename_node`, `validate_graph` and `ask_user`. Ambiguous requests get a
+question instead of a guess.
+
+Every mutating tool records one operation in the same closed vocabulary the
+editor already understands (`add_node`, `add_edge`, `remove_node`,
+`update_node_config`, `update_node_label`, `remove_edge`, `set_settings`,
+`set_meta`). The server compiles the final document before returning it, so an
+operation list that would produce an invalid graph is reported with diagnostics
+and never applied. Trading nodes switch the working copy to `paper` with an
+explicit warning. The client (`assistant-client.ts` → `assistant-ops.ts`) maps
+ops to `Patch[]` and applies them through `dispatchMany`, which makes the whole
+turn ONE undo step. Safe, warning-free edits are applied to the canvas
+immediately (n8n-style) and the canvas centres the new nodes; a proposal with
+warnings or validation errors is shown for review with Apply/Discard. The panel
+is the editor's right dock (`Assistant` in the header, `assistant-panel.tsx`).
+Credentials never cross the bridge: secret-like config
+keys (`apiKey`, `token`, `secret`, `password`, `authorization`, …) and
+`headersJson` are redacted from the graph context before it reaches the model.
+If the configured model returns prose without calling a single tool, the
+response says so instead of pretending the graph changed.
+
+The same turn also streams over SSE (`POST /api/graphs/assist/stream` →
+Python `POST /graphs/assist/stream`): `assistant.py` yields `status`,
+`tool_start`, `tool_end`, `result` and `error` events from ONE generator, so the
+stream can never drift from the request/response API. The panel shows each tool
+step live and offers **Stop**, which aborts the fetch (and therefore the
+upstream request). A large graph sends full configs only for the selection and
+its neighbours (bounded `MAX_FULL_CONFIG_NODES`); the rest carry type/label
+only. The transcript is persisted per workflow in `sessionStorage` (the pending
+proposal is not). The request also carries the last run's status, failed node
+and error, so a failed run offers **Fix the failed run** and the model can
+propose a targeted correction.
+
+The assistant can also close the repair loop itself. `run_workflow` executes the
+working graph through the SAME `GraphService.run_sync` as the editor, but always
+as a **test run** (`RunGrants(test_run=True)`): network, trading and external
+writes are refused by the compiler, and the model receives that refusal plus
+the diagnostics. It returns the status, every failed node with its real error,
+and the terminal output, so the model can fix a config/node and run again. The
+run tool is bounded to `MAX_ASSIST_RUNS` (2) per turn and is never offered in
+Ask mode. An effectful graph still needs the operator run (header Start →
+authorization dialog); the assistant can read that run's failure through
+`lastRun` and fix the graph, but it cannot grant itself network/trading/write.
+Test runs are persisted like any other run, so the user can inspect them in the
+History panel.
+
+Auto-apply is a per-browser preference
+(`be_graph_assistant_autoapply_v1`, on by default); turning it off makes every
+edit wait for Apply/Discard. A proposal is bound to the IR id it was computed
+against, so switching workflows can never apply it to the wrong document. Tests: `python/tests/test_graph_assistant.py`,
+`src/lib/graph-studio/assistant-ops.test.ts`.
 
 **Tabular transforms.** `transform.select`, `transform.sort_limit`,
 `logic.aggregate`, `logic.deduplicate` and `transform.join` operate on arrays of

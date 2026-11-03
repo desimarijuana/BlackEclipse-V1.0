@@ -60,8 +60,19 @@
   reset per loaded workflow, Ask mode that refuses mutating tools, and a canvas
   focus request that centres newly created nodes, secret-like node config
   redaction before the graph context leaves the process, and an honest warning
-  when the model answers without calling any tools. Nothing is auto-run;
-  credentials stay in memory.
+  when the model answers without calling any tools. The turn now streams over
+  SSE (`/api/graphs/assist/stream`) with live tool steps and a Stop button; the
+  transcript is persisted per workflow in `sessionStorage`; large graphs send
+  full configs only for the selection and its neighbours; search understands
+  common aliases (api/http, sma/ema, filter/where, …); and a failed run offers
+  "Fix the failed run" using the run's real error. The assistant can close the
+  loop itself with a bounded `run_workflow` tool: it executes through the same
+  `GraphService.run_sync`, always as a TEST run (network/trading/write refused
+  by the compiler), caps at 2 runs per turn, returns failed nodes + real errors
+  + terminal output, and is never offered in Ask mode. Effectful graphs still
+  require the operator run. Auto-apply is a per-browser preference (on by
+  default) and proposals are bound to the IR id they were computed against, so
+  a cross-workflow apply is refused. Credentials stay in memory.
   Tests: `python/tests/test_graph_assistant.py`,
   `src/lib/graph-studio/assistant-ops.test.ts`,
   `src/lib/graph-studio/assistant-store.test.ts`. Docs updated:

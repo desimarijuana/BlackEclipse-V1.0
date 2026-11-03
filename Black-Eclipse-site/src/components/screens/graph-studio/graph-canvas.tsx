@@ -472,6 +472,8 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
   const selection = useGraphEditor((s) => s.selection);
   const pendingInsert = useGraphEditor((s) => s.pendingInsert);
   const consumeInsert = useGraphEditor((s) => s.consumeInsert);
+  const focusRequest = useGraphEditor((s) => s.focusRequest);
+  const consumeFocus = useGraphEditor((s) => s.consumeFocus);
   const dispatch = useGraphEditor((s) => s.dispatch);
   const dispatchMany = useGraphEditor((s) => s.dispatchMany);
   const undo = useGraphEditor((s) => s.undo);
@@ -743,6 +745,27 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
     }
     consumeInsert();
   }, [pendingInsert, dispatch, consumeInsert]);
+
+  // After the assistant applies an edit, bring the new nodes into view. The
+  // short delay lets the IR → React Flow sync land first.
+  useEffect(() => {
+    if (!focusRequest || focusRequest.nodeIds.length === 0) return;
+    const present = focusRequest.nodeIds.filter((id) => nodesRef.current.some((node) => node.id === id));
+    if (present.length === 0) {
+      consumeFocus();
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void fitView({
+        nodes: present.map((id) => ({ id })),
+        padding: 1.4,
+        duration: 350,
+        maxZoom: 1.15,
+      });
+      consumeFocus();
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [focusRequest, fitView, consumeFocus]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<EclipseNodeData>>[]) => {

@@ -71,11 +71,18 @@ export interface GraphEditorState {
    * the seam Chat-to-Graph (Phase 7) will use to place generated nodes.
    */
   pendingInsert: { type: string; version: string; nonce: number } | null;
+  /**
+   * Nodes the viewport should centre after an assistant edit. The canvas owns
+   * the React Flow instance, so it consumes this request and clears it.
+   */
+  focusRequest: { nodeIds: string[]; nonce: number } | null;
 
   load: (ir: WorkflowIR, opts: LoadOptions) => void;
   setRun: (run: GraphRunRecord | null) => void;
   requestInsert: (type: string, version: string) => void;
   consumeInsert: () => void;
+  requestFocus: (nodeIds: string[]) => void;
+  consumeFocus: () => void;
   dispatch: (patch: Patch, opts?: DispatchOptions) => boolean;
   dispatchMany: (patches: Patch[]) => boolean;
   undo: () => void;
@@ -111,6 +118,7 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
   clipboard: null,
   run: null,
   pendingInsert: null,
+  focusRequest: null,
 
   load: (ir, opts) => {
     clearCoalesce();
@@ -134,6 +142,11 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
 
   requestInsert: (type, version) => set({ pendingInsert: { type, version, nonce: Date.now() } }),
   consumeInsert: () => set({ pendingInsert: null }),
+  requestFocus: (nodeIds) => {
+    if (nodeIds.length === 0) return;
+    set({ focusRequest: { nodeIds, nonce: Date.now() } });
+  },
+  consumeFocus: () => set({ focusRequest: null }),
 
   dispatch: (patch, opts) => {
     const { ir, past } = get();
@@ -305,6 +318,7 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
       lastError: null,
       run: null,
       pendingInsert: null,
+      focusRequest: null,
     });
   },
 }));
