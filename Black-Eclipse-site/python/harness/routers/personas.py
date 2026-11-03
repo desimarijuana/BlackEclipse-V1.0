@@ -12,7 +12,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..deps import require_operator
-from ..personas import PERSONA_PROMPT_MAX, get_persona_store, render_persona_block
+from ..personas import (
+    PERSONA_PROMPT_MAX,
+    PersonaConflict,
+    get_persona_store,
+    render_persona_block,
+)
 
 router = APIRouter(prefix="/personas", tags=["personas"])
 
@@ -92,6 +97,8 @@ def update_persona(
 ) -> dict[str, Any]:
     try:
         persona = _store().update(persona_id, body)
+    except PersonaConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if persona is None:

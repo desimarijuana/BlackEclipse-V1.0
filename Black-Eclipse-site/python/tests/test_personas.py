@@ -7,7 +7,9 @@ import sqlite3
 import pytest
 
 from harness.personas import (
+    MAX_VERSIONS,
     PERSONA_PROMPT_MAX,
+    PersonaConflict,
     PersonaStore,
     active_persona_prompt,
     render_persona_block,
@@ -167,3 +169,41 @@ def test_active_persona_prompt_returns_provenance():
         assert active_persona_prompt() == ("", None)
     finally:
         set_persona_store(None)
+
+
+def test_a_stale_revision_is_refused_instead_of_clobbering():
+    store = _make()
+    persona = _new(store)
+    stale = persona["revision"]
+
+    first = store.update(persona["id"], {"instructions": "One.", "expectedRevision": stale})
+    assert first is not None
+    assert first["revision"] != stale
+
+    with pytest.raises(PersonaConflict, match="another window"):
+        store.update(persona["id"], {"instructions": "Two.", "expectedRevision": stale})
+
+    # A fresh revision succeeds; activation also mints a new revision.
+    second = store.update(
+        persona["id"], {"instructions": "Two.", "expectedRevision": first["revision"]}
+    )
+    assert second is not None
+    active = store.activate(persona["id"])
+    assert active is not None and active["revision"] != second["revision"]
+
+
+def test_version_history_is_bounded_but_keeps_the_active_version():
+    store = _make()
+    persona = _new(store)
+    store.activate(persona["id"])
+    for index in range(MAX_VERSIONS + 5):
+        store.update(persona["id"], {"instructions": f"Revision {index}."})
+        store.activate(persona["id"])
+
+    versions = store.versions(persona["id"])
+    assert len(versions) == MAX_VERSIONS
+    newest = versions[0]["version"]
+    oldest = versions[-1]["version"]
+    assert newest == 1 + MAX_VERSIONS + 5
+    assert oldest == newest - MAX_VERSIONS + 1
+    assert store.get(persona["id"])["activeVersion"] == newest

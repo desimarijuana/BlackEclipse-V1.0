@@ -160,8 +160,11 @@ Storage is `python/harness/personas.py` on the ONE `agent-memory.db` connection:
 a current row plus append-only versions. Editing writes `draftInstructions`;
 `activate()` promotes the draft into a new immutable version and deactivates the
 previous persona (exactly one active globally); `reset` leaves no overlay;
-`restore` loads an old version into the draft; `archive` keeps history. Text is
-sanitized (role markers and code fences neutralized) and capped at write time.
+`restore` loads an old version into the draft; `archive` keeps history. Every
+write is guarded by a `revision` token (a stale save from another window is a
+409, never a silent overwrite), and history is bounded to the last 50 versions
+(the active version is always within the window). Text is sanitized (role
+markers and code fences neutralized) and capped at write time.
 The run records `persona id@version` alongside `surface`, so a later edit never
 rewrites what an earlier run saw. `GET /personas/preview` returns the effective
 prompt (base + overlay) for the operator UI.

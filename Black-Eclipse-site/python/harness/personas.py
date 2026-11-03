@@ -39,6 +39,14 @@ log = logging.getLogger("harness.personas")
 PERSONA_PROMPT_MAX = 2_000
 MAX_NAME = 80
 MAX_DESCRIPTION = 500
+#: Every activation appends a version. Keep a bounded history so a long-lived
+#: install cannot grow one row per save forever. Old rows are pruned on
+#: activation; the ACTIVE version is always within the window.
+MAX_VERSIONS = 50
+
+
+class PersonaConflict(Exception):
+    """A save was based on a revision another window already replaced."""
 
 _ROLE_RE = re.compile(r"(?im)^\s*(system|developer|assistant)\s*:")
 _BLANK_RUN_RE = re.compile(r"\n{3,}")
@@ -166,6 +174,24 @@ class PersonaStore:
         ).fetchone()
         return str(row["contentHash"]) if row else ""
 
+    def _revision(self, row: Any) -> str:
+        """A deterministic token over EVERY editable field (active + draft).
+
+        `contentHash` identifies a published version; `revision` identifies the
+        current editor state, so a stale save from another window is refused
+        instead of silently clobbering a newer draft or activation.
+        """
+        snapshot = {
+            "name": row["name"],
+            "description": row["description"],
+            "instructions": row["instructions"],
+            "draftInstructions": row["draftInstructions"],
+            "status": row["status"],
+            "activeVersion": row["activeVersion"],
+        }
+        encoded = json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return "prev_" + hashlib.sha256(encoded).hexdigest()[:16]
+
     def _payload(self, row: Any) -> dict[str, Any]:
         draft = row["draftInstructions"]
         active_version = row["activeVersion"]
@@ -181,6 +207,7 @@ class PersonaStore:
             "draftDiffers": draft is not None and draft != row["instructions"],
             "activeVersion": int(active_version) if active_version else None,
             "contentHash": self._hash_of(row["id"], active_version),
+            "revision": self._revision(row),
             "instructionChars": len(row["instructions"]),
             "createdAt": row["createdAt"],
             "updatedAt": row["updatedAt"],
@@ -206,6 +233,7 @@ class PersonaStore:
         out: list[dict[str, Any]] = []
         for row in rows:
             payload = self._payload(row)
+            draft = payload["draftInstructions"]
             out.append({
                 "id": payload["id"],
                 "name": payload["name"],
@@ -214,7 +242,7 @@ class PersonaStore:
                 "isActive": payload["isActive"],
                 "hasDraft": payload["hasDraft"],
                 "activeVersion": payload["activeVersion"],
-                "instructionChars": len(payload["instructions"]),
+                "instructionChars": len(draft if draft is not None else payload["instructions"]),
                 "createdAt": payload["createdAt"],
                 "updatedAt": payload["updatedAt"],
             })
@@ -278,6 +306,11 @@ class PersonaStore:
         ).fetchone()
         if row is None:
             return None
+        expected = raw.get("expectedRevision")
+        if expected and str(expected) != self._revision(row):
+            raise PersonaConflict(
+                "this persona changed in another window; reload it before saving"
+            )
         name = _clean_name(raw["name"]) if "name" in raw else row["name"]
         description = (
             _clean_description(raw["description"]) if "description" in raw else row["description"]
@@ -316,6 +349,13 @@ class PersonaStore:
             "instructions": text,
         }
         self._write_version(persona_id, version, snapshot)
+        # Bounded history: the active version is always kept; only versions
+        # older than the window are pruned.
+        if MAX_VERSIONS > 0 and version > MAX_VERSIONS:
+            self._db.execute(
+                "DELETE FROM PersonaVersion WHERE personaId=? AND version<=?",
+                (persona_id, version - MAX_VERSIONS),
+            )
         # Exactly one active persona, globally. Switching is a transaction; the
         # previous persona becomes a draft (never archived, never rewritten).
         self._db.execute(
@@ -430,7 +470,9 @@ def active_persona_prompt() -> tuple[str, Optional[dict[str, Any]]]:
 __all__ = [
     "MAX_DESCRIPTION",
     "MAX_NAME",
+    "MAX_VERSIONS",
     "PERSONA_PROMPT_MAX",
+    "PersonaConflict",
     "PersonaStore",
     "active_persona_prompt",
     "get_persona_store",

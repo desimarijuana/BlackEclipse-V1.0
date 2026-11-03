@@ -54,14 +54,23 @@
   cannot be changed by it. Edits stage a draft; Activate promotes it into a new
   immutable version and deactivates the previous persona (one active globally);
   Discard reverts; Reset to default removes the overlay; Restore loads a version
-  into the draft; Archive keeps history. The run records `persona id@version` on
-  `surface.persona`, so a later edit never rewrites an earlier run.
+  into the draft; Archive keeps history. Every write carries a `revision` token
+  and a stale save is a 409 (never a silent overwrite); history is bounded to
+  the last 50 versions with the active version always kept. The run records
+  `persona id@version` on `surface.persona`, so a later edit never rewrites an
+  earlier run.
   `python/harness/personas.py` + `/personas/*` router, boot wiring
   `install_persona_store`, the `eclipse-agent` append in `graph.py`, front door
   `src/lib/personas/client.ts` + `/api/personas/**`, the Settings panel, and a
   searchable `settings.persona` palette entry.
-  Tests: `python/tests/test_personas.py` (11 cases), full vitest (445 files /
-  4,254 tests) and targeted graph/API tests pass; `tsc --noEmit` clean.
+  Tests: `test_personas.py` (13 cases), `test_personas_api.py` (5 cases),
+  `test_graph.py` integration cases (persona reaches the system prompt and the
+  run record; bound tool allowlist is byte-identical with and without a persona;
+  a custom agent is untouched), full vitest (446 files / 4,259 tests), full
+  Python suite (9,452 passed, 30 skipped — vendor `site-packages` tests excluded
+  after a pywin32 COM collection crash); `tsc --noEmit` clean; production
+  `next build` passes; targeted ESLint clean (two pre-existing `settings.tsx`
+  hook warnings, no errors).
   Docs updated: `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
   `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-058), `docs/CHANGELOG.md`.
 - **feat(graph): local file nodes + bounded graph asset store (wave 0/1).**

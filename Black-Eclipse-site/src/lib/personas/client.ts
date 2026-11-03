@@ -23,6 +23,8 @@ export interface Persona extends PersonaSummary {
   draftInstructions: string | null;
   draftDiffers: boolean;
   contentHash: string;
+  /** Optimistic-concurrency token over the current editor state. */
+  revision: string;
 }
 
 export interface PersonaInput {
@@ -90,10 +92,14 @@ export async function createPersona(input: PersonaInput): Promise<Persona> {
   return data.persona;
 }
 
-export async function updatePersona(id: string, input: PersonaInput): Promise<Persona> {
+export async function updatePersona(
+  id: string,
+  input: PersonaInput,
+  expectedRevision?: string,
+): Promise<Persona> {
   const data = await request<{ persona: Persona }>(`/api/personas/${encodeURIComponent(id)}`, {
     method: 'PATCH',
-    body: JSON.stringify(input),
+    body: JSON.stringify(expectedRevision ? { ...input, expectedRevision } : input),
   });
   return data.persona;
 }

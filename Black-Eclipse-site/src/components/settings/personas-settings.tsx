@@ -148,7 +148,11 @@ export function PersonaSettingsPanel() {
     setError(null);
     setNotice(null);
     try {
-      const saved = await updatePersona(persona.id, { name, description, instructions });
+      const saved = await updatePersona(
+        persona.id,
+        { name, description, instructions },
+        persona.revision,
+      );
       setPersona(saved);
       setName(saved.name);
       setDescription(saved.description);
@@ -156,6 +160,11 @@ export function PersonaSettingsPanel() {
       await refresh();
       setNotice('Draft saved. Activate it when you are ready.');
     } catch (err) {
+      if (err instanceof PersonaApiError && err.status === 409) {
+        await open(persona.id);
+        setError(err.message);
+        return;
+      }
       setError(err instanceof PersonaApiError ? err.message : err instanceof Error ? err.message : 'Save failed');
     } finally {
       setBusy(false);
@@ -169,7 +178,11 @@ export function PersonaSettingsPanel() {
     setNotice(null);
     try {
       if (dirty) {
-        await updatePersona(persona.id, { name, description, instructions });
+        await updatePersona(
+          persona.id,
+          { name, description, instructions },
+          persona.revision,
+        );
       }
       const saved = await activatePersona(persona.id);
       setPersona(saved);
@@ -180,6 +193,11 @@ export function PersonaSettingsPanel() {
       await refresh();
       setNotice(`${saved.name} is active. New runs use it; earlier runs keep their version.`);
     } catch (err) {
+      if (err instanceof PersonaApiError && err.status === 409) {
+        await open(persona.id);
+        setError(err.message);
+        return;
+      }
       setError(err instanceof PersonaApiError ? err.message : err instanceof Error ? err.message : 'Activation failed');
     } finally {
       setBusy(false);
