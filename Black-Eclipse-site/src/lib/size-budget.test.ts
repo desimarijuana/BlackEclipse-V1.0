@@ -190,8 +190,11 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1584→1589 for the Strategy Studio keep-alive mount (dynamic import
   // + mount block); the page itself lives in
   // `components/screens/strategy-studio/strategy-studio-screen.tsx`.
+  // Re-pinned 1589→1599 for the Accounting keep-alive mount (the same
+  // dynamic-import + mount pattern; the page lives in
+  // `components/screens/accounting/accounting-screen.tsx`).
   // May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1589,
+  "src/components/screens/stock-chat.tsx": 1599,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

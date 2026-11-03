@@ -53,6 +53,7 @@ export const APP_NAV_SECTIONS: readonly AppNavManifestSection[] = [
   { id: 'memory', label: 'Eclipse Memory', group: 'agentic' },
   { id: 'artifacts', label: 'Artifacts', group: 'agentic' },
   { id: 'tables', label: 'Tables', group: 'graph' },
+  { id: 'accounting', label: 'Accounting', group: 'terminal' },
 ];
 
 export const APP_NAV_IDS: readonly AppTab[] = APP_NAV_SECTIONS.map((section) => section.id);

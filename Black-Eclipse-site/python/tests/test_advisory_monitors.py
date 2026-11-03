@@ -17,12 +17,15 @@ def test_catalogue_is_sound():
     assert monitor_issues() == []
 
 
-def test_the_four_monitors_are_present():
+def test_the_monitor_catalogue_is_present():
+    # Four portfolio shapes + three ledger shapes. The set is pinned so adding a
+    # monitor is a deliberate act, not a side effect.
     assert set(MONITORS) == {
         "position_weight_breach", "tax_loss_harvest", "cash_buffer_watch",
         "concentration_watch",
+        "ledger_suspense_watch", "ledger_close_blocked", "ledger_receivables_watch",
     }
-    assert len(list_monitors()) == 4
+    assert len(list_monitors()) == 7
 
 
 def test_build_definition_produces_an_off_condition_automation():

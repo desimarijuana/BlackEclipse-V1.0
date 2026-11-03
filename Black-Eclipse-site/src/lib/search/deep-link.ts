@@ -26,6 +26,7 @@ const ALL_TABS: Record<AppTab, true> = {
   economics: true,
   portfolio: true,
   journal: true,
+  accounting: true,
   settings: true,
   alerts: true,
   dashboard: true,

@@ -79,6 +79,47 @@ MONITORS: dict[str, MonitorSpec] = {
             "Explain the concentration risk and propose (do not execute) a diversification path."
         ),
     ),
+    # ── Ledger monitors ────────────────────────────────────────────────────
+    # A book of record needs unattended eyes on the two things that quietly ruin
+    # a close: money parked in suspense and a period that cannot be closed.
+    "ledger_suspense_watch": MonitorSpec(
+        id="ledger_suspense_watch",
+        label="Suspense balance watch",
+        description="Alert when a ledger's suspense account carries a balance.",
+        params=("ledger_id", "threshold"),
+        condition="ledger.{ledger_id}.suspense > {threshold}",
+        objective=(
+            "Ledger {ledger_id} has money parked in suspense above {threshold}. Read the "
+            "unmatched rows with `ledger_list_entries` (account 9999), propose categories "
+            "for them, and state that a non-zero suspense balance blocks the period close. "
+            "Do not post a category you cannot justify from the row's own description."
+        ),
+    ),
+    "ledger_close_blocked": MonitorSpec(
+        id="ledger_close_blocked",
+        label="Period close blocked",
+        description="Alert when a ledger's current period has a blocking close finding.",
+        params=("ledger_id",),
+        condition="ledger.{ledger_id}.blockers > 0",
+        objective=(
+            "Ledger {ledger_id}'s current period has at least one blocking finding. Run "
+            "`ledger_close_preview`, name each blocker with its account or entry, and "
+            "propose the smallest correction that clears it. Never claim the period is "
+            "closed until `ledger_close_period` succeeds."
+        ),
+    ),
+    "ledger_receivables_watch": MonitorSpec(
+        id="ledger_receivables_watch",
+        label="Receivables outstanding watch",
+        description="Alert when open receivables exceed a threshold.",
+        params=("ledger_id", "threshold"),
+        condition="ledger.{ledger_id}.open_ar > {threshold}",
+        objective=(
+            "Ledger {ledger_id} has more than {threshold} of open receivables. Run "
+            "`ledger_aging` (kind AR) and report which customers are overdue and by how "
+            "long. Do not send anything on the user's behalf."
+        ),
+    ),
 }
 
 

@@ -148,6 +148,10 @@ const MlLabScreen = dynamic(
   () => import('@/components/screens/ml-lab/ml-lab-screen').then((m) => m.MlLabScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
+const AccountingScreen = dynamic(
+  () => import('@/components/screens/accounting/accounting-screen').then((m) => m.AccountingScreen),
+  { ssr: false, loading: () => <ScreenSkeleton /> }
+);
 const OverviewScreen = dynamic(
   () => import('@/components/screens/overview/overview-screen').then((m) => m.OverviewScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
@@ -1462,6 +1466,12 @@ function StockChatContent() {
           {visited.has('ml-lab') && (
             <div className={cn('w-full h-full', activeTab === 'ml-lab' ? '' : 'hidden')}>
               <MlLabScreen />
+            </div>
+          )}
+
+          {visited.has('accounting') && (
+            <div className={cn('w-full h-full', activeTab === 'accounting' ? '' : 'hidden')}>
+              <AccountingScreen />
             </div>
           )}
 
