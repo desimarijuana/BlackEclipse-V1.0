@@ -1,7 +1,7 @@
 {
-  "digest": "3c1ed4ab9309b6a6",
+  "digest": "b72c8c14252b856b",
   "manifestVersion": "1",
-  "toolCount": 983,
+  "toolCount": 988,
   "tools": [
     {
       "deprecated": false,
@@ -17913,7 +17913,7 @@
     },
     {
       "deprecated": false,
-      "description": "Build and persist an immutable ML dataset version from market data.",
+      "description": "Build and persist an immutable ML dataset version. source='market' resolves symbols through the market gateway; source='records' trains on operator-supplied rows (featureNames are the numeric columns, target.kind='column' names the label column and its task).",
       "effect": null,
       "inputSchema": {
         "properties": {
@@ -17928,6 +17928,9 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "idColumn": {
+            "type": "string"
           },
           "interval": {
             "type": "string"
@@ -17944,6 +17947,19 @@
           "owner": {
             "type": "string"
           },
+          "records": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "source": {
+            "enum": [
+              "market",
+              "records"
+            ],
+            "type": "string"
+          },
           "start": {
             "type": "string"
           },
@@ -17955,10 +17971,12 @@
           },
           "target": {
             "type": "object"
+          },
+          "timeColumn": {
+            "type": "string"
           }
         },
         "required": [
-          "symbols",
           "featureNames"
         ],
         "type": "object"
@@ -17985,6 +18003,86 @@
         "type": "object"
       },
       "name": "ml_cancel_job",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Train several model families on ONE dataset version with the SAME split spec and seed, then report a comparison table and an honest verdict (no winner when the margin is inside fold noise; no ranking for an unmeasured metric or a task without ground truth).",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "datasetId": {
+            "type": "string"
+          },
+          "datasetVersion": {
+            "type": "string"
+          },
+          "families": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "hyperparameters": {
+            "type": "object"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "scale": {
+            "type": "boolean"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "selection": {
+            "type": "object"
+          },
+          "split": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "datasetId",
+          "datasetVersion",
+          "families"
+        ],
+        "type": "object"
+      },
+      "name": "ml_compare_models",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Register an ensemble of already-trained models on the SAME dataset version: their out-of-fold predictions are aligned by row and blended (mean of probabilities, or a majority vote). Nothing is re-fitted, and members validated on different folds are refused rather than averaged.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "members": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "members"
+        ],
+        "type": "object"
+      },
+      "name": "ml_create_ensemble",
       "permission": "read",
       "replacement": null,
       "risk": "low",
@@ -18134,12 +18232,15 @@
     },
     {
       "deprecated": false,
-      "description": "Run inference with a registered model version.",
+      "description": "Compare a registered model's training dataset with a later dataset version: per-feature PSI + KS, a verdict (stable/watch/drift), and the features that moved. Never imputes and never calls the model.",
       "effect": null,
       "inputSchema": {
         "properties": {
-          "features": {
-            "type": "array"
+          "datasetId": {
+            "type": "string"
+          },
+          "datasetVersion": {
+            "type": "string"
           },
           "modelId": {
             "type": "string"
@@ -18150,6 +18251,89 @@
         },
         "required": [
           "modelId",
+          "datasetId",
+          "datasetVersion"
+        ],
+        "type": "object"
+      },
+      "name": "ml_model_drift",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Plan (never train) a model recipe for a dataset version or an inline data profile: family, hyperparameters, validation design, feature selection, with the reason for each choice and any warnings. Returns a ready-to-run experiment body.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "classCount": {
+            "type": "integer"
+          },
+          "datasetId": {
+            "type": "string"
+          },
+          "datasetVersion": {
+            "type": "string"
+          },
+          "features": {
+            "type": "integer"
+          },
+          "preference": {
+            "enum": [
+              "balanced",
+              "interpretable",
+              "accurate",
+              "deep"
+            ],
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "task": {
+            "enum": [
+              "classification",
+              "regression",
+              "clustering",
+              "anomaly"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "name": "ml_plan_model",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Run inference with a registered model — by id OR by the model's name. Rows are feature matrices in the dataset's selected feature order.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "features": {
+            "type": "array"
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "modelName": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
           "features"
         ],
         "type": "object"
@@ -18217,6 +18401,14 @@
           "background": {
             "type": "boolean"
           },
+          "calibration": {
+            "enum": [
+              "none",
+              "platt",
+              "isotonic"
+            ],
+            "type": "string"
+          },
           "datasetId": {
             "type": "string"
           },
@@ -18259,6 +18451,67 @@
         "type": "object"
       },
       "name": "ml_run_experiment",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Grid/random hyperparameter search over ONE family, every trial validated on the same folds. Returns the trials, a ranking and the best config, plus the caveat that the winner was selected on the same folds (optimistic).",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "calibration": {
+            "enum": [
+              "none",
+              "platt",
+              "isotonic"
+            ],
+            "type": "string"
+          },
+          "datasetId": {
+            "type": "string"
+          },
+          "datasetVersion": {
+            "type": "string"
+          },
+          "grid": {
+            "type": "object"
+          },
+          "maxSeconds": {
+            "type": "number"
+          },
+          "maxTrials": {
+            "type": "integer"
+          },
+          "modelFamily": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "scale": {
+            "type": "boolean"
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "selection": {
+            "type": "object"
+          },
+          "split": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "datasetId",
+          "datasetVersion",
+          "modelFamily"
+        ],
+        "type": "object"
+      },
+      "name": "ml_search_hyperparameters",
       "permission": "read",
       "replacement": null,
       "risk": "low",

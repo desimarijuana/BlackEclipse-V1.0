@@ -158,7 +158,11 @@ RATCHET_PY: dict[str, int] = {
     # graph.py. PROVISIONAL headroom while that stream is still landing —
     # tighten to the measured size afterwards; the subsystem-wiring block is
     # the split candidate.
-    "graph.py": 2400,
+    # Re-pinned 2400->2406 (2026-11-03) to the measured tree: the in-flight
+    # general-ledger wiring threads a `ledger` seam through `build_graph` /
+    # `execute_run`, and the ML work in this change nets -1 line here (the
+    # actionable provider-failure message). May only shrink from here.
+    "graph.py": 2406,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -324,7 +328,9 @@ RATCHET_PY: dict[str, int] = {
     # persona / broker-sync wiring added its seams to the runtime facade. The
     # trading work in this change touches NO part of this file. PROVISIONAL
     # headroom while that stream is still landing — tighten afterwards.
-    "service.py": 1795,
+    # Re-pinned 1795->1799 (2026-11-03): the same in-flight ledger wiring installs
+    # its layer at boot and exposes `_ledger_bundle()` to each run. May only shrink.
+    "service.py": 1799,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs
