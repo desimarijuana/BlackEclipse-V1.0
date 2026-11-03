@@ -16,7 +16,9 @@ import numpy as np
 
 from .datasets import build_dataset
 from .config import get_ml_config
-from .models import DatasetSpec, ExperimentConfig, MLError, SplitSpec, TargetSpec
+from .models import (
+    DatasetSpec, ExperimentConfig, MODEL_UNAVAILABLE, MLError, SplitSpec, TargetSpec,
+)
 from .store import MLStore
 from .training import run_experiment as _run_experiment
 from ..stats.base import INVALID_INPUT
@@ -339,7 +341,9 @@ async def submit_experiment_background(payload: dict[str, Any], *, owner: Option
     return await submit_ml_experiment(payload, owner=owner)
 
 
-async def compare_models(payload: dict[str, Any], *, owner: Optional[str] = None) -> dict[str, Any]:
+async def compare_models(payload: dict[str, Any], *, owner: Optional[str] = None,
+                          cancel_event: Any = None,
+                          progress: Any = None) -> dict[str, Any]:
     """Train several families on ONE dataset version with the SAME folds, then compare.
 
     Every family sees the caller's exact split spec, seed and selection config, so
@@ -371,18 +375,24 @@ async def compare_models(payload: dict[str, Any], *, owner: Optional[str] = None
     base = {key: payload.get(key) for key in
             ("datasetId", "datasetVersion", "selection", "split", "seed", "scale",
              "featureNames")}
-    per_family = payload.get("hyperparameters") or {}
     runs: list[dict[str, Any]] = []
-    for family in families:
+    total = len(families)
+    for position, family in enumerate(families):
+        if cancel_event is not None and cancel_event.is_set():
+            raise MLError("CANCELLED", "the comparison was cancelled", 409)
+        if progress is not None:
+            progress(position / max(1, total), f"{family} ({position + 1}/{total})")
         body = {
             **base,
             "modelFamily": family,
             "title": f"arena: {family}",
             "task": task,
-            "hyperparameters": (per_family.get(family, {})
-                                if isinstance(per_family, dict) else {}),
+            "hyperparameters": (((payload.get("hyperparameters") or {}).get(family, {})
+                                 if isinstance(payload.get("hyperparameters"), dict) else {})),
         }
-        runs.append(await run_experiment_job(body, owner=owner))
+        runs.append(await run_experiment_job(body, owner=owner,
+                                             cancel_event=cancel_event,
+                                             progress=None))
 
     comparison = build_comparison(runs, task)
     return {
@@ -468,7 +478,9 @@ def export_dataset(dataset_id: str, version: str, *, fmt: str = "csv",
 
 
 async def search_hyperparameters(payload: dict[str, Any], *,
-                                  owner: Optional[str] = None) -> dict[str, Any]:
+                                  owner: Optional[str] = None,
+                                  cancel_event: Any = None,
+                                  progress: Any = None) -> dict[str, Any]:
     """Run N configurations of ONE family over a declared space, on the same folds.
 
     Every trial is a normal persisted run. The ranking reuses the arena's rule, so
@@ -510,12 +522,17 @@ async def search_hyperparameters(payload: dict[str, Any], *,
     trials: list[dict[str, Any]] = []
     stopped_reason = "exhausted"
     for index, hyperparameters in enumerate(configs):
+        if cancel_event is not None and cancel_event.is_set():
+            raise MLError("CANCELLED", "the search was cancelled", 409)
         if time.monotonic() - started > max_seconds:
             stopped_reason = "maxSeconds"
             break
+        if progress is not None:
+            progress(index / max(1, len(configs)), f"trial {index + 1}/{len(configs)}")
         body = {**base, "modelFamily": family, "hyperparameters": hyperparameters,
                 "title": f"search {family} #{index + 1}", "task": task}
-        outcome = await run_experiment_job(body, owner=owner)
+        outcome = await run_experiment_job(body, owner=owner,
+                                           cancel_event=cancel_event, progress=None)
         outcomes.append(outcome)
         trials.append({
             "index": index, "hyperparameters": hyperparameters,
@@ -553,6 +570,107 @@ async def search_hyperparameters(payload: dict[str, Any], *,
             "stoppedReason": stopped_reason,
             "elapsedMs": int((time.monotonic() - started) * 1000),
             "note": note}
+
+
+async def submit_compare_background(payload: dict[str, Any], *, owner: Optional[str] = None) -> dict[str, Any]:
+    """Submit an arena comparison as a durable Fabric job (poll with get_job)."""
+    from .fabric import submit_ml_composite  # noqa: PLC0415
+
+    return await submit_ml_composite(payload, kind="compare", owner=owner)
+
+
+async def submit_search_background(payload: dict[str, Any], *, owner: Optional[str] = None) -> dict[str, Any]:
+    """Submit a hyperparameter search as a durable Fabric job (poll with get_job)."""
+    from .fabric import submit_ml_composite  # noqa: PLC0415
+
+    return await submit_ml_composite(payload, kind="search", owner=owner)
+
+
+def build_training_corpus(dataset_id: str, version: str, *,
+                           limit: int = 2000) -> dict[str, Any]:
+    """A distillation corpus (chat JSONL) from one dataset version.
+
+    Behaviour distillation of the decision the dataset encodes — not general
+    instruction data, and the note says so. Incomplete rows are skipped, never
+    filled.
+    """
+    from .distill import MAX_EXAMPLES, build_examples, corpus_hash, to_jsonl  # noqa: PLC0415
+
+    store = _require_store()
+    record = store.get_dataset_version(dataset_id, version)
+    if record is None:
+        raise MLError(INVALID_INPUT, f"dataset {dataset_id}@{version} was not found", 404)
+    arrays = deserialize_arrays(record["artifact"]["content"]["arrays"])
+    manifest = record.get("manifest") or {}
+    cap = max(1, min(int(limit), MAX_EXAMPLES))
+    examples = build_examples(arrays, manifest, limit=cap)
+    if not examples:
+        raise MLError("INSUFFICIENT_DATA",
+                      "no complete rows to distil (features or labels are missing)", 422)
+    return {
+        "datasetId": dataset_id, "version": version,
+        "format": "jsonl", "rows": len(examples),
+        "rowsConsidered": int(min(cap, len(arrays["X"]))),
+        "hash": corpus_hash(examples), "content": to_jsonl(examples),
+        "note": ("a behaviour-distillation corpus (features -> the dataset's own label), "
+                 "not general instruction data; evaluate any fine-tune on held-out data"),
+    }
+
+
+def fine_tune_adapter(payload: dict[str, Any]) -> dict[str, Any]:
+    """Materialise the corpus + recipe, and train only if the optional stack exists."""
+    import os  # noqa: PLC0415
+
+    from .distill import build_examples, to_jsonl  # noqa: PLC0415
+    from .llm import adapter_support, train_adapter, write_recipe  # noqa: PLC0415
+
+    dataset_id = str(payload.get("datasetId") or "")
+    version = str(payload.get("datasetVersion") or "")
+    name = str(payload.get("name") or "adapter")
+    base_model = str(payload.get("baseModel") or "Qwen/Qwen2.5-0.5B-Instruct")
+    store = _require_store()
+    record = store.get_dataset_version(dataset_id, version)
+    if record is None:
+        raise MLError(INVALID_INPUT, f"dataset {dataset_id}@{version} was not found", 404)
+    arrays = deserialize_arrays(record["artifact"]["content"]["arrays"])
+    manifest = record.get("manifest") or {}
+    examples = build_examples(arrays, manifest, limit=int(payload.get("limit", 2000)))
+    if not examples:
+        raise MLError("INSUFFICIENT_DATA", "no complete rows to distil", 422)
+
+    slug = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in name.lower())[:40] or "adapter"
+    out_dir = os.path.join(os.getcwd(), ".black-eclipse", "ml", "adapters", slug)
+    os.makedirs(out_dir, exist_ok=True)
+    corpus_path = os.path.join(out_dir, "corpus.jsonl")
+    with open(corpus_path, "w", encoding="utf-8") as handle:
+        handle.write(to_jsonl(examples))
+
+    from .distill import corpus_hash  # noqa: PLC0415
+
+    recipe = write_recipe(corpus_path, out_dir, base_model=base_model, manifest={
+        "dataset": f"{dataset_id}@{version}", "rows": len(examples),
+        "corpusHash": corpus_hash(examples), "name": name,
+    })
+    available, reason = adapter_support()
+    trained = None
+    if payload.get("train"):
+        if not available:
+            raise MLError(
+                MODEL_UNAVAILABLE,
+                f"fine-tuning needs the optional stack ({reason}); the corpus and recipe "
+                f"are written at {out_dir} — install the deps or run train_lora.py there",
+                503,
+            )
+        trained = train_adapter(corpus_path, out_dir, base_model=base_model,
+                                epochs=int(payload.get("epochs", 1)))
+    return {
+        "name": name, "baseModel": base_model, "rows": len(examples),
+        "corpus": corpus_path, "recipe": recipe,
+        "depsAvailable": available, "depsReason": reason,
+        "trained": trained,
+        "serveHint": ("serve the adapter with vLLM or Ollama (an OpenAI-compatible "
+                      "endpoint) and select it in Settings > AI / LLM"),
+    }
 
 
 def get_job(job_id: str) -> Optional[dict[str, Any]]:
@@ -616,6 +734,13 @@ def register_from_run(run_id: str, *, name: str, owner: Optional[str] = None,
         owner=owner, model_id=model_id)
     store.audit(action="model.register", subject_type="model", subject_id=reg["modelId"],
                 actor=owner, detail={"version": reg["version"], "runId": run_id})
+    # A registered model becomes a first-class chat capability immediately.
+    try:
+        from .tools import register_model_tool  # noqa: PLC0415
+
+        register_model_tool(reg["modelId"], name, result.get("task"))
+    except Exception:  # noqa: BLE001 - never fail a registration over a tool name
+        pass
     return reg
 
 
@@ -846,6 +971,12 @@ def create_ensemble(payload: dict[str, Any], *, owner: Optional[str] = None) -> 
         deps={"ensemble": "mean"}, owner=owner)
     store.audit(action="ensemble.create", subject_type="model", subject_id=reg["modelId"],
                 actor=owner, detail={"members": len(member_refs), "task": task})
+    try:
+        from .tools import register_model_tool  # noqa: PLC0415
+
+        register_model_tool(reg["modelId"], name, task)
+    except Exception:  # noqa: BLE001 - never fail a registration over a tool name
+        pass
     return {"modelId": reg["modelId"], "version": reg["version"], "name": name,
             "task": task, "members": member_refs, "rows": len(rows),
             "metrics": metrics, "note": (

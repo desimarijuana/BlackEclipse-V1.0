@@ -422,6 +422,10 @@ class ToolDefinition:
     # A semver string for the tool contract. Advisory: it identifies the tool's
     # own version for operators/observability.
     version: str = "1.0.0"
+    # A tool registered AFTER boot from persisted state (a per-model predictor).
+    # Excluded from the portable manifest: the manifest must be a function of the
+    # CODE, not of which models happen to exist in the database.
+    dynamic: bool = False
     # When True, the registry warns ONCE per run when this tool is called, naming
     # its replacement, and still executes it (deprecation is not a hard block).
     deprecated: bool = False

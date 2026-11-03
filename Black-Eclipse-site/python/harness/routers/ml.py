@@ -208,6 +208,8 @@ class CompareBody(BaseModel):
     seed: int = 42
     scale: bool = True
     owner: Optional[str] = None
+    # Run on the Execution Fabric worker instead of inside the request.
+    background: bool = False
 
 
 @router.post("/experiments")
@@ -235,12 +237,16 @@ class SearchBody(BaseModel):
     scale: bool = True
     calibration: str = "none"
     owner: Optional[str] = None
+    background: bool = False
 
 
 @router.post("/compare")
 async def ml_compare(body: CompareBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
     """Train several families on one dataset with one validation design, then compare."""
     try:
+        if body.background:
+            job = await S.submit_compare_background(body.model_dump(), owner=body.owner)
+            return {"background": True, "job": job}
         return await S.compare_models(body.model_dump(), owner=body.owner)
     except Exception as exc:  # noqa: BLE001
         raise _http(exc) from exc
@@ -250,6 +256,9 @@ async def ml_compare(body: CompareBody, _: bool = Depends(require_operator)) -> 
 async def ml_search(body: SearchBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
     """Grid/random hyperparameter search over one family, on the same folds."""
     try:
+        if body.background:
+            job = await S.submit_search_background(body.model_dump(), owner=body.owner)
+            return {"background": True, "job": job}
         return await S.search_hyperparameters(body.model_dump(), owner=body.owner)
     except Exception as exc:  # noqa: BLE001
         raise _http(exc) from exc

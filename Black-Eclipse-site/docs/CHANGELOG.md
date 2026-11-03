@@ -1,6 +1,22 @@
 # Change Log
 
 ## 2026-11-03
+- **feat(ml-lab): scale, lifecycle and the generative path.**
+  The arena and the hyperparameter search now run on the Fabric `ml` worker
+  (`background: true`), so a big comparison can no longer hit the proxy timeout —
+  same worker, timeout, cancellation and progress as training. A registered model
+  becomes a first-class chat capability: `ml_model_<slug>_predict` is registered on
+  the live registry and appended to the default agent's allowlist (existing models
+  re-register at boot), marked `dynamic` so the portable manifest stays a function
+  of the code rather than of the database. `ml_transition_model` exposes the
+  governed lifecycle (`evaluate → approved_research → archived`) with an approval
+  event and audit row per transition. `ml_build_training_corpus` distils a dataset
+  version into instruction/answer JSONL (incomplete rows skipped, never filled) and
+  `ml_finetune_adapter` writes a LoRA corpus + runnable `train_lora.py` + README +
+  manifest under `.black-eclipse/ml/adapters/`, training only when
+  torch/transformers/peft are installed and otherwise reporting MODEL_UNAVAILABLE.
+  Tests: `test_ml_chat_capabilities.py` (9) and two Fabric arena/search cases.
+  Docs updated: `docs/ml-lab/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
 - **fix(journal): R-multiples are unit-correct for FX/CFD, and the trade tables
   show the time.** A stop 4.96 points away on a 0.1-lot XAUUSD trade was treated
   as $0.50 of risk instead of $49.60, so the first broker trades to carry a stop
