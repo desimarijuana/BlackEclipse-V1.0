@@ -1,7 +1,7 @@
 {
-  "digest": "3869443441c376df",
+  "digest": "c50c646a38850804",
   "manifestVersion": "1",
-  "toolCount": 989,
+  "toolCount": 1019,
   "tools": [
     {
       "deprecated": false,
@@ -17161,6 +17161,1006 @@
         "type": "object"
       },
       "name": "learning_review_list",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Receivable (`kind` AR) or payable (`kind` AP) aging: current, 1-30, 31-60, 61-90 and 90+ buckets by party, derived from open documents and reconciled against the control account.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "as_of": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "AR",
+              "AP"
+            ],
+            "type": "string"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_aging",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "The ledger's append-only audit trail.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_audit_log",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Balance sheet as of a date: assets, liabilities, equity (including current earnings), with the accounting-equation check.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "as_of": {
+            "type": "string"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_balance_sheet",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Cash flow for a date range, classified operating/investing/financing from the counter account. Movement it cannot classify is reported in an explicit `unclassified` bucket, never guessed.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "end": {
+            "type": "string"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_cash_flow",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Run the period close checklist (trial balance, suspense, cash, imports, schedules, reconciliation, FX, duplicates) with blocker/warning severities. Records the run; changes no posting.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "fiscal_year": {
+            "type": "integer"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "period_id": {
+            "type": "string"
+          },
+          "period_no": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_close_preview",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Consolidate a group: sum member account nets (scaled by ownership and a supplied rate per foreign currency), eliminate intercompany pairs by subtype, and produce consolidated balance sheet + P&L with checks. An unmatched intercompany balance is reported, never force-balanced.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "as_of": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          },
+          "rates": {
+            "description": "currency → rate, for members not in the group currency.",
+            "type": "object"
+          },
+          "start": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_consolidate",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "One invoice/bill with its allocations and balance.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id",
+          "document_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_document_get",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List invoices/bills with total, paid and outstanding amounts.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "INVOICE",
+              "BILL"
+            ],
+            "type": "string"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "party_id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "POSTED",
+              "PARTIALLY_PAID",
+              "PAID",
+              "VOID"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_document_list",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Export a ledger as `journal_csv`, `trial_balance_csv`, `json` or `xbrl`. The XBRL instance is well formed but NOT taxonomy-conformant (no IFRS/GAAP mapping); SAF-T is refused because its schema is jurisdiction-specific.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "end": {
+            "type": "string"
+          },
+          "format": {
+            "enum": [
+              "journal_csv",
+              "trial_balance_csv",
+              "json",
+              "xbrl"
+            ],
+            "type": "string"
+          },
+          "ledger_id": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "start": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id",
+          "format"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_export",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read a ledger: its chart of accounts, periods and summary.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_get",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "One close run with its findings and checks.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id",
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_get_close_run",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read one journal entry with all of its lines.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "entry_id": {
+            "type": "string"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id",
+          "entry_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_get_entry",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "One reconciliation run with every item.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id",
+          "run_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_get_reconciliation",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List entity groups and their members.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "owner_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "ledger_group_list",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Parse a bank/CSV/OFX/QIF statement for one cash account, categorise each row with the ledger's rules, and show what WOULD be posted. Writes nothing. Rows already posted are reported as duplicates; unmatched rows go to suspense.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "account_code": {
+            "description": "The cash/bank account the statement belongs to.",
+            "type": "string"
+          },
+          "content": {
+            "description": "The raw statement text.",
+            "type": "string"
+          },
+          "format": {
+            "enum": [
+              "csv",
+              "ofx",
+              "qif"
+            ],
+            "type": "string"
+          },
+          "fx_rate": {
+            "description": "Required when the statement currency is not the ledger's base currency.",
+            "type": "string"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "mapping": {
+            "description": "CSV column mapping. Declare the date and amount columns; the format and date pattern are declared, never guessed.",
+            "properties": {
+              "amount_column": {
+                "description": "Signed amount (single column).",
+                "type": "string"
+              },
+              "balance_column": {
+                "type": "string"
+              },
+              "credit_column": {
+                "description": "Money in (positive magnitude).",
+                "type": "string"
+              },
+              "currency_column": {
+                "type": "string"
+              },
+              "date_column": {
+                "type": "string"
+              },
+              "date_format": {
+                "description": "strftime pattern, e.g. %d/%m/%Y.",
+                "type": "string"
+              },
+              "debit_column": {
+                "description": "Money out (positive magnitude).",
+                "type": "string"
+              },
+              "decimal_separator": {
+                "enum": [
+                  ".",
+                  ","
+                ],
+                "type": "string"
+              },
+              "default_currency": {
+                "type": "string"
+              },
+              "delimiter": {
+                "type": "string"
+              },
+              "description_columns": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "skip_rows": {
+                "type": "integer"
+              },
+              "thousands_separator": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "date_column"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "ledger_id",
+          "account_code",
+          "content"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_import_preview",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Income statement (revenue, cost of sales, gross profit, operating expenses, depreciation, net income) for a date range.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "end": {
+            "type": "string"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_income_statement",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List accounting ledgers (books) for the current user.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "owner_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "ledger_list",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List the chart of accounts for a ledger.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "include_inactive": {
+            "type": "boolean"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_list_accounts",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Saved close evaluations, newest first.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_list_close_runs",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List journal entries, optionally filtered by date range and account code.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "account_code": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "start": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_list_entries",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Import batches for a ledger, newest first.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_list_imports",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List fiscal periods and their OPEN/CLOSED/LOCKED status.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_list_periods",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Saved reconciliation runs, newest first.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_list_reconciliations",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List customers and vendors.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "active_only": {
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "CUSTOMER",
+              "VENDOR"
+            ],
+            "type": "string"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_party_list",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Reconcile a statement against the ledger for one cash account: per-row MATCHED/MISMATCH/MISSING/UNKNOWN plus a balance check. Supply `statement_balance` to prove the balance; without it the run is INCOMPLETE. Never mutates the journal.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "account_code": {
+            "description": "The cash/bank account the statement belongs to.",
+            "type": "string"
+          },
+          "content": {
+            "description": "The raw statement text.",
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "format": {
+            "enum": [
+              "csv",
+              "ofx",
+              "qif"
+            ],
+            "type": "string"
+          },
+          "fx_rate": {
+            "description": "Required when the statement currency is not the ledger's base currency.",
+            "type": "string"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "mapping": {
+            "description": "CSV column mapping. Declare the date and amount columns; the format and date pattern are declared, never guessed.",
+            "properties": {
+              "amount_column": {
+                "description": "Signed amount (single column).",
+                "type": "string"
+              },
+              "balance_column": {
+                "type": "string"
+              },
+              "credit_column": {
+                "description": "Money in (positive magnitude).",
+                "type": "string"
+              },
+              "currency_column": {
+                "type": "string"
+              },
+              "date_column": {
+                "type": "string"
+              },
+              "date_format": {
+                "description": "strftime pattern, e.g. %d/%m/%Y.",
+                "type": "string"
+              },
+              "debit_column": {
+                "description": "Money out (positive magnitude).",
+                "type": "string"
+              },
+              "decimal_separator": {
+                "enum": [
+                  ".",
+                  ","
+                ],
+                "type": "string"
+              },
+              "default_currency": {
+                "type": "string"
+              },
+              "delimiter": {
+                "type": "string"
+              },
+              "description_columns": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "skip_rows": {
+                "type": "integer"
+              },
+              "thousands_separator": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "date_column"
+            ],
+            "type": "object"
+          },
+          "start": {
+            "type": "string"
+          },
+          "statement_balance": {
+            "type": "string"
+          },
+          "tolerance": {
+            "type": "string"
+          },
+          "window_days": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ledger_id",
+          "account_code",
+          "content"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_reconcile_statement",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Show the period-end FX revaluation for foreign-currency accounts at supplied rates. An account with no rate is reported as RATE_REQUIRED and skipped. Writes nothing.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "as_of": {
+            "type": "string"
+          },
+          "gain_account": {
+            "type": "string"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "loss_account": {
+            "type": "string"
+          },
+          "rates": {
+            "description": "currency → rate, e.g. {\"EUR\":\"1.09\"}",
+            "type": "object"
+          }
+        },
+        "required": [
+          "ledger_id",
+          "as_of",
+          "rates",
+          "gain_account",
+          "loss_account"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_revalue_preview",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Categorisation rules in evaluation order.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "active_only": {
+            "type": "boolean"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_rule_list",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Depreciation/amortisation schedules and their progress.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "active_only": {
+            "type": "boolean"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_schedule_list",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Configured tax codes.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "active_only": {
+            "type": "boolean"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_tax_code_list",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Trial balance (opening + movement + closing) derived from postings, with balance checks.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "as_of": {
+            "type": "string"
+          },
+          "include_zero": {
+            "type": "boolean"
+          },
+          "ledger_id": {
+            "description": "Ledger id.",
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ],
+        "type": "object"
+      },
+      "name": "ledger_trial_balance",
       "permission": "read",
       "replacement": null,
       "risk": "low",
