@@ -29,6 +29,8 @@ export interface ReplayTrade {
   entryTime: string;
   exitTime: string;
   rMultiple: number;
+  /** False when no stop was captured (R is unavailable, not zero). */
+  hasR?: boolean;
   mfe: number | null;
   mae: number | null;
 }
@@ -127,7 +129,7 @@ export function TradeReplayChart({ series, trade, height = 320 }: TradeReplayCha
       <div className="mb-2 flex flex-wrap items-center gap-3">
         <span className="font-serif text-sm font-semibold text-foreground">{trade.symbol}</span>
         <span className={trade.direction === 'LONG' ? 'text-emerald-400' : 'text-rose-400'}>{trade.direction}</span>
-        <span className="font-mono text-[10px] text-muted-foreground">R: <b className={trade.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{fmtR(trade.rMultiple)}</b></span>
+        <span className="font-mono text-[10px] text-muted-foreground">R: <b className={trade.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{trade.hasR === false ? 'UNAVAILABLE' : fmtR(trade.rMultiple)}</b></span>
         {trade.mfe != null && <span className="font-mono text-[10px] text-muted-foreground">MFE: <b className="text-emerald-400">{fmtR(trade.mfe)}</b></span>}
         {trade.mae != null && <span className="font-mono text-[10px] text-muted-foreground">MAE: <b className="text-rose-400">{fmtR(trade.mae)}</b></span>}
       </div>

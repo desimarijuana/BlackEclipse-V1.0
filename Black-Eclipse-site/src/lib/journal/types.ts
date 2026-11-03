@@ -86,6 +86,8 @@ export interface DayAggregate {
   netR: number;
   bestR: number;
   worstR: number;
+  /** False when no trade that day carried an R basis (R shows as unavailable). */
+  rAvailable: boolean;
   discipline: number | null;
 }
 
@@ -111,6 +113,8 @@ export interface PerformanceStats {
   averageWin: number;
   averageLoss: number;
   netPnl: number;
+  /** True when at least one closed trade carries a stop-derived R basis. */
+  rAvailable: boolean;
   netR: number;
   expectancy: number;
   profitFactor: number;
@@ -154,7 +158,7 @@ export interface EquityPoint {
   drawdown: number; // drawdown from peak in R
 }
 
-/** Equity in account currency (derived from R × risk-per-trade). */
+/** Equity in account currency (cumulative realized P&L). */
 export interface CurrencyEquityPoint {
   date: string;
   equity: number; // running balance in account currency

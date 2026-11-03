@@ -9,7 +9,7 @@ import { computeJournalAnalytics } from "@/lib/journal/analytics";
 import { buildWeeklyReview } from "@/lib/journal/analytics/weekly";
 import { buildMonthlyWrapped } from "@/lib/journal/analytics/wrapped";
 import { findSimilarTrades } from "@/lib/journal/analytics/similarity";
-import { fmtR, fmtMoney } from "@/lib/journal/format";
+import { fmtR, fmtMoney, fmtPrice } from "@/lib/journal/format";
 import type { ToolDefinition } from "./tools";
 
 async function getProfileTrades() {
@@ -25,17 +25,23 @@ async function getJournalSummary(): Promise<string> {
   const lines = [
     `Journal Summary (${p.totalTrades} closed trades):`,
     `  Win rate: ${(p.winRate * 100).toFixed(1)}% (${p.wins}W / ${p.losses}L / ${p.breakevens}B)`,
-    `  Net P&L: ${fmtMoney(p.netPnl)} | Net R: ${fmtR(p.netR)}`,
-    `  Expectancy: ${fmtR(p.expectancy)}/trade | Profit factor: ${p.profitFactor === Infinity ? "∞" : p.profitFactor.toFixed(2)}`,
-    `  Max drawdown: ${fmtR(-p.maxDrawdown)} | Avg win: ${fmtMoney(p.averageWin)} | Avg loss: ${fmtMoney(p.averageLoss)}`,
+    `  Net P&L: ${fmtMoney(p.netPnl)}${p.rAvailable ? ` | Net R: ${fmtR(p.netR)}` : " | Net R: UNAVAILABLE (no stops captured)"}`,
+    p.rAvailable
+      ? `  Expectancy: ${fmtR(p.expectancy)}/trade | Profit factor: ${p.profitFactor === Infinity ? "∞" : p.profitFactor.toFixed(2)}`
+      : `  Expectancy: UNAVAILABLE (no stops captured) | Profit factor: ${p.profitFactor === Infinity ? "∞" : p.profitFactor.toFixed(2)} (currency)`,
+    p.rAvailable
+      ? `  Max drawdown: ${fmtR(-p.maxDrawdown)} | Avg win: ${fmtMoney(p.averageWin)} | Avg loss: ${fmtMoney(p.averageLoss)}`
+      : `  Avg win: ${fmtMoney(p.averageWin)} | Avg loss: ${fmtMoney(p.averageLoss)}`,
     `  Current streak: ${p.currentStreak > 0 ? `${p.currentStreak}W` : p.currentStreak < 0 ? `${-p.currentStreak}L` : "flat"}`,
     `  Discipline: ${a.discipline.total}/100`,
   ];
-  if (a.bySymbol.length) lines.push(`  Best market: ${a.bySymbol[0].key} (${fmtR(a.bySymbol[0].netR)})`);
-  if (a.bySetup.length) lines.push(`  Best setup: ${a.bySetup[0].key} (${fmtR(a.bySetup[0].netR)})`);
-  if (a.bySession.length) lines.push(`  Best session: ${a.bySession[0].key} (${fmtR(a.bySession[0].netR)})`);
-  const leak = a.byEmotion.filter((e) => e.netR < 0).pop();
-  if (leak) lines.push(`  Biggest emotional leak: ${leak.key} (${fmtR(leak.netR)})`);
+  const dim = (row: { netR: number; netPnl: number }) =>
+    p.rAvailable ? fmtR(row.netR) : fmtMoney(row.netPnl);
+  if (a.bySymbol.length) lines.push(`  Best market: ${a.bySymbol[0].key} (${dim(a.bySymbol[0])})`);
+  if (a.bySetup.length) lines.push(`  Best setup: ${a.bySetup[0].key} (${dim(a.bySetup[0])})`);
+  if (a.bySession.length) lines.push(`  Best session: ${a.bySession[0].key} (${dim(a.bySession[0])})`);
+  const leak = a.byEmotion.filter((e) => (p.rAvailable ? e.netR : e.netPnl) < 0).pop();
+  if (leak) lines.push(`  Biggest emotional leak: ${leak.key} (${dim(leak)})`);
   return lines.join("\n");
 }
 
@@ -47,13 +53,13 @@ async function getTradeReview(tradeId: string): Promise<string> {
   const similar = findSimilarTrades(trade, trades, 5, 0.2);
   const lines = [
     `Trade ${trade.symbol} ${trade.direction}:`,
-    `  Entry ${trade.entry} → Exit ${trade.exit} (${fmtR(trade.rMultiple)}, ${fmtMoney(trade.pnl)})`,
+    `  Entry ${fmtPrice(trade.entry)} → Exit ${fmtPrice(trade.exit)} (${trade.riskAmount != null && trade.riskAmount > 0 ? fmtR(trade.rMultiple) : "R unavailable — no stop captured"}, ${fmtMoney(trade.pnl)})`,
     `  Stop: ${trade.stopLoss ?? "none"} | Target: ${trade.takeProfit ?? "none"}`,
     `  Session: ${trade.session ?? "—"} | Timeframe: ${trade.timeframe ?? "—"} | Setup: ${trade.setupName ?? "—"}`,
     `  Emotion: ${trade.emotion ?? "—"} | Confidence: ${trade.confidence ?? "—"}`,
     trade.mfe != null ? `  MFE: ${fmtR(trade.mfe)} | MAE: ${fmtR(trade.mae ?? 0)}` : "",
     similar.count > 0
-      ? `  ${similar.count} similar trades: ${(similar.winRate * 100).toFixed(0)}% win, avg ${fmtR(similar.averageR)}`
+      ? `  ${similar.count} similar trades: ${(similar.winRate * 100).toFixed(0)}% win${similar.averageR !== 0 ? `, avg ${fmtR(similar.averageR)}` : ""}`
       : "  No similar historical trades.",
   ];
   return lines.filter(Boolean).join("\n");

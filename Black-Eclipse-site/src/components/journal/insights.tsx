@@ -9,7 +9,7 @@ import React, { useMemo } from 'react';
 import { Sparkles, TrendingUp, TrendingDown, AlertTriangle, Lightbulb } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { JournalAnalytics } from '@/lib/journal/types';
-import { fmtR } from './charts/echarts-container';
+import { fmtR, fmtMoney } from '@/lib/journal/format';
 import { AiReview } from './ai-review';
 
 interface InsightsProps {
@@ -28,26 +28,32 @@ export function JournalInsights({ analytics }: InsightsProps) {
     if (!analytics) return [];
     const p = analytics.performance;
     const out: Insight[] = [];
+    // R when the journal has a stop-derived basis, otherwise realized P&L.
+    const metric = (row: { netR: number; netPnl: number }) => (p.rAvailable ? row.netR : row.netPnl);
+    const fmtMetric = (v: number) => (p.rAvailable ? fmtR(v) : fmtMoney(v));
 
     // Best / worst symbol.
     if (analytics.bySymbol.length > 0) {
       const best = analytics.bySymbol[0];
       const worst = analytics.bySymbol[analytics.bySymbol.length - 1];
-      if (best.netR > 0) out.push({ kind: 'positive', icon: TrendingUp, title: `Strongest market: ${best.key}`, body: `${best.key} is your best market at ${fmtR(best.netR)} across ${best.trades} trades (${(best.winRate * 100).toFixed(0)}% win rate).` });
-      if (worst.netR < 0) out.push({ kind: 'negative', icon: TrendingDown, title: `Weakest market: ${worst.key}`, body: `${worst.key} has cost you ${fmtR(worst.netR)} across ${worst.trades} trades. Consider reducing exposure here.` });
+      const bestValue = metric(best);
+      const worstValue = metric(worst);
+      if (bestValue > 0) out.push({ kind: 'positive', icon: TrendingUp, title: `Strongest market: ${best.key}`, body: `${best.key} is your best market at ${fmtMetric(bestValue)} across ${best.trades} trades (${(best.winRate * 100).toFixed(0)}% win rate).` });
+      if (worstValue < 0) out.push({ kind: 'negative', icon: TrendingDown, title: `Weakest market: ${worst.key}`, body: `${worst.key} has cost you ${fmtMetric(worstValue)} across ${worst.trades} trades. Consider reducing exposure here.` });
     }
 
     // Best / worst session.
     if (analytics.bySession.length > 0) {
       const best = analytics.bySession[0];
-      if (best.netR > 0) out.push({ kind: 'positive', icon: TrendingUp, title: `Best session: ${best.key}`, body: `You perform best during ${best.key} (${fmtR(best.netR)}). Prioritize this session.` });
+      const bestValue = metric(best);
+      if (bestValue > 0) out.push({ kind: 'positive', icon: TrendingUp, title: `Best session: ${best.key}`, body: `You perform best during ${best.key} (${fmtMetric(bestValue)}). Prioritize this session.` });
     }
 
     // Emotional leak.
-    const negativeEmotions = analytics.byEmotion.filter((e) => e.netR < 0);
+    const negativeEmotions = analytics.byEmotion.filter((e) => metric(e) < 0);
     if (negativeEmotions.length > 0) {
       const worst = negativeEmotions[negativeEmotions.length - 1];
-      out.push({ kind: 'negative', icon: AlertTriangle, title: `Behavioral leak: ${worst.key}`, body: `Trading while ${worst.key.toLowerCase()} has cost you ${fmtR(worst.netR)}. This is your biggest emotional leak.` });
+      out.push({ kind: 'negative', icon: AlertTriangle, title: `Behavioral leak: ${worst.key}`, body: `Trading while ${worst.key.toLowerCase()} has cost you ${fmtMetric(metric(worst))}. This is your biggest emotional leak.` });
     }
 
     // Risk violations.
@@ -67,8 +73,8 @@ export function JournalInsights({ analytics }: InsightsProps) {
       else if (d < 50) out.push({ kind: 'negative', icon: AlertTriangle, title: 'Discipline needs work', body: `Your Eclipse Discipline Score is ${d}/100. Focus on risk and stop compliance.` });
     }
 
-    // Expectancy.
-    if (p.totalTrades > 0) {
+    // Expectancy (R-based only — P&L expectancy is covered by net P&L).
+    if (p.totalTrades > 0 && p.rAvailable) {
       out.push({
         kind: p.expectancy >= 0 ? 'positive' : 'negative',
         icon: p.expectancy >= 0 ? TrendingUp : TrendingDown,

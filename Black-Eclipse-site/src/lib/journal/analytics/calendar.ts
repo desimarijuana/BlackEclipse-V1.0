@@ -2,7 +2,7 @@
 // Groups closed trades by day and computes the metrics shown on hover.
 
 import type { DayAggregate, TradeRecord } from "../types";
-import { classifyResult } from "../trade-math";
+import { classifyTradeOutcome, hasRBasis } from "../trade-math";
 
 export function aggregateDays(trades: TradeRecord[]): DayAggregate[] {
   const byDay = new Map<string, TradeRecord[]>();
@@ -16,12 +16,13 @@ export function aggregateDays(trades: TradeRecord[]): DayAggregate[] {
 
   const days: DayAggregate[] = [];
   for (const [date, group] of byDay) {
-    const wins = group.filter((t) => classifyResult(t.rMultiple) === "win");
-    const losses = group.filter((t) => classifyResult(t.rMultiple) === "loss");
-    const breakevens = group.filter((t) => classifyResult(t.rMultiple) === "breakeven");
+    const wins = group.filter((t) => classifyTradeOutcome(t) === "win");
+    const losses = group.filter((t) => classifyTradeOutcome(t) === "loss");
+    const breakevens = group.filter((t) => classifyTradeOutcome(t) === "breakeven");
+    const rAvailable = group.some(hasRBasis);
     const netR = group.reduce((s, t) => s + t.rMultiple, 0);
     const netPnl = group.reduce((s, t) => s + t.pnl, 0);
-    const rValues = group.map((t) => t.rMultiple);
+    const rValues = group.filter(hasRBasis).map((t) => t.rMultiple);
     days.push({
       date,
       trades: group.length,
@@ -32,6 +33,7 @@ export function aggregateDays(trades: TradeRecord[]): DayAggregate[] {
       netR,
       bestR: rValues.length > 0 ? Math.max(...rValues) : 0,
       worstR: rValues.length > 0 ? Math.min(...rValues) : 0,
+      rAvailable,
       discipline: null, // filled by the discipline engine when available
     });
   }
@@ -60,6 +62,7 @@ export function dayMapForRange(
       netR: 0,
       bestR: 0,
       worstR: 0,
+      rAvailable: false,
       discipline: null,
     });
     cursor.setUTCDate(cursor.getUTCDate() + 1);

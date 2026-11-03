@@ -1184,7 +1184,12 @@ class MT5Adapter(TradingAdapter):
     def _deals_between(self, *, days: int, future_days: int = 2) -> list[dict[str, Any]]:
         with self._session() as mt5:
             self._require_account(mt5)
-            since = datetime.now() - timedelta(days=days)
+            # `history_deals_get` interprets the bounds in terminal/server time,
+            # which can differ from this process clock by hours. Widen the lower
+            # bound by 3 days so a clock skew can never drop the oldest deals of
+            # the requested window; the mirror dedupes by deal ticket, so extra
+            # deals are harmless.
+            since = datetime.now() - timedelta(days=max(1, int(days)) + 3)
             until = datetime.now() + timedelta(days=future_days)
             rows = mt5.history_deals_get(since, until)
             if rows is None:

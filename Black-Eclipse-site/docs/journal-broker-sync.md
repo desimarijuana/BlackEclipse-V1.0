@@ -139,11 +139,51 @@ contract size, so broker trades use `pnlBasis = 'broker'`:
 - `fee` = −Σ swap (positive financing cost)
 - `pnl` = Σ (profit + commission + swap) — the broker's own arithmetic
 
-`rMultiple` is computed only when a stop is known: `pnl / ((entry − stop) × qty)`.
-MT5 deal history does not carry SL/TP, so the projection takes them from the
-open-position snapshot. A sync therefore preserves a previously captured SL/TP
-when the position closes; it never erases it. A trade first seen after it already
-closed has no R-multiple (0 / unavailable) until a snapshot is captured.
+`rMultiple` is computed only when a stop is known: `pnl / riskAmount`, where
+`riskAmount` is the stop distance **converted to account currency**. FX/CFD price
+points are not money: one XAUUSD point is worth 100 per lot, one EURUSD point
+100 000. The projection calibrates that factor per symbol from the broker's own
+gross P&L —
+`multiplier = Σ grossPnl / Σ (signed price move × quantity)` — and uses
+`(entry − stop) × quantity × multiplier`. Without calibration (e.g. an open
+position whose symbol has no closed trade yet) the trade has **no** risk amount
+and no R, instead of a 100×-inflated one. MT5 deal history does not carry SL/TP,
+so the projection takes them from the open-position snapshot. A sync therefore
+preserves a previously captured SL/TP when the position closes; it never erases
+it. A trade first seen after it already closed has no R-multiple until a snapshot
+is captured.
+
+`pnlPct` is a **price-relative move** — `sign × (exit − entry) / entry` — the same
+unit manual trades store. It is deliberately not `pnl / notional`: FX/CFD contract
+size is not modelled, so that ratio is meaningless (a 0.01-lot EURUSD trade once
+reported −70.7).
+
+### When R is unavailable
+
+`rMultiple = 0` does **not** mean "breakeven" for a broker trade; it means the
+risk was never measurable. The journal therefore:
+
+- classifies each trade with `classifyTradeOutcome()` — R when
+  `riskAmount > 0`, otherwise the sign of the realized P&L — so wins, losses,
+  breakevens, win rate, streaks, dimension breakdowns, the calendar heatmap and
+  psychology leaks stay truthful for imported trades;
+- sets `PerformanceStats.rAvailable = false` when no closed trade has an R basis,
+  and the UI renders Net R / Expectancy / Max Drawdown / R distribution as
+  **UNAVAILABLE** rather than `+0.00R`;
+- draws the equity and drawdown charts from the currency curve instead
+  (`currencyEquity` = cumulative realized P&L, starting from the profile account
+  size when set), which is always available;
+- computes **profit factor in account currency** (gross winning P&L ÷ gross
+  losing P&L) — the standard definition, and the one that survives missing stops;
+- leaves the R cell blank in CSV exports and `—`/`UNAVAILABLE` in the PDF.
+
+A day or month switches to P&L in the calendar only when **every** trade in that
+group lacks an R basis; mixed groups keep R, because at least one trade has a
+measurable risk.
+
+An **open** position never renders an R-multiple (its risk is still unrealized),
+even when the broker snapshot carries a stop: the trade shows `open` in the P&L
+column and `—`/UNAVAILABLE for R until it closes.
 
 ## Deal-level fills
 
@@ -258,7 +298,12 @@ when `lastSyncedAt` is older than the cadence (default 300 s, minimum 60 s,
 - Open positions are projected; their floating P&L is not written into `pnl`.
   Only realized P&L from closing deals is stored.
 - SL/TP and therefore R-multiples are available only if a snapshot was captured
-  while the position was open (see above).
+  while the position was open (see above). When no trade has a basis, R metrics
+  render UNAVAILABLE instead of `0R`.
+- The MT5 deal window widens its lower bound by 3 days and its upper bound by 2
+  days because `history_deals_get` reads terminal/server time and the process
+  clock can be hours off; the mirror dedupes by deal ticket, so the extra deals
+  are harmless.
 - A backfill only covers what the broker's `history_deals_get` can still return;
   brokers expire history on their own schedule. Eclipse never fabricates a deal
   it cannot read.

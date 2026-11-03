@@ -4,7 +4,7 @@
 // most similar closed trades plus their aggregate performance.
 
 import type { TradeRecord } from "../types";
-import { classifyResult } from "../trade-math";
+import { classifyTradeOutcome } from "../trade-math";
 
 export interface SimilarTrade {
   trade: TradeRecord;
@@ -89,7 +89,7 @@ export function findSimilarTrades(
     .slice(0, limit);
 
   const rValues = scored.map((s) => s.trade.rMultiple);
-  const wins = scored.filter((s) => classifyResult(s.trade.rMultiple) === "win").length;
+  const wins = scored.filter((s) => classifyTradeOutcome(s.trade) === "win").length;
   const sortedR = [...rValues].sort((a, b) => a - b);
   const medianR = sortedR.length > 0
     ? sortedR.length % 2 === 1

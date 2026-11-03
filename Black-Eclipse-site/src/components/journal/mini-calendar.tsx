@@ -139,7 +139,28 @@ export function MiniCalendar({
   }, [columns]);
 
   const traded = useMemo(() => columns.flat().filter((c) => c.day && c.day.trades > 0), [columns]);
-  const totalR = useMemo(() => traded.reduce((a, c) => a + (c.day?.netR ?? 0), 0), [traded]);
+  // Cell shading follows the same basis rule as the rest of the journal: R when
+  // a day has a stop-derived basis, otherwise realized P&L. The P&L thresholds
+  // come from the data's own magnitude quartiles so the gradient stays readable.
+  const pnlThresholds = useMemo<[number, number, number]>(() => {
+    const mags = traded
+      .filter((c) => c.day && !c.day.rAvailable)
+      .map((c) => Math.abs(c.day!.netPnl))
+      .filter((v) => v > 0)
+      .sort((a, b) => a - b);
+    if (mags.length === 0) return [10, 50, 150];
+    const at = (q: number) => mags[Math.min(mags.length - 1, Math.floor(q * mags.length))];
+    return [at(0.25), at(0.5), at(0.75)];
+  }, [traded]);
+  const valueOfDay = (day: DayAggregate) => (day.rAvailable ? day.netR : day.netPnl);
+  const allDaysUseR = useMemo(
+    () => traded.length > 0 && traded.every((c) => c.day!.rAvailable),
+    [traded],
+  );
+  const total = useMemo(
+    () => traded.reduce((a, c) => a + (c.day ? (allDaysUseR ? c.day.netR : c.day.netPnl) : 0), 0),
+    [traded, allDaysUseR],
+  );
 
   const handleEnter = (e: React.MouseEvent, date: string, day: DayAggregate | null) => {
     if (!day || day.trades === 0) { setHovered(null); setHoverPos(null); return; }
@@ -154,8 +175,8 @@ export function MiniCalendar({
         <h3 className="font-serif text-sm font-semibold text-foreground">
           Last {effWeeks} Weeks
         </h3>
-        <span className={cn('font-mono text-[10px] font-bold', totalR > 0 ? 'text-emerald-400' : totalR < 0 ? 'text-rose-400' : 'text-muted-foreground/70')}>
-          {fmtR(totalR)}
+        <span className={cn('font-mono text-[10px] font-bold', total > 0 ? 'text-emerald-400' : total < 0 ? 'text-rose-400' : 'text-muted-foreground/70')}>
+          {allDaysUseR ? fmtR(total) : fmtMoney(total)}
         </span>
       </div>
 
@@ -208,8 +229,10 @@ export function MiniCalendar({
               >
                 {col.map((cell) => {
                   const has = cell.day && cell.day.trades > 0;
-                  const netR = cell.day?.netR ?? 0;
-                  const inten = has ? intensityFor(netR) : null;
+                  const value = cell.day ? valueOfDay(cell.day) : 0;
+                  const inten = has
+                    ? intensityFor(value, cell.day!.rAvailable ? [1, 2, 3] : pnlThresholds)
+                    : null;
                   const cls = !has
                     ? CELL_CLASS.empty
                     : inten!.sign === 'zero'
@@ -223,7 +246,7 @@ export function MiniCalendar({
                       onMouseEnter={(e) => handleEnter(e, cell.date, cell.day)}
                       onMouseLeave={clearHover}
                       onClick={() => has && onSelectDay?.(cell.date)}
-                      aria-label={has ? `${cell.date}: ${fmtR(netR)}` : `${cell.date}: no trade`}
+                      aria-label={has ? `${cell.date}: ${cell.day!.rAvailable ? fmtR(value) : fmtMoney(value)}` : `${cell.date}: no trade`}
                       className={cn(
                         'transition-transform',
                         // Square via aspect-ratio so cells scale with `fill`.
@@ -280,14 +303,20 @@ export function MiniCalendar({
           >
             <p className="font-mono text-[10px] font-bold text-foreground">{hovered.date}</p>
             <div className="mt-2 space-y-1 font-mono text-[10px]">
-              <Row label="Net R" value={fmtR(hovered.day.netR)} tone={hovered.day.netR >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
+              {hovered.day.rAvailable ? (
+                <Row label="Net R" value={fmtR(hovered.day.netR)} tone={hovered.day.netR >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
+              ) : (
+                <Row label="Net R" value="UNAVAILABLE" />
+              )}
               <Row label="Net P&L" value={fmtMoney(hovered.day.netPnl)} tone={hovered.day.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
               <Row label="Trades" value={String(hovered.day.trades)} />
               <Row
                 label="Win rate"
                 value={hovered.day.trades > 0 ? `${Math.round((hovered.day.wins / hovered.day.trades) * 100)}%` : '—'}
               />
-              <Row label="Best / Worst" value={`${fmtR(hovered.day.bestR)} / ${fmtR(hovered.day.worstR)}`} />
+              {hovered.day.rAvailable && (
+                <Row label="Best / Worst" value={`${fmtR(hovered.day.bestR)} / ${fmtR(hovered.day.worstR)}`} />
+              )}
             </div>
           </div>,
           document.body,

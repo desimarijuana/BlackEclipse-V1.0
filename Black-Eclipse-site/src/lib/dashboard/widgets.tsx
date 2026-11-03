@@ -1041,7 +1041,7 @@ export function AlertCountWidget() {
 
 // ── Journal ─────────────────────────────────────────────────────────────────
 
-interface JournalAnalytics { performance: { winRate: number; netPnl: number; netR: number; profitFactor: number; expectancy: number; averageR: number; totalTrades: number; } }
+interface JournalAnalytics { performance: { winRate: number; netPnl: number; netR: number; profitFactor: number; expectancy: number; averageR: number; totalTrades: number; rAvailable?: boolean; } }
 
 export function JournalPerformanceWidget() {
   const t = useTopic<{ analytics: JournalAnalytics }>('journal:analytics');
@@ -1054,8 +1054,17 @@ export function JournalPerformanceWidget() {
           <StatTile label="Win Rate" value={`${(p.winRate * 100).toFixed(1)}%`} />
           <StatTile label="Net P&L" value={fmt(p.netPnl)} tone={p.netPnl} />
           <StatTile label="Profit Factor" value={p.profitFactor === Infinity ? '∞' : fmt(p.profitFactor)} />
-          <StatTile label="Expectancy" value={`${fmt(p.expectancy)}R`} tone={p.expectancy} />
-          <StatTile label="Avg R" value={`${fmt(p.averageR)}R`} tone={p.averageR} />
+          {p.rAvailable !== false ? (
+            <>
+              <StatTile label="Expectancy" value={`${fmt(p.expectancy)}R`} tone={p.expectancy} />
+              <StatTile label="Avg R" value={`${fmt(p.averageR)}R`} tone={p.averageR} />
+            </>
+          ) : (
+            <>
+              <StatTile label="Expectancy" value="UNAVAILABLE" />
+              <StatTile label="Avg R" value="UNAVAILABLE" />
+            </>
+          )}
           <StatTile label="Trades" value={String(p.totalTrades)} />
         </div>
       )}

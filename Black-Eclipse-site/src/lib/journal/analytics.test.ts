@@ -85,6 +85,36 @@ describe('computePerformance', () => {
     const p = computePerformance(trades);
     expect(p.maxDrawdown).toBe(3);
   });
+
+  it('classifies trades without an R basis by realized P&L sign', () => {
+    // Broker imports have no stop, so riskAmount/rMultiple are empty. A +$50
+    // trade must count as a win, not as a zero-R breakeven.
+    const trades = [
+      trade({ id: 'a', rMultiple: 0, riskAmount: null, pnl: 50 }),
+      trade({ id: 'b', rMultiple: 0, riskAmount: null, pnl: -20 }),
+      trade({ id: 'c', rMultiple: 0, riskAmount: null, pnl: 0 }),
+    ];
+    const p = computePerformance(trades);
+    expect(p.rAvailable).toBe(false);
+    expect(p.wins).toBe(1);
+    expect(p.losses).toBe(1);
+    expect(p.breakevens).toBe(1);
+    expect(p.winRate).toBeCloseTo(1 / 3, 10);
+    // Profit factor is currency-based and always meaningful.
+    expect(p.profitFactor).toBe(2.5);
+    expect(p.netPnl).toBe(30);
+  });
+
+  it('reports rAvailable when at least one trade has a stop-derived risk', () => {
+    const p = computePerformance([
+      trade({ id: 'a', rMultiple: 2, riskAmount: 5, pnl: 10 }),
+      trade({ id: 'b', rMultiple: 0, riskAmount: null, pnl: -2 }),
+    ]);
+    expect(p.rAvailable).toBe(true);
+    // Outcome still uses R for the trade that has one, P&L for the other.
+    expect(p.wins).toBe(1);
+    expect(p.losses).toBe(1);
+  });
 });
 
 describe('computeDiscipline', () => {

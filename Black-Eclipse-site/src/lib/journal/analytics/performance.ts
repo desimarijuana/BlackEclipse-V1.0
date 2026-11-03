@@ -3,7 +3,7 @@
 // derived from structured trade data so results are reproducible.
 
 import type { PerformanceStats, TradeRecord } from "../types";
-import { classifyResult } from "../trade-math";
+import { classifyTradeOutcome, hasRBasis } from "../trade-math";
 
 /** Sort trades chronologically by exit time. */
 export function sortTrades(trades: TradeRecord[]): TradeRecord[] {
@@ -15,9 +15,13 @@ export function computePerformance(trades: TradeRecord[]): PerformanceStats {
   const closed = trades.filter((t) => t.status === "closed");
   const n = closed.length;
 
-  const wins = closed.filter((t) => classifyResult(t.rMultiple) === "win");
-  const losses = closed.filter((t) => classifyResult(t.rMultiple) === "loss");
-  const breakevens = closed.filter((t) => classifyResult(t.rMultiple) === "breakeven");
+  const wins = closed.filter((t) => classifyTradeOutcome(t) === "win");
+  const losses = closed.filter((t) => classifyTradeOutcome(t) === "loss");
+  const breakevens = closed.filter((t) => classifyTradeOutcome(t) === "breakeven");
+  // R metrics are only meaningful when at least one closed trade carries a
+  // stop-derived risk. Broker history has no SL, so the journal honestly
+  // reports R as unavailable instead of a fake +0.00R.
+  const rAvailable = closed.some(hasRBasis);
 
   const winRate = n > 0 ? wins.length / n : 0;
   const averageWin = wins.length > 0 ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0;
@@ -27,10 +31,13 @@ export function computePerformance(trades: TradeRecord[]): PerformanceStats {
   const expectancy = n > 0 ? netR / n : 0;
   const averageR = n > 0 ? netR / n : 0;
 
-  // Profit factor = gross wins / gross losses (in R).
-  const grossWinR = wins.reduce((s, t) => s + t.rMultiple, 0);
-  const grossLossR = Math.abs(losses.reduce((s, t) => s + t.rMultiple, 0));
-  const profitFactor = grossLossR > 0 ? grossWinR / grossLossR : grossWinR > 0 ? Infinity : 0;
+  // Profit factor = gross wins / gross losses in account currency. Always
+  // meaningful (and the standard definition); the R-based variant collapsed
+  // to 0.00 whenever no stop was captured.
+  const grossWinPnl = wins.reduce((s, t) => s + Math.max(0, t.pnl), 0);
+  const grossLossPnl = Math.abs(losses.reduce((s, t) => s + Math.min(0, t.pnl), 0));
+  const profitFactor =
+    grossLossPnl > 0 ? grossWinPnl / grossLossPnl : grossWinPnl > 0 ? Infinity : 0;
 
   // Equity curve (cumulative R) + max drawdown + recovery factor.
   const sorted = sortTrades(closed);
@@ -53,7 +60,7 @@ export function computePerformance(trades: TradeRecord[]): PerformanceStats {
   let currentStreak = 0;
   let cur = 0;
   for (const t of sorted) {
-    const cls = classifyResult(t.rMultiple);
+    const cls = classifyTradeOutcome(t);
     if (cls === "win") {
       cur = cur > 0 ? cur + 1 : 1;
       if (cur > winningStreak) winningStreak = cur;
@@ -133,6 +140,7 @@ export function computePerformance(trades: TradeRecord[]): PerformanceStats {
     averageWin,
     averageLoss,
     netPnl,
+    rAvailable,
     netR,
     expectancy,
     profitFactor,

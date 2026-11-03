@@ -3,6 +3,8 @@
 // the main bundle, matching the response exporter's approach.
 
 import type { TradeRecord } from "./types";
+import { classifyTradeOutcome, hasRBasis } from "./trade-math";
+import { fmtPrice } from "./format";
 
 function money(n: number): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -18,7 +20,8 @@ export async function tradesToPdf(trades: TradeRecord[]): Promise<void> {
 
   const netPnl = trades.reduce((s, t) => s + t.pnl, 0);
   const netR = trades.reduce((s, t) => s + t.rMultiple, 0);
-  const wins = trades.filter((t) => t.rMultiple > 0).length;
+  const anyR = trades.some(hasRBasis);
+  const wins = trades.filter((t) => classifyTradeOutcome(t) === "win").length;
   const winRate = trades.length > 0 ? (wins / trades.length) * 100 : 0;
 
   doc.setFontSize(16);
@@ -27,7 +30,7 @@ export async function tradesToPdf(trades: TradeRecord[]): Promise<void> {
   doc.setFontSize(10);
   doc.setTextColor(90, 90, 90);
   doc.text(
-    `${trades.length} trades · win rate ${winRate.toFixed(1)}% · net ${money(netPnl)} · net R ${netR.toFixed(2)}`,
+    `${trades.length} trades · win rate ${winRate.toFixed(1)}% · net ${money(netPnl)}${anyR ? ` · net R ${netR.toFixed(2)}` : " · R unavailable (no stops captured)"}`,
     margin,
     margin + 20,
   );
@@ -41,9 +44,9 @@ export async function tradesToPdf(trades: TradeRecord[]): Promise<void> {
       t.exitTime.slice(0, 10),
       t.symbol,
       t.direction,
-      String(t.entry),
-      String(t.exit),
-      t.rMultiple.toFixed(2),
+      fmtPrice(t.entry),
+      fmtPrice(t.exit),
+      hasRBasis(t) ? t.rMultiple.toFixed(2) : "—",
       money(t.pnl),
       t.session ?? "—",
       t.setupName ?? "—",

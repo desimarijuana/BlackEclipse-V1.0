@@ -10,6 +10,7 @@ import { CalendarDays, ChevronLeft, ChevronRight } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { MonthCalendar } from './month-calendar';
 import { formatMonthLabel } from '@/lib/journal/dates';
+import { hasRBasis } from '@/lib/journal/trade-math';
 import type { TradeRecord } from '@/lib/journal/types';
 import { fmtR, fmtMoney } from './charts/echarts-container';
 
@@ -60,6 +61,7 @@ export function MonthCalendarCard({ trades, onSelectDay }: MonthCalendarCardProp
       count: monthTrades.length,
       netR: monthTrades.reduce((s, t) => s + t.rMultiple, 0),
       netPnl: monthTrades.reduce((s, t) => s + t.pnl, 0),
+      rAvailable: monthTrades.length > 0 && monthTrades.every(hasRBasis),
       days: new Set(monthTrades.map((t) => t.exitTime.slice(0, 10))).size,
     };
   }, [trades, year, month]);
@@ -87,12 +89,14 @@ export function MonthCalendarCard({ trades, onSelectDay }: MonthCalendarCardProp
             <span className="rounded-lg border border-white/5 bg-white/[0.03] px-2 py-1 font-mono text-[10px] text-muted-foreground/80">
               {stats.count} trades · {stats.days}d
             </span>
-            <span className={cn(
-              'rounded-lg px-2 py-1 font-mono text-[10px] font-bold tabular-nums',
-              stats.netR >= 0 ? 'cal-cell--pos' : 'cal-cell--neg',
-            )}>
-              {fmtR(stats.netR)}
-            </span>
+            {stats.rAvailable && (
+              <span className={cn(
+                'rounded-lg px-2 py-1 font-mono text-[10px] font-bold tabular-nums',
+                stats.netR >= 0 ? 'cal-cell--pos' : 'cal-cell--neg',
+              )}>
+                {fmtR(stats.netR)}
+              </span>
+            )}
             <span className={cn(
               'rounded-lg px-2 py-1 font-mono text-[10px] font-bold tabular-nums',
               stats.netPnl >= 0 ? 'cal-cell--pos' : 'cal-cell--neg',

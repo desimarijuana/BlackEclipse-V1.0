@@ -95,7 +95,7 @@ export function JournalSettings({ onChanged }: { onChanged?: () => void }) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           showCloseButton
-          className="w-[calc(100%-2rem)] max-w-2xl max-h-[90dvh] overflow-y-auto scrollbar-hide rounded-2xl border border-white/10 glass-card-strong text-foreground p-0"
+          className="w-[calc(100%-2rem)] max-w-3xl max-h-[90dvh] overflow-y-auto scrollbar-hide rounded-2xl border border-white/10 glass-card-strong text-foreground p-0"
         >
           <div className="sticky top-0 z-10 flex items-center gap-2.5 border-b border-border/10 px-5 py-3.5 glass-card-strong">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/15">

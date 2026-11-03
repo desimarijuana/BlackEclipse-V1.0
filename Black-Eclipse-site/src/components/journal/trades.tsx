@@ -17,6 +17,8 @@ import { Plus, Trash2, Download, FileText, ChevronLeft, ChevronRight, SlidersHor
 import { cn } from '@/lib/utils';
 import { BrokerSyncButton } from './broker-sync-button';
 import type { TradeRecord } from '@/lib/journal/types';
+import { isRMeasurable, classifyTradeOutcome } from '@/lib/journal/trade-math';
+import { fmtPrice, fmtDateTime } from '@/lib/journal/format';
 import { fmtR, fmtMoney } from './charts/echarts-container';
 import { TradeDetail } from './trade-detail';
 import { QuickAddTrade } from './quick-add-trade';
@@ -98,8 +100,8 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
       if (direction && t.direction !== direction) return false;
       if (source !== 'all' && (t.source ?? 'manual') !== source) return false;
       if (result !== 'all') {
-        const cls = t.rMultiple > 0 ? 'win' : t.rMultiple < 0 ? 'loss' : 'breakeven';
-        if (cls !== result) return false;
+        if (t.status === 'open') return false;
+        if (classifyTradeOutcome(t) !== result) return false;
       }
       const ts = Date.parse(t.exitTime);
       if (from != null && ts < from) return false;
@@ -331,7 +333,7 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
               <thead className="sticky top-0 bg-[#0f0f0f]/95 border-b border-white/10">
                 <tr>
                   {([
-                    ['Date', 'exitTime'], ['Symbol', 'symbol'], ['Dir', null], ['Entry', 'entry'], ['Exit', 'exit'],
+                    ['Date / time', 'exitTime'], ['Symbol', 'symbol'], ['Dir', null], ['Entry', 'entry'], ['Exit', 'exit'],
                     ['R', 'rMultiple'], ['P&L', 'pnl'], ['Session', null], ['Setup', null], ['Emotion', null], ['', null],
                   ] as [string, SortKey | null][]).map(([h, key]) => (
                     <th key={h} className="px-3 py-2 text-[9px] uppercase tracking-widest text-muted-foreground font-bold">
@@ -353,7 +355,7 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
                     onClick={() => setDetailTrade(t)}
                     className={cn('border-b border-white/5 last:border-0 hover:bg-white/[0.03] cursor-pointer', listNav.isSelected(t.id) && 'bg-primary/10 ring-1 ring-inset ring-primary/40')}
                   >
-                    <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{t.exitTime.slice(0, 10)}</td>
+                    <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{fmtDateTime(t.exitTime)}</td>
                     <td className="px-3 py-2 font-bold text-foreground">
                       {t.symbol}
                       {t.source === 'broker' && (
@@ -363,10 +365,10 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
                       )}
                     </td>
                     <td className="px-3 py-2">{t.direction === 'LONG' ? <span className="text-emerald-400">LONG</span> : <span className="text-rose-400">SHORT</span>}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{t.entry}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{t.exit}</td>
-                    <td className={cn('px-3 py-2 font-bold', t.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{fmtR(t.rMultiple)}</td>
-                    <td className={cn('px-3 py-2 font-bold', t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{fmtMoney(t.pnl)}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{fmtPrice(t.entry)}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{t.status === 'open' ? '—' : fmtPrice(t.exit)}</td>
+                    <td className={cn('px-3 py-2 font-bold', !isRMeasurable(t) ? 'text-muted-foreground/50' : t.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{isRMeasurable(t) ? fmtR(t.rMultiple) : '—'}</td>
+                    <td className={cn('px-3 py-2 font-bold', t.status === 'open' ? 'text-muted-foreground/70' : t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{t.status === 'open' ? 'open' : fmtMoney(t.pnl)}</td>
                     <td className="px-3 py-2 text-muted-foreground">{t.session ?? '—'}</td>
                     <td className="px-3 py-2 text-muted-foreground">{t.setupName ?? '—'}</td>
                     <td className="px-3 py-2 text-muted-foreground">{t.emotion ?? '—'}</td>

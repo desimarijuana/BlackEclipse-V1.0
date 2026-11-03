@@ -6,6 +6,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { X, Activity, Layers, ImagePlus, Trash2, PencilLine, Check, History } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { TradeRecord } from '@/lib/journal/types';
+import { classifyTradeOutcome, isRMeasurable } from '@/lib/journal/trade-math';
+import { fmtPrice } from '@/lib/journal/format';
 import { TradeReplayChart, type ReplayBar, type ReplayTrade } from './trade-replay';
 import { fmtR, fmtMoney } from './charts/echarts-container';
 import { AiReview } from './ai-review';
@@ -55,7 +57,7 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
   const [series, setSeries] = useState<ReplayBar[]>([]);
   const [marketContext, setMarketContext] = useState<MarketContext | null>(null);
   const [similar, setSimilar] = useState<SimilarTrade[]>([]);
-  const [similarStats, setSimilarStats] = useState<{ winRate: number; averageR: number; count: number } | null>(null);
+  const [similarStats, setSimilarStats] = useState<{ winRate: number; averageR: number; count: number; hasR: boolean } | null>(null);
   const [screenshots, setScreenshots] = useState<{ id: string; url: string; phase?: string | null; caption?: string | null }[]>([]);
   const [shotUrl, setShotUrl] = useState('');
   const [shotPhase, setShotPhase] = useState('during');
@@ -139,11 +141,15 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
           .slice(0, 6);
         setSimilar(scored);
         if (scored.length > 0) {
-          const rValues = scored.map((s) => s.trade.rMultiple);
-          const wins = scored.filter((s) => s.trade.rMultiple > 0).length;
+          const rTrades = scored.map((s) => s.trade).filter((t) => isRMeasurable(t));
+          const wins = scored.filter((s) => classifyTradeOutcome(s.trade) === 'win').length;
           setSimilarStats({
             winRate: wins / scored.length,
-            averageR: rValues.reduce((a, b) => a + b, 0) / rValues.length,
+            averageR:
+              rTrades.length > 0
+                ? rTrades.reduce((a, t) => a + t.rMultiple, 0) / rTrades.length
+                : 0,
+            hasR: rTrades.length > 0,
             count: scored.length,
           });
         }
@@ -168,6 +174,7 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
     entryTime: trade.entryTime,
     exitTime: trade.exitTime,
     rMultiple: trade.rMultiple,
+    hasR: isRMeasurable(trade),
     mfe: trade.mfe,
     mae: trade.mae,
   };
@@ -241,9 +248,13 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
 
         {/* Key stats */}
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 mb-4">
-          <Stat label="Entry" value={String(trade.entry)} />
-          <Stat label="Exit" value={String(trade.exit)} />
-          <Stat label="R" value={fmtR(trade.rMultiple)} tone={trade.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
+          <Stat label="Entry" value={fmtPrice(trade.entry)} />
+          <Stat label="Exit" value={fmtPrice(trade.exit)} />
+          {isRMeasurable(trade) ? (
+            <Stat label="R" value={fmtR(trade.rMultiple)} tone={trade.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
+          ) : (
+            <Stat label="R" value="UNAVAILABLE" />
+          )}
           <Stat label="Duration" value={fmtDuration(trade.durationSec)} />
           <Stat label="Gross P&L" value={fmtMoney(trade.grossPnl)} />
           <Stat label="Costs" value={trade.commission + trade.fee > 0 ? fmtMoney(-(trade.commission + trade.fee)) : '—'} tone={trade.commission + trade.fee > 0 ? 'text-rose-400' : undefined} />
@@ -292,7 +303,7 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
               <h3 className="font-serif text-sm font-semibold text-foreground">Similar Historical Trades</h3>
               {similarStats && (
                 <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-                  {similarStats.count} trades · {(similarStats.winRate * 100).toFixed(0)}% win · avg {fmtR(similarStats.averageR)}
+                  {similarStats.count} trades · {(similarStats.winRate * 100).toFixed(0)}% win{similarStats.hasR ? ` · avg ${fmtR(similarStats.averageR)}` : ''}
                 </span>
               )}
             </div>
@@ -304,7 +315,9 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
                   </span>
                   <span className="flex items-center gap-3">
                     <span className="font-mono text-muted-foreground/60">{Math.round(s.score * 100)}% match</span>
-                    <span className={cn('font-mono font-bold', s.trade.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{fmtR(s.trade.rMultiple)}</span>
+                    <span className={cn('font-mono font-bold', (isRMeasurable(s.trade) ? s.trade.rMultiple : s.trade.pnl) >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+                      {isRMeasurable(s.trade) ? fmtR(s.trade.rMultiple) : fmtMoney(s.trade.pnl)}
+                    </span>
                   </span>
                 </div>
               ))}
@@ -315,7 +328,7 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
         {/* AI trade review */}
         <div className="mb-4">
           <AiReview
-            query={`Review this trade: ${trade.symbol} ${trade.direction} entry ${trade.entry} exit ${trade.exit} R ${trade.rMultiple.toFixed(2)}. Give a verdict, what went well, concerns, and how it compares to similar trades.`}
+            query={`Review this trade: ${trade.symbol} ${trade.direction} entry ${fmtPrice(trade.entry)} exit ${fmtPrice(trade.exit)} ${isRMeasurable(trade) ? `R ${trade.rMultiple.toFixed(2)}` : 'R unavailable (no stop captured)'} net P&L ${trade.pnl.toFixed(2)}. Give a verdict, what went well, concerns, and how it compares to similar trades.`}
             tradeId={trade.id}
             buttonLabel="AI Trade Review"
           />
@@ -358,7 +371,7 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
                         {fill.side}
                       </td>
                       <td className="py-1.5 pr-3 text-right">{fill.volume}</td>
-                      <td className="py-1.5 pr-3 text-right">{fill.price}</td>
+                      <td className="py-1.5 pr-3 text-right">{fmtPrice(fill.price)}</td>
                       <td className="py-1.5 pr-3 text-right text-muted-foreground">{fill.commission ? fmtMoney(fill.commission) : '—'}</td>
                       <td className="py-1.5 pr-3 text-right text-muted-foreground">{fill.swap ? fmtMoney(fill.swap) : '—'}</td>
                       <td className={cn('py-1.5 text-right', fill.profit >= 0 ? 'text-emerald-400' : 'text-rose-400')}>

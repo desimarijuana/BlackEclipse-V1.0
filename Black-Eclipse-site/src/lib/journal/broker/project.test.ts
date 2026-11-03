@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   mapSymbol,
   matchAttribution,
+  monetaryRisk,
   normalizeEntry,
   projectBrokerTrades,
   type BrokerDeal,
@@ -206,6 +207,75 @@ describe("projectBrokerTrades", () => {
     const a = projectBrokerTrades(deals, [], { connectionId: "c" });
     const b = projectBrokerTrades(deals, [], { connectionId: "c" });
     expect(a).toEqual(b);
+  });
+
+  it("calibrates the contract multiplier from the broker's own gross P&L", () => {
+    // XAUUSD: 0.1 lot, 1.67 price move, broker profit 16.70 → 100 per point/lot.
+    // Without this, risk = 4.96 × 0.1 = 0.496 and R would be inflated 100×.
+    const result = projectBrokerTrades(
+      [
+        deal({ dealTicket: 1, entry: "in", side: "sell", volume: 0.1, price: 3930.29, dealtAt: T0 }),
+        deal({
+          dealTicket: 2,
+          entry: "out",
+          side: "buy",
+          volume: 0.1,
+          price: 3928.62,
+          profit: 16.7,
+          dealtAt: T0 + HOUR,
+        }),
+      ],
+      [],
+      { connectionId: "c" },
+    );
+    expect(result.trades[0].direction).toBe("SHORT");
+    expect(result.trades[0].contractMultiplier).toBeCloseTo(100, 6);
+  });
+
+  it("leaves the multiplier null when no closed trade can calibrate it", () => {
+    const position: BrokerOpenPosition = {
+      ticket: 201,
+      symbol: "XAUUSD",
+      side: "buy",
+      volume: 0.1,
+      openPrice: 3900,
+      currentPrice: 3905,
+      stopLoss: 3895,
+      takeProfit: null,
+      profit: 5,
+      swap: 0,
+      magic: 0,
+      comment: null,
+      openedAt: T0,
+    };
+    const result = projectBrokerTrades([], [position], { connectionId: "c" });
+    expect(result.trades[0].contractMultiplier).toBeNull();
+  });
+
+  it("treats a stop one tick from entry as no risk (breakeven trail)", () => {
+    const result = projectBrokerTrades(
+      [
+        deal({ dealTicket: 1, entry: "in", side: "sell", volume: 0.1, price: 3930.29, dealtAt: T0 }),
+        deal({
+          dealTicket: 2,
+          entry: "out",
+          side: "buy",
+          volume: 0.1,
+          price: 3928.62,
+          profit: 16.7,
+          dealtAt: T0 + HOUR,
+        }),
+      ],
+      [],
+      { connectionId: "c" },
+    );
+    const trade = result.trades[0];
+    expect(trade.contractMultiplier).toBeCloseTo(100, 6);
+    // A realistic stop 4.96 away → $49.60 of risk in account currency.
+    expect(monetaryRisk({ ...trade, stopLoss: 3935.25 })).toBeCloseTo(49.6, 6);
+    // A stop 0.01 away is one tick — a trail moved to breakeven, not risk.
+    expect(trade.tickSize).not.toBeNull();
+    expect(monetaryRisk({ ...trade, stopLoss: 3930.3 })).toBeNull();
   });
 
   it("skips deals with no position ticket and reports why", () => {

@@ -94,7 +94,7 @@ export function computeJournalAnalytics(trades: TradeRecord[], options: Analytic
     mfeMae: mfeMaeScatter(trades),
     confidenceScatter: confidenceScatter(trades),
     durationBuckets: durationBuckets(trades),
-    equityCurrency: currencyEquity(trades, options.accountSize, options.riskPerTrade),
+    equityCurrency: currencyEquity(trades, options.accountSize),
     accounts: accountSummaries(trades, options.accounts ?? []),
     riskAlerts: riskAlerts(trades, { accountSize: options.accountSize, riskPerTrade: options.riskPerTrade }),
     yearReports: yearReports(trades),

@@ -112,6 +112,15 @@ export interface ProjectedTrade {
   comment: string | null;
   /** "broker" or "computed" (adapter FIFO), matching the deal provenance. */
   pnlBasis: "broker" | "computed";
+  /**
+   * Account currency per 1.0 price unit × 1.0 volume for this symbol, calibrated
+   * from the broker's own gross P&L (e.g. 100 for XAUUSD, 100000 for EURUSD).
+   * Null when the symbol has no closed trade to calibrate from — R is then
+   * unavailable rather than inflated by using raw price × volume.
+   */
+  contractMultiplier: number | null;
+  /** Smallest observed price increment for the symbol, when it can be inferred. */
+  tickSize: number | null;
   /** How many deals the round-trip was built from. */
   fillCount: number;
   /** The underlying deals, chronological. Empty for a snapshot-only position. */
@@ -470,6 +479,8 @@ export function projectBrokerTrades(
       magic,
       comment,
       pnlBasis: acc.pnlBasis,
+      contractMultiplier: null,
+      tickSize: null,
       fillCount: acc.fillCount,
       fills: [...acc.fills].sort((a, b) => Date.parse(a.dealtAt) - Date.parse(b.dealtAt)),
       strategyId: rule?.strategyId ?? null,
@@ -480,5 +491,95 @@ export function projectBrokerTrades(
 
   // Newest first is the useful order for a sync summary.
   trades.sort((a, b) => Date.parse(b.entryTime) - Date.parse(a.entryTime));
+
+  // ── Contract multiplier (money per price point per volume) ────────────────
+  // `entry/exit` are prices; `grossPnl` is account currency. For FX/CFD one
+  // price point is worth 100 (XAUUSD) or 100 000 (EURUSD) per lot, so a risk
+  // computed as `(entry − stop) × qty` is the wrong unit and inflates R. The
+  // broker's own gross P&L calibrates the factor per symbol exactly:
+  //   multiplier = Σ grossPnl / Σ (signed price move × quantity)
+  // A symbol with no closed trade to calibrate from gets `null`: no R, never a
+  // 100×-inflated one.
+  const calibration = new Map<string, { profit: number; denom: number }>();
+  for (const t of trades) {
+    if (t.status !== "closed" || t.exit == null) continue;
+    const sign = t.direction === "LONG" ? 1 : -1;
+    const move = (t.exit - t.entry) * sign;
+    if (Math.abs(move) < 1e-12 || !(t.quantity > 0) || Math.abs(t.grossPnl) < 1e-12) continue;
+    const agg = calibration.get(t.symbol) ?? { profit: 0, denom: 0 };
+    agg.profit += t.grossPnl;
+    agg.denom += move * t.quantity;
+    calibration.set(t.symbol, agg);
+  }
+  const multiplierBySymbol = new Map<string, number>();
+  for (const [symbol, agg] of calibration) {
+    if (Math.abs(agg.denom) < 1e-12) continue;
+    const multiplier = agg.profit / agg.denom;
+    if (Number.isFinite(multiplier) && multiplier > 0 && multiplier < 1e9) {
+      multiplierBySymbol.set(symbol, multiplier);
+    }
+  }
+  for (const t of trades) {
+    t.contractMultiplier = multiplierBySymbol.get(t.symbol) ?? null;
+  }
+
+  // ── Tick size (smallest observed price increment per symbol) ──────────────
+  // A stop one tick from entry is a trail moved to breakeven, not a risk basis;
+  // dividing by it produced absurd 349R trade rows. The minimum observed price
+  // difference across the symbol's fills is a conservative estimate.
+  const pricesBySymbol = new Map<string, Set<number>>();
+  for (const t of trades) {
+    const set = pricesBySymbol.get(t.symbol) ?? new Set<number>();
+    // Raw deal prices only — `entry`/`exit` are weighted averages and would
+    // fabricate sub-tick increments (3930.165) that defeat the tick guard.
+    for (const f of t.fills) if (f.price > 0) set.add(f.price);
+    pricesBySymbol.set(t.symbol, set);
+  }
+  const tickBySymbol = new Map<string, number>();
+  for (const [symbol, prices] of pricesBySymbol) {
+    const sorted = [...prices].filter((p) => p > 0).sort((a, b) => a - b);
+    let tick: number | null = null;
+    for (let i = 1; i < sorted.length; i += 1) {
+      const diff = sorted[i] - sorted[i - 1];
+      if (diff > 1e-12 && (tick == null || diff < tick)) tick = diff;
+    }
+    if (tick != null && Number.isFinite(tick)) tickBySymbol.set(symbol, tick);
+  }
+  for (const t of trades) {
+    t.tickSize = tickBySymbol.get(t.symbol) ?? null;
+  }
+
   return { trades, warnings, skippedDeals };
+}
+
+/**
+ * Monetary risk for a projected trade, in account currency.
+ *
+ * `null` means R is genuinely unmeasurable: no stop, no calibrated contract
+ * multiplier, a stop on the wrong side, or a stop within one tick of entry
+ * (a trail moved to breakeven — dividing by it produced ~349R rows).
+ */
+export function monetaryRisk(trade: ProjectedTrade): number | null {
+  if (trade.stopLoss == null) return null;
+  const sign = trade.direction === "LONG" ? 1 : -1;
+  return monetaryDistance(trade, (trade.entry - trade.stopLoss) * sign);
+}
+
+/** Monetary reward for a projected trade, in account currency. */
+export function monetaryReward(trade: ProjectedTrade): number | null {
+  if (trade.takeProfit == null) return null;
+  const sign = trade.direction === "LONG" ? 1 : -1;
+  return monetaryDistance(trade, (trade.takeProfit - trade.entry) * sign);
+}
+
+function monetaryDistance(trade: ProjectedTrade, distance: number): number | null {
+  const multiplier = trade.contractMultiplier;
+  if (multiplier == null || !(multiplier > 0)) return null;
+  if (!(distance > 0) || !(trade.quantity > 0)) return null;
+  // A stop/target at (or inside) the smallest observed price increment is not a
+  // real level — it is an artifact of a trailed/breakeven stop. 1.5 ticks
+  // absorbs float noise in the inferred increment (0.00999… for 0.01).
+  if (trade.tickSize != null && distance <= trade.tickSize * 1.5 + 1e-12) return null;
+  const amount = distance * trade.quantity * multiplier;
+  return Number.isFinite(amount) && amount > 0 ? amount : null;
 }

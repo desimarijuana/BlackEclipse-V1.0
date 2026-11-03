@@ -13,23 +13,23 @@ interface ReviewItem { label: string; value: string; tone?: 'pos' | 'neg' | 'neu
 interface WeekReview {
   periodStart: string;
   periodEnd: string;
-  performance: { trades: number; winRate: number; netR: number; netPnl: number; profitFactor: number };
-  whatWorked: { key: string; netR: number }[];
-  whatHurt: { key: string; netR: number }[];
-  biggestLeak: { key: string; netR: number } | null;
+  performance: { trades: number; winRate: number; netR: number; netPnl: number; profitFactor: number; rAvailable: boolean };
+  whatWorked: { key: string; netR: number; netPnl: number }[];
+  whatHurt: { key: string; netR: number; netPnl: number }[];
+  biggestLeak: { key: string; netR: number; netPnl: number } | null;
   bestDay: string | null;
   discipline: number;
   sections: { title: string; items: ReviewItem[] }[];
 }
 interface Wrapped {
   label: string;
-  performance: { trades: number; winRate: number; netR: number; netPnl: number; profitFactor: number; expectancy: number; maxDrawdown: number };
-  bestSetup: { key: string; netR: number } | null;
-  bestMarket: { key: string; netR: number } | null;
-  bestSession: { key: string; netR: number } | null;
-  bestHour: { key: string; netR: number } | null;
-  biggestLeak: { key: string; netR: number } | null;
-  bestConfidence: { key: string; netR: number } | null;
+  performance: { trades: number; winRate: number; netR: number; netPnl: number; profitFactor: number; expectancy: number; maxDrawdown: number; rAvailable: boolean };
+  bestSetup: { key: string; netR: number; netPnl: number } | null;
+  bestMarket: { key: string; netR: number; netPnl: number } | null;
+  bestSession: { key: string; netR: number; netPnl: number } | null;
+  bestHour: { key: string; netR: number; netPnl: number } | null;
+  biggestLeak: { key: string; netR: number; netPnl: number } | null;
+  bestConfidence: { key: string; netR: number; netPnl: number } | null;
   confidenceCorrelation: number | null;
   discipline: number;
 }
@@ -95,6 +95,9 @@ function WeeklyView({ weeks }: { weeks: WeekReview[] }) {
     <div className="flex flex-col gap-4">
       {weeks.map((w) => {
         const netR = w.performance.netR;
+        const showsR = w.performance.rAvailable;
+        const headline = showsR ? fmtR(netR) : fmtMoney(w.performance.netPnl);
+        const headlineTone = (showsR ? netR : w.performance.netPnl) >= 0 ? 'text-emerald-400' : 'text-rose-400';
         return (
           <div key={w.periodStart} className="rounded-2xl glass-card p-4">
             <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -107,8 +110,8 @@ function WeeklyView({ weeks }: { weeks: WeekReview[] }) {
                 </p>
               </div>
               <div className="text-right">
-                <p className={cn('font-mono text-xl font-bold', netR >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{fmtR(netR)}</p>
-                <p className={cn('font-mono text-[10px]', w.performance.netPnl >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80')}>{fmtMoney(w.performance.netPnl)}</p>
+                <p className={cn('font-mono text-xl font-bold', headlineTone)}>{headline}</p>
+                <p className={cn('font-mono text-[10px]', (showsR ? w.performance.netPnl : netR) >= 0 ? 'text-emerald-400/80' : 'text-rose-400/80')}>{showsR ? fmtMoney(w.performance.netPnl) : 'R unavailable — no stops captured'}</p>
               </div>
             </div>
 
@@ -136,7 +139,7 @@ function WeeklyView({ weeks }: { weeks: WeekReview[] }) {
               <div className="mt-3 flex items-center gap-2 rounded-xl bg-rose-500/5 p-3 text-[11px]">
                 <Flame size={13} className="text-rose-400 shrink-0" />
                 <span className="text-muted-foreground">Biggest leak: <span className="font-bold text-foreground">{w.biggestLeak.key}</span></span>
-                <span className="ml-auto font-mono font-bold text-rose-400">{fmtR(w.biggestLeak.netR)}</span>
+                <span className="ml-auto font-mono font-bold text-rose-400">{w.performance.rAvailable ? fmtR(w.biggestLeak.netR) : fmtMoney(w.biggestLeak.netPnl)}</span>
               </div>
             )}
 
@@ -168,12 +171,14 @@ function WrappedView({ wrapped }: { wrapped: Wrapped | null }) {
     return <EmptyState text="No trades this month yet." />;
   }
   const p = wrapped.performance;
+  const rowMetric = (row: { netR: number; netPnl: number }) => (p.rAvailable ? row.netR : row.netPnl);
+  const rowLabel = (row: { netR: number; netPnl: number }) => (p.rAvailable ? fmtR(row.netR) : fmtMoney(row.netPnl));
   const rows: { icon: React.ComponentType<{ size?: number; className?: string }>; label: string; value: string; sub?: string; tone?: 'pos' | 'neg' }[] = [
-    { icon: MessageSquareText, label: 'Best Setup', value: wrapped.bestSetup?.key ?? '—', sub: wrapped.bestSetup ? fmtR(wrapped.bestSetup.netR) : undefined, tone: 'pos' },
-    { icon: TrendingUp, label: 'Best Market', value: wrapped.bestMarket?.key ?? '—', sub: wrapped.bestMarket ? fmtR(wrapped.bestMarket.netR) : undefined, tone: 'pos' },
-    { icon: TrendingUp, label: 'Best Session', value: wrapped.bestSession?.key ?? '—', sub: wrapped.bestSession ? fmtR(wrapped.bestSession.netR) : undefined, tone: 'pos' },
-    { icon: CalendarRange, label: 'Best Hour', value: wrapped.bestHour?.key ?? '—', sub: wrapped.bestHour ? fmtR(wrapped.bestHour.netR) : undefined, tone: 'pos' },
-    { icon: Flame, label: 'Biggest Leak', value: wrapped.biggestLeak?.key ?? '—', sub: wrapped.biggestLeak ? fmtR(wrapped.biggestLeak.netR) : undefined, tone: 'neg' },
+    { icon: MessageSquareText, label: 'Best Setup', value: wrapped.bestSetup?.key ?? '—', sub: wrapped.bestSetup ? rowLabel(wrapped.bestSetup) : undefined, tone: 'pos' },
+    { icon: TrendingUp, label: 'Best Market', value: wrapped.bestMarket?.key ?? '—', sub: wrapped.bestMarket ? rowLabel(wrapped.bestMarket) : undefined, tone: 'pos' },
+    { icon: TrendingUp, label: 'Best Session', value: wrapped.bestSession?.key ?? '—', sub: wrapped.bestSession ? rowLabel(wrapped.bestSession) : undefined, tone: 'pos' },
+    { icon: CalendarRange, label: 'Best Hour', value: wrapped.bestHour?.key ?? '—', sub: wrapped.bestHour ? rowLabel(wrapped.bestHour) : undefined, tone: 'pos' },
+    { icon: Flame, label: 'Biggest Leak', value: wrapped.biggestLeak?.key ?? '—', sub: wrapped.biggestLeak ? rowLabel(wrapped.biggestLeak) : undefined, tone: 'neg' },
   ];
 
   return (
@@ -187,14 +192,14 @@ function WrappedView({ wrapped }: { wrapped: Wrapped | null }) {
 
         <div className="flex flex-wrap items-end gap-8 mb-8">
           <div>
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Net R</p>
-            <p className={cn('font-mono text-5xl font-bold leading-none', p.netR >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{fmtR(p.netR)}</p>
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{p.rAvailable ? 'Net R' : 'Net P&L'}</p>
+            <p className={cn('font-mono text-5xl font-bold leading-none', (p.rAvailable ? p.netR : p.netPnl) >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{p.rAvailable ? fmtR(p.netR) : fmtMoney(p.netPnl)}</p>
           </div>
           <MiniMetric label="Trades" value={String(p.trades)} />
           <MiniMetric label="Win Rate" value={`${(p.winRate * 100).toFixed(0)}%`} />
           <MiniMetric label="Profit Factor" value={p.profitFactor === Infinity ? '∞' : p.profitFactor.toFixed(2)} />
-          <MiniMetric label="Expectancy" value={fmtR(p.expectancy)} />
-          <MiniMetric label="Net P&L" value={fmtMoney(p.netPnl)} />
+          {p.rAvailable && <MiniMetric label="Expectancy" value={fmtR(p.expectancy)} />}
+          {p.rAvailable && <MiniMetric label="Net P&L" value={fmtMoney(p.netPnl)} />}
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -215,7 +220,9 @@ function WrappedView({ wrapped }: { wrapped: Wrapped | null }) {
 
         <div className="mt-6 flex flex-wrap gap-4 text-[11px] text-muted-foreground">
           <span className="flex items-center gap-1.5"><Award size={13} className="text-primary" /> Discipline <span className="font-mono font-bold text-foreground">{wrapped.discipline}/100</span></span>
-          <span className="flex items-center gap-1.5"><TrendingDown size={13} className="text-rose-400" /> Max drawdown <span className="font-mono font-bold text-foreground">{fmtR(-p.maxDrawdown)}</span></span>
+          {p.rAvailable && (
+            <span className="flex items-center gap-1.5"><TrendingDown size={13} className="text-rose-400" /> Max drawdown <span className="font-mono font-bold text-foreground">{fmtR(-p.maxDrawdown)}</span></span>
+          )}
           {wrapped.bestConfidence && <span className="flex items-center gap-1.5"><TrendingUp size={13} className="text-emerald-400" /> Best confidence <span className="font-mono font-bold text-foreground">{wrapped.bestConfidence.key}</span></span>}
           {wrapped.confidenceCorrelation != null && (
             <span className="flex items-center gap-1.5">Confidence corr <span className="font-mono font-bold text-foreground">{wrapped.confidenceCorrelation.toFixed(2)}</span></span>

@@ -10,6 +10,7 @@ import { MonthCalendar } from './month-calendar';
 import { QuickAddTrade } from './quick-add-trade';
 import { CsvImport } from './csv-import';
 import type { TradeRecord } from '@/lib/journal/types';
+import { classifyTradeOutcome, hasRBasis } from '@/lib/journal/trade-math';
 import { formatMonthLabel } from '@/lib/journal/dates';
 import { fmtR, fmtMoney } from './charts/echarts-container';
 
@@ -33,24 +34,28 @@ export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProp
     const monthTrades = trades.filter((t) => t.exitTime.startsWith(prefix));
     const netR = monthTrades.reduce((s, t) => s + t.rMultiple, 0);
     const netPnl = monthTrades.reduce((s, t) => s + t.pnl, 0);
-    const wins = monthTrades.filter((t) => t.rMultiple > 0).length;
+    const wins = monthTrades.filter((t) => classifyTradeOutcome(t) === "win").length;
     const winRate = monthTrades.length > 0 ? (wins / monthTrades.length) * 100 : 0;
-    const best = monthTrades.reduce((m, t) => Math.max(m, t.rMultiple), -Infinity);
+    const rAvailable = monthTrades.length > 0 && monthTrades.every(hasRBasis);
+    const bestR = monthTrades.reduce((m, t) => (hasRBasis(t) ? Math.max(m, t.rMultiple) : m), -Infinity);
+    const bestPnl = monthTrades.reduce((m, t) => Math.max(m, t.pnl), -Infinity);
     const tradingDays = new Set(monthTrades.map((t) => t.exitTime.slice(0, 10))).size;
     return {
-      count: monthTrades.length, netR, netPnl, winRate, tradingDays,
-      best: Number.isFinite(best) ? best : 0,
+      count: monthTrades.length, netR, netPnl, winRate, tradingDays, rAvailable,
+      bestR: Number.isFinite(bestR) ? bestR : 0,
+      bestPnl: Number.isFinite(bestPnl) ? bestPnl : 0,
     };
   }, [trades, year, month]);
 
-  // Daily net-R series for the sparkline in the Net R tile.
+  // Daily result series for the sparkline: R when the month has an R basis,
+  // otherwise realized P&L — never a flat zero line.
   const dailySpark = useMemo(() => {
     const prefix = `${year}-${String(month + 1).padStart(2, '0')}`;
     const byDay = new Map<string, number>();
     for (const t of trades) {
       if (!t.exitTime.startsWith(prefix)) continue;
       const d = t.exitTime.slice(0, 10);
-      byDay.set(d, (byDay.get(d) ?? 0) + t.rMultiple);
+      byDay.set(d, (byDay.get(d) ?? 0) + (monthStats.rAvailable ? t.rMultiple : t.pnl));
     }
     const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
     const series: number[] = [];
@@ -59,7 +64,7 @@ export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProp
       series.push(byDay.get(key) ?? 0);
     }
     return series;
-  }, [trades, year, month]);
+  }, [trades, year, month, monthStats.rAvailable]);
 
   const goPrev = () => {
     if (month === 0) { setMonth(11); setYear((y) => y - 1); }
@@ -144,10 +149,16 @@ export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProp
         />
         <MonthStat
           icon={<Trophy size={13} />}
-          label="Net R"
-          value={fmtR(monthStats.netR)}
-          accent={monthStats.netR >= 0 ? 'text-emerald-400' : 'text-rose-400'}
-          sub={monthStats.count > 0 ? `best ${fmtR(monthStats.best)}` : undefined}
+          label={monthStats.rAvailable ? "Net R" : "Net P&L"}
+          value={monthStats.rAvailable ? fmtR(monthStats.netR) : fmtMoney(monthStats.netPnl)}
+          accent={(monthStats.rAvailable ? monthStats.netR : monthStats.netPnl) >= 0 ? 'text-emerald-400' : 'text-rose-400'}
+          sub={
+            monthStats.count > 0
+              ? monthStats.rAvailable
+                ? `best ${fmtR(monthStats.bestR)}`
+                : `best ${fmtMoney(monthStats.bestPnl)}`
+              : undefined
+          }
           spark={dailySpark}
         />
         <MonthStat

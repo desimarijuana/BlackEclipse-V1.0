@@ -14,6 +14,8 @@ import { prisma, yieldToEventLoop } from "@/lib/db";
 import { getOrCreateProfile } from "@/lib/journal/data";
 import { BrokerSourceUnavailable, readBrokerMirror, syncBrokerMirror } from "./source";
 import {
+  monetaryReward,
+  monetaryRisk,
   projectBrokerTrades,
   type ProjectedFill,
   type ProjectedTrade,
@@ -88,10 +90,11 @@ function derive(trade: ProjectedTrade): Derived {
   const sign = trade.direction === "LONG" ? 1 : -1;
   const riskPerUnit = trade.stopLoss != null ? (trade.entry - trade.stopLoss) * sign : null;
   const rewardPerUnit = trade.takeProfit != null ? (trade.takeProfit - trade.entry) * sign : null;
-  const riskAmount =
-    riskPerUnit != null && riskPerUnit > 0 ? riskPerUnit * trade.quantity : null;
-  const rewardAmount =
-    rewardPerUnit != null && rewardPerUnit > 0 ? rewardPerUnit * trade.quantity : null;
+  // Risk/reward are converted to account currency with the calibrated contract
+  // multiplier, and a stop inside one tick (a breakeven trail) is not a risk
+  // basis. `null` means R is genuinely unmeasurable, never an inflated number.
+  const riskAmount = monetaryRisk(trade);
+  const rewardAmount = monetaryReward(trade);
 
   const isOpen = trade.status === "open";
   const entryMs = Date.parse(trade.entryTime);
@@ -101,15 +104,21 @@ function derive(trade: ProjectedTrade): Derived {
       ? Math.max(0, Math.round((exitMs - entryMs) / 1000))
       : null;
 
+  // Price-relative move, the same unit manual trades store. Account-currency
+  // P&L over `entry × quantity` is NOT a return for FX/CFD (contract size is
+  // not modelled) and produced absurd values like −70.7 on a 0.01-lot EURUSD
+  // trade; the broker's own P&L stays authoritative in `pnl`.
+  const pnlPct =
+    !isOpen && trade.exit != null && trade.entry > 0
+      ? ((trade.exit - trade.entry) * sign) / trade.entry
+      : 0;
+
   return {
     grossPnl: trade.grossPnl,
     commission: trade.commission,
     fee: trade.fee,
     pnl: trade.netPnl,
-    // Account-currency P&L over notional is a rough ratio (FX/CFD contract
-    // size is not modelled); `pnl` and `rMultiple` remain the authoritative
-    // numbers. Never let a division by zero fabricate a percentage.
-    pnlPct: trade.entry > 0 && trade.quantity > 0 ? trade.netPnl / (trade.entry * trade.quantity) : 0,
+    pnlPct,
     rMultiple: riskAmount ? trade.netPnl / riskAmount : 0,
     riskAmount,
     rewardAmount,
@@ -605,8 +614,9 @@ async function runJournalBrokerSync(
       !sameTime(current.entryTime, trade.entryTime) ||
       !sameTime(current.exitTime, trade.exitTime) ||
       current.status !== trade.status ||
-      current.magic !== (trade.magic ?? null) ||
+      !sameNumber(current.magic, trade.magic ?? null) ||
       !sameNumber(current.pnl, updateDerived.pnl) ||
+      !sameNumber(current.pnlPct, updateDerived.pnlPct) ||
       !sameNumber(current.commission, updateDerived.commission) ||
       !sameNumber(current.fee, updateDerived.fee) ||
       !sameNumber(current.grossPnl, updateDerived.grossPnl) ||

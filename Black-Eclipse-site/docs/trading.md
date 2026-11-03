@@ -577,10 +577,11 @@ connections whose status is `connected` or `unavailable`, and it never places an
 order. Manual `POST .../sync` always works.
 
 **History window.** Each sync asks MetaTrader for the last 7 days of deals, with a
-2-day future margin. `history_deals_get` expects **server** time, and the Python
-process clock can be hours behind or ahead (the current demo is +2h); a tight
-local-time cursor silently drops the newest fill. Dedupe by deal ticket absorbs the
-overlap, so the stored cursor is advisory, not authoritative.
+2-day future margin and a 3-day lower-bound margin. `history_deals_get` expects
+**server** time, and the Python process clock can be hours behind or ahead (the
+current demo is +2h); a tight local-time cursor silently drops the oldest or newest
+fill. Dedupe by deal ticket absorbs the overlap, so the stored cursor is advisory,
+not authoritative.
 
 **Journal projection.** The reconciled mirror is also the input to the
 trading journal: `POST /api/journal/broker/sync` groups `BrokerFill` deals by

@@ -7,6 +7,8 @@ import React, { useMemo } from 'react';
 import { Brain, AlertTriangle, Target } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';
+import { classifyTradeOutcome, hasRBasis } from '@/lib/journal/trade-math';
+import { fmtMoney } from '@/lib/journal/format';
 import { DimensionBarChart, fmtR } from './charts';
 
 interface PsychologyProps {
@@ -15,16 +17,20 @@ interface PsychologyProps {
 }
 
 export function JournalPsychology({ analytics, trades }: PsychologyProps) {
+  const rAvailable = analytics?.performance.rAvailable ?? false;
   const leaks = useMemo<{ worstMistake?: [string, number]; worstEmotion?: [string, number] }>(() => {
     const byMistake = new Map<string, number>();
     const byEmotionNeg = new Map<string, number>();
+    // Leak magnitude follows the journal's basis: R when stops exist,
+    // otherwise realized P&L — never a meaningless 0R.
+    const magnitude = (t: TradeRecord) => (hasRBasis(t) ? t.rMultiple : t.pnl);
     for (const t of trades) {
       if (t.status !== 'closed') continue;
-      if (t.emotion && t.rMultiple < 0) byEmotionNeg.set(t.emotion, (byEmotionNeg.get(t.emotion) ?? 0) + t.rMultiple);
+      if (t.emotion && classifyTradeOutcome(t) === 'loss') byEmotionNeg.set(t.emotion, (byEmotionNeg.get(t.emotion) ?? 0) + magnitude(t));
       if (t.mistakes) {
         try {
           const arr = JSON.parse(t.mistakes) as string[];
-          for (const m of arr) byMistake.set(m, (byMistake.get(m) ?? 0) + t.rMultiple);
+          for (const m of arr) byMistake.set(m, (byMistake.get(m) ?? 0) + magnitude(t));
         } catch { /* ignore */ }
       }
     }
@@ -32,6 +38,7 @@ export function JournalPsychology({ analytics, trades }: PsychologyProps) {
     const worstEmotion = [...byEmotionNeg.entries()].sort((a, b) => a[1] - b[1])[0];
     return { worstMistake, worstEmotion };
   }, [trades]);
+  const leakLabel = (v: number) => (rAvailable ? fmtR(v) : fmtMoney(v));
 
   if (!analytics || analytics.performance.totalTrades === 0) {
     return (
@@ -51,12 +58,12 @@ export function JournalPsychology({ analytics, trades }: PsychologyProps) {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Emotion performance */}
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.byEmotion} title="Performance by Emotion" hint="NET R" height={Math.max(160, analytics.byEmotion.length * 30)} />
+          <DimensionBarChart rows={analytics.byEmotion} title="Performance by Emotion" hint={rAvailable ? 'NET R' : 'NET P&L'} basis={rAvailable ? 'R' : 'pnl'} height={Math.max(160, analytics.byEmotion.length * 30)} />
         </div>
 
         {/* Confidence correlation */}
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.byConfidence} title="Performance by Confidence" hint="NET R" height={Math.max(160, analytics.byConfidence.length * 30)} />
+          <DimensionBarChart rows={analytics.byConfidence} title="Performance by Confidence" hint={rAvailable ? 'NET R' : 'NET P&L'} basis={rAvailable ? 'R' : 'pnl'} height={Math.max(160, analytics.byConfidence.length * 30)} />
         </div>
       </div>
 
@@ -97,7 +104,7 @@ export function JournalPsychology({ analytics, trades }: PsychologyProps) {
           {leaks.worstEmotion ? (
             <div className="flex items-center justify-between">
               <span className="font-mono text-sm font-bold text-foreground">{leaks.worstEmotion[0]}</span>
-              <span className="font-mono text-sm font-bold text-rose-400">{fmtR(leaks.worstEmotion[1])}</span>
+              <span className="font-mono text-sm font-bold text-rose-400">{leakLabel(leaks.worstEmotion[1])}</span>
             </div>
           ) : (
             <p className="text-xs text-muted-foreground italic">No losing trades tagged with an emotion.</p>
@@ -112,7 +119,7 @@ export function JournalPsychology({ analytics, trades }: PsychologyProps) {
           {leaks.worstMistake ? (
             <div className="flex items-center justify-between">
               <span className="font-mono text-sm font-bold text-foreground">{leaks.worstMistake[0]}</span>
-              <span className="font-mono text-sm font-bold text-rose-400">{fmtR(leaks.worstMistake[1])}</span>
+              <span className="font-mono text-sm font-bold text-rose-400">{leakLabel(leaks.worstMistake[1])}</span>
             </div>
           ) : (
             <p className="text-xs text-muted-foreground italic">No mistakes recorded on losing trades.</p>

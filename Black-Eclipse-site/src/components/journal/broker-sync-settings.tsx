@@ -306,7 +306,18 @@ export function BrokerSyncSettings({ accounts }: { accounts: AccountOption[] }) 
       } else {
         setMessage({
           connectionId: connection.id,
-          text: `${data.imported} new · ${data.updated} updated · ${data.unchanged} unchanged · ${data.openPositions} open${data.backfillDays ? ` · ${data.backfillDays}d backfill` : ''}`,
+          text: [
+            `${data.imported} new`,
+            `${data.updated} updated`,
+            `${data.unchanged} unchanged`,
+            `${data.openPositions} open`,
+            data.skippedDeals ? `${data.skippedDeals} skipped` : null,
+            data.backfillDays ? `${data.backfillDays}d backfill` : null,
+            data.warnings.length ? `${data.warnings.length} warning(s)` : null,
+          ]
+            .filter(Boolean)
+            .join(' · '),
+          bad: data.warnings.length > 0,
         });
       }
       await load();

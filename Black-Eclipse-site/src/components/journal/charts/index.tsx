@@ -88,11 +88,13 @@ export function EquityCurveChart({ equity, height = 240, title = 'Equity Curve',
 
 // ── Horizontal bar: net R by dimension (symbol / setup / session) ────────────
 
-export function DimensionBarChart({ rows, title, hint, height = 220 }: { rows: DimensionRow[]; title: string; hint?: string; height?: number }) {
+export function DimensionBarChart({ rows, title, hint, height = 220, basis = 'R' }: { rows: DimensionRow[]; title: string; hint?: string; height?: number; basis?: 'R' | 'pnl' }) {
   const palette = useChartPalette();
+  const valueOf = (r: DimensionRow) => (basis === 'pnl' ? r.netPnl : r.netR);
+  const label = (v: number) => (basis === 'pnl' ? fmtMoney(v) : fmtR(v));
   const option = useMemo<EChartsOption | null>(() => {
     if (rows.length === 0) return null;
-    const sorted = [...rows].sort((a, b) => a.netR - b.netR);
+    const sorted = [...rows].sort((a, b) => (basis === 'pnl' ? a.netPnl - b.netPnl : a.netR - b.netR));
     return {
       ...journalBaseOption(),
       tooltip: {
@@ -103,14 +105,14 @@ export function DimensionBarChart({ rows, title, hint, height = 220 }: { rows: D
           const arr = Array.isArray(params) ? params : [params];
           const idx = (arr[0] as { dataIndex: number }).dataIndex;
           const r = sorted[idx];
-          const tone = r.netR >= 0 ? palette.candles.up : palette.candles.down;
-          return `<div style="font-weight:600;margin-bottom:4px">${r.key}</div>Trades: <b>${r.trades}</b><br/>Win rate: <b>${(r.winRate * 100).toFixed(0)}%</b><br/>Net R: <b style="color:${tone}">${fmtR(r.netR)}</b><br/>Net P&L: <b style="color:${tone}">${fmtMoney(r.netPnl)}</b>`;
+          const tone = (basis === 'pnl' ? r.netPnl : r.netR) >= 0 ? palette.candles.up : palette.candles.down;
+          return `<div style="font-weight:600;margin-bottom:4px">${r.key}</div>Trades: <b>${r.trades}</b><br/>Win rate: <b>${(r.winRate * 100).toFixed(0)}%</b><br/>Net ${basis === 'pnl' ? 'P&L' : 'R'}: <b style="color:${tone}">${label(basis === 'pnl' ? r.netPnl : r.netR)}</b><br/>Net P&L: <b style="color:${tone}">${fmtMoney(r.netPnl)}</b>`;
         },
       },
       grid: { left: 8, right: 44, top: 8, bottom: 0, containLabel: true },
       xAxis: {
         type: 'value',
-        axisLabel: { formatter: (v: number) => `${v}R`, color: '#7a7a7a', fontSize: 10, fontFamily: 'monospace' },
+        axisLabel: { formatter: (v: number) => (basis === 'pnl' ? fmtMoney(v) : `${v}R`), color: '#7a7a7a', fontSize: 10, fontFamily: 'monospace' },
         splitLine: { show: false },
         axisLine: { show: false },
         axisTick: { show: false },
@@ -125,20 +127,23 @@ export function DimensionBarChart({ rows, title, hint, height = 220 }: { rows: D
       series: [
         {
           type: 'bar',
-          data: sorted.map((r) => ({
-            value: r.netR,
-            itemStyle: {
-              color: r.netR >= 0 ? palette.candles.up : palette.candles.down,
-              borderRadius: [0, 4, 4, 0],
-              shadowColor: r.netR >= 0 ? `${palette.candles.up}44` : `${palette.candles.down}44`,
-              shadowBlur: 6,
-            },
-          })),
+          data: sorted.map((r) => {
+            const v = valueOf(r);
+            return {
+              value: v,
+              itemStyle: {
+                color: v >= 0 ? palette.candles.up : palette.candles.down,
+                borderRadius: [0, 4, 4, 0],
+                shadowColor: v >= 0 ? `${palette.candles.up}44` : `${palette.candles.down}44`,
+                shadowBlur: 6,
+              },
+            };
+          }),
           barWidth: '55%',
           label: {
             show: true,
             position: 'right',
-            formatter: (p: { value?: unknown }) => `${Number(p.value ?? 0).toFixed(1)}R`,
+            formatter: (p: { value?: unknown }) => label(Number(p.value ?? 0)),
             color: '#a3a3a3',
             fontSize: 9,
             fontFamily: 'monospace',
@@ -146,9 +151,9 @@ export function DimensionBarChart({ rows, title, hint, height = 220 }: { rows: D
         },
       ],
     };
-  }, [rows, palette]);
+  }, [rows, palette, basis]);
 
-  return <EChartsContainer option={option} deps={[rows, palette]} height={height} title={title} hint={hint} empty={rows.length === 0} emptyText="No data for this dimension yet." />;
+  return <EChartsContainer option={option} deps={[rows, palette, basis]} height={height} title={title} hint={hint} empty={rows.length === 0} emptyText="No data for this dimension yet." />;
 }
 
 // ── R distribution histogram ─────────────────────────────────────────────────
@@ -284,8 +289,11 @@ export function DrawdownChart({ equity, height = 200, title = 'Drawdown', hint =
 
 // ── Daily performance (net R per day, bar chart) ───────────────────────────────
 
-export function DailyPerformanceChart({ days, height = 200, title = 'Daily Performance', hint = 'NET R PER DAY' }: { days: { date: string; netR: number }[]; height?: number; title?: string; hint?: string }) {
+export function DailyPerformanceChart({ days, height = 200, title = 'Daily Performance', hint, basis = 'R' }: { days: { date: string; netR: number; netPnl?: number }[]; height?: number; title?: string; hint?: string; basis?: 'R' | 'pnl' }) {
   const palette = useChartPalette();
+  const valueOf = (d: { netR: number; netPnl?: number }) => (basis === 'pnl' ? d.netPnl ?? 0 : d.netR);
+  const label = (v: number) => (basis === 'pnl' ? fmtMoney(v) : fmtR(v));
+  const resolvedHint = hint ?? (basis === 'pnl' ? 'NET P&L PER DAY' : 'NET R PER DAY');
   const option = useMemo<EChartsOption | null>(() => {
     if (days.length === 0) return null;
     const sorted = [...days].sort((a, b) => a.date.localeCompare(b.date));
@@ -298,25 +306,29 @@ export function DailyPerformanceChart({ days, height = 200, title = 'Daily Perfo
           const arr = Array.isArray(params) ? params : [params];
           const idx = (arr[0] as { dataIndex: number }).dataIndex;
           const d = sorted[idx];
-          return `<div style="font-weight:600;margin-bottom:4px">${d.date}</div>Net R: <b style="color:${d.netR >= 0 ? palette.candles.up : palette.candles.down}">${fmtR(d.netR)}</b>`;
+          const v = valueOf(d);
+          return `<div style="font-weight:600;margin-bottom:4px">${d.date}</div>${basis === 'pnl' ? 'Net P&L' : 'Net R'}: <b style="color:${v >= 0 ? palette.candles.up : palette.candles.down}">${label(v)}</b>`;
         },
       },
       xAxis: { type: 'category', data: sorted.map((d) => d.date.slice(5)), axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace' } },
-      yAxis: { type: 'value', scale: true, splitLine: { show: false }, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace', formatter: (v: number) => `${v}R` } },
+      yAxis: { type: 'value', scale: true, splitLine: { show: false }, axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: '#7a7a7a', fontSize: 9, fontFamily: 'monospace', formatter: (v: number) => (basis === 'pnl' ? fmtMoney(v) : `${v}R`) } },
       series: [
         {
           type: 'bar',
-          data: sorted.map((d) => ({
-            value: d.netR,
-            itemStyle: { color: d.netR >= 0 ? palette.candles.up : palette.candles.down, borderRadius: [2, 2, 0, 0] },
-          })),
+          data: sorted.map((d) => {
+            const v = valueOf(d);
+            return {
+              value: v,
+              itemStyle: { color: v >= 0 ? palette.candles.up : palette.candles.down, borderRadius: [2, 2, 0, 0] },
+            };
+          }),
           barWidth: '60%',
         },
       ],
     };
-  }, [days, palette]);
+  }, [days, palette, basis]);
 
-  return <EChartsContainer option={option} deps={[days, palette]} height={height} title={title} hint={hint} empty={days.length === 0} emptyText="No daily data yet." />;
+  return <EChartsContainer option={option} deps={[days, palette, basis]} height={height} title={title} hint={resolvedHint} empty={days.length === 0} emptyText="No daily data yet." />;
 }
 
 // ── Generic scatter (MAE/MFE efficiency, confidence vs outcome) ──────────────
