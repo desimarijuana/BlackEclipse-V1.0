@@ -7,9 +7,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { DesktopOnlyNotice } from '@/components/ui/desktop-only-notice';
+import { parseCsv } from '@/lib/journal/import/csv';
 import {
   mlClient,
   type Capabilities,
+  type Comparison,
   type DatasetRecord,
   type DatasetVersion,
   type ExperimentRecord,
@@ -97,6 +99,17 @@ export function MlLabScreen() {
   const [dsFeatures, setDsFeatures] = useState('ret_1, ret_5, ret_21, vol_21, volume_z_21');
   const [targetKind, setTargetKind] = useState('direction_binary');
   const [horizon, setHorizon] = useState(5);
+  // records source: an uploaded table. Columns come from the parsed header, so
+  // the feature/target names the form sends always exist in the rows.
+  const [dsSource, setDsSource] = useState<'market' | 'records'>('market');
+  const [recRows, setRecRows] = useState<Record<string, string>[]>([]);
+  const [recColumns, setRecColumns] = useState<string[]>([]);
+  const [recFeatures, setRecFeatures] = useState('');
+  const [recTarget, setRecTarget] = useState('');
+  const [recTask, setRecTask] = useState<'classification' | 'regression' | 'clustering' | 'anomaly'>('classification');
+  const [recTime, setRecTime] = useState('');
+  const [recId, setRecId] = useState('');
+  const [recError, setRecError] = useState<string | null>(null);
   const [lastBuild, setLastBuild] = useState<{ datasetId: string; version: string; dataHash: string; quality: { ok: boolean; findings: { severity: string; message: string }[] } } | null>(null);
   const [versions, setVersions] = useState<DatasetVersion[]>([]);
 
@@ -104,12 +117,17 @@ export function MlLabScreen() {
   const [expDataset, setExpDataset] = useState('');
   const [expVersion, setExpVersion] = useState('');
   const [expFamily, setExpFamily] = useState('logistic');
+  const [expHyper, setExpHyper] = useState<Record<string, unknown>>({});
+  const [planNote, setPlanNote] = useState<string | null>(null);
+  const [comparison, setComparison] = useState<Comparison | null>(null);
+  const [tuneNote, setTuneNote] = useState<string | null>(null);
   const [splitMethod, setSplitMethod] = useState('walk_forward');
   const [nSplits, setNSplits] = useState(4);
   const [purge, setPurge] = useState(true);
   const [embargo, setEmbargo] = useState(1);
   const [seed, setSeed] = useState(42);
   const [selection, setSelection] = useState('none');
+  const [calibrationMethod, setCalibrationMethod] = useState('none');
   const [background, setBackground] = useState(true);
   const [jobs, setJobs] = useState<JobRecord[]>([]);
   const [activeJob, setActiveJob] = useState<JobRecord | null>(null);
@@ -157,13 +175,32 @@ export function MlLabScreen() {
     setBusy(true);
     setError(null);
     try {
-      const result = await mlClient.buildDataset({
-        name: dsName,
-        symbols: csv(dsSymbols),
-        featureNames: csv(dsFeatures),
-        target: { kind: targetKind, horizon },
-        missingPolicy: 'drop',
-      });
+      const body: Record<string, unknown> =
+        dsSource === 'records'
+          ? {
+              name: dsName,
+              source: 'records',
+              records: recRows,
+              featureNames: csv(recFeatures),
+              target:
+                recTask === 'clustering' || recTask === 'anomaly'
+                  ? { kind: 'unsupervised', task: recTask }
+                  : { kind: 'column', column: recTarget, task: recTask },
+              ...(recTime ? { timeColumn: recTime } : {}),
+              ...(recId ? { idColumn: recId } : {}),
+              missingPolicy: 'drop',
+            }
+          : {
+              name: dsName,
+              source: 'market',
+              symbols: csv(dsSymbols),
+              featureNames: csv(dsFeatures),
+              target: targetKind.startsWith('unsupervised')
+                ? { kind: 'unsupervised', task: targetKind.split(':')[1] }
+                : { kind: targetKind, horizon },
+              missingPolicy: 'drop',
+            };
+      const result = await mlClient.buildDataset(body);
       setLastBuild({ datasetId: result.datasetId, version: result.version, dataHash: result.dataHash, quality: result.quality });
       const v = await mlClient.listDatasetVersions(result.datasetId);
       setVersions(v.versions);
@@ -175,7 +212,53 @@ export function MlLabScreen() {
     } finally {
       setBusy(false);
     }
-  }, [dsName, dsSymbols, dsFeatures, targetKind, horizon, refresh]);
+  }, [dsName, dsSource, dsSymbols, dsFeatures, targetKind, horizon, recRows, recFeatures, recTarget, recTask, recTime, recId, refresh]);
+
+  /**
+   * Parse an uploaded CSV into records. The shared parser lower-cases headers,
+   * so every name in the form comes from the same parsed column list — the
+   * build can never reference a column that does not exist in the rows.
+   */
+  const onCsvFile = useCallback(async (file: File | null) => {
+    setRecError(null);
+    setRecRows([]);
+    setRecColumns([]);
+    if (!file) return;
+    const parsed = parseCsv(await file.text());
+    if (parsed.length === 0) {
+      setRecError('the file has no data rows (a header row and at least one row are required)');
+      return;
+    }
+    const columns = Object.keys(parsed[0]);
+    setRecRows(parsed);
+    setRecColumns(columns);
+    const numeric = columns.filter((c) =>
+      parsed.slice(0, 200).every((r) => r[c] === '' || Number.isFinite(Number(r[c]))),
+    );
+    setRecFeatures(numeric.slice(0, 8).join(', '));
+    setRecTarget('');
+    setRecTime(columns.find((c) => /date|time|day|period|stamp/.test(c)) ?? '');
+    setRecId('');
+  }, []);
+
+  /** Download the built dataset version as CSV (portable, bounded). */
+  const downloadDataset = useCallback(async (format: 'csv' | 'jsonl' = 'csv') => {
+    if (!lastBuild) return;
+    setError(null);
+    try {
+      const out = await mlClient.exportDataset(lastBuild.datasetId, lastBuild.version, format);
+      const blob = new Blob([out.content], { type: out.contentType });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = out.filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      if (out.truncated) setPlanNote(`exported ${out.rows} of ${out.totalRows} rows (limit reached)`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'export failed');
+    }
+  }, [lastBuild]);
 
   const loadVersions = useCallback(async (datasetId: string) => {
     try {
@@ -194,9 +277,11 @@ export function MlLabScreen() {
       datasetVersion: expVersion,
       title: `${expFamily} on ${expDataset}@${expVersion}`,
       modelFamily: expFamily,
+      hyperparameters: expHyper,
       selection: { method: selection },
       split: { method: splitMethod, nSplits, purge, embargo },
       seed,
+      calibration: calibrationMethod,
     };
     try {
       if (background) {
@@ -213,10 +298,92 @@ export function MlLabScreen() {
     } finally {
       setBusy(false);
     }
-  }, [expDataset, expVersion, expFamily, selection, splitMethod, nSplits, purge, embargo, seed, background, refresh]);
+  }, [expDataset, expVersion, expFamily, expHyper, selection, calibrationMethod, splitMethod, nSplits, purge, embargo, seed, background, refresh]);
 
-  const cancelJob = useCallback(async (jobId: string) => {
+  /** Ask the runtime's deterministic planner for a recipe and apply it to the form. */  const suggestModel = useCallback(async () => {
+    if (!expDataset) return;
+    setBusy(true);
     setError(null);
+    try {
+      const { plan } = await mlClient.planModel({ datasetId: expDataset, datasetVersion: expVersion });
+      setExpFamily(plan.modelFamily);
+      setExpHyper(plan.hyperparameters ?? {});
+      setSelection(plan.selection?.method ?? 'none');
+      setSplitMethod(plan.split?.method ?? 'walk_forward');
+      setNSplits(plan.split?.nSplits ?? 4);
+      if (typeof plan.split?.purge === 'boolean') setPurge(plan.split.purge);
+      if (typeof plan.split?.embargo === 'number') setEmbargo(plan.split.embargo);
+      setPlanNote(
+        [plan.rationale?.[0], ...(plan.warnings ?? [])].filter(Boolean).join(' · '),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'planning failed');
+    } finally {
+      setBusy(false);
+    }
+  }, [expDataset, expVersion]);
+
+  /** Train every suitable family on the SAME folds and show the arena verdict. */
+  const compareFamilies = useCallback(async () => {
+    if (!expDataset || !expVersion) return;
+    setBusy(true);
+    setError(null);
+    setComparison(null);
+    try {
+      const dv = await mlClient.getDatasetVersion(expDataset, expVersion);
+      const manifest = dv.manifest as { target?: { task?: string } } | undefined;
+      const task = manifest?.target?.task ?? 'classification';
+      const families = availableModels
+        .filter((m) => m.tasks.includes(task))
+        .map((m) => m.family)
+        .slice(0, 4);
+      if (families.length === 0) throw new Error(`no available model supports ${task}`);
+      const res = await mlClient.compareModels({
+        datasetId: expDataset,
+        datasetVersion: expVersion,
+        families,
+        split: { method: splitMethod, nSplits, purge, embargo },
+        seed,
+      });
+      setComparison(res.comparison);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'comparison failed');
+    } finally {
+      setBusy(false);
+    }
+  }, [expDataset, expVersion, availableModels, splitMethod, nSplits, purge, embargo, seed, refresh]);
+
+  /** Tune the selected family over its default grid on the same folds. */
+  const tuneFamily = useCallback(async () => {
+    if (!expDataset || !expVersion) return;
+    setBusy(true);
+    setError(null);
+    setTuneNote(null);
+    try {
+      const res = await mlClient.searchModels({
+        datasetId: expDataset,
+        datasetVersion: expVersion,
+        modelFamily: expFamily,
+        maxTrials: 6,
+        split: { method: splitMethod, nSplits, purge, embargo },
+        calibration: calibrationMethod,
+        seed,
+      });
+      setTuneNote(
+        res.best
+          ? `${res.best.metric}=${res.best.value.toFixed(4)} · ${JSON.stringify(res.best.hyperparameters)} · ${res.note}`
+          : res.note,
+      );
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'search failed');
+    } finally {
+      setBusy(false);
+    }
+  }, [expDataset, expVersion, expFamily, splitMethod, nSplits, purge, embargo, calibrationMethod, seed, refresh]);
+
+  const cancelJob = useCallback(async (jobId: string) => {    setError(null);
     try {
       await mlClient.cancelJob(jobId);
       await refresh();
@@ -398,19 +565,76 @@ export function MlLabScreen() {
         <div className="grid gap-4 md:grid-cols-2">
           <Panel title="Build a dataset version">
             <div className="space-y-2 text-xs">
-              <input className="glass-card-subtle w-full rounded-md px-2 py-1.5 text-white" value={dsName} onChange={(e) => setDsName(e.target.value)} placeholder="name" />
-              <input className="glass-card-subtle w-full rounded-md px-2 py-1.5 text-white" value={dsSymbols} onChange={(e) => setDsSymbols(e.target.value)} placeholder="symbols" />
-              <input className="glass-card-subtle w-full rounded-md px-2 py-1.5 text-white" value={dsFeatures} onChange={(e) => setDsFeatures(e.target.value)} placeholder="features" />
               <div className="flex gap-2">
-                <select className="glass-card-subtle rounded-md px-2 py-1.5 text-white" value={targetKind} onChange={(e) => setTargetKind(e.target.value)}>
-                  <option value="direction_binary">direction_binary</option>
-                  <option value="forward_return">forward_return</option>
-                  <option value="direction_multiclass">direction_multiclass</option>
-                  <option value="volatility">volatility</option>
-                  <option value="cross_sectional_rank">cross_sectional_rank</option>
+                <select className="glass-card-subtle rounded-md px-2 py-1.5 text-white" value={dsSource} onChange={(e) => setDsSource(e.target.value as 'market' | 'records')}>
+                  <option value="market">Market data</option>
+                  <option value="records">Uploaded table (CSV)</option>
                 </select>
-                <input type="number" min={1} className="glass-card-subtle w-24 rounded-md px-2 py-1.5 text-white" value={horizon} onChange={(e) => setHorizon(Number(e.target.value))} />
               </div>
+              <input className="glass-card-subtle w-full rounded-md px-2 py-1.5 text-white" value={dsName} onChange={(e) => setDsName(e.target.value)} placeholder="name" />
+              {dsSource === 'market' ? (
+                <>
+                  <input className="glass-card-subtle w-full rounded-md px-2 py-1.5 text-white" value={dsSymbols} onChange={(e) => setDsSymbols(e.target.value)} placeholder="symbols" />
+                  <input className="glass-card-subtle w-full rounded-md px-2 py-1.5 text-white" value={dsFeatures} onChange={(e) => setDsFeatures(e.target.value)} placeholder="features" />
+                  <div className="flex gap-2">
+                    <select className="glass-card-subtle rounded-md px-2 py-1.5 text-white" value={targetKind} onChange={(e) => setTargetKind(e.target.value)}>
+                      <option value="direction_binary">direction_binary</option>
+                      <option value="forward_return">forward_return</option>
+                      <option value="direction_multiclass">direction_multiclass</option>
+                      <option value="volatility">volatility</option>
+                      <option value="cross_sectional_rank">cross_sectional_rank</option>
+                      <option value="unsupervised:clustering">clustering (no label)</option>
+                      <option value="unsupervised:anomaly">anomaly (no label)</option>
+                    </select>
+                    <input type="number" min={1} className="glass-card-subtle w-24 rounded-md px-2 py-1.5 text-white" value={horizon} onChange={(e) => setHorizon(Number(e.target.value))} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    className="glass-card-subtle w-full rounded-md px-2 py-1.5 text-white file:mr-2 file:rounded file:border-0 file:bg-white/10 file:px-2 file:py-1 file:text-white"
+                    onChange={(e) => void onCsvFile(e.target.files?.[0] ?? null)}
+                  />
+                  {recRows.length > 0 ? (
+                    <>
+                      <p className="text-white/50">
+                        {recRows.length} row(s), {recColumns.length} column(s). Names are lower-cased;
+                        the table is kept in file order (chronological splits read it that way).
+                      </p>
+                      <input className="glass-card-subtle w-full rounded-md px-2 py-1.5 text-white" value={recFeatures} onChange={(e) => setRecFeatures(e.target.value)} placeholder="feature columns (comma separated)" />
+                      <div className="flex gap-2">
+                        <select className="glass-card-subtle rounded-md px-2 py-1.5 text-white" value={recTask} onChange={(e) => setRecTask(e.target.value as typeof recTask)}>
+                          <option value="classification">classification</option>
+                          <option value="regression">regression</option>
+                          <option value="clustering">clustering (no label)</option>
+                          <option value="anomaly">anomaly (no label)</option>
+                        </select>
+                        {recTask !== 'clustering' && recTask !== 'anomaly' && (
+                          <select className="glass-card-subtle rounded-md px-2 py-1.5 text-white" value={recTarget} onChange={(e) => setRecTarget(e.target.value)}>
+                            <option value="">target column…</option>
+                            {recColumns.map((c) => <option key={c} value={c}>{c}</option>)}
+                          </select>
+                        )}
+                      </div>
+                      <div className="flex gap-2">
+                        <select className="glass-card-subtle rounded-md px-2 py-1.5 text-white" value={recTime} onChange={(e) => setRecTime(e.target.value)}>
+                          <option value="">no time column</option>
+                          {recColumns.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                        <select className="glass-card-subtle rounded-md px-2 py-1.5 text-white" value={recId} onChange={(e) => setRecId(e.target.value)}>
+                          <option value="">no id column</option>
+                          {recColumns.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      {recError && <p className="text-red-300">{recError}</p>}
+                    </>
+                  ) : (
+                    <p className="text-white/50">Choose a CSV with a header row. Column names become feature/target names.</p>
+                  )}
+                </>
+              )}
               <button disabled={busy} onClick={() => void buildDataset()} className="glass-card rounded-md px-3 py-1.5 text-white disabled:opacity-50">
                 Build & validate
               </button>
@@ -429,6 +653,14 @@ export function MlLabScreen() {
                     ))}
                   </ul>
                 )}
+                <div className="mt-2 flex gap-2">
+                  <button className="glass-card-subtle rounded-md px-2 py-1 text-white" onClick={() => void downloadDataset('csv')}>
+                    Export CSV
+                  </button>
+                  <button className="glass-card-subtle rounded-md px-2 py-1 text-white" onClick={() => void downloadDataset('jsonl')}>
+                    Export JSONL
+                  </button>
+                </div>
               </div>
             )}
           </Panel>
@@ -482,6 +714,61 @@ export function MlLabScreen() {
                   <option key={m.family} value={m.family}>{m.family} ({m.tier})</option>
                 ))}
               </select>
+              <button
+                disabled={busy || !expDataset}
+                onClick={() => void suggestModel()}
+                className="glass-card-subtle rounded-md px-2 py-1.5 text-white disabled:opacity-50"
+                title="Ask the runtime's planner for a family and validation design (no training)"
+              >
+                Suggest a model
+              </button>
+              {planNote && <p className="text-white/60">{planNote}</p>}
+              <button
+                disabled={busy || !expDataset || !expVersion}
+                onClick={() => void compareFamilies()}
+                className="glass-card-subtle rounded-md px-2 py-1.5 text-white disabled:opacity-50"
+                title="Train every suitable family on the same folds and compare"
+              >
+                Compare families
+              </button>
+              <button
+                disabled={busy || !expDataset || !expVersion}
+                onClick={() => void tuneFamily()}
+                className="glass-card-subtle rounded-md px-2 py-1.5 text-white disabled:opacity-50"
+                title="Grid-search the selected family's default hyperparameters on the same folds"
+              >
+                Tune {expFamily}
+              </button>
+              {tuneNote && <p className="text-white/60">{tuneNote}</p>}
+              {comparison && (
+                <div className="rounded-md border border-white/10 p-2">
+                  <p className="text-white/70">{comparison.note}</p>
+                  {comparison.primaryMetric && (
+                    <table className="mt-1 w-full text-left text-white/70">
+                      <thead>
+                        <tr>
+                          <th>#</th><th>family</th><th>{comparison.primaryMetric.key}</th><th>± fold sd</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {comparison.ranking.map((r) => (
+                          <tr key={r.runId}>
+                            <td>{r.rank}</td>
+                            <td>{r.modelFamily}</td>
+                            <td>{r.value.toFixed(4)}</td>
+                            <td>{r.std == null ? '—' : r.std.toFixed(4)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {comparison.unmeasured.length > 0 && (
+                    <p className="mt-1 text-amber-200/80">
+                      not ranked: {comparison.unmeasured.map((u) => `${u.modelFamily} (${u.reason})`).join(', ')}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="flex gap-2">
                 <select className="glass-card-subtle rounded-md px-2 py-1.5 text-white" value={splitMethod} onChange={(e) => setSplitMethod(e.target.value)}>
                   <option value="walk_forward">walk_forward</option>
@@ -493,6 +780,11 @@ export function MlLabScreen() {
                   <option value="correlation">correlation</option>
                   <option value="variance">variance</option>
                   <option value="mutual_information">mutual_information</option>
+                </select>
+                <select className="glass-card-subtle rounded-md px-2 py-1.5 text-white" value={calibrationMethod} onChange={(e) => setCalibrationMethod(e.target.value)}>
+                  <option value="none">no calibration</option>
+                  <option value="platt">platt</option>
+                  <option value="isotonic">isotonic</option>
                 </select>
               </div>
               <div className="flex flex-wrap items-center gap-3 text-white/70">
