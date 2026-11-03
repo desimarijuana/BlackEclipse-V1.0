@@ -20,6 +20,7 @@ from __future__ import annotations
 import enum
 from dataclasses import dataclass, field
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 
 class ErrorClass(str, enum.Enum):
@@ -266,4 +267,65 @@ def classify_exception(
     )
 
 
-__all__ = ["ErrorClass", "ModelError", "classify_exception"]
+# ── Actionable failure text ──────────────────────────────────────────────────
+# A local model server (Ollama, LM Studio, vLLM) is reached over plain HTTP on
+# this machine. When it is stopped, the SDK's error is a bare "Connection
+# error." — a normalized `network_error` with no remedy in it, which reaches the
+# operator as an unexplained provider failure. These helpers turn exactly that
+# case into a message naming the endpoint and the fix, and leave every other
+# message untouched.
+
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
+
+
+def local_endpoint(base_url: Optional[str]) -> Optional[str]:
+    """`host:port` when `base_url` points at this machine, else None.
+
+    Pure and total: an unparseable or remote URL is simply not local, so a
+    caller can use this without guarding.
+    """
+    if not base_url:
+        return None
+    try:
+        parsed = urlsplit(base_url if "://" in base_url else f"http://{base_url}")
+        host = (parsed.hostname or "").lower()
+        if host not in _LOOPBACK_HOSTS:
+            return None
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError:
+        return None
+    return f"{parsed.hostname}:{port}"
+
+
+def provider_failure_message(
+    exc: BaseException,
+    *,
+    provider_id: Optional[str] = None,
+    model_id: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> str:
+    """The user-facing text for a failed model call.
+
+    Names the remedy only when the runtime is certain: a network-class failure
+    against a LOOPBACK endpoint can only mean the local server is not running.
+    Anything else keeps the provider's own message, so nothing is over-claimed.
+    """
+    error = classify_exception(exc, provider_id=provider_id, model_id=model_id)
+    endpoint = local_endpoint(base_url)
+    if endpoint and error.error_class in (ErrorClass.NETWORK_ERROR, ErrorClass.PROVIDER_UNAVAILABLE):
+        server = provider_id or "the local model provider"
+        return (
+            f"Can't reach {server} at {endpoint} — the local model server is not "
+            "running. Start it, then retry; or switch to another provider in "
+            "Settings."
+        )
+    return error.message
+
+
+__all__ = [
+    "ErrorClass",
+    "ModelError",
+    "classify_exception",
+    "local_endpoint",
+    "provider_failure_message",
+]

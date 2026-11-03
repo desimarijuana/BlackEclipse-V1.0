@@ -49,7 +49,13 @@ from .model_stream import (
     message_text as _text,
 )
 from .models import build_chat_model
-from .model_runtime import ErrorClass, ModelError, classify_exception, get_runtime
+from .model_runtime import (
+    ErrorClass,
+    ModelError,
+    classify_exception,
+    get_runtime,
+    provider_failure_message,
+)
 from .persistence import AgentMemoryStore, now_iso
 from .schemas import AgentConfig, HarnessError, RunRequest, RunResult
 from .surface import (
@@ -701,8 +707,17 @@ def build_graph(
                 error=classify_exception(exc, provider_id=request.modelSettings.provider, model_id=request.modelSettings.model),
                 run_id=request.runId,
             )
-            await emitter.emit("run.failed", {"error": {"code": "PROVIDER_ERROR", "message": str(exc)}})
-            return {**state, "step": step, "error": {"code": "PROVIDER_ERROR", "message": str(exc)}}
+            # The operator reads this text, so a bare "Connection error." is not
+            # enough: when the configured endpoint is local and unreachable, say
+            # which server is down and what to do about it.
+            failure_message = provider_failure_message(
+                exc,
+                provider_id=request.modelSettings.provider,
+                model_id=request.modelSettings.model,
+                base_url=getattr(request.modelSettings, "base_url", None),
+            )
+            await emitter.emit("run.failed", {"error": {"code": "PROVIDER_ERROR", "message": failure_message}})
+            return {**state, "step": step, "error": {"code": "PROVIDER_ERROR", "message": failure_message}}
 
         runtime.record_step(
             resolution,
