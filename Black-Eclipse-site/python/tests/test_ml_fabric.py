@@ -116,3 +116,46 @@ def test_row_guardrail_refuses_an_oversized_dataset(env, monkeypatch):
         asyncio.run(S.run_experiment_job(payload))
     assert exc.value.code == "INVALID_INPUT"
     monkeypatch.setattr(mlconfig, "_default", None)
+
+def test_background_compare_completes_through_the_fabric(env):
+    """The arena runs on the SAME worker: same isolation, cancellation and timeout."""
+    aml, ml = env
+    payload = _seed(ml)
+    manager = make_manager(aml)
+    manager.register_worker(build_ml_worker(None))
+
+    async def scenario():
+        await manager.start()
+        submitted = await manager.submit(
+            "ml", {"mode": "compare", "families": ["dummy", "logistic"], **payload},
+            mode="BACKGROUND")
+        job = await wait_terminal(manager, submitted["jobId"], timeout=90)
+        await manager.stop()
+        return job
+
+    job = asyncio.run(scenario())
+    assert job["status"] == "SUCCEEDED", job
+    assert job["output"]["mode"] == "compare"
+    assert len(job["output"]["runs"]) == 2
+
+
+def test_background_search_completes_through_the_fabric(env):
+    aml, ml = env
+    payload = _seed(ml)
+    manager = make_manager(aml)
+    manager.register_worker(build_ml_worker(None))
+
+    async def scenario():
+        await manager.start()
+        submitted = await manager.submit(
+            "ml", {"mode": "search", "modelFamily": "logistic",
+                   "grid": {"l2": [1e-3, 1e-2]}, "maxTrials": 2, **payload},
+            mode="BACKGROUND")
+        job = await wait_terminal(manager, submitted["jobId"], timeout=90)
+        await manager.stop()
+        return job
+
+    job = asyncio.run(scenario())
+    assert job["status"] == "SUCCEEDED", job
+    assert job["output"]["mode"] == "search"
+    assert job["output"]["trials"] == 2
