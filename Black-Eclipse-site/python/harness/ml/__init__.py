@@ -2,14 +2,18 @@
 
 A deterministic, reproducible quantitative ML surface built on the SAME NumPy
 core, persistence conventions and market-data path as the statistics, factor and
-quant engines. It owns the full supervised-learning research workflow:
+quant engines. It owns the full supervised-learning research workflow (and the
+label-free clustering / anomaly tasks over the same feature matrix):
 
-  * immutable, versioned datasets (built through the ONE market gateway),
-  * point-in-time-aware target construction,
+  * immutable, versioned datasets — `market` series through the ONE market
+    gateway, or `records` (any tabular data supplied by the operator),
+  * point-in-time-aware target construction (or no target at all, for an
+    unsupervised task),
   * strictly chronological / walk-forward / purged cross-validation,
   * leakage-safe preprocessing and feature selection,
-  * model adapters (pure-NumPy baselines + tree ensembles; optional scikit-learn
-    / LightGBM / XGBoost when those wheels are installed),
+  * model adapters (pure-NumPy baselines, tree ensembles, seeded k-means and a
+    robust anomaly scorer; optional scikit-learn / LightGBM / XGBoost when those
+    wheels are installed),
   * evaluation, model artifacts with SHA-256 integrity, and lineage.
 
 Design rules (see docs/ml-lab/ARCHITECTURE.md):

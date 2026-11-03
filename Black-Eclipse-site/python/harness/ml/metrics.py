@@ -248,14 +248,107 @@ def evaluate_ranking(
     return out
 
 
+def silhouette(X: np.ndarray, labels: np.ndarray, *, max_points: int = 4000) -> Optional[float]:
+    """Mean silhouette coefficient, or ``None`` when it is not defined.
+
+    Undefined is an honest answer: fewer than two clusters, or any cluster with a
+    single member, has no within-cluster distance to compare against. Pairwise
+    distances are O(n^2), so a deterministic stride-subsample is used above
+    ``max_points`` — never a random sample, so the same data gives the same value.
+    """
+    X = np.asarray(X, dtype=float)
+    labels = np.asarray(labels, dtype=float)
+    if X.ndim != 2 or X.shape[0] != labels.size or X.shape[0] < 3:
+        return None
+    finite = np.isfinite(labels) & np.isfinite(X).all(axis=1)
+    X, labels = X[finite], labels[finite]
+    uniq = np.unique(labels)
+    if uniq.size < 2 or X.shape[0] < 3:
+        return None
+    if X.shape[0] > max_points:
+        step = int(np.ceil(X.shape[0] / max_points))
+        X, labels = X[::step], labels[::step]
+        uniq = np.unique(labels)
+        if uniq.size < 2:
+            return None
+    # One distance block at a time keeps peak memory O(n) rather than O(n^2).
+    scores: list[float] = []
+    for i in range(X.shape[0]):
+        d = np.sqrt(((X - X[i]) ** 2).sum(axis=1))
+        same = labels == labels[i]
+        same[i] = False
+        if not same.any():          # a singleton cluster has no silhouette
+            continue
+        a = float(d[same].mean())
+        b = min(float(d[labels == other].mean())
+                for other in uniq if other != labels[i])
+        denom = max(a, b)
+        if denom > 0:
+            scores.append((b - a) / denom)
+    return float(np.mean(scores)) if scores else None
+
+
+def evaluate_clustering(X: np.ndarray, labels: np.ndarray, centers: Optional[np.ndarray] = None) -> dict[str, Any]:
+    """Unsupervised clustering quality. No label is required and none is invented."""
+    labels = np.asarray(labels, dtype=float)
+    uniq, counts = np.unique(labels[np.isfinite(labels)], return_counts=True)
+    inertia = None
+    if centers is not None and np.asarray(centers).ndim == 2 and uniq.size:
+        X = np.asarray(X, dtype=float)
+        centers = np.asarray(centers, dtype=float)
+        total = 0.0
+        for i, label in enumerate(uniq):
+            if i < centers.shape[0]:
+                rows = X[labels == label]
+                total += float(((rows - centers[i]) ** 2).sum())
+        inertia = total
+    return {
+        "silhouette": silhouette(X, labels),
+        "inertia": inertia,
+        "nClusters": int(uniq.size),
+        "clusterSizes": [int(c) for c in counts],
+    }
+
+
+def evaluate_anomaly(scores: np.ndarray, flags: np.ndarray, *, contamination: float = 0.0) -> dict[str, Any]:
+    """Anomaly-detector output summary. There is no ground truth, so no accuracy is claimed."""
+    scores = np.asarray(scores, dtype=float)
+    flags = np.asarray(flags, dtype=float)
+    ok = np.isfinite(scores)
+    if not ok.any():
+        return {"anomalyRate": None, "flagged": 0, "scoreMean": None, "scoreP95": None,
+                "targetRate": float(contamination) or None}
+    finite_scores = scores[ok]
+    flagged = int(np.nansum(flags == 1.0))
+    valid_flags = int(np.isfinite(flags).sum())
+    return {
+        "anomalyRate": (flagged / valid_flags) if valid_flags else None,
+        "flagged": flagged,
+        "scoreMean": float(np.mean(finite_scores)),
+        "scoreP95": float(np.quantile(finite_scores, 0.95)),
+        "targetRate": float(contamination) or None,
+    }
+
+
 CLASSIFICATION_METRIC_KEYS = ("accuracy", "balancedAccuracy", "macroF1", "rocAuc", "prAuc", "logLoss", "brier")
 REGRESSION_METRIC_KEYS = ("mae", "rmse", "r2", "directionalAccuracy", "spearmanIc", "pearsonIc")
+CLUSTERING_METRIC_KEYS = ("silhouette", "inertia")
+ANOMALY_METRIC_KEYS = ("anomalyRate", "scoreMean", "scoreP95")
+
+
+def metric_keys(task: str) -> tuple[str, ...]:
+    if task == "classification":
+        return CLASSIFICATION_METRIC_KEYS
+    if task == "clustering":
+        return CLUSTERING_METRIC_KEYS
+    if task == "anomaly":
+        return ANOMALY_METRIC_KEYS
+    return REGRESSION_METRIC_KEYS
 
 
 def metric_vector(task: str, block: dict[str, Any]) -> dict[str, Any]:
     """Extract the scalar metric keys for an experiment's task (for aggregation)."""
-    keys = CLASSIFICATION_METRIC_KEYS if task == "classification" else REGRESSION_METRIC_KEYS
-    return {k: block.get(k) for k in keys}
+    return {k: block.get(k) for k in metric_keys(task)}
 
 
 __all__ = [
@@ -270,7 +363,13 @@ __all__ = [
     "evaluate_classification",
     "evaluate_regression",
     "evaluate_ranking",
+    "evaluate_clustering",
+    "evaluate_anomaly",
+    "silhouette",
     "metric_vector",
+    "metric_keys",
     "CLASSIFICATION_METRIC_KEYS",
     "REGRESSION_METRIC_KEYS",
+    "CLUSTERING_METRIC_KEYS",
+    "ANOMALY_METRIC_KEYS",
 ]

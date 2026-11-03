@@ -18,13 +18,18 @@ ML_TOOLS: tuple[str, ...] = (
     "ml_list_datasets",
     "ml_list_features",
     "ml_build_dataset",
+    "ml_plan_model",
     "ml_run_experiment",
+    "ml_compare_models",
+    "ml_search_hyperparameters",
     "ml_get_run",
     "ml_list_experiments",
     "ml_reproduce_run",
     "ml_register_model",
+    "ml_create_ensemble",
     "ml_list_models",
     "ml_verify_model",
+    "ml_model_drift",
     "ml_predict",
     "ml_model_capabilities",
     "ml_job_status",
@@ -75,7 +80,11 @@ async def ml_list_features(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
 
 async def ml_build_dataset(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
     try:
-        if not args.get("symbols"):
+        source = str(args.get("source") or "market")
+        if source == "records":
+            if not args.get("records"):
+                raise StatsError("INVALID_INPUT", "records are required for a records dataset", 422)
+        elif not args.get("symbols"):
             raise StatsError("INVALID_INPUT", "symbols are required", 422)
         registry = getattr(ctx, "feature_registry", None) if ctx is not None else None
         result = await S.build_dataset_version(
@@ -89,6 +98,19 @@ async def ml_build_dataset(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
                                                             "dataHash", "quality")}})
     except Exception as exc:  # noqa: BLE001
         return _error("ml_build_dataset", exc)
+
+
+async def ml_plan_model(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Plan (never train) a model for a dataset version or an inline data profile."""
+    try:
+        result = S.plan_model(dict(args))
+        plan = result["plan"]
+        summary = (f"plan: {plan['task']} via {plan['modelFamily']}, "
+                   f"walk-forward {plan['split']['nSplits']} folds"
+                   + (f" — {len(plan['warnings'])} warning(s)" if plan["warnings"] else ""))
+        return (summary, {"status": "ok", **result})
+    except Exception as exc:  # noqa: BLE001
+        return _error("ml_plan_model", exc)
 
 
 async def ml_run_experiment(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
@@ -136,6 +158,47 @@ async def ml_cancel_job(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
         return (f"cancel requested for {args.get('jobId')}", {"status": "ok", "cancellation": result})
     except Exception as exc:  # noqa: BLE001
         return _error("ml_cancel_job", exc)
+
+
+async def ml_compare_models(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Compare several families on one dataset version with the same folds."""
+    try:
+        result = await S.compare_models(dict(args), owner=args.get("owner"))
+        c = result["comparison"]
+        winner = c.get("winner") or {}
+        summary = (f"compared {len(c['rows'])} family(ies) on {c.get('primaryMetric', {}).get('key', 'no metric')}: "
+                   + (f"{winner.get('modelFamily')} leads" if winner else "no clear winner")
+                   + (f" — {c['note']}" if c.get("note") else ""))
+        return (summary, {"status": "ok", **result})
+    except Exception as exc:  # noqa: BLE001
+        return _error("ml_compare_models", exc)
+
+
+async def ml_search_hyperparameters(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Grid/random search over one family's hyperparameters on the same folds."""
+    try:
+        result = await S.search_hyperparameters(dict(args), owner=args.get("owner"))
+        best = result.get("best") or {}
+        summary = (f"{len(result['trials'])} trial(s) for {result['family']}: "
+                   + (f"best {best.get('hyperparameters')} ({best.get('metric')}="
+                      f"{best.get('value'):.4g})" if best else "no clear winner")
+                   + f"; {result['note']}")
+        return (summary, {"status": "ok", **result})
+    except Exception as exc:  # noqa: BLE001
+        return _error("ml_search_hyperparameters", exc)
+
+
+async def ml_create_ensemble(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Register an ensemble of already-trained models."""
+    try:
+        result = S.create_ensemble(dict(args), owner=args.get("owner"))
+        metric = next(iter(result["metrics"].items()), None)
+        summary = (f"ensemble {result['modelId']}@{result['version']} over "
+                   f"{len(result['members'])} members"
+                   + (f" — {metric[0]}={metric[1]:.4g}" if metric else ""))
+        return (summary, {"status": "ok", **result})
+    except Exception as exc:  # noqa: BLE001
+        return _error("ml_create_ensemble", exc)
 
 
 async def ml_get_run(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
@@ -201,11 +264,28 @@ async def ml_predict(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
         X = np.asarray(args.get("features") or [], dtype=float)
         if X.ndim != 2:
             raise StatsError("INVALID_INPUT", "features must be a 2-D matrix", 422)
-        result = S.predict_with_model(str(args.get("modelId") or ""), X, args.get("version"))
+        # Chat names a model ("my momentum model") more often than an id.
+        target = str(args.get("modelId") or args.get("modelName") or "")
+        model_id = S.resolve_model_id(target)
+        result = S.predict_with_model(model_id, X, args.get("version"))
         return (f"predicted {len(result['pred'])} row(s) with {result['modelId']}@{result['version']}",
                 {"status": "ok", **result})
     except Exception as exc:  # noqa: BLE001
         return _error("ml_predict", exc)
+
+
+async def ml_model_drift(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
+    """Drift between a registered model's training data and a later dataset."""
+    try:
+        result = S.model_drift(str(args.get("modelId") or ""),
+                               dataset_id=str(args.get("datasetId") or ""),
+                               dataset_version=str(args.get("datasetVersion") or ""),
+                               version=args.get("version"))
+        report = result["report"]
+        return (f"drift {report['verdict']} — {len(report['driftedFeatures'])} feature(s) moved",
+                {"status": "ok", **result})
+    except Exception as exc:  # noqa: BLE001
+        return _error("ml_model_drift", exc)
 
 
 async def ml_model_capabilities(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
@@ -233,15 +313,34 @@ def register_ml_tools(registry: Any) -> list[str]:
          ml_list_datasets, {"type": "object", "properties": {"limit": {"type": "integer"}}}, 5_000)
     _def("ml_list_features", "List built-in ML features and registered Feature Registry features.",
          ml_list_features, {"type": "object", "properties": {}}, 5_000)
-    _def("ml_build_dataset", "Build and persist an immutable ML dataset version from market data.",
+    _def("ml_build_dataset", "Build and persist an immutable ML dataset version. "
+         "source='market' resolves symbols through the market gateway; "
+         "source='records' trains on operator-supplied rows (featureNames are the "
+         "numeric columns, target.kind='column' names the label column and its task).",
          ml_build_dataset, {"type": "object", "properties": {
              "name": {"type": "string"}, "description": {"type": "string"},
+             "source": {"type": "string", "enum": ["market", "records"]},
              "symbols": {"type": "array", "items": {"type": "string"}},
              "interval": {"type": "string"}, "start": {"type": "string"}, "end": {"type": "string"},
              "featureNames": {"type": "array", "items": {"type": "string"}},
              "target": {"type": "object"}, "missingPolicy": {"type": "string"},
-             "minCoverage": {"type": "number"}, "owner": {"type": "string"}},
-             "required": ["symbols", "featureNames"]}, 120_000, long_running=True)
+             "minCoverage": {"type": "number"}, "owner": {"type": "string"},
+             "records": {"type": "array", "items": {"type": "object"}},
+             "timeColumn": {"type": "string"}, "idColumn": {"type": "string"}},
+             "required": ["featureNames"]}, 120_000, long_running=True)
+    _def("ml_plan_model", "Plan (never train) a model recipe for a dataset version or an "
+         "inline data profile: family, hyperparameters, validation design, feature selection, "
+         "with the reason for each choice and any warnings. Returns a ready-to-run experiment body.",
+         ml_plan_model, {"type": "object", "properties": {
+             "datasetId": {"type": "string"}, "datasetVersion": {"type": "string"},
+             "rows": {"type": "integer"}, "features": {"type": "integer"},
+             "task": {"type": "string",
+                      "enum": ["classification", "regression", "clustering", "anomaly"]},
+             "classCount": {"type": "integer"},
+             "preference": {"type": "string",
+                            "enum": ["balanced", "interpretable", "accurate", "deep"]},
+             "seed": {"type": "integer"}},
+             "required": []}, 10_000)
     _def("ml_run_experiment", "Train, validate and evaluate a model on a dataset version. "
          "Set background=true to run as a durable Execution Fabric job (recommended for large work).",
          ml_run_experiment, {"type": "object", "properties": {
@@ -249,9 +348,43 @@ def register_ml_tools(registry: Any) -> list[str]:
              "title": {"type": "string"}, "modelFamily": {"type": "string"},
              "hyperparameters": {"type": "object"}, "selection": {"type": "object"},
              "split": {"type": "object"}, "seed": {"type": "integer"},
+             "calibration": {"type": "string", "enum": ["none", "platt", "isotonic"]},
              "registerModel": {"type": "boolean"}, "background": {"type": "boolean"},
              "name": {"type": "string"}, "owner": {"type": "string"}},
              "required": ["datasetId", "datasetVersion", "modelFamily"]}, 900_000, long_running=True)
+    _def("ml_compare_models", "Train several model families on ONE dataset version with the "
+         "SAME split spec and seed, then report a comparison table and an honest verdict "
+         "(no winner when the margin is inside fold noise; no ranking for an unmeasured metric "
+         "or a task without ground truth).",
+         ml_compare_models, {"type": "object", "properties": {
+             "datasetId": {"type": "string"}, "datasetVersion": {"type": "string"},
+             "families": {"type": "array", "items": {"type": "string"}},
+             "hyperparameters": {"type": "object"}, "selection": {"type": "object"},
+             "split": {"type": "object"}, "seed": {"type": "integer"},
+             "scale": {"type": "boolean"}, "owner": {"type": "string"}},
+             "required": ["datasetId", "datasetVersion", "families"]},
+         900_000, long_running=True)
+    _def("ml_search_hyperparameters", "Grid/random hyperparameter search over ONE family, "
+         "every trial validated on the same folds. Returns the trials, a ranking and the best "
+         "config, plus the caveat that the winner was selected on the same folds (optimistic).",
+         ml_search_hyperparameters, {"type": "object", "properties": {
+             "datasetId": {"type": "string"}, "datasetVersion": {"type": "string"},
+             "modelFamily": {"type": "string"}, "grid": {"type": "object"},
+             "maxTrials": {"type": "integer"}, "maxSeconds": {"type": "number"},
+             "selection": {"type": "object"}, "split": {"type": "object"},
+             "seed": {"type": "integer"}, "scale": {"type": "boolean"},
+             "calibration": {"type": "string", "enum": ["none", "platt", "isotonic"]},
+             "owner": {"type": "string"}},
+             "required": ["datasetId", "datasetVersion", "modelFamily"]},
+         900_000, long_running=True)
+    _def("ml_create_ensemble", "Register an ensemble of already-trained models on the SAME "
+         "dataset version: their out-of-fold predictions are aligned by row and blended "
+         "(mean of probabilities, or a majority vote). Nothing is re-fitted, and members "
+         "validated on different folds are refused rather than averaged.",
+         ml_create_ensemble, {"type": "object", "properties": {
+             "name": {"type": "string"},
+             "members": {"type": "array", "items": {"type": "object"}},
+             "owner": {"type": "string"}}, "required": ["members"]}, 120_000)
     _def("ml_get_run", "Fetch a training run, its folds and metrics.",
          ml_get_run, {"type": "object", "properties": {"runId": {"type": "string"}},
                       "required": ["runId"]}, 5_000)
@@ -270,10 +403,19 @@ def register_ml_tools(registry: Any) -> list[str]:
          ml_verify_model, {"type": "object", "properties": {
              "modelId": {"type": "string"}, "version": {"type": "string"}},
              "required": ["modelId"]}, 10_000)
-    _def("ml_predict", "Run inference with a registered model version.",
+    _def("ml_predict", "Run inference with a registered model — by id OR by the model's name. "
+         "Rows are feature matrices in the dataset's selected feature order.",
          ml_predict, {"type": "object", "properties": {
+             "modelId": {"type": "string"}, "modelName": {"type": "string"},
+             "version": {"type": "string"},
+             "features": {"type": "array"}}, "required": ["features"]}, 30_000)
+    _def("ml_model_drift", "Compare a registered model's training dataset with a later "
+         "dataset version: per-feature PSI + KS, a verdict (stable/watch/drift), and the "
+         "features that moved. Never imputes and never calls the model.",
+         ml_model_drift, {"type": "object", "properties": {
              "modelId": {"type": "string"}, "version": {"type": "string"},
-             "features": {"type": "array"}}, "required": ["modelId", "features"]}, 30_000)
+             "datasetId": {"type": "string"}, "datasetVersion": {"type": "string"}},
+             "required": ["modelId", "datasetId", "datasetVersion"]}, 30_000)
     _def("ml_model_capabilities", "Report which ML model families are actually available.",
          ml_model_capabilities, {"type": "object", "properties": {}}, 5_000)
     _def("ml_job_status", "Get the status/progress/output of a background ML training job.",

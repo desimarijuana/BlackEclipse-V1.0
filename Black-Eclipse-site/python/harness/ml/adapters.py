@@ -448,6 +448,8 @@ _OPTIONAL_IMPORTS = {
     "sklearn_extra_trees": "sklearn.ensemble",
     "lightgbm": "lightgbm",
     "xgboost": "xgboost",
+    # Optional deep learning (python/requirements-train.txt). Tabular MLP only.
+    "torch_mlp": "torch",
 }
 
 _OPTIONAL_TASKS = {
@@ -455,6 +457,7 @@ _OPTIONAL_TASKS = {
     "sklearn_extra_trees": ("classification", "regression"),
     "lightgbm": ("classification", "regression"),
     "xgboost": ("classification", "regression"),
+    "torch_mlp": ("classification", "regression"),
 }
 
 
@@ -484,6 +487,8 @@ def _build_optional(family: str, task: str, hyperparameters: dict[str, Any], see
         )
     if task not in _OPTIONAL_TASKS[family]:
         raise MLError(INVALID_INPUT, f"{family} does not support task {task!r}")
+    if family == "torch_mlp":
+        return TorchMLPAdapter(task, hyperparameters, seed)
     return _SklearnLikeAdapter(family, task, hyperparameters, seed)
 
 
@@ -569,6 +574,316 @@ class _SklearnLikeAdapter(BaseModel):
         return m
 
 
+# ── optional deep learning (torch) ───────────────────────────────────────────
+
+
+class TorchMLPAdapter(BaseModel):
+    """A small fully-connected network on an optional `torch` install.
+
+    Deliberately tabular only: this phase ships no image or sequence data path,
+    so the adapter is an MLP rather than a CNN/RNN it could not honestly train.
+    Weights are serialized as plain JSON floats (a few thousand of them), never
+    pickled, so the artifact stays inspectable and hash-verified like every other
+    ML artifact. Runs are seeded; floating-point training is reproducible on the
+    same build, which is exactly what the artifact records.
+    """
+
+    family = "torch_mlp"
+    supports_proba = True
+
+    def __init__(self, task: str, hyperparameters: dict[str, Any], seed: int) -> None:
+        self._task = task
+        self._hp = dict(hyperparameters)
+        self.seed = int(seed)
+        self._net: Any = None
+        self._n_features = 0
+        self._n_classes = 0
+
+    # ── construction ──
+    def _hidden(self) -> list[int]:
+        raw = self._hp.get("hiddenSizes") or [64, 32]
+        return [max(1, int(h)) for h in raw]
+
+    def _dropout(self) -> float:
+        return min(0.9, max(0.0, float(self._hp.get("dropout", 0.0))))
+
+    def _build_net(self, n_in: int, n_out: int) -> Any:
+        import torch.nn as nn  # noqa: PLC0415
+
+        layers: list[Any] = []
+        prev = n_in
+        for size in self._hidden():
+            layers.append(nn.Linear(prev, size))
+            layers.append(nn.ReLU())
+            if self._dropout() > 0:
+                layers.append(nn.Dropout(self._dropout()))
+            prev = size
+        layers.append(nn.Linear(prev, n_out))
+        return nn.Sequential(*layers)
+
+    # ── training / inference ──
+    def fit(self, X: np.ndarray, y: np.ndarray) -> "TorchMLPAdapter":
+        import torch  # noqa: PLC0415
+        import torch.nn as nn  # noqa: PLC0415
+
+        X = np.asarray(X, dtype=np.float32)
+        if X.ndim != 2 or X.shape[0] == 0:
+            raise MLError(INVALID_INPUT, "torch_mlp needs a non-empty 2-D feature matrix")
+        torch.manual_seed(self.seed)
+        rng = np.random.default_rng(self.seed)
+        self._n_features = int(X.shape[1])
+
+        classification = self._task == "classification"
+        if classification:
+            yi = np.asarray(y).astype(int)
+            self._n_classes = int(yi.max()) + 1
+            out_dim = self._n_classes
+        else:
+            yr = np.asarray(y, dtype=np.float32)
+            out_dim = 1
+
+        net = self._build_net(self._n_features, out_dim)
+        loss_fn = nn.CrossEntropyLoss() if classification else nn.MSELoss()
+        optimiser = torch.optim.Adam(net.parameters(), lr=float(self._hp.get("lr", 0.01)))
+        epochs = max(1, int(self._hp.get("epochs", 60)))
+        batch = max(1, int(self._hp.get("batchSize", 256)))
+        n = X.shape[0]
+
+        for _ in range(epochs):
+            order = rng.permutation(n)
+            for start in range(0, n, batch):
+                idx = order[start:start + batch]
+                xb = torch.as_tensor(X[idx])
+                net.zero_grad()
+                out = net(xb)
+                if classification:
+                    loss = loss_fn(out, torch.as_tensor(yi[idx], dtype=torch.long))
+                else:
+                    loss = loss_fn(out.view(-1), torch.as_tensor(yr[idx]))
+                loss.backward()
+                optimiser.step()
+
+        self._net = net
+        return self
+
+    def _forward(self, X: np.ndarray) -> np.ndarray:
+        import torch  # noqa: PLC0415
+
+        if self._net is None:
+            raise MLError(INVALID_INPUT, "torch_mlp model is not fitted")
+        with torch.no_grad():
+            out = self._net(torch.as_tensor(np.asarray(X, dtype=np.float32)))
+        return out.cpu().numpy()
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        out = self._forward(X)
+        if self._task == "classification":
+            return np.argmax(out, axis=1).astype(float)
+        return np.asarray(out, dtype=float).reshape(-1)
+
+    def predict_proba(self, X: np.ndarray) -> Optional[np.ndarray]:
+        if self._task != "classification":
+            return None
+        out = self._forward(X)
+        shifted = out - out.max(axis=1, keepdims=True)
+        exp = np.exp(shifted)
+        return exp / exp.sum(axis=1, keepdims=True)
+
+    # ── persistence ──
+    def to_dict(self) -> dict[str, Any]:
+        if self._net is None:
+            raise MLError(MODEL_UNAVAILABLE, "the model is not fitted", 500)
+        state = self._net.state_dict()
+        return {
+            "family": "torch_mlp", "task": self._task,
+            "hyperparameters": dict(self._hp), "seed": self.seed,
+            "nFeatures": self._n_features, "nClasses": self._n_classes,
+            "stateKeys": list(state.keys()),
+            "state": [t.detach().cpu().numpy().tolist() for t in state.values()],
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "TorchMLPAdapter":
+        import torch  # noqa: PLC0415
+
+        m = cls(d.get("task", "regression"), d.get("hyperparameters") or {},
+                int(d.get("seed", 42)))
+        available, reason = optional_available("torch_mlp")
+        if not available:
+            raise MLError(MODEL_UNAVAILABLE,
+                          f"loading this artifact needs torch, which is not installed ({reason})",
+                          503)
+        m._n_features = int(d.get("nFeatures", 0))
+        m._n_classes = int(d.get("nClasses", 0))
+        out_dim = m._n_classes if m._task == "classification" else 1
+        net = m._build_net(m._n_features, out_dim)
+        keys = list(d.get("stateKeys") or [])
+        values = d.get("state") or []
+        if len(keys) != len(values):
+            raise MLError("REPRODUCIBILITY_MISMATCH",
+                          "the artifact's weight list does not match its key list", 409)
+        net.load_state_dict({k: torch.as_tensor(v) for k, v in zip(keys, values)})
+        m._net = net
+        return m
+
+
+# ── clustering / anomaly ─────────────────────────────────────────────────────
+
+
+class KMeansModel(BaseModel):
+    """Lloyd's k-means with a deterministic k-means++ initialisation.
+
+    No label is used: `fit(X, y)` ignores `y` entirely (a clustering dataset has
+    none), which is why the pipeline passes a placeholder. Determinism comes from
+    the seeded RNG — the same data and seed give the same centroids, so a run is
+    reproducible.
+    """
+
+    family = "kmeans"
+    _task = "clustering"
+
+    def __init__(self, n_clusters: int = 4, max_iter: int = 100,
+                 tol: float = 1e-6, seed: int = 0) -> None:
+        self.n_clusters = max(2, int(n_clusters))
+        self.max_iter = max(1, int(max_iter))
+        self.tol = float(tol)
+        self.seed = int(seed)
+        self.centers_: Optional[np.ndarray] = None
+        self.inertia_: Optional[float] = None
+
+    def _init_centers(self, X: np.ndarray) -> np.ndarray:
+        rng = np.random.default_rng(self.seed)
+        n = X.shape[0]
+        k = min(self.n_clusters, n)
+        centers = np.empty((k, X.shape[1]), dtype=float)
+        centers[0] = X[rng.integers(n)]
+        closest = ((X - centers[0]) ** 2).sum(axis=1)
+        for i in range(1, k):
+            total = float(closest.sum())
+            if total <= 0:
+                centers[i] = X[rng.integers(n)]
+            else:
+                probs = closest / total
+                centers[i] = X[rng.choice(n, p=probs)]
+            closest = np.minimum(closest, ((X - centers[i]) ** 2).sum(axis=1))
+        return centers
+
+    def _nearest(self, X: np.ndarray) -> np.ndarray:
+        """Cluster index of each row, in bounded chunks (never an (n, k, d) cube)."""
+        centers = self.centers_
+        if centers is None:
+            raise MLError(INVALID_INPUT, "kmeans model is not fitted")
+        out = np.empty(X.shape[0], dtype=int)
+        step = 20_000
+        for start in range(0, X.shape[0], step):
+            block = X[start:start + step]
+            d = ((block[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
+            out[start:start + step] = np.argmin(d, axis=1)
+        return out
+
+    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> "KMeansModel":
+        X = np.asarray(X, dtype=float)
+        if X.ndim != 2 or X.shape[0] == 0:
+            raise MLError(INVALID_INPUT, "kmeans needs a non-empty 2-D feature matrix")
+        centers = self._init_centers(X)
+        self.centers_ = centers
+        labels = self._nearest(X)
+        for _ in range(self.max_iter):
+            moved = 0.0
+            for i in range(centers.shape[0]):
+                rows = X[labels == i]
+                if rows.size:
+                    new = rows.mean(axis=0)
+                    moved = max(moved, float(np.abs(new - centers[i]).max()))
+                    centers[i] = new
+            self.centers_ = centers
+            new_labels = self._nearest(X)
+            converged = moved <= self.tol or np.array_equal(new_labels, labels)
+            labels = new_labels
+            if converged:
+                break
+        self.inertia_ = float(((X - centers[labels]) ** 2).sum())
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        return self._nearest(np.asarray(X, dtype=float)).astype(float)
+
+    def to_dict(self) -> dict[str, Any]:
+        if self.centers_ is None:
+            raise MLError(INVALID_INPUT, "kmeans model is not fitted")
+        return {"family": "kmeans", "task": self._task, "nClusters": int(self.centers_.shape[0]),
+                "centers": self.centers_.tolist(), "inertia": self.inertia_,
+                "maxIter": self.max_iter, "tol": self.tol, "seed": self.seed}
+
+    @classmethod
+    def from_dict(cls, state: dict[str, Any]) -> "KMeansModel":
+        m = cls(n_clusters=int(state.get("nClusters", 2)),
+                max_iter=int(state.get("maxIter", 100)),
+                tol=float(state.get("tol", 1e-6)), seed=int(state.get("seed", 0)))
+        m.centers_ = np.asarray(state.get("centers"), dtype=float)
+        m.inertia_ = state.get("inertia")
+        return m
+
+
+class MadAnomalyModel(BaseModel):
+    """Robust per-feature outlier score (median / MAD), flagged at a quantile.
+
+    The score of a row is the largest standardized distance from the training
+    medians; the flag threshold is the ``1 - contamination`` quantile of the
+    TRAINING scores. Fitting only sees training rows, so the reported rate on a
+    later fold is a real out-of-sample rate and not the rate it was tuned to.
+    """
+
+    family = "mad_z"
+    _task = "anomaly"
+
+    def __init__(self, contamination: float = 0.05) -> None:
+        self.contamination = min(1.0, max(0.0, float(contamination)))
+        self.median_: Optional[np.ndarray] = None
+        self.scale_: Optional[np.ndarray] = None
+        self.threshold_: Optional[float] = None
+
+    def score(self, X: np.ndarray) -> np.ndarray:
+        if self.median_ is None or self.scale_ is None:
+            raise MLError(INVALID_INPUT, "anomaly model is not fitted")
+        X = np.asarray(X, dtype=float)
+        return np.max(np.abs(X - self.median_) / self.scale_, axis=1)
+
+    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> "MadAnomalyModel":
+        X = np.asarray(X, dtype=float)
+        if X.ndim != 2 or X.shape[0] < 2:
+            raise MLError(INVALID_INPUT, "an anomaly model needs at least two rows")
+        self.median_ = np.median(X, axis=0)
+        mad = np.median(np.abs(X - self.median_), axis=0) * 1.4826
+        std = np.std(X, axis=0, ddof=1)
+        # A constant column carries no signal: scale 1 keeps it from exploding.
+        self.scale_ = np.where(mad > 0, mad, np.where(std > 0, std, 1.0))
+        scores = self.score(X)
+        self.threshold_ = float(np.quantile(scores, 1.0 - self.contamination)) \
+            if self.contamination > 0 else float(np.max(scores))
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        if self.threshold_ is None:
+            raise MLError(INVALID_INPUT, "anomaly model is not fitted")
+        return (self.score(X) > self.threshold_).astype(float)
+
+    def to_dict(self) -> dict[str, Any]:
+        if self.median_ is None or self.scale_ is None:
+            raise MLError(INVALID_INPUT, "anomaly model is not fitted")
+        return {"family": "mad_z", "task": self._task, "median": self.median_.tolist(),
+                "scale": self.scale_.tolist(), "threshold": self.threshold_,
+                "contamination": self.contamination}
+
+    @classmethod
+    def from_dict(cls, state: dict[str, Any]) -> "MadAnomalyModel":
+        m = cls(contamination=float(state.get("contamination", 0.05)))
+        m.median_ = np.asarray(state.get("median"), dtype=float)
+        m.scale_ = np.asarray(state.get("scale"), dtype=float)
+        m.threshold_ = state.get("threshold")
+        return m
+
+
 # ── factory / capabilities ───────────────────────────────────────────────────
 
 
@@ -592,6 +907,16 @@ def build_model(family: str, task: str, hyperparameters: dict[str, Any], seed: i
                                  max_depth=int(hp.get("maxDepth", 6)),
                                  min_samples_leaf=int(hp.get("minSamplesLeaf", 5)),
                                  seed=seed)
+    if family == "kmeans":
+        if task != "clustering":
+            raise MLError(INVALID_INPUT, "kmeans supports clustering only")
+        return KMeansModel(n_clusters=int(hp.get("nClusters", 4)),
+                           max_iter=int(hp.get("maxIter", 100)),
+                           tol=float(hp.get("tol", 1e-6)), seed=seed)
+    if family == "mad_z":
+        if task != "anomaly":
+            raise MLError(INVALID_INPUT, "mad_z supports anomaly detection only")
+        return MadAnomalyModel(contamination=float(hp.get("contamination", 0.05)))
     if family in OPTIONAL_MODEL_FAMILIES:
         return _build_optional(family, task, hp, seed)
     raise MLError(INVALID_INPUT, f"unknown model family {family!r}")
@@ -612,6 +937,12 @@ def load_model(state: dict[str, Any]) -> BaseModel:
         return LogisticModel.from_dict(state)
     if family == "random_forest":
         return RandomForestModel.from_dict(state)
+    if family == "kmeans":
+        return KMeansModel.from_dict(state)
+    if family == "mad_z":
+        return MadAnomalyModel.from_dict(state)
+    if family == "torch_mlp":
+        return TorchMLPAdapter.from_dict(state)
     if family in OPTIONAL_MODEL_FAMILIES:
         if not state.get("native"):
             raise MLError(MODEL_UNAVAILABLE,
@@ -623,10 +954,16 @@ def load_model(state: dict[str, Any]) -> BaseModel:
 def model_capabilities() -> list[dict[str, Any]]:
     """What is ACTUALLY available in this runtime (never aspirational)."""
     caps: list[dict[str, Any]] = []
+    _native_tasks = {
+        "dummy": ["classification", "regression"],
+        "ridge": ["regression"],
+        "logistic": ["classification"],
+        "random_forest": ["classification", "regression"],
+        "kmeans": ["clustering"],
+        "mad_z": ["anomaly"],
+    }
     for family in NATIVE_MODEL_FAMILIES:
-        tasks = ["classification", "regression"] if family in ("dummy", "random_forest") \
-            else (["regression"] if family == "ridge" else ["classification"])
-        caps.append({"family": family, "available": True, "tasks": tasks,
+        caps.append({"family": family, "available": True, "tasks": _native_tasks[family],
                      "tier": "native", "reason": None})
     for family in OPTIONAL_MODEL_FAMILIES:
         ok, reason = optional_available(family)
@@ -637,4 +974,5 @@ def model_capabilities() -> list[dict[str, Any]]:
 
 
 __all__ = ["BaseModel", "DummyModel", "RidgeModel", "LogisticModel", "RandomForestModel",
+           "KMeansModel", "MadAnomalyModel", "TorchMLPAdapter",
            "build_model", "load_model", "model_capabilities", "optional_available"]

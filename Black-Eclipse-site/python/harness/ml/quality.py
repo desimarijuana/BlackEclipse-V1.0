@@ -84,13 +84,21 @@ def evaluate_quality(
                 break
 
     # target completeness + class balance
+    # An unsupervised task has no label at all, so its coverage is FEATURE
+    # coverage and every label-dependent check is skipped rather than reported as
+    # "0% of rows have a valid target" (which would be a false alarm).
+    unsupervised = task not in ("classification", "regression", "ranking")
     finite_y = np.isfinite(y)
-    coverage = float(finite_y.mean())
+    coverage = float(np.isfinite(X).mean()) if unsupervised else float(finite_y.mean())
     if coverage < min_coverage:
-        findings.append(_finding("LOW_COVERAGE", CRITICAL,
-                                 f"only {coverage:.0%} of rows have a valid target (< {min_coverage:.0%})",
-                                 {"coverage": coverage}))
-    if task == "classification":
+        findings.append(_finding(
+            "LOW_COVERAGE", CRITICAL,
+            f"only {coverage:.0%} of rows have a valid "
+            f"{'feature row' if unsupervised else 'target'} (< {min_coverage:.0%})",
+            {"coverage": coverage}))
+    if unsupervised:
+        pass
+    elif task == "classification":
         yi = y[finite_y].astype(int)
         if yi.size == 0:
             findings.append(_finding("NO_VALID_LABELS", CRITICAL, "no valid classification labels"))
