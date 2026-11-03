@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
+import { requireOperatorApiAuth } from "@/lib/auth/server";
 import { getOrCreateProfile } from "@/lib/journal/data";
 import { createAttributionRule, listAttributionRules } from "@/lib/journal/broker/links";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/journal/broker/rules — magic/comment/symbol → strategy/setup/tags.
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requireOperatorApiAuth(request);
+  if (denied) return denied;
   try {
     const profileId = await getOrCreateProfile();
     const rules = await listAttributionRules(profileId);
@@ -19,6 +22,8 @@ export async function GET() {
 
 // POST /api/journal/broker/rules — add an attribution rule.
 export async function POST(request: Request) {
+  const denied = await requireOperatorApiAuth(request);
+  if (denied) return denied;
   const blocked = guardMutation(request, "journal-broker-rule");
   if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {
@@ -49,9 +54,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, rule });
   } catch (err) {
     console.error("[api/journal/broker/rules] POST error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to create attribution rule" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "Failed to create attribution rule" }, { status: 500 });
   }
 }

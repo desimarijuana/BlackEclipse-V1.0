@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
+import { requireOperatorApiAuth } from "@/lib/auth/server";
 import { getOrCreateProfile } from "@/lib/journal/data";
 import { deleteAttributionRule } from "@/lib/journal/broker/links";
 
@@ -10,6 +11,8 @@ export async function DELETE(
   request: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireOperatorApiAuth(request);
+  if (denied) return denied;
   const blocked = guardMutation(request, "journal-broker-rule");
   if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {

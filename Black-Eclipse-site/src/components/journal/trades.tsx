@@ -15,6 +15,7 @@ import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { useListNavigation } from '@/hooks/use-list-navigation';
 import { Plus, Trash2, Download, FileText, ChevronLeft, ChevronRight, SlidersHorizontal, ArrowUp, ArrowDown } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { BrokerSyncButton } from './broker-sync-button';
 import type { TradeRecord } from '@/lib/journal/types';
 import { fmtR, fmtMoney } from './charts/echarts-container';
 import { TradeDetail } from './trade-detail';
@@ -53,6 +54,7 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
   const [session, setSession] = useState('');
   const [direction, setDirection] = useState('');
   const [result, setResult] = useState<ResultFilter>('all');
+  const [source, setSource] = useState<'all' | 'broker' | 'manual' | 'demo'>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -94,6 +96,7 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
       if (emotion && t.emotion !== emotion) return false;
       if (session && t.session !== session) return false;
       if (direction && t.direction !== direction) return false;
+      if (source !== 'all' && (t.source ?? 'manual') !== source) return false;
       if (result !== 'all') {
         const cls = t.rMultiple > 0 ? 'win' : t.rMultiple < 0 ? 'loss' : 'breakeven';
         if (cls !== result) return false;
@@ -113,7 +116,7 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
       if (typeof av === 'string' && typeof bv === 'string') return av.localeCompare(bv) * dir;
       return ((av as number) - (bv as number)) * dir;
     });
-  }, [trades, symbol, strategyId, setupId, accountId, tagName, emotion, session, direction, result, dateFrom, dateTo, sortKey, sortDir]);
+  }, [trades, symbol, strategyId, setupId, accountId, tagName, emotion, session, direction, source, result, dateFrom, dateTo, sortKey, sortDir]);
 
   // Reset to page 1 whenever the filter/sort changes.
   useEffect(() => { setPage(1); }, [filtered.length, sortKey, sortDir]);
@@ -127,10 +130,10 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
   const emotions = useMemo(() => [...new Set(trades.map((t) => t.emotion).filter(Boolean))] as string[], [trades]);
   const sessions = useMemo(() => [...new Set(trades.map((t) => t.session).filter(Boolean))] as string[], [trades]);
 
-  const activeFilterCount = [symbol, strategyId, setupId, accountId, tagName, emotion, session, direction, dateFrom, dateTo].filter(Boolean).length + (result !== 'all' ? 1 : 0);
+  const activeFilterCount = [symbol, strategyId, setupId, accountId, tagName, emotion, session, direction, dateFrom, dateTo].filter(Boolean).length + (result !== 'all' ? 1 : 0) + (source !== 'all' ? 1 : 0);
   const clearFilters = () => {
     setSymbol(''); setStrategyId(''); setSetupId(''); setAccountId(''); setTagName('');
-    setEmotion(''); setSession(''); setDirection(''); setResult('all'); setDateFrom(''); setDateTo('');
+    setEmotion(''); setSession(''); setDirection(''); setResult('all'); setSource('all'); setDateFrom(''); setDateTo('');
   };
 
   const remove = async (id: string) => {
@@ -221,6 +224,7 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
           >
             <FileText size={13} /> {exporting ? 'Building…' : 'PDF'}
           </button>
+          <BrokerSyncButton onSynced={onChanged} />
           <button
             onClick={startAdding}
             className="inline-flex items-center gap-1.5 rounded-xl border border-primary/40 bg-primary/15 text-primary px-3 py-1.5 text-xs font-bold hover:bg-primary/25 transition-all cursor-pointer"
@@ -292,6 +296,18 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
                 <option value="breakeven">Breakeven</option>
               </select>
             </Filter>
+            <Filter label="Source">
+              <select
+                value={source}
+                onChange={(e) => setSource(e.target.value as 'all' | 'broker' | 'manual' | 'demo')}
+                className={cn(selectCls, 'w-full')}
+              >
+                <option value="all">All</option>
+                <option value="broker">Broker</option>
+                <option value="manual">Manual / CSV</option>
+                <option value="demo">Demo</option>
+              </select>
+            </Filter>
             <Filter label="From">
               <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={cn(selectCls, 'w-full')} />
             </Filter>
@@ -338,7 +354,14 @@ export function JournalTrades({ trades, onChanged, selectedDate }: TradesProps) 
                     className={cn('border-b border-white/5 last:border-0 hover:bg-white/[0.03] cursor-pointer', listNav.isSelected(t.id) && 'bg-primary/10 ring-1 ring-inset ring-primary/40')}
                   >
                     <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{t.exitTime.slice(0, 10)}</td>
-                    <td className="px-3 py-2 font-bold text-foreground">{t.symbol}</td>
+                    <td className="px-3 py-2 font-bold text-foreground">
+                      {t.symbol}
+                      {t.source === 'broker' && (
+                        <span className="ml-1.5 rounded border border-primary/25 bg-primary/10 px-1 py-0.5 align-middle font-mono text-[8px] font-bold tracking-widest text-primary">
+                          BROKER
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2">{t.direction === 'LONG' ? <span className="text-emerald-400">LONG</span> : <span className="text-rose-400">SHORT</span>}</td>
                     <td className="px-3 py-2 text-muted-foreground">{t.entry}</td>
                     <td className="px-3 py-2 text-muted-foreground">{t.exit}</td>

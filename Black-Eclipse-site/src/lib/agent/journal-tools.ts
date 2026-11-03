@@ -4,6 +4,7 @@
 // never fabricates statistics.
 
 import { getOrCreateProfile, loadTrades } from "@/lib/journal/data";
+import { listBrokerLinks } from "@/lib/journal/broker/links";
 import { computeJournalAnalytics } from "@/lib/journal/analytics";
 import { buildWeeklyReview } from "@/lib/journal/analytics/weekly";
 import { buildMonthlyWrapped } from "@/lib/journal/analytics/wrapped";
@@ -123,6 +124,53 @@ async function getMonthlyWrapped(year: number, month: number): Promise<string> {
   return lines.join("\n");
 }
 
+/** Broker link status (never a secret, never a fake connection). */
+async function getBrokerStatus(): Promise<string> {
+  const profileId = await getOrCreateProfile();
+  const links = await listBrokerLinks(profileId);
+  if (links.length === 0) return "No broker connection is linked to the journal.";
+  const lines = [`Broker links (${links.length}):`];
+  for (const link of links) {
+    lines.push(
+      `  ${link.connectionId}: ${link.enabled ? "enabled" : "disabled"}, ` +
+        `auto-sync ${link.autoSync ? "on" : "off"}, status ${link.lastSyncStatus}, ` +
+        `last synced ${link.lastSyncedAt ?? "never"}` +
+        (link.lastError ? `, error: ${link.lastError}` : ""),
+    );
+  }
+  return lines.join("\n");
+}
+
+/** Performance using only broker-projected trades, plus account/magic splits. */
+async function getBrokerPerformance(): Promise<string> {
+  const trades = await getProfileTrades();
+  const brokerTrades = trades.filter((t) => t.source === "broker");
+  if (brokerTrades.length === 0) {
+    return "No broker-sourced trades in the journal yet. Link a broker in Journal → Settings → Broker Connection and sync.";
+  }
+  const a = computeJournalAnalytics(brokerTrades);
+  const p = a.performance;
+  const lines = [
+    `Broker performance (${brokerTrades.length} trades, ${brokerTrades.filter((t) => t.status === "open").length} open):`,
+    `  Closed: ${p.totalTrades} | Win rate: ${(p.winRate * 100).toFixed(1)}% (${p.wins}W / ${p.losses}L / ${p.breakevens}B)`,
+    `  Net P&L: ${fmtMoney(p.netPnl)} | Net R: ${fmtR(p.netR)}`,
+    `  Expectancy: ${fmtR(p.expectancy)}/trade | Profit factor: ${p.profitFactor === Infinity ? "∞" : p.profitFactor.toFixed(2)}`,
+  ];
+  if (a.byAccount.length) {
+    lines.push("  By account:");
+    for (const row of a.byAccount.slice(0, 6)) {
+      lines.push(`    ${row.key}: ${row.trades} trades, ${(row.winRate * 100).toFixed(0)}% win, ${fmtR(row.netR)}, ${fmtMoney(row.netPnl)}`);
+    }
+  }
+  if (a.byMagic.length) {
+    lines.push("  By magic:");
+    for (const row of a.byMagic.slice(0, 6)) {
+      lines.push(`    ${row.key}: ${row.trades} trades, ${(row.winRate * 100).toFixed(0)}% win, ${fmtR(row.netR)}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 export const JOURNAL_TOOLS: ToolDefinition[] = [
   {
     name: "get_journal_summary",
@@ -164,6 +212,18 @@ export const JOURNAL_TOOLS: ToolDefinition[] = [
     description: "Get behavioral/psychology analysis: performance by emotion and confidence correlation.",
     parameters: { type: "object", properties: {} },
     execute: () => getPsychology(),
+  },
+  {
+    name: "get_broker_status",
+    description: "List the journal's linked broker connections, whether sync is enabled, and the last sync status. Use this before claiming broker data is available.",
+    parameters: { type: "object", properties: {} },
+    execute: () => getBrokerStatus(),
+  },
+  {
+    name: "get_broker_performance",
+    description: "Performance computed ONLY from broker-sourced trades, including per-account and per-magic splits. Never mixes in manual/demo trades.",
+    parameters: { type: "object", properties: {} },
+    execute: () => getBrokerPerformance(),
   },
   {
     name: "get_monthly_wrapped",

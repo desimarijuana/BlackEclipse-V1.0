@@ -65,6 +65,9 @@ describe("projectBrokerTrades", () => {
     expect(trade.fee).toBe(1);
     expect(trade.netPnl).toBe(117); // 120 - 2 - 1
     expect(trade.fillCount).toBe(2);
+    expect(trade.fills).toHaveLength(2);
+    expect(trade.fills[0]).toMatchObject({ dealTicket: 1, entry: "in", price: 2650 });
+    expect(trade.fills[1]).toMatchObject({ dealTicket: 2, entry: "out", price: 2662 });
     expect(trade.exitTime).toBe(new Date(T0 + 2 * HOUR).toISOString());
   });
 
@@ -173,6 +176,26 @@ describe("projectBrokerTrades", () => {
     );
     expect(result.trades[0].direction).toBe("SHORT");
     expect(result.trades[0].status).toBe("closed");
+  });
+
+  it("marks FIFO-derived P&L as computed, not broker-reported", () => {
+    const result = projectBrokerTrades(
+      [
+        deal({ dealTicket: 1, entry: "in", price: 100, pnlBasis: "computed" }),
+        deal({
+          dealTicket: 2,
+          entry: "out",
+          side: "sell",
+          price: 105,
+          profit: 5,
+          dealtAt: T0 + HOUR,
+          pnlBasis: "computed",
+        }),
+      ],
+      [],
+      { connectionId: "c" },
+    );
+    expect(result.trades[0].pnlBasis).toBe("computed");
   });
 
   it("is deterministic — the same deals project identically", () => {

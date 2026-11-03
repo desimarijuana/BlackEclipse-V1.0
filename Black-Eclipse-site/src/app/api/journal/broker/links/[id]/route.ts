@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
+import { requireOperatorApiAuth } from "@/lib/auth/server";
 import { getOrCreateProfile } from "@/lib/journal/data";
-import { deleteBrokerLink, updateBrokerLink } from "@/lib/journal/broker/links";
+import {
+  BrokerLinkInputError,
+  deleteBrokerLink,
+  updateBrokerLink,
+} from "@/lib/journal/broker/links";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +15,8 @@ export async function PATCH(
   request: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireOperatorApiAuth(request);
+  if (denied) return denied;
   const blocked = guardMutation(request, "journal-broker-link");
   if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {
@@ -36,10 +43,10 @@ export async function PATCH(
     return NextResponse.json({ success: true, link });
   } catch (err) {
     console.error("[api/journal/broker/links/[id]] PATCH error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to update broker link" },
-      { status: 500 },
-    );
+    if (err instanceof BrokerLinkInputError) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
+    return NextResponse.json({ error: "Failed to update broker link" }, { status: 500 });
   }
 }
 
@@ -48,6 +55,8 @@ export async function DELETE(
   request: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  const denied = await requireOperatorApiAuth(request);
+  if (denied) return denied;
   const blocked = guardMutation(request, "journal-broker-link");
   if (blocked) return NextResponse.json(blocked.body, { status: blocked.status });
   try {

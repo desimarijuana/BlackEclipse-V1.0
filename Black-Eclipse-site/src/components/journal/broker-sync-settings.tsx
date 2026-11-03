@@ -54,12 +54,47 @@ interface SyncSummary {
   totalProjected: number;
   skippedDeals: number;
   warnings: string[];
+  backfillDays: number | null;
   error?: string;
 }
 
 interface AccountOption {
   id: string;
   name: string;
+}
+
+interface Rule {
+  id: string;
+  connectionId: string | null;
+  magic: number | null;
+  commentMatch: string | null;
+  symbolMatch: string | null;
+  strategyId: string | null;
+  setupId: string | null;
+  tagNames: string[];
+  priority: number;
+}
+
+interface Ref {
+  id: string;
+  name: string;
+}
+
+const EMPTY_RULE = {
+  magic: '',
+  commentMatch: '',
+  symbolMatch: '',
+  strategyId: '',
+  setupId: '',
+  tags: '',
+  priority: '0',
+};
+
+async function getJson<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  const data = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
 }
 
 function fmtWhen(iso: string | null): string {
@@ -103,6 +138,12 @@ export function BrokerSyncSettings({ accounts }: { accounts: AccountOption[] }) 
   const [newAccount, setNewAccount] = useState<Record<string, string>>({});
   const [mapText, setMapText] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<Record<string, Preview>>({});
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [strategies, setStrategies] = useState<Ref[]>([]);
+  const [setups, setSetups] = useState<Ref[]>([]);
+  const [newRule, setNewRule] = useState(EMPTY_RULE);
+  const [ruleBusy, setRuleBusy] = useState(false);
+  const [ruleError, setRuleError] = useState<string | null>(null);
 
   const linkByConnection = useMemo(
     () => new Map(links.map((link) => [link.connectionId, link])),
@@ -113,11 +154,17 @@ export function BrokerSyncSettings({ accounts }: { accounts: AccountOption[] }) 
     setLoading(true);
     setLoadError(null);
     try {
-      const [conns, linksRes] = await Promise.all([
+      const [conns, linksRes, rulesRes, strategiesRes, setupsRes] = await Promise.all([
         listBrokerConnections(),
-        fetch('/api/journal/broker/links').then((r) => r.json()),
+        getJson<{ links?: BrokerLink[] }>('/api/journal/broker/links'),
+        getJson<{ rules?: Rule[] }>('/api/journal/broker/rules'),
+        getJson<{ strategies?: Ref[] }>('/api/journal/strategies'),
+        getJson<{ setups?: Ref[] }>('/api/journal/setups'),
       ]);
       setConnections(conns);
+      setRules(rulesRes.rules ?? []);
+      setStrategies(strategiesRes.strategies ?? []);
+      setSetups(setupsRes.setups ?? []);
       const nextLinks: BrokerLink[] = linksRes.links ?? [];
       setLinks(nextLinks);
       setMapText((prev) => {
@@ -243,14 +290,14 @@ export function BrokerSyncSettings({ accounts }: { accounts: AccountOption[] }) 
     }
   };
 
-  const runSync = async (connection: BrokerConnection) => {
+  const runSync = async (connection: BrokerConnection, fullBackfill = false) => {
     setBusy(`sync:${connection.id}`);
     setMessage(null);
     try {
       const res = await fetch('/api/journal/broker/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ connectionId: connection.id }),
+        body: JSON.stringify({ connectionId: connection.id, fullBackfill }),
       });
       const data = (await res.json()) as SyncSummary;
       if (!res.ok) throw new Error((data as { error?: string }).error || 'Sync failed');
@@ -259,7 +306,7 @@ export function BrokerSyncSettings({ accounts }: { accounts: AccountOption[] }) 
       } else {
         setMessage({
           connectionId: connection.id,
-          text: `${data.imported} new · ${data.updated} updated · ${data.unchanged} unchanged · ${data.openPositions} open`,
+          text: `${data.imported} new · ${data.updated} updated · ${data.unchanged} unchanged · ${data.openPositions} open${data.backfillDays ? ` · ${data.backfillDays}d backfill` : ''}`,
         });
       }
       await load();
@@ -271,6 +318,55 @@ export function BrokerSyncSettings({ accounts }: { accounts: AccountOption[] }) 
       });
     } finally {
       setBusy(null);
+    }
+  };
+
+  const addRule = async () => {
+    setRuleBusy(true);
+    setRuleError(null);
+    try {
+      const tags = newRule.tags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
+      const res = await fetch('/api/journal/broker/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          magic: newRule.magic.trim() ? Number(newRule.magic) : null,
+          commentMatch: newRule.commentMatch.trim() || null,
+          symbolMatch: newRule.symbolMatch.trim() || null,
+          strategyId: newRule.strategyId || null,
+          setupId: newRule.setupId || null,
+          tagNames: tags.length ? tags : null,
+          priority: Number(newRule.priority) || 0,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Failed to add rule');
+      setNewRule(EMPTY_RULE);
+      await load();
+    } catch (err) {
+      setRuleError(err instanceof Error ? err.message : 'Failed to add rule');
+    } finally {
+      setRuleBusy(false);
+    }
+  };
+
+  const removeRule = async (id: string) => {
+    setRuleBusy(true);
+    setRuleError(null);
+    try {
+      const res = await fetch(`/api/journal/broker/rules/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed to delete rule');
+      }
+      await load();
+    } catch (err) {
+      setRuleError(err instanceof Error ? err.message : 'Failed to delete rule');
+    } finally {
+      setRuleBusy(false);
     }
   };
 
@@ -430,6 +526,44 @@ export function BrokerSyncSettings({ accounts }: { accounts: AccountOption[] }) 
                     className="w-full rounded-lg bg-background/60 border border-border/40 px-2 py-1.5 text-[11px] font-mono outline-none focus:ring-1 focus:ring-primary"
                   />
                 </label>
+
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[9px] uppercase tracking-widest font-bold text-muted-foreground">
+                      Backfill window (days)
+                    </span>
+                    <input
+                      type="number"
+                      min={7}
+                      max={3650}
+                      defaultValue={existing.backfillDays}
+                      onBlur={(e) => {
+                        const days = Number(e.target.value);
+                        if (Number.isFinite(days) && days !== existing.backfillDays) {
+                          void patch(connection.id, { backfillDays: days });
+                        }
+                      }}
+                      className="w-24 rounded-lg bg-background/60 border border-border/40 px-2 py-1.5 text-[11px] font-mono outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </label>
+                  <button
+                    onClick={() => {
+                      if (
+                        confirm(
+                          'Re-request the full backfill window from the broker? It can take a while, but it will not duplicate trades.',
+                        )
+                      ) {
+                        void runSync(connection, true);
+                      }
+                    }}
+                    disabled={isBusy}
+                    className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground transition-all cursor-pointer disabled:opacity-50"
+                    title="Re-request the full backfill window from the broker"
+                  >
+                    {isBusy && busy?.startsWith('sync') ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+                    Full backfill
+                  </button>
+                </div>
               </div>
             )}
 
@@ -456,6 +590,123 @@ export function BrokerSyncSettings({ accounts }: { accounts: AccountOption[] }) 
           </div>
         );
       })}
+
+      <div className="mt-2 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5 flex flex-col gap-2">
+        <div>
+          <p className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground">
+            Attribution rules
+          </p>
+          <p className="text-[10px] text-muted-foreground/70">
+            Map magic / comment / symbol to a strategy, setup and tags. Rules apply on
+            the next sync and only fill gaps — they never overwrite your own attribution.
+          </p>
+        </div>
+
+        {rules.length > 0 && (
+          <div className="flex flex-col gap-1">
+            {rules.map((rule) => {
+              const strategy = strategies.find((s) => s.id === rule.strategyId)?.name;
+              const setup = setups.find((s) => s.id === rule.setupId)?.name;
+              const matcher = [
+                rule.magic != null ? `magic ${rule.magic}` : null,
+                rule.commentMatch ? `comment ~ "${rule.commentMatch}"` : null,
+                rule.symbolMatch ? `symbol ${rule.symbolMatch}` : null,
+              ].filter(Boolean).join(' · ');
+              return (
+                <div
+                  key={rule.id}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-2 py-1.5"
+                >
+                  <div className="min-w-0">
+                    <p className="font-mono text-[10px] text-foreground truncate">
+                      {matcher || 'no matcher'}
+                      {rule.priority ? <span className="text-muted-foreground"> · p{rule.priority}</span> : null}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground truncate">
+                      {strategy || 'no strategy'} · {setup || 'no setup'}
+                      {rule.tagNames.length > 0 ? ` · ${rule.tagNames.join(', ')}` : ''}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => void removeRule(rule.id)}
+                    disabled={ruleBusy}
+                    className="text-muted-foreground hover:text-rose-400 transition-colors cursor-pointer disabled:opacity-50"
+                    title="Delete rule"
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+          <input
+            value={newRule.magic}
+            onChange={(e) => setNewRule({ ...newRule, magic: e.target.value })}
+            placeholder="Magic"
+            className="rounded-lg bg-background/60 border border-border/40 px-2 py-1 text-[10px] font-mono outline-none focus:ring-1 focus:ring-primary"
+          />
+          <input
+            value={newRule.commentMatch}
+            onChange={(e) => setNewRule({ ...newRule, commentMatch: e.target.value })}
+            placeholder="Comment contains"
+            className="rounded-lg bg-background/60 border border-border/40 px-2 py-1 text-[10px] font-mono outline-none focus:ring-1 focus:ring-primary"
+          />
+          <input
+            value={newRule.symbolMatch}
+            onChange={(e) => setNewRule({ ...newRule, symbolMatch: e.target.value })}
+            placeholder="Symbol glob (XAU*)"
+            className="rounded-lg bg-background/60 border border-border/40 px-2 py-1 text-[10px] font-mono outline-none focus:ring-1 focus:ring-primary"
+          />
+          <input
+            value={newRule.priority}
+            onChange={(e) => setNewRule({ ...newRule, priority: e.target.value })}
+            placeholder="Priority"
+            type="number"
+            className="rounded-lg bg-background/60 border border-border/40 px-2 py-1 text-[10px] font-mono outline-none focus:ring-1 focus:ring-primary"
+          />
+          <select
+            value={newRule.strategyId}
+            onChange={(e) => setNewRule({ ...newRule, strategyId: e.target.value })}
+            className="rounded-lg bg-background/60 border border-border/40 px-2 py-1 text-[10px] font-mono outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="">No strategy</option>
+            {strategies.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          <select
+            value={newRule.setupId}
+            onChange={(e) => setNewRule({ ...newRule, setupId: e.target.value })}
+            className="rounded-lg bg-background/60 border border-border/40 px-2 py-1 text-[10px] font-mono outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="">No setup</option>
+            {setups.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          <input
+            value={newRule.tags}
+            onChange={(e) => setNewRule({ ...newRule, tags: e.target.value })}
+            placeholder="Tags, comma separated"
+            className="rounded-lg bg-background/60 border border-border/40 px-2 py-1 text-[10px] font-mono outline-none focus:ring-1 focus:ring-primary sm:col-span-2"
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => void addRule()}
+            disabled={ruleBusy}
+            className="inline-flex items-center gap-1 rounded-lg border border-primary/40 bg-primary/15 px-2 py-1 text-[10px] font-bold text-primary hover:bg-primary/25 transition-all cursor-pointer disabled:opacity-50"
+          >
+            {ruleBusy ? <Loader2 size={10} className="animate-spin" /> : <Link2 size={10} />}
+            Add rule
+          </button>
+          {ruleError && <span className="text-[10px] text-amber-300/80">{ruleError}</span>}
+        </div>
+      </div>
     </div>
   );
 }

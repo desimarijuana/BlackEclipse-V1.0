@@ -6,6 +6,15 @@
 import { prisma } from "@/lib/db";
 import type { AttributionRule } from "./project";
 
+/** A caller-supplied link value is invalid; routes map this to HTTP 400. */
+export class BrokerLinkInputError extends Error {
+  readonly status = 400;
+  constructor(message: string) {
+    super(message);
+    this.name = "BrokerLinkInputError";
+  }
+}
+
 export interface BrokerLink {
   id: string;
   profileId: string;
@@ -132,13 +141,28 @@ async function assertAccount(profileId: string, accountId: string | null | undef
     where: { id: accountId, profileId },
     select: { id: true },
   });
-  if (!account) throw new Error("Trading account not found for this profile");
+  if (!account) throw new BrokerLinkInputError("Trading account not found for this profile");
 }
 
 export async function createBrokerLink(profileId: string, input: BrokerLinkInput): Promise<BrokerLink> {
   const connectionId = String(input.connectionId ?? "").trim();
-  if (!connectionId) throw new Error("connectionId is required");
+  if (!connectionId) throw new BrokerLinkInputError("connectionId is required");
   await assertAccount(profileId, input.accountId);
+  if (input.accountId) {
+    const conflict = await prisma.journalBrokerLink.findFirst({
+      where: {
+        profileId,
+        accountId: input.accountId,
+        connectionId: { not: connectionId },
+      },
+      select: { id: true },
+    });
+    if (conflict) {
+      throw new BrokerLinkInputError(
+        "This trading account is already linked to another broker connection",
+      );
+    }
+  }
   const row = await prisma.journalBrokerLink.upsert({
     where: { profileId_connectionId: { profileId, connectionId } },
     update: {
@@ -158,7 +182,26 @@ export async function createBrokerLink(profileId: string, input: BrokerLinkInput
       symbolMap: serializeSymbolMap(input.symbolMap),
     },
   });
+  // A connection maps to at most one journal account.
+  await prisma.tradingAccount.updateMany({
+    where: { profileId, brokerConnectionId: connectionId },
+    data: { brokerConnectionId: null },
+  });
+  await bindAccount(profileId, input.accountId ?? null, connectionId);
   return toLink(row);
+}
+
+/** Keep the account's broker identity in step with the link (nullable). */
+async function bindAccount(
+  profileId: string,
+  accountId: string | null,
+  connectionId: string | null,
+): Promise<void> {
+  if (!accountId) return;
+  await prisma.tradingAccount.updateMany({
+    where: { id: accountId, profileId },
+    data: { brokerConnectionId: connectionId },
+  });
 }
 
 export async function updateBrokerLink(
@@ -168,7 +211,20 @@ export async function updateBrokerLink(
 ): Promise<BrokerLink | null> {
   const existing = await prisma.journalBrokerLink.findFirst({ where: { id: linkId, profileId } });
   if (!existing) return null;
-  if (patch.accountId !== undefined) await assertAccount(profileId, patch.accountId);
+  if (patch.accountId !== undefined) {
+    await assertAccount(profileId, patch.accountId);
+    if (patch.accountId) {
+      const conflict = await prisma.journalBrokerLink.findFirst({
+        where: { profileId, accountId: patch.accountId, id: { not: linkId } },
+        select: { id: true },
+      });
+      if (conflict) {
+        throw new BrokerLinkInputError(
+          "This trading account is already linked to another broker connection",
+        );
+      }
+    }
+  }
   const row = await prisma.journalBrokerLink.update({
     where: { id: linkId },
     data: {
@@ -179,12 +235,29 @@ export async function updateBrokerLink(
       ...(patch.symbolMap !== undefined ? { symbolMap: serializeSymbolMap(patch.symbolMap) } : {}),
     },
   });
+  if (patch.accountId !== undefined) {
+    // Clear the previous account's binding, then stamp the new one.
+    await prisma.tradingAccount.updateMany({
+      where: { profileId, brokerConnectionId: existing.connectionId },
+      data: { brokerConnectionId: null },
+    });
+    await bindAccount(profileId, patch.accountId, existing.connectionId);
+  }
   return toLink(row);
 }
 
 export async function deleteBrokerLink(profileId: string, linkId: string): Promise<boolean> {
-  const result = await prisma.journalBrokerLink.deleteMany({ where: { id: linkId, profileId } });
-  return result.count > 0;
+  const existing = await prisma.journalBrokerLink.findFirst({
+    where: { id: linkId, profileId },
+    select: { id: true, connectionId: true },
+  });
+  if (!existing) return false;
+  await prisma.journalBrokerLink.delete({ where: { id: existing.id } });
+  await prisma.tradingAccount.updateMany({
+    where: { profileId, brokerConnectionId: existing.connectionId },
+    data: { brokerConnectionId: null },
+  });
+  return true;
 }
 
 // ── Attribution rules ────────────────────────────────────────────────────────

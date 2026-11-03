@@ -217,6 +217,16 @@ async function runBackgroundBootTasks(): Promise<void> {
       console.error("[startup] journal demo seed failed:", err);
     }
 
+    // Journal ↔ broker auto-sync. Opt-in per link; one timer, cheap when no
+    // link has autoSync enabled. It only reads the broker mirror and projects
+    // trades — never a broker mutation.
+    try {
+      const { startJournalBrokerSync } = await import("@/lib/journal/broker/scheduler");
+      startJournalBrokerSync();
+    } catch (err) {
+      console.error("[startup] journal broker auto-sync failed to start:", err);
+    }
+
     try {
       await startScheduler();
     } catch (err) {

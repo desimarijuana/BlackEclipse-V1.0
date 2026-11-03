@@ -125,14 +125,48 @@ function toPosition(row: Record<string, unknown>): BrokerOpenPosition {
   };
 }
 
+export interface BrokerConnectionSummary {
+  id: string;
+  kind: string;
+  label: string;
+  mode: string;
+  status: string;
+  statusReason?: string | null;
+}
+
+/**
+ * Verify a broker connection exists before a journal link is created. A link
+ * to a typo is a dead relationship; refusing it at creation is better than
+ * discovering it on the first sync.
+ */
+export async function getBrokerConnection(connectionId: string): Promise<BrokerConnectionSummary> {
+  const body = await runtimeRequest<{ connection?: BrokerConnectionSummary }>(
+    `/trading/connections/${encodeURIComponent(connectionId)}`,
+  );
+  if (!body.connection) {
+    throw new BrokerSourceUnavailable("REQUEST_FAILED", "Broker connection not found");
+  }
+  return body.connection;
+}
+
 /**
  * Refresh the broker's reconciled mirror. A failed sync is an honest error;
  * the caller keeps the last good projection.
  */
-export async function syncBrokerMirror(connectionId: string): Promise<BrokerSyncResult> {
+export async function syncBrokerMirror(
+  connectionId: string,
+  options: { days?: number } = {},
+): Promise<BrokerSyncResult> {
+  const days =
+    options.days != null && Number.isFinite(options.days)
+      ? Math.max(1, Math.min(3650, Math.round(options.days)))
+      : null;
   const body = await runtimeRequest<Record<string, unknown>>(
     `/trading/connections/${encodeURIComponent(connectionId)}/sync`,
-    { method: "POST", body: "{}" },
+    {
+      method: "POST",
+      body: JSON.stringify(days ? { days } : {}),
+    },
   );
   return body as unknown as BrokerSyncResult;
 }
@@ -140,32 +174,68 @@ export async function syncBrokerMirror(connectionId: string): Promise<BrokerSync
 /**
  * Read the broker's reconciled mirror.
  *
- * `limit` is clamped by the runtime to 500 deals. That covers the reconciler's
- * default window; a wider first backfill needs the history endpoint (Phase 2).
+ * Fills are paged oldest→newest-adjacent with a `(dealtAt, id)` cursor, so a
+ * backfill beyond one page is complete rather than silently truncated. Twenty
+ * pages of 1,000 is the hard bound (20,000 deals); a broker history larger than
+ * that is beyond this surface's scope and is reported as a warning by the
+ * caller's `skippedDeals`/count mismatch rather than invented.
  */
-export async function readBrokerMirror(connectionId: string, limit = 500): Promise<BrokerMirror> {
-  const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
-  const body = await runtimeRequest<{
+export async function readBrokerMirror(connectionId: string, pageSize = 1000): Promise<BrokerMirror> {
+  const perPage = Math.max(1, Math.min(5000, Math.floor(pageSize)));
+  const meta = await runtimeRequest<{
     available?: boolean;
     state?: BrokerSyncState | null;
     positions?: Record<string, unknown>[];
-    fills?: Record<string, unknown>[];
     error?: { code?: string; message?: string };
   }>(
-    `/trading/connections/${encodeURIComponent(connectionId)}/reconciliation?limit=${safeLimit}`,
+    `/trading/connections/${encodeURIComponent(connectionId)}/reconciliation?limit=1`,
   );
 
-  if (body.available === false) {
+  if (meta.available === false) {
     throw new BrokerSourceUnavailable(
       "BROKER_UNAVAILABLE",
-      body.error?.message || "The broker mirror is unavailable.",
+      meta.error?.message || "The broker mirror is unavailable.",
     );
+  }
+  // The mirror may exist from a previous good sync while the broker itself is
+  // down. Preview must say so rather than presenting stale rows as current.
+  if (meta.state && (meta.state.status === "unavailable" || meta.state.status === "error")) {
+    throw new BrokerSourceUnavailable(
+      "BROKER_UNAVAILABLE",
+      meta.state.error || "The broker is not available; showing no live mirror.",
+    );
+  }
+
+  const deals: BrokerDeal[] = [];
+  const base = `/trading/connections/${encodeURIComponent(connectionId)}/fills`;
+  let beforeDealtAt: number | null = null;
+  let beforeId: number | null = null;
+
+  for (let page = 0; page < 20; page += 1) {
+    const query = new URLSearchParams({ limit: String(perPage) });
+    if (beforeDealtAt != null && beforeId != null) {
+      query.set("beforeDealtAt", String(beforeDealtAt));
+      query.set("beforeId", String(beforeId));
+    }
+    const body = await runtimeRequest<{ fills?: Record<string, unknown>[] }>(
+      `${base}?${query.toString()}`,
+    );
+    const rows = body.fills ?? [];
+    deals.push(...rows.map(toDeal));
+    if (rows.length < perPage) break;
+
+    const last = rows[rows.length - 1];
+    const lastAt = Number(last.dealtAt ?? NaN);
+    const lastId = Number(last.id ?? NaN);
+    if (!Number.isFinite(lastAt) || !Number.isFinite(lastId)) break;
+    beforeDealtAt = lastAt;
+    beforeId = lastId;
   }
 
   return {
     connectionId,
-    state: body.state ?? null,
-    positions: (body.positions ?? []).map(toPosition),
-    deals: (body.fills ?? []).map(toDeal),
+    state: meta.state ?? null,
+    positions: (meta.positions ?? []).map(toPosition),
+    deals,
   };
 }

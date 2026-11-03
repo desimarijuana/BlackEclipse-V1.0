@@ -56,6 +56,12 @@ export const byEmotion = (trades: TradeRecord[]) => breakdown(trades, (t) => t.e
 export const byTimeframe = (trades: TradeRecord[]) => breakdown(trades, (t) => t.timeframe ?? null);
 export const byRegime = (trades: TradeRecord[]) => breakdown(trades, (t) => t.marketRegime ?? null);
 export const byTrend = (trades: TradeRecord[]) => breakdown(trades, (t) => t.trend ?? null);
+/** Per trading account (unassigned trades are grouped, not dropped). */
+export const byAccount = (trades: TradeRecord[]) =>
+  breakdown(trades, (t) => t.accountName ?? "Unassigned");
+/** Per broker magic number. Manual/CSV trades have no magic and are skipped. */
+export const byMagic = (trades: TradeRecord[]) =>
+  breakdown(trades, (t) => (t.magic != null && t.magic !== 0 ? String(t.magic) : null));
 
 /** Trading hour (UTC, 0-23) — reveals the trader's best time of day. */
 export const byHour = (trades: TradeRecord[]) =>

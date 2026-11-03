@@ -508,15 +508,33 @@ class BrokerConnectionStore:
         self._db.commit()
         return added
 
-    def list_fills(self, connection_id: str, limit: int = 100) -> list[dict[str, Any]]:
-        limit = max(1, min(int(limit or 100), 500))
+    def list_fills(
+        self,
+        connection_id: str,
+        limit: int = 100,
+        before_dealt_at: Optional[int] = None,
+        before_id: Optional[int] = None,
+    ) -> list[dict[str, Any]]:
+        """Fills newest-first, optionally older than a (dealtAt, id) cursor.
+
+        The cursor is `(dealtAt, id)` so two deals in the same millisecond page
+        correctly. 5,000 is the per-page ceiling; a caller pages with the last
+        row's `dealtAt`/`id` instead of asking for an unbounded payload.
+        """
+        limit = max(1, min(int(limit or 100), 5000))
+        clauses = ["connectionId=?"]
+        params: list[Any] = [str(connection_id)]
+        if before_dealt_at is not None and before_id is not None:
+            clauses.append("(dealtAt < ? OR (dealtAt = ? AND id < ?))")
+            params.extend([int(before_dealt_at), int(before_dealt_at), int(before_id)])
         rows = self._db.execute(
-            """SELECT * FROM BrokerFill WHERE connectionId=?
-               ORDER BY dealtAt DESC, id DESC LIMIT ?""",
-            (str(connection_id), limit),
+            f"""SELECT * FROM BrokerFill WHERE {' AND '.join(clauses)}
+                ORDER BY dealtAt DESC, id DESC LIMIT ?""",
+            (*params, limit),
         ).fetchall()
         return [
             {
+                "id": row["id"],
                 "dealTicket": row["dealTicket"],
                 "orderTicket": row["orderTicket"],
                 "positionTicket": row["positionTicket"],

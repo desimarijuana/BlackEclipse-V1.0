@@ -331,6 +331,11 @@ model ResearchFinding {
 // linked to a real User later.
 model JournalProfile {
   id           String   @id @default(cuid())
+  // Auth user id when authentication is active. Null = the shared guest
+  // profile used by the zero-config local app. The profile id is deterministic
+  // for an auth user (`jp_<userId>`), so concurrent first requests converge
+  // without needing a unique constraint on this nullable column.
+  userId       String?
   name         String   @default("Trader")
   currency     String   @default("USD")
   // Default risk per trade (fraction of account, e.g. 0.01 = 1%).
@@ -350,6 +355,8 @@ model JournalProfile {
   watchlist         WatchlistItem[]
   brokerLinks       JournalBrokerLink[]
   attributionRules  BrokerAttributionRule[]
+
+  @@index([userId])
 }
 
 // A trading account the journal tracks P&L against.
@@ -403,6 +410,9 @@ model JournalBrokerLink {
   account TradingAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 
   @@unique([profileId, connectionId])
+  // One trading account maps to at most one broker connection. SQLite allows
+  // multiple NULLs, so unassigned links remain possible.
+  @@unique([profileId, accountId])
   @@index([profileId])
 }
 
@@ -595,6 +605,8 @@ model Trade {
   externalId           String?
   brokerConnectionId   String?
   brokerPositionTicket Int?
+  // Broker attribution metadata, copied from the position's first deal/snapshot.
+  magic                Int?
   // 'computed' = derived from entry/exit/qty; 'broker' = the broker's own
   // net profit is authoritative (forex/CFD cannot be recomputed this way).
   pnlBasis             String  @default("computed")
@@ -626,6 +638,7 @@ model Trade {
   strategy      Strategy?         @relation(fields: [strategyId], references: [id], onDelete: SetNull)
   setup         Setup?            @relation(fields: [setupId], references: [id], onDelete: SetNull)
   executions    TradeExecution[]
+  fills         TradeFill[]
   screenshots   TradeScreenshot[]
   annotations   TradeAnnotation[]
   tags          TradeTag[]
@@ -639,6 +652,34 @@ model Trade {
   @@index([profileId, session])
   @@index([profileId, dayId])
   @@index([brokerConnectionId, brokerPositionTicket])
+}
+
+// One broker deal projected into a journal trade. The broker's `BrokerFill`
+// remains the authoritative copy in the Python harness; this is the journal's
+// read-only projection so the trade detail can show partials and scale-outs.
+// Deals are immutable, so a repeated sync only inserts missing tickets.
+model TradeFill {
+  id             String   @id @default(cuid())
+  tradeId        String
+  dealTicket     Int
+  orderTicket    Int?
+  positionTicket Int?
+  side           String // 'buy' | 'sell'
+  entry          String // 'in' | 'out' | 'inout' | 'out_by' | 'unknown'
+  volume         Float
+  price          Float
+  commission     Float    @default(0)
+  swap           Float    @default(0)
+  profit         Float    @default(0)
+  magic          Int      @default(0)
+  comment        String?
+  dealtAt        DateTime
+  createdAt      DateTime @default(now())
+
+  trade Trade @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+
+  @@unique([tradeId, dealTicket])
+  @@index([tradeId, dealtAt])
 }
 
 // Event-sourcing-ready execution log. Each change to a trade (entry modified,

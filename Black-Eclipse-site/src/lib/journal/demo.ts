@@ -13,6 +13,7 @@
 //   3. **Deterministic.** A seeded PRNG means the same demo data every install —
 //      reproducible screenshots, no drift, and no fabricated live prices.
 
+import { authConfig } from "@/lib/auth/config";
 import { prisma } from "@/lib/db";
 import { getOrCreateProfile, createTrade, countDemoTrades } from "./data";
 
@@ -65,6 +66,12 @@ export interface SeedJournalResult {
  *   - skips when the one-time marker is set (so a deliberate clear sticks).
  */
 export async function seedJournalDemo(opts: { force?: boolean } = {}): Promise<SeedJournalResult> {
+  // The boot seeder has no request identity. On an authenticated deployment,
+  // seeding a shared guest journal would be both invisible and a tenancy leak;
+  // a signed-in user can still seed their own journal through the API.
+  if (!opts.force && authConfig().required) {
+    return { seeded: false, trades: 0, reason: "authentication is required; demo data is per-user" };
+  }
   const profileId = await getOrCreateProfile();
 
   if (!opts.force) {

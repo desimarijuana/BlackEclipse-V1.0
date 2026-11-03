@@ -89,6 +89,22 @@ class ReconcileAdapter(TradingAdapter):
         return {"found": False, "ticket": int(ticket)}
 
 
+class HistoryAdapter(ReconcileAdapter):
+    kind = "fake-reconcile-history"
+    last_window: int | None = None
+
+    def deals_window(self, days):
+        HistoryAdapter.last_window = int(days)
+        old = {
+            "dealTicket": 10, "orderTicket": 900, "positionTicket": 4,
+            "symbol": "EURUSD", "side": "buy", "entry": "in", "volume": 0.1,
+            "price": 1.0, "commission": 0.0, "swap": 0.0, "profit": 0.0,
+            "magic": 99, "comment": "", "dealtAt": 1_690_000_000_000,
+            "eclipseOwned": True,
+        }
+        return [old] + list(DEALS)
+
+
 class FailingAdapter(ReconcileAdapter):
     kind = "fake-reconcile-fail"
 
@@ -146,6 +162,50 @@ def test_sync_failure_is_recorded_not_faked(tmp_path):
     state = service.connections.get_sync_state(connection_id)
     assert state["status"] == "unavailable"
     assert service.connections.list_fills(connection_id) == []
+
+
+def test_history_backfill_uses_an_explicit_window_and_dedupes(tmp_path):
+    service, connection_id = _service(
+        tmp_path, HistoryAdapter, "fake-reconcile-history"
+    )
+    reconciler = BrokerReconciler(service)
+
+    first = reconciler.sync(connection_id, history_days=120)
+    assert first["ok"] is True
+    assert HistoryAdapter.last_window == 120
+    assert first["fillsAdded"] == 3  # the old deal + the two current deals
+    assert len(service.connections.list_fills(connection_id)) == 3
+
+    # A normal incremental sync ignores the backfill window and the unique
+    # (connectionId, dealTicket) key absorbs the overlap.
+    second = reconciler.sync(connection_id)
+    assert second["ok"] is True
+    assert second["fillsAdded"] == 0
+    assert len(service.connections.list_fills(connection_id)) == 3
+
+
+def test_fills_page_with_a_stable_dealt_at_cursor(tmp_path):
+    service, connection_id = _service(tmp_path)
+    service.connections.save_fills(connection_id, DEALS)
+    older = []
+    for deal in DEALS:
+        copy = dict(deal)
+        copy["dealTicket"] += 100
+        copy["dealtAt"] -= 1_000
+        older.append(copy)
+    service.connections.save_fills(connection_id, older)
+
+    page1 = service.connections.list_fills(connection_id, limit=2)
+    assert len(page1) == 2
+    page2 = service.connections.list_fills(
+        connection_id,
+        limit=2,
+        before_dealt_at=page1[-1]["dealtAt"],
+        before_id=page1[-1]["id"],
+    )
+    assert len(page2) == 2
+    tickets = {row["dealTicket"] for row in page1 + page2}
+    assert len(tickets) == 4  # no overlap across the cursor
 
 
 def test_sync_all_skips_unconfigured_connections(tmp_path):

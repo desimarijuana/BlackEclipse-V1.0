@@ -133,4 +133,18 @@ describe('computeJournalAnalytics', () => {
     expect(a.byEmotion[0].key).toBe('Calm');
     expect(a.equity).toHaveLength(2);
   });
+
+  it('groups broker trades by account and magic without dropping manual trades', () => {
+    const trades = [
+      trade({ id: 'a', accountName: 'Live', magic: 1001, rMultiple: 2 }),
+      trade({ id: 'b', accountName: 'Live', magic: 1002, rMultiple: -1 }),
+      trade({ id: 'c', accountName: null, magic: null, rMultiple: 1 }),
+    ];
+    const a = computeJournalAnalytics(trades);
+    expect(a.byAccount).toHaveLength(2);
+    expect(a.byAccount.find((r) => r.key === 'Live')?.trades).toBe(2);
+    expect(a.byAccount.find((r) => r.key === 'Unassigned')?.trades).toBe(1);
+    // Manual trades have no magic and are intentionally absent.
+    expect(a.byMagic.map((r) => r.key).sort()).toEqual(['1001', '1002']);
+  });
 });

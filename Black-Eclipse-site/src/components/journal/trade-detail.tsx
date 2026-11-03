@@ -33,6 +33,20 @@ interface SimilarTrade {
   score: number;
 }
 
+interface BrokerFill {
+  id: string;
+  dealTicket: number;
+  side: string;
+  entry: string;
+  volume: number;
+  price: number;
+  commission: number;
+  swap: number;
+  profit: number;
+  comment: string | null;
+  dealtAt: string;
+}
+
 export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetailProps) {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -46,11 +60,18 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
   const [shotUrl, setShotUrl] = useState('');
   const [shotPhase, setShotPhase] = useState('during');
   const [executions, setExecutions] = useState<{ id: string; kind: string; detail: string | null; createdAt: string }[]>([]);
+  const [fills, setFills] = useState<BrokerFill[]>([]);
 
   const loadExecutions = useCallback(async () => {
     const res = await fetch(`/api/journal/trades/${trade.id}/executions`);
     const data = await res.json();
     setExecutions(data.executions ?? []);
+  }, [trade.id]);
+
+  const loadFills = useCallback(async () => {
+    const res = await fetch(`/api/journal/trades/${trade.id}/fills`);
+    const data = await res.json();
+    setFills(data.fills ?? []);
   }, [trade.id]);
 
   const loadScreenshots = useCallback(async () => {
@@ -135,6 +156,7 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadScreenshots(); }, [loadScreenshots]);
   useEffect(() => { void loadExecutions(); }, [loadExecutions]);
+  useEffect(() => { void loadFills(); }, [loadFills]);
 
   const replayTrade: ReplayTrade = {
     symbol: trade.symbol,
@@ -159,14 +181,21 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
             <h2 className="font-serif text-lg font-semibold text-foreground">{trade.symbol}</h2>
             <span className={trade.direction === 'LONG' ? 'text-emerald-400' : 'text-rose-400'}>{trade.direction}</span>
             <span className="font-mono text-xs text-muted-foreground">{trade.exitTime.slice(0, 10)}</span>
+            {trade.source === 'broker' && (
+              <span className="rounded-md border border-primary/25 bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-primary">
+                Broker
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setEditing((v) => !v)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-accent/30 px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-primary transition-all cursor-pointer"
-            >
-              <PencilLine size={12} /> {editing ? 'Cancel' : 'Edit'}
-            </button>
+            {trade.source !== 'broker' && (
+              <button
+                onClick={() => setEditing((v) => !v)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-accent/30 px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-primary transition-all cursor-pointer"
+              >
+                <PencilLine size={12} /> {editing ? 'Cancel' : 'Edit'}
+              </button>
+            )}
             <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer">
               <X size={16} />
             </button>
@@ -199,6 +228,15 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
               {savingEdit ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
+        )}
+
+        {trade.source === 'broker' && (
+          <p className="mb-4 rounded-xl border border-primary/15 bg-primary/[0.04] px-3 py-2 text-[10px] text-muted-foreground">
+            {trade.pnlBasis === 'computed'
+              ? 'Execution prices come from the broker; P&L is computed from its fills (FIFO) and refreshed on sync.'
+              : 'Execution prices, costs and P&L are owned by the broker and refreshed on sync.'}
+            {' '}Your notes, emotion, grade and checklist stay yours.
+          </p>
         )}
 
         {/* Key stats */}
@@ -282,6 +320,57 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
             buttonLabel="AI Trade Review"
           />
         </div>
+
+        {/* Broker fills — the exact deals behind this trade (scale-ins/outs) */}
+        {fills.length > 0 && (
+          <div className="rounded-2xl bg-white/[0.02] p-4 mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <History size={14} className="text-primary" />
+              <h3 className="font-serif text-sm font-semibold text-foreground">Broker Fills</h3>
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                {fills.length} deal{fills.length === 1 ? '' : 's'} · broker ticket {trade.brokerPositionTicket ?? '—'}
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="text-left font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
+                    <th className="py-1 pr-3 font-normal">Time</th>
+                    <th className="py-1 pr-3 font-normal">Deal</th>
+                    <th className="py-1 pr-3 font-normal">Tag</th>
+                    <th className="py-1 pr-3 font-normal">Side</th>
+                    <th className="py-1 pr-3 text-right font-normal">Volume</th>
+                    <th className="py-1 pr-3 text-right font-normal">Price</th>
+                    <th className="py-1 pr-3 text-right font-normal">Comm.</th>
+                    <th className="py-1 pr-3 text-right font-normal">Swap</th>
+                    <th className="py-1 text-right font-normal">Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fills.map((fill) => (
+                    <tr key={fill.id} className="border-t border-white/5 font-mono">
+                      <td className="py-1.5 pr-3 text-muted-foreground whitespace-nowrap">
+                        {new Date(fill.dealtAt).toLocaleString()}
+                      </td>
+                      <td className="py-1.5 pr-3 text-muted-foreground">#{fill.dealTicket}</td>
+                      <td className="py-1.5 pr-3 uppercase text-muted-foreground">{fill.entry.replace(/_/g, ' ')}</td>
+                      <td className={cn('py-1.5 pr-3 uppercase', fill.side === 'buy' ? 'text-emerald-400' : 'text-rose-400')}>
+                        {fill.side}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right">{fill.volume}</td>
+                      <td className="py-1.5 pr-3 text-right">{fill.price}</td>
+                      <td className="py-1.5 pr-3 text-right text-muted-foreground">{fill.commission ? fmtMoney(fill.commission) : '—'}</td>
+                      <td className="py-1.5 pr-3 text-right text-muted-foreground">{fill.swap ? fmtMoney(fill.swap) : '—'}</td>
+                      <td className={cn('py-1.5 text-right', fill.profit >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+                        {fill.profit ? fmtMoney(fill.profit) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Execution history — stop/target moves, partial exits, edits */}
         {executions.length > 0 && (

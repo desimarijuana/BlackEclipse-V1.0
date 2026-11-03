@@ -56,9 +56,9 @@ credentials. Nothing secret enters the app, the database or model context.
 | Kind | Transport | Auth | Eclipse path |
 |---|---|---|---|
 | **MetaTrader 5** (`mt5`) | Local IPC to `terminal64.exe` | attach to a logged-in terminal | `adapters/mt5.py` |
-| MetaTrader 4 (`mt4_bridge`, planned) | MQL4 EA mailbox on localhost | bridge secret | EA + adapter |
-| Alpaca (`alpaca`, planned) | HTTPS REST | API key in the vault | REST adapter |
-| IBKR (`ibkr`, planned) | TWS/Gateway socket | gateway session | socket adapter |
+| MetaTrader 4 (`mt4_bridge`, read-only) | Local HTTP JSON bridge | bridge secret name | `adapters/mt4_bridge.py` |
+| Alpaca (`alpaca`, read-only) | HTTPS REST | `credentialRef` NAME (`KEY:SECRET`) | `adapters/alpaca.py` |
+| IBKR (`ibkr`, read-only) | Client Portal Gateway HTTPS | `credentialRef` NAME (gateway cookie) | `adapters/ibkr.py` |
 | Any plugin broker | plugin host | per-plugin encrypted secrets | `plugins/` |
 
 A new broker is a **registration**, not a refactor. It implements
@@ -123,6 +123,52 @@ A symbol that exists but has no live tick (for example `XAUUSD` before it is in
 Market Watch) is subscribed with `symbol_select` and retried for up to ~2 s. That
 is a local terminal subscription, not an order or account mutation. A tick that
 stays all-zero is reported as `SYMBOL_NOT_FOUND`, never as a price.
+
+### The MT4 bridge contract (read-only)
+
+MT4 has no supported local Python IPC, so `mt4_bridge` attaches to a small HTTP
+bridge the operator runs next to the terminal. The bridge owns the login; Eclipse
+only reads:
+
+```
+GET {bridgeUrl}/account
+GET {bridgeUrl}/positions
+GET {bridgeUrl}/orders
+GET {bridgeUrl}/orders/{ticket}
+GET {bridgeUrl}/quote?symbol=EURUSD
+GET {bridgeUrl}/deals?from=<epoch_ms>&to=<epoch_ms>
+```
+
+Responses are JSON; lists may be a bare array or wrapped as `positions` /
+`orders` / `deals`. `bridgeSecretRef` is a **name** (an environment variable, or
+a `secret://…` vault reference), never a value; when set it is sent as
+`Authorization: Bearer …`. The adapter is not a `TradingAdapter`, so there is no
+order path. Point the bridge at loopback and keep it read-only. Tests:
+`python/tests/test_mt4_bridge_adapter.py`.
+
+### Alpaca and IBKR (read-only, FIFO-normalized)
+
+Neither API exposes an MT5-style `position_id` on its execution stream. Both
+adapters therefore feed filled orders/executions through the shared
+`adapters/fifo.py` normalizer, which produces round-trip legs with FIFO P&L,
+pro-rata fees, partial fills and shorts. That P&L is **Eclipse-computed**, so
+the journal records `pnlBasis="computed"` and the trade detail says so.
+
+- **Alpaca**: `baseUrl` (default paper), `dataUrl`, optional `accountId`,
+  `credentialRef` → `KEY:SECRET` or JSON `{"key","secret"}`.
+- **IBKR**: `baseUrl` (default `https://localhost:5000/v1/api`), `accountId`,
+  `credentialRef` → gateway cookie (`SESSION=…` or JSON `{"cookie":…}`). TLS
+  verification is relaxed only for a loopback gateway.
+
+A `credentialRef` is a NAME (env var or `secret://…`), never a value.
+
+### Smoke test
+
+`python scripts/broker_smoke.py [--connection ID] [--days N]` calls
+`POST /trading/connections/{id}/smoke`: probe → account → positions → orders →
+deals window → one reconciliation sync, then prints PASS/FAIL per check and
+exits non-zero on any failure. The same action is a **Smoke** button in the
+broker dialog. It never places, cancels or modifies an order.
 
 ## Demo execution (P1)
 
@@ -540,7 +586,10 @@ overlap, so the stored cursor is advisory, not authoritative.
 trading journal: `POST /api/journal/broker/sync` groups `BrokerFill` deals by
 `positionTicket` and upserts one journal `Trade` per position, keeping the
 broker authoritative for execution and the journal user-owned for notes,
-reviews and self-assigned attribution. It never writes broker state. See
+reviews and self-assigned attribution. It never writes broker state. A first
+import asks the reconciler for an explicit window with
+`POST /trading/connections/{id}/sync {"days": N}` (1–3650); that calls the
+adapter's `deals_window(N)` and still dedupes by deal ticket. See
 `docs/journal-broker-sync.md` (ADR-059).
 
 ## Surface
@@ -559,6 +608,7 @@ reviews and self-assigned attribution. It never writes broker state. See
 | Approval + guardrail seam | `python/harness/trade/authorizer.py` |
 | MT5 adapter | `python/harness/trade/adapters/mt5.py` |
 | MT5 wire tables | `python/harness/trade/adapters/mt5_contract.py` |
+| MT4 bridge adapter | `python/harness/trade/adapters/mt4_bridge.py` |
 | Reconciliation | `python/harness/trade/reconcile.py` |
 | Graph node | `python/harness/graph_runtime/trading_nodes.py`, `trading_calc_nodes.py`, `trading_ops_nodes.py`, `trading_lifecycle_nodes.py`, `broker_nodes.py`, `src/lib/graph-studio/registry-trading.ts` |
 | Tools | `python/harness/trade/tools.py` |

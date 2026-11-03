@@ -24,6 +24,8 @@ export interface AuthUser {
   id: string;
   username: string;
   scope: string;
+  /** "operator" for the local app; a future role model can narrow this. */
+  role: string;
   createdAt: string;
   disabled: boolean;
 }
@@ -215,6 +217,7 @@ function mapUser(row: Record<string, unknown>): AuthUser {
     id: String(row.id),
     username: String(row.username),
     scope: String(row.scope),
+    role: String(row.role || "operator"),
     createdAt: String(row.createdAt),
     disabled: Number(row.disabled) === 1,
   };

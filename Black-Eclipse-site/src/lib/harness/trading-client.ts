@@ -262,7 +262,10 @@ export interface BrokerReconciliation {
   fills: BrokerFill[];
 }
 
-export async function syncBrokerConnection(connectionId: string): Promise<{
+export async function syncBrokerConnection(
+  connectionId: string,
+  options: { days?: number } = {},
+): Promise<{
   ok: boolean;
   connectionId: string;
   positions?: number;
@@ -274,7 +277,34 @@ export async function syncBrokerConnection(connectionId: string): Promise<{
 }> {
   return api(`connections/${connectionId}/sync`, {
     method: "POST",
-    body: JSON.stringify({}),
+    body: JSON.stringify(options.days ? { days: options.days } : {}),
+  });
+}
+
+export interface BrokerSmokeCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface BrokerSmokeReport {
+  ok: boolean;
+  connectionId: string;
+  kind: string;
+  mode: string;
+  days: number;
+  checks: BrokerSmokeCheck[];
+  account: BrokerAccount | null;
+  counts: { positions?: number; orders?: number; deals?: number; dealWindowMs?: number };
+  sync: Record<string, unknown> | null;
+  error?: string;
+}
+
+/** Probe → reads → one sync. Read-only against the broker. */
+export async function runBrokerSmoke(connectionId: string, days = 7): Promise<BrokerSmokeReport> {
+  return api<BrokerSmokeReport>(`connections/${connectionId}/smoke`, {
+    method: "POST",
+    body: JSON.stringify({ days }),
   });
 }
 

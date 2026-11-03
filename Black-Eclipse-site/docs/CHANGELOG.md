@@ -1,6 +1,174 @@
 # Change Log
 
 ## 2026-11-02
+- **harden(broker): operator-only broker routes, URL validation, retries.**
+  All `/api/journal/broker/*` routes and the `/api/trading/*` proxy now require
+  an authenticated **operator** when auth is active (`requireOperatorApiAuth`);
+  auth-off local mode is unchanged. Alpaca/IBKR base URLs are validated
+  (http/https, no embedded credentials) before any request, and both adapters
+  retry 429/5xx with bounded backoff. IBKR `probe` checks
+  `/iserver/auth/status` and reports an expired CPAPI session honestly.
+  Alpaca/IBKR positions without a broker open time are labelled "first seen",
+  never silently dated 1970. A production checklist now lives in
+  `docs/journal-broker-sync.md`. Verified with
+  `npm run build` (clean), `tsc --noEmit`, 4,270 vitest tests and the broker
+  Python subset. Docs updated: `docs/journal-broker-sync.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): seeded files/media demo + demo-found fixes.**
+  `npm run demo:graph-media`/`scripts/seed-graph-media-demo.mts` seeds **File
+  import (demo)** and **Candle option review (demo)** into Overview, generating a
+  CSV and two deterministic candle PNGs through the real graph/vision stores.
+  The file demo was run through the app and returned 24 rows with every node
+  succeeded. The image demo was verified through `image.attach` (asset read +
+  640×360 metadata) and then failed honestly at the provider boundary when the
+  configured model account had insufficient credits; no fake reading was
+  emitted. Demo-found fixes: `validate_port_value` now understands `file`/`image`
+  outputs (the first run failed with `unknown port type file`); the vision asset
+  store persists uploaded metadata and preserves a descriptive name/source when
+  an analysis re-saves the same bytes; `image.batch` fails when every image read
+  fails instead of letting a downstream agent run on an empty result. Added the
+  `File import` template and an optional control input on the File/Parse nodes.
+  Tests: `test_graph_model.py` (file/image port checks), `test_vision_store_owner.py`
+  (name preservation), `test_graph_image_nodes.py` (all-fail batch); full TS
+  suite 4259 passed; build exit 0; full Python suite 9434 passed before these
+  last demo fixes, targeted suites after. Docs updated: `docs/graph-studio.md`,
+  `docs/graph-studio-media-agent-memory-nodes-plan.md`, `docs/CHANGELOG.md`.
+- **feat(broker): Alpaca + IBKR read-only adapters, FIFO normalizer, live smoke test.**
+  `alpaca` (REST) and `ibkr` (Client Portal Gateway) are registered as read-only
+  broker kinds with honest availability/probe. Because neither exposes a
+  position id, a shared `adapters/fifo.py` turns fills/executions into FIFO
+  round-trip legs (scale-ins, partials, shorts, pro-rata fees); the journal
+  marks that P&L `pnlBasis="computed"` and the detail says so. Credentials are
+  always NAMEs (`credentialRef` → env var or `secret://…`), never values.
+  `POST /trading/connections/{id}/smoke` runs probe → account → positions →
+  orders → deals → one sync and returns per-check PASS/FAIL; the CLI
+  `python/scripts/broker_smoke.py` and a **Smoke** button in the broker dialog
+  use it. The broker form now selects MT5 / MT4 bridge / Alpaca / IBKR with the
+  right fields. Tests: FIFO (6), Alpaca (3), IBKR (3), smoke (2).
+  Docs updated: `docs/trading.md`, `docs/journal-broker-sync.md`,
+  `docs/NAVIGATION.md`, `docs/DECISIONS.md` + `skills/ARCHITECT.md`
+  (ADR-059 amendment), `docs/CHANGELOG.md`.
+- **feat(graph-studio): in-editor workflow assistant that builds on the canvas.**
+  Added a tool-calling agent (n8n-style) at `POST /api/graphs/assist` → Python
+  `POST /graphs/assist`: `graph_runtime/assistant.py` lets the model search the
+  REAL node registry, inspect schemas, add/wire/configure/remove nodes and
+  validate the graph in a bounded loop. It returns the editor's closed operation
+  vocabulary plus a compiled IR; `assistant-store.ts` auto-applies safe,
+  warning-free edits through `dispatchMany` (one undo step) and shows a
+  review card when there are warnings/errors. New panel in the editor's right
+  dock (header `Assistant`), with selection-aware context, a New-conversation
+  reset per loaded workflow, Ask mode that refuses mutating tools, and a canvas
+  focus request that centres newly created nodes, secret-like node config
+  redaction before the graph context leaves the process, and an honest warning
+  when the model answers without calling any tools. Nothing is auto-run;
+  credentials stay in memory.
+  Tests: `python/tests/test_graph_assistant.py`,
+  `src/lib/graph-studio/assistant-ops.test.ts`,
+  `src/lib/graph-studio/assistant-store.test.ts`. Docs updated:
+  `docs/graph-studio.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **chore(graph-studio): regenerate the node registry manifest.**
+  `npm run graph:manifest` synced `registry.manifest.json` with the current
+  `data.file.attach`/`parse` control inputs. No behavior change; the
+  cross-language contract test was red on the stale artifact.
+  no doc change — generated contract artifact.
+- **feat(journal): per-user journal ownership when auth is active.**
+  `JournalProfile` gains a nullable `userId`; `getOrCreateProfile()` resolves the
+  request's auth session and returns a deterministic `jp_<userId>` profile, so
+  trades, broker links, reviews, days and accounts are isolated per user. With
+  auth off (zero-config local), the oldest guest profile is used unchanged. If
+  auth is required but a journal request has no live session, the journal fails
+  closed instead of falling back to the shared guest. The first authenticated
+  user adopts the pre-auth guest journal (one-time, conditional write) so
+  existing trades are not orphaned; later users never inherit it. The boot demo
+  seeder skips when auth is required. Broker connections remain operator-level;
+  the link and projected trades are
+  per-profile. New `src/lib/journal/owner.ts`; guest duplicate-collapse is now
+  scoped to guest rows. Docs updated: `docs/journal-broker-sync.md`,
+  `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-059 amendment),
+  `docs/CHANGELOG.md`.
+- **feat(broker): read-only MT4 HTTP bridge + journal-wide sync affordance.**
+  A second built-in broker adapter, `mt4_bridge`, speaks a documented read-only
+  JSON contract (`/account`, `/positions`, `/orders`, `/orders/{ticket}`,
+  `/quote`, `/deals`) against a local bridge that owns the MT4 login. History
+  reads moved to the base `BrokerAdapter` (a read capability, not execution), so
+  a read-only adapter can feed reconciliation without claiming an order path.
+  `bridgeSecretRef` is a name (env var or `secret://…` vault ref), never a value.
+  The broker dialog now selects MT5 or MT4 bridge and shows the right fields.
+  The Trades tab gains a compact **Broker** sync button with last-sync state and
+  a source filter + BROKER badge, so syncing no longer requires opening
+  Settings. Tests: `python/tests/test_mt4_bridge_adapter.py` (contract, secret,
+  honest refusal, reconcile end-to-end). Docs updated: `docs/trading.md`,
+  `docs/journal-broker-sync.md`, `docs/DECISIONS.md` + `skills/ARCHITECT.md`
+  (ADR-059 amendment), `docs/CHANGELOG.md`.
+- **harden(journal): broker sync production hardening.**
+  Broker-owned execution fields (`entry/exit/stops/quantity/times/commission/fee/
+  symbol/direction`) are now refused on PATCH with `409` and never P&L-recomputed;
+  only user-owned fields are written, so a notes edit cannot race a sync into a
+  price-derived number. The UI hides Edit for broker trades and shows an
+  ownership note. Sync calls coalesce per `(profile, connection)`, and a unique
+  collision from a second server (dev+prod share the DB) is treated as success.
+  Link creation now validates the connection with the runtime, rejects
+  malformed ids (`400`, or `503` when the runtime is down), stamps the account's
+  `brokerConnectionId`, and enforces one account per connection with a unique
+  `(profileId, accountId)` index (applied to the local dev DB after confirming
+  zero link rows). Preview is rate-
+  limited (12/min) and reports an unavailable/stale mirror honestly; API errors
+  are logged server-side and returned as generic messages. Every journal trade
+  lookup filters `ignoredAt` tombstones. New `broker/ownership.ts` + tests.
+  Docs updated: `docs/journal-broker-sync.md`,
+  `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-059 amendment),
+  `docs/CHANGELOG.md`.
+- **feat(journal): deal-level broker fills, account/magic analytics, broker agent tools.**
+  Phase 3. Every projected broker deal is now stored as an immutable `TradeFill`
+  (unique by `(tradeId, dealTicket)`), so the trade detail shows scale-ins,
+  partial closes and multi-fill exits with the broker's own ticket, volume,
+  price, commission, swap and profit. `syncFills` inserts only missing deals;
+  an unchanged trade still backfills fills it lacks. New
+  `GET /api/journal/trades/[id]/fills`. Analytics gains `byAccount` (including
+  `Unassigned`) and `byMagic` (broker trades only), rendered in the Analytics
+  tab. The journal agent gains `get_broker_status` and
+  `get_broker_performance`, which reports broker-sourced performance with
+  per-account/per-magic splits and never mixes manual/demo trades. On the
+  projection engine, `magic` is copied onto `Trade` for grouping. Fills are now
+  paged 1,000 at a time with a stable `(dealtAt, id)` cursor (20 pages max), so a
+  large backfill is no longer truncated at the old 5,000 ceiling.
+  Tests: projection fills assertions, account/magic dimension test, fill-cursor
+  paging.
+  Docs updated: `docs/journal-broker-sync.md`, `docs/NAVIGATION.md`,
+  `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-059 amendment),
+  `docs/CHANGELOG.md`.
+- **harden(graph): owner isolation + upload limits for files and images.**
+  The vision asset store gains an `ownerId` column (idempotent migration, index)
+  and scoped asset ids for non-local owners while keeping the legacy content id
+  for the local operator. All reads/writes/deletes accept an owner filter; the
+  orchestrator, vision tools, document renderers and graph image nodes pass the
+  run/context owner. Graph runs now adopt the verified identity owner (never the
+  self-asserted `x-harness-user` alone), and `routers/graphs` resolves it from
+  the `X-Harness-Identity` token. The asset/image proxies forward that token via
+  `runtimeProxyHeaders`; Python routes resolve the owner from the verified
+  identity and ignore a query-string owner when auth is on. Both upload routes
+  now enforce byte caps at the runtime boundary and a per-owner rate limit.
+  Tests: `test_vision_store_owner.py` (2), `test_graph_asset_routes.py` (3) +
+  affected graph/vision/document/security suites (1061 passed, 6 opt-in skips);
+  full Python suite 9434 passed before this hardening, full Vitest 4259 passed,
+  `npm run build` exit 0. Docs: `docs/graph-studio.md`, ADR-060 mirror, plan,
+  CHANGELOG.
+- **feat(journal): broker history backfill, scheduled auto-sync, attribution UI.**
+  Phase 2 makes the broker link production-usable. `POST /trading/connections/
+  {id}/sync` now accepts `{"days": N}` (1–3650) and calls the adapter's
+  `deals_window(N)` instead of the incremental cursor; `JournalBrokerLink`
+  `backfillDays` drives a first import or a gap recovery, computed from
+  `lastSyncedAt` (no explicit window needed within 5 days). The mirror read
+  ceiling rises from 500 to 5,000 deals (still one bounded response). A new
+  `src/lib/journal/broker/scheduler.ts` runs one opt-in, single-flight timer
+  (`JOURNAL_BROKER_SYNC_SECONDS`, default 300 s, min 60, `0` disables) for links
+  with `autoSync`, with a 5-minute failure backoff per connection. The Settings
+  panel gains rule authoring (magic/comment/symbol → strategy/setup/tags),
+  per-link backfill-window editing and a **Full backfill** action. Python tests
+  cover the explicit-window dedupe; vitest covers the due/backoff rules.
+  Docs updated: `docs/journal-broker-sync.md`, `docs/trading.md`,
+  `docs/NAVIGATION.md`, `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-059
+  amendment), `docs/CHANGELOG.md`.
 - **feat(graph): vision image nodes, n8n-style `agent.task`, memory lifecycle
   (waves 2–4).** `graph_runtime/image_nodes.py` + `registry-media.ts` add
   read-only image nodes over the ONE vision engine: `image.attach`,

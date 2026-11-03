@@ -13,7 +13,11 @@
 import { prisma, yieldToEventLoop } from "@/lib/db";
 import { getOrCreateProfile } from "@/lib/journal/data";
 import { BrokerSourceUnavailable, readBrokerMirror, syncBrokerMirror } from "./source";
-import { projectBrokerTrades, type ProjectedTrade } from "./project";
+import {
+  projectBrokerTrades,
+  type ProjectedFill,
+  type ProjectedTrade,
+} from "./project";
 import {
   getBrokerLink,
   listAttributionRules,
@@ -33,6 +37,8 @@ export interface BrokerSyncSummary {
   totalProjected: number;
   skippedDeals: number;
   warnings: string[];
+  /** Explicit broker window requested for this sync, or null for incremental. */
+  backfillDays: number | null;
   error?: string;
   lastSyncedAt?: string | null;
 }
@@ -137,6 +143,8 @@ function sameTime(a: Date | null, iso: string | null): boolean {
 interface SyncOptions {
   /** Re-read the broker mirror before projecting. Preview never syncs. */
   refresh?: boolean;
+  /** Force the link's full backfill window instead of the computed gap. */
+  fullBackfill?: boolean;
 }
 
 async function contextFor(profileId: string, connectionId: string) {
@@ -166,6 +174,58 @@ function sanitizeProjection(
     strategyId: trade.strategyId && validStrategyIds.has(trade.strategyId) ? trade.strategyId : null,
     setupId: trade.setupId && validSetupIds.has(trade.setupId) ? trade.setupId : null,
   };
+}
+
+/**
+ * Two servers (dev + prod) can share the same SQLite files, so the in-process
+ * sync lock is not the only writer. A unique-constraint race means the other
+ * process already inserted the row; that is success, not an error.
+ */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err != null &&
+    ((err as { code?: string }).code === "P2002" ||
+      /unique constraint/i.test(String((err as { message?: string }).message ?? "")))
+  );
+}
+
+/**
+ * Insert any deal the journal has not stored yet. Deals are immutable, so an
+ * existing ticket is never rewritten; a repeated sync is a no-op.
+ */
+async function syncFills(tradeId: string, fills: ProjectedFill[]): Promise<void> {
+  if (!fills.length) return;
+  const existing = await prisma.tradeFill.findMany({
+    where: { tradeId },
+    select: { dealTicket: true },
+  });
+  const have = new Set(existing.map((row) => row.dealTicket));
+  const missing = fills.filter((fill) => !have.has(fill.dealTicket));
+  if (!missing.length) return;
+  try {
+    await prisma.tradeFill.createMany({
+      data: missing.map((fill) => ({
+        tradeId,
+        dealTicket: fill.dealTicket,
+        orderTicket: fill.orderTicket,
+        positionTicket: fill.positionTicket,
+        side: fill.side,
+        entry: fill.entry,
+        volume: fill.volume,
+        price: fill.price,
+        commission: fill.commission,
+        swap: fill.swap,
+        profit: fill.profit,
+        magic: fill.magic,
+        comment: fill.comment,
+        dealtAt: new Date(fill.dealtAt),
+      })),
+    });
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    // Another process projected the same deals first.
+  }
 }
 
 async function markLink(
@@ -203,8 +263,26 @@ function emptySummary(
     totalProjected: 0,
     skippedDeals: 0,
     warnings: [],
+    backfillDays: null,
     error,
   };
+}
+
+/**
+ * How wide a broker window this sync needs.
+ *
+ * The reconciler's ordinary pass reads a small rolling window. That is enough
+ * to keep a recently-synced mirror current, but it cannot recover the gap after
+ * the app (or the link) was idle for a while. Hook `lastSyncedAt` gives the
+ * honest gap; below ~5 days the rolling window already covers it.
+ */
+function historyWindowDays(link: BrokerLink): number | undefined {
+  if (!link.lastSyncedAt) return link.backfillDays;
+  const last = Date.parse(link.lastSyncedAt);
+  if (!Number.isFinite(last)) return link.backfillDays;
+  const gapDays = Math.ceil((Date.now() - last) / 86_400_000);
+  if (gapDays <= 5) return undefined;
+  return Math.min(link.backfillDays, Math.max(7, gapDays + 2));
 }
 
 /**
@@ -290,8 +368,35 @@ export async function previewJournalBroker(
   }
 }
 
-/** Refresh the broker mirror, project it, and upsert journal trades. */
+/**
+ * Refresh the broker mirror, project it, and upsert journal trades.
+ *
+ * A manual sync, another browser tab and the auto-sync timer can all ask at
+ * once. The per-connection promise lock coalesces them onto one run, so two
+ * writers never race the unique `externalId`/`dealTicket` keys or hammer the
+ * terminal. A caller asking for a full backfill while an incremental sync is
+ * already running receives that run, not a second one.
+ */
+const inflight = ((
+  globalThis as unknown as { __journalBrokerInflight?: Map<string, Promise<BrokerSyncSummary>> }
+).__journalBrokerInflight ??= new Map<string, Promise<BrokerSyncSummary>>());
+
 export async function syncJournalBroker(
+  profileId: string,
+  connectionId: string,
+  options: SyncOptions = {},
+): Promise<BrokerSyncSummary> {
+  const key = `${profileId}:${connectionId}`;
+  const running = inflight.get(key);
+  if (running) return running;
+  const run = runJournalBrokerSync(profileId, connectionId, options).finally(() => {
+    inflight.delete(key);
+  });
+  inflight.set(key, run);
+  return run;
+}
+
+async function runJournalBrokerSync(
   profileId: string,
   connectionId: string,
   options: SyncOptions = {},
@@ -305,9 +410,14 @@ export async function syncJournalBroker(
     return emptySummary(connectionId, link.id, "error", "This journal link is disabled");
   }
 
+  const windowDays = options.fullBackfill ? link.backfillDays : historyWindowDays(link);
+
   if (options.refresh !== false) {
     try {
-      const result = await syncBrokerMirror(connectionId);
+      const result = await syncBrokerMirror(
+        connectionId,
+        windowDays != null ? { days: windowDays } : {},
+      );
       if (!result.ok) {
         const reason =
           typeof result.error === "string"
@@ -360,7 +470,10 @@ export async function syncJournalBroker(
 
   const existingRows = await prisma.trade.findMany({
     where: { profileId, brokerConnectionId: connectionId, externalId: { not: null } },
-    include: { tags: { include: { tag: { select: { name: true } } } } },
+    include: {
+      tags: { include: { tag: { select: { name: true } } } },
+      _count: { select: { fills: true } },
+    },
   });
   const existing = new Map(existingRows.map((row) => [row.externalId as string, row]));
 
@@ -387,7 +500,9 @@ export async function syncJournalBroker(
 
     if (!current) {
       const tagNames = [...new Set(trade.tagNames ?? [])].filter(Boolean);
-      await prisma.trade.create({
+      let created: { id: string };
+      try {
+        created = await prisma.trade.create({
         data: {
           profileId,
           accountId: link.accountId,
@@ -408,7 +523,8 @@ export async function syncJournalBroker(
           externalId: trade.externalId,
           brokerConnectionId: connectionId,
           brokerPositionTicket: trade.brokerPositionTicket,
-          pnlBasis: "broker",
+          magic: trade.magic ?? null,
+          pnlBasis: trade.pnlBasis,
           grossPnl: derived.grossPnl,
           commission: derived.commission,
           fee: derived.fee,
@@ -442,7 +558,23 @@ export async function syncJournalBroker(
               }
             : undefined,
         },
-      });
+        });
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          // The other process won the insert. Its row will converge on the next
+          // sync; do not fail the whole import.
+          const raced = await prisma.trade.findFirst({
+            where: { profileId, externalId: trade.externalId },
+            select: { id: true },
+          });
+          if (raced) {
+            await syncFills(raced.id, trade.fills);
+            continue;
+          }
+        }
+        throw err;
+      }
+      await syncFills(created.id, trade.fills);
       imported += 1;
       continue;
     }
@@ -473,6 +605,7 @@ export async function syncJournalBroker(
       !sameTime(current.entryTime, trade.entryTime) ||
       !sameTime(current.exitTime, trade.exitTime) ||
       current.status !== trade.status ||
+      current.magic !== (trade.magic ?? null) ||
       !sameNumber(current.pnl, updateDerived.pnl) ||
       !sameNumber(current.commission, updateDerived.commission) ||
       !sameNumber(current.fee, updateDerived.fee) ||
@@ -486,7 +619,7 @@ export async function syncJournalBroker(
       current.accountId !== desiredAccountId ||
       current.strategyId !== desiredStrategyId ||
       current.setupId !== desiredSetupId ||
-      current.pnlBasis !== "broker";
+      current.pnlBasis !== trade.pnlBasis;
 
     const currentTags = new Set(current.tags.map((t) => t.tag.name));
     const missingTags = [...new Set(trade.tagNames ?? [])].filter(
@@ -494,6 +627,11 @@ export async function syncJournalBroker(
     );
 
     if (!changed && missingTags.length === 0) {
+      // Fills are independent of the aggregate fields; a trade that needed no
+      // update can still be missing deals (e.g. right after this phase ships).
+      if (current._count.fills < trade.fills.length) {
+        await syncFills(current.id, trade.fills);
+      }
       unchanged += 1;
       continue;
     }
@@ -515,7 +653,8 @@ export async function syncJournalBroker(
         entryTime: new Date(trade.entryTime),
         exitTime: trade.exitTime ? new Date(trade.exitTime) : null,
         status: trade.status,
-        pnlBasis: "broker",
+        magic: trade.magic ?? null,
+        pnlBasis: trade.pnlBasis,
         grossPnl: updateDerived.grossPnl,
         commission: updateDerived.commission,
         fee: updateDerived.fee,
@@ -568,6 +707,7 @@ export async function syncJournalBroker(
           : {}),
       },
     });
+    await syncFills(current.id, trade.fills);
     updated += 1;
 
     // A batch of broker writes must not starve the event loop.
@@ -594,6 +734,7 @@ export async function syncJournalBroker(
     totalProjected: projected.length,
     skippedDeals,
     warnings,
+    backfillDays: windowDays ?? null,
     lastSyncedAt: new Date().toISOString(),
   };
 }

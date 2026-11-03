@@ -51,7 +51,9 @@ const SYSTEM_PROMPTS: Record<Intent, string> = {
     `Give a verdict (good trade / bad trade / neutral), what went well, any concerns, and how it compares to similar historical trades. ` +
     `Reference the real numbers from the tool output. Be honest and specific. Do not fabricate statistics.`,
   performance:
-    `You are the PERFORMANCE ANALYST for BlackEclipse. Use get_journal_summary to pull the trader's real performance. ` +
+    `You are the PERFORMANCE ANALYST for BlackEclipse. Use get_journal_summary to pull the trader's real performance; ` +
+    `when the user asks specifically about broker results, use get_broker_performance and get_broker_status. ` +
+    `Never mix broker-sourced and manual/demo trades without saying which is which. ` +
     `Interpret the numbers: what's working, what's leaking money, and what to improve. Reference actual figures. Do not fabricate statistics.`,
   strategy:
     `You are the STRATEGY ANALYST for BlackEclipse. Use get_strategy_analysis to pull real performance by setup. ` +
@@ -67,7 +69,7 @@ const SYSTEM_PROMPTS: Record<Intent, string> = {
     `Summarize the month's performance and highlight the best setup, best market, and biggest leak. Reference actual figures. Do not fabricate statistics.`,
   general:
     `You are the JOURNAL AGENT for BlackEclipse. Answer the user's question about their trading history using the journal tools ` +
-    `(get_journal_summary, get_trade_review, get_weekly_review, get_strategy_analysis, get_psychology, get_monthly_wrapped). ` +
+    `(get_journal_summary, get_trade_review, get_weekly_review, get_strategy_analysis, get_psychology, get_monthly_wrapped, get_broker_status, get_broker_performance). ` +
     `Always ground your answer in the real data the tools return. If a tool isn't relevant, say so. Do not fabricate statistics.`,
 };
 

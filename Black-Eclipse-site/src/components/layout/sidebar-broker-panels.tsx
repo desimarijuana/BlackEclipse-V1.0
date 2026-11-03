@@ -191,6 +191,7 @@ export function BrokerOverviewPanel({
   refreshing,
   onTest,
   onSync,
+  onSmoke,
   busy,
 }: {
   connection: BrokerConnection;
@@ -206,6 +207,7 @@ export function BrokerOverviewPanel({
   refreshing: boolean;
   onTest: () => void;
   onSync: () => void;
+  onSmoke: () => void;
   busy: string | null;
 }) {
   const armed = Boolean(connection.armedUntil);
@@ -243,6 +245,9 @@ export function BrokerOverviewPanel({
           </MiniAction>
           <MiniAction busy={busy === "sync"} onClick={onSync}>
             Sync
+          </MiniAction>
+          <MiniAction busy={busy === "smoke"} onClick={onSmoke} title="Probe, read, and sync once">
+            Smoke
           </MiniAction>
         </div>
       </div>

@@ -28,6 +28,11 @@ export interface BrokerDeal {
   comment: string | null;
   /** Epoch milliseconds. */
   dealtAt: number;
+  /**
+   * "broker" = the deal carries the broker's own P&L (MT5/MT4).
+   * "computed" = the adapter derived it from executions (Alpaca/IBKR FIFO).
+   */
+  pnlBasis?: "broker" | "computed" | null;
 }
 
 /** One open broker position (matches BrokerPositionSnapshot). */
@@ -62,6 +67,23 @@ export interface AttributionRule {
   priority?: number | null;
 }
 
+/** One broker deal as the journal will store it (immutable). */
+export interface ProjectedFill {
+  dealTicket: number;
+  orderTicket: number | null;
+  positionTicket: number | null;
+  side: string;
+  entry: BrokerDealEntry;
+  volume: number;
+  price: number;
+  commission: number;
+  swap: number;
+  profit: number;
+  magic: number;
+  comment: string | null;
+  dealtAt: string; // ISO
+}
+
 /** A journal trade derived from broker deals. */
 export interface ProjectedTrade {
   /** Stable: `broker:<connectionId>:<positionTicket>`. */
@@ -88,8 +110,12 @@ export interface ProjectedTrade {
   fee: number;
   magic: number;
   comment: string | null;
+  /** "broker" or "computed" (adapter FIFO), matching the deal provenance. */
+  pnlBasis: "broker" | "computed";
   /** How many deals the round-trip was built from. */
   fillCount: number;
+  /** The underlying deals, chronological. Empty for a snapshot-only position. */
+  fills: ProjectedFill[];
   strategyId?: string | null;
   setupId?: string | null;
   tagNames?: string[];
@@ -127,6 +153,8 @@ interface Accumulator {
   swap: number;
   profit: number;
   fillCount: number;
+  fills: ProjectedFill[];
+  pnlBasis: "broker" | "computed";
 }
 
 const EPSILON_DEFAULT = 1e-8;
@@ -235,6 +263,8 @@ function accumulate(target: Map<number, Accumulator>, deal: BrokerDeal, warnings
       swap: 0,
       profit: 0,
       fillCount: 0,
+      fills: [],
+      pnlBasis: "broker",
     };
     target.set(ticket, acc);
   }
@@ -248,6 +278,22 @@ function accumulate(target: Map<number, Accumulator>, deal: BrokerDeal, warnings
   acc.commission += finite(deal.commission, 0);
   acc.swap += finite(deal.swap, 0);
   acc.profit += finite(deal.profit, 0);
+  if (deal.pnlBasis === "computed") acc.pnlBasis = "computed";
+  acc.fills.push({
+    dealTicket: Number(deal.dealTicket),
+    orderTicket: deal.orderTicket == null ? null : Number(deal.orderTicket),
+    positionTicket: Number(deal.positionTicket ?? ticket),
+    side: String(deal.side ?? "").toLowerCase(),
+    entry,
+    volume,
+    price,
+    commission: finite(deal.commission, 0),
+    swap: finite(deal.swap, 0),
+    profit: finite(deal.profit, 0),
+    magic: finite(deal.magic, 0),
+    comment: deal.comment ?? null,
+    dealtAt: new Date(dealtAt).toISOString(),
+  });
 
   const isIn = entry === "in" || entry === "inout";
   const isOut = entry === "out" || entry === "out_by" || entry === "inout";
@@ -350,6 +396,8 @@ export function projectBrokerTrades(
       swap: 0,
       profit: 0,
       fillCount: 0,
+      fills: [],
+      pnlBasis: "broker",
     });
   }
 
@@ -421,7 +469,9 @@ export function projectBrokerTrades(
       netPnl: acc.profit + acc.commission + acc.swap,
       magic,
       comment,
+      pnlBasis: acc.pnlBasis,
       fillCount: acc.fillCount,
+      fills: [...acc.fills].sort((a, b) => Date.parse(a.dealtAt) - Date.parse(b.dealtAt)),
       strategyId: rule?.strategyId ?? null,
       setupId: rule?.setupId ?? null,
       tagNames: rule?.tagNames ?? [],

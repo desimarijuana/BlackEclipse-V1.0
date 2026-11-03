@@ -108,6 +108,12 @@ export function JournalAnalyticsView({ analytics, trades }: AnalyticsProps) {
           <DimensionBarChart rows={analytics.byRegime} title="By Market Regime" hint="NET R" height={Math.max(160, analytics.byRegime.length * 28)} />
         </div>
         <div className="rounded-2xl glass-card p-4">
+          <DimensionBarChart rows={analytics.byAccount} title="By Account" hint="NET R" height={Math.max(160, analytics.byAccount.length * 28)} />
+        </div>
+        <div className="rounded-2xl glass-card p-4">
+          <DimensionBarChart rows={analytics.byMagic} title="By Broker Magic" hint="NET R · BROKER TRADES" height={Math.max(160, analytics.byMagic.length * 28)} />
+        </div>
+        <div className="rounded-2xl glass-card p-4">
           <RDistributionChart rValues={rValues} height={220} />
         </div>
       </div>

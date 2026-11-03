@@ -1169,10 +1169,23 @@ class MT5Adapter(TradingAdapter):
         the newest deals. Query a 7-day window with a 2-day future margin and let
         `(connectionId, dealTicket)` dedupe; the cursor is advisory only.
         """
+        return self._deals_between(days=7)
+
+    def deals_window(self, days: int) -> list[dict[str, Any]]:
+        """Deals from an explicit backfill window (1–3650 days).
+
+        Used by the journal's first import. The window is still server-time
+        tolerant (2-day future margin) and deduped by deal ticket, so requesting
+        a wide range never duplicates a fill.
+        """
+        safe_days = max(1, min(int(days or 7), 3650))
+        return self._deals_between(days=safe_days, future_days=2)
+
+    def _deals_between(self, *, days: int, future_days: int = 2) -> list[dict[str, Any]]:
         with self._session() as mt5:
             self._require_account(mt5)
-            since = datetime.now() - timedelta(days=7)
-            until = datetime.now() + timedelta(days=2)
+            since = datetime.now() - timedelta(days=days)
+            until = datetime.now() + timedelta(days=future_days)
             rows = mt5.history_deals_get(since, until)
             if rows is None:
                 code, _ = _last_error(mt5)

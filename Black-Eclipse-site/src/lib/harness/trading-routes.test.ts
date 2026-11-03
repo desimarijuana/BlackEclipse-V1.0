@@ -13,6 +13,7 @@ describe("trading route allowlist", () => {
     expect(isAllowedTradingRoute("GET", ["connections", "brk_abc123", "reconciliation"])).toBe(true);
     expect(isAllowedTradingRoute("GET", ["connections", "brk_abc123", "fills"])).toBe(true);
     expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "sync"])).toBe(true);
+    expect(isAllowedTradingRoute("POST", ["connections", "brk_abc123", "smoke"])).toBe(true);
     expect(isAllowedTradingRoute("GET", ["connections", "brk_abc123", "quote"])).toBe(true);
     expect(isAllowedTradingRoute("GET", ["connections", "brk_abc123", "symbols", "XAUUSD"])).toBe(true);
     expect(isAllowedTradingRoute("GET", ["connections", "brk_abc123", "symbols", "EURUSD.a"])).toBe(true);

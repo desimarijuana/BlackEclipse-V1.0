@@ -975,13 +975,31 @@ class BrokerService:
         return decided or {}
 
     # ── reconciliation ───────────────────────────────────────────────────────
-    def sync_connection(self, connection_id: str) -> dict[str, Any]:
+    def sync_connection(self, connection_id: str, history_days: Optional[int] = None) -> dict[str, Any]:
         self._connection(connection_id)
-        return BrokerReconciler(self).sync(connection_id)
+        return BrokerReconciler(self).sync(connection_id, history_days=history_days)
 
-    def list_fills(self, connection_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    def smoke_connection(self, connection_id: str, days: int = 7) -> dict[str, Any]:
+        """Probe → reads → one sync, with an honest per-check report."""
         self._connection(connection_id)
-        return self.connections.list_fills(connection_id, limit=limit)
+        from .smoke import run_smoke  # noqa: PLC0415 - keeps the adapter import graph small
+
+        return run_smoke(self, connection_id, days=days)
+
+    def list_fills(
+        self,
+        connection_id: str,
+        limit: int = 100,
+        before_dealt_at: Optional[int] = None,
+        before_id: Optional[int] = None,
+    ) -> list[dict[str, Any]]:
+        self._connection(connection_id)
+        return self.connections.list_fills(
+            connection_id,
+            limit=limit,
+            before_dealt_at=before_dealt_at,
+            before_id=before_id,
+        )
 
     def reconciliation(self, connection_id: str, limit: int = 100) -> dict[str, Any]:
         self._connection(connection_id)

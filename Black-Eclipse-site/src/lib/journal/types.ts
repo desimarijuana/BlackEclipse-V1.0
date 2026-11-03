@@ -49,6 +49,8 @@ export interface TradeRecord {
   externalId?: string | null;
   brokerConnectionId?: string | null;
   brokerPositionTicket?: number | null;
+  /** MT5 magic number when the trade came from a broker. Null otherwise. */
+  magic?: number | null;
   /** 'broker' means the broker's net profit is authoritative, not the math. */
   pnlBasis?: "computed" | "broker";
   strategyId?: string | null;
@@ -250,6 +252,8 @@ export interface JournalAnalytics {
   byTimeframe: DimensionRow[];
   byRegime: DimensionRow[];
   byTrend: DimensionRow[];
+  byAccount: DimensionRow[];
+  byMagic: DimensionRow[];
   byEmotion: DimensionRow[];
   byConfidence: DimensionRow[];
   confidenceCorrelation: number | null;
