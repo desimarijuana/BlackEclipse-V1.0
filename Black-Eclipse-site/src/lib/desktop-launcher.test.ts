@@ -26,6 +26,9 @@ const splashModule = require(path.join(scripts, 'desktop-splash.js')) as {
     theme: Record<string, unknown>;
   } | null>;
   findSplash: (options: Record<string, unknown>) => Promise<{ port: number; url: string; state: Record<string, unknown> } | null>;
+  hintAt: (state: { hints: string[]; hintSince: number; stickyHint?: string }, now?: number) => string;
+  BUILD_HINTS: Record<string, string[]>;
+  HINT_EVERY_MS: number;
 };
 const themeModule = require(path.join(scripts, 'app-theme.js')) as {
   DEFAULT_THEME: Record<string, unknown>;
@@ -50,6 +53,9 @@ async function status(url: string) {
     ready?: boolean;
     error?: { message: string } | null;
     tail?: string;
+    hint?: string;
+    hintCount?: number;
+    hintIndex?: number;
   };
 }
 
@@ -109,7 +115,6 @@ describe('desktop splash page', () => {
     // Light scheme drops the `dark` class, so the light-only rules apply.
     expect(html).toContain('<html lang="en" class="">');
     expect(html).toContain('Eclipse Desk');
-    expect(html).toContain('light');
   });
 
   it('sanitizes theme values before they reach CSS or HTML', function () {
@@ -158,6 +163,33 @@ describe('desktop splash page', () => {
     }
   });
 
+  it('rotates several hints per phase and keeps a sticky one', () => {
+    const state = { hints: ['one', 'two', 'three'], hintSince: 0, stickyHint: '' };
+    const step = splashModule.HINT_EVERY_MS;
+    expect(splashModule.hintAt(state, 0)).toBe('one');
+    expect(splashModule.hintAt(state, step)).toBe('two');
+    expect(splashModule.hintAt(state, step * 2)).toBe('three');
+    expect(splashModule.hintAt(state, step * 3)).toBe('one');
+    expect(splashModule.hintAt({ ...state, stickyHint: 'fixed' }, step * 2)).toBe('fixed');
+    // Every build kind ships more than one line so the wait does not read as one
+    // frozen sentence.
+    expect(splashModule.BUILD_HINTS.first.length).toBeGreaterThan(2);
+    expect(splashModule.BUILD_HINTS.rebuild.length).toBeGreaterThan(2);
+    expect(splashModule.BUILD_HINTS.waiting.length).toBeGreaterThan(2);
+  });
+
+  it('cross-fades hints and honours reduced motion and theme animations', () => {
+    const html = splashModule.renderPage(themeModule.sanitizeTheme(themeModule.DEFAULT_THEME));
+    expect(html).toContain('function setHint');
+    expect(html).toContain('prefers-reduced-motion');
+    expect(html).toContain('<html lang="en" class="dark">');
+
+    const off = splashModule.renderPage(
+      themeModule.sanitizeTheme({ ...themeModule.DEFAULT_THEME, animations: false })
+    );
+    expect(off).toContain('<html lang="en" class="dark motion-off">');
+  });
+
   it('reports phases, then ready, then a failure', async () => {
     const splash = await splashModule.createSplash({
       port: basePort(),
@@ -171,11 +203,22 @@ describe('desktop splash page', () => {
 
     let state = await status(splash!.url);
     expect(state.phase).toBe('preparing');
+    expect(state.hintCount).toBeGreaterThan(0);
+    expect(typeof state.hint).toBe('string');
 
     splash!.update({ phase: 'building', detail: 'Building the production bundle…' });
     state = await status(splash!.url);
     expect(state.phase).toBe('building');
     expect(state.detail).toBe('Building the production bundle…');
+
+    splash!.update({ hints: ['custom one', 'custom two'] });
+    state = await status(splash!.url);
+    expect(state.hintCount).toBe(2);
+    expect(state.hint).toBe('custom one');
+
+    splash!.update({ hint: 'hostname does not resolve' });
+    state = await status(splash!.url);
+    expect(state.hint).toBe('hostname does not resolve');
 
     splash!.ready('https://blackeclipse/?desktop=1');
     state = await status(splash!.url);

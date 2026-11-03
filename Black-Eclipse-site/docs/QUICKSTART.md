@@ -51,7 +51,8 @@ reads `SystemConfig.eclipse_theme` from JDDS (the row Settings › Customization
 writes), so the page uses the saved brand color, dark/light scheme, fonts,
 radius, glass tint/blur, background treatment and logo/favicon — with the
 shipped theme as the fallback. It names the real phase — checking, building,
-starting, waiting for the proxy — shows the last server log line, and redirects
+starting, waiting for the proxy — rotates a short hint every few seconds, shows
+the last server log line, and redirects
 itself to `https://blackeclipse/?desktop=1` when the app answers. If the boot
 fails it stops spinning and shows the reason plus the log path instead of
 exiting silently. The page is local-only, has no external assets, and a second

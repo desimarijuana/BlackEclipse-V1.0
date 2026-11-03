@@ -1,5 +1,18 @@
 # Change Log
 
+## 2026-11-03
+- **feat(desktop): rotating, situation-aware hints on the launch screen.**
+  The single long build paragraph read like documentation and promised a fixed
+  "two seconds". The progress page now rotates a short hint every 7s (server-
+  derived from elapsed time, so no extra timer), cross-faded on the client and
+  disabled under `prefers-reduced-motion` or a theme with animations off
+  (`motion-off` class). The launcher picks the accurate set: first build,
+  rebuild after a source change, or waiting on a build another process started
+  (`BUILD_HINTS` in `scripts/lib/desktop-splash.js`). A specific warning (e.g.
+  the hostname not resolving) is sticky and overrides rotation until the phase
+  changes.
+  Docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
+
 ## 2026-11-02
 - **feat(desktop): the launch screen follows the user's app-wide theme; status tag removed.**
   The progress page is served from `127.0.0.1`, a different origin from the app,

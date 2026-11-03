@@ -32,7 +32,7 @@ const https = require("https");
 const path = require("path");
 const { tlsAvailable } = require("./lib/tls");
 const { killPort, needsBuild, buildInProgress } = require("./lib/server");
-const { createSplash, findSplash } = require("./lib/desktop-splash");
+const { createSplash, findSplash, BUILD_HINTS } = require("./lib/desktop-splash");
 const { readTheme } = require("./lib/app-theme");
 
 const ROOT = path.join(__dirname, "..");
@@ -194,6 +194,11 @@ function setPhase(phase, detail) {
   splash.update({ phase, detail });
 }
 
+function setHints(list) {
+  if (!splash || !Array.isArray(list)) return;
+  splash.update({ hints: list });
+}
+
 function setTail(chunk) {
   if (!splash) return;
   // Keep only the last meaningful line: the page shows it as "latest output".
@@ -351,7 +356,12 @@ function startServer() {
 
   let args;
   if (forceBuild) {
+    // `built` is the state BEFORE this launch: false means the very first
+    // build, true means a rebuild after a source change. The progress copy can
+    // say which one it is instead of hedging.
     log(built ? "rebuilding (BE_DESKTOP_BUILD=1) — can take several minutes" : "no built app yet — building once (the only slow launch)");
+    setPhase("building", built ? "Rebuilding after a source change…" : "Building the app for the first time…");
+    setHints(built ? BUILD_HINTS.rebuild : BUILD_HINTS.first);
     args = [path.join(ROOT, "bin", "black.js"), "eclipse", "--restart"];
     env.BE_DESKTOP_FAST = "1";
   } else {
@@ -575,6 +585,7 @@ async function main(attempt = 0) {
   if (!hasBuild() && buildInProgress()) {
     log("a production build is already running — waiting for it instead of starting a second");
     setPhase("building", "A production build is already running — waiting for it to finish…");
+    setHints(BUILD_HINTS.waiting);
     const until = Date.now() + BUILD_DEADLINE_MS;
     while (Date.now() < until && buildInProgress()) await sleep(1_000);
     if (hasBuild()) {

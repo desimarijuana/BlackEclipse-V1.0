@@ -35,7 +35,7 @@ const DEFAULT_MARK = path.join(ROOT, "public", "branding", "FAVICON.svg");
 // from request data. All dynamic text arrives through `/status` as JSON and is
 // written with textContent.
 const PAGE = `<!doctype html>
-<html lang="en" class="__SCHEME_CLASS__">
+<html lang="en" class="__HTML_CLASS__">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -160,8 +160,18 @@ const PAGE = `<!doctype html>
     font-size: 12.5px;
     line-height: 1.6;
     color: rgb(var(--text-rgb) / 0.55);
-    min-height: 36px;
+    min-height: 40px;
+    transition: opacity 220ms ease;
   }
+  /* The indeterminate bar has no real percentage to show, so if the theme (or
+   * the OS) turns animation off it becomes a calm static gradient instead of a
+   * frozen-looking empty track. */
+  @media (prefers-reduced-motion: reduce) {
+    .bar i { animation: none; width: 100%; opacity: 0.55; }
+    .hint { transition: none; }
+  }
+  .motion-off .bar i { animation: none; width: 100%; opacity: 0.55; }
+  .motion-off .hint { transition: none; }
 
   .error {
     display: none;
@@ -272,6 +282,31 @@ const PAGE = `<!doctype html>
     if (title) $('title').textContent = title;
   }
 
+  // Rotating hints: cross-fade only when the text actually changes, and never
+  // animate when the theme or the OS asks for reduced motion.
+  var hintEl = $('hint');
+  var shownHint = null;
+  var hintToken = 0;
+  function setHint(text) {
+    text = text || '';
+    if (text === shownHint) return;
+    shownHint = text;
+    var token = ++hintToken;
+    var instant =
+      document.documentElement.classList.contains('motion-off') ||
+      (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if (instant) {
+      hintEl.textContent = text;
+      return;
+    }
+    hintEl.style.opacity = '0';
+    setTimeout(function () {
+      if (token !== hintToken) return;
+      hintEl.textContent = text;
+      hintEl.style.opacity = '1';
+    }, 170);
+  }
+
   async function tick() {
     var st = null;
     try {
@@ -289,13 +324,13 @@ const PAGE = `<!doctype html>
     if (st.ready && st.url) {
       stop('Ready — opening the app…', null, 'done');
       $('detail').textContent = 'ready';
-      $('hint').textContent = '';
+      setHint('');
       if (!finished) {
         finished = true;
         setTimeout(function () { window.location.replace(st.url); }, 220);
         setTimeout(function () {
           stop('Ready.', null, 'done');
-          $('hint').textContent = 'If nothing opened, use the button below.';
+          setHint('If nothing opened, use the button below.');
           $('error').classList.add('show');
           $('errorMsg').textContent = 'The app answered but this page was not redirected.';
           $('retry').style.display = 'inline-block';
@@ -308,7 +343,7 @@ const PAGE = `<!doctype html>
     if (st.error) {
       stop('Stopped.', null, 'err');
       $('detail').textContent = 'failed';
-      $('hint').textContent = 'Close this tab and double-click the icon to try again.';
+      setHint('Close this tab, then open the icon again to retry.');
       $('error').classList.add('show');
       $('errorMsg').textContent = st.error.message || 'Unknown error.';
       $('retry').style.display = 'none';
@@ -317,7 +352,7 @@ const PAGE = `<!doctype html>
 
     $('phase').textContent = st.detail || 'Starting…';
     $('detail').textContent = st.phase || '';
-    $('hint').textContent = st.hint || '';
+    setHint(st.hint || '');
     setTimeout(tick, 450);
   }
 
@@ -333,20 +368,80 @@ const PAGE = `<!doctype html>
 
 const PHASE_COPY = {
   preparing: {
-    hint: "Checking the build and the environment.",
+    hints: [
+      "Checking the build and the environment.",
+      "Freeing the previous instance.",
+      "One moment — this takes a second.",
+    ],
   },
   building: {
-    hint: "The first launch (or a launch after a source change) compiles the production bundle. This happens once — later launches start in about two seconds. You can leave this tab open.",
+    hints: [
+      "First build only. Later launches open almost instantly.",
+      "Compiling the app once — every later launch is fast.",
+      "This is the slow launch. You can keep this tab open.",
+      "No action needed — the app opens here when it's ready.",
+      "Building now so the app opens in seconds later.",
+    ],
   },
   starting: {
-    hint: "The server is booting. This usually takes a couple of seconds.",
+    hints: [
+      "Usually a couple of seconds.",
+      "Starting the app for this session.",
+      "The window will open by itself.",
+    ],
   },
   proxy: {
-    hint: "The app is running; waiting for the local hostname proxy (https://blackeclipse) to answer.",
+    hints: [
+      "Waiting for https://blackeclipse to answer…",
+      "The app is up; the local front door is still starting.",
+      "Almost there — opening once the hostname answers.",
+    ],
   },
-  ready: { hint: "" },
-  error: { hint: "" },
+  ready: { hints: [] },
+  error: { hints: [] },
 };
+
+// Build-specific rotations. The launcher knows whether this is the first build
+// ever or a rebuild after a source change, so the copy can be accurate instead
+// of hedging with "first launch (or a source change)".
+const BUILD_HINTS = {
+  first: [
+    "First build only. Later launches open almost instantly.",
+    "Compiling the app once — every later launch is fast.",
+    "This is the slow launch. You can keep this tab open.",
+    "No action needed — the app opens here when it's ready.",
+    "Building now so the app opens in seconds later.",
+  ],
+  rebuild: [
+    "Rebuilding after a source change.",
+    "One rebuild — later launches reuse it until the code changes.",
+    "This page opens the app as soon as the build finishes.",
+    "No action needed — the build runs in the background.",
+  ],
+  waiting: [
+    "Another build is already running — this tab will follow it.",
+    "Waiting for the running build to finish, then the app opens.",
+    "No second build was started, so nothing gets corrupted.",
+    "You can leave this tab open; it updates by itself.",
+  ],
+};
+
+// How long each hint stays on screen. Long enough to read, short enough that a
+// multi-minute build does not feel like one frozen sentence.
+const HINT_EVERY_MS = 7_000;
+
+function hintsFor(phase) {
+  const list = (PHASE_COPY[phase] || PHASE_COPY.preparing).hints;
+  return Array.isArray(list) ? list.slice() : [];
+}
+
+function hintAt(state, now = Date.now()) {
+  if (state.stickyHint) return state.stickyHint;
+  const list = state.hints || [];
+  if (list.length === 0) return "";
+  const step = Math.floor((now - state.hintSince) / HINT_EVERY_MS);
+  return list[((step % list.length) + list.length) % list.length];
+}
 
 function escapeHtml(value) {
   return String(value)
@@ -428,8 +523,11 @@ function themeCss(t) {
 
 function renderPage(theme) {
   const logoClass = theme.logoUrl ? "logo-custom" : "logo-shipped";
+  const htmlClass = [theme.scheme === "light" ? "" : "dark", theme.animations === false ? "motion-off" : ""]
+    .filter(Boolean)
+    .join(" ");
   return PAGE
-    .replace("__SCHEME_CLASS__", theme.scheme === "light" ? "" : "dark")
+    .replace("__HTML_CLASS__", htmlClass)
     .replace("<!--APP_THEME-->", themeCss(theme))
     .replace("__LOGO_CLASS__", logoClass)
     .replace(/__APP_NAME__/g, escapeHtml(theme.appName));
@@ -508,7 +606,9 @@ async function createSplash(options) {
   const state = {
     phase: "preparing",
     detail: "Preparing the launcher…",
-    hint: PHASE_COPY.preparing.hint,
+    hints: hintsFor("preparing"),
+    hintSince: Date.now(),
+    stickyHint: "",
     ready: false,
     error: null,
     url: url || "",
@@ -528,11 +628,22 @@ async function createSplash(options) {
   const server = http.createServer((req, res) => {
     const route = (req.url || "/").split("?")[0];
     if (route === "/status") {
+      const now = Date.now();
+      const hintCount = state.hints.length;
+      const index = hintCount ? Math.floor((now - state.hintSince) / HINT_EVERY_MS) % hintCount : 0;
       res.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "no-store",
       });
-      res.end(JSON.stringify({ ...state, elapsedMs: Date.now() - state.startedAt }));
+      res.end(
+        JSON.stringify({
+          ...state,
+          hint: hintAt(state, now),
+          hintCount,
+          hintIndex: index,
+          elapsedMs: now - state.startedAt,
+        })
+      );
       return;
     }
     if (route === "/logo") {
@@ -604,23 +715,38 @@ async function createSplash(options) {
       if (closed) return;
       if (patch.phase && patch.phase !== state.phase) {
         state.phase = patch.phase;
-        state.hint = (PHASE_COPY[patch.phase] || PHASE_COPY.preparing).hint;
+        state.hints = hintsFor(patch.phase);
+        state.hintSince = Date.now();
+        state.stickyHint = "";
       }
+      // A build can be the first one, a rebuild after a source change, or a wait
+      // on a build another process started; the launcher passes the matching set.
+      if (Array.isArray(patch.hints)) {
+        const list = patch.hints.filter((h) => typeof h === "string" && h.trim()).slice(0, 8);
+        if (list.length) {
+          state.hints = list;
+          state.hintSince = Date.now();
+        }
+      }
+      // A specific hint (e.g. "hostname does not resolve") wins over rotation
+      // until the phase changes.
+      if (typeof patch.hint === "string") state.stickyHint = patch.hint;
       if (typeof patch.detail === "string") state.detail = patch.detail;
       if (typeof patch.tail === "string") state.tail = patch.tail;
-      if (typeof patch.hint === "string") state.hint = patch.hint;
       if (typeof patch.url === "string") state.url = patch.url;
     },
     ready(finalUrl) {
       if (finalUrl) state.url = finalUrl;
       state.phase = "ready";
-      state.hint = "";
+      state.hints = [];
+      state.stickyHint = "";
       state.detail = "Opening the app…";
       state.ready = true;
     },
     fail(message, detail) {
       state.phase = "error";
-      state.hint = "";
+      state.hints = [];
+      state.stickyHint = "";
       state.detail = "Stopped.";
       state.ready = false;
       state.error = { message: message || "Unknown error.", at: Date.now() };
@@ -669,4 +795,13 @@ async function findSplash({ port, tries = 8, pidAlive } = {}) {
   return found.find(Boolean) || null;
 }
 
-module.exports = { createSplash, findSplash, renderPage, themeCss, PAGE };
+module.exports = {
+  createSplash,
+  findSplash,
+  renderPage,
+  themeCss,
+  hintAt,
+  PAGE,
+  BUILD_HINTS,
+  HINT_EVERY_MS,
+};

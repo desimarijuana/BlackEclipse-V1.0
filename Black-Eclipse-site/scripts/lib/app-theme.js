@@ -44,6 +44,7 @@ const DEFAULT_THEME = {
   background: "solid",
   scheme: "dark",
   glow: true,
+  animations: true,
 };
 
 const HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -138,6 +139,7 @@ function sanitizeTheme(raw) {
     shadow: SHADOWS.has(input.shadow) ? input.shadow : DEFAULT_THEME.shadow,
     background: BACKGROUNDS.has(input.background) ? input.background : DEFAULT_THEME.background,
     glow: input.glow !== false,
+    animations: input.animations !== false,
     source: "db",
   };
 }
