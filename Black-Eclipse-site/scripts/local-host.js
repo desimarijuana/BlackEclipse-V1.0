@@ -77,6 +77,9 @@ function startProxy(appPort, { useTls, proxyPort }) {
   });
   let ready = false;
   child.stdout.on("data", (d) => {
+    // Forward proxy output too: the desktop launcher captures this stream, and
+    // a proxy that fails to bind must not disappear into a hidden console.
+    process.stdout.write(d);
     if (d.toString().includes("listening")) ready = true;
   });
   child.stderr.on("data", (d) => process.stderr.write(d));

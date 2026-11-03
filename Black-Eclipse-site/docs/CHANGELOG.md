@@ -1,6 +1,22 @@
 # Change Log
 
 ## 2026-11-02
+- **fix(desktop): instant icon opens and a server that stops only when the last tab closes.**
+  Clicking `start-eclipse.vbs` no longer calls `stopExisting()` first: if the
+  production app already answers, the launcher opens the tab in ~0.1s instead of
+  killing and cold-booting a healthy server (the reported "lag"). A cold boot
+  now waits for the **public** URL (proxy included), not just the app port, so
+  the tab cannot open on a 502 page that never beacons. The beacon file became a
+  **refcount of live tabs** (`DesktopSession` sends a per-page-load tab id;
+  `/api/desktop/session` serializes read-modify-write), so closing one of
+  several or duplicated tabs no longer stops the server under the rest. The
+  crash heartbeat fallback moved from 2.5 minutes to 30 minutes and is skipped
+  on the first tick after machine sleep, because a hidden/frozen tab and a
+  suspended laptop both freeze the 10s heartbeat while the page is alive;
+  `visibilitychange`/`focus`/`pageshow` re-beacon on resume. Next's stdout and
+  stderr now go to `.black-eclipse/desktop-server.log` (previously lost in the
+  hidden console), including a log line when the server exits after boot.
+  Docs updated: `docs/QUICKSTART.md`.
 - **harden(broker): operator-only broker routes, URL validation, retries.**
   All `/api/journal/broker/*` routes and the `/api/trading/*` proxy now require
   an authenticated **operator** when auth is active (`requireOperatorApiAuth`);

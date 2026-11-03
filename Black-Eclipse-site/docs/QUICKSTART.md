@@ -1,7 +1,7 @@
 ---
 title: Quickstart
 status: Current
-last-verified: 2026-10-23
+last-verified: 2026-11-02
 ---
 
 # Quickstart
@@ -37,29 +37,42 @@ See [`environments.md`](./environments.md).
 
 `start-eclipse.vbs` starts the **production** site (built Next on `3100`
 behind the local proxy) in a **hidden** window (boot/stop output goes to
-`.black-eclipse/desktop-launch.log`), waits until it answers, and opens
-`https://blackeclipse` (or `http://` when TLS is not configured). Create a
-shortcut to it (or run `wscript start-eclipse.vbs`) and set the shortcut's
-**Icon** to `public/branding/black-eclipse.ico` — without it Windows shows the
-generic script/Node icon. The app behaves like a
-normal desktop app: when the tab is closed, `scripts/start-desktop.js` stops the
-server about 8 seconds later and the launcher exits. If the tab crashes or is
-force-closed without reporting `pagehide`, a stale-heartbeat watchdog stops it
-after ~2.5 minutes (kept above browser background-tab timer throttling so an
-ordinary hidden tab is not mistaken for a closed one). There is no window to
-close by hand; stop a stuck launcher with Task Manager. If an unmanaged
-production instance is already running, the launcher restarts it under its own
-lifecycle. Only one launcher boots at a time: clicking the icon again while the
-first is still building is ignored (and reopens the tab once it is up), so
-repeated clicks cannot start competing builds against the same `.next` folder.
+`.black-eclipse/desktop-launch.log`, the server's own output to
+`.black-eclipse/desktop-server.log`), waits until the app **and** the proxy
+answer, and opens `https://blackeclipse` (or `http://` when TLS is not
+configured). Create a shortcut to it (or run `wscript start-eclipse.vbs`) and
+set the shortcut's **Icon** to `public/branding/black-eclipse.ico` — without it
+Windows shows the generic script/Node icon.
+
+Clicking the icon is a fast, non-destructive action: if the app is already
+answering it just opens the tab, without killing or rebooting the server. Only a
+cold/down app is started. The app behaves like a normal desktop app: the beacon
+file is a **refcount of live tabs**, so closing one of several open (or
+duplicated) tabs does not stop the server; when the LAST tab closes,
+`scripts/start-desktop.js` stops the server about 8 seconds later and the
+launcher exits. If a tab crashes or is force-closed without reporting
+`pagehide`, the crash fallback stops the server after 30 minutes of complete
+silence — deliberately long, because a hidden/frozen tab, a throttled timer and
+a sleeping machine all pause the 10s heartbeat while the page is still open. A
+page that resumes from sleep, focus or visibility re-beacons immediately.
+
+There is no window to close by hand; stop a stuck launcher with Task Manager.
+If an unmanaged production instance is already running, the icon opens it and
+leaves its lifecycle alone (`black stop` stops it). Only one launcher boots at a
+time: clicking the icon again while the first is still building is ignored (and
+reopens the tab once it is up), so repeated clicks cannot start competing builds
+against the same `.next` folder.
 
 The icon starts the existing build directly (`local-host`), never rebuilding:
-startup is about two seconds. The only slow launch is the first one on a fresh
-clone, when there is no build yet. If the source is newer than the build, the
-log says so and still starts instantly. To update the build, close the app
-and run `npm run build` (its `postbuild` records the source hash); the next icon
-click uses it. For day-to-day editing, use `npm run dev`; the icon is for running
-the built app. Setting `BE_DESKTOP_BUILD=1` forces a rebuild from the launcher.
+startup is about two seconds, and a click on an already-running app is immediate
+(the icon opens a tab rather than restarting it). The only slow launch is the
+first one on a fresh clone, when there is no build yet. If the source is newer
+than the build, the log says so and still starts instantly. To update the build,
+stop the app first (`black stop`, or close its last tab), run `npm run build`
+(its `postbuild` records the source hash), then click the icon. For day-to-day
+editing, use `npm run dev`; the icon is for running the built app. Setting
+`BE_DESKTOP_BUILD=1` forces a rebuild from the launcher; `black eclipse --restart`
+replaces a running instance.
 The page reports its lifecycle through `/api/desktop/session`, which is inert
 unless the launcher set `BE_DESKTOP_HEARTBEAT_FILE`. A console-launched server
 (`npm run dev`) is not affected.
