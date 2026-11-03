@@ -358,6 +358,9 @@ class ToolContext:
     # The Portfolio Accounting Engine service (ledger + valuation). Set by the
     # graph from the service; None = the `portfolio_*` tools report unavailable.
     portfolio_service: Any = None
+    # The General Ledger service (double-entry books). Set by the graph from the
+    # service; None = the `ledger_*` tools report LEDGER_UNAVAILABLE.
+    ledger_service: Any = None
     # The unified Retrieval / Search Intelligence service. Set by the graph from
     # the service; None = the retrieval/search tools report search unavailable.
     search: Any = None

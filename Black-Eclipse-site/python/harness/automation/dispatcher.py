@@ -552,6 +552,7 @@ class Dispatcher:
             market_gateway=getattr(self._service, "market_gateway", None),
             market_store=getattr(self._service, "market_store", None),
             portfolio_service=getattr(self._service, "portfolio", None),
+            ledger_service=getattr(self._service, "ledger", None),
             search=getattr(self._service, "search", None),
         )
         result = await registry.execute(action.tool_name, f"call_{run_id}", dict(action.tool_args), ctx)

@@ -129,6 +129,15 @@ def build_effect_authorizer(
         approvals, run_id, workspace_id or "", emitter, inner=code_authorizer,
     )
 
+    # The General Ledger: a `ledger_*` MUTATION (effect `ledger.write`) is a write
+    # to the book of record and requires a single-use, digest-bound operator
+    # approval (kind `ledger_write`). Reads never reach an authorizer.
+    from ..ledger.authorizers import make_ledger_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_ledger_authorizer(
+        approvals, run_id, workspace_id or "", emitter, inner=code_authorizer,
+    )
+
     # The Automation subsystem: the autonomous-schedule tools (bot_create/update/
     # enable/resume) are admitted HERE; the HANDLER claims or requests a single-use
     # operator approval (kind `bot_schedule`) before a schedule is created or

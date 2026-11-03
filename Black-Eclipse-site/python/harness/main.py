@@ -83,6 +83,7 @@ from .routers.ml import router as ml_router
 from .routers.observability import router as observability_router
 from .routers.orchestration import router as orchestration_router
 from .routers.plugins import router as plugins_router
+from .routers.ledger import router as ledger_router
 from .routers.portfolio import router as portfolio_router
 from .routers.quant import router as quant_router
 from .routers.quant_reports import router as quant_reports_router
@@ -158,6 +159,7 @@ app.include_router(observability_router)
 app.include_router(orchestration_router)
 app.include_router(plugins_router)
 app.include_router(portfolio_router)
+app.include_router(ledger_router)
 app.include_router(trading_router)
 app.include_router(transcription_router)
 app.include_router(quant_router)

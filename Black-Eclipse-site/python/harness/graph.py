@@ -394,6 +394,9 @@ def build_graph(
     # The Portfolio Accounting Engine service, so the `portfolio_*` tools reach
     # the ONE ledger/valuation service (reusing the per-run market gateway).
     portfolio: Optional[Any] = None,
+    # The General Ledger service, so `ledger_*` tools reach the ONE double-entry
+    # book (chart of accounts, postings, periods, statements).
+    ledger: Optional[Any] = None,
     # The Advisory Ledger service, so `advisory_*` tools reach the ONE ledger and
     # the answer seam can persist each Fiduciary Gate verdict as a decision.
     advisory: Optional[Any] = None,
@@ -591,6 +594,10 @@ def build_graph(
         # The Portfolio Accounting Engine service, so `portfolio_*` tools reach
         # the ONE ledger/valuation engine and the per-run market gateway.
         portfolio_service=getattr(portfolio, "service", None),
+        # The General Ledger service, so `ledger_*` tools reach the ONE
+        # double-entry book. Accepts either the service or a bundle exposing
+        # `.service`.
+        ledger_service=getattr(ledger, "service", None) or ledger,
         # The unified search service, so the retrieval/search tools reach the ONE
         # index. The run's workspace/owner scope the agent's authorized results.
         search=search,
@@ -707,15 +714,10 @@ def build_graph(
                 error=classify_exception(exc, provider_id=request.modelSettings.provider, model_id=request.modelSettings.model),
                 run_id=request.runId,
             )
-            # The operator reads this text, so a bare "Connection error." is not
-            # enough: when the configured endpoint is local and unreachable, say
-            # which server is down and what to do about it.
+            # Name the local server and the remedy, not a bare "Connection error.".
             failure_message = provider_failure_message(
-                exc,
-                provider_id=request.modelSettings.provider,
-                model_id=request.modelSettings.model,
-                base_url=getattr(request.modelSettings, "base_url", None),
-            )
+                exc, provider_id=request.modelSettings.provider, model_id=request.modelSettings.model,
+                base_url=getattr(request.modelSettings, "base_url", None))
             await emitter.emit("run.failed", {"error": {"code": "PROVIDER_ERROR", "message": failure_message}})
             return {**state, "step": step, "error": {"code": "PROVIDER_ERROR", "message": failure_message}}
 
@@ -1137,6 +1139,7 @@ async def execute_run(
     learning_store: Optional[Any] = None,
     market: Optional[Any] = None,
     portfolio: Optional[Any] = None,
+    ledger: Optional[Any] = None,
     advisory: Optional[Any] = None,
     quant: Optional[Any] = None,
     project_store: Optional[Any] = None,
@@ -1580,6 +1583,7 @@ async def execute_run(
             advisory_sink=advisory_collector.add,
             market=market,
             portfolio=portfolio,
+            ledger=ledger,
             advisory_service=advisory,
             quant=quant,
             project_store=project_store,

@@ -147,6 +147,14 @@ class AgenticService:
         from .portfolio.bootstrap import install_portfolio_layer  # noqa: PLC0415
 
         install_portfolio_layer(self)
+        # The General Ledger: a double-entry book of record (chart of accounts,
+        # balanced postings, periods, trial balance / balance sheet / P&L / cash
+        # flow). Boot wiring lives in `ledger/bootstrap.py`; it reuses the ONE
+        # agent-memory connection and registers its tools on the SAME registry
+        # (read + effect-authorized `ledger_write` mutations).
+        from .ledger.bootstrap import install_ledger_layer  # noqa: PLC0415
+
+        install_ledger_layer(self)
         # The Advisory Ledger: every Fiduciary Gate verdict becomes a durable
         # decision (+ basis + outcome). Boot wiring lives in `advisory/bootstrap.py`;
         # it reuses the ONE agent-memory connection and registers its read tools on
@@ -1325,6 +1333,7 @@ class AgenticService:
             "mcp_manager": self.mcp, "code_store": self.code_store,
             "market": self._market_bundle(),
             "portfolio": self._portfolio_bundle(),
+            "ledger": self._ledger_bundle(),
             "advisory": getattr(self, "advisory", None),
             "quant": self._quant_bundle(),
             "project_store": getattr(self, "project_store", None),
@@ -1364,6 +1373,15 @@ class AgenticService:
         if portfolio is None:
             return None
         return PortfolioBundle(service=portfolio, store=getattr(self, "portfolio_store", None))
+
+    def _ledger_bundle(self) -> Any:
+        """The general-ledger subsystem handed to each run (service + store)."""
+        from .ledger.bootstrap import LedgerBundle  # noqa: PLC0415
+
+        ledger = getattr(self, "ledger", None)
+        if ledger is None:
+            return None
+        return LedgerBundle(service=ledger, store=getattr(self, "ledger_store", None))
 
     def run_lineage(self) -> Any:
         """The process-wide lineage/checkpoint store (Phase 1)."""
