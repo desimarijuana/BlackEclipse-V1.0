@@ -116,7 +116,12 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # same test in `test_memory_tools.py`.
     # Re-pinned 41619->41829 for the `broker_bars` guidance.
     # Re-pinned 41829->41967 for the partial-close / modify guidance.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 41967
+    # Re-pinned 41967->42960 for the ML workflow guidance (the chat prompt named no
+    # ML tool at all, so the agent never composed the dataset -> plan -> train ->
+    # compare/register/predict/drift path even though every tool was allowlisted).
+    # It is guidance the runtime needs; re-pinned to the measured size and may only
+    # shrink from here. Matches the same test in `test_memory_tools.py`.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 42960
 
 
 def test_main_still_reexports_the_identity_boundary_surface():
