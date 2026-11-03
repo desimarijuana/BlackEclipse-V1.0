@@ -16,7 +16,6 @@ export const navigation = {
   'nav.discovery': 'Market Discover',
   'nav.portfolio': 'Portfolio',
   'nav.journal': 'Journal',
-  'nav.accounting': 'Accounting',
   'nav.news': 'Market News',
   'nav.earnings': 'Earnings',
   'nav.heatmap': 'Market Bubbles',

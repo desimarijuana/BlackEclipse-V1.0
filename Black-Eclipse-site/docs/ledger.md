@@ -33,11 +33,8 @@ Chart of accounts ──▶ Journal entries ──▶ Postings ──▶ Trial b
   invoices, bills, payments, aging), `subledger_store.py` and
   `document_tools.py`, plus Phase 5's `group_store.py`, `consolidation.py`,
   `exports.py` and `group_tools.py`.
-- **Front door:** `src/app/api/ledger/[[...path]]/route.ts` (thin proxy to the
-  runtime, guarded like every other mutation), browser client
-  `src/lib/ledger/client.ts`, and the `Accounting` tab
-  (`src/components/screens/accounting/`).
 - **Agent preset:** the closed `bookkeeper` preset in `python/harness/agents.py`.
+  **There is no dedicated tab or browser client: the ledger is used in chat.**
 - **Persistence:** the ONE `agent-memory.db` connection (`ledger/store.py`).
   Books are private user state; they are never market data and never committed.
 - **Agent tools:** `python/harness/ledger/tools.py` — the flat `ledger_*` family
@@ -371,14 +368,14 @@ A statement export with no date range anchors its start at the **first posting**
 not at the current month. Exports stop at the entry limit and say `truncated: true`
 rather than silently dropping rows.
 
-## Surfaces
-**The `Accounting` tab** (`src/components/screens/accounting/`) is one page over the
-same engine: ledger selector and create flow, four headline figures (assets,
-liabilities, equity, net income), a trial balance, a P&L breakdown, the recent
-journal, a close-check panel that shows blockers and warnings by severity, and
-receivables aging with the control-account reconciliation badge. It calls
-`/api/ledger/*` — the proxy adds no accounting logic, so the UI, the agent and the
-API cannot disagree.
+## Surfaces (chat only)
+
+**The ledger is a chat capability by design.** There is no dedicated tab, page or
+browser client: the owner's decision is that accounting happens in conversation
+with the `bookkeeper` agent (or any agent holding the `ledger_*` tools). Nothing
+computes a second set of numbers, because there is nothing else to compute them.
+The Python `/ledger/*` routes remain an operator/API surface like every other
+subsystem's; they are not a UI.
 
 **The `bookkeeper` preset** is a closed agent surface: its allowlist is exactly the
 `ledger_*` family (no market data, no code, no browser, no MCP), and its
@@ -398,10 +395,6 @@ service the tools read (`suspense`, `blockers`, `warnings`, `ready`, `open_ar`,
 `open_ap`, `entries`). A missing ledger, a failed read or an unknown field yields
 NO fact, so the condition evaluates UNAVAILABLE rather than firing on a
 fabricated number.
-
-The tab also renders **invoices & bills** (post a document, record a payment) and
-**consolidation** (create a group, add members, run the report with its
-eliminations and findings), so those surfaces are no longer agent-only.
 
 ## Agent tools and safety
 
@@ -513,10 +506,8 @@ actor asserted the app is in its documented single-user local mode.
 - **No multi-entity intercompany transaction matching.** Elimination pairs are
   found by account subtype and balanced by amount; it does not match individual
   intercompany invoices against each other.
-- **The tab edits documents, not their lifecycle.** It posts invoices/bills and
-  records payments; voiding, tax-code configuration and party management are
-  available through the Bookkeeper (`ledger_document_void`, `ledger_tax_code_create`,
-  `ledger_party_create`), not rendered.
+- **No UI, deliberately.** The ledger is used in chat; there is no tab, page or
+  browser client to keep in sync with the engine.
 - **No financial-statement PDF/XLSX export** — the existing `document_create`
   builders can render a statement payload; a dedicated exporter is not built.
 - **No closing entries automation**: current earnings are a derived equity line;
@@ -528,8 +519,8 @@ actor asserted the app is in its documented single-user local mode.
 Phase 1 is the core, Phase 2 is import + categorisation + reconciliation, Phase 3
 is schedules, accruals, FX revaluation and the close checklist, Phase 4 is the
 AR/AP subledger with configured tax codes, Phase 5 is entity groups, consolidation
-and exports, and Phase 6 is the delivery surface (front door, `Accounting` tab,
-`bookkeeper` preset, monitors). Still open:
+and exports, and Phase 6 is the chat surface (`bookkeeper` preset + monitors).
+Still open:
 
 7. Ledger graph nodes (`ledger.post`, `ledger.close`) so a workflow can close a
    period on a schedule without an agent turn.

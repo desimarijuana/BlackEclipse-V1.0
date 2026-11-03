@@ -38,5 +38,4 @@ export type AppTab =
   | 'graph-studio'
   | 'tables'
   | 'overview'
-  | 'bots'
-  | 'accounting';
+  | 'bots';

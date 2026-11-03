@@ -1,6 +1,19 @@
 # Change Log
 
 ## 2026-11-03
+- **revert(accounting): the ledger is chat-only — the tab, proxy and browser
+  client are removed.** The accounting capability was meant to be used in
+  conversation, not browsed; a parallel screen doubles the surface that must stay
+  in sync with the book and invites a second place where a total could be
+  computed. Deleted `src/components/screens/accounting/`, `src/lib/ledger/client.ts`
+  and `src/app/api/ledger/[[...path]]/route.ts`, and reverted every trace of the
+  tab: the `AppTab` union, the sidebar section, the shell's lazy import and
+  keep-alive block, search/deep-link registration, the i18n navigation key, the
+  SDK nav mirror, and the shortcut/size pins. The Python engine, the `ledger_*`
+  tools, the `bookkeeper` preset, the ledger monitors and the operator
+  `/ledger/*` routes are untouched. Docs updated: `docs/ledger.md` ("Surfaces
+  (chat only)"), `docs/NAVIGATION.md`, `docs/DECISIONS.md` (ADR-066 amended,
+  ADR-068), `skills/ARCHITECT.md` (same), `docs/CHANGELOG.md`.
 - **feat(ml-lab): scale, lifecycle and the generative path.**
   The arena and the hyperparameter search now run on the Fabric `ml` worker
   (`background: true`), so a big comparison can no longer hit the proxy timeout —

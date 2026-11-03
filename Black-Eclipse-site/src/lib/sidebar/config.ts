@@ -11,7 +11,7 @@
 import {
   LayoutDashboard, ChartCandlestick, GlobeStand, ChartPie, Bot, Home,
   BookOpen, Newspaper, Orbit, Globe, Bell, ScanEye, Blocks, Brain, FolderOpen,
-  Wrench, Database, FlaskConical, Calculator,
+  Wrench, Database, FlaskConical,
   type LucideIcon,
 } from '@/lib/icons';
 import type { AppTab } from '@/components/layout/sidebar';
@@ -63,9 +63,6 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionDef[] = [
   { id: 'memory', label: 'Eclipse Memory', icon: Brain, group: 'agentic' },
   { id: 'artifacts', label: 'Artifacts', icon: FolderOpen, group: 'agentic' },
   { id: 'tables', label: 'Tables', icon: Database, group: 'graph' },
-  // Appended (not inserted) so the F1..F12 shortcut contract keeps pointing at
-  // the same sections; a new tab must not take a slot from an existing one.
-  { id: 'accounting', label: 'Accounting', icon: Calculator, group: 'terminal' },
 ];
 
 /** The modes a section is listed under. */
