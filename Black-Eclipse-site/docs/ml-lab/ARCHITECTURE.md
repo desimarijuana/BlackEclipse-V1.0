@@ -257,6 +257,36 @@ which is what keeps it auditable and cheap.
 - `ml_predict` accepts a **model name** as well as an id, so chat can say "predict
   with the committee model".
 
+## Scale, lifecycle and the generative path
+
+**Background arena and search.** `POST /ml/v1/compare` and `/search` accept
+`background: true` (tools: `ml_compare_models` / `ml_search_hyperparameters` with
+`background`) and run on the SAME Fabric `ml` worker as training — same timeout,
+cancellation and progress, one worker, no second pipeline. The job output is a
+compact summary (winner/ranking/best), because the full results are already in the
+store.
+
+**Per-model chat tools.** Registering a model also registers
+`ml_model_<slug>_predict` on the live registry and appends it to the default
+agent's allowlist, so the model is a first-class chat capability by name; existing
+models re-register their tools at boot. These tools are marked `dynamic` and are
+excluded from the portable manifest — the manifest must be a function of the code,
+not of which models happen to exist in the database.
+
+**Lifecycle from chat.** `ml_transition_model` (write, audited) moves a model
+`evaluate → approved_research → archived` through the existing governed API; each
+transition is an approval event plus an audit row. Research approval is explicitly
+not trading authorization.
+
+**Distillation → LoRA → serve.** `ml_build_training_corpus` turns a dataset version
+into instruction/answer JSONL (behaviour distillation of the dataset's own label;
+incomplete rows skipped, never filled). `ml_finetune_adapter` writes the corpus plus
+a runnable `train_lora.py`, `README.md` and `manifest.json` under
+`.black-eclipse/ml/adapters/<name>/`, and trains only when torch + transformers +
+peft are installed — otherwise it reports `MODEL_UNAVAILABLE` and keeps the corpus
+and recipe intact. Serving is the existing provider path: point an
+OpenAI-compatible server (vLLM/Ollama) at the adapter and select it in Settings.
+
 ## Model adapters
 
 | Family | Tier | Tasks | Serialisation |
@@ -334,15 +364,17 @@ Lab and none are enabled by approval.
 `GET models/{id}` · `POST models/{id}/transition` · `GET models/{id}/verify` ·
 `POST models/{id}/drift` · `POST ensembles` · `POST models/{id}/predict`.
 
-Agent tools (`ML_TOOLS`, 20): `ml_list_datasets`, `ml_list_features`,
+Agent tools (`ML_TOOLS`, 23): `ml_list_datasets`, `ml_list_features`,
 `ml_build_dataset`, `ml_plan_model`, `ml_run_experiment`, `ml_compare_models`,
 `ml_search_hyperparameters`, `ml_get_run`, `ml_list_experiments`,
 `ml_reproduce_run`, `ml_register_model`, `ml_create_ensemble`, `ml_list_models`,
-`ml_verify_model`, `ml_model_drift`, `ml_predict`, `ml_model_capabilities`,
-`ml_job_status`, `ml_list_jobs`, `ml_cancel_job`. `ML_TOOLS` is imported by
+`ml_verify_model`, `ml_transition_model`, `ml_model_drift`, `ml_predict`,
+`ml_build_training_corpus`, `ml_finetune_adapter`, `ml_model_capabilities`,
+`ml_job_status`, `ml_list_jobs`, `ml_cancel_job` — plus one dynamic
+`ml_model_<slug>_predict` per registered model. `ML_TOOLS` is imported by
 `agents.py` and spread into the `ECLIPSE_AGENT` allowlist, and the chat system
-prompt now names this workflow, so the agent composes it instead of leaving the
-tools unused.
+prompt names this workflow, so the agent composes it instead of leaving the tools
+unused.
 
 ## UI
 
@@ -441,6 +473,11 @@ the task select (records) include `clustering` and `anomaly`, which send
   empty intersection refused), and the service path: two members registered, an
   ensemble created and predicted by NAME with a blend that matches the members'
   mean; plus refusals for mixed datasets and a single member.
+- `python/tests/test_ml_chat_capabilities.py` — the per-model tool (registered,
+  allowlisted, excluded from the portable manifest, predicts), the audited
+  lifecycle, the distillation corpus (chat JSONL, real labels, deterministic hash,
+  incomplete rows skipped) and the fine-tune recipe (written without the optional
+  stack; training refuses honestly).
 - `src/lib/ml-client.test.ts` — request shape + error path of the front door.
 
 Run: `npm run test` (vitest + python) and `npx tsc --noEmit`.
