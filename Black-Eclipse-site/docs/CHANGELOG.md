@@ -1,6 +1,18 @@
 # Change Log
 
 ## 2026-11-03
+- **fix(journal): R-multiples are unit-correct for FX/CFD, and the trade tables
+  show the time.** A stop 4.96 points away on a 0.1-lot XAUUSD trade was treated
+  as $0.50 of risk instead of $49.60, so the first broker trades to carry a stop
+  showed ~33R. The projection now calibrates the contract multiplier from the
+  broker's own gross P&L (`Σ grossPnl / Σ (price move × quantity)` → 100 for
+  XAUUSD, 100 000 for EURUSD) and converts the stop distance to account currency
+  before dividing; an uncalibrated symbol has no R at all. Also: the Trades list,
+  Overview "Recent Trades" and Daily Journal now render `YYYY-MM-DD HH:MM` (UTC,
+  matching the journal's date contract) via `fmtDateTime`/`fmtClock`, and the
+  broker popup's "N connections" counter no longer sits under the close button.
+  Tests: `project.test.ts` (+2 multiplier cases), `format.test.ts` (new). Docs
+  updated: `docs/journal-broker-sync.md`, `docs/CHANGELOG.md`.
 - **feat(ledger): invoices/bills and consolidation in the tab, plus ledger
   monitors (completion).** Three gaps closed. (1) The Accounting tab now renders
   **invoices & bills** — post a document against a customer/vendor with an
