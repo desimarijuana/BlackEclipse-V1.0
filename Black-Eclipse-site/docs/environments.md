@@ -54,6 +54,13 @@ If you need a change to reach production, it must be built:
 `npm run up` rebuilds only when source changed (`scripts/lib/server.js`
 source hash). `npm run dev` never builds.
 
+Production builds are **serialized**: `npm run build`, `npm run up`,
+`black eclipse` and the desktop launcher all take `.next-build.lock` before
+running `next build`, and a second build waits for the first instead of wiping
+the same `.next` directory underneath it. The lock lives outside `.next` because
+the build deletes that directory; it is advisory, so a raw `npx next build`
+bypasses it.
+
 ## Commands
 
 | Command | Effect |

@@ -1,6 +1,21 @@
 # Change Log
 
 ## 2026-11-02
+- **feat(desktop): the launch screen follows the user's app-wide theme; status tag removed.**
+  The progress page is served from `127.0.0.1`, a different origin from the app,
+  so it cannot read the browser's `localStorage` theme cache. It now reads the
+  **app-wide** theme from JDDS (`SystemConfig`, key `eclipse_theme` — the row
+  Settings › Customization writes via `/api/theme`) through the new
+  `scripts/lib/app-theme.js`, and renders with the saved brand color, scheme
+  (dark/light), font stacks, radius, glass tint/blur/opacity, background
+  treatment, glow toggle, shadow weight and logo/favicon. A missing or malformed
+  row falls back to the shipped theme; every value is sanitized (hex-only
+  colors, clamped numbers, stripped font stacks, no remote image URLs) before it
+  reaches CSS or HTML. Custom uploaded logos/favicons (data URLs or files under
+  `public/`) are served at `/logo` and `/favicon`; otherwise the shipped wordmark
+  and favicon are used. The BOOTING/READY/FAILED tag was removed — the page shows
+  the phase line only.
+  Docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
 - **fix(runtime): stored provider keys reach the spawned Python runtime; media demo passes.**
   The runtime child is spawned from instrumentation BEFORE the boot step that
   copies vault keys into `process.env`, so it started keyless and agent/vision
@@ -24,7 +39,10 @@
   `127.0.0.1:3197`) *first*; it names the real phase, shows the last server log
   line, redirects to `https://blackeclipse/?desktop=1` when the app answers, and
   shows an honest error panel (reason + log path) when boot fails instead of
-  exiting silently. A second click attaches to the running launcher's page; a
+  exiting silently. The page renders in the saved app-wide theme (see the entry
+  above) and serves the **real** wordmark and favicon (theme logo when one is
+  set, otherwise `public/branding`), with a text fallback if an asset is missing.
+  A second click attaches to the running launcher's page; a
   page left over from a dead launcher is ignored. `start-eclipse.vbs` now finds
   Node on PATH or in the two standard install locations and reports a missing
   Node with a dialog.

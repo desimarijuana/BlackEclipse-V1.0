@@ -17,6 +17,9 @@
 /.next/
 /.next-dev/
 /out/
+# Serializes production builds (scripts/lib/server.js). It is written at the
+# repo root because `next build` deletes `.next` while the lock is held.
+/.next-build.lock
 
 # production
 /build

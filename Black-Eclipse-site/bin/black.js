@@ -95,12 +95,18 @@ async function eclipse({ restart = false } = {}) {
   // 2. Free the port if a stale server holds it.
   if (killPort(PORT)) log(`freed port ${PORT}`);
 
-  // 2. Production build only when needed — unchanged source skips it.
+  // 2. Production build only when needed — unchanged source skips it. The build
+  //    lock makes this wait for a build that is already running instead of
+  //    corrupting `.next` with a second one.
   if (needsBuild()) {
     log("building (first run or source changed — this can take a few minutes)...");
     const t0 = Date.now();
-    build();
-    log(`build done in ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+    const didBuild = build();
+    log(
+      didBuild
+        ? `build done in ${((Date.now() - t0) / 1000).toFixed(0)}s`
+        : "another process already built this source — using that build"
+    );
   } else {
     log("build is up to date — skipping");
   }

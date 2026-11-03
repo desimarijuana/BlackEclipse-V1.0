@@ -12,6 +12,156 @@ const crypto = require("crypto");
 const root = path.join(__dirname, "..", "..");
 const nextDir = path.join(root, ".next");
 const hashFile = path.join(nextDir, ".build-hash");
+// One production build at a time, machine-wide. `next build` wipes and rewrites
+// the SAME `.next` directory, so two concurrent builds corrupt each other's
+// output (and the app then fails to start with no useful error). The file lives
+// OUTSIDE `.next` because the build deletes that directory. It is advisory: a
+// build invoked as raw `npx next build` cannot take it, but every supported
+// entry point (`npm run build`, `npm run up`, `black eclipse`, the desktop icon)
+// goes through this lock.
+const BUILD_LOCK = path.join(root, ".next-build.lock");
+const BUILD_WAIT_MS = 45 * 60 * 1000;
+
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means the process exists but belongs to someone else.
+    return Boolean(err && err.code === "EPERM");
+  }
+}
+
+function sleepSync(ms) {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      /* last-resort busy wait on platforms without SharedArrayBuffer */
+    }
+  }
+}
+
+function readBuildLock() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(BUILD_LOCK, "utf8"));
+    if (parsed && Number.isFinite(parsed.pid) && Number.isFinite(parsed.at)) return parsed;
+  } catch {
+    /* no lock, or a half-written one */
+  }
+  return null;
+}
+
+/** The build currently running, or null. Cleans up a lock whose owner is gone. */
+function buildInProgress() {
+  const held = readBuildLock();
+  if (!held) return null;
+  if (!pidAlive(held.pid)) {
+    try {
+      fs.rmSync(BUILD_LOCK, { force: true });
+    } catch {
+      /* best effort */
+    }
+    return null;
+  }
+  return held;
+}
+
+/**
+ * Take the build lock, waiting for any running build to finish first.
+ * Returns a release function, or null when the wait timed out.
+ */
+function acquireBuildLock({ waitMs = BUILD_WAIT_MS, onWait } = {}) {
+  const start = Date.now();
+  let announced = -1;
+  for (;;) {
+    try {
+      const fd = fs.openSync(BUILD_LOCK, "wx");
+      fs.writeSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() }));
+      fs.closeSync(fd);
+      return () => {
+        try {
+          const held = readBuildLock();
+          if (held && held.pid === process.pid) fs.rmSync(BUILD_LOCK, { force: true });
+        } catch {
+          /* best effort */
+        }
+      };
+    } catch (err) {
+      if (!err || err.code !== "EEXIST") {
+        // The lock is a safety net, not a prerequisite: never refuse to build
+        // because the filesystem cannot create the file.
+        return () => {};
+      }
+    }
+
+    const held = readBuildLock();
+    if (!held || !pidAlive(held.pid)) {
+      try {
+        fs.rmSync(BUILD_LOCK, { force: true });
+      } catch {
+        /* best effort */
+      }
+      continue;
+    }
+
+    const waited = Date.now() - start;
+    if (waited > waitMs) return null;
+    // Report about once per 15s, not once per poll.
+    const bucket = Math.floor(waited / 15_000);
+    if (onWait && bucket !== announced) {
+      announced = bucket;
+      onWait(held, waited);
+    }
+    sleepSync(750);
+  }
+}
+
+/** Whether a production build is needed (missing or source changed). */
+function needsBuild() {
+  if (process.env.BE_FORCE_BUILD === "1") return true;
+  if (!fs.existsSync(path.join(nextDir, "BUILD_ID"))) return true;
+  if (fs.existsSync(hashFile)) {
+    const last = fs.readFileSync(hashFile, "utf8").trim();
+    if (last === sourceHash()) return false;
+  }
+  return true;
+}
+
+/** Record the current source as built (after any successful `next build`). */
+function markBuilt() {
+  fs.mkdirSync(nextDir, { recursive: true });
+  fs.writeFileSync(hashFile, sourceHash());
+}
+
+/**
+ * Run `next build` (serialized) and record the source hash on success.
+ *
+ * Returns true when a build ran, false when another build finished this exact
+ * source while we were waiting, so the work was already done.
+ */
+function build(options = {}) {
+  const release = acquireBuildLock({
+    waitMs: options.waitMs,
+    onWait:
+      options.onWait ||
+      ((held, waited) => {
+        console.log(
+          `[build] another production build is running (pid ${held.pid}, ${Math.round(waited / 1000)}s) — waiting for it to finish…`
+        );
+      }),
+  });
+  if (!release) throw new Error("timed out waiting for another production build to finish");
+  try {
+    if (!needsBuild()) return false;
+    execSync("npx next build", { cwd: root, stdio: "inherit", env: process.env });
+    markBuilt();
+    return true;
+  } finally {
+    release();
+  }
+}
 
 /**
  * Kill whatever process is LISTENING on `port`. Works on all three OSes.
@@ -105,29 +255,6 @@ function sourceHash() {
   return hash.digest("hex");
 }
 
-/** Whether a production build is needed (missing or source changed). */
-function needsBuild() {
-  if (process.env.BE_FORCE_BUILD === "1") return true;
-  if (!fs.existsSync(path.join(nextDir, "BUILD_ID"))) return true;
-  if (fs.existsSync(hashFile)) {
-    const last = fs.readFileSync(hashFile, "utf8").trim();
-    if (last === sourceHash()) return false;
-  }
-  return true;
-}
-
-/** Record the current source as built (after any successful `next build`). */
-function markBuilt() {
-  fs.mkdirSync(nextDir, { recursive: true });
-  fs.writeFileSync(hashFile, sourceHash());
-}
-
-/** Run `next build` and record the source hash on success. */
-function build() {
-  execSync("npx next build", { cwd: root, stdio: "inherit", env: process.env });
-  markBuilt();
-}
-
 /** Path to Next.js's JS entrypoint (spawnable without a shell). */
 function nextBin() {
   const p = path.join(root, "node_modules", "next", "dist", "bin", "next");
@@ -187,6 +314,8 @@ module.exports = {
   needsBuild,
   markBuilt,
   build,
+  buildInProgress,
+  acquireBuildLock,
   nextBin,
   startServer,
   startDev,

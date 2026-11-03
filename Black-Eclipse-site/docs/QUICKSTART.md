@@ -44,6 +44,19 @@ configured). Create a shortcut to it (or run `wscript start-eclipse.vbs`) and
 set the shortcut's **Icon** to `public/branding/black-eclipse.ico` — without it
 Windows shows the generic script/Node icon.
 
+A click always shows something immediately. Before the app is ready the launcher
+opens a loopback **progress page** (`http://127.0.0.1:3197/`, next free port if
+taken) rendered in the **user's saved app-wide theme**: `scripts/lib/app-theme.js`
+reads `SystemConfig.eclipse_theme` from JDDS (the row Settings › Customization
+writes), so the page uses the saved brand color, dark/light scheme, fonts,
+radius, glass tint/blur, background treatment and logo/favicon — with the
+shipped theme as the fallback. It names the real phase — checking, building,
+starting, waiting for the proxy — shows the last server log line, and redirects
+itself to `https://blackeclipse/?desktop=1` when the app answers. If the boot
+fails it stops spinning and shows the reason plus the log path instead of
+exiting silently. The page is local-only, has no external assets, and a second
+click attaches to the running launcher's page rather than starting a second boot.
+
 Clicking the icon is a fast, non-destructive action: if the app is already
 answering it just opens the tab, without killing or rebooting the server. Only a
 cold/down app is started. The app behaves like a normal desktop app: the beacon
@@ -59,9 +72,9 @@ page that resumes from sleep, focus or visibility re-beacons immediately.
 There is no window to close by hand; stop a stuck launcher with Task Manager.
 If an unmanaged production instance is already running, the icon opens it and
 leaves its lifecycle alone (`black stop` stops it). Only one launcher boots at a
-time: clicking the icon again while the first is still building is ignored (and
-reopens the tab once it is up), so repeated clicks cannot start competing builds
-against the same `.next` folder.
+time: clicking the icon again while the first is still building attaches to its
+progress page, so repeated clicks cannot start competing builds against the same
+`.next` folder.
 
 The icon starts the existing build directly (`local-host`), never rebuilding:
 startup is about two seconds, and a click on an already-running app is immediate
@@ -73,6 +86,17 @@ stop the app first (`black stop`, or close its last tab), run `npm run build`
 editing, use `npm run dev`; the icon is for running the built app. Setting
 `BE_DESKTOP_BUILD=1` forces a rebuild from the launcher; `black eclipse --restart`
 replaces a running instance.
+
+**Only one production build runs at a time.** `next build` deletes and rewrites
+`.next` in place, so a terminal `npm run build` racing the launcher's build (or
+`npm run up`) corrupts the output and can leave the app unable to start — the
+"icon hangs, then the next click works" report. `npm run build` now runs
+`scripts/build-prod.js`, and every supported entry point (`npm run build`,
+`npm run up`, `black eclipse`, the desktop launcher) takes
+`.next-build.lock` first; a second build **waits** for the first and reuses it if
+the source is unchanged. If the icon is clicked while a build is running, the
+progress page says so and waits, instead of starting a competing build.
+
 The page reports its lifecycle through `/api/desktop/session`, which is inert
 unless the launcher set `BE_DESKTOP_HEARTBEAT_FILE`. A console-launched server
 (`npm run dev`) is not affected.
