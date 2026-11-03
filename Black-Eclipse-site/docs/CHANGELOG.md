@@ -1,6 +1,28 @@
 # Change Log
 
 ## 2026-11-03
+- **fix(harness): an unreachable local model server names itself and the remedy.**
+  A stopped Ollama/LM Studio fails with the SDK's bare `Connection error.`, which
+  reached the operator as an unexplained provider failure (the reported "provider
+  issue" — the local Ollama daemon simply was not running, so every chat turn
+  failed). `provider_failure_message` now turns a network-class failure against a
+  loopback `baseUrl` into an actionable line ("Can't reach ollama at
+  localhost:11434 — the local model server is not running. Start it, then retry;
+  or switch to another provider in Settings.") and leaves every other error
+  message untouched (a remote provider, or a 401 from a local server, keeps its
+  own text). Verified end-to-end: with Ollama started, `/api/harness/chat`
+  answers normally. No doc change — error copy, not an architecture or contract
+  change.
+- **fix(desktop): the launch bar now actually advances.**
+  The old indeterminate shimmer could read as a slider parked at one position.
+  The bar is now a real fill derived from the time spent in the current phase:
+  it never goes backwards, eases toward 72% while building (60s time constant),
+  steps to 86% starting and 93% while waiting for the proxy, and only reaches
+  100% when the app actually answers. A highlight travels inside the filled
+  portion so it keeps reading as active even when the percentage barely moves.
+  Reduced-motion / animations-off keeps the advancing fill but drops the shine.
+  `/status` now exposes `phaseElapsedMs` for that calculation.
+  Docs updated: `docs/CHANGELOG.md`.
 - **feat(desktop): rotating, situation-aware hints on the launch screen.**
   The single long build paragraph read like documentation and promised a fixed
   "two seconds". The progress page now rotates a short hint every 7s (server-

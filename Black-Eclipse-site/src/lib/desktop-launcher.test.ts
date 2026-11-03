@@ -56,6 +56,7 @@ async function status(url: string) {
     hint?: string;
     hintCount?: number;
     hintIndex?: number;
+    phaseElapsedMs?: number;
   };
 }
 
@@ -178,6 +179,17 @@ describe('desktop splash page', () => {
     expect(splashModule.BUILD_HINTS.waiting.length).toBeGreaterThan(2);
   });
 
+  it('drives a real progress fill instead of a parked slider', () => {
+    const html = splashModule.renderPage(themeModule.sanitizeTheme(themeModule.DEFAULT_THEME));
+    expect(html).toContain('id="barFill"');
+    expect(html).toContain('function pctFor');
+    expect(html).toContain('phaseElapsedMs');
+    // The fill animates its width and carries a travelling shine inside it.
+    expect(html).toContain('.bar .fill');
+    expect(html).toContain('@keyframes sweep');
+    expect(html).toContain('barFill.style.width');
+  });
+
   it('cross-fades hints and honours reduced motion and theme animations', () => {
     const html = splashModule.renderPage(themeModule.sanitizeTheme(themeModule.DEFAULT_THEME));
     expect(html).toContain('function setHint');
@@ -205,6 +217,7 @@ describe('desktop splash page', () => {
     expect(state.phase).toBe('preparing');
     expect(state.hintCount).toBeGreaterThan(0);
     expect(typeof state.hint).toBe('string');
+    expect(typeof state.phaseElapsedMs).toBe('number');
 
     splash!.update({ phase: 'building', detail: 'Building the production bundle…' });
     state = await status(splash!.url);

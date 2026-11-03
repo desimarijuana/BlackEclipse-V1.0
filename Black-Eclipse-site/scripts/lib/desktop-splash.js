@@ -134,17 +134,37 @@ const PAGE = `<!doctype html>
     background: rgb(var(--text-rgb) / 0.08);
     overflow: hidden;
   }
-  .bar i {
+  /* A real fill that advances with elapsed time (never reaching 100% before the
+   * app answers) plus a highlight that keeps travelling inside it, so the bar
+   * always reads as "working" instead of a slider parked at one position. */
+  .bar .fill {
     position: absolute;
-    inset: 0;
-    width: 34%;
+    inset: 0 auto 0 0;
+    width: 0%;
+    overflow: hidden;
     border-radius: 999px;
-    background: linear-gradient(90deg, transparent, var(--brand), var(--brand-accent), transparent);
-    animation: slide 1.45s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    background: linear-gradient(90deg, var(--brand), var(--brand-accent));
+    transition: width 850ms cubic-bezier(0.22, 0.7, 0.24, 1);
   }
-  .bar.done i { width: 100%; animation: none; background: linear-gradient(90deg, var(--brand), var(--brand-accent)); }
-  .bar.err i { width: 100%; animation: none; background: var(--danger); }
-  @keyframes slide { from { transform: translateX(-110%); } to { transform: translateX(320%); } }
+  .bar .shine {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 45%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+    animation: sweep 2.1s linear infinite;
+  }
+  .bar.done .fill { width: 100%; background: linear-gradient(90deg, var(--brand), var(--brand-accent)); }
+  .bar.err .fill { background: var(--danger); }
+  @keyframes sweep { from { transform: translateX(-120%); } to { transform: translateX(260%); } }
+  /* Reduced motion keeps the JS-driven fill (it still advances) but drops the
+   * travelling shine and the width easing. */
+  @media (prefers-reduced-motion: reduce) {
+    .bar .shine { display: none; }
+    .bar .fill { transition: none; }
+  }
+  .motion-off .bar .shine { display: none; }
+  .motion-off .bar .fill { transition: none; }
 
   .meta {
     display: flex;
@@ -163,14 +183,11 @@ const PAGE = `<!doctype html>
     min-height: 40px;
     transition: opacity 220ms ease;
   }
-  /* The indeterminate bar has no real percentage to show, so if the theme (or
-   * the OS) turns animation off it becomes a calm static gradient instead of a
-   * frozen-looking empty track. */
+  /* Reduced-motion overrides for the bar live with the bar rules above; the
+   * rotating hint just stops fading. */
   @media (prefers-reduced-motion: reduce) {
-    .bar i { animation: none; width: 100%; opacity: 0.55; }
     .hint { transition: none; }
   }
-  .motion-off .bar i { animation: none; width: 100%; opacity: 0.55; }
   .motion-off .hint { transition: none; }
 
   .error {
@@ -246,7 +263,7 @@ const PAGE = `<!doctype html>
     </header>
     <h1 id="title">Starting __APP_NAME__</h1>
     <p class="phase" id="phase">Preparing the launcher…</p>
-    <div class="bar" id="bar"><i></i></div>
+    <div class="bar" id="bar"><span class="fill" id="barFill"><span class="shine"></span></span></div>
     <div class="meta"><span id="elapsed">0:00</span><span id="detail"></span></div>
     <p class="hint" id="hint"></p>
     <div class="error" id="error">
@@ -280,6 +297,41 @@ const PAGE = `<!doctype html>
     $('phase').textContent = phase;
     $('bar').className = 'bar ' + barClass;
     if (title) $('title').textContent = title;
+  }
+
+  // ── Progress fill ─────────────────────────────────────────────────────────
+  // There is no real build percentage to show, so the fill advances with the
+  // time spent in the CURRENT phase and eases toward a cap that is only reached
+  // when the app actually answers. It never goes backwards, never claims 100%
+  // early, and keeps moving even when the phase text has not changed.
+  var barFill = $('barFill');
+  var lastPct = 0;
+  function pctFor(st) {
+    var ms = Number(st.phaseElapsedMs) || 0;
+    switch (st.phase) {
+      case 'building':
+        // 8% -> ~72% asymptotically (60s time constant): visible movement in the
+        // first minute, but it never claims completion before the app answers.
+        return 8 + 64 * (1 - Math.exp(-ms / 60000));
+      case 'starting':
+        return 86;
+      case 'proxy':
+        return 93;
+      case 'preparing':
+        return 6;
+      default:
+        return 4;
+    }
+  }
+  function setPct(value) {
+    var pct = Math.max(lastPct, Math.min(97, value || 0));
+    if (pct === lastPct && barFill.style.width) return;
+    lastPct = pct;
+    barFill.style.width = pct.toFixed(1) + '%';
+  }
+  function finishPct() {
+    lastPct = 100;
+    barFill.style.width = '100%';
   }
 
   // Rotating hints: cross-fade only when the text actually changes, and never
@@ -323,6 +375,7 @@ const PAGE = `<!doctype html>
 
     if (st.ready && st.url) {
       stop('Ready — opening the app…', null, 'done');
+      finishPct();
       $('detail').textContent = 'ready';
       setHint('');
       if (!finished) {
@@ -353,6 +406,7 @@ const PAGE = `<!doctype html>
     $('phase').textContent = st.detail || 'Starting…';
     $('detail').textContent = st.phase || '';
     setHint(st.hint || '');
+    setPct(pctFor(st));
     setTimeout(tick, 450);
   }
 
@@ -641,6 +695,7 @@ async function createSplash(options) {
           hint: hintAt(state, now),
           hintCount,
           hintIndex: index,
+          phaseElapsedMs: now - state.hintSince,
           elapsedMs: now - state.startedAt,
         })
       );
