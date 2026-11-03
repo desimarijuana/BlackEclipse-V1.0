@@ -121,10 +121,10 @@ describe('presets', () => {
 describe('themeCssVars', () => {
   it('emits the core brand + market tokens', () => {
     const vars = themeCssVars(DEFAULT_ECLIPSE_THEME);
-    expect(vars['--primary']).toBe('#7aff78');
-    expect(vars['--bullish']).toBe('#7aff78');
+    expect(vars['--primary']).toBe('#b4ff42');
+    expect(vars['--bullish']).toBe('#b4ff42');
     expect(vars['--bearish']).toBe('#ff3e3e');
-    expect(vars['--brand-rgb']).toBe('122 255 120');
+    expect(vars['--brand-rgb']).toBe('180 255 66');
     expect(vars['--radius']).toBe('0.6rem');
   });
 
@@ -209,7 +209,7 @@ describe('glass, shadow and background', () => {
   it('defaults to the shipped frosted recipe', () => {
     const t = normalizeTheme({});
     expect(t.glass).toEqual(DEFAULT_ECLIPSE_THEME.glass);
-    expect(t.shadow).toBe('soft');
+    expect(t.shadow).toBe('dramatic');
     expect(t.background).toBe('solid');
   });
 
@@ -222,7 +222,7 @@ describe('glass, shadow and background', () => {
 
   it('rejects unknown shadow/background values', () => {
     const t = normalizeTheme({ shadow: 'huge', background: 'plaid' });
-    expect(t.shadow).toBe('soft');
+    expect(t.shadow).toBe('dramatic');
     expect(t.background).toBe('solid');
   });
 
@@ -254,10 +254,10 @@ describe('sidebar surface', () => {
 
   it('emits dedicated sidebar tokens', () => {
     const vars = themeCssVars(DEFAULT_ECLIPSE_THEME);
-    expect(vars['--sidebar-rgb']).toBe('20 20 22');
-    expect(vars['--sidebar-opacity']).toBe('0.9');
-    expect(vars['--sidebar-blur']).toBe('20px');
-    expect(vars['--sidebar']).toBe('#141416');
+    expect(vars['--sidebar-rgb']).toBe('26 26 30');
+    expect(vars['--sidebar-opacity']).toBe('0.55');
+    expect(vars['--sidebar-blur']).toBe('34px');
+    expect(vars['--sidebar']).toBe('#1a1a1e');
     expect(STRUCTURAL_THEME_VARS.has('--sidebar-rgb')).toBe(true);
   });
 

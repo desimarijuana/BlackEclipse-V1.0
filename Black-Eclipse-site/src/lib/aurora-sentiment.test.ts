@@ -119,7 +119,7 @@ describe('auroraSentiment (end-to-end)', () => {
     const a = auroraSentiment(1, 1);
     expect(a.score).toBeCloseTo(1, 5);
     expect(a.state).toBe('bullish');
-    expect(resolveAuroraVisuals(a.score).colorStops[1].toLowerCase()).toBe('#7aff78');
+    expect(resolveAuroraVisuals(a.score).colorStops[1].toLowerCase()).toBe('#b4ff42');
   });
 
   it('Test 2: market -1, news -1 → bearish red', () => {

@@ -1,6 +1,14 @@
 # Change Log
 
 ## 2026-11-03
+- **feat(theme): lime brand refresh and a Crystal sidebar.** The shipped accent
+  moves from green `#7aff78` to lime `#b4ff42` across the CSS tokens, the theme
+  store defaults, the Aurora sentiment palette and the Market Bubbles canvas, and
+  the sidebar ships as a translucent Crystal frost (`#1a1a1e`, opacity 0.55, blur
+  34) with `dramatic` shadows as the default (labels updated so the default is
+  marked). Existing user themes keep their saved values; this changes the
+  shipped defaults and their tests. Tests: `theme/tokens.test.ts`,
+  `aurora-sentiment.test.ts` updated. Docs updated: `docs/CHANGELOG.md`.
 - **revert(accounting): the ledger is chat-only — the tab, proxy and browser
   client are removed.** The accounting capability was meant to be used in
   conversation, not browsed; a parallel screen doubles the surface that must stay

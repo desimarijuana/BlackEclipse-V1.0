@@ -180,9 +180,9 @@ class PhysicsBubble {
 
     if (this.data.changePercent > 0) {
       // Translucent bright green branding outline
-      fillColor = 'rgba(122, 255, 120, 0.12)';
-      strokeColor = 'rgba(122, 255, 120, 0.35)';
-      labelColor = '#7aff78';
+      fillColor = 'rgba(180, 255, 66, 0.12)';
+      strokeColor = 'rgba(180, 255, 66, 0.35)';
+      labelColor = '#b4ff42';
     } else if (this.data.changePercent < 0) {
       // Translucent crimson red outline
       fillColor = 'rgba(255, 74, 74, 0.12)';

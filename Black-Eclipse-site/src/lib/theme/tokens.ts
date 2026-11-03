@@ -136,13 +136,13 @@ export const DEFAULT_ECLIPSE_THEME: EclipseTheme = {
   fontHeading: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
   fontMono: '"JetBrains Mono", "IBM Plex Mono", "SF Mono", Consolas, monospace',
   colors: {
-    primary: '#7aff78',
-    accent: '#34d399',
+    primary: '#b4ff42',
+    accent: '#c9ff77',
     background: '#000000',
     surface: '#0f0f0f',
     border: '#2a2a2e',
     text: '#f4f4f5',
-    bullish: '#7aff78',
+    bullish: '#b4ff42',
     bearish: '#ff3e3e',
   },
   radius: 0.6,
@@ -150,11 +150,10 @@ export const DEFAULT_ECLIPSE_THEME: EclipseTheme = {
   fontScale: 1,
   logoScale: 1,
   glass: { enabled: true, blur: 18, opacity: 0.55, tint: '#121214' },
-  // Sidebar ships as black/charcoal chrome — never a neutral grey. A grey rail
-  // on the black app reads washed-out; charcoal keeps it distinct from the page
-  // without lightening the theme.
-  sidebar: { tint: '#141416', opacity: 0.9, blur: 20 },
-  shadow: 'soft',
+  // Sidebar ships as the translucent Crystal frost (low tint, heavy blur) — the
+  // rail carries the Lime brand into the chrome instead of a neutral grey.
+  sidebar: { tint: '#1a1a1e', opacity: 0.55, blur: 34 },
+  shadow: 'dramatic',
   background: 'solid',
   scheme: 'dark',
   glow: true,
@@ -200,9 +199,9 @@ export const DENSITY_OPTIONS: { id: ThemeDensity; label: string; hint: string }[
 
 export const SHADOW_OPTIONS: { id: ThemeShadow; label: string; hint: string }[] = [
   { id: 'none', label: 'Flat', hint: 'No surface shadows' },
-  { id: 'soft', label: 'Soft', hint: 'Subtle depth (default)' },
+  { id: 'soft', label: 'Soft', hint: 'Subtle depth' },
   { id: 'medium', label: 'Medium', hint: 'More pronounced lift' },
-  { id: 'dramatic', label: 'Dramatic', hint: 'Heavy, floating panels' },
+  { id: 'dramatic', label: 'Dramatic', hint: 'Heavy, floating panels (default)' },
 ];
 
 export const BACKGROUND_OPTIONS: { id: ThemeBackground; label: string; hint: string }[] = [
@@ -224,10 +223,10 @@ export const SIDEBAR_PRESETS: { id: string; label: string; hint: string; sidebar
   // Every dark-sidebar choice is black/charcoal — no neutral grey. Slate/Smoke
   // keep their subtle cool/warm casts but stay in the very-dark range.
   { id: 'black', label: 'Black', hint: 'Match the black page', sidebar: { tint: '#0c0c0e', opacity: 0.9, blur: 18 } },
-  { id: 'charcoal', label: 'Charcoal', hint: 'Deep charcoal chrome (default)', sidebar: { tint: '#141416', opacity: 0.9, blur: 20 } },
+  { id: 'charcoal', label: 'Charcoal', hint: 'Deep charcoal chrome', sidebar: { tint: '#141416', opacity: 0.9, blur: 20 } },
   { id: 'slate', label: 'Slate', hint: 'Cool blue-charcoal lift', sidebar: { tint: '#14181f', opacity: 0.88, blur: 22 } },
   { id: 'smoke', label: 'Smoke', hint: 'Warm charcoal', sidebar: { tint: '#171614', opacity: 0.9, blur: 18 } },
-  { id: 'crystal', label: 'Crystal', hint: 'Translucent charcoal frost, heavy blur', sidebar: { tint: '#1a1a1e', opacity: 0.55, blur: 34 } },
+  { id: 'crystal', label: 'Crystal', hint: 'Translucent charcoal frost, heavy blur (default)', sidebar: { tint: '#1a1a1e', opacity: 0.55, blur: 34 } },
 ];
 
 // ── Presets ──────────────────────────────────────────────────────────────────
@@ -257,7 +256,7 @@ export interface ThemePreset {
 
 /** The Aurora default brand glow, reused by the Eclipse preset. */
 const ECLIPSE_AURORA: AuroraPalette = {
-  bullish: { core: '#7aff78', edge: '#022c22' },
+  bullish: { core: '#b4ff42', edge: '#022c22' },
   neutral: { core: '#3d9e63', edge: '#02170f' },
   bearish: { core: '#ff0000', edge: '#3a0000' },
 };
@@ -396,7 +395,7 @@ export const THEME_PRESETS: ThemePreset[] = [
   {
     id: 'eclipse',
     label: 'Eclipse',
-    description: 'The default green-on-black terminal.',
+    description: 'The default lime-on-black terminal.',
     theme: DEFAULT_ECLIPSE_THEME,
     background: {
       mode: 'solid',
