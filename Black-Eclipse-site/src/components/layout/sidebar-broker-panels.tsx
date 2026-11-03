@@ -254,12 +254,24 @@ export function BrokerOverviewPanel({
 
       <div className="flex items-center justify-between gap-2 rounded-xl border border-border/20 px-3 py-2">
         <div>
-          <p className="text-[10px] font-medium text-foreground">MT5 bridge</p>
+          <p className="text-[10px] font-medium text-foreground">
+            {connection.kind === "mt5"
+              ? "MT5 bridge"
+              : connection.kind === "mt4_bridge"
+                ? "MT4 bridge"
+                : connection.kind === "alpaca"
+                  ? "Alpaca adapter"
+                  : connection.kind === "ibkr"
+                    ? "IBKR gateway"
+                    : "Broker adapter"}
+          </p>
           <p className="text-[9.5px] text-muted-foreground">
             {bridge.available == null
               ? "Checking the runtime…"
               : bridge.available
-                ? "Ready — Algo Trading must be enabled in MT5 to send orders."
+                ? connection.kind === "mt5"
+                  ? "Ready — Algo Trading must be enabled in MT5 to send orders."
+                  : "Ready — reads and reconciliation are available."
                 : bridge.reason ?? "Unavailable."}
           </p>
         </div>

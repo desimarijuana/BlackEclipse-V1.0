@@ -45,6 +45,7 @@ import {
   type BrokerKindId,
 } from "@/components/layout/broker-connection-form";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Skeleton, SkeletonBlock } from "@/components/ui/skeleton";
 import {
   armBrokerConnection,
   cancelBrokerOrder,
@@ -86,6 +87,16 @@ import {
 } from "./sidebar-broker-panels";
 
 const DEFAULT_TERMINAL = "C:\\Program Files\\MetaTrader 5\\terminal64.exe";
+
+/** Short adapter badge for the dialog header (never mislabel another broker as MT5). */
+const KIND_BADGE: Record<string, string> = {
+  mt5: "MT5",
+  mt4_bridge: "MT4 bridge",
+  alpaca: "Alpaca",
+  ibkr: "IBKR",
+};
+const kindBadge = (kind: string | null | undefined) =>
+  kind ? KIND_BADGE[kind] ?? kind.toUpperCase() : "new";
 
 
 type TabId = "overview" | "positions" | "orders" | "activity" | "settings";
@@ -561,12 +572,12 @@ function SidebarBrokerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(88dvh,860px)] w-[calc(100vw-2rem)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl border border-white/10 glass-card-strong p-0 text-foreground sm:max-w-3xl">
+      <DialogContent className="flex max-h-[min(90dvh,900px)] w-[calc(100vw-2rem)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl border border-white/10 glass-card-strong p-0 text-foreground sm:max-w-5xl">
         <DialogHeader className="shrink-0 border-b border-border/10 px-5 py-3.5">
-          <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+          <DialogTitle className="flex items-center gap-2 pr-12 text-sm font-semibold">
             <Handshake size={15} className="text-muted-foreground" /> Broker connection
             <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-300">
-              {selected?.kind === "mt4_bridge" ? "MT4" : "MT5"}
+              {kindBadge(selected?.kind)}
             </span>
             {selected && (
               <span
@@ -582,10 +593,19 @@ function SidebarBrokerDialog({
                 {armed ? "armed" : selected.status}
               </span>
             )}
+            {selected?.mode === "live" && (
+              <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-300">
+                live
+              </span>
+            )}
+            <span className="ml-auto font-mono text-[9.5px] font-normal text-muted-foreground">
+              {connections.length} connection{connections.length === 1 ? "" : "s"}
+            </span>
           </DialogTitle>
           <DialogDescription className="text-[11px] text-muted-foreground">
-            Attach Eclipse to a running MetaTrader 5 terminal or a read-only MT4 bridge. No password is stored - the broker
-            must already be logged in.
+            Attach Eclipse to a running MetaTrader 5 terminal, a read-only MT4 bridge, or an
+            Alpaca / IBKR account. Reads are always safe; credentials stay inside the Python
+            runtime, never in the journal database.
           </DialogDescription>
         </DialogHeader>
 
@@ -645,14 +665,32 @@ function SidebarBrokerDialog({
             {liveError && <p className="text-[10px] text-amber-300">{liveError}</p>}
 
             {loading ? (
-              <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                <Loader2 size={13} className="animate-spin" /> Reading the broker…
-              </p>
+              <div className="space-y-3" aria-label="Reading the broker">
+                <div className="flex gap-1.5">
+                  <Skeleton className="h-6 w-32 rounded-xl" />
+                  <Skeleton className="h-6 w-24 rounded-xl" />
+                  <Skeleton className="h-6 w-28 rounded-xl" />
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <Skeleton className="h-16 rounded-xl" />
+                  <Skeleton className="h-16 rounded-xl" />
+                  <Skeleton className="h-16 rounded-xl" />
+                  <Skeleton className="h-16 rounded-xl" />
+                </div>
+                <SkeletonBlock className="h-40 p-4">
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="mt-3 h-24 w-full" />
+                </SkeletonBlock>
+              </div>
             ) : !selected ? (
               <div className="space-y-3">
-                <p className="text-[11px] text-muted-foreground">
-                  No broker connection yet. Add an MT5 terminal or MT4 bridge below.
-                </p>
+                <div className="rounded-xl border border-primary/15 bg-primary/[0.04] px-3 py-2.5">
+                  <p className="text-[11px] font-semibold text-foreground">No broker connected yet</p>
+                  <p className="mt-0.5 text-[10.5px] text-muted-foreground">
+                    Add a MetaTrader 5 terminal, a read-only MT4 bridge, or an Alpaca / IBKR
+                    account. Eclipse tests the connection immediately and never stores a password.
+                  </p>
+                </div>
                 <ConnectionForm
                   kind={kind}
                   setKind={setKind}
@@ -970,8 +1008,9 @@ function SidebarBrokerDialog({
 
             <p className="text-[10px] text-muted-foreground">
               Live arming, mandates and per-order approvals live in{" "}
-              <span className="font-medium text-foreground">Settings → Broker connection</span>. Eclipse
-              never stores your broker password.
+              <span className="font-medium text-foreground">Settings → Broker connection</span>.
+              Journal → Settings links this broker and imports its trades. Eclipse never stores
+              your broker password.
             </p>
           </div>
         </div>

@@ -549,7 +549,7 @@ export function GlobalSearchOverlay() {
     <Dialog open={store.open} onOpenChange={(o) => store.setOpen(o)}>
       <DialogContent
         showCloseButton={false}
-        className="command-glass top-0 translate-y-0 left-1/2 -translate-x-1/2 sm:max-w-lg max-w-[calc(100%-1rem)] mt-2 sm:mt-5 w-full p-0 gap-0 rounded-xl overflow-hidden"
+        className="command-glass top-0 translate-y-0 left-1/2 -translate-x-1/2 sm:max-w-2xl max-w-[calc(100%-1rem)] mt-2 sm:mt-5 w-full p-0 gap-0 rounded-xl overflow-hidden"
       >
         <DialogTitle className="sr-only">Global Search</DialogTitle>
 

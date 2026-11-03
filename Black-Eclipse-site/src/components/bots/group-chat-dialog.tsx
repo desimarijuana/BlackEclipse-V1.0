@@ -90,7 +90,7 @@ export function GroupChatDialog({ open, onOpenChange, bots, onCreate }: GroupCha
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="glass-card-strong max-h-[92vh] overflow-y-auto rounded-2xl border border-white/15 dark:border-white/10 sm:max-w-md">
+      <DialogContent className="glass-card-strong max-h-[92vh] overflow-y-auto rounded-2xl border border-white/15 dark:border-white/10 sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('bots.groups.dialogTitle')}</DialogTitle>
           <DialogDescription>{t('bots.groups.dialogHint')}</DialogDescription>

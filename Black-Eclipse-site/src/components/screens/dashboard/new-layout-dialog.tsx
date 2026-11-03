@@ -47,7 +47,7 @@ export function NewLayoutDialog({
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-lg sm:max-w-lg max-h-[calc(100dvh-2rem)] flex flex-col rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong p-0 gap-0 overflow-hidden">
+      <DialogContent className="w-[calc(100%-2rem)] max-w-2xl sm:max-w-2xl max-h-[calc(100dvh-2rem)] flex flex-col rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong p-0 gap-0 overflow-hidden">
         <DialogTitle className="sr-only">New layout</DialogTitle>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">

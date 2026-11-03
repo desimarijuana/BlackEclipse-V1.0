@@ -302,7 +302,7 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], 
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!saving) onOpenChange(next); }}>
-      <DialogContent className="glass-card-strong max-h-[92vh] overflow-y-auto rounded-2xl border border-white/15 dark:border-white/10 sm:max-w-md">
+      <DialogContent className="glass-card-strong max-h-[92vh] overflow-y-auto rounded-2xl border border-white/15 dark:border-white/10 sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('bots.dialog.title')}</DialogTitle>
           <DialogDescription>{t('bots.dialog.subtitle')}</DialogDescription>

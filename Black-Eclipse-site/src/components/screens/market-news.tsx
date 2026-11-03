@@ -473,7 +473,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
   // News Details / AI Briefing Modal — shared by widget + full-page views.
   const newsDialog = selectedNews ? (
     <Dialog open={!!selectedNews} onOpenChange={open => !open && setSelectedNews(null)}>
-      <DialogContent className="sm:max-w-[480px] glass-card-strong border border-border/40 text-foreground rounded-2xl shadow-2xl p-6 overflow-hidden">
+      <DialogContent className="sm:max-w-2xl glass-card-strong border border-border/40 text-foreground rounded-2xl shadow-2xl p-6 overflow-hidden">
         {/* Ambient Background Blur Glow */}
         <div
           className={`absolute top-0 right-0 -translate-y-1/2 translate-x-1/2 w-72 h-72 rounded-full blur-[70px] pointer-events-none ${
