@@ -158,6 +158,10 @@
   entry above: the rail uses `gap-[6px]` and `h-[14px]` rows instead of the
   rem-based `gap-1.5`/`h-3.5`, so the 6px rhythm holds at any user text-size
   setting. No doc change — presentation-only.
+- **style(chat): the jump rail spacing is tightened to minimal.** `gap-[2px]`
+  rows `h-[6px]` (7px between hairlines) instead of 6px/14px, keeping the rail
+  compact while retaining a 14px hover/tap target via the tick's inset. No doc
+  change — presentation-only.
 
 ## 2026-11-03
 - **feat(theme): lime brand refresh and a Crystal sidebar.** The shipped accent
