@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_PACK,
+  MESSAGE_VARIANTS,
   SOUND_DEFINITIONS,
   SOUND_NAMES,
   SOUND_PACKS,
@@ -212,6 +213,7 @@ export function SoundSettingsPanel() {
   const setVolume = useSoundStore((s) => s.setVolume);
   const setMode = useSoundStore((s) => s.setMode);
   const setPack = useSoundStore((s) => s.setPack);
+  const setMessageVariant = useSoundStore((s) => s.setMessageVariant);
   const reset = useSoundStore((s) => s.reset);
   const [testing, setTesting] = useState(false);
 
@@ -313,6 +315,58 @@ export function SoundSettingsPanel() {
           notifications: they play even while UI sounds are off, so switch off the ones
           you do not want below (or with the same toggles under Settings › Alerts).
         </p>
+
+        {/* AI-result voice: independent of the interaction pack, so a reply
+            always gets a calm, purpose-built cue instead of a click/tick. */}
+        <div className="rounded-xl border border-border/30 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <Volume2 size={13} className="text-primary" />
+            <Label className="text-xs font-semibold">AI result voice</Label>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-primary/80 border border-primary/30 rounded-full px-1.5 py-0.5">
+              recommended: Soft chime
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Used when an Eclipse reply/AI run finishes. It is not tied to the interaction
+            pack — pick the reply sound separately and preview it instantly.
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {MESSAGE_VARIANTS.map((v) => {
+              const active = prefs.messageVariant === v.id;
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => {
+                    setMessageVariant(v.id);
+                    sound.play("message");
+                  }}
+                  className={cn(
+                    "flex items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition-all cursor-pointer",
+                    active
+                      ? "bg-primary/10 border-primary/40 shadow-sm shadow-primary/10"
+                      : "border-border/30 hover:border-border/60",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                      active ? "border-primary bg-primary" : "border-muted-foreground/40",
+                    )}
+                  >
+                    {active && <Check size={10} className="text-primary-foreground" />}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-xs font-semibold text-foreground">{v.label}</span>
+                    <span className="block text-[10px] text-muted-foreground/70 mt-0.5">{v.description}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="space-y-3">
           {NOTIFICATION_CUES.map((name) => (
             <CueRow key={name} name={name} />

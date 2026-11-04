@@ -21,9 +21,12 @@
 
 import { create } from 'zustand';
 import {
+  DEFAULT_MESSAGE_VARIANT,
   DEFAULT_PACK,
   SOUND_NAMES,
+  isMessageVariant,
   isSoundPackId,
+  type MessageVariant,
   type SoundName,
   type SoundPackId,
 } from './config';
@@ -56,6 +59,8 @@ export interface SoundPreferences {
   volume: number;
   mode: SoundMode;
   pack: SoundPackId;
+  /** AI-result voice, independent of the interaction pack. */
+  messageVariant: MessageVariant;
   cues: Record<SoundName, SoundCueSettings>;
 }
 
@@ -80,6 +85,7 @@ export const DEFAULT_SOUND_PREFERENCES: SoundPreferences = {
   volume: 0.12,
   mode: 'all',
   pack: DEFAULT_PACK,
+  messageVariant: DEFAULT_MESSAGE_VARIANT,
   cues: defaultCues(),
 };
 
@@ -119,6 +125,7 @@ function read(): SoundPreferences {
       volume: clamp(typeof parsed.volume === 'number' ? parsed.volume : DEFAULT_SOUND_PREFERENCES.volume, 0, 1, DEFAULT_SOUND_PREFERENCES.volume),
       mode: parsed.mode === 'essential' ? 'essential' : 'all',
       pack: isSoundPackId(parsed.pack) ? parsed.pack : DEFAULT_PACK,
+      messageVariant: isMessageVariant(parsed.messageVariant) ? parsed.messageVariant : DEFAULT_MESSAGE_VARIANT,
       cues: readCues(parsed.cues),
     };
   } catch {
@@ -143,6 +150,7 @@ export interface SoundStore {
   setVolume: (volume: number) => void;
   setMode: (mode: SoundMode) => void;
   setPack: (pack: SoundPackId) => void;
+  setMessageVariant: (variant: MessageVariant) => void;
   setCueVolume: (name: SoundName, volume: number) => void;
   setCueMuted: (name: SoundName, muted: boolean) => void;
   setCueCustom: (name: SoundName, dataUrl: string | undefined) => void;
@@ -172,6 +180,12 @@ export const useSoundStore = create<SoundStore>((set, get) => ({
   setMode: (mode) => commit(set, { ...get().prefs, mode }),
 
   setPack: (pack) => commit(set, { ...get().prefs, pack }),
+
+  setMessageVariant: (messageVariant) =>
+    commit(set, {
+      ...get().prefs,
+      messageVariant: isMessageVariant(messageVariant) ? messageVariant : DEFAULT_MESSAGE_VARIANT,
+    }),
 
   setCueVolume: (name, volume) => {
     const prefs = get().prefs;

@@ -2078,7 +2078,11 @@ failure path is a silent no-op. The cue set is declared once in `config.ts`
   Per-cue mute is the explicit opt-out: `message` (AI result) and
   `notification` (alert) are **on by default** so an AI result/alert is audible
   without enabling the click/tick layer, while the loud `taskdone` alarm is
-  opt-in.
+  opt-in. The AI-result cue is deliberately **pack-independent**: it resolves
+  from `public/sounds/message/<variant>.wav` (`chime` default, plus `marimba`,
+  `glass`, `blip`) and is selected in Settings › Sound › AI result voice. A
+  pack can have a crisp interaction tick while the reply stays a calm chime;
+  `scripts/generate-message-cues.py` regenerates the four assets.
 
 Assets live in every pack (`public/sounds/<pack>/taskdone.wav`). One delegated
 listener plays `toggle` for `role="switch"` / checkbox / radio and `click` for

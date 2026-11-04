@@ -20,6 +20,7 @@ import {
   SOUND_NAMES,
   SOUND_DEFINITIONS,
   isSoundName,
+  messageVariantSrc,
   packSoundSrc,
   type SoundName,
 } from './config';
@@ -59,9 +60,13 @@ class SoundManager {
   private lastPlayed: Partial<Record<SoundName, number>> = {};
 
   private resolveSrc(name: SoundName): string {
-    const { pack, cues } = useSoundStore.getState().prefs;
+    const { pack, cues, messageVariant } = useSoundStore.getState().prefs;
     const custom = cues[name]?.custom;
-    return custom || packSoundSrc(pack, name);
+    if (custom) return custom;
+    // The AI-result cue is a dedicated, pack-independent voice: the interaction
+    // pack may be crisp/mechanical while a reply still sounds warm.
+    if (name === 'message') return messageVariantSrc(messageVariant);
+    return packSoundSrc(pack, name);
   }
 
   /** Create (or return) the one shared AudioContext. Never throws. */
