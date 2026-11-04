@@ -62,6 +62,7 @@ next-env.d.ts
 # files are ignored too.
 jdds.db
 jdds.db-*
+*.db-journal
 
 # Harness agent-memory database (separate from JDdS; runtime operational state)
 agent-memory.db

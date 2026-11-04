@@ -31,6 +31,26 @@ why a tool was allowed, denied or held for approval.
   `agent-memory.db`, mirrored to the Event System (`security.*`) and to
   observability metrics.
 
+## Repository secret hygiene
+
+The gateway protects runtime operations; this section protects the **source
+tree**, which is the other way a credential escapes. An open-source repository
+makes one leaked key a permanent public key.
+
+- `.gitignore` excludes `.env*` (except `.env.example`), `*.db`, `.connector-key`,
+  `mcp-servers.json`, channel `secret.key`, and `.black-eclipse/`.
+- `scripts/scan-secrets.js` is the enforcement: it rejects a tracked/staged
+  secret artifact and recognisable provider tokens (OpenAI, Anthropic, GitHub,
+  AWS, Slack, Google, Stripe, npm, GitLab, HuggingFace, Telegram, private-key
+  blocks). Run it directly with `npm run check:secrets`; the pre-commit hook runs
+  it over staged blobs (`--staged`), and CI runs it over every tracked file.
+- It prints a redacted prefix only, so a finding in a log is not a second leak.
+- A finding is fixed by rotating the credential, removing the file from the
+  index (`git rm --cached`), and only then cleaning history — deleting it in a
+  later commit leaves it in every existing clone.
+- Disclosure policy and the operator checklist live in the repository-root
+  `SECURITY.md`.
+
 ## The pipeline
 
 `SecurityGateway.authorize()` evaluates a request in a fixed order; each stage can

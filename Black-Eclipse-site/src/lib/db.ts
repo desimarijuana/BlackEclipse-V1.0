@@ -8,7 +8,16 @@ const globalForPrisma = globalThis as unknown as {
 
 // JDDS SQLite database file. Prisma `db push` creates it at the project root
 // (per prisma.config.ts `file:./jdds.db`). Zero-config: auto-created on first use.
-const dbPath = path.join(process.cwd(), "jdds.db");
+//
+// `BE_DATA_DIR` relocates the personal databases onto an encrypted volume (see
+// scripts/setup-data-vault.ps1). It is the SAME variable prisma.config.ts and the
+// Python stores read, and it must be a real directory on that volume: SQLite
+// writes its `-wal`/`-shm` sidecars next to this path, so a file symlink would
+// leave the newest transactions outside the encrypted volume.
+const dataDir = process.env.BE_DATA_DIR
+  ? path.resolve(process.env.BE_DATA_DIR)
+  : process.cwd();
+const dbPath = path.join(dataDir, "jdds.db");
 const adapter = new PrismaBetterSqlite3({
   url: `file:${dbPath}`,
 });

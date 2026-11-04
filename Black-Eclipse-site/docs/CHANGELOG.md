@@ -1,6 +1,73 @@
 # Change Log
 
 ## 2026-11-04
+- **security(privacy): personal data can now live on an encrypted volume, conversations can be pinned to local models, and everything can be wiped on demand.** Added `scripts/setup-data-vault.ps1` (plan/apply): creates a BitLocker-encrypted VHDX, moves the three databases plus `.black-eclipse/`, `python/.black-eclipse/`, backups, `mcp-servers.json` and `.connector-key` onto it, and links the directories back. `BE_DATA_DIR` is now honoured by `src/lib/db.ts`, `prisma.config.ts`, `scripts/db-guard.js` and both Python stores, so SQLite's `-wal`/`-shm` sidecars are encrypted too; `scripts/doctor.js` fails closed when `BE_VAULT_PATH`/`BE_DATA_DIR` is missing instead of creating empty databases. Added `ECLIPSE_PRIVACY=local-models`, enforced at the model chokepoint (`build_chat_model`) and the TS save/test/chat paths, so a remote endpoint is refused before any prompt is sent. Added `scripts/wipe-personal-data.js` (`--confirm=WIPE`). Docs: new `docs/data-and-privacy.md` (data map, threat model, vault, local-only scope, wipe, backups). Docs updated: `docs/data-and-privacy.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **fix(sound): interaction "haptics" are strictly opt-in, and event
+  notifications are their own class.** The click/tick/toggle cues no longer
+  re-enable from a stored blob without an explicit `enabled: true`; the storage
+  key moved to `be_sounds_v4` so a stale on-state cannot survive. `message` is
+  now the **AI result** cue and, like `notification` and `taskdone`, plays
+  independently of the opt-in interaction master switch (per-cue mute is the
+  opt-out; `gainFloor` keeps it audible at the subtle default volume). The
+  `alwaysAudible` flag was replaced by `notification`; the loud task-done alarm
+  lost its full-blast treatment and now starts muted (opt-in), while the AI
+  result and alert cues are on by default. The Settings › Sound `Notifications
+  & alarms` card now includes AI result. Settings › Alerts mirrors the same three
+  toggles and gains the high-impact news policy controls (threshold, lookback,
+  categories, tickers, quiet hours) wired to the existing
+  `/api/news/alerts/policy` scan. Also admitted the two ML registry/local-write
+  tools through the local-write authorizer so the advertised-tool admission
+  guard stays honest. Docs updated: `docs/ARCHITECTURE.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **security(open-source): the repository now fails closed on leaked secrets and
+  ships a hardened container.** Added `scripts/scan-secrets.js` (zero-dep, no
+  false-positive noise from the test fixtures): it rejects tracked/staged secret
+  artifacts (`.env*`, `*.db`, private keys, `.connector-key`, `mcp-servers.json`,
+  channel `secret.key`, `.black-eclipse/`) and recognisable provider tokens, and
+  prints only a redacted prefix. Wired into the pre-commit hook (`--staged`),
+  `npm run check:secrets`, `check-all.js`, and CI (which also gained
+  `permissions: contents: read`). The container stack no longer publishes on all
+  interfaces (loopback by default via `BE_BIND_ADDR`), forces `HARNESS_AUTH=required`,
+  drops all capabilities with `no-new-privileges`, and the image runs as the
+  unprivileged `node` user; `.dockerignore` now also excludes `mcp-servers.json`,
+  `python/.black-eclipse`, and key material. `next.config.ts` adds baseline
+  security headers (nosniff, SAMEORIGIN, referrer policy, permissions policy, and
+  HSTS in production). Added repository-root `SECURITY.md` (private disclosure +
+  operator checklist) and documented the deployment posture. Docs updated:
+  `docs/DEPLOYMENT.md`, `docs/harness/security.md`,
+  `docs/harness/authentication.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **style(notifications): the header bell is outline-only.** The bell and the
+  per-kind icons in the notification panel always render with Phosphor's
+  `regular` (outline) weight; the unread count still carries the state, so no
+  filled icon is needed. `no doc change — visual weight only`.
+- **feat(notifications): a header notification bar with the full ledger.** The
+  app already recorded every raise (price/news alerts, tasks, approvals, agent
+  runs, bots) in `lib/notifications/store` and signalled it via sidebar badges
+  and the browser tab, but there was no in-app place to read the list. Added
+  `src/components/layout/notification-center.tsx` to the `TopBar`: a bell with
+  an unread count opens a frosted panel showing the newest-first ledger,
+  filterable by kind; clicking an entry marks its tab read and navigates via
+  `be:navigate`; `markAllRead` was added to the store for the panel's
+  "Mark all read" action. Opening the panel does not mark items read. Docs
+  updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **feat(news): High Alert — a decision-support layer for the News tab.** The
+  feed was recency-only; tier and cross-source corroboration were filters/badges,
+  never ranking inputs. Added `src/lib/news/importance.ts` (pure, deterministic
+  0–100 score + `critical|high|medium|low`, with `reasons[]`, confidence from
+  tier+corroboration, direction from sentiment, horizon, and what would
+  invalidate the read). `src/lib/news/cluster.ts` is the shared story-cluster
+  primitive. `/api/news` now scores every returned row and accepts
+  `sort=importance` / `minImportance` / `portfolio`; `/api/news/alerts` returns
+  the strongest recent stories plus upcoming high-impact releases (only when a
+  real calendar source exists); `/api/news/alerts/policy` stores the push policy.
+  The News tab gains a High Alert band, BREAKING/critical badges, a high-alert
+  filter, a "trade check" panel, and a wired one-click price watch (the existing
+  `/api/news/alert` endpoint was previously orphaned). After each ingest,
+  `src/lib/news/alert-scan.ts` optionally pushes high/critical stories through
+  the existing channels (disabled by default, first run seeds a baseline, story
+  dedupe, quiet hours, durable `PriceAlertEvent` notice). Settings › Alerts gains
+  the threshold/lookback/categories/tickers/quiet-hours controls. Docs updated:
+  `docs/DATA-FLOW.md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
 - **feat(theme): Lime is the shipped default for every user.** `92db5238` moved
   the accent and the Crystal sidebar, but several places still encoded the old
   green default: the launcher splash mirror (`scripts/lib/app-theme.js`), its
@@ -23,6 +90,7 @@
   instruction box; the redundant inner `SubSection` heading is gone because the
   page already renders `SectionHeader`. Behaviour, API calls and the draft/active
   rules are unchanged. No doc change — presentation-only layout fix.
+- **fix(search): ⌘K is complete again — every screen and sub-page is reachable, and drift fails the build.** The palette registry had silently fallen behind the rendered UI: Memory declared 8 of 16 sub-tabs (with stale labels), Skills missed Maintenance, Journal missed Decisions and Notebook, and sidebar-visible screens (Eclipse SDK, Artifacts, Tables, Graph Studio) had no page entry at all — a QA run already had to bypass the registry via `app-screens.ts`. The Memory/Skills/Journal sub-page entries are now **generated** from the same arrays the tab bars render (`app-screens.ts`, new `journal-tabs.ts` which the Journal screen also consumes), so ids, labels and aliases cannot drift. Added missing top-level pages (`sdk`, `artifacts`, `tables`, `overview` for Graph Studio, `tasks`, `pages` for Saved Pages, `ui-builder`). The empty-query "Pages" launcher no longer uses the hand-maintained `TOP_LEVEL_PAGE_IDS`; it is derived from `LAUNCHER_ORDER` in the registry (sidebar order + Bots), and new `registry-sync.test.ts` fails the build if any tab lacks a page, any rendered tab lacks a sub-page, or a sidebar section is missing from the launcher (`chart` stays deliberately retired; legacy `graph-studio` stays an alias of `overview`). Fixed a real navigation bug: the shell strips the `memory.`/`skills.` prefix before dispatching, but those screens split it again, so every palette → Memory/Skills sub-page jump was a silent no-op. Saved (blueprint) pages are now searchable and openable: `/api/search/global` aggregates them from the Python runtime (`/sdk/pages`, operator token, dashboard mirrors excluded, best-effort on failure), `stock-chat` pokes the keep-alive Pages screen with the SDK's synthetic `popstate`, and a saved page's row deep-links to `/?tab=pages&page=<id>`. `INDEX_VERSION` is now one shared constant (`lib/search/index-version.ts`) instead of two hand-synced copies. Tests: `registry-sync.test.ts` (8), full vitest suite green; `tsc --noEmit` clean (3 pre-existing Python tool-registry failures from the ML allowlist work remain — unrelated). Docs updated: `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-03
 - **feat(theme): lime brand refresh and a Crystal sidebar.** The shipped accent

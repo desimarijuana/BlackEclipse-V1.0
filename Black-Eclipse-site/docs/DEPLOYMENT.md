@@ -1,7 +1,7 @@
 ---
 title: Deployment — Production Container
 status: Current
-last-verified: 2026-10-29
+last-verified: 2026-11-04
 ---
 
 # Deployment — Production Container
@@ -17,9 +17,9 @@ child on the first harness request (`src/lib/harness/python-runtime.ts`). So a
 
 | File | Role |
 | --- | --- |
-| `Dockerfile` | Node 20 + Python 3 image; installs deps, builds Next, starts the app |
+| `Dockerfile` | Node 20 + Python 3 image; installs deps, builds Next, runs as the unprivileged `node` user |
 | `docker-entrypoint.sh` | Links the SQLite DBs + `.black-eclipse/` into the mounted data volume (state survives restarts) |
-| `docker-compose.yml` | One service, `.env` config, `be-data` volume, healthcheck, `restart: unless-stopped` |
+| `docker-compose.yml` | One service, `.env` config, loopback publish, forced auth, dropped capabilities, `be-data` volume, healthcheck |
 | `.env.example` | Every env var a production deploy needs (copy to `.env`) |
 
 ## Quick start
@@ -43,7 +43,8 @@ Generate each with `openssl rand -hex 32` (connector key: `openssl rand -base64 
 
 `NODE_ENV=production` makes auth **auto-require** a signed-in user
 (`HARNESS_AUTH` unset → `required`). Set `HARNESS_AUTH=off` only for a trusted,
-loopback-only instance.
+loopback-only instance. The container stack overrides it to `required`
+regardless — see **Container hardening**.
 
 ## Security preflight
 
@@ -59,6 +60,44 @@ loopback/dev bind every check is advisory (exit 0), so it is also part of
 `npm run check:all` and CI. The harness startup log additionally prints the
 end-to-end posture (bind + front-door auth) and warns on any unsafe combination
 (`docs/harness/authentication.md`).
+
+## Container hardening
+
+The packaged stack is deliberately conservative. Override these only with a
+reason, and write it down:
+
+| Control | Default | Why |
+| --- | --- | --- |
+| Publish address | `127.0.0.1:3000` (`BE_BIND_ADDR` to change) | The container exposes an agent with shell, browser, git and filesystem tools. It must not be reachable from the LAN or the internet without a TLS reverse proxy in front. |
+| `HARNESS_AUTH` | forced to `required` in `docker-compose.yml` | `HARNESS_AUTH=off` is a local-dev escape hatch. The packaged stack overrides it, so a `HARNESS_AUTH_SECRET` mistake fails closed (503) instead of serving an unauthenticated agent. |
+| Process user | `node` (uid 1000), not root | A tool or a Python side-effect must not start with root inside the container. No privileged port and no capability is needed. |
+| Capabilities | `cap_drop: ALL` + `no-new-privileges` | The app installs nothing, binds no privileged port, and never needs to elevate. |
+| Build context | `.dockerignore` excludes `.env*`, `*.db`, `.connector-key`, `mcp-servers.json`, `.black-eclipse/` | A secret that reaches an image layer is in every copy of the image forever, even if the file is deleted later. |
+| Baseline headers | `next.config.ts` | `nosniff`, `SAMEORIGIN`, strict referrer policy, camera/mic self-only, HSTS in production builds. |
+
+The `be-data` volume is written by uid 1000. A **bind mount** (`-v /srv/be:/data`)
+must be `chown 1000:1000` first; a named volume inherits the right ownership
+automatically.
+
+Browser automation inside the container may refuse to start because Chromium's
+own sandbox cannot initialise without a privileged helper. The documented opt-in
+is `HARNESS_BROWSER_NO_SANDBOX=1`
+(`python/harness/browser/providers/local_chromium.py`); set it **inside the
+container only** — it weakens Chromium's isolation, so it is not a default and
+should not be used on the host. Everything else works without it.
+
+## Secret hygiene
+
+Two independent checks keep credentials out of git:
+
+1. `.gitignore` (`.env*`, `*.db`, `.connector-key`, `mcp-servers.json`,
+   `python/.black-eclipse/`).
+2. `node scripts/scan-secrets.js` — run by the pre-commit hook (`--staged`) and
+   by `npm run check:secrets` in CI. It rejects a staged secret file and
+   recognisable provider tokens, and prints only a redacted prefix.
+
+If a secret ever lands in a commit, **rotate it first** and then rewrite history;
+removing the file in a later commit does not remove it from clones.
 
 ## Automatic updates (systemd timer)
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getLLMConfig } from "@/lib/settings";
 import { isLocalBaseUrl } from "@/lib/agent/presets";
+import { assertModelAllowed } from "@/lib/privacy";
 import { guardMutation } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,16 @@ export async function POST(request: Request) {
     // A blank incoming key means "use the stored one" (consistent with save).
     const apiKey = typeof body.apiKey === "string" && body.apiKey ? body.apiKey : saved.apiKey;
     const local = isLocalBaseUrl(baseUrl);
+
+    // Local-only mode forbids even a connectivity probe to a remote endpoint.
+    try {
+      assertModelAllowed(baseUrl, saved.provider);
+    } catch (err) {
+      return NextResponse.json(
+        { ok: false, message: err instanceof Error ? err.message : String(err) },
+        { status: 403 },
+      );
+    }
 
     if (!apiKey && !local) {
       return NextResponse.json(

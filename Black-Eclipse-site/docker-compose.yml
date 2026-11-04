@@ -21,8 +21,23 @@ services:
       NODE_ENV: production
       PORT: "3000"
       BE_DATA_DIR: /data
+      # The packaged stack ALWAYS requires a signed-in user, whatever .env says.
+      # HARNESS_AUTH=off is a local-dev escape hatch, not a deployment mode; with
+      # this set, a missing HARNESS_AUTH_SECRET fails closed (503) instead of
+      # serving an unauthenticated agent with shell/browser/file tools.
+      HARNESS_AUTH: required
+    # The container never opens a privileged port and never needs to gain a
+    # capability, so drop them all. Paired with the non-root user in the Dockerfile.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     ports:
-      - "3000:3000"
+      # Loopback-only by default. This container exposes an agent that can run
+      # shell commands, browse, and read/write files — publishing it on 0.0.0.0
+      # puts that behind nothing but a login form. Put a TLS-terminating reverse
+      # proxy in front (and set BE_BIND_ADDR=0.0.0.0) only when you mean to.
+      - "${BE_BIND_ADDR:-127.0.0.1}:3000:3000"
     volumes:
       - be-data:/data
     restart: unless-stopped

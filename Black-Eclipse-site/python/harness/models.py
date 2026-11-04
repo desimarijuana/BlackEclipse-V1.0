@@ -26,6 +26,34 @@ from typing import Any, Optional
 
 from .schemas import ModelSettings
 
+# ── Privacy mode: the ONE place a model call is allowed to leave this machine ──
+# `ECLIPSE_PRIVACY=local-models` refuses any provider whose endpoint is not
+# loopback, before a request is built. This is the authoritative check: every
+# agent run, job, automation and vision fallback constructs its model here, so a
+# cloud provider cannot be reached by another code path that forgot to ask.
+# See `docs/data-and-privacy.md` and `src/lib/privacy.ts` (the UI-side mirror).
+_LOCAL_PRIVACY_VALUES = {
+    "local-models", "local_models", "local", "local-only", "local_only",
+    "no-cloud", "nocloud",
+}
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"}
+
+
+def privacy_local_models() -> bool:
+    return (os.environ.get("ECLIPSE_PRIVACY", "").strip().lower() in _LOCAL_PRIVACY_VALUES)
+
+
+def _is_loopback_url(base_url: Optional[str]) -> bool:
+    if not base_url:
+        return False
+    try:
+        from urllib.parse import urlparse
+
+        host = (urlparse(base_url).hostname or "").lower()
+    except Exception:  # noqa: BLE001 - an unparsable URL is not local
+        return False
+    return host in _LOOPBACK_HOSTS
+
 
 @dataclass(frozen=True)
 class ProviderSpec:
@@ -368,6 +396,16 @@ def build_chat_model(settings: ModelSettings) -> Any:
     spec = PROVIDER_CATALOG.get(settings.provider)
     if spec is None:
         raise ValueError(f"Unknown model provider '{settings.provider}'")
+
+    if privacy_local_models():
+        endpoint = settings.base_url or spec.default_base_url
+        if not _is_loopback_url(endpoint):
+            raise ValueError(
+                "PRIVACY_LOCAL_MODELS_ONLY: local-only privacy mode is on "
+                "(ECLIPSE_PRIVACY=local-models) and the configured provider "
+                f"'{settings.provider}' is remote. Point it at a local server "
+                "(Ollama / LM Studio) or unset ECLIPSE_PRIVACY to allow cloud models."
+            )
 
     api_key = _resolve_key(settings, spec)
     temperature = settings.temperature

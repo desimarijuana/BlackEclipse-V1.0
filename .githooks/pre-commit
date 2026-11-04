@@ -37,4 +37,24 @@ if [ "$actual_email" != "$allowed_email" ]; then
   exit 1
 fi
 
+# ── Secret scan ─────────────────────────────────────────────────────────────
+# A committed credential is permanent: it reaches every clone and, on a public
+# repository, the open internet. Refuse a commit that stages a secret artifact
+# (.env, a database, a private key) or a recognisable provider token. The
+# scanner never prints a full value. Bypass intentionally with:
+#   SKIP_SECRET_SCAN=1 git commit ...
+if [ "${SKIP_SECRET_SCAN:-0}" = "1" ]; then
+  echo "! secret scan skipped (SKIP_SECRET_SCAN=1)." >&2
+else
+  hook_root="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
+  scanner="$hook_root/Black-Eclipse-site/scripts/scan-secrets.js"
+  if [ ! -f "$scanner" ]; then
+    echo "! secret scanner missing; run: node scripts/install-git-hooks.js" >&2
+  elif command -v node >/dev/null 2>&1; then
+    node "$scanner" --staged || exit 1
+  else
+    echo "! node not found; secret scan skipped." >&2
+  fi
+fi
+
 exit 0
