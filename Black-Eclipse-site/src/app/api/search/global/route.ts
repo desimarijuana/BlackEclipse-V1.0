@@ -1,12 +1,15 @@
 // ── GET /api/search/global ──────────────────────────────────────────────────
 // Aggregates server-side data (journal strategies/setups/tags/trades, news
-// headlines, research reports) into compact SearchEntity rows for the global
-// search bar. The client fetches this once and merges it into the resolver.
-// Deterministic — no LLM.
+// headlines, research reports, saved blueprint pages) into compact SearchEntity
+// rows for the global search bar. The client fetches this once and merges it
+// into the resolver. Deterministic — no LLM.
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getOrCreateProfile, listSetups, listStrategies, listTags } from "@/lib/journal/data";
+import { HARNESS_PY_URL } from "@/lib/harness/python-runtime";
+import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
+import { isDashboardMirrorPath } from "@/lib/ui-engineering/live-page";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +21,7 @@ interface EntityRow {
   icon: string;
   tab: string;
   params?: Record<string, string>;
+  deepLink?: string;
   subtitle: string;
 }
 
@@ -121,6 +125,46 @@ export async function GET() {
     }
 
     // ── Research reports ─────────────────────────────────────────────────────
+    // ─── Saved (blueprint) pages ─────────────────────────────────────────────
+    // The pages the user or the agent authored are real destinations, so they
+    // belong in ⌘K too. Best-effort: any runtime failure is swallowed and the
+    // rest of the payload still returns. Dashboard mirrors are excluded (they
+    // are agent-readable board snapshots, not user pages).
+    try {
+      const token = runtimeCallbackToken();
+      // The SDK list endpoint: operator token, and it already excludes the
+      // Command Center dashboard mirrors (`/dashboard/dash-*`).
+      const res = await fetch(`${HARNESS_PY_URL}/sdk/pages`, {
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "X-Harness-Operator": token } : {}),
+        },
+        signal: AbortSignal.timeout(10_000),
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const d = (await res.json().catch(() => ({}))) as {
+          blueprints?: Array<{ id: string; title?: string; path?: string | null }>;
+        };
+        for (const b of d.blueprints ?? []) {
+          if (!b?.id || !b.title || isDashboardMirrorPath(b.path)) continue;
+          entities.push({
+            id: `page-blueprint-${b.id}`,
+            kind: "user",
+            title: b.title,
+            keywords: ["page", "saved page", b.title.toLowerCase()],
+            icon: "pages",
+            tab: "pages",
+            params: { page: b.id },
+            deepLink: `/?tab=pages&page=${encodeURIComponent(b.id)}`,
+            subtitle: "Saved page",
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[api/search/global] pages:", err);
+    }
+
     try {
       const reports = await prisma.researchReport.findMany({
         select: { id: true, query: true, ticker: true, status: true, createdAt: true },

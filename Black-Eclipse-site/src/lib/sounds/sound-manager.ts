@@ -95,9 +95,13 @@ class SoundManager {
     const cue = prefs.cues[name];
     // Per-cue mute is always the explicit opt-out.
     if (cue?.muted) return false;
-    // Critical alarms (e.g. task completed) ignore the master switch; muting
-    // the cue itself is how the operator silences them.
-    if (!prefs.enabled && !def.alwaysAudible) return false;
+    // Event notifications (AI result, alert, task done) are independent of the
+    // interaction-audio master switch and essential-only mode. They announce
+    // something happening elsewhere, so they must not depend on the click/
+    // tick preference. Their own mute toggle is the opt-out.
+    if (def.notification) return true;
+    // Everything else is interaction feedback and stays strictly opt-in.
+    if (!prefs.enabled) return false;
     if (prefs.mode === 'essential' && !def.essential) return false;
     return true;
   }
@@ -182,8 +186,8 @@ class SoundManager {
     try {
       const prefs = useSoundStore.getState().prefs;
       const def = SOUND_DEFINITIONS[name];
-      // Critical cues (e.g. task completed) keep a floor under the master
-      // volume so the subtle default (12%) cannot render them inaudible.
+      // Notification cues keep a floor under the master volume so the subtle
+      // interaction default (12%) cannot render them inaudible.
       const master = def.gainFloor != null ? Math.max(prefs.volume, def.gainFloor) : prefs.volume;
       const gain = master * def.volume * (prefs.cues[name]?.volume ?? 1);
       const source = ctx.createBufferSource();

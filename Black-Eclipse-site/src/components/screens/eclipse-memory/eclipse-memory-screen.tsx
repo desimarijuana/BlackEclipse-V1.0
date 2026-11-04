@@ -87,9 +87,10 @@ export function EclipseMemoryScreen({ isOperator = clientIsOperator() }: { isOpe
   const [tab, setTab] = useState<Tab>("overview");
   // Deep links land on the matching sub-page. Slugs and legacy aliases come
   // from the ONE tab list, so every rendered tab (incl. Profiles/Providers/
-  // Files/Skills) is reachable and the alias map cannot drift.
+  // Files/Skills) is reachable and the alias map cannot drift. The shell
+  // strips the `memory.` prefix before dispatching, so pass the slug as-is.
   useSubroute("memory", (req) => {
-    const def = screenTab(MEMORY_TABS, req.subroute.split(".")[1]);
+    const def = screenTab(MEMORY_TABS, req.subroute);
     if (def) setTab(def.id);
   });
 

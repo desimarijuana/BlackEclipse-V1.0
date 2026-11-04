@@ -299,6 +299,16 @@ export async function runNewsIngest(): Promise<IngestSummary> {
       create: { type: NEWS_REFRESH_TYPE, lastRunAt: new Date(), intervalMinutes: DEFAULT_NEWS_INTERVAL_MIN, enabled: true },
     });
 
+    // High-alert delivery runs AFTER persistence so it sees this cycle's rows.
+    // Never let notification trouble break ingestion.
+    try {
+      const { runNewsAlertScan } = await import("@/lib/news/alert-scan");
+      const scan = await runNewsAlertScan();
+      if (scan.sent > 0) console.log(`[NewsIngest] high-alert push: ${scan.sent} sent`);
+    } catch (alertErr) {
+      console.error("[NewsIngest] alert scan failed:", alertErr);
+    }
+
     console.log(`[NewsIngest] ${ok}/${total} feeds ok, ${created} new items, ${backfill} backfilled, ${removed.count} pruned`);
     return { feeds: total, ok, failed, created, total: created };
   } finally {

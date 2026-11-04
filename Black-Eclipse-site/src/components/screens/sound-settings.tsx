@@ -52,9 +52,11 @@ function Card({
 
 // Cues that announce something happening OUTSIDE the current view. They get
 // their own card so the operator can decide about them explicitly instead of
-// hunting through the generic cue list — `taskdone` is critical (plays even
-// while UI sounds are off) and this card is its documented opt-out.
-const NOTIFICATION_CUES: readonly SoundName[] = ["taskdone", "notification"];
+// hunting through the generic cue list. These are event notifications: they
+// play independently of the interaction-audio master switch, and this card is
+// their documented opt-out. Interaction cues (click/tick/toggle) remain
+// opt-in and off by default.
+const NOTIFICATION_CUES: readonly SoundName[] = ["message", "notification", "taskdone"];
 
 function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
@@ -288,8 +290,9 @@ export function SoundSettingsPanel() {
 
         <div className="flex items-center justify-between gap-3 pt-1">
           <p className="text-[10px] text-muted-foreground/70">
-            Sounds play only after your first interaction — never on hover, typing or live price updates.
-            Critical alarms (Task done) also play while UI sounds are off — mute that cue below to silence it.
+            Interaction sounds (clicks, tabs, toggles) are opt-in and off by default; they play only after your
+            first interaction — never on hover, typing or live price updates. Event notifications (AI result,
+            alerts, task done) play while UI sounds are off until you mute them in the card below.
           </p>
           <Button
             variant="outline"
@@ -306,9 +309,9 @@ export function SoundSettingsPanel() {
       {/* ── Notifications & alarms ─────────────────────────────────── */}
       <Card icon={Bell} title="Notifications & alarms">
         <p className="text-[10px] text-muted-foreground -mt-2">
-          Whether these events make a sound — decide it here. The task-done alarm is
-          critical: it plays even while UI sounds are off until you switch it off below
-          (or with the same toggles under Settings › Alerts).
+          Whether these events make a sound — decide it here. All three are event
+          notifications: they play even while UI sounds are off, so switch off the ones
+          you do not want below (or with the same toggles under Settings › Alerts).
         </p>
         <div className="space-y-3">
           {NOTIFICATION_CUES.map((name) => (

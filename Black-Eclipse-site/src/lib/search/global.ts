@@ -14,6 +14,7 @@ export interface GlobalEntityRow {
   icon: string;
   tab: string;
   params?: Record<string, string>;
+  deepLink?: string;
   subtitle: string;
 }
 
@@ -36,7 +37,11 @@ function rowToEntity(r: GlobalEntityRow): SearchEntity {
     title: r.title,
     keywords: r.keywords,
     icon: r.icon,
-    destination: { tab: r.tab as SearchEntity['destination']['tab'], params: r.params },
+    destination: {
+      tab: r.tab as SearchEntity['destination']['tab'],
+      params: r.params,
+      ...(r.deepLink ? { deepLink: r.deepLink } : {}),
+    },
     subtitle: r.subtitle,
   };
 }

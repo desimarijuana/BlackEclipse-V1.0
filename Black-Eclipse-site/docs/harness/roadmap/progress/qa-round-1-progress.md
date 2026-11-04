@@ -186,6 +186,12 @@ turns containing "repository"/"tabs"/"list" to the chat code profile, and
   sub-pages; the agent map is correct, but the palette gap is a separate
   (smaller) fix.
 
+> **Addendum (2026-11-04):** both items above are resolved. The palette registry
+> now *generates* the Memory/Skills/Journal sub-page entries from the rendered
+> tab arrays (`app-screens.ts`, `journal-tabs.ts`), all sidebar-visible screens
+> have page entries, and `registry-sync.test.ts` fails the build on drift.
+> See `docs/CHANGELOG.md` (2026-11-04, "fix(search)").
+
 ## Remaining
 
 Q2–Q6 pending.

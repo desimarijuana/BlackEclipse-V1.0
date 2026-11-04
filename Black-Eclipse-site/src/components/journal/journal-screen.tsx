@@ -2,7 +2,7 @@
 
 // ── JournalScreen — the Journal tab shell ─────────────────────────────────────
 // Hosts the sub-tab navigation (Overview / Calendar / Trades / Analytics /
-// Playbook / Reviews / Insights) and loads the shared analytics bundle once,
+// Decisions / Psychology / Playbook / Reviews / Insights / Notebook) and loads the shared analytics bundle once,
 // passing it down to each sub-screen. Keeps the analytics fetch in one place
 // so sub-screens stay pure and fast.
 
@@ -27,20 +27,25 @@ import { JournalSettings } from './journal-settings';
 import { JournalNotebook } from './notebook';
 import { AdvisoryDecisions } from './advisory-decisions';
 
-export type JournalTab = 'overview' | 'calendar' | 'trades' | 'analytics' | 'decisions' | 'psychology' | 'playbook' | 'reviews' | 'insights' | 'notebook';
+import { JOURNAL_TABS, type JournalTabId } from '@/lib/journal-tabs';
 
-const TABS: { id: JournalTab; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { id: 'calendar', label: 'Calendar', icon: CalendarDays },
-  { id: 'trades', label: 'Trades', icon: ListChecks },
-  { id: 'analytics', label: 'Analytics', icon: LineChart },
-  { id: 'decisions', label: 'Decisions', icon: ShieldCheck },
-  { id: 'psychology', label: 'Psychology', icon: Brain },
-  { id: 'playbook', label: 'Playbook', icon: BookOpen },
-  { id: 'reviews', label: 'Reviews', icon: MessageSquareText },
-  { id: 'insights', label: 'Insights', icon: Sparkles },
-  { id: 'notebook', label: 'Notebook', icon: StickyNote },
-];
+export type JournalTab = JournalTabId;
+
+const TAB_ICONS: Record<JournalTabId, React.ComponentType<{ size?: number; className?: string }>> = {
+  overview: LayoutDashboard,
+  calendar: CalendarDays,
+  trades: ListChecks,
+  analytics: LineChart,
+  decisions: ShieldCheck,
+  psychology: Brain,
+  playbook: BookOpen,
+  reviews: MessageSquareText,
+  insights: Sparkles,
+  notebook: StickyNote,
+};
+
+const TABS: { id: JournalTab; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] =
+  JOURNAL_TABS.map((t) => ({ id: t.id, label: t.label, icon: TAB_ICONS[t.id] }));
 
 export function JournalScreen() {
   const [tab, setTab] = useState<JournalTab>('overview');

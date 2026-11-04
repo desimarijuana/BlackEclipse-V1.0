@@ -1,7 +1,7 @@
 ---
 title: Architecture
 status: Current
-last-verified: 2026-11-02
+last-verified: 2026-11-04
 ---
 
 # Architecture
@@ -467,7 +467,7 @@ routes are protected by `src/lib/api-guard.ts`:
   redirect blocking, size cap) — see "The Universal Data Connector Layer".
 
 Key route groups: `stocks`, `quote`, `price-history`, `markets` (+`global`),
-`indices`, `forex`, `commodities`, `heatmap`, `news` (+`status`, `alert`),
+`indices`, `forex`, `commodities`, `heatmap`, `news` (+`status`, `alert`, `alerts`, `alerts/policy`),
 `economics` (+`snapshot`, `calendar`), `earnings`, `search` (+`global`, `index`), `agent`
 (+`chat`, `research`, `activity`), `journal/*` (largest group), `alerts/*`,
 `scraper` (+`import`), `refresh`, `settings`, `cron` (+`run`, `refresh-news`),
@@ -687,6 +687,7 @@ All in-process, all started from `src/instrumentation.ts`:
 | Price refresh | configurable, default 15 min | `src/lib/scraper/scheduler.ts` |
 | Universe sync | daily | `src/lib/scraper/scheduler.ts` |
 | News ingest | default 5 min | `src/lib/news/ingest.ts` |
+| News alert scan | after each news ingest (opt-in) | `src/lib/news/alert-scan.ts` |
 | Boot warm-up | once, prod-only by default | `src/lib/scraper/scheduler.ts` |
 | Alert monitor | polling loop | `src/lib/alerts/alertMonitor.ts` |
 | Dataset refresh | per-dataset, min 5 min | `src/lib/connectors/refresh-scheduler.ts` |
@@ -772,10 +773,16 @@ tab (count, `9+` cap) and an aggregate badge on the Terminal/Agentic/Bots menu
 switcher for tabs the active menu hides; opening a tab (the sidebar is the
 shell's visible-tab signal) marks that tab's entries read, and an entry raised
 for the visible tab is recorded read on arrival — it is already in front of the
-operator. The **browser tab itself** is the out-of-app surface, with no in-app
-bell or panel: a root-mounted `src/lib/notifications/tab-indicator.tsx` turns
-the ledger into a tab signal while anything is unread — the document title
-carries the count (`(3) BlackEclipse — …`, `(99+)` cap; pure helpers in
+operator. The header adds the **in-app notification bar**:
+`src/components/layout/notification-center.tsx` renders a bell with the unread
+count and a frosted panel listing the full ledger, filterable by kind (alerts,
+tasks, approvals, agent, bots). Selecting an entry marks its tab read and
+dispatches the shell's `be:navigate` event; **Mark all read** clears every tab
+(`markAllRead` on the store). Opening the panel alone does not mark anything
+read, so unread items stay scannable. The **browser tab itself** is the
+out-of-app surface: a root-mounted `src/lib/notifications/tab-indicator.tsx`
+turns the ledger into a tab signal while anything is unread — the document
+title carries the count (`(3) BlackEclipse — …`, `(99+)` cap; pure helpers in
 `title.ts`), the favicon becomes a red-badged copy of the LIVE icon
 (canvas-composited so a theme-customized favicon is respected; the plain icon
 returns at zero), and `navigator.setAppBadge` is set where supported. The theme
@@ -1359,6 +1366,28 @@ bus*: the palette dispatches a `Destination`, the shell subscribes to
 vocabulary (scopes/operators) is a user-facing contract — extending it means
 editing `grammar.ts` and its tests together.
 
+**What is registered, and how it stays in sync.** The registry
+(`search/registry.ts`) is the single source of truth for pages/sub-pages, but
+three of the tab bars render from shared modules and the registry *generates*
+its sub-page entries from the same arrays (`MEMORY_TABS`/`SKILLS_TABS` in
+`lib/app-screens.ts`; `JOURNAL_TABS` in `lib/journal-tabs.ts`, which the Journal
+screen also consumes) — ids, labels and aliases cannot drift. The empty-query
+"Pages" launcher is derived from `LAUNCHER_ORDER` in the registry (sidebar
+order + Bots; the old hand-maintained list had already drifted). The sync is
+**enforced by build**: `registry-sync.test.ts` fails if any `AppTab` lacks a
+top-level page (retired `chart` and the legacy `graph-studio` alias are
+allowlisted), any rendered Memory/Skills/Journal tab lacks a sub-page, or a
+sidebar section is missing from the launcher. Screens consume `Destination.subroute`
+via `useSubroute` with the `<tab>.` prefix **already stripped** by the shell —
+match on the bare slug. Server-side entities
+(`/api/search/global`: journal rows, trades, news, reports, and the user's
+**saved blueprint pages**, fetched from the Python runtime's `/sdk/pages` with
+the operator token, dashboard mirrors excluded, best-effort) are merged once
+per session; selecting a saved-page row deep-links to `/?tab=pages&page=<id>`
+and the shell pokes the keep-alive Pages screen with a synthetic `popstate`
+(the SDK's `openPage` pattern). The JDDS universe wire format is versioned by
+one shared `INDEX_VERSION` (`lib/search/index-version.ts`, client + server).
+
 **Intelligence & actions.** Beyond the resolver:
 - `resolver.ts` `expandTerms` (a curated synonym/acronym table) turns "gold",
   "us jobs data", "fed rate" into the right symbol at a score discount, so an
@@ -1544,7 +1573,8 @@ is no "API Keys", "Integrations", "Data Sources" or "AI Agent" menu overlap:
   plus a feature→provider map and the Data Sources wizard for custom APIs.
 - **Market Data** — supported markets/exchanges and the price-source fallback
   chain.
-- **News** — RSS feeds plus news API providers.
+- **News** — RSS feeds, news API providers, and the high-alert push policy
+  (enabled/min score/lookback/categories/tickers/quiet hours).
 - **System** — technical/internal only: JDDS/database status, health, all-provider
   technical view.
 
@@ -2034,14 +2064,23 @@ re-armed context is what fixes the old intermittent-silence behaviour. Every
 failure path is a silent no-op. The cue set is declared once in `config.ts`
 (`click`, `tick`, `toggle`, `success`, `error`, `notification`, `message`,
 `taskdone`) with per-cue gain, throttle, an `essential` flag and the optional
-`gainFloor` / `alwaysAudible` flags. `taskdone` is the loud completion alarm for
-a finished background task / agent run — a **critical cue**: it is treated as
-essential (a quiet mode cannot silence it), `alwaysAudible` lets it play even
-while UI sounds are switched OFF, and its `gainFloor` (0.75) keeps it audible
-over the deliberately subtle default master volume. Per-cue mute is the explicit
-opt-out (muting the Task done cue silences it in every mode; the other cues keep
-their normal master-switch behaviour). Assets live in every pack
-(`public/sounds/<pack>/taskdone.wav`). One delegated
+`notification` / `gainFloor` flags. Two classes are deliberate:
+
+* **Interaction cues** (`click`, `tick`, `toggle`, `success`, `error`) are the
+  optional click/tick "haptics". They are **strictly opt-in** — the master
+  switch defaults OFF, and a stored preference without an explicit
+  `enabled: true` cannot turn them back on.
+* **Event notifications** (`message` = AI result, `notification` = alert /
+  approval, `taskdone` = background task or automation finished) announce
+  something happening outside the current view. They play independently of the
+  interaction master switch and essential-only mode; each keeps a `gainFloor`
+  (0.5) so the deliberately subtle default volume cannot make it inaudible.
+  Per-cue mute is the explicit opt-out: `message` (AI result) and
+  `notification` (alert) are **on by default** so an AI result/alert is audible
+  without enabling the click/tick layer, while the loud `taskdone` alarm is
+  opt-in.
+
+Assets live in every pack (`public/sounds/<pack>/taskdone.wav`). One delegated
 listener plays `toggle` for `role="switch"` / checkbox / radio and `click` for
 buttons, links and menu options. Anything can opt into a precise cue with
 `data-sound="tick|click|…"`; `sound.*()` or the `eclipse:sound` CustomEvent
@@ -2053,21 +2092,24 @@ Sound is **fully customizable** through a dedicated Settings › Sound tab
 (`src/components/screens/sound-settings.tsx`), not a nested card. It exposes
 master on/off + volume, a **mode** (`all` vs `essential`, where essential mutes
 confirmations), a **voice-pack** picker, and per-cue volume / mute / custom
-upload. The notification cues (`taskdone`, `notification`) are split into their
-own **Notifications & alarms** card so the alarm decision is explicit, and the
-same two toggles are mirrored in Settings › Alerts next to the notification
-channels — both write the same `useSoundStore` per-cue prefs. Voices are bundled as local WAV packs under `public/sounds/<pack>/` —
+upload. The notification cues (`message` / AI result, `notification`,
+`taskdone`) are split into their own **Notifications & alarms** card so the
+decision is explicit, and the same toggles are mirrored in Settings › Alerts
+next to the notification channels — both write the same `useSoundStore` per-cue
+prefs. Voices are bundled as local WAV packs under `public/sounds/<pack>/` —
 `eclipse` (warm harmonic-synthesis ticks, the refreshed default), `mechanical`,
 `crisp`, `typewriter`, `soft`, `marimba`, `glass`, `digital`, `retro` — each
 providing all eight cues. The manager resolves a cue's source per play: a
 user-uploaded `custom` data URL wins, otherwise the active pack asset; the
 decoded buffer is cached by source URL, so a pack switch only re-fetches the
 sources that actually changed. All of it persists through
-the client zustand `useSoundStore` (`be_sounds_v3`; the key was bumped from
-`_v1` when UI audio became opt-in, then `_v2`→`_v3` when the cue set gained
-`message` and the engine moved to Web Audio). Sound
-is **opt-in**: defaults are OFF, 12% volume (deliberately subtle), mode `all`,
-pack `eclipse`.
+the client zustand `useSoundStore` (`be_sounds_v4`; `_v1`→`_v2` when UI audio
+first became opt-in, `_v2`→`_v3` when the cue set gained `message` and the
+engine moved to Web Audio, `_v3`→`_v4` when interaction audio became strictly
+opt-in and notification cues were split from the master switch). Interaction
+audio defaults are OFF at 12% volume (deliberately subtle), mode `all`, pack
+`eclipse`; the AI-result and alert cues are on until individually muted, and
+the task-done alarm starts muted.
 
 **Read aloud (TTS).** Spoken replies are a separate subsystem from UI cues:
 `src/lib/tts/` wraps the browser's **Web Speech API**

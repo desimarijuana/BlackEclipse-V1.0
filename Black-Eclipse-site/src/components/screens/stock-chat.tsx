@@ -416,6 +416,13 @@ function StockChatContent() {
       if (dest.deepLink) {
         try { window.history.pushState(null, '', dest.deepLink); } catch { /* ignore */ }
       }
+      // Saved-page destinations: the keep-alive Pages screen reads the URL
+      // only on mount and on `popstate`, so poke it with the same synthetic
+      // event the SDK's openPage uses — palette selection then opens the
+      // requested page even when the screen is already mounted.
+      if (tab === 'pages' && dest.params?.page) {
+        try { window.dispatchEvent(new PopStateEvent('popstate')); } catch { /* ignore */ }
+      }
     };
 
     const check = () => {

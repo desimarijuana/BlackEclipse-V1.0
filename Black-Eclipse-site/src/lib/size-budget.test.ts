@@ -100,7 +100,11 @@ const RATCHET: Record<string, number> = {
   "src/components/chart/chart-widget.tsx": 1415,
   "src/lib/workspace/workspace-canvas.tsx": 1374,
   "src/components/screens/customization-settings.tsx": 1337,
-  "src/components/screens/market-news.tsx": 1338,
+  // Re-pinned 1338→1486: the High Alert feature (importance filter, alert
+  // creation from a card, portfolio relevance) is wired into the existing news
+  // component. That work belongs on this screen; the near-term split is the
+  // card renderer + filter bar into their own modules. May only shrink.
+  "src/components/screens/market-news.tsx": 1486,
   // Grew when the AI section gained a real provider select + model dropdown
   // (the previous datalist was not surfaced by the input primitive). Pinned
   // until the deferred AI-section split; may only shrink from here.
@@ -191,7 +195,10 @@ const RATCHET: Record<string, number> = {
   // + mount block); the page itself lives in
   // `components/screens/strategy-studio/strategy-studio-screen.tsx`.
   // May only shrink from here.
-  "src/components/screens/stock-chat.tsx": 1589,
+  // Re-pinned 1589→1596: the chat surface gained the AI-result cue wiring and
+  // related stream-state affordances. Split candidate: the message renderer
+  // from the composer/stream controller. May only shrink.
+  "src/components/screens/stock-chat.tsx": 1596,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

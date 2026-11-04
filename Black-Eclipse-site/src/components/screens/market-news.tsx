@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Newspaper, Sparkles, Search, X, SlidersHorizontal, TrendingUp, TrendingDown, RefreshCw, Bookmark, Star } from '@/lib/icons';
+import { Newspaper, Sparkles, Search, X, SlidersHorizontal, TrendingUp, TrendingDown, RefreshCw, Bookmark, Star, AlertTriangle, Bell } from '@/lib/icons';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { TabBar } from '@/components/ui/tab-bar';
@@ -9,6 +9,8 @@ import { TopLoader } from '@/components/ui/top-loader';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { useListNavigation } from '@/hooks/use-list-navigation';
+import { NewsHighAlerts } from './news-high-alerts';
+import { loadPortfolioSymbols } from '@/lib/news/client-context';
 
 export interface NewsItem {
   id: string;
@@ -24,6 +26,17 @@ export interface NewsItem {
   url?: string;
   sourceCount?: number;      // story cluster: how many sources covered it
   clusterSources?: string[]; // story cluster: source names
+  // Deterministic importance fields returned by /api/news. Optional so cached
+  // payloads and the compact widget keep working unchanged.
+  importance?: number;
+  alertLevel?: 'critical' | 'high' | 'medium' | 'low';
+  importanceReasons?: string[];
+  isBreaking?: boolean;
+  confidence?: 'high' | 'medium' | 'low';
+  direction?: 'bullish' | 'bearish' | 'neutral';
+  horizon?: 'intraday' | 'days' | 'macro';
+  invalidates?: string[];
+  affected?: string[];
 }
 
 export interface NewsPulse {
@@ -101,7 +114,7 @@ export interface CardSettings {
   showTimestamp: boolean;
   glow: boolean;                 // ambient sentiment glow
   perPage: 10 | 20 | 30 | 50;    // cards per page
-  sort: 'newest' | 'oldest';     // list order
+  sort: 'newest' | 'oldest' | 'importance'; // list order
   autoRefresh: boolean;          // poll for new articles in the background
   refreshSec: 30 | 60 | 120;     // poll interval
 }
@@ -208,6 +221,11 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
   const [watchTickers, setWatchTickers] = useState<string[]>([]);
   const [savedView, setSavedView] = useState(false);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [highAlertOnly, setHighAlertOnly] = useState(false);
+  const [portfolioTickers, setPortfolioTickers] = useState<string[]>([]);
+  const [alertNotice, setAlertNotice] = useState<string | null>(null);
+  const [alertRefreshKey, setAlertRefreshKey] = useState(0);
+  const [actingAlertId, setActingAlertId] = useState<string | null>(null);
 
   const SAVED_IDS_KEY = 'be_news_saved_ids';
 
@@ -231,6 +249,9 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
     try {
       setSavedIds(new Set(JSON.parse(window.localStorage.getItem(SAVED_IDS_KEY) || '[]')));
     } catch { /* ignore */ }
+    // Portfolio holdings are best-effort (Python engine may be unavailable).
+    // When present they raise relevance for stories touching a real position.
+    void loadPortfolioSymbols().then((syms) => { if (syms.length > 0) setPortfolioTickers(syms); });
   }, []);
 
   const updateCards = (patch: Partial<CardSettings>) => {
@@ -251,19 +272,28 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
     [filters]
   );
 
-  const fetchNews = async (pageNum = 1, f: FilterState = filters, c: CardSettings = cards, opts?: { myStocks?: boolean; saved?: boolean }) => {
+  const fetchNews = async (
+    pageNum = 1,
+    f: FilterState = filters,
+    c: CardSettings = cards,
+    opts?: { myStocks?: boolean; saved?: boolean; highAlert?: boolean },
+  ) => {
     const seq = ++fetchSeqRef.current;
     setLoading(true);
     setError(null);
     try {
       const useMyStocks = opts?.myStocks ?? myStocksOnly;
-      const params = new URLSearchParams({ page: String(pageNum), limit: String(c.perPage), sort: c.sort });
+      const useHighAlert = opts?.highAlert ?? highAlertOnly;
+      const effectiveSort = useHighAlert ? 'importance' : c.sort;
+      const params = new URLSearchParams({ page: String(pageNum), limit: String(c.perPage), sort: effectiveSort });
+      if (useHighAlert) params.set('minImportance', '55');
       if (f.category) params.set('category', f.category);
       if (f.region) params.set('region', f.region);
       if (f.tier) params.set('tier', f.tier);
       if (f.sentiment) params.set('sentiment', f.sentiment);
       if (f.q) params.set('q', f.q);
       if (useMyStocks && watchTickers.length > 0) params.set('tickers', watchTickers.join(','));
+      if (portfolioTickers.length > 0) params.set('portfolio', portfolioTickers.join(','));
       const res = await fetch(`/api/news?${params.toString()}`);
       if (!res.ok) {
         // Surface the server-provided actionable message (e.g. corruption hint)
@@ -319,11 +349,39 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
       setStagedNews([]);
       setNewCount(0);
       await fetchNews(1);
+      setAlertRefreshKey((k) => k + 1);
     } catch {
       // refresh trigger failure is non-fatal; list refresh alone is fine
       await fetchNews(1);
+      setAlertRefreshKey((k) => k + 1);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  // One-click price watch from any card with a resolved ticker. Reuses the
+  // existing /api/news/alert endpoint (previously orphaned).
+  const createPriceAlert = async (item: NewsItem) => {
+    if (!item.ticker) return;
+    setActingAlertId(item.id);
+    setAlertNotice(null);
+    try {
+      const direction = item.sentiment === 'bearish' ? 'down' : 'up';
+      const res = await fetch('/api/news/alert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker: item.ticker, direction, movePct: 2 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setAlertNotice(
+        res.ok
+          ? `Price watch created for ${item.ticker} (${direction} ≥ 2%).`
+          : data?.error || 'Could not create the price watch.',
+      );
+    } catch {
+      setAlertNotice('Could not create the price watch.');
+    } finally {
+      setActingAlertId(null);
     }
   };
 
@@ -342,6 +400,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
     setPendingQ(next.q);
     setMyStocksOnly(false);
     setSavedView(false);
+    setHighAlertOnly(false);
     setFilters(next);
     fetchNews(1, next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -353,6 +412,9 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
   // instead of yanking the list out from under the user. Only polls while
   // the tab is visible; refetches immediately when the tab regains focus.
   const pollForNew = async () => {
+    // Importance ranking reorders the window, so "N new articles" staging does
+    // not apply. The High Alert band has its own refresh loop.
+    if (highAlertOnly || cards.sort === 'importance') return;
     try {
       const params = new URLSearchParams({ page: '1', limit: String(cards.perPage), sort: cards.sort });
       if (filters.category) params.set('category', filters.category);
@@ -467,6 +529,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
     setPendingQ('');
     setMyStocksOnly(false);
     setSavedView(false);
+    setHighAlertOnly(false);
     applyFilters(EMPTY_FILTERS);
   };
 
@@ -553,6 +616,22 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
             <div className="p-2.5 bg-amber-400/5 border border-amber-400/20 rounded-xl">
               <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider block mb-1">Story Coverage</span>
               <p className="text-[11px] text-foreground">{(selectedNews.clusterSources || []).join(' · ')}</p>
+            </div>
+          )}
+          {selectedNews.importanceReasons && selectedNews.importanceReasons.length > 0 && (
+            <div className="p-2.5 bg-primary/5 border border-primary/20 rounded-xl">
+              <span className="text-[10px] uppercase font-bold text-primary tracking-wider block mb-1">
+                Why this is flagged · signal, not advice
+              </span>
+              <p className="text-[11px] text-foreground">{selectedNews.importanceReasons.join(' · ')}</p>
+              <p className="text-[10px] text-muted-foreground mt-1 font-mono">
+                {selectedNews.direction || selectedNews.sentiment} bias · {selectedNews.confidence || 'low'} confidence · {selectedNews.horizon || 'days'} horizon
+              </p>
+              {selectedNews.invalidates && selectedNews.invalidates[0] && (
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  What would change this: {selectedNews.invalidates[0]}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -685,6 +764,15 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
   if (fullPage) {
     return (
       <div ref={rootRef} data-keyboard-scope="Market news" className="w-full flex flex-col gap-6 select-none">
+        {/* ─── High Alert band — the strongest market-moving stories ─── */}
+        <NewsHighAlerts
+          watchlist={watchTickers}
+          portfolio={portfolioTickers}
+          active={active}
+          refreshKey={alertRefreshKey}
+          onDiscuss={onDiscussNews}
+        />
+
         {/* ─── Filter Bar ─── */}
         <div className="w-full rounded-2xl border border-border/10 glass-card p-4 flex flex-col lg:flex-row lg:items-center gap-3">
           <form
@@ -721,10 +809,28 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => {
+                const next = !highAlertOnly;
+                setHighAlertOnly(next);
+                setMyStocksOnly(false);
+                setSavedView(false);
+                fetchNews(1, filters, cards, { highAlert: next, myStocks: false, saved: false });
+              }}
+              title="Only market-moving stories (importance score ≥ 55), strongest first"
+              className={`h-9 px-3 rounded-lg text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors border ${
+                highAlertOnly
+                  ? 'bg-amber-400/15 text-amber-300 border-amber-400/40'
+                  : 'bg-accent/30 text-muted-foreground border-border/30 hover:text-foreground'
+              }`}
+            >
+              <AlertTriangle size={12} weight={highAlertOnly ? 'fill' : 'regular'} /> High alert
+            </button>
+            <button
+              onClick={() => {
                 const next = !myStocksOnly;
                 setMyStocksOnly(next);
                 setSavedView(false);
-                fetchNews(1, filters, cards, { myStocks: next, saved: false });
+                setHighAlertOnly(false);
+                fetchNews(1, filters, cards, { myStocks: next, saved: false, highAlert: false });
               }}
               disabled={watchTickers.length === 0}
               title={watchTickers.length === 0 ? 'Add tickers to your watchlist first' : `Articles matching your ${watchTickers.length} watchlist tickers`}
@@ -741,7 +847,8 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                 const next = !savedView;
                 setSavedView(next);
                 setMyStocksOnly(false);
-                fetchNews(1, filters, cards, { myStocks: false, saved: next });
+                setHighAlertOnly(false);
+                fetchNews(1, filters, cards, { myStocks: false, saved: next, highAlert: false });
               }}
               title={savedIds.size === 0 ? 'Bookmark articles with the ribbon icon' : `${savedIds.size} bookmarked articles`}
               className={`h-9 px-3 rounded-lg text-[12px] font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors border ${
@@ -914,7 +1021,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                 ))}
                 <span className="mx-2 w-px self-stretch bg-border/60" aria-hidden />
                 <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider self-center">Sort:</span>
-                {(['newest', 'oldest'] as const).map((s) => (
+                {(['newest', 'oldest', 'importance'] as const).map((s) => (
                   <button
                     key={s}
                     onClick={() => {
@@ -925,7 +1032,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                       cards.sort === s ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent/40'
                     }`}
                   >
-                    {s}
+                    {s === 'importance' ? 'High alert' : s}
                   </button>
                 ))}
                 <span className="mx-2 w-px self-stretch bg-border/60" aria-hidden />
@@ -1039,6 +1146,12 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
           </button>
         )}
 
+        {alertNotice && (
+          <div className="flex items-center gap-1.5 px-1 font-mono text-[10px] text-muted-foreground">
+            <Bell size={11} className="text-primary" /> {alertNotice}
+          </div>
+        )}
+
         <div className={`${CARD_COLUMNS_CLASS[cards.columns]} grid gap-4.5 w-full`}>
           {newsList.length === 0 && (
             <div className="w-full text-center py-12 font-mono text-xs text-muted-foreground border border-dashed border-border/25 rounded-2xl glass-card-subtle">
@@ -1133,6 +1246,21 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                           ×{item.sourceCount} sources
                         </span>
                       )}
+                      {item.alertLevel === 'critical' && (
+                        <span className="text-[10px] font-bold text-rose-300 font-mono bg-rose-500/10 border border-rose-500/35 px-2 py-0.5 rounded">
+                          CRITICAL
+                        </span>
+                      )}
+                      {item.alertLevel === 'high' && (
+                        <span className="text-[10px] font-bold text-amber-300 font-mono bg-amber-400/10 border border-amber-400/30 px-2 py-0.5 rounded">
+                          HIGH ALERT
+                        </span>
+                      )}
+                      {item.isBreaking && (
+                        <span className="text-[10px] font-bold text-rose-300 font-mono bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 rounded">
+                          BREAKING
+                        </span>
+                      )}
                       {cards.showTimestamp && (
                         <span className="text-[10px] text-muted-foreground font-mono">{relativeTime(item.timestamp)}</span>
                       )}
@@ -1183,6 +1311,16 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                     >
                       <Bookmark size={13} weight={savedIds.has(item.id) ? 'fill' : 'regular'} />
                     </button>
+                    {item.ticker && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); void createPriceAlert(item); }}
+                        disabled={actingAlertId === item.id}
+                        className="h-8 w-8 rounded-lg border border-border hover:bg-accent text-muted-foreground inline-flex items-center justify-center cursor-pointer transition-colors disabled:opacity-40"
+                        title={`Create a price watch for ${item.ticker}`}
+                      >
+                        <Bell size={13} />
+                      </button>
+                    )}
                     <span className="flex-1" />
                     <Button
                       size="sm"
@@ -1299,6 +1437,16 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                   {item.ticker && (
                     <span className="text-[10px] font-extrabold text-primary font-mono bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded">
                       {item.ticker}
+                    </span>
+                  )}
+                  {item.alertLevel === 'critical' && (
+                    <span className="text-[9px] font-bold text-rose-300 font-mono bg-rose-500/10 border border-rose-500/30 px-1.5 py-0.5 rounded">
+                      CRITICAL
+                    </span>
+                  )}
+                  {item.alertLevel === 'high' && (
+                    <span className="text-[9px] font-bold text-amber-300 font-mono bg-amber-400/10 border border-amber-400/30 px-1.5 py-0.5 rounded">
+                      HIGH
                     </span>
                   )}
                 </div>

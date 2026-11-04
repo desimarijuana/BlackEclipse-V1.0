@@ -48,12 +48,17 @@ export interface SoundDefinition {
    */
   gainFloor?: number;
   /**
-   * Critical alarm. Plays even while UI sounds are switched OFF (per-cue
-   * mute and volume still apply — muting the cue is the explicit way to
-   * silence it). Reserved for events the operator must not miss, e.g. a
-   * finished background task.
+   * Event-notification cue (AI result, alert, background-task completion).
+   * These play independently of the "UI sounds" master switch and of the
+   * essential-only mode, because they announce something happening outside
+   * the current view — the whole point of a notification. The per-cue mute
+   * is the explicit opt-out and is what keeps them off for anyone who does
+   * not want them.
+   *
+   * Direct-interaction cues (click/tick/toggle) remain opt-in: `enabled`
+   * defaults to false, so nothing "haptic" fires until the user turns it on.
    */
-  alwaysAudible?: boolean;
+  notification?: boolean;
 }
 
 export const SOUND_DEFINITIONS: Record<SoundName, SoundDefinition> = {
@@ -62,14 +67,14 @@ export const SOUND_DEFINITIONS: Record<SoundName, SoundDefinition> = {
   toggle: { label: 'Toggle', hint: 'Switches and checkboxes', volume: 0.9, throttleMs: 60, essential: true },
   success: { label: 'Success', hint: 'Completed actions', volume: 1, throttleMs: 120, essential: false },
   error: { label: 'Error', hint: 'Failed actions', volume: 1, throttleMs: 120, essential: false },
-  notification: { label: 'Notification', hint: 'Alerts and system events', volume: 1, throttleMs: 400, essential: false },
-  message: { label: 'Message', hint: 'An incoming chat reply has finished', volume: 1, throttleMs: 300, essential: false },
-  // The loud completion alarm. Treated as essential so a quiet
-  // "essential-only" mode cannot silence it, `alwaysAudible` so the master
-  // switch cannot either, and `gainFloor` keeps it audible over the
-  // (deliberately subtle) default master volume. Muting this one cue in
-  // Settings › Sound remains the explicit opt-out.
-  taskdone: { label: 'Task done', hint: 'A background task or agent run has finished — critical, plays even while sounds are off', volume: 1, throttleMs: 2500, essential: true, gainFloor: 0.75, alwaysAudible: true },
+  notification: { label: 'Alert', hint: 'A price or news alert fired, or an approval is waiting', volume: 1, throttleMs: 400, essential: false, notification: true, gainFloor: 0.5 },
+  message: { label: 'AI result', hint: 'An Eclipse reply or AI run has finished', volume: 1, throttleMs: 300, essential: false, notification: true, gainFloor: 0.5 },
+  // The completion alarm for a background task or automation. It is an event
+  // notification (not interaction feedback), so it stays audible while UI
+  // sounds are off — but it is not "always audible at full blast": it uses the
+  // same quiet gain floor as the other notification cues, and muting it in
+  // Settings › Sound is the explicit opt-out.
+  taskdone: { label: 'Task done', hint: 'A background task or automation has finished', volume: 1, throttleMs: 2500, essential: true, notification: true, gainFloor: 0.5 },
 };
 
 // ── Voice packs ─────────────────────────────────────────────────────────────

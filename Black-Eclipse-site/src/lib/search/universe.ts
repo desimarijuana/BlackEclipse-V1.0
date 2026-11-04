@@ -5,6 +5,7 @@
 // network entirely. No LLM, no per-keystroke I/O.
 
 import type { SearchEntity } from './types';
+import { INDEX_VERSION } from './index-version';
 
 // FlexSearch 0.7 runtime exposes a named `Index` constructor (runtime has it,
 // but the bundled TS types only declare the default `FlexSearch` class with
@@ -60,7 +61,6 @@ interface UniversePayload {
 }
 
 const STORAGE_KEY = 'black-eclipse:universe-index';
-const INDEX_VERSION = '2.0.0';
 
 let doc: FlexIndex | null = null;
 let rows: UniverseRow[] = [];

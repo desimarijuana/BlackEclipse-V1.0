@@ -264,7 +264,13 @@ def _admit_collect_tools(inner: Any) -> Any:
 # binding, the autonomy profile and the grant; the tool persists to the user's own
 # store. Admitted at this seam so an advertised tool is never dead. (The audit's
 # visibility scan flags the class; adding a name here is the ONE change needed.)
-_ADMIT_LOCAL_WRITES: frozenset[str] = frozenset({"learning_progress_update"})
+_ADMIT_LOCAL_WRITES: frozenset[str] = frozenset({
+    "learning_progress_update",
+    # ML registry/local-artifact writes: the HANDLER enforces the workspace
+    # binding and records every transition as an approval event + audit row.
+    "ml_finetune_adapter",
+    "ml_transition_model",
+})
 
 
 def _admit_local_writes(inner: Any) -> Any:
