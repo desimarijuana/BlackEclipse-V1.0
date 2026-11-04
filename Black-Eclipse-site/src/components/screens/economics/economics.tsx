@@ -3,6 +3,7 @@
 import React, { useRef, useState } from 'react';
 import { Globe, LineChart, Activity, CalendarDays } from '@/lib/icons';
 import { TabBar } from '@/components/ui/tab-bar';
+import { PageHeader } from '@/components/layout/page-header';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { ECON_SOURCES } from '@/lib/economics/sources';
 import { useSubroute } from '@/hooks/use-subroute';
@@ -67,17 +68,12 @@ export function EconomicsScreen() {
       <div className="animate-fade-in-up flex flex-col gap-6">
         {/* ── Hero ─────────────────────────────────────────────── */}
         <section>
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-              <Globe className="text-primary" size={26} />
-            </div>
-            <h1 className="font-serif text-3xl md:text-4xl font-semibold tracking-tight text-foreground">
-              Economics
-            </h1>
-          </div>
-          <p className="text-[15px] text-muted-foreground mt-3 max-w-[60ch] leading-relaxed">
-            Snapshot, explore and calendar the global macro picture. Every value carries its source and vintage — nothing fabricated.
-          </p>
+          <PageHeader
+            icon={Globe}
+            title="Economics"
+            description="Snapshot, explore and calendar the global macro picture. Every value carries its source and vintage — nothing fabricated."
+            size="lg"
+          />
         </section>
 
         {/* ── Section tabs ─────────────────────────────────────── */}

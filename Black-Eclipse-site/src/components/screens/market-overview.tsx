@@ -10,6 +10,7 @@ import {
 } from '@/lib/icons';
 import { Button } from '@/components/ui/button';
 import { TabBar } from '@/components/ui/tab-bar';
+import { PageHeader } from '@/components/layout/page-header';
 import { TradingViewChart } from './tradingview-chart';
 import { cn } from '@/lib/utils';
 import { TopLoader } from '@/components/ui/top-loader';
@@ -1178,27 +1179,22 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
       
       {/* Page Title Header */}
       {!embedded && (
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 animate-fade-in-up border-b border-border/20 pb-6 mb-4">
-          <div>
-            <h1 className="font-serif text-3xl md:text-4xl font-medium tracking-tight text-foreground flex items-center gap-3">
-              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-                <GlobeStand className="text-primary" size={32} />
-              </span>
-              Market Discover
-            </h1>
-            <p className="text-muted-foreground text-sm mt-2">
-              Real-time asset indices, sector breakdowns, high-fidelity stock databases, and automated AI analysis.
-            </p>
-          </div>
-          
-          <div className="flex items-center gap-2 glass-card-subtle p-1.5 rounded-3xl border border-border/40 shrink-0 self-start md:self-auto">
-            <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Market:</span>
-            <select
-              value={userCountry === 'CRYPTO' ? 'CRYPTO' : (userCountry === 'GLOBAL' && screenerTab === 'stocks') ? 'USA' : userCountry === 'US' ? 'USA' : userCountry}
-              onChange={e => handleMarketSelect(e.target.value)}
-              className="bg-background border border-border/60 hover:border-primary/50 rounded-3xl px-3 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer font-semibold"
-              title="Select country to load market data"
-            >
+        <PageHeader
+          icon={GlobeStand}
+          title="Market Discover"
+          description="Real-time asset indices, sector breakdowns, high-fidelity stock databases, and automated AI analysis."
+          size="lg"
+          className="animate-fade-in-up pb-6 mb-4 border-border/20"
+          actions={
+            <div className="flex flex-col items-end gap-1 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 glass-card-subtle p-1.5 rounded-3xl border border-border/40">
+                <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Market:</span>
+                <select
+                  value={userCountry === 'CRYPTO' ? 'CRYPTO' : (userCountry === 'GLOBAL' && screenerTab === 'stocks') ? 'USA' : userCountry === 'US' ? 'USA' : userCountry}
+                  onChange={e => handleMarketSelect(e.target.value)}
+                  className="bg-background border border-border/60 hover:border-primary/50 rounded-3xl px-3 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary outline-none transition-all cursor-pointer font-semibold"
+                  title="Select country to load market data"
+                >
               <option value="GLOBAL">Global Market</option>
               <option value="USA">United States</option>
               <option value="CN">China</option>
@@ -1241,14 +1237,16 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
             >
               <RefreshCw className={cn("w-3.5 h-3.5 mr-1", refreshing && 'animate-spin')} />
               {refreshing ? 'Refreshing...' : 'Refresh Prices'}
-            </Button>
-          </div>
-          {refreshMsg && (
-            <div className="text-[10px] text-muted-foreground font-mono mt-1 text-right">
-              {refreshMsg}
+              </Button>
+              </div>
+              {refreshMsg && (
+                <div className="text-[10px] text-muted-foreground font-mono text-right">
+                  {refreshMsg}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          }
+        />
       )}
 
       {/* Earnings Calendar — embedded at the top of the screener (no separate page). */}

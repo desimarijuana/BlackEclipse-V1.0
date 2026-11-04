@@ -9,6 +9,7 @@ import {
   AlertCircle, Brain, Database, Loader2, MessageSquare, Wrench,
 } from "@/lib/icons";
 import { cn } from "@/lib/utils";
+import { IconBadge } from "@/components/layout/page-header";
 import type { MemoryRecord } from "@/lib/harness/eclipse-memory-types";
 
 // ── The three-part mental model (facts / session history / skills) ───────────
@@ -69,9 +70,7 @@ export function OriginBadge({ memory }: { memory: Pick<MemoryRecord, "authority"
 export function Header({ title, hint }: { title: string; hint: string }) {
   return (
     <div className="mb-5 flex items-center gap-3">
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-        <Brain className="text-primary" size={22} />
-      </span>
+      <IconBadge icon={Brain} size="sm" />
       <div>
         <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">{title}</h2>
         <p className="text-xs text-muted-foreground mt-1 leading-relaxed max-w-2xl">{hint}</p>

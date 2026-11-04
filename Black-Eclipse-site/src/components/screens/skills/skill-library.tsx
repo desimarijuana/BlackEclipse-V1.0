@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { SkillSummary } from "@/lib/harness/skills-types";
 import { EvalBadge, LoadingState, RiskBadge, StatusBadge } from "./skill-ui";
+import { IconBadge } from "@/components/layout/page-header";
 
 const CATEGORIES = ["all", "research", "quality", "finance", "system"] as const;
 const STATUSES = ["all", "enabled", "validated", "testing", "draft", "disabled", "deprecated", "archived", "rejected"] as const;
@@ -72,9 +73,7 @@ export function SkillLibrary({
     <div className="animate-fade-in-up">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-            <Blocks className="text-primary" size={22} />
-          </span>
+          <IconBadge icon={Blocks} size="sm" />
           <div>
             <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Skills Library</h2>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed max-w-lg">

@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChartCandlestick, Copy, GripVertical, Maximize2, Minimize2, Trash2, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { IconBadge } from '@/components/layout/page-header';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { canHandleKeyboardEvent, isKeyboardScopeVisible, matchesShortcut } from '@/lib/keyboard';
 import { chartIdentity, dataManager } from '@/lib/chart/subscription-manager';
@@ -636,9 +637,7 @@ export function MarketWorkspace({ className, onRequestExitFullPage, embedded = f
       {!embedded && !fullPage && (
         <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-border/10 pb-3">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/15 shadow-sm shadow-primary/10">
-              <ChartCandlestick className="text-primary" size={18} />
-            </span>
+            <IconBadge icon={ChartCandlestick} size="sm" />
             <div className="min-w-0">
               <h1 className="font-serif text-xl font-semibold tracking-tight text-foreground">Chart Workspace</h1>
               <p className="text-[11px] text-muted-foreground">

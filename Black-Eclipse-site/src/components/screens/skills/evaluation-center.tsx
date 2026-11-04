@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { SkillEvaluationRecord, SkillSummary } from "@/lib/harness/skills-types";
 import { EvalBadge, formatWhen, LoadingState, Panel } from "./skill-ui";
+import { IconBadge } from "@/components/layout/page-header";
 
 export function EvaluationCenter({
   skills,
@@ -54,9 +55,7 @@ export function EvaluationCenter({
     <div className="animate-fade-in-up">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-            <FlaskConical className="text-primary" size={22} />
-          </span>
+          <IconBadge icon={FlaskConical} size="sm" />
           <div>
             <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Evaluation Center</h2>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed max-w-lg">

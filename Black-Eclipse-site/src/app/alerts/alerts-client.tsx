@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { TabBar } from "@/components/ui/tab-bar";
+import { PageHeader } from "@/components/layout/page-header";
 import { useSubroute } from "@/hooks/use-subroute";
 import { sound } from "@/lib/sounds";
 import { HEATMAP_MARKETS } from "@/lib/heatmap";
@@ -275,25 +276,21 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
     <div ref={rootRef} data-keyboard-scope="Alerts" className="space-y-8 p-6 md:p-10 font-sans bg-transparent min-h-full text-foreground animate-in fade-in duration-500 relative overflow-x-hidden w-full">
 
       {/* ─── HEADER ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-border/40 pb-6">
-        <div>
-          <h1 className="text-3xl md:text-4xl font-serif font-semibold tracking-tight flex items-center gap-3 flex-wrap">
-            <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-              <Bell className="text-primary" size={30} />
-            </span>
-            Price &amp; Condition Alerts
-          </h1>
-          <p className="text-muted-foreground text-sm mt-2">
-            Watch prices, volumes and indicators — get notified on Telegram, Discord, ntfy or any webhook when conditions fire.
-          </p>
-        </div>
-        <Button
-          onClick={startCreating}
-          className="cursor-pointer rounded-xl gap-1.5 shrink-0"
-        >
-          <Plus className="w-3.5 h-3.5" /> New Watch
-        </Button>
-      </div>
+      <PageHeader
+        icon={Bell}
+        title="Price & Condition Alerts"
+        description="Watch prices, volumes and indicators — get notified on Telegram, Discord, ntfy or any webhook when conditions fire."
+        size="lg"
+        className="border-border/40 pb-6"
+        actions={
+          <Button
+            onClick={startCreating}
+            className="cursor-pointer rounded-xl gap-1.5 shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" /> New Watch
+          </Button>
+        }
+      />
 
       {/* ─── STAT CARDS ─────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

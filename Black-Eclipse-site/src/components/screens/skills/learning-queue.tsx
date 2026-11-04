@@ -13,6 +13,7 @@ import { PaginationFooter, usePagination } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import type { LearningCandidate } from "@/lib/harness/skills-types";
 import { formatWhen, LoadingState, Panel } from "./skill-ui";
+import { IconBadge } from "@/components/layout/page-header";
 
 const TYPE_LABEL: Record<string, string> = {
   failure_recovery: "Failure recovery",
@@ -57,9 +58,7 @@ export function LearningQueue({
     <div className="animate-fade-in-up">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-            <Lightbulb className="text-primary" size={22} />
-          </span>
+          <IconBadge icon={Lightbulb} size="sm" />
           <div>
             <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Learning Queue</h2>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed max-w-lg">

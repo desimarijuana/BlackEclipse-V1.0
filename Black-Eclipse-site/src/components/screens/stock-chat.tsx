@@ -14,6 +14,7 @@ import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav';
 import { MobileDockHost } from '@/components/layout/mobile-dock-host';
 import { useIsMobile } from '@/hooks/use-media-query';
 import { EmptyState } from '@/components/chat/empty-state';
+import { PageHeader } from '@/components/layout/page-header';
 import { ChatHistory } from '@/components/chat/chat-history';
 import { ChatInput } from '@/components/chat/chat-input';
 import { ApprovalCard } from '@/components/chat/approval-card';
@@ -1322,15 +1323,13 @@ function StockChatContent() {
             <div className={cn('w-full h-full', activeTab === 'news' ? '' : 'hidden')}>
               <div className="flex-1 w-full px-4 md:px-8 py-8 overflow-y-auto h-full pb-20">
                 <div className="animate-fade-in-up w-full h-full flex flex-col">
-                  <div className="mb-6 flex flex-col gap-3 border-b border-border/10 pb-3 sm:flex-row sm:items-center">
-                    <div className="hidden h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10 sm:flex">
-                      <Newspaper className="text-primary" size={30} />
-                    </div>
-                    <div>
-                      <h1 className="font-serif text-xl font-semibold tracking-tight text-foreground sm:text-2xl">Market News & Bulletins</h1>
-                      <p className="text-muted-foreground text-xs mt-0.5">Live updates, professional ratings indicators, and direct discuss-to-chat triggers.</p>
-                    </div>
-                  </div>
+                  <PageHeader
+                    icon={Newspaper}
+                    title="Market News & Bulletins"
+                    description="Live updates, professional ratings indicators, and direct discuss-to-chat triggers."
+                    size="lg"
+                    className="mb-6 pb-3 sm:flex-row"
+                  />
                   <MarketNews
                     onDiscussNews={handleDiscussNews}
                     onAnalyzeTicker={handleChartTicker}

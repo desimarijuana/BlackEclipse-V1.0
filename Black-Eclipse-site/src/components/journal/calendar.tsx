@@ -6,6 +6,7 @@ import React, { useMemo, useState, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { ChevronLeft, ChevronRight, Plus, CalendarRange, Trophy, Percent } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { IconBadge } from '@/components/layout/page-header';
 import { MonthCalendar } from './month-calendar';
 import { QuickAddTrade } from './quick-add-trade';
 import { CsvImport } from './csv-import';
@@ -93,9 +94,7 @@ export function JournalCalendar({ trades, onSelectDay, onChanged }: CalendarProp
       {/* Header + navigation */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-            <CalendarRange className="text-primary" size={22} />
-          </span>
+          <IconBadge icon={CalendarRange} size="sm" />
           <div className="min-w-0">
             <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Trading Calendar</h2>
             <p className="text-xs text-muted-foreground mt-0.5">Click any day to open its journal and review the trades taken.</p>

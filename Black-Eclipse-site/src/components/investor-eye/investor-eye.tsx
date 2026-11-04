@@ -15,6 +15,7 @@ import { IE_COMPANIES_TOPIC, registerEconomyTopic, registerStateTopic } from '@/
 import { buildAllLayers, type LayerId } from '@/lib/investor-eye/layers';
 import { TIME_RANGES, timeRangeHours, useInvestorEyeStore } from '@/lib/investor-eye/store';
 import { formatClock } from '@/lib/investor-eye/format';
+import { IconBadge } from '@/components/layout/page-header';
 import { useDisplayTimeZone } from '@/lib/timezone';
 import { countryByIso2 } from '@/lib/investor-eye/countries';
 import { conflictCoverage } from '@/lib/investor-eye/coverage';
@@ -338,9 +339,7 @@ export function InvestorEyeScreen() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/15">
-            <ScanEye className="text-primary" size={18} />
-          </div>
+          <IconBadge icon={ScanEye} size="sm" />
           <div>
             <h1 className="font-serif text-base font-semibold leading-none tracking-tight text-foreground">
               Investor Eye

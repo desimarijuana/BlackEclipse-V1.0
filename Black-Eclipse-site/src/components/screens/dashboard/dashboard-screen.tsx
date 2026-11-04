@@ -31,6 +31,7 @@ import {
 import { loadWorkspace, saveWorkspace } from '@/lib/workspace/persistence';
 import type { WorkspaceLayout } from '@/lib/workspace/types';
 import { TopBar } from '@/components/layout/top-bar';
+import { PageHeader } from '@/components/layout/page-header';
 import { AuroraGlow } from '@/components/layout/aurora-glow';
 import { DashboardOnboarding, type OnboardingResult } from './onboarding';
 import { MarketTabs } from './market-tabs';
@@ -460,22 +461,23 @@ export function DashboardScreen({ active = true }: { active?: boolean }) {
   return (
     <div ref={rootRef} data-keyboard-scope="Command Center" className="animate-fade-in-up w-full">
       {/* Header + toolbar — denser than a content page; this is a dashboard. */}
-      <div className="mb-3 flex flex-wrap items-center gap-3 border-b border-border/10 pb-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-          <LayoutDashboard className="text-primary" size={20} />
-        </div>
-        <div className="min-w-0">
-          <h1 className="font-serif text-xl font-semibold tracking-tight text-foreground">Command Center</h1>
-          <p className="text-muted-foreground text-[11px] mt-0.5 hidden sm:block">Arrange widgets, sections and columns to suit how you trade.</p>
-          {dashboardLocked && (
-            <span className="mt-1 inline-flex items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide text-amber-300">
-              <Lock size={9} /> Locked
-            </span>
-          )}
-        </div>
-
-        {/* Dashboard switcher */}
-        <div className="relative ml-auto">
+      <PageHeader
+        icon={LayoutDashboard}
+        title="Command Center"
+        description={
+          <>
+            <p className="hidden sm:block">Arrange widgets, sections and columns to suit how you trade.</p>
+            {dashboardLocked && (
+              <span className="mt-1 inline-flex items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wide text-amber-300">
+                <Lock size={9} /> Locked
+              </span>
+            )}
+          </>
+        }
+        actions={
+          <>
+          {/* Dashboard switcher */}
+        <div className="relative">
           <button
             onClick={() => setSwitcherOpen(v => !v)}
             className="glass-button inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold text-muted-foreground hover:text-primary transition-all cursor-pointer"
@@ -644,7 +646,10 @@ export function DashboardScreen({ active = true }: { active?: boolean }) {
             <RotateCcw size={13} /> <span className="hidden sm:inline">Reset</span>
           </button>
         </div>
-      </div>
+          </>
+        }
+        className="mb-3"
+      />
 
       {/* Market tabs — pick a country/market; each keeps its own widget layout. */}
       <MarketTabs />

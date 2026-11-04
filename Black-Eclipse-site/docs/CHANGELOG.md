@@ -1,6 +1,48 @@
 # Change Log
 
 ## 2026-11-04
+- **ui(consistency): every title icon is now one shared frosted tile.** Extracted
+  `IconBadge` + `PageHeader` into `src/components/layout/page-header.tsx` (neutral
+  `border-foreground/10 bg-foreground/[0.06]`, icon 22/26/30 at three sizes) and
+  pointed `SectionHeader` at the same primitive. All page-title headers (Command
+  Center, Market Discover, Market Bubbles, Alerts, Journal, Portfolio, Economics,
+  Chart Workspace, News, Investor Eye) and the drifted Settings sections
+  (Analytics, MCP, Sidebar, Alerts, Security, AI active setup) now use it; the
+  ad-hoc `border-primary/25 bg-primary/15` title tiles are gone. Also normalised
+  Aurora Colors, Data Sources, Charts, Volume Analytics and the New-layout dialog.
+  Icons moved out of `<h1>` text for correct accessible names. no doc change —
+  visual consistency refactor; no architecture, contract, setup or decision
+  changed.
+- **feat(dashboard): the Home brief shows your broker — read-only.** New
+  **Trading** section on the `home` tab (`home-trading-cards.tsx`): broker-reported
+  equity/balance, today's P&L split (deals since local midnight + floating, labelled
+  broker-reported), open positions, working orders, margin-based risk (margin level
+  bands, usage bar, free margin, per-symbol lot breakdown) and the journal edge
+  (win rate, profit factor, net P&L, discipline — all journal trades, labelled
+  not broker-verified). Read-only by design; account mutations stay in the broker
+  console / Quick Trade where the arm + approval gates live. No broker connected
+  renders a slim connect CTA (Settings → Broker connection); a failed read names
+  the broker's reason. Section is hide/reorderable via Customize; placed first for
+  the trader lens. The broker read path was extracted from the Command Center
+  widgets into `src/lib/dashboard/use-broker-snapshot.ts` (10s dedupe, 15s poll,
+  IPC-aware) shared by both surfaces; section data comes from
+  `use-trading-home-data.ts` + pure `trading-home-model.ts` (broker deals, margin
+  health, exposure — unit-tested). Docs updated: `docs/trading.md`,
+  `docs/NAVIGATION.md`, `docs/OVERVIEW.md` (stale "UNAVAILABLE stubs" line),
+  `docs/CHANGELOG.md`.
+- **feat(workflows): the ChatBot can create a saved Graph Studio workflow from a
+  one-line idea.** Added the `create_workflow` agent tool
+  (`python/harness/graph_tools.py`, admitted by `make_graph_authorizer` in the
+  one effect chain and narrowed at `plan_only` via `GRAPH_WRITE_TOOLS`) and the
+  front-door `POST /api/workflows/generate` route, which resolves the model
+  credentials, runs the SAME validated chat-to-graph planner the gallery uses,
+  re-validates the IR and writes it through the normal workflow store. A rejected
+  plan is reported with its diagnostics and nothing is saved; the tool never runs
+  the graph. The gallery now refreshes when its keep-alive tab becomes visible
+  again, so a chat-created workflow appears without a reload. Tests:
+  `python/tests/test_graph_create_tool.py`, `src/app/api/workflows/generate/route.test.ts`.
+  Docs updated: `docs/graph-studio.md`, `docs/agentic-overview.md`,
+  `docs/CHANGELOG.md`.
 - **fix(sound): the AI-result cue is now a calm, dedicated voice instead of the
   old 0.6s high-RMS message asset.** Added a pack-independent AI-result sound
   set at `public/sounds/message/` (`chime` default, `marimba`, `glass`, `blip`)
@@ -91,14 +133,31 @@
   theme/Aurora tests. Docs updated: `docs/DECISIONS.md` (ADR-068),
   `skills/ARCHITECT.md` (ADR-068), `docs/OVERVIEW.md`, `docs/GLOSSARY.md`,
   `skills/IMPRINT.md`, `docs/CHANGELOG.md`.
-- **fix(settings): the Persona tab no longer feels cramped.** The fixed 260px
-  persona rail plus editor inside the `max-w-3xl` settings column left the form
-  ~480px wide with 9–11px type. It is now a wrapping two-up tile picker above a
-  full-width editor, with 13px inputs, 12px body, roomier padding and a taller
-  instruction box; the redundant inner `SubSection` heading is gone because the
-  page already renders `SectionHeader`. Behaviour, API calls and the draft/active
-  rules are unchanged. No doc change — presentation-only layout fix.
+- **feat(settings): the Persona tab is a proper persona library.** The fixed
+  260px rail plus editor inside the `max-w-3xl` settings column squeezed the form
+  into ~480px with 9–11px type. Persona now gets a wider `max-w-5xl` canvas (only
+  that section), a master–detail layout with a 280px library rail of avatar rows
+  and a roomy editor: 13px inputs, a bordered instruction-overlay editor with the
+  character budget in its header, version history with numbered version chips,
+  and a preview that opens beneath the editor. The duplicated inner `SubSection`
+  heading is gone because the page already renders `SectionHeader`. Behaviour,
+  API calls and the draft/active rules are unchanged. No doc change —
+  presentation-only layout fix.
 - **fix(search): ⌘K is complete again — every screen and sub-page is reachable, and drift fails the build.** The palette registry had silently fallen behind the rendered UI: Memory declared 8 of 16 sub-tabs (with stale labels), Skills missed Maintenance, Journal missed Decisions and Notebook, and sidebar-visible screens (Eclipse SDK, Artifacts, Tables, Graph Studio) had no page entry at all — a QA run already had to bypass the registry via `app-screens.ts`. The Memory/Skills/Journal sub-page entries are now **generated** from the same arrays the tab bars render (`app-screens.ts`, new `journal-tabs.ts` which the Journal screen also consumes), so ids, labels and aliases cannot drift. Added missing top-level pages (`sdk`, `artifacts`, `tables`, `overview` for Graph Studio, `tasks`, `pages` for Saved Pages, `ui-builder`). The empty-query "Pages" launcher no longer uses the hand-maintained `TOP_LEVEL_PAGE_IDS`; it is derived from `LAUNCHER_ORDER` in the registry (sidebar order + Bots), and new `registry-sync.test.ts` fails the build if any tab lacks a page, any rendered tab lacks a sub-page, or a sidebar section is missing from the launcher (`chart` stays deliberately retired; legacy `graph-studio` stays an alias of `overview`). Fixed a real navigation bug: the shell strips the `memory.`/`skills.` prefix before dispatching, but those screens split it again, so every palette → Memory/Skills sub-page jump was a silent no-op. Saved (blueprint) pages are now searchable and openable: `/api/search/global` aggregates them from the Python runtime (`/sdk/pages`, operator token, dashboard mirrors excluded, best-effort on failure), `stock-chat` pokes the keep-alive Pages screen with the SDK's synthetic `popstate`, and a saved page's row deep-links to `/?tab=pages&page=<id>`. `INDEX_VERSION` is now one shared constant (`lib/search/index-version.ts`) instead of two hand-synced copies. Tests: `registry-sync.test.ts` (8), full vitest suite green; `tsc --noEmit` clean (3 pre-existing Python tool-registry failures from the ML allowlist work remain — unrelated). Docs updated: `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+
+- **style(chat): the jump rail reads as a spaced ruler, and size never signals
+  state.** `MessageRail` (`src/components/chat/message-rail.tsx`) now stacks
+  1px hairline ticks on 14px-tall rows with a 6px gap (was 2px), every tick
+  rests at a uniform 7px width, and the highlighted (reading-position) tick is
+  emphasized by tone only — the `active` tick no longer renders 2px wider at
+  rest. The decaying "wave" ripple around the hovered tick is now the only
+  source of width variance and exists solely while hovering; it collapses on
+  mouse-leave. No doc change — presentation-only behaviour tweak, no contract
+  change.
+- **style(chat): the jump rail's spacing is now fixed pixels.** Follow-up to the
+  entry above: the rail uses `gap-[6px]` and `h-[14px]` rows instead of the
+  rem-based `gap-1.5`/`h-3.5`, so the 6px rhythm holds at any user text-size
+  setting. No doc change — presentation-only.
 
 ## 2026-11-03
 - **feat(theme): lime brand refresh and a Crystal sidebar.** The shipped accent

@@ -9,6 +9,7 @@
 
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
+import { IconBadge } from "@/components/layout/page-header";
 
 /** Frosted-glass panel shell — the standard Settings card. */
 export function Panel({
@@ -78,14 +79,12 @@ export function SectionHeader({
 }: {
   icon: React.ElementType;
   title: string;
-  description: string;
+  description: React.ReactNode;
 }) {
   return (
     <div className="mb-6">
       <div className="flex items-center gap-3">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06]">
-          <Icon className="text-primary" size={22} />
-        </span>
+        <IconBadge icon={Icon} size="sm" />
         <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">{title}</h2>
       </div>
       <p className="text-xs text-muted-foreground mt-2 leading-relaxed max-w-lg">{description}</p>

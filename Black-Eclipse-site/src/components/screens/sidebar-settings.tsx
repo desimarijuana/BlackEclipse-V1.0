@@ -8,9 +8,10 @@
 
 import { useState } from 'react';
 import {
-  PanelLeft, GripVertical, ArrowUp, ArrowDown, RotateCcw, Sparkles, Keyboard, EyeOff,
+  PanelLeft, GripVertical, ArrowUp, ArrowDown, RotateCcw, Keyboard, EyeOff,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { SectionHeader } from './settings-ui';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DEFAULT_SIDEBAR_SECTIONS, SHORTCUT_OPTIONS, type SidebarSectionDef } from '@/lib/sidebar/config';
@@ -82,20 +83,11 @@ export function SidebarSettingsPanel() {
 
   return (
     <div className="animate-fade-in-up">
-      <div className="mb-6">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-primary font-bold mb-2 flex items-center gap-1.5">
-          <Sparkles size={11} /> Navigate
-        </p>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 shadow-sm shadow-primary/10">
-            <PanelLeft className="text-primary w-[18px] h-[18px]" />
-          </div>
-          <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Sidebar Menu</h2>
-        </div>
-        <p className="text-xs text-muted-foreground mt-2 leading-relaxed max-w-lg">
-          Reorder the navigation menu, hide items you don&apos;t use, and assign an F-key to jump straight to a screen.
-        </p>
-      </div>
+      <SectionHeader
+        icon={PanelLeft}
+        title="Sidebar Menu"
+        description="Reorder the navigation menu, hide items you don't use, and assign an F-key to jump straight to a screen."
+      />
 
       <div className="rounded-2xl border border-white/10 dark:border-white/5 glass-card overflow-hidden">
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-border/10">

@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { Toggle } from "./settings-ui";
+import { SectionHeader, Toggle } from "./settings-ui";
 import { useSoundStore } from "@/lib/sounds";
 import type { NewsAlertPolicy } from "@/lib/news/alert-policy";
 import {
@@ -258,16 +258,16 @@ export function AlertNotificationsPanel() {
 
   return (
     <div className="animate-fade-in-up">
-      <div className="mb-6">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-primary font-bold mb-2 flex items-center gap-1.5">
-          <Bell size={11} /> Delivery
-        </p>
-        <h2 className="font-serif text-xl font-semibold text-foreground">Alerts / Notifications</h2>
-        <p className="text-xs text-muted-foreground mt-1">
-          Where fired price alerts get delivered. A channel shows <span className="text-emerald-400">connected</span> only
-          when its credentials are actually configured.
-        </p>
-      </div>
+      <SectionHeader
+        icon={Bell}
+        title="Alerts / Notifications"
+        description={
+          <>
+            Where fired price alerts get delivered. A channel shows{" "}
+            <span className="text-emerald-400">connected</span> only when its credentials are actually configured.
+          </>
+        }
+      />
 
       <div className="rounded-2xl border border-white/10 dark:border-white/5 glass-card p-5 md:p-6 space-y-4">
         <label className="flex items-center gap-2 text-xs cursor-pointer">

@@ -34,6 +34,7 @@ import { ConnectionsSettingsPanel } from "./connections-settings";
 import { CustomizationSettingsPanel } from "./customization-settings";
 import { GeneralSettingsPanel } from "./general-settings";
 import { Panel, SectionHeader, SubSection } from "./settings-ui";
+import { IconBadge } from "@/components/layout/page-header";
 import { SoundSettingsPanel } from "./sound-settings";
 import { VoiceSettingsPanel } from "./voice-settings";
 import { ProviderRegistry, InvestorEyeFeatureMap, InvestorEyeSources } from "./provider-registry-panel";
@@ -559,9 +560,7 @@ export function Settings({
           app sidebar so the chrome stays consistent (never a grey rail). */}
       <aside className="sidebar-root hidden md:flex w-60 shrink-0 flex-col glass-card-strong">
         <div className="flex items-center gap-3 px-5 h-16 border-b border-border/10">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-border/30 bg-white/[0.06]">
-            <Cog className="text-foreground" size={20} />
-          </span>
+          <IconBadge icon={Cog} size="sm" />
           <div>
             <p className="font-serif text-sm font-semibold leading-none text-foreground">Settings</p>
             <p className="text-[10px] text-muted-foreground mt-1 tracking-wide">BlackEclipse Console</p>
@@ -635,7 +634,9 @@ export function Settings({
       {/* Right content */}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 overflow-y-auto scrollbar-hide p-5 md:p-8">
-          <div className="max-w-3xl mx-auto">
+          {/* Persona is a master–detail surface (library rail + editor) and
+              needs a wider canvas than the single-column settings pages. */}
+          <div className={cn("mx-auto", section === "persona" ? "max-w-5xl" : "max-w-3xl")}>
             {/* Mobile: a search field + horizontal, scrollable pill row
                 (thumb-friendly) instead of the desktop rail, so searching and
                 switching sections both work on phones. */}

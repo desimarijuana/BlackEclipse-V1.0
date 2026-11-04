@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { ChartNoAxesCombined, RotateCcw } from "@/lib/icons";
+import { IconBadge } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -209,7 +210,10 @@ export function ChartSettingsPanel() {
   return (
     <section className="space-y-5" aria-labelledby="chart-settings-title">
       <div>
-        <h2 id="chart-settings-title" className="flex items-center gap-3 font-serif text-lg font-semibold"><ChartNoAxesCombined className="size-5 text-primary" />Charts</h2>
+        <div className="flex items-center gap-3">
+          <IconBadge icon={ChartNoAxesCombined} size="sm" />
+          <h2 id="chart-settings-title" className="font-serif text-lg font-semibold">Charts</h2>
+        </div>
         <p className="text-xs text-muted-foreground mt-2 leading-relaxed">Customize chart colors per widget type. Changes apply instantly and save locally in this browser on this device, without an account or server setup.</p>
         <p className="text-xs text-muted-foreground mt-2 leading-relaxed">TradingView embeds retain their own color controls. Fund accents and saved drawings are retained.</p>
       </div>
