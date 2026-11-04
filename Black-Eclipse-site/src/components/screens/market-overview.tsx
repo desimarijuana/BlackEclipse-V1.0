@@ -1790,7 +1790,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                             type="checkbox"
                             checked={selectedTypes.length === 0}
                             onChange={() => { setSelectedTypes([]); setFilterType('All'); }}
-                            className="accent-[#7aff78]"
+                            className="accent-[#b4ff42]"
                           />
                           All Types
                         </label>
@@ -1807,7 +1807,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                 setSelectedTypes(next);
                                 setFilterType(next.length > 0 ? next.join(',') : 'All');
                               }}
-                              className="accent-[#7aff78]"
+                              className="accent-[#b4ff42]"
                             />
                             {t}
                           </label>
@@ -2167,7 +2167,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                             type="checkbox"
                             checked={selectedTypes.length === 0}
                             onChange={() => { setSelectedTypes([]); setFilterType('All'); }}
-                            className="accent-[#7aff78]"
+                            className="accent-[#b4ff42]"
                           />
                           Any Type
                         </label>
@@ -2184,7 +2184,7 @@ export function MarketOverviewScreen({ onAnalyzeTicker, onSelectChartSymbol, emb
                                 setSelectedTypes(next);
                                 setFilterType(next.length > 0 ? next.join(',') : 'All');
                               }}
-                              className="accent-[#7aff78]"
+                              className="accent-[#b4ff42]"
                             />
                             {t}
                           </label>

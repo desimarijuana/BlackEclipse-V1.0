@@ -129,7 +129,7 @@ See ADR-008.
 `.glass-drawer` (real-frost drawers), `.glass-button`.
 
 **Aurora** — the WebGL glow at the top of the viewport that reflects combined
-market + news sentiment in green-on-black. The visual USP.
+market + news sentiment in lime-on-black. The visual USP.
 
 **Backdrop root** — a CSS condition (transform, filter, persisting animation) on
 an ancestor that silently breaks `backdrop-filter` on descendants. This is the

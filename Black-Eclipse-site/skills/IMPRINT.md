@@ -34,20 +34,20 @@ The site must be **simple, fast, and light** — this is a permanent goal, not a
 - `--foreground: oklch(0.9551 0 0)` (near-white)
 - `--card: oklch(0.1448 0 0)` — dark gray card
 - `--popover: oklch(0.2210 0.0015 197.0452)`
-- `--primary: #7aff78` (lime green — THE accent)
+- `--primary: #b4ff42` (lime green — THE accent)
 - `--primary-foreground: oklch(0 0 0)` (black on green)
 - `--secondary`, `--muted`, `--accent`: dark grays (`oklch(0.18-0.26 ...)`)
 - `--muted-foreground: oklch(0.6731 0 0)` — gray secondary text
 - `--border: oklch(0.2138 0.0019 286.2347)`
-- `--ring: #7aff78` (green focus ring)
+- `--ring: #b4ff42` (green focus ring)
 - `--destructive: oklch(0.7425 0.1696 1.0847)` — red
-- `--chart-1: #7aff78`
+- `--chart-1: #b4ff42`
 
 ### Global UI overrides (critical — do NOT override these with new arbitrary values)
-- **Cards** (`.bg-card`, `[class*="bg-card/"]`): `border-radius: 24px !important`, dark: `background: #0f0f0f !important`, `border: 2px solid rgba(255,255,255,0.05) !important`. Hover border → `#7aff78`.
+- **Cards** (`.bg-card`, `[class*="bg-card/"]`): `border-radius: 24px !important`, dark: `background: #0f0f0f !important`, `border: 2px solid rgba(255,255,255,0.05) !important`. Hover border → `#b4ff42`.
 - **Primary buttons** (`button.bg-primary`, `a.bg-primary`): pill (`border-radius: 9999px !important`), dark: `background: rgba(16,16,16,0.9)`, `border: 1px solid rgba(255,255,255,0.12)`, white text.
 - **`text-primary`**: gray by default (not green!), turns green on hover. SVGs with `text-primary` are green always.
-- **Emerald remap**: `text-emerald-*` → green (`#7aff78` dark); `bg-emerald-500` → `#7aff78`.
+- **Emerald remap**: `text-emerald-*` → green (`#b4ff42` dark); `bg-emerald-500` → `#b4ff42`.
 - **Rose/red**: `text-rose-*` → `#ff3e3e`; `bg-rose-500` → `#ff3e3e`.
 
 ### Typography
@@ -77,7 +77,7 @@ The site must be **simple, fast, and light** — this is a permanent goal, not a
 ## Financial UI Rules
 
 - Numbers must be **easy to scan** — use mono font, consistent precision.
-- **Positive = green** (`text-emerald-400` / `#7aff78`), **negative = red** (`text-rose-400` / `#ff3e3e`).
+- **Positive = green** (`text-emerald-400` / `#b4ff42`), **negative = red** (`text-rose-400` / `#ff3e3e`).
 - Prices: use appropriate precision (crypto 2-4 decimals, stocks 2 decimals, pennies 2-4).
 - Percentages: consistently formatted (e.g. `+2.14%`).
 - Dates/timestamps: consistent `toLocaleString` / relative ("12m ago") format.

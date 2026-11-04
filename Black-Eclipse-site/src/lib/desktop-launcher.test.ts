@@ -72,8 +72,8 @@ describe('desktop splash page', () => {
     expect(html).not.toMatch(/https?:\/\//);
     expect(html).toContain('src="/logo"');
     expect(html).toContain('href="/favicon"');
-    expect(html).toContain('#7aff78');
-    expect(html).toContain('#34d399');
+    expect(html).toContain('#b4ff42');
+    expect(html).toContain('#c9ff77');
     expect(html).not.toContain('-webkit-backdrop-filter');
     // No status chip: the page shows the phase only.
     expect(html).not.toContain('Booting');
@@ -134,7 +134,7 @@ describe('desktop splash page', () => {
 
     expect(theme.appName).not.toContain('<');
     expect(theme.scheme).toBe('dark');
-    expect(theme.colors.primary).toBe('#7aff78');
+    expect(theme.colors.primary).toBe('#b4ff42');
     expect(theme.colors.accent).toBe('#aabbcc');
     expect(theme.fontUi).not.toContain('<');
     expect(theme.fontUi).not.toContain('}');

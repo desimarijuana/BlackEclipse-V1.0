@@ -666,7 +666,7 @@ export function GlobalMarketsOverview(props: GlobalMarketsOverviewProps) {
                                     className={cn(
                                       'border-t border-white/5 transition-colors cursor-pointer',
                                       isSelected
-                                        ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_0_#7aff78]'
+                                        ? 'bg-primary/[0.09] shadow-[inset_2px_0_0_0_#b4ff42]'
                                         : 'hover:bg-primary/[0.04]'
                                     )}
                                   >

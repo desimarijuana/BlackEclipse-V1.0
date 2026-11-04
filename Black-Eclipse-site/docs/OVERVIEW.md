@@ -139,7 +139,7 @@ These are product promises, not style preferences:
   setup breaks the core promise.
 - **The Aurora glow is the market-state indicator.** It reflects an explainable
   **Market Regime** reading (risk-on broadening … risk-off, plus an honest
-  UNAVAILABLE state), green-on-black. The glow is decorative; the top-bar
+  UNAVAILABLE state), lime-on-black. The glow is decorative; the top-bar
   **Market Regime** control opens the interactive breakdown. See
   `src/lib/regime/`.
 

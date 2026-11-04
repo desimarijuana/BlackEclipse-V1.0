@@ -59,21 +59,21 @@
 }
 /* â”€â”€ Frosted glass utility (menus, strips, floating panels) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  * The "proper" frosted recipe: translucent dark tint + strong backdrop blur +
- * subtle saturation boost + hairline light border + soft shadow. Because the
- * app shell itself is a backdrop-filter layer, nested elements must use
- * backdrop-filter (NOT just low-opacity bg) or nothing behind them is
+ * subtle saturation boost + hairline light border + the theme shadow token.
+ * Because the app shell itself is a backdrop-filter layer, nested elements must
+ * use backdrop-filter (NOT just low-opacity bg) or nothing behind them is
  * actually blurred â€” which is exactly the "no frost" look.
  * Light mode flips to a white frost via a .dark override below. */
 .ws-glass {
   background: rgb(var(--card-rgb, 20 20 22) / 0.62);
   border: 1px solid rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(18px) saturate(1.35);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)), inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 html:not(.dark) .ws-glass {
   background: rgba(255, 255, 255, 0.66);
   border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  box-shadow: var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)), inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 @custom-variant dark (&:is(.dark *));
 :root {
