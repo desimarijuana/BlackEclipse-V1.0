@@ -26,6 +26,8 @@ export async function POST(request: Request) {
     selection?: unknown;
     history?: unknown;
     lastRun?: unknown;
+    requireApproval?: unknown;
+    model?: unknown;
   };
   const instruction = typeof body.instruction === "string" ? body.instruction.trim() : "";
   if (!instruction) {
@@ -42,11 +44,22 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  const requestedModel = (body.model && typeof body.model === 'object')
+    ? body.model as { provider?: unknown; model?: unknown }
+    : null;
+  const requestedProvider = typeof requestedModel?.provider === 'string'
+    && requestedModel.provider.trim()
+    && requestedModel.provider !== 'auto'
+    ? requestedModel.provider.trim()
+    : null;
+  const requestedModelId = typeof requestedModel?.model === 'string' && requestedModel.model.trim()
+    ? requestedModel.model.trim()
+    : null;
   const modelSettings = {
-    provider: llm.provider,
+    provider: requestedProvider ?? llm.provider,
     baseUrl: llm.baseUrl,
     apiKey: llm.apiKey,
-    model: llm.model,
+    model: requestedModelId ?? llm.model,
     contextWindow: llm.contextWindow,
   };
 
@@ -67,6 +80,7 @@ export async function POST(request: Request) {
         selection: body.selection ?? null,
         history: Array.isArray(body.history) ? body.history : [],
         lastRun: body.lastRun ?? null,
+        requireApproval: body.requireApproval === true,
         modelSettings,
       }),
       signal: request.signal,

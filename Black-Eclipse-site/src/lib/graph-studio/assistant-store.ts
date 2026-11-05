@@ -6,12 +6,19 @@
 import { create } from 'zustand';
 import { useGraphEditor } from './editor-store';
 import {
+  answerAssistantClarification,
   assistGraphStream,
+  cancelAssistRun,
+  decideAssistantApproval,
+  pauseAssistRun,
+  resumeAssistRun,
   type AssistantRequest,
   type AssistantResult,
   type AssistantRunResult,
   type AssistantTurn,
+  type AssistantApproval,
 } from './assistant-client';
+import { MAX_THREADS, loadStored, newThreadId, persist, saveStored, storageKey } from './assistant-storage';
 import { graphEditOpsToPatches } from './assistant-ops';
 
 export interface AssistantChatMessage {
@@ -21,6 +28,7 @@ export interface AssistantChatMessage {
   pending?: boolean;
   applied?: boolean;
   error?: boolean;
+  streaming?: boolean;
   runs?: AssistantRunResult[];
 }
 
@@ -30,10 +38,24 @@ export interface AssistantStep {
   state: 'running' | 'ok' | 'error';
 }
 
+export interface AssistantThread {
+  id: string;
+  title: string;
+  updatedAt: number;
+  messages: AssistantChatMessage[];
+  pending?: AssistantResult | null;
+  pendingDocumentId?: string | null;
+}
+
 interface AssistantState {
   messages: AssistantChatMessage[];
-  status: 'idle' | 'thinking';
+  threads: AssistantThread[];
+  activeThreadId: string | null;
+  status: 'idle' | 'running' | 'paused' | 'awaiting_approval';
+  runId: string | null;
   pending: AssistantResult | null;
+  /** A mid-turn effect approval (e.g. a test run) that is blocking the stream. */
+  toolApproval: AssistantApproval | null;
   /** The IR id the proposal was computed against. Guards cross-workflow apply. */
   pendingDocumentId: string | null;
   error: string | null;
@@ -42,14 +64,20 @@ interface AssistantState {
   autoApply: boolean;
   setAutoApply: (value: boolean) => void;
   hydrate: (workflowId: string | null) => void;
-  send: (instruction: string, mode?: 'edit' | 'ask') => Promise<void>;
+  newThread: () => void;
+  selectThread: (id: string) => void;
+  send: (instruction: string, mode?: 'edit' | 'ask', model?: { provider?: string; model?: string }) => Promise<void>;
+  pause: () => Promise<void>;
+  resume: () => Promise<void>;
   cancel: () => void;
   applyPending: () => boolean;
+  decidePending: (approve: boolean, remember: boolean) => Promise<void>;
+  decideToolApproval: (approve: boolean, remember: boolean) => Promise<void>;
+  answerClarification: (answer: string) => Promise<void>;
   discardPending: () => void;
   reset: () => void;
 }
 
-const STORAGE_PREFIX = 'be_graph_assistant_v1:';
 const AUTO_APPLY_KEY = 'be_graph_assistant_autoapply_v1';
 let counter = 0;
 let activeController: AbortController | null = null;
@@ -57,24 +85,6 @@ let activeController: AbortController | null = null;
 function nextId(prefix = 'm'): string {
   counter += 1;
   return `${prefix}_${Date.now().toString(36)}_${counter}`;
-}
-
-function storageKey(workflowId: string | null | undefined): string | null {
-  return workflowId ? `${STORAGE_PREFIX}${workflowId}` : null;
-}
-
-function persist(workflowId: string | null | undefined, messages: AssistantChatMessage[]) {
-  const key = storageKey(workflowId);
-  if (!key) return;
-  try {
-    const clean = messages
-      .filter((message) => !message.pending)
-      .slice(-30)
-      .map(({ id, role, content, applied, error }) => ({ id, role, content, applied, error }));
-    window.sessionStorage.setItem(key, JSON.stringify(clean));
-  } catch {
-    /* storage can be unavailable; the in-memory thread still works */
-  }
 }
 
 function initialAutoApply(): boolean {
@@ -102,8 +112,12 @@ function lastRunContext(): AssistantRequest['lastRun'] {
 
 export const useGraphAssistant = create<AssistantState>((set, get) => ({
   messages: [],
+  threads: [],
+  activeThreadId: null,
   status: 'idle',
+  runId: null,
   pending: null,
+  toolApproval: null,
   pendingDocumentId: null,
   error: null,
   progressLabel: null,
@@ -120,29 +134,81 @@ export const useGraphAssistant = create<AssistantState>((set, get) => ({
   },
 
   hydrate: (workflowId) => {
-    const key = storageKey(workflowId);
-    if (!key) {
-      set({ messages: [], pending: null, pendingDocumentId: null, error: null, steps: [], progressLabel: null });
+    activeController?.abort();
+    activeController = null;
+    if (!storageKey(workflowId)) {
+      set({ messages: [], threads: [], activeThreadId: null, pending: null, toolApproval: null, pendingDocumentId: null, error: null, steps: [], progressLabel: null, status: 'idle', runId: null });
       return;
     }
-    let messages: AssistantChatMessage[] = [];
-    try {
-      const raw = window.sessionStorage.getItem(key);
-      const parsed = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(parsed)) {
-        messages = parsed
-          .filter((item) => item && (item.role === 'user' || item.role === 'assistant') && typeof item.content === 'string')
-          .slice(-30);
-      }
-    } catch {
-      messages = [];
-    }
-    set({ messages, pending: null, pendingDocumentId: null, error: null, steps: [], progressLabel: null, status: 'idle' });
+    const stored = loadStored(workflowId);
+    const active = stored.threads.find((thread) => thread.id === stored.activeThreadId) ?? null;
+    set({
+      threads: stored.threads,
+      activeThreadId: stored.activeThreadId,
+      messages: active?.messages ?? [],
+      pending: active?.pending ?? null,
+      toolApproval: null,
+      pendingDocumentId: active?.pendingDocumentId ?? null,
+      error: null,
+      steps: [],
+      progressLabel: null,
+      status: 'idle',
+      runId: null,
+    });
   },
 
-  send: async (instruction, mode = 'edit') => {
+  newThread: () => {
+    activeController?.abort();
+    activeController = null;
+    const workflowId = useGraphEditor.getState().workflowId;
+    const stored = loadStored(workflowId);
+    const id = newThreadId();
+    const threads = [
+      { id, title: 'New conversation', updatedAt: Date.now(), messages: [], pending: null, pendingDocumentId: null },
+      ...stored.threads,
+    ].slice(0, MAX_THREADS);
+    saveStored(workflowId, { threads, activeThreadId: id });
+    set({
+      threads,
+      activeThreadId: id,
+      messages: [],
+      pending: null,
+      toolApproval: null,
+      pendingDocumentId: null,
+      error: null,
+      status: 'idle',
+      runId: null,
+      steps: [],
+      progressLabel: null,
+    });
+  },
+
+  selectThread: (id) => {
+    activeController?.abort();
+    activeController = null;
+    const workflowId = useGraphEditor.getState().workflowId;
+    const stored = loadStored(workflowId);
+    const thread = stored.threads.find((item) => item.id === id);
+    if (!thread) return;
+    saveStored(workflowId, { threads: stored.threads, activeThreadId: id });
+    set({
+      threads: stored.threads,
+      activeThreadId: id,
+      messages: thread.messages,
+      pending: thread.pending ?? null,
+      toolApproval: null,
+      pendingDocumentId: thread.pendingDocumentId ?? null,
+      error: null,
+      status: 'idle',
+      runId: null,
+      steps: [],
+      progressLabel: null,
+    });
+  },
+
+  send: async (instruction, mode = 'edit', model) => {
     const text = instruction.trim();
-    if (!text || get().status === 'thinking') return;
+    if (!text || get().status !== 'idle') return;
     const editor = useGraphEditor.getState();
     if (!editor.ir) {
       set({ error: 'Open a workflow before asking the assistant to change it.' });
@@ -154,19 +220,41 @@ export const useGraphAssistant = create<AssistantState>((set, get) => ({
       .slice(-8)
       .map((message) => ({ role: message.role, content: message.content }));
 
+    if (!get().activeThreadId) {
+      const thread: AssistantThread = {
+        id: newThreadId(),
+        title: 'New conversation',
+        updatedAt: Date.now(),
+        messages: [],
+        pending: null,
+        pendingDocumentId: null,
+      };
+      const threads = [thread, ...get().threads].slice(0, MAX_THREADS);
+      saveStored(editor.workflowId, { threads, activeThreadId: thread.id });
+      set({ threads, activeThreadId: thread.id });
+    }
+
     activeController?.abort();
     const controller = new AbortController();
     activeController = controller;
+    const requireApproval = !get().autoApply;
 
     set((state) => ({
-      status: 'thinking',
+      status: 'running',
+      runId: null,
       error: null,
       pending: null,
+      toolApproval: null,
       pendingDocumentId: null,
       progressLabel: 'Reading the workflow',
       steps: [],
       messages: [...state.messages, { id: nextId(), role: 'user', content: text }],
     }));
+
+    // Persist the user turn immediately: a reload mid-run should not lose the
+    // question, even though the answer is not ready yet.
+    const initialStored = persist(editor.workflowId, get().messages, null, null);
+    if (initialStored) set({ threads: initialStored.threads, activeThreadId: initialStored.activeThreadId });
 
     try {
       const result = await assistGraphStream(
@@ -177,12 +265,29 @@ export const useGraphAssistant = create<AssistantState>((set, get) => ({
           selection: editor.selection,
           history,
           lastRun: lastRunContext(),
+          requireApproval,
+          model,
         },
         {
           signal: controller.signal,
           onEvent: (event) => {
-            if (event.type === 'status') {
-              set({ progressLabel: event.label });
+            if (event.type === 'run') {
+              set({ runId: event.runId, status: 'running' });
+            } else if (event.type === 'text_delta') {
+              set((state) => {
+                const messages = [...state.messages];
+                const last = messages[messages.length - 1];
+                if (last && last.role === 'assistant' && last.streaming) {
+                  messages[messages.length - 1] = { ...last, content: last.content + event.text };
+                } else {
+                  messages.push({ id: nextId(), role: 'assistant', content: event.text, streaming: true });
+                }
+                return { messages };
+              });
+            } else if (event.type === 'status') {
+              if (event.stage === 'paused') set({ status: 'paused', progressLabel: event.label });
+              else if (event.stage === 'running' && get().status === 'paused') set({ status: 'running', progressLabel: event.label });
+              else set({ progressLabel: event.label });
             } else if (event.type === 'tool_start') {
               set((state) => ({
                 progressLabel: event.label,
@@ -199,6 +304,12 @@ export const useGraphAssistant = create<AssistantState>((set, get) => ({
                 }
                 return { steps, progressLabel: event.label };
               });
+            } else if (event.type === 'approval_requested') {
+              set({ toolApproval: event.approval, status: 'awaiting_approval', progressLabel: 'Waiting for approval' });
+            } else if (event.type === 'approval_resolved') {
+              set({ toolApproval: null, status: 'running', progressLabel: 'Approval recorded' });
+            } else if (event.type === 'cancelled') {
+              set({ status: 'idle', progressLabel: null });
             }
           },
         },
@@ -210,29 +321,43 @@ export const useGraphAssistant = create<AssistantState>((set, get) => ({
         && hasEdits
         && result.ok
         && result.errors.length === 0
-        && result.warnings.length === 0;
-      set((state) => ({
-        status: 'idle',
-        progressLabel: null,
-        steps: [],
-        pending: hasEdits ? result : null,
-        pendingDocumentId: hasEdits ? editor.ir?.id ?? null : null,
-        messages: [
-          ...state.messages,
-          {
-            id: nextId(),
-            role: 'assistant',
-            content: reply,
-            pending: hasEdits,
-            runs: result.runs ?? [],
-          },
-        ],
-      }));
+        && result.warnings.length === 0
+        && !result.approval;
+      set((state) => {
+        const messages = [...state.messages];
+        const last = messages[messages.length - 1];
+        const streamed = last && last.role === 'assistant' && last.streaming ? last.content : '';
+        const content = reply && reply !== 'Done.' ? reply : streamed || reply;
+        const next = {
+          id: last && last.role === 'assistant' && last.streaming ? last.id : nextId(),
+          role: 'assistant' as const,
+          content,
+          pending: hasEdits && !autoApply,
+          streaming: false,
+          runs: result.runs ?? [],
+        };
+        if (last && last.role === 'assistant' && last.streaming) {
+          messages[messages.length - 1] = { ...last, ...next };
+        } else {
+          messages.push(next);
+        }
+        return {
+          status: 'idle',
+          runId: null,
+          progressLabel: null,
+          steps: [],
+          toolApproval: null,
+          pending: hasEdits || result.clarification ? result : null,
+          pendingDocumentId: hasEdits ? editor.ir?.id ?? null : null,
+          messages,
+        };
+      });
       if (autoApply) get().applyPending();
       if (result.errors.length > 0 && !autoApply) {
         set({ error: result.errors[0]?.message ?? 'The proposal is not valid yet.' });
       }
-      persist(useGraphEditor.getState().workflowId, get().messages);
+      const stored = persist(useGraphEditor.getState().workflowId, get().messages, get().pending, get().pendingDocumentId);
+      if (stored) set({ threads: stored.threads, activeThreadId: stored.activeThreadId });
     } catch (err) {
       const aborted = err instanceof DOMException
         ? err.name === 'AbortError'
@@ -240,32 +365,126 @@ export const useGraphAssistant = create<AssistantState>((set, get) => ({
       if (aborted) {
         set((state) => ({
           status: 'idle',
+          runId: null,
           progressLabel: null,
           pending: null,
+          toolApproval: null,
           pendingDocumentId: null,
           steps: [],
-          messages: [...state.messages, { id: nextId(), role: 'assistant', content: 'Stopped.' }],
+          messages: [
+            ...state.messages.map((message) => (message.streaming ? { ...message, streaming: false } : message)),
+            { id: nextId(), role: 'assistant', content: 'Stopped.' },
+          ],
         }));
       } else {
         const message = err instanceof Error ? err.message : 'The assistant failed';
         set((state) => ({
           status: 'idle',
+          runId: null,
           progressLabel: null,
           pending: null,
+          toolApproval: null,
           pendingDocumentId: null,
           steps: [],
           error: message,
-          messages: [...state.messages, { id: nextId(), role: 'assistant', content: message, error: true }],
+          messages: [
+            ...state.messages.map((item) => (item.streaming ? { ...item, streaming: false } : item)),
+            { id: nextId(), role: 'assistant', content: message, error: true },
+          ],
         }));
       }
-      persist(useGraphEditor.getState().workflowId, get().messages);
+      const stored = persist(useGraphEditor.getState().workflowId, get().messages, get().pending, get().pendingDocumentId);
+      if (stored) set({ threads: stored.threads, activeThreadId: stored.activeThreadId });
     } finally {
       if (activeController === controller) activeController = null;
     }
   },
 
   cancel: () => {
+    const { runId } = get();
+    if (runId) void cancelAssistRun(runId).catch(() => {});
     activeController?.abort();
+  },
+
+  pause: async () => {
+    const { runId, status } = get();
+    if (status !== 'running' || !runId) return;
+    set({ status: 'paused', progressLabel: 'Paused' });
+    try {
+      await pauseAssistRun(runId);
+    } catch (err) {
+      set({ status: 'running', error: err instanceof Error ? err.message : 'The assistant could not pause.' });
+    }
+  },
+
+  resume: async () => {
+    const { runId, status } = get();
+    if (status !== 'paused' || !runId) return;
+    set({ status: 'running', progressLabel: 'Resumed' });
+    try {
+      await resumeAssistRun(runId);
+    } catch (err) {
+      set({ status: 'paused', error: err instanceof Error ? err.message : 'The assistant could not resume.' });
+    }
+  },
+
+  decidePending: async (approve, remember) => {
+    const { pending } = get();
+    if (!pending) return;
+    const approval = pending.approval;
+    if (approval) {
+      if (approval.status === 'denied' || approval.status === 'expired') {
+        set({ error: 'This change was already denied. Ask for a different change.' });
+        return;
+      }
+      try {
+        const decided = await decideAssistantApproval(approval.id, approve, remember);
+        const status = decided.approval?.status;
+        if (approve && status && status !== 'approved') {
+          set({ error: 'The runtime did not approve this change. Ask again.' });
+          return;
+        }
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : 'The approval could not be recorded.' });
+        return;
+      }
+    }
+    if (remember) get().setAutoApply(true);
+    if (approve) get().applyPending();
+    else get().discardPending();
+  },
+
+  decideToolApproval: async (approve, remember) => {
+    const { toolApproval } = get();
+    if (!toolApproval) return;
+    try {
+      const decided = await decideAssistantApproval(toolApproval.id, approve, remember);
+      const status = decided.approval?.status;
+      if (approve && status && status !== 'approved') {
+        set({ error: 'The runtime did not approve this tool call.' });
+        return;
+      }
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'The approval could not be recorded.' });
+      return;
+    }
+    if (remember) get().setAutoApply(true);
+    set({ toolApproval: null, status: 'running' });
+  },
+
+  answerClarification: async (answer) => {
+    const { pending } = get();
+    const clarification = pending?.clarification;
+    if (!clarification) return;
+    const value = answer.trim();
+    try {
+      if (clarification.id) await answerAssistantClarification(clarification.id, value);
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'The answer could not be recorded.' });
+      return;
+    }
+    get().discardPending();
+    if (value) await get().send(value, 'edit');
   },
 
   applyPending: () => {
@@ -306,7 +525,8 @@ export const useGraphAssistant = create<AssistantState>((set, get) => ({
       }
       return { pending: null, pendingDocumentId: null, error: null, messages };
     });
-    persist(useGraphEditor.getState().workflowId, get().messages);
+    const stored = persist(useGraphEditor.getState().workflowId, get().messages, get().pending, get().pendingDocumentId);
+    if (stored) set({ threads: stored.threads, activeThreadId: stored.activeThreadId });
     return true;
   },
 
@@ -317,28 +537,25 @@ export const useGraphAssistant = create<AssistantState>((set, get) => ({
       error: null,
       messages: state.messages.map((message) => (message.pending ? { ...message, pending: false } : message)),
     }));
-    persist(useGraphEditor.getState().workflowId, get().messages);
+    const stored = persist(useGraphEditor.getState().workflowId, get().messages, get().pending, get().pendingDocumentId);
+    if (stored) set({ threads: stored.threads, activeThreadId: stored.activeThreadId });
   },
 
   reset: () => {
     activeController?.abort();
     activeController = null;
-    const key = storageKey(useGraphEditor.getState().workflowId);
-    if (key) {
-      try {
-        window.sessionStorage.removeItem(key);
-      } catch {
-        /* ignore */
-      }
-    }
     set({
       messages: [],
+      threads: [],
+      activeThreadId: null,
       pending: null,
       pendingDocumentId: null,
       error: null,
       status: 'idle',
+      runId: null,
       steps: [],
       progressLabel: null,
+      toolApproval: null,
     });
   },
 }));

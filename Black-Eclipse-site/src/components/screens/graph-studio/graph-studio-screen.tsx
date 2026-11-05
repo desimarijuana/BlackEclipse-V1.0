@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check, ChevronDown, ChevronLeft, GitBranch, MoreHorizontal, Play, Redo2, Save, Sparkles, Undo2, WarningCircle, X,
+  Activity, History, Settings2,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
@@ -45,6 +46,36 @@ import { AssistantPanel } from './assistant-panel';
 type WorkspaceView = 'home' | 'editor';
 type RightPanel = 'node' | 'issues' | 'history' | 'health' | 'assistant' | null;
 const MODES: ExecutionMode[] = ['research', 'backtest', 'paper', 'live'];
+
+const RAIL_STORAGE_KEY = 'be_graph_rail_v1';
+const RAIL_MIN_WIDTH = 340;
+const RAIL_MAX_WIDTH = 760;
+const RAIL_DEFAULT_WIDTH = 420;
+const RAIL_TABS: Array<{ id: Exclude<RightPanel, null>; label: string; icon: typeof Sparkles }> = [
+  { id: 'assistant', label: 'Assistant', icon: Sparkles },
+  { id: 'node', label: 'Node', icon: Settings2 },
+  { id: 'issues', label: 'Issues', icon: WarningCircle },
+  { id: 'history', label: 'History', icon: History },
+  { id: 'health', label: 'Health', icon: Activity },
+];
+
+function readRailState(): { tab: Exclude<RightPanel, null>; width: number } {
+  if (typeof window === 'undefined') return { tab: 'assistant', width: RAIL_DEFAULT_WIDTH };
+  try {
+    const raw = window.localStorage.getItem(RAIL_STORAGE_KEY);
+    if (!raw) return { tab: 'assistant', width: RAIL_DEFAULT_WIDTH };
+    const parsed = JSON.parse(raw) as { tab?: unknown; width?: unknown };
+    const tab = RAIL_TABS.some((item) => item.id === parsed.tab)
+      ? (parsed.tab as Exclude<RightPanel, null>)
+      : 'assistant';
+    const width = typeof parsed.width === 'number' && Number.isFinite(parsed.width)
+      ? Math.max(RAIL_MIN_WIDTH, Math.min(RAIL_MAX_WIDTH, Math.round(parsed.width)))
+      : RAIL_DEFAULT_WIDTH;
+    return { tab, width };
+  } catch {
+    return { tab: 'assistant', width: RAIL_DEFAULT_WIDTH };
+  }
+}
 
 export function GraphStudioScreen({
   eyebrow = 'Graph Studio',
@@ -88,11 +119,60 @@ export function GraphStudioScreen({
   const pollingRef = useRef(false);
 
   const [view, setView] = useState<WorkspaceView>('home');
-  const [rightPanel, setRightPanel] = useState<RightPanel>(null);
+  // The editor's right rail is a real sidebar: a vertical tab strip plus a
+  // resizable panel. The active tab and width survive reloads.
+  const [rightPanel, setRightPanel] = useState<RightPanel>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem(RAIL_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { open?: unknown };
+      return parsed.open === true ? readRailState().tab : null;
+    } catch {
+      return null;
+    }
+  });
+  const [railWidth, setRailWidth] = useState(() => readRailState().width);
+  const lastPanelRef = useRef<Exclude<RightPanel, null>>(readRailState().tab);
   // The node whose inspector the user actually asked for with a click. Kept
   // apart from selection so dragging a node (which selects it on pointer-down)
   // never pops the inspector open.
   const [inspectedNodeId, setInspectedNodeId] = useState<string | null>(null);
+  const openRail = useCallback((tab: Exclude<RightPanel, null>) => {
+    lastPanelRef.current = tab;
+    setRightPanel(tab);
+  }, []);
+  const toggleRail = useCallback((tab: Exclude<RightPanel, null>) => {
+    setRightPanel((current) => (current === tab ? null : tab));
+  }, []);
+
+  useEffect(() => {
+    if (rightPanel) lastPanelRef.current = rightPanel;
+    try {
+      window.localStorage.setItem(
+        RAIL_STORAGE_KEY,
+        JSON.stringify({ open: rightPanel !== null, tab: rightPanel ?? lastPanelRef.current, width: railWidth }),
+      );
+    } catch {
+      /* storage may be unavailable; the rail still works for this session */
+    }
+  }, [rightPanel, railWidth]);
+
+  const startRailResize = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = railWidth;
+    const move = (pointer: PointerEvent) => {
+      setRailWidth(Math.max(RAIL_MIN_WIDTH, Math.min(RAIL_MAX_WIDTH, startWidth + (startX - pointer.clientX))));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }, [railWidth]);
+
   const [busy, setBusy] = useState(false);
   // Auto-save is ON by default (persisted per browser). Invalid graphs are
   // never auto-saved, exactly like the Save button.
@@ -172,17 +252,20 @@ export function GraphStudioScreen({
   }, [editing, onViewChange]);
 
   // A CLICKED node opens the inspector. Selection alone (a drag, or a marquee)
-  // does not: the panel follows `inspectedNodeId`, and closes as soon as that
-  // node leaves a single-node selection or another panel is pinned open.
+  // does not: the rail follows `inspectedNodeId`, and switches back off the
+  // inspector when that node leaves a single-node selection. The user's explicit
+  // tab choice is preserved; a selection change never closes the rail.
   const singleSelectedId = selection.nodeIds.length === 1 ? selection.nodeIds[0] : null;
   useEffect(() => {
-    if (rightPanel === 'issues' || rightPanel === 'history' || rightPanel === 'health' || rightPanel === 'assistant') return;
+    // Only a selection/inspection change moves the rail. The user's explicit
+    // tab choice must win, so `rightPanel` is deliberately not a dependency.
     if (singleSelectedId && singleSelectedId === inspectedNodeId) {
-      if (rightPanel !== 'node') setRightPanel('node');
-    } else if (rightPanel === 'node') {
-      setRightPanel(null);
+      setRightPanel((current) => (current === 'node' ? current : 'node'));
+    } else {
+      setRightPanel((current) => (current === 'node' ? null : current));
     }
-  }, [singleSelectedId, inspectedNodeId, rightPanel]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [singleSelectedId, inspectedNodeId]);
 
   const save = useCallback(async (): Promise<boolean> => {
     const current = useGraphEditor.getState().ir;
@@ -517,7 +600,7 @@ export function GraphStudioScreen({
             type="button"
             variant={rightPanel === 'assistant' ? 'secondary' : 'ghost'}
             size="sm"
-            onClick={() => setRightPanel((panel) => (panel === 'assistant' ? null : 'assistant'))}
+            onClick={() => toggleRail('assistant')}
             title="Workflow assistant"
             className="gap-1.5"
           >
@@ -667,75 +750,121 @@ export function GraphStudioScreen({
         </div>
 
         {rightPanel && (
-          <aside className="graph-panel flex w-[380px] max-w-[85vw] shrink-0 flex-col border-l border-white/10">
-            {rightPanel === 'node' && (
-              <NodeInspector
-                onClose={() => {
-                  setRightPanel(null);
-                  setInspectedNodeId(null);
-                }}
-              />
-            )}
-            {rightPanel === 'assistant' && (
-              <AssistantPanel onClose={() => setRightPanel(null)} />
-            )}
-            {rightPanel === 'issues' && (
-              <div className="flex h-full flex-col">
-                <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/10 px-3">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Issues</span>
+          <div
+            onPointerDown={startRailResize}
+            title="Drag to resize"
+            className="w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-primary/30"
+          />
+        )}
+        {rightPanel && (
+          <aside
+            style={{ width: railWidth }}
+            className="graph-panel flex max-w-[85vw] shrink-0 border-l border-white/10"
+          >
+            <div className="flex w-10 shrink-0 flex-col items-center gap-1 border-r border-white/10 py-1.5">
+              {RAIL_TABS.map((tab) => {
+                const Icon = tab.icon;
+                return (
                   <button
+                    key={tab.id}
                     type="button"
-                    onClick={() => {
-                      if (selection.nodeIds.length === 1) {
-                        setInspectedNodeId(selection.nodeIds[0]);
-                        setRightPanel('node');
-                      } else {
-                        setRightPanel(null);
-                      }
-                    }}
-                    className="rounded p-1 text-muted-foreground hover:text-foreground"
+                    onClick={() => openRail(tab.id)}
+                    title={tab.label}
+                    aria-label={tab.label}
+                    aria-pressed={rightPanel === tab.id}
+                    className={cn(
+                      'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
+                      rightPanel === tab.id
+                        ? 'bg-primary/15 text-primary'
+                        : 'text-muted-foreground hover:bg-white/5 hover:text-foreground',
+                    )}
                   >
-                    <X size={12} />
+                    <Icon size={14} />
                   </button>
-                </div>
-                <div className="min-h-0 flex-1"><ValidationPanel /></div>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => setRightPanel(null)}
+                title="Close sidebar"
+                aria-label="Close sidebar"
+                className="mt-auto flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+              >
+                <X size={13} />
+              </button>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col">
+              {rightPanel === 'node' && (
+                <NodeInspector
+                  onClose={() => {
+                    setRightPanel(null);
+                    setInspectedNodeId(null);
+                  }}
+                />
+              )}
+              {/* Kept mounted across tab switches so an in-flight turn is not
+                  cancelled merely because the operator looked at the inspector. */}
+              <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', rightPanel === 'assistant' ? '' : 'hidden')}>
+                <AssistantPanel onClose={() => setRightPanel(null)} />
               </div>
-            )}
-            {rightPanel === 'history' && (
-              <div className="flex h-full flex-col">
-                <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/10 px-3">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">History</span>
-                  <button type="button" onClick={() => setRightPanel(null)} className="rounded p-1 text-muted-foreground hover:text-foreground"><X size={12} /></button>
+              {rightPanel === 'issues' && (
+                <div className="flex h-full flex-col">
+                  <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/10 px-3">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Issues</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (selection.nodeIds.length === 1) {
+                          setInspectedNodeId(selection.nodeIds[0]);
+                          setRightPanel('node');
+                        } else {
+                          setRightPanel(null);
+                        }
+                      }}
+                      className="rounded p-1 text-muted-foreground hover:text-foreground"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                  <div className="min-h-0 flex-1"><ValidationPanel /></div>
                 </div>
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  <HistoryPanel
-                    workflowId={workflowId}
-                    currentVersion={currentVersion}
-                    onOpenRun={(record) => {
-                      setRun(record);
-                      setRightPanel(null);
-                    }}
-                    onOpenVersion={(record) => {
-                      load(record.ir, {
-                        workflowId: record.id,
-                        baseVersion: record.version,
-                        contentHash: record.contentHash,
-                      });
-                      setRightPanel(null);
-                    }}
-                  />
+              )}
+              {rightPanel === 'history' && (
+                <div className="flex h-full flex-col">
+                  <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/10 px-3">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">History</span>
+                    <button type="button" onClick={() => setRightPanel(null)} className="rounded p-1 text-muted-foreground hover:text-foreground"><X size={12} /></button>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    <HistoryPanel
+                      workflowId={workflowId}
+                      currentVersion={currentVersion}
+                      onOpenRun={(record) => {
+                        setRun(record);
+                        setRightPanel(null);
+                      }}
+                      onOpenVersion={(record) => {
+                        load(record.ir, {
+                          workflowId: record.id,
+                          baseVersion: record.version,
+                          contentHash: record.contentHash,
+                        });
+                        setRightPanel(null);
+                      }}
+                    />
+                  </div>
                 </div>
-              </div>
-            )}
-            {rightPanel === 'health' && (
-              <div className="flex h-full flex-col">
-                <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/10 px-3">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Health</span>
-                  <button type="button" onClick={() => setRightPanel(null)} className="rounded p-1 text-muted-foreground hover:text-foreground"><X size={12} /></button>
+              )}
+              {rightPanel === 'health' && (
+                <div className="flex h-full flex-col">
+                  <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/10 px-3">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Health</span>
+                    <button type="button" onClick={() => setRightPanel(null)} className="rounded p-1 text-muted-foreground hover:text-foreground"><X size={12} /></button>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto"><GraphHealthPanel /></div>
                 </div>
-                <div className="min-h-0 flex-1 overflow-y-auto"><GraphHealthPanel /></div>
-              </div>
-            )}
+              )}
+            </div>
           </aside>
         )}
       </div>

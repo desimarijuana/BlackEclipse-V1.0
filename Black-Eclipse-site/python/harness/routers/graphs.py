@@ -21,6 +21,13 @@ from ..deps import require_operator, service
 from ..graph_runtime.compiler import RunGrants as GraphRunGrants
 from ..graph_runtime.model import ExecutionMode, WorkflowIR
 from ..graph_runtime.service import GraphCompileError, GraphService, NodeTestError
+from ..graph_runtime.assistant_runs import (
+    cancel_run as cancel_assistant_run,
+    create_run as create_assistant_run,
+    get_run as get_assistant_run,
+    pause_run as pause_assistant_run,
+    resume_run as resume_assistant_run,
+)
 
 router = APIRouter(tags=["graphs"])
 
@@ -106,6 +113,7 @@ class AssistRequest(BaseModel):
     history: list[dict[str, Any]] = Field(default_factory=list)
     lastRun: Optional[dict[str, Any]] = None  # noqa: N815
     modelSettings: Optional[dict[str, Any]] = None  # noqa: N815
+    requireApproval: bool = False  # noqa: N815
 
     model_config = {"populate_by_name": True}
 
@@ -340,6 +348,8 @@ async def assist_graph(
             mode=body.mode,
             last_run=body.lastRun,
             runner=_assistant_runner(request, body.modelSettings),
+            approvals=getattr(service, "approvals", None),
+            require_approval=body.requireApproval,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -354,27 +364,75 @@ async def assist_graph_stream(
     """The same assistant turn, streamed as Server-Sent Events."""
     from ..graph_runtime.assistant import stream_assist  # noqa: PLC0415
 
+    run = create_assistant_run(workflow_id=str((body.ir or {}).get("id") or "") or None)
+
     async def events() -> Any:
-        async for chunk in stream_assist(
-            body.instruction,
-            ir_payload=body.ir,
-            model_settings=body.modelSettings,
-            registry=_graph_service()._registry,
-            selection=body.selection,
-            history=body.history,
-            mode=body.mode,
-            last_run=body.lastRun,
-            runner=_assistant_runner(request, body.modelSettings),
-        ):
-            if await request.is_disconnected():
-                break
-            yield chunk
+        try:
+            async for chunk in stream_assist(
+                body.instruction,
+                ir_payload=body.ir,
+                model_settings=body.modelSettings,
+                registry=_graph_service()._registry,
+                selection=body.selection,
+                history=body.history,
+                mode=body.mode,
+                last_run=body.lastRun,
+                runner=_assistant_runner(request, body.modelSettings),
+                run=run,
+                approvals=getattr(service, "approvals", None),
+                require_approval=body.requireApproval,
+            ):
+                if await request.is_disconnected():
+                    run.cancel()
+                    break
+                yield chunk
+        finally:
+            # A client that closes the tab must not leave a turn running forever.
+            if not run.terminal:
+                run.cancel()
 
     return StreamingResponse(
         events(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/graphs/assist/runs/{run_id}")
+async def assistant_run_status(run_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    run = get_assistant_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="assistant run not found")
+    snapshot = run.snapshot()
+    # Terminal runs keep their validated result so a client that lost the SSE
+    # connection can recover the same turn instead of re-running the model.
+    if run.result is not None:
+        snapshot["result"] = run.result
+    return snapshot
+
+
+@router.post("/graphs/assist/runs/{run_id}/pause")
+async def assistant_run_pause(run_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    snapshot = pause_assistant_run(run_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="assistant run not found")
+    return snapshot
+
+
+@router.post("/graphs/assist/runs/{run_id}/resume")
+async def assistant_run_resume(run_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    snapshot = resume_assistant_run(run_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="assistant run not found")
+    return snapshot
+
+
+@router.post("/graphs/assist/runs/{run_id}/cancel")
+async def assistant_run_cancel(run_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    snapshot = cancel_assistant_run(run_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="assistant run not found")
+    return snapshot
 
 
 @router.get("/graphs/datasets")

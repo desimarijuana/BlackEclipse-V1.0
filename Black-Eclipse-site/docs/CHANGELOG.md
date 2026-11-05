@@ -1,6 +1,21 @@
 # Change Log
 
 ## 2026-11-04
+- **feat(graph-studio): the workflow assistant is a real sidebar chat with
+  pause/resume and approvals.** The editor's right rail is now a vertical
+  tab strip (Assistant / Node / Issues / History / Health) with a resizable,
+  persisted width (`be_graph_rail_v1`) — a layout column, never a modal. The
+  assistant turn carries a `runId`, streams text token-by-token through the
+  model runtime, renders through the shared `AssistantContent`/Markdown path,
+  and Pause / Resume / Stop call new
+  `/api/graphs/assist/runs/{id}/pause|resume|cancel` routes backed by
+  `graph_runtime/assistant_runs.py` (cooperative gates between model rounds and
+  tool calls; disconnect cancels; a dropped stream recovers the persisted
+  result). The transcript moved to a per-workflow `localStorage` thread list
+  with a restored pending proposal. With Auto-apply off, a validated edit
+  becomes a single-use `graph_edit` approval in the existing `ApprovalStore`;
+  `ask_user` becomes a real clarification card. Docs updated:
+  `docs/graph-studio.md`, `docs/NAVIGATION.md`.
 - **fix(desktop): the shortcut no longer leaves a duplicate tab open.** The
   launcher handed the progress page off to the app with `location.replace(...)`
   and then re-opened the browser 20 s later whenever the app tab had not
