@@ -1,6 +1,17 @@
 # Change Log
 
 ## 2026-11-04
+- **fix(desktop): the shortcut no longer leaves a duplicate tab open.** The
+  launcher handed the progress page off to the app with `location.replace(...)`
+  and then re-opened the browser 20 s later whenever the app tab had not
+  beaconed yet — on a slow first hydrate that is *always*, so each launch ended
+  with two app tabs. The progress page now sends a one-shot `POST /handoff`
+  beacon immediately before it navigates, and the launcher's "no beacon yet"
+  retry is skipped once that handoff is recorded. The retry still fires when
+  the page never ran its redirect (JS disabled, or the tab was closed). Files:
+  `scripts/lib/desktop-splash.js`, `scripts/start-desktop.js`, test
+  `src/lib/desktop-launcher.test.ts`. Docs updated: `docs/CHANGELOG.md` (bug
+  fix — no architecture/contract change).
 - **fix(tests): the full suite is green again.** Three real failures surfaced in
   the full run. (1) Per-model ML predict tools (`ml_model_*_predict`) were
   appended to the shared `ECLIPSE_AGENT` allowlist when a model was registered,
