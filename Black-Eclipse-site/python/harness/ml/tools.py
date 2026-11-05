@@ -253,18 +253,6 @@ def model_tool_name(name: str, model_id: str) -> str:
     return f"ml_model_{model_id[-8:]}_predict"
 
 
-def _extend_agent_allowlist(tool_name: str) -> None:
-    """Let the default chat agent call a tool that was registered after boot."""
-    try:
-        from ..agents import ECLIPSE_AGENT  # noqa: PLC0415
-
-        tools = ECLIPSE_AGENT.tools
-        if tools is not None and tool_name not in tools:
-            tools.append(tool_name)
-    except Exception:  # noqa: BLE001 - never let tool registration break a run
-        return
-
-
 def _predict_handler(model_id: str, tool_name: str) -> Any:
     async def handler(args: dict[str, Any], ctx: Any) -> tuple[str, Any]:
         try:
@@ -297,7 +285,6 @@ def register_registered_model_tool(registry: Any, *, model_id: str, name: str,
 
     tool_name = model_tool_name(name, model_id)
     if registry.get(tool_name) is not None:
-        _extend_agent_allowlist(tool_name)
         return tool_name
     label = f"{task} " if task else ""
     try:
@@ -314,7 +301,6 @@ def register_registered_model_tool(registry: Any, *, model_id: str, name: str,
         ))
     except Exception:  # noqa: BLE001 - a name clash must not break registration
         return None
-    _extend_agent_allowlist(tool_name)
     return tool_name
 
 
@@ -557,7 +543,7 @@ def register_ml_tools(registry: Any) -> list[str]:
              "name": {"type": "string"}, "baseModel": {"type": "string"},
              "limit": {"type": "integer"}, "epochs": {"type": "integer"},
              "train": {"type": "boolean"}},
-             "required": ["datasetId", "datasetVersion"]}, 3_600_000,
+             "required": ["datasetId", "datasetVersion"]}, 1_800_000,
          long_running=True, permission="write", risk="medium")
     _def("ml_get_run", "Fetch a training run, its folds and metrics.",
          ml_get_run, {"type": "object", "properties": {"runId": {"type": "string"}},

@@ -23,6 +23,7 @@ const splashModule = require(path.join(scripts, 'desktop-splash.js')) as {
     fail: (message: string, detail?: string) => void;
     close: () => void;
     closed: boolean;
+    handoff: boolean;
     theme: Record<string, unknown>;
   } | null>;
   findSplash: (options: Record<string, unknown>) => Promise<{ port: number; url: string; state: Record<string, unknown> } | null>;
@@ -244,6 +245,27 @@ describe('desktop splash page', () => {
     expect(state.ready).not.toBe(true);
     expect(state.error?.message).toBe('The build did not finish.');
     expect(state.tail).toContain('line two');
+  });
+
+  it('tells the launcher when the page hands off to the app', async () => {
+    // Without this signal the launcher cannot tell a slow app load from a
+    // redirect that never ran, and its retry opens a duplicate second tab.
+    const html = splashModule.renderPage(themeModule.sanitizeTheme(themeModule.DEFAULT_THEME));
+    const handoffAt = html.indexOf("sendBeacon('/handoff')");
+    expect(handoffAt).toBeGreaterThan(-1);
+    expect(html.indexOf('location.replace(st.url)')).toBeGreaterThan(handoffAt);
+
+    const splash = await splashModule.createSplash({ port: basePort(), tries: 4, url: 'http://x/' });
+    opened.push(splash!);
+    expect(splash!.handoff).toBe(false);
+
+    const response = await fetch(`${splash!.url}handoff`, { method: 'POST' });
+    expect(response.status).toBe(204);
+    expect(splash!.handoff).toBe(true);
+    // Closing the page afterwards (pagehide) must not clear the handoff.
+    await fetch(`${splash!.url}closed`, { method: 'POST' });
+    expect(splash!.closed).toBe(true);
+    expect(splash!.handoff).toBe(true);
   });
 
   it('only re-uses a splash page whose launcher is alive', async () => {

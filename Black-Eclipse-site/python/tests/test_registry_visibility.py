@@ -71,6 +71,8 @@ def _dynamic_for(agent: object, registered: set[str]) -> set[str]:
     if getattr(agent, "allowPluginTools", False):
         names |= {n for n in registered if n.startswith("plug_")}
         names |= {n for n in registered if n.startswith("plugin_")}
+    if getattr(agent, "allowModelTools", False):
+        names |= {n for n in registered if n.startswith("ml_model_")}
     return names
 
 

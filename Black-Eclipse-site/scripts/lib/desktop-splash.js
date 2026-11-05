@@ -288,6 +288,16 @@ const PAGE = `<!doctype html>
   var $ = function (id) { return document.getElementById(id); };
   var finished = false;
 
+  // Tell the launcher that this tab is about to navigate to the app. Without
+  // it the launcher cannot tell "the app is still loading/hydrating" from "the
+  // redirect never ran", and its retry opens a second tab on top of the one
+  // that is already showing the app.
+  function handoff() {
+    try {
+      if (navigator.sendBeacon) navigator.sendBeacon('/handoff');
+    } catch (e) {}
+  }
+
   setInterval(function () {
     var s = Math.floor((Date.now() - started) / 1000);
     $('elapsed').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
@@ -380,6 +390,7 @@ const PAGE = `<!doctype html>
       setHint('');
       if (!finished) {
         finished = true;
+        handoff();
         setTimeout(function () { window.location.replace(st.url); }, 220);
         setTimeout(function () {
           stop('Ready.', null, 'done');
@@ -665,6 +676,7 @@ async function createSplash(options) {
     stickyHint: "",
     ready: false,
     error: null,
+    handoff: false,
     url: url || "",
     tail: "",
     pid: process.pid,
@@ -707,6 +719,14 @@ async function createSplash(options) {
     }
     if (route === "/favicon") {
       sendImage(res, activeTheme.faviconUrl, DEFAULT_MARK);
+      return;
+    }
+    // The page navigated to the app (sent right before location.replace). The
+    // launcher uses this to avoid opening a second tab while the app is still
+    // hydrating and has not beaconed yet.
+    if (route === "/handoff" && req.method === "POST") {
+      state.handoff = true;
+      res.writeHead(204).end();
       return;
     }
     if (route === "/closed" && req.method === "POST") {
@@ -817,6 +837,11 @@ async function createSplash(options) {
     },
     get closed() {
       return closed;
+    },
+    // True once the progress page has navigated to the app. The launcher must
+    // not open another tab on its own after this point.
+    get handoff() {
+      return Boolean(state.handoff);
     },
   };
 }
