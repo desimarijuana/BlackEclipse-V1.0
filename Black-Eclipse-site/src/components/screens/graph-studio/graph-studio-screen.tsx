@@ -711,7 +711,7 @@ export function GraphStudioScreen({
               <DropdownMenuItem onClick={() => setRightPanel('history')}>History</DropdownMenuItem>
               <DropdownMenuItem onClick={() => setRightPanel('health')}>Health</DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={applyAutoLayout}>Tidy up layout</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => applyAutoLayout()}>Tidy up layout</DropdownMenuItem>
               <DropdownMenuItem
                 disabled={!operatorReady}
                 onClick={() => setAuthorizeOpen(true)}

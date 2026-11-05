@@ -593,6 +593,18 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
     setExpandedNodes((prev) => ({ ...prev, [nodeId]: !prev[nodeId] }));
   }, []);
 
+  // Tidy with the nodes' real rendered heights. The store can only guess when
+  // called from the top bar; here we have React Flow's measurements, so tall
+  // cards never get stacked on top of the next row.
+  const tidyLayout = useCallback(() => {
+    const heights: Record<string, number> = {};
+    for (const node of nodesRef.current) {
+      const height = node.measured?.height;
+      if (typeof height === 'number' && height > 0) heights[node.id] = height;
+    }
+    applyAutoLayout(heights);
+  }, [applyAutoLayout]);
+
   const runNodeTest = useCallback(async (nodeId: string) => {
     const state = useGraphEditor.getState();
     const node = state.ir?.nodes.find((item) => item.id === nodeId);
@@ -997,7 +1009,7 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
           helpOpen={helpOpen}
           onToggleMinimap={() => setMinimap((value) => !value)}
           onToggleHelp={() => setHelpOpen((value) => !value)}
-          onTidy={applyAutoLayout}
+          onTidy={tidyLayout}
         />
       </ReactFlow>
 
@@ -1106,7 +1118,7 @@ function CanvasInner({ onSave, onInspectNode }: GraphCanvasProps) {
             if (menu.nodeId) onDeleteNode(menu.nodeId);
           }}
           onSelectAll={selectAll}
-          onAutoLayout={applyAutoLayout}
+          onAutoLayout={tidyLayout}
           onFit={() => void fitView({ padding: 0.25, duration: 250 })}
         />
       )}

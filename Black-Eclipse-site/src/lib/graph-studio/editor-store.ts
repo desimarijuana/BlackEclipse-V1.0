@@ -95,7 +95,7 @@ export interface GraphEditorState {
   copySelection: () => boolean;
   pasteClipboard: () => boolean;
   recomputeDiagnostics: () => Diagnostic[];
-  applyAutoLayout: () => void;
+  applyAutoLayout: (heights?: Record<string, number>) => void;
   markSaved: (version: number, contentHash: string) => void;
   reset: () => void;
 }
@@ -282,11 +282,11 @@ export const useGraphEditor = create<GraphEditorState>((set, get) => ({
     return diagnostics;
   },
 
-  applyAutoLayout: () => {
+  applyAutoLayout: (heights) => {
     clearCoalesce();
     const { ir } = get();
     if (!ir) return;
-    const positions = autoLayout(ir);
+    const positions = autoLayout(ir, { heights });
     const nodes = ir.nodes.map((n) => ({ ...n, layout: positions[n.id] ?? n.layout }));
     const next: WorkflowIR = { ...ir, nodes, meta: { ...ir.meta, updatedAt: new Date().toISOString() } };
     set({

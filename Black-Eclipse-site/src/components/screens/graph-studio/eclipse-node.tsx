@@ -133,10 +133,10 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
         unmet.length > 0 && !hasError && 'ring-1 ring-amber-400/45',
       )}
     >
-      {/* Identity: plain outline icon, title + category, quiet run-state dot. */}
-      <div className="relative z-10 flex h-[46px] items-center gap-2.5 px-3">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center text-muted-foreground">
-          <Icon size={19} />
+      {/* Identity: neutral icon tile, title + subtitle, quiet run-state dot. */}
+      <div className="relative z-10 flex items-center gap-3 px-3.5 py-3.5">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#f2f2f4] text-muted-foreground dark:bg-[#1a1a1c] dark:text-foreground/85">
+          <Icon size={17} weight="regular" />
         </span>
         <span className="min-w-0 flex-1">
           <span
