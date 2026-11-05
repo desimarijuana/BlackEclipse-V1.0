@@ -357,7 +357,7 @@ inline with the other editor actions; when there are unsaved edits it becomes
 run console; node statuses also render on the canvas (border tint, status badge,
 animated edges while running). Operator runs open an explicit authorization
 dialog listing only the effects this graph declared. History and Health open in
-the same right dock.
+the same resizable right rail as the Assistant.
 
 While a run is active the dock consumes the run's **SSE stream**
 (`GET /graphs/runs/{id}/stream` → Next proxy `/api/graph-runs/[runId]/stream`).
@@ -1262,24 +1262,55 @@ ops to `Patch[]` and applies them through `dispatchMany`, which makes the whole
 turn ONE undo step. Safe, warning-free edits are applied to the canvas
 immediately (n8n-style) and the canvas centres the new nodes; a proposal with
 warnings or validation errors is shown for review with Apply/Discard. The panel
-is the editor's right dock (`Assistant` in the header, `assistant-panel.tsx`).
-Credentials never cross the bridge: secret-like config
-keys (`apiKey`, `token`, `secret`, `password`, `authorization`, …) and
-`headersJson` are redacted from the graph context before it reaches the model.
-If the configured model returns prose without calling a single tool, the
-response says so instead of pretending the graph changed.
+is the editor's right sidebar (`assistant-panel.tsx`): a vertical tab strip
+(Assistant / Node / Issues / History / Health) with a resizable width and
+persisted open state (`be_graph_rail_v1`). It is a layout column, not a modal —
+there is no portal, backdrop or overlay, and selecting a node switches tabs
+without destroying the conversation. Credentials never cross the bridge:
+secret-like config keys (`apiKey`, `token`, `secret`, `password`,
+`authorization`, …) and `headersJson` are redacted from the graph context before
+it reaches the model. If the configured model returns prose without calling a
+single tool, the response says so instead of pretending the graph changed.
 
 The same turn also streams over SSE (`POST /api/graphs/assist/stream` →
-Python `POST /graphs/assist/stream`): `assistant.py` yields `status`,
-`tool_start`, `tool_end`, `result` and `error` events from ONE generator, so the
-stream can never drift from the request/response API. The panel shows each tool
-step live and offers **Stop**, which aborts the fetch (and therefore the
-upstream request). A large graph sends full configs only for the selection and
-its neighbours (bounded `MAX_FULL_CONFIG_NODES`); the rest carry type/label
-only. The transcript is persisted per workflow in `sessionStorage` (the pending
-proposal is not). The request also carries the last run's status, failed node
-and error, so a failed run offers **Fix the failed run** and the model can
+Python `POST /graphs/assist/stream`): `assistant.py` yields a `run` event, then
+`text_delta`, `status`, `tool_start`, `tool_end`, `result`, `cancelled` and
+`error` events from ONE generator, so the stream can never drift from the
+request/response API. Text arrives token-by-token via the model runtime's
+`stream()` seam (a runtime without streaming falls back to one text delta). The
+first event carries a `runId`; the panel's Pause / Resume / Stop controls call
+`POST /api/graphs/assist/runs/{id}/pause|resume|cancel`
+(Python `/graphs/assist/runs/{id}/…`). Pause is cooperative: the loop checks
+before each model round and before each tool call, so a tool result is never
+cut in half. Stop cancels the run and the route also cancels on client
+disconnect. If the SSE connection drops, the client polls
+`GET /api/graphs/assist/runs/{id}/status` and recovers the validated result from
+the run record instead of re-running the model. Run state lives in
+`graph_runtime/assistant_runs.py` (live control plane only; the transcript and
+document stay with the editor). The control plane is deliberately in-process: a
+hard runtime restart loses an in-flight model call, but the durable transcript
+and pending approval survive, so the turn can be retried honestly. A large
+graph sends full configs only for the selection and its neighbours (bounded
+`MAX_FULL_CONFIG_NODES`); the rest carry type/label only. The transcript is
+persisted per workflow in `localStorage` as a small thread list (title, messages,
+pending proposal, document id), so a reload keeps the conversation and restores
+a pending approval card. The request also carries the last run's status, failed
+node and error, so a failed run offers **Fix the failed run** and the model can
 propose a targeted correction.
+
+Human decisions are explicit. With Auto-apply off (the request carries
+`requireApproval`), a validated edit creates a single-use `graph_edit` row in
+the SAME `ApprovalStore` used by effectful tools; the panel renders Allow once /
+Always allow / Deny (the decision POSTs to
+`/api/harness/mcp/approvals/{id}/decide`). The assistant's own `run_workflow`
+tool is gated the same way (a `graph_run` approval) when Auto-apply is off — the
+stream emits `approval_requested`, waits on the same store, then continues or
+records a refusal. `ask_user` likewise creates a real `clarification` row and
+the panel renders an answer card, not plain prose. A denial is terminal for that
+operation digest, and "Always allow" creates a standing grant scoped to the
+workflow (`graph_edit:<workflowId>` / `graph_run:<workflowId>`). Approvals are
+bound to the workflow and the exact normalized op list, so a proposal cannot be
+applied to a different document.
 
 The assistant can also close the repair loop itself. `run_workflow` executes the
 working graph through the SAME `GraphService.run_sync` as the editor, but always
@@ -1296,9 +1327,13 @@ History panel.
 
 Auto-apply is a per-browser preference
 (`be_graph_assistant_autoapply_v1`, on by default); turning it off makes every
-edit wait for Apply/Discard. A proposal is bound to the IR id it was computed
-against, so switching workflows can never apply it to the wrong document. Tests: `python/tests/test_graph_assistant.py`,
-`src/lib/graph-studio/assistant-ops.test.ts`.
+edit wait for the approval card (and creates the `graph_edit` approval row).
+A proposal is bound to the IR id it was computed against, so switching
+workflows can never apply it to the wrong document. Tests:
+`python/tests/test_graph_assistant.py`,
+`python/tests/test_graph_assistant_runs.py`,
+`src/lib/graph-studio/assistant-ops.test.ts`,
+`src/lib/graph-studio/assistant-store.test.ts`.
 
 **Tabular transforms.** `transform.select`, `transform.sort_limit`,
 `logic.aggregate`, `logic.deduplicate` and `transform.join` operate on arrays of
@@ -1686,6 +1721,61 @@ or HTTP errors.
   separate Fabric job. It requires an operator run with the explicit local-render
   grant and the fframes Rust worker installed (a missing worker is an honest
   failure).
+
+## Trade learning pack (`trade.*`)
+
+A second, small node pack turns the journal into a learning loop. It is
+deliberately **not** a self-editing mechanism: the loop may improve one bounded
+thing — the playbook envelope the risk gate enforces — and only toward tighter
+risk. It never places an order and never edits code.
+
+| Node | Class | What it does |
+| --- | --- | --- |
+| `trade.journal` | read | Loads a bounded window of JDDS trades + the execution log through the authenticated, read-only bridge (`journal_trades`), owner-scoped to the run's user. |
+| `trade.review` | none (pure) | Deterministic detectors (`no_stop`, `risk_over_limit`, `stop_widened`, `target_reduced`, `early_exit`, `held_past_stop`, `overtraded`, `revenge_trade`, `no_plan`, `checklist_violation`, `off_session`, `off_symbol`, `duplicate_entry`, `unreviewed`). Every finding cites the field it saw. |
+| `trade.learn` | local_write | Persists findings, bumps the ONE `LearningRecurrence` ledger keyed by trade id, applies recurrence/coverage/cost thresholds, and drafts an INERT RSL candidate. Operator run only — a test run is refused so it cannot inflate the ledger. |
+| `trade.improve` | none (pure) | The recursive climb: variants are mutated from previously measured states (including losers), acceptance compares against the champion on a chronological **holdout** window, and every number is labelled `simulated over recorded trades`. |
+| `trade.commit` | write | Appends a playbook version. Operator run only; the runtime re-validates bounds and tighten-only and refuses any widening. |
+| `trade.playbook` | read | Reads the active envelope + history, for display or to wire the gate. |
+
+**What a "mistake" is.** A process violation with a recorded field, not a loss.
+A losing trade that followed the plan is clean; a winning trade with no stop is
+still a mistake. A field that is absent (common for manual trades) makes the
+detector report `unavailable` — never a guess.
+
+**What "self-improvement" is.** The playbook is the trading model: risk per
+trade, max trades/day, max consecutive losses, max daily loss in R, require a
+stop, minimum planned RR, symbol blocklist, session allowlist, suspended
+strategies. The operator sets **bounds**; the loop may only move a knob
+*toward tighter*, one step per cycle, inside those bounds. A widening change is
+refused in the runtime (`NOT_A_TIGHTENING` / `OUT_OF_BOUNDS`) regardless of what
+the graph asked for. The climb reads the last N trades, reports fit and holdout
+separately, and only accepts a candidate that improves the holdout with a
+minimum sample.
+
+**Recurrence.** One occurrence is never a pattern. Eligible requires ≥3
+occurrences inside the window, ≥80% data coverage for the fields involved, and
+(at least) 1R of measured cost when R is available. The output names the reason
+when it is `not_yet`, so a quiet result is explainable.
+
+**Enforcement.** `trading.risk_check` gained an optional `policy` input. When
+wired, the gate applies only the learned limits it can enforce statelessly — a
+required stop and a shrunken per-trade risk cap — and lists the rest
+(`symbolBlocklist`, per-day counts, streaks, session window) under
+`state.playbook.notEnforced` rather than pretending they are live.
+
+**Storage.** Findings and playbook versions live on `agent-memory.db`
+(`TradeFinding`, `TradePlaybook`); the journal stays in JDDS and is read through
+the bridge. A playbook version is append-only and a full snapshot, so rollback
+is a pointer change (`TradeLearningStore.revert`), and `revertsAt` is set on
+every applied version.
+
+**Template.** `Trade learning loop` (`trade-learning`) wires trigger → journal →
+review → learn → improve → commit → result. It sets conservative operator bounds
+(`requireStop`, risk 0.25–5%, 1–10 trades/day) so the first run proposes a small
+step. A manual run with no input falls through to the journal bridge; passing a
+trades array as the run input uses that instead. The Journal learning panel is
+the remaining optional surface.
 
 ## Next milestone
 
