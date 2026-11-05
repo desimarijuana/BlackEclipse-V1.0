@@ -19,6 +19,7 @@ import { computeRiskMetrics } from '@/lib/portfolio/risk';
 import { baseChartOption, useEChart } from './use-echart';
 import { marketHintFor } from './use-live-quotes';
 import { DotGrid } from '@/components/ui/ascii-loader';
+import { PageHeader } from '@/components/layout/page-header';
 import {
   exportAllFundsJson, exportFundCsv, exportFundJson, isDemoFund, parseFundsPayload,
 } from './fund-store';
@@ -222,24 +223,23 @@ export function FundManager({ funds, onOpenFund, onCreate, onUpdate, onDelete, o
   return (
     <div ref={rootRef} data-keyboard-scope="Fund manager" className="animate-fade-in-up w-full">
       {/* Header + toolbar */}
-      <div className="mb-5 flex flex-wrap items-center gap-4 border-b border-border/10 pb-4">
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-          <ChartPie className="text-primary" size={30} />
-        </div>
-        <div>
-          <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Portfolio</h1>
-          <p className="text-muted-foreground text-xs mt-0.5">Funds and custom workspaces, backed by your local Eclipse portfolio engine.</p>
-        </div>
-        <div className="ml-auto flex flex-wrap items-center gap-1.5 pr-40">
-          <input
-            ref={fileRef} type="file" accept=".json,.csv" className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) void onImportFile(f); e.target.value = ''; }}
-          />
-          <ToolbarButton icon={Upload} label="Import" onClick={() => fileRef.current?.click()} />
-          <ToolbarButton icon={FileJson} label="Export all" onClick={() => exportAllFundsJson(funds)} />
-          <ToolbarButton icon={Plus} label="Create fund" primary onClick={() => setDialog({ kind: 'create' })} />
-        </div>
-      </div>
+      <PageHeader
+        icon={ChartPie}
+        title="Portfolio"
+        description="Funds and custom workspaces, backed by your local Eclipse portfolio engine."
+        size="lg"
+        actions={
+          <div className="flex flex-wrap items-center gap-1.5 pr-40">
+            <input
+              ref={fileRef} type="file" accept=".json,.csv" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void onImportFile(f); e.target.value = ''; }}
+            />
+            <ToolbarButton icon={Upload} label="Import" onClick={() => fileRef.current?.click()} />
+            <ToolbarButton icon={FileJson} label="Export all" onClick={() => exportAllFundsJson(funds)} />
+            <ToolbarButton icon={Plus} label="Create fund" primary onClick={() => setDialog({ kind: 'create' })} />
+          </div>
+        }
+      />
       {importStatus && (
         <p className="mb-4 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-semibold text-primary animate-fade-in">{importStatus}</p>
       )}

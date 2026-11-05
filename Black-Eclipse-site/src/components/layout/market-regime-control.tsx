@@ -185,7 +185,7 @@ export function MarketRegimeControl() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
-        className="glass-card-strong sm:max-w-lg max-h-[85dvh] overflow-y-auto rounded-2xl text-foreground"
+        className="glass-card-strong sm:max-w-2xl max-h-[85dvh] overflow-y-auto rounded-2xl text-foreground"
         showCloseButton={false}
       >
         <div className="flex items-start justify-between gap-3">

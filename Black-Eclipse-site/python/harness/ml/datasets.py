@@ -23,9 +23,9 @@ from typing import Any, Callable, Optional
 
 import numpy as np
 
-from .models import DatasetSpec, MLError
+from .models import CONTRACT_SCHEMA_VERSION, DatasetSpec, MLError
 from .quality import evaluate_quality
-from .targets import build_target
+from .targets import build_column_target, build_target, build_unsupervised_target
 from ..stats.base import INVALID_INPUT, INSUFFICIENT_DATA
 
 
@@ -169,10 +169,12 @@ def _forward_fill_panel(panel: np.ndarray) -> np.ndarray:
     return out
 
 
-def _data_hash(payload: dict[str, Any], X: np.ndarray) -> str:
+def _data_hash(payload: dict[str, Any], X: np.ndarray, *extra: np.ndarray) -> str:
     h = hashlib.sha256()
     h.update(json.dumps(payload, sort_keys=True, default=str).encode())
     h.update(np.ascontiguousarray(X, dtype=np.float32).tobytes())
+    for arr in extra:
+        h.update(np.ascontiguousarray(arr, dtype=np.float32).tobytes())
     return h.hexdigest()
 
 
@@ -180,19 +182,159 @@ def _panel_resolve(result: dict[str, Any]) -> np.ndarray:
     return np.asarray(result["values"], dtype=float)
 
 
-def build_dataset(
-    gateway: Any,
-    spec: DatasetSpec,
-    *,
-    registry: Any = None,
-    forward_fill: bool = False,
-) -> dict[str, Any]:
-    """Resolve and assemble one dataset version. Returns ``{manifest, arrays}``.
+def _coerce_number(raw: Any, *, column: str, row: int) -> float:
+    """A numeric feature cell. Blank/None is missing (NaN); anything else must parse."""
+    if raw is None:
+        return float("nan")
+    if isinstance(raw, str):
+        if raw.strip() == "":
+            return float("nan")
+        raw = raw.strip()
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        raise MLError(
+            INVALID_INPUT,
+            f"feature column {column!r} holds a non-numeric value at row {row}: {raw!r}",
+        ) from None
+    return value
 
-    Raises ``MLError`` (never returns fabricated data) when the gateway cannot
-    supply the requested symbols/series.
+
+def _records_timestamps(records: list[dict[str, Any]], column: Optional[str]) -> list[str]:
+    """Per-row time labels; a declared column must already be ascending.
+
+    The split engine is strictly chronological, so silently re-sorting rows
+    would make the dataset disagree with the data the operator supplied.
+    Refusing with a clear message is the honest behaviour.
     """
-    from ..stats.datasets import resolve_frame  # noqa: PLC0415
+    if not column:
+        return [str(i) for i in range(len(records))]
+    out: list[str] = []
+    for i, row in enumerate(records):
+        if column not in row:
+            raise MLError(INVALID_INPUT, f"time column {column!r} is missing at row {i}")
+        out.append(str(row[column]))
+    if out != sorted(out):
+        raise MLError(
+            INVALID_INPUT,
+            f"time column {column!r} must be sorted ascending — rows were supplied out of "
+            "order and are never re-sorted silently (chronological splits depend on it)",
+        )
+    return out
+
+
+def build_records_dataset(spec: DatasetSpec, records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Assemble an immutable dataset version from operator-supplied rows.
+
+    Same contract and same invariants as the market builder: a manifest, the
+    aligned arrays, a content hash and a quality report — only the *source* of
+    the rows differs. Features are the named numeric columns, the label is the
+    named target column (``kind="column"``), and the row order is the temporal
+    order the split engine will respect.
+    """
+    if not isinstance(records, list) or not records:
+        raise MLError(INVALID_INPUT, "records must be a non-empty list of row objects")
+    if not spec.feature_names:
+        raise MLError(INVALID_INPUT, "at least one feature column is required")
+    if spec.target.kind != "column" and spec.target.kind != "unsupervised":
+        raise MLError(
+            INVALID_INPUT,
+            "a records dataset needs target.kind='column' naming the label column, or "
+            "kind='unsupervised' (the forward-return kinds only exist for market data)",
+        )
+    if spec.missing_policy not in ("drop", "forward_fill", "fill_zero"):
+        raise MLError(INVALID_INPUT, f"unknown missing policy {spec.missing_policy!r}")
+
+    width = len(records)
+    feature_names = list(spec.feature_names)
+    X = np.empty((width, len(feature_names)), dtype=float)
+    for j, name in enumerate(feature_names):
+        for i, row in enumerate(records):
+            if not isinstance(row, dict):
+                raise MLError(INVALID_INPUT, f"record {i} is not an object")
+            if name not in row:
+                raise MLError(INVALID_INPUT, f"feature column {name!r} is missing at row {i}")
+            X[i, j] = _coerce_number(row[name], column=name, row=i)
+    if spec.missing_policy == "forward_fill":
+        X = _forward_fill_panel(X)
+    elif spec.missing_policy == "fill_zero":
+        X = _apply_missing_policy(X, "fill_zero")
+
+    column = spec.target.column
+    if spec.target.kind == "unsupervised":
+        target = build_unsupervised_target(width, spec.target)
+    else:
+        target_values: list[Any] = []
+        for i, row in enumerate(records):
+            if column not in row:
+                raise MLError(INVALID_INPUT, f"target column {column!r} is missing at row {i}")
+            target_values.append(row[column])
+        target = build_column_target(target_values, spec.target)
+
+    timestamps = _records_timestamps(records, spec.time_column)
+    # Per-row identity for the quality checks (duplicates / ordering). It is NOT
+    # copied into the arrays: a row id is provenance, and training/prediction
+    # never need it, so persisting 2M of them would only bloat the artifact.
+    row_ids = ([str(row.get(spec.id_column, i)) for i, row in enumerate(records)]
+               if spec.id_column else [str(i) for i in range(width)])
+    y = target["values"]
+
+    quality = evaluate_quality(
+        X=X, y=y, feature_names=feature_names, timestamps=timestamps,
+        symbols=row_ids, task=target["task"], min_coverage=spec.min_coverage,
+    )
+
+    spec_payload = spec.to_dict()
+    # Hash the FEATURES AND THE LABELS, and only a compact time summary: two
+    # datasets that differ only in their target column must not share a hash,
+    # while the payload stays O(1) in the row count.
+    data_hash = _data_hash(
+        {"spec": spec_payload, "target": spec.target.to_dict(), "rows": width,
+         "timeRange": [timestamps[0], timestamps[-1]] if timestamps else [None, None]},
+        X, y)
+
+    manifest = {
+        "schemaVersion": CONTRACT_SCHEMA_VERSION,
+        "source": "records",
+        "symbols": [],
+        "interval": None,
+        "start": None,
+        "end": None,
+        "featureNames": feature_names,
+        "rows": int(width),
+        "dates": int(width),
+        "nSymbols": 0,
+        "target": {**spec.target.to_dict(),
+                   "nClasses": (len(target["classes"]) if target["classes"]
+                                else (0 if spec.target.kind == "unsupervised"
+                                      else spec.target.n_classes)),
+                   "task": target["task"], "classes": target["classes"],
+                   "classLabels": target.get("classLabels"), "bins": target["bins"]},
+        "missingPolicy": spec.missing_policy,
+        "coverage": quality["summary"].get("coverage", 0.0),
+        "quality": quality,
+        "dataHash": data_hash,
+        "timestampRange": [timestamps[0], timestamps[-1]] if timestamps else [None, None],
+        "timeColumn": spec.time_column,
+        "idColumn": spec.id_column,
+        "spec": spec_payload,
+    }
+    arrays = {
+        "X": X,
+        "y": y,
+        "labelStart": target["labelStart"],
+        "labelEnd": target["labelEnd"],
+        "timestamps": timestamps,
+        # See the row_ids comment above: ids are provenance, not training data.
+        "symbols": [],
+        "featureNames": feature_names,
+        "perSymbolRows": 1,
+        "targetTask": target["task"],
+        "targetClasses": target["classes"],
+        "classLabels": target.get("classLabels"),
+    }
+    return {"manifest": manifest, "arrays": arrays}
+
 
 async def build_dataset(
     gateway: Any,
@@ -200,13 +342,21 @@ async def build_dataset(
     *,
     registry: Any = None,
     forward_fill: bool = False,
+    records: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     """Resolve and assemble one dataset version. Returns ``{manifest, arrays}``.
 
-    Raises ``MLError`` (never returns fabricated data) when the gateway cannot
-    supply the requested symbols/series.
+    ``spec.source`` selects the builder: ``records`` uses the supplied rows and
+    never touches the gateway; anything else is the market path. Raises
+    ``MLError`` (never returns fabricated data) when the source cannot supply
+    the requested series/columns.
     """
     from ..stats.datasets import resolve_frame  # noqa: PLC0415
+
+    if spec.source == "records":
+        return build_records_dataset(spec, records or [])
+    if spec.source != "market":
+        raise MLError(INVALID_INPUT, f"unknown dataset source {spec.source!r}")
 
     if not spec.symbols:
         raise MLError(INVALID_INPUT, "at least one symbol is required")
@@ -263,7 +413,8 @@ async def build_dataset(
                             "timestamps": timestamps, "target": spec.target.to_dict()}, X_flat)
 
     manifest = {
-        "schemaVersion": "1.0.0",
+        "schemaVersion": CONTRACT_SCHEMA_VERSION,
+        "source": "market",
         "symbols": symbols,
         "interval": spec.interval,
         "start": spec.start,
@@ -273,7 +424,8 @@ async def build_dataset(
         "dates": int(t),
         "nSymbols": int(n),
         "target": {**spec.target.to_dict(),
-                   "nClasses": len(target["classes"]) if target["classes"] else spec.target.n_classes,
+                   "nClasses": len(target["classes"]) if target["classes"]
+                   else (0 if spec.target.kind == "unsupervised" else spec.target.n_classes),
                    "task": target["task"], "classes": target["classes"],
                    "bins": target["bins"]},
         "missingPolicy": spec.missing_policy,
@@ -308,6 +460,7 @@ def reconstruct_feature_names(manifest: dict[str, Any]) -> list[str]:
 
 __all__ = [
     "build_dataset",
+    "build_records_dataset",
     "builtin_feature_catalog",
     "BUILTIN_FEATURES",
     "reconstruct_feature_names",

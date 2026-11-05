@@ -131,7 +131,8 @@ These are product promises, not style preferences:
 
 - **Never fabricate financial data.** If a source is unavailable, show an
   `UNAVAILABLE` state. Widgets that need brokers or feeds they do not have must
-  say so plainly — the trading widgets are currently `UNAVAILABLE` stubs.
+  say so plainly — the broker-backed widgets and the Home Trading section
+  render an honest setup note when no broker is connected.
 - **Label simulated and stale data.** Imported/stale universes are
   distinguishable from live scrapes (`Price.source`); demo data sits behind a
   visible `DEMO` banner.
@@ -139,7 +140,7 @@ These are product promises, not style preferences:
   setup breaks the core promise.
 - **The Aurora glow is the market-state indicator.** It reflects an explainable
   **Market Regime** reading (risk-on broadening … risk-off, plus an honest
-  UNAVAILABLE state), green-on-black. The glow is decorative; the top-bar
+  UNAVAILABLE state), lime-on-black. The glow is decorative; the top-bar
   **Market Regime** control opens the interactive breakdown. See
   `src/lib/regime/`.
 

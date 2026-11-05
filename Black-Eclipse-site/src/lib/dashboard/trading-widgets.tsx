@@ -19,18 +19,10 @@ import {
   closeAllBrokerPositions,
   closeBrokerPosition,
   decideTradeApproval,
-  getBrokerAccount,
-  getBrokerFills,
-  getBrokerOrders,
-  getBrokerPositions,
-  listBrokerConnections,
   listLedgerOrders,
   modifyBrokerPosition,
   previewOrder,
   submitOrder,
-  type BrokerAccount,
-  type BrokerConnection,
-  type BrokerFill,
   type BrokerPosition,
   type BrokerWorkingOrder,
   type LedgerOrder,
@@ -47,110 +39,12 @@ const fmt = (n?: number | null, d = 2) =>
     : n.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
 const tone = (n: number) => (n > 0 ? UP : n < 0 ? DOWN : 'text-muted-foreground');
 
-interface TradingData {
-  connection: BrokerConnection | null;
-  account: BrokerAccount | null;
-  positions: BrokerPosition[];
-  orders: BrokerWorkingOrder[];
-  fills: BrokerFill[];
-  error: string | null;
-  loading: boolean;
-  refresh: () => Promise<void>;
-}
+import { useBrokerSnapshot, invalidateBrokerSnapshot, type BrokerSnapshotState } from '@/lib/dashboard/use-broker-snapshot';
 
-interface TradingSnapshot {
-  connection: BrokerConnection | null;
-  account: BrokerAccount | null;
-  positions: BrokerPosition[];
-  orders: BrokerWorkingOrder[];
-  fills: BrokerFill[];
-  error: string | null;
-}
-
-// One shared snapshot for every visible trading widget: five widgets must not
-// open five sets of MT5 IPC sessions on the same 15s cadence.
-let sharedSnapshot: { at: number; promise: Promise<TradingSnapshot> } | null = null;
-
-async function loadSnapshot(): Promise<TradingSnapshot> {
-  try {
-    const connections = await listBrokerConnections();
-    const first =
-      connections.find((candidate) => candidate.status === 'connected') ?? connections[0] ?? null;
-    if (!first) {
-      return { connection: null, account: null, positions: [], orders: [], fills: [], error: null };
-    }
-    const [accountBody, positionsBody, ordersBody, fillRows] = await Promise.all([
-      getBrokerAccount(first.id).catch(() => null),
-      getBrokerPositions(first.id).catch(() => null),
-      getBrokerOrders(first.id).catch(() => null),
-      getBrokerFills(first.id, 200).catch(() => [] as BrokerFill[]),
-    ]);
-    const failure =
-      (!accountBody?.available && accountBody?.error?.message) ||
-      (!positionsBody?.available && positionsBody?.error?.message) ||
-      (!ordersBody?.available && ordersBody?.error?.message) ||
-      null;
-    return {
-      connection: first,
-      account: accountBody?.available ? accountBody.data ?? null : null,
-      positions: positionsBody?.available ? positionsBody.data ?? [] : [],
-      orders: ordersBody?.available ? ordersBody.data ?? [] : [],
-      fills: fillRows,
-      error: failure || null,
-    };
-  } catch (err) {
-    return {
-      connection: null,
-      account: null,
-      positions: [],
-      orders: [],
-      fills: [],
-      error: err instanceof Error ? err.message : 'broker unavailable',
-    };
-  }
-}
-
-function fetchSnapshot(): Promise<TradingSnapshot> {
-  if (sharedSnapshot && Date.now() - sharedSnapshot.at < 10_000) {
-    return sharedSnapshot.promise;
-  }
-  const promise = loadSnapshot();
-  sharedSnapshot = { at: Date.now(), promise };
-  return promise;
-}
-
+type TradingData = BrokerSnapshotState;
+const useTradingData = useBrokerSnapshot;
 /** Drop the shared read cache after an action so the next read is fresh. */
-export function invalidateTradingSnapshot(): void {
-  sharedSnapshot = null;
-}
-
-function useTradingData(): TradingData {
-  const [snapshot, setSnapshot] = useState<TradingSnapshot | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async () => {
-    const next = await fetchSnapshot();
-    setSnapshot(next);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 15_000);
-    return () => window.clearInterval(timer);
-  }, [refresh]);
-
-  return {
-    connection: snapshot?.connection ?? null,
-    account: snapshot?.account ?? null,
-    positions: snapshot?.positions ?? [],
-    orders: snapshot?.orders ?? [],
-    fills: snapshot?.fills ?? [],
-    error: snapshot?.error ?? null,
-    loading,
-    refresh,
-  };
-}
+const invalidateTradingSnapshot = invalidateBrokerSnapshot;
 
 function WidgetHeader({ title, hint }: { title: string; hint?: React.ReactNode }) {
   return (

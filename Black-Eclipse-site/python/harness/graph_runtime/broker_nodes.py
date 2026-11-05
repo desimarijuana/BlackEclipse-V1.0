@@ -14,10 +14,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..trade.analysis import bar_summary
 from .model import ExecutionMode, PortDef, PortType, SideEffect
 from .registry import ConfigField, NodeDef, NodeExecContext
-
-from ..trade.analysis import bar_summary
 
 _ALL = tuple(ExecutionMode)
 _TIMEFRAMES = ("M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1")
@@ -131,10 +130,49 @@ def exec_broker_quote(context: NodeExecContext) -> dict[str, Any]:
 
 def exec_broker_positions(context: NodeExecContext) -> dict[str, Any]:
     result = _service().positions(_connection(context))
+    ok = bool(result.get("available"))
     rows = result.get("data") if isinstance(result.get("data"), list) else []
-    output = _read_output("positions", result)
-    output["count"] = len(rows)
-    return output
+    return {
+        "positions": rows if ok else [],
+        "count": len(rows) if ok else 0,
+        "status": "ok" if ok else "unavailable",
+        "ok": ok,
+        "reason": "" if ok else (_reason(result) or "the broker is unavailable"),
+    }
+
+
+def exec_broker_orders(context: NodeExecContext) -> dict[str, Any]:
+    result = _service().orders(_connection(context))
+    ok = bool(result.get("available"))
+    rows = result.get("data") if isinstance(result.get("data"), list) else []
+    return {
+        "orders": rows if ok else [],
+        "count": len(rows) if ok else 0,
+        "status": "ok" if ok else "unavailable",
+        "ok": ok,
+        "reason": "" if ok else (_reason(result) or "the broker is unavailable"),
+    }
+
+
+def exec_broker_fills(context: NodeExecContext) -> dict[str, Any]:
+    """Reconciled broker deals (durable copy). Empty until the first sync."""
+    try:
+        limit = int(context.config.get("limit", 50) or 50)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("limit must be a whole number") from exc
+    rows = _service().list_fills(_connection(context), limit=limit)
+    return {"fills": rows, "count": len(rows), "status": "ok", "ok": True, "reason": ""}
+
+
+def exec_order_ledger(context: NodeExecContext) -> dict[str, Any]:
+    """Eclipse's own submitted-order ledger, newest first."""
+    connection_id = str(context.config.get("connectionId") or "").strip() or None
+    try:
+        limit = int(context.config.get("limit", 50) or 50)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("limit must be a whole number") from exc
+    rows = _service().ledger_orders(connection_id, limit=limit)
+    return {"orders": rows, "count": len(rows), "status": "ok", "ok": True, "reason": ""}
 
 
 def exec_broker_bars(context: NodeExecContext) -> dict[str, Any]:
@@ -154,6 +192,48 @@ def exec_broker_bars(context: NodeExecContext) -> dict[str, Any]:
     output["contractSize"] = data.get("contractSize") or 0
     output["tickSize"] = data.get("tickSize") or 0
     return output
+
+
+def exec_broker_symbol(context: NodeExecContext) -> dict[str, Any]:
+    """Static symbol facts (trade mode, contract, volume limits) — no tick needed."""
+    result = _service().symbol_info(_connection(context), _symbol(context))
+    ok = bool(result.get("available"))
+    payload = result.get("data") if isinstance(result.get("data"), dict) else {}
+    return {
+        "symbol": result,
+        "tradeMode": str(payload.get("tradeMode") or ""),
+        "status": "ok" if ok else "unavailable",
+        "ok": ok,
+        "reason": "" if ok else (_reason(result) or "the broker is unavailable"),
+    }
+
+
+def exec_broker_modify_order(context: NodeExecContext) -> dict[str, Any]:
+    """Re-price or re-bracket a WORKING order. Risk-reducing: no mandate."""
+    ticket = _number(context, "ticket")
+    if ticket is None:
+        raise ValueError("broker modify-order needs a ticket input")
+    price = _number(context, "price")
+    stop_loss = _number(context, "stopLoss")
+    take_profit = _number(context, "takeProfit")
+    if price is None and stop_loss is None and take_profit is None:
+        raise ValueError("pass a price, a stopLoss and/or a takeProfit to modify")
+    result = _service().modify_order(
+        _connection(context), int(ticket),
+        price=price, stop_loss=stop_loss, take_profit=take_profit,
+    )
+    modified = bool(result.get("modified"))
+    detail = result.get("result") if isinstance(result.get("result"), dict) else {}
+    context.emit(
+        f"modify order {int(ticket)}: "
+        + (f"stored @ {detail.get('price')}" if modified else f"refused ({_reason(result) or 'not modified'})")
+    )
+    return {
+        "result": result,
+        "status": "modified" if modified else "rejected",
+        "ok": modified,
+        "reason": "" if modified else (_reason(result) or "the broker did not modify it"),
+    }
 
 
 def exec_broker_close(context: NodeExecContext) -> dict[str, Any]:
@@ -252,7 +332,7 @@ def build_broker_nodes() -> list[NodeDef]:
             type="trading.broker_positions", version="1.0.0", label="Broker positions",
             category="trading",
             outputs=(
-                PortDef(id="positions", name="Positions", type=PortType.OBJECT),
+                PortDef(id="positions", name="Positions", type=PortType.ARRAY),
                 PortDef(id="count", name="Count", type=PortType.NUMBER),
                 PortDef(id="status", name="Status", type=PortType.STRING),
                 *ok_ports,
@@ -260,7 +340,55 @@ def build_broker_nodes() -> list[NodeDef]:
             config_fields=(connection,),
             capabilities=("trading.broker.read",), side_effects=SideEffect.READ,
             allowed_modes=_ALL, executor=exec_broker_positions,
-            metadata={"docs": "The broker's current positions as a structured list (ticket, symbol, side, volume, prices, SL/TP, profit). Feed it to a risk check as the `positions` input or branch on `count`."},
+            metadata={"docs": "The broker's current positions as rows (ticket, symbol, side, volume, prices, SL/TP, profit). Feed it to a risk check as the `positions` input, or branch on `count`."},
+        ),
+        NodeDef(
+            type="trading.broker_orders", version="1.0.0", label="Broker orders",
+            category="trading",
+            outputs=(
+                PortDef(id="orders", name="Working orders", type=PortType.ARRAY),
+                PortDef(id="count", name="Count", type=PortType.NUMBER),
+                PortDef(id="status", name="Status", type=PortType.STRING),
+                *ok_ports,
+            ),
+            config_fields=(connection,),
+            capabilities=("trading.broker.read",), side_effects=SideEffect.READ,
+            allowed_modes=_ALL, executor=exec_broker_orders,
+            metadata={"docs": "The broker's own working (pending) orders. An empty list with `ok` true means none are working; `ok` false means the read failed."},
+        ),
+        NodeDef(
+            type="trading.broker_fills", version="1.0.0", label="Broker fills",
+            category="trading",
+            outputs=(
+                PortDef(id="fills", name="Fills", type=PortType.ARRAY),
+                PortDef(id="count", name="Count", type=PortType.NUMBER),
+                PortDef(id="status", name="Status", type=PortType.STRING),
+                *ok_ports,
+            ),
+            config_fields=(
+                connection,
+                ConfigField("limit", "integer", 50, minimum=1, maximum=200),
+            ),
+            capabilities=("trading.broker.read",), side_effects=SideEffect.READ,
+            allowed_modes=_ALL, executor=exec_broker_fills,
+            metadata={"docs": "Broker deals from Eclipse's durable reconciliation copy (deduped by deal ticket). Empty until the connection has been synced."},
+        ),
+        NodeDef(
+            type="trading.order_ledger", version="1.0.0", label="Order ledger",
+            category="trading",
+            outputs=(
+                PortDef(id="orders", name="Ledger rows", type=PortType.ARRAY),
+                PortDef(id="count", name="Count", type=PortType.NUMBER),
+                PortDef(id="status", name="Status", type=PortType.STRING),
+                *ok_ports,
+            ),
+            config_fields=(
+                ConfigField("connectionId", "string", "", max_length=80),
+                ConfigField("limit", "integer", 50, minimum=1, maximum=200),
+            ),
+            capabilities=("trading.broker.read",), side_effects=SideEffect.READ,
+            allowed_modes=_ALL, executor=exec_order_ledger,
+            metadata={"docs": "Eclipse's own submitted-order rows, newest first, each with status, ticket, and the runId/nodeId that placed it. Leave connectionId empty to read every connection."},
         ),
         NodeDef(
             type="trading.broker_quote", version="1.0.0", label="Broker quote",
@@ -297,6 +425,41 @@ def build_broker_nodes() -> list[NodeDef]:
             capabilities=("trading.broker.read",), side_effects=SideEffect.READ,
             allowed_modes=_ALL, executor=exec_broker_bars,
             metadata={"docs": "The broker's own OHLCV series (server time), for symbols JDDS cannot proxy. Also returns the same deterministic ATR(14) / 20-bar range / contract size the chat tool computes, so a graph does not have to recompute them."},
+        ),
+        NodeDef(
+            type="trading.broker_symbol", version="1.0.0", label="Broker symbol",
+            category="trading",
+            inputs=(PortDef(id="symbol", name="Symbol", type=PortType.STRING, optional=True),),
+            outputs=(
+                PortDef(id="symbol", name="Symbol facts", type=PortType.OBJECT),
+                PortDef(id="tradeMode", name="Trade mode", type=PortType.STRING),
+                PortDef(id="status", name="Status", type=PortType.STRING),
+                *ok_ports,
+            ),
+            config_fields=(connection, ConfigField("symbol", "string", "", max_length=40)),
+            capabilities=("trading.broker.read",), side_effects=SideEffect.READ,
+            allowed_modes=_ALL, executor=exec_broker_symbol,
+            metadata={"docs": "Static symbol facts from the terminal — trade mode, contract size, volume min/max/step, stops and freeze levels, filling mask — with NO tick required, so it answers when the market is closed. Feed `tradeMode` to trading.session_filter. Session calendars are not reported by this adapter."},
+        ),
+        NodeDef(
+            type="trading.broker_modify_order", version="1.0.0", label="Modify order",
+            category="trading",
+            inputs=(
+                PortDef(id="ticket", name="Ticket", type=PortType.NUMBER),
+                PortDef(id="price", name="New price", type=PortType.NUMBER, optional=True),
+                PortDef(id="stopLoss", name="Stop loss", type=PortType.NUMBER, optional=True),
+                PortDef(id="takeProfit", name="Take profit", type=PortType.NUMBER, optional=True),
+            ),
+            outputs=(
+                PortDef(id="result", name="Result", type=PortType.OBJECT),
+                PortDef(id="status", name="Status", type=PortType.STRING),
+                *ok_ports,
+            ),
+            config_fields=(connection,),
+            capabilities=("trading.broker",), side_effects=SideEffect.TRADING,
+            allowed_modes=(ExecutionMode.PAPER, ExecutionMode.LIVE),
+            executor=exec_broker_modify_order,
+            metadata={"docs": "Re-prices or re-brackets a WORKING (pending) order, keeping its own type/time/expiration, then reads it back (`verified`). Risk-reducing: no arm, approval or mandate."},
         ),
         NodeDef(
             type="trading.broker_close", version="1.0.0", label="Close position",
@@ -363,9 +526,14 @@ __all__ = [
     "build_broker_nodes",
     "exec_broker_account",
     "exec_broker_positions",
+    "exec_broker_orders",
+    "exec_broker_fills",
+    "exec_order_ledger",
+    "exec_broker_symbol",
     "exec_broker_quote",
     "exec_broker_bars",
     "exec_broker_close",
     "exec_broker_modify",
+    "exec_broker_modify_order",
     "exec_broker_cancel",
 ]

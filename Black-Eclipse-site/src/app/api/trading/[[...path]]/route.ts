@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { guardMutation } from "@/lib/api-guard";
+import { requireOperatorApiAuth } from "@/lib/auth/server";
 import { HARNESS_PY_URL, ensurePythonRuntime } from "@/lib/harness/python-runtime";
 import { runtimeCallbackToken } from "@/lib/harness/runtime-auth";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
@@ -18,6 +19,8 @@ async function proxy(
   path: string[],
   method: "GET" | "POST" | "PATCH" | "DELETE",
 ): Promise<Response> {
+  const denied = await requireOperatorApiAuth(request);
+  if (denied) return denied;
   const target = path.join("/");
   if (!isAllowedTradingRoute(method, path)) {
     return NextResponse.json(

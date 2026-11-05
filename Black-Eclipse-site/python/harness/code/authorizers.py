@@ -129,6 +129,15 @@ def build_effect_authorizer(
         approvals, run_id, workspace_id or "", emitter, inner=code_authorizer,
     )
 
+    # The General Ledger: a `ledger_*` MUTATION (effect `ledger.write`) is a write
+    # to the book of record and requires a single-use, digest-bound operator
+    # approval (kind `ledger_write`). Reads never reach an authorizer.
+    from ..ledger.authorizers import make_ledger_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_ledger_authorizer(
+        approvals, run_id, workspace_id or "", emitter, inner=code_authorizer,
+    )
+
     # The Automation subsystem: the autonomous-schedule tools (bot_create/update/
     # enable/resume) are admitted HERE; the HANDLER claims or requests a single-use
     # operator approval (kind `bot_schedule`) before a schedule is created or
@@ -185,6 +194,14 @@ def build_effect_authorizer(
     from ..journal_tools import make_journal_authorizer  # noqa: PLC0415
 
     code_authorizer = make_journal_authorizer(code_authorizer)
+
+    # Graph Studio authoring: `create_workflow` writes a NEW workflow document
+    # into the app catalog (the front door owns the planner, the IR validation
+    # and the store). It is a reversible local write — it never runs the graph —
+    # so admission happens here and no approval is invented for it.
+    from ..graph_tools import make_graph_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_graph_authorizer(code_authorizer)
 
     if approvals is None or not workspace_id:
         code_authorizer = _wrap_with_money_guardrails(code_authorizer, run_id)
@@ -255,7 +272,13 @@ def _admit_collect_tools(inner: Any) -> Any:
 # binding, the autonomy profile and the grant; the tool persists to the user's own
 # store. Admitted at this seam so an advertised tool is never dead. (The audit's
 # visibility scan flags the class; adding a name here is the ONE change needed.)
-_ADMIT_LOCAL_WRITES: frozenset[str] = frozenset({"learning_progress_update"})
+_ADMIT_LOCAL_WRITES: frozenset[str] = frozenset({
+    "learning_progress_update",
+    # ML registry/local-artifact writes: the HANDLER enforces the workspace
+    # binding and records every transition as an approval event + audit row.
+    "ml_finetune_adapter",
+    "ml_transition_model",
+})
 
 
 def _admit_local_writes(inner: Any) -> Any:

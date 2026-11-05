@@ -12,6 +12,7 @@ import {
 } from '@/lib/icons';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { IconBadge } from '@/components/layout/page-header';
 import { DASHBOARD_TEMPLATES } from '@/lib/dashboard/templates';
 
 const PRESET_ICON: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -47,14 +48,12 @@ export function NewLayoutDialog({
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-lg sm:max-w-lg max-h-[calc(100dvh-2rem)] flex flex-col rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong p-0 gap-0 overflow-hidden">
+      <DialogContent className="w-[calc(100%-2rem)] max-w-2xl sm:max-w-2xl max-h-[calc(100dvh-2rem)] flex flex-col rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong p-0 gap-0 overflow-hidden">
         <DialogTitle className="sr-only">New layout</DialogTitle>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/25 bg-primary/15 text-primary">
-              <LayoutGrid size={18} />
-            </span>
+            <IconBadge icon={LayoutGrid} size="sm" />
             <div className="min-w-0">
               <h2 className="font-serif text-lg font-semibold text-foreground">New layout</h2>
               <p className="mt-0.5 text-xs text-muted-foreground">

@@ -15,6 +15,12 @@ const EXAMPLES: Record<string, string> = {
     'cases "buy, sell, hold" · value "sell"  →  case2 fires (plus Any match), Case index = 1',
   'logic.merge':
     'A is empty (skipped branch), B has 3 rows  →  value = the 3 rows',
+  'logic.assert':
+    'value 0 · expect "truthy"  →  node fails with "need at least one row"',
+  'logic.fallback':
+    'in1 empty, in2 null, in3 has 3 rows  →  Value = the 3 rows, Source = in3',
+  'logic.human_approval':
+    'message "Submit the order?"  →  the run pauses; after Approve, Value passes through and Done fires',
   'flow.gate':
     'Run fires  →  Value passes through, Done fires',
   'logic.map':
@@ -37,6 +43,8 @@ const EXAMPLES: Record<string, string> = {
     'input 1000 · condition "value < 2000" · body "x * 1.07"  →  State 2104.85 after 11 iterations',
   'flow.for_each':
     'items [1000, 1500] · body "x * 1.07"  →  Results [1070, 1605], Iterations = 2',
+  'flow.parallel':
+    'items [1, 2, 3] · concurrency 2 · body "x * 2"  →  Results = [2, 4, 6] in INPUT order',
   'flow.subworkflow':
     'input "AAPL"  →  the child runs and Output = its terminal value',
   'transform.template':
@@ -53,6 +61,34 @@ const EXAMPLES: Record<string, string> = {
     'value "1000", dataType number  →  1000',
   'data.json.parse':
     'text "[1, 2, 3]"  →  [1, 2, 3]',
+  'data.file.attach':
+    'upload "bars.csv" (date,open,high,low,close)  →  File ref + 240 rows + columns',
+  'data.file.parse':
+    'File ref from an upstream export  →  Rows + Columns (sheet 2 for an Excel workbook)',
+  'data.file.export':
+    'rows 240 candles  →  a downloadable "export.csv" asset',
+  'image.attach':
+    'upload "setup-a.png"  →  Image ref + 1280×720 metadata',
+  'image.analyze':
+    'Image + "Describe each candle"  →  description + observations (verified: false)',
+  'image.ocr':
+    'a broker screenshot  →  text + spans with pixel boxes',
+  'image.read_chart':
+    'a 1h chart screenshot, symbol AAPL  →  trend/patterns/levels; verified only if the market check agreed',
+  'image.compare':
+    'candidate vs reference, mode both  →  same false, score 0.91, changed regions',
+  'image.batch':
+    '8 candle images + 3 questions  →  one result row per image (ok/description/observations)',
+  'agent.task':
+    'task "Review this setup" + input rows  →  text, or a schema-checked JSON object',
+  'memory.context':
+    'query "risk rules"  →  budgeted prompt block + recorded drop count',
+  'memory.list':
+    'scope workflow  →  the records saved by this workflow',
+  'memory.update':
+    'memory id + corrected content  →  the updated record (operator run)',
+  'memory.forget':
+    'memory id  →  archived record, never hard-deleted',
   'finance.market_data':
     'symbol AAPL · interval 1d · lookback 200  →  OHLCV series + provenance',
   'finance.indicator':
@@ -87,6 +123,44 @@ const EXAMPLES: Record<string, string> = {
     'bull call spread 490/510 · spot 500 · 30 days · IV 22%  →  payoff curve, break-even 502, net Greeks',
   'quant.futures_continuous':
     'ES MAR + JUN contracts · roll 2024-03-15 · adjustment difference  →  one continuous OHLCV proxy',
+  'research.latest':
+    'questionMatch "NVDA revenue"  →  the newest matching researchId + run row',
+  'research.sources':
+    'domain "sec.gov" · publishedAfter "2026-01-01"  →  deduped sources, plus excludedUndated count',
+  'research.gaps':
+    'run with one unanswered required question  →  [{ kind: "question", … }], hasGaps = true',
+  'research.freshness':
+    'asOf "2026-06-30" · freshness "quarter"  →  admissible evidence + every rejection reason',
+  'research.conflict_scan':
+    'evidence with revenue 100 and 110 (same period)  →  one UNRESOLVED conflict, never a winner',
+  'research.citation_audit':
+    'a SUPPORTED claim with no citation  →  ok false, coverage 0.8, issue names the claim',
+  'research.supersession':
+    '10-K amendment with provenance.supersedesEvidenceId  →  currentByKey points at the amendment',
+  'research.quality':
+    'sources + evidence + claims  →  score 0.72 (MODERATE), components + disclaimer',
+  'research.entities':
+    'run about NVDA  →  entities and relations, unanchored count 0',
+  'research.claims_verify':
+    '3 claims · run has an unresolved revenue conflict  →  that claim is CONTRADICTED',
+  'research.start_run':
+    'question "Did NVDA revenue grow?"  →  r_ab12… (same id on a re-run, existing run untouched)',
+  'research.snapshot':
+    'include "all"  →  snapshotId r_ab12…_v1, version 1, per-section counts',
+  'research.fetch_many':
+    'web_search results (8 URLs) · concurrency 2  →  8 pages, duplicate content fetched once',
+  'research.scrape':
+    'SEC filing page · tables true · maxRows 200  →  rows + first two tables',
+  'research.extract_facts':
+    'pages from a 10-K · legs [{ metric: "revenue", period: "FY2025" }]  →  validated evidence or a named rejection',
+  'research.deep_dive':
+    'question "Did NVDA revenue grow?" · depth standard  →  researchId + answer + coverage, readable by research.evidence',
+  'research.ingest':
+    'agent.research blob (3 evidence, 1 claim) · sourceLabel "agent:analyst"  →  stored with eclipseVerified false',
+  'research.diff':
+    'baseId r_a · compareId r_b (same question)  →  +2 evidence, 1 claim SUPPORTED→CONTRADICTED, 1 conflict opened',
+  'research.queries':
+    'question "Did revenue grow?" · 1 CONTRADICTED claim  →  answer, primary-source, support and disconfirming queries',
 };
 
 export function exampleFor(nodeType: string): string | undefined {

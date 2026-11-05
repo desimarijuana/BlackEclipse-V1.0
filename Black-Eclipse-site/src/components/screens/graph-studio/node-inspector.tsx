@@ -29,9 +29,13 @@ import {
   type BrokerConnection,
   type TradingMandate,
 } from '@/lib/harness/trading-client';
+import { listAutomations, type AutomationView } from '@/lib/harness/automation-browser';
+import { isBotAutomation } from '@/lib/bots/state';
 import type { PortDef } from '@/lib/graph-studio/types';
 import type { DatasetSummary, NodeRunRecord } from '@/lib/graph-studio/execution-client';
 import { listDatasets } from '@/lib/graph-studio/execution-client';
+import { listSkills } from '@/lib/harness/skills-browser';
+import type { SkillSummary } from '@/lib/harness/skills-types';
 import { nodeIcon } from './node-icons';
 import { ConfigField } from './config-field';
 import { PortValueEditor } from './port-value-editor';
@@ -161,6 +165,10 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [datasetsError, setDatasetsError] = useState<string | null>(null);
   const [datasetsLoading, setDatasetsLoading] = useState(false);
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+  const [bots, setBots] = useState<AutomationView[]>([]);
+  const [botsError, setBotsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (workflows.length === 0) void refreshWorkflows();
@@ -169,6 +177,8 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
   const node = ir && selection.nodeIds.length === 1 ? ir.nodes.find((n) => n.id === selection.nodeIds[0]) : undefined;
   const isAgentNode =
     node?.type === 'agent.research' || node?.type === 'agent.delegate';
+  const isSkillNode = node?.type === 'skill.invoke';
+  const isBotNode = node?.type === 'agent.bot';
   const isBrokerNode = Boolean(node?.type.startsWith('trading.broker_'));
   const isDatasetLoad = node?.type === 'data.dataset.load';
 
@@ -204,6 +214,35 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
   }, [isAgentNode]);
 
   useEffect(() => {
+    if (!isSkillNode) return;
+    let live = true;
+    void listSkills()
+      .then((result) => {
+        if (!live) return;
+        // A skill whose manifest failed to load stays visible in Skills but is
+        // not offered here: it cannot run, and hiding it would look like a bug.
+        setSkills(result.skills);
+        setSkillsError(result.loadErrors.length > 0 ? result.loadErrors[0] : null);
+      })
+      .catch((err) => { if (live) setSkillsError(err instanceof Error ? err.message : 'skills unavailable'); });
+    return () => { live = false; };
+  }, [isSkillNode]);
+
+  useEffect(() => {
+    if (!isBotNode) return;
+    let live = true;
+    void listAutomations()
+      .then((items) => {
+        if (!live) return;
+        // Jobs and event rules share the automation engine; only bots belong here.
+        setBots(items.filter(isBotAutomation));
+        setBotsError(null);
+      })
+      .catch((err) => { if (live) setBotsError(err instanceof Error ? err.message : 'bots unavailable'); });
+    return () => { live = false; };
+  }, [isBotNode]);
+
+  useEffect(() => {
     if (!isBrokerNode) return;
     let live = true;
     void listBrokerConnections()
@@ -213,6 +252,10 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
   }, [isBrokerNode]);
 
   const brokerConnectionId = String(node?.config.connectionId ?? '');
+  const currentSkillId = String(node?.config.skillId ?? '');
+  const selectedSkill = skills.find((skill) => skill.id === currentSkillId);
+  const currentBotId = String(node?.config.botId ?? '');
+  const selectedBot = bots.find((bot) => bot.id === currentBotId);
   useEffect(() => {
     if (!isBrokerNode || !brokerConnectionId) {
       setBrokerMandates([]);
@@ -547,6 +590,100 @@ export function NodeInspector({ onClose }: { onClose?: () => void }) {
                   Live orders require the connection to be armed and a workflow-pinned live mandate.
                   Manage them in Settings › Broker connection.
                 </p>
+              </div>
+            )}
+            {isBotNode && (
+              <div className="mb-3 rounded-md border border-white/10 bg-white/[0.02] p-2">
+                <div className="mb-1 text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Bot
+                </div>
+                <select
+                  value={currentBotId}
+                  onChange={(event) => setConfigValue('botId', event.target.value)}
+                  className="w-full rounded-md border border-white/10 bg-background/60 px-2 py-1 text-[12px] outline-none focus:border-primary/50"
+                >
+                  <option value="">Select a saved bot…</option>
+                  {currentBotId && !selectedBot && (
+                    <option value={currentBotId}>{currentBotId} (not found)</option>
+                  )}
+                  {bots.map((bot) => {
+                    const workflow = bot.action.type === 'execute_workflow';
+                    return (
+                      <option key={bot.id} value={bot.id} disabled={workflow}>
+                        {bot.name} · {workflow ? 'workflow (use flow.subworkflow)' : 'agent'}
+                      </option>
+                    );
+                  })}
+                </select>
+                {botsError && <p className="mt-1 text-[10px] text-amber-300">{botsError}</p>}
+                {!botsError && bots.length === 0 && (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    No bots yet. Create one in Bots mode.
+                  </p>
+                )}
+                {selectedBot && (
+                  <div className="mt-1 space-y-0.5">
+                    {selectedBot.description && (
+                      <p className="text-[10px] text-muted-foreground">{selectedBot.description}</p>
+                    )}
+                    <p className="text-[10px] text-muted-foreground">
+                      Runs one bounded turn as this bot&apos;s agent. It never fires the bot&apos;s
+                      schedule, and the bot&apos;s model override is ignored here — this run&apos;s
+                      model settings win.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            {isSkillNode && (
+              <div className="mb-3 rounded-md border border-white/10 bg-white/[0.02] p-2">
+                <div className="mb-1 text-[9.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Skill
+                </div>
+                <select
+                  value={currentSkillId}
+                  onChange={(event) => {
+                    const id = event.target.value;
+                    // Picking a different skill clears a pinned version: a
+                    // version belongs to the skill it came from.
+                    dispatch({
+                      op: 'update_node_config',
+                      nodeId: node.id,
+                      config: { ...node.config, skillId: id, version: '' },
+                    });
+                  }}
+                  className="w-full rounded-md border border-white/10 bg-background/60 px-2 py-1 text-[12px] outline-none focus:border-primary/50"
+                >
+                  <option value="">Select an installed skill…</option>
+                  {skills.map((skill) => (
+                    <option key={skill.id} value={skill.id}>
+                      {skill.name} · {skill.status}
+                      {skill.version ? ` · v${skill.version}` : ''}
+                    </option>
+                  ))}
+                </select>
+                {skillsError && <p className="mt-1 text-[10px] text-amber-300">{skillsError}</p>}
+                {!skillsError && skills.length === 0 && (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    No skills installed. Add one in Skills.
+                  </p>
+                )}
+                {selectedSkill && (
+                  <div className="mt-1 space-y-0.5">
+                    {selectedSkill.description && (
+                      <p className="text-[10px] text-muted-foreground">{selectedSkill.description}</p>
+                    )}
+                    <p className="text-[10px] text-muted-foreground">
+                      {selectedSkill.requiredTools.length > 0
+                        ? `Tools: ${selectedSkill.requiredTools.join(', ')}`
+                        : 'Needs no tools.'}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      The runtime re-checks the skill&apos;s status and permissions at run time; a
+                      denied or non-executable skill fails this node with its code.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
             {isAgentNode && (

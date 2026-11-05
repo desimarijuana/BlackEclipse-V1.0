@@ -29,6 +29,7 @@ import {
   catalogChangeSummary, draftFromServer, draftToInput, emptyDraft, selectedToolNames,
   resolveSelectedByGlobs, type DraftServer,
 } from "@/lib/harness/mcp-draft";
+import { SectionHeader } from "./settings-ui";
 import { Panel, EffectBadge, stateDot, StateDot } from "./mcp/primitives";
 import { ServerEditor } from "./mcp/server-editor";
 import { MCPLifecyclePanel } from "./mcp/lifecycle-panel";
@@ -479,20 +480,18 @@ export function MCPSettingsPanel() {
 
   return (
     <div className="animate-fade-in-up">
-      <div className="mb-6">
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-            <Plug className="text-primary" size={22} />
-          </span>
-          <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">MCP Servers</h2>
-        </div>
-        <p className="text-xs text-muted-foreground mt-2 leading-relaxed max-w-lg">
-          Connect MCP servers and choose which of their tools the agent may use. Start from a{" "}
-          <strong>finance workflow</strong> below, or add a server directly. Discovered tools are inert until you
-          select them; write/action tools need a per-call approval. Results from a server are attributed to it and
-          are <strong>never</strong> Eclipse-verified.
-        </p>
-      </div>
+      <SectionHeader
+        icon={Plug}
+        title="MCP Servers"
+        description={
+          <>
+            Connect MCP servers and choose which of their tools the agent may use. Start from a{" "}
+            <strong>finance workflow</strong> below, or add a server directly. Discovered tools are inert until you
+            select them; write/action tools need a per-call approval. Results from a server are attributed to it and
+            are <strong>never</strong> Eclipse-verified.
+          </>
+        }
+      />
 
       <FinanceWorkflowWizard
         busy={busy}

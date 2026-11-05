@@ -197,6 +197,14 @@ def test_unknown_run_is_404():
     assert client.post("/graphs/runs/grun_missing/cancel").status_code == 404
 
 
+def test_assist_route_refuses_without_a_model():
+    # The assistant must fail honestly when the front door sends no provider
+    # credentials, rather than pretending it edited the graph.
+    response = client.post("/graphs/assist", json={"instruction": "add a filter", "ir": GOOD_IR})
+    assert response.status_code == 400
+    assert "model provider" in response.json()["detail"]
+
+
 FINANCE_IR = _ir(
     [
         _node("trig", "trigger.manual", {"seed": "AAPL"}),

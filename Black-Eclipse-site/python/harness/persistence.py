@@ -252,9 +252,9 @@ def _iso_days_ago(days: int) -> str:
 
 def _harness_root() -> str:
     """The application root that owns the runtime databases, independent of the
-    process working directory. Matches `eclipse_memory.config.repo_root()` so
-    `agent-memory.db` and `eclipse-memory.db` live side by side."""
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    process working directory. `BE_DATA_DIR` (the encrypted vault) overrides it.
+    Matches `eclipse_memory.config.repo_root()` so the DBs live side by side."""
+    return os.path.abspath(os.environ.get("BE_DATA_DIR") or os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 def default_db_path() -> str:

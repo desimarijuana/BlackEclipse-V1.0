@@ -42,6 +42,10 @@ export type PortType =
   | 'evidence'
   | 'agent_result'
   | 'execution_result'
+  // Local asset references (graph asset store / vision asset store). They carry
+  // a small metadata object, never the bytes themselves.
+  | 'file'
+  | 'image'
   | 'any';
 
 /** Control ports gate execution order; data ports carry values. */
@@ -154,8 +158,10 @@ export type NodeCategory =
   | 'finance'
   | 'quant'
   | 'agent'
+  | 'skills'
   | 'research'
   | 'trading'
+  | 'media'
   | 'output';
 
 /**
@@ -186,7 +192,8 @@ export interface ConfigFieldDef {
   key: string;
   label: string;
   kind: 'text' | 'number' | 'boolean' | 'select' | 'json'
-    | 'textarea' | 'keyvalue' | 'code' | 'combobox' | 'slider';
+    | 'textarea' | 'keyvalue' | 'code' | 'combobox' | 'slider' | 'file' | 'image'
+    | 'images';
   /**
    * For `keyvalue`: the persisted value is a JSON *string*, not an object.
    * Gives a legacy string-typed field (e.g. a rename map) the row editor

@@ -299,7 +299,7 @@ function PortfolioSection({ onChanged }: { onChanged: () => void }) {
 // ── design ───────────────────────────────────────────────────────────────────
 
 function DesignSection({ caps, onChanged }: { caps: SdkCapabilities | null; onChanged?: () => void }) {
-  const [primary, setPrimary] = useState('#7aff78');
+  const [primary, setPrimary] = useState('#b4ff42');
   const [presetId, setPresetId] = useState('');
   const [note, setNote] = useState<string | null>(null);
   const presets = caps?.design.presets ?? [];

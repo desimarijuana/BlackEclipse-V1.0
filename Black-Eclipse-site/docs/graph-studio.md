@@ -1,7 +1,7 @@
 ---
 title: Graph Studio — Visual Workflow Engineering
 status: Current
-last-verified: 2026-10-31
+last-verified: 2026-11-04
 ---
 
 # Graph Studio
@@ -377,7 +377,7 @@ If the stream disconnects, the UI falls back to bounded polling.
 | **4 — Control flow, scheduling & triggers** | Control-flow node pack, unattended schedules, webhook trigger, run recovery | **Implemented & verified** (distributed/Fabric-backed durability is the remaining piece) |
 | **5 — Finance & quant node library** | Market-data + indicator node executors | **Implemented & verified** (first pack: market data, indicator, returns, z-score, volatility) |
 | 6 — Backtest & simulation | Strategy graphs, metrics | **Implemented & verified** (backtest, walk-forward, optimizer, Monte Carlo and out-of-sample holdout; all reuse `quant/`) |
-| 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR | **Implemented** (research agent, structured step planner, bounded task delegation, live web research, validated chat→IR) |
+| 7 — AI agents & Chat-to-Graph | Agent nodes, chat→IR, in-editor assistant | **Implemented** (research agent, structured step planner, bounded task delegation, live web research, validated chat→IR, streaming tool-calling graph assistant with bounded test-run/fix loop) |
 | 8 — Paper trading & safety | Execution adapter, risk controls, modes | **Implemented & verified** (`trading.risk_check` + `trading.paper_order` with a durable paper account, PAPER-only; live and ungranted trading refused) |
 | 9 — Advanced engineering | Subworkflows, debugging, diffing | **Implemented** (subworkflows; post-run step inspector; structural version diff) |
 | 10 — Hardening & verification | Tests, security, observability | **Implemented** (operator health telemetry: run/node counts, durations, queue wait, failure codes, slowest nodes) |
@@ -531,6 +531,20 @@ declared cap:
 | `flow.for_each` | Runs the body once per array item; returns `results` | `maxIterations` (≤ 1 000), `maxDurationMs` |
 | `flow.repeat` | Runs the body `count` times, passing the previous output on | `count` (≤ 1 000), `maxDurationMs` |
 | `flow.while` | Runs while a safe numeric condition holds (`value`, `index`, `iterations`) | `maxIterations`, `maxDurationMs` |
+| `flow.parallel` | Runs the body once per array item **concurrently**; results keep the input order | `maxItems` (≤ 100), `concurrency` (≤ 8, never above the graph's `maxConcurrency`) |
+
+**Parallelism.** Independent nodes already run in the same layer concurrently,
+bounded by the workflow's `maxConcurrency` setting. `flow.parallel` is the
+dynamic case: a bounded fan-out over data. Its concurrency is
+`min(config, workflow.maxConcurrency, itemCount, 8)` — a node can never fan out
+wider than the graph was authorized to, and never wider than a hard cap that
+protects this machine. Results are collected in **input order** (`pool.map`
+yields in order), so a run stays deterministic even though completion order is
+not. Each item is a durable child run with the loop's id scheme
+(`<parent>:<node>:i<N>`), so a resumed parent reuses a succeeded item. A failed
+item is recorded as `{"error": ...}` in `results` and counted in `summary`;
+`continueOnError` off makes the node fail naming the first failure. The body is
+compiled with the SAME grants, so a parallel item can never widen authority.
 
 Every iteration is its own durable child run (`<parent>:<node>:i<N>`), which is
 also the loop checkpoint: a parent resumed after a crash reuses a succeeded
@@ -871,12 +885,74 @@ engine: evidence, claims, citations, conflicts, coverage, deterministic claim
 verification and a Markdown report. They are local reads (`research.read` is
 granted to test runs) - no web request and no model call.
 
+The analysis pack (`research_analysis_nodes.py`, all pure `research.read`) adds
+the questions the raw reads cannot answer: `research.latest` resolves an exact
+run or the newest run matching a question; `research.sources` lists stored
+sources with domain/type/date filters and content/family dedupe;
+`research.gaps` names unanswered questions, rejected claims and uncited
+material claims; `research.freshness` applies the engine's fail-closed
+point-in-time rules and returns every rejection reason; `research.conflict_scan`
+runs the deterministic detector over evidence that was never scanned;
+`research.citation_audit` builds citations when none are wired and validates
+traceability; `research.supersession` exposes restatement/amendment chains;
+`research.quality` surfaces the engine's explainable quality score with its
+disclaimer; `research.entities` reads the evidence-anchored entity graph; and
+`research.claims_verify` verifies many claims at once. All of them may run in a
+test run. Conflict rows are normalized at the read boundary (legacy `OPEN` is
+`UNRESOLVED`, `DISMISSED` is `RESOLVED`) and `candidates` is decoded, so the
+nodes and the engine speak one vocabulary. `report` no longer fails without a
+run row: it emits an `UNAVAILABLE` answer from the stored rows and reports
+`runRow: false`.
+
+Two bounded local writes complete a cold-start graph:
+`research.start_run` creates the run row (question/objective/as-of) and is
+idempotent per question/objective, and `research.snapshot` freezes selected
+sections into the store's immutable snapshot table. Both declare
+`research.write`, which is not a test-run capability, so a test run is refused
+by the existing compiler gate.
+
+The network adapters reuse the same engine and bridge:
+`research.fetch_many` fetches 1-10 known URLs (search results) with bounded
+concurrency, content-hash dedupe and optional evidence persistence, and reports
+a failed URL as a row while an entirely failed batch is an explicit error;
+`research.scrape` collects table/record rows through the bridge's `web_collect`
+capability with no model; `research.extract_facts` runs the engine's
+model-assisted, span-validated fact extractor over fetched pages — a proposal
+that does not validate is a rejection note, never evidence; and
+`research.deep_dive` invokes the existing `ResearchEngine` end to end with its
+own budget caps and a hard timeout, returning the run id so the local read
+nodes can inspect it. All are network effects (except `extract_facts`, a model
+effect) and are refused in a test run.
+
+External research can be brought into the same store with
+`research.ingest`: it normalizes an `agent.research` blob, an MCP tool result or
+a manual claim set into `Evidence`/`Claim`/`Source` rows, keeping the origin and
+`eclipseVerified: false` on every row. It never verifies a claim and never copies
+an external answer as the run's answer; a later `research.claim_verify` is the
+deterministic local check. `research.diff` compares two runs answering the same
+question (snapshots preferred when present): evidence added/removed by content
+hash, claim-status changes, opened/resolved conflicts, source changes and
+coverage deltas. Runs answering different questions are refused as
+incomparable rather than loosely diffed. `research.queries` closes the loop: it
+turns a question, the named gaps and weak claims into concrete search queries
+(including a disconfirming query per weak claim and an optional primary-source
+`site:` query) with no store, network or model, so the plan is inspectable and
+reproducible before any search runs. The `Research brief` starter template wires
+the read path end to end: stored run → evidence → conflict scan → citation
+audit → report.
+
 The live half reuses the same engine instead of inventing a second web path:
 `research.web_search` calls the configured search-provider chain (results are
 pointers, never evidence) and `research.web_fetch` fetches one page through the
 SSRF-hardened `web_fetch` bridge capability and returns its extracted text. When
 `web_fetch` has a `researchId`, it saves the same `Evidence` the `web_extract`
 tool saves, so a graph can search, fetch, then verify with the local nodes.
+Search over-fetches, then applies the domain filters and URL dedupe, so the
+requested count is not silently reduced; crawl reports
+`linkDiscovery: "failed"` instead of pretending a page had no links.
+`research.claim_verify` now applies the run's conflicts plus `asOf`/`freshness`
+(the same rules the engine uses), and with no wired ids it falls back to the
+claim's recorded evidence links.
 Both are declared `network` side effects: a test run refuses them and an
 operator run must explicitly confirm network access. They depend on the app's
 data bridge (`context.callbackBaseUrl`), so a headless runtime with no front
@@ -907,15 +983,65 @@ in PAPER mode behind the operator's paper-trading confirmation. There is no
 live adapter; LIVE mode is refused.
 
 **Broker reads and exits.** `trading.broker_account` and
-`trading.broker_positions` read the broker's own account and position list;
+`trading.broker_positions` read the broker's own account and position rows;
+`broker_orders` and `broker_fills` read its working orders and reconciled deals;
 `broker_quote` and `broker_bars` read its quotes and OHLCV series (with a
 deterministic ATR(14), 20-bar range and contract size derived from the bars).
-Every read and every exit node returns `ok` and `reason` alongside the raw
-envelope, so a `logic.condition` branches on a boolean instead of string
-comparing `status`. `trading.broker_close` closes one ticket (full or partial), a
+Every read and every exit node returns `ok` and `reason` alongside the payload, so
+a `logic.condition` branches on a boolean instead of string comparing `status`.
+`trading.order_ledger` reads Eclipse's own submitted-order rows (with the
+`runId`/`nodeId` that placed each) and `trading.paper_account` reads the durable
+PAPER book, emitting its positions as rows so they can feed a risk check.
+`trading.broker_close` closes one ticket (full or partial), a
 whole symbol, or everything; `broker_modify` and `broker_cancel` move a bracket
-or cancel a working order. They are risk-reducing, so they carry no mandate,
+or cancel a working order. `trading.broker_modify_order` re-prices a **working**
+order (keeping its type/time/expiration, read back as `verified`) and
+`trading.broker_symbol` returns static symbol facts with no tick required — trade
+mode, contract size, volume limits, stops/freeze levels — so a closed market is
+still answerable. All of these are risk-reducing or reads: they carry no mandate,
 approval or live arm — but they still require a pinned `connectionId`.
+
+**Building and dry-running an order.** `trading.order_intent` builds the validated
+intent (`quantity`/`volume`, market/limit/stop, SL/TP, time-in-force) instead of
+hand-assembling a JSON object; a pending order without a price is an error.
+`trading.order_preview` then answers "would this be allowed?" through the broker's
+`order_check`, the connection policy, the money guardrails and (optionally) the
+mandate scope — sending nothing and creating no approval card. `ok` means the
+check ran; `allowed` means the order would pass. `trading.broker_order` with
+`dryRun` takes the same path, so a workflow can be validated before it can send.
+
+**Trading-system primitives.** Pure nodes that never touch a broker:
+`trading.size_by_risk` (equity risk budget + stop distance → volume, floored to
+the symbol step and capped at its maximum), `trading.bracket` (ATR × multiple or
+an explicit stop distance → direction-aware SL/TP with reward:risk),
+`trading.spread_guard` (a trade passes only while the broker's spread is within
+the cap) and `trading.session_filter` (broker `tradeMode` plus the broker's own
+`sessionDeals` in server time when the terminal reports them, then an explicit
+`sessionsJson` calendar, then an explicit UTC window; `basis` says which). Three
+risk-reducing management nodes
+need no arm, approval or mandate: `trading.break_even` (moves the stop to entry
+after `triggerR` of profit measured from the position's own stop),
+`trading.trail_stop` (tightens only, never widens) and `trading.partial_close`
+(a fraction or explicit volume, floored to the symbol step from a wired quote or
+the broker's own `symbol_info`). Each reports `moved`/`closed` plus `ok` and the
+broker's refusal reason.
+
+**Lifecycle and reliability.** `trading.await_fill` polls the ledger to a terminal
+state or a deadline (`timedOut` = still working, not an error). `trading.reconcile`
+refreshes the durable broker mirror; `trading.drift_check` reports in-flight ledger
+orders with no broker match, broker positions the ledger never recorded, and a
+mirror older than `maxAgeSeconds` — `syncFirst` refreshes the mirror first (the
+broker stays authoritative) and remaining drift is only reported. Both
+`trading.broker_order` and `trading.paper_order` take
+`dedupe: none | key | day`: the claim is recorded before the send, so a scheduled
+graph that fires twice sends once and a skipped run returns `status: "SKIPPED"` with
+`skipped: true`. A refusal that never reached the broker
+(`REFUSED`/`CONFIRMATION_REQUIRED`/`COOLING_OFF`) gives the claim back, while
+`REJECTED`/`UNKNOWN` keep it; a test run never writes the broker mirror, so
+`trading.reconcile` and a `syncFirst` drift check are refused there.
+`trading.paper_valuation` marks the PAPER book to prices the graph
+supplies (equity, market value, unrealized/total PnL); a symbol with no price is
+listed in `unpriced`, never valued at zero.
 
 `trading.broker_order` is the demo-broker adapter added in P3. It takes an
 `intent` plus a `connectionId` and `mandateId`, runs only in PAPER mode, and calls
@@ -938,7 +1064,12 @@ not a Next.js setting. Every edit appends a version; the agent node pins
 `agent@version` (0 = current), and a pinned run keeps its snapshot. A preset that
 names a write/external tool requires the explicit “Allow effectful tools”
 acknowledgement; unknown tool names are refused at save time. The three built-ins
-remain code-resolved in `agents.py`.
+remain code-resolved in `agents.py`. Presets resolve on EVERY run path through
+`graph.resolve_agent` → `agent_presets.agent_config_from_preset`, the same
+projection `graph_runtime/bootstrap._agent_runner` uses — so one preset behaves
+identically in a graph node, an interactive bot turn and a bot's scheduled
+`run_agent` (which enters through `resolve_agent`, not the front door). A saved
+id the runtime does not know still raises the honest "Unknown agent" error.
 
 **Planner and delegate.** `agent.plan` makes ONE bounded model call with a strict
 step schema and returns 1–8 steps (stable ids, optional `dependsOn` on earlier
@@ -949,6 +1080,137 @@ finding; a failed part is reported as `failed` with its error and the summary is
 test/dry run may execute them with the narrowed read-only tool surface, while an
 operator run keeps the preset's declared surface. Neither re-implements the
 agent loop or tool registry.
+
+**Human approval.** `logic.human_approval` is the gate an unattended run needs.
+It creates ONE approval of kind `graph_approval` in the runtime's existing
+single-use approval store (the same rows the Permissions panel decides), keyed by
+`graph:<runId>:<nodeId>` + a digest of the request text, and passes only after an
+operator approves; a denial fails the node and names the approver. The decision
+is **not consumed** — it gates that run+node, so a resumed run reads the same
+answer instead of asking again. A durable run does not hold a worker: the node
+raises `DeferredWait(..., rerun=True)`, which the executor treats differently
+from a time wait — the node is left **PENDING** (nothing checkpointed) and the
+resumed job re-enters it. A synchronous run polls up to `maxWaitS` (default
+300 s) and then fails honestly, leaving the request waiting in Approvals. A test
+run never creates a request.
+
+**Committee, charts and notifications.** `agent.team` runs the Institution
+committee through the existing team runtime (run → wait → finalize → synthesize)
+and returns the reconciled `decision`, the deterministic `synthesis` and the
+terminal `status`; COMPLETED/PARTIAL succeed, anything else fails with the
+status. It never places an order, never registers a trigger and refuses a test
+run (a committee is many model calls plus task/A2A state). `output.chart`
+normalizes a payload (a full spec, a number list, `{values, categories}`,
+`{series, categories}` or `{rows}` with X/Y fields) into a validated `ChartSpec`
+and the plotly figure the chart engine draws; when plotly is unavailable it
+returns `rendered: false` with the spec rather than a fake image.
+`output.notify` sends one message through the ONE channel service
+(`send_outbound`) to a configured channel + destination; a provider refusal fails
+the node with its reason, and the `network` effect means a test run can never
+send. `research.source_rank` is pure: it ranks evidence by the `confidence` and
+freshness the items ALREADY carry (exponential decay of publishedAt/retrievedAt
+with a configurable half-life); an item with neither is sorted last and counted
+`insufficient_signal` — no score is invented.
+
+**Utilities and memory.** Three deterministic primitives make unattended graphs
+stoppable and readable: `logic.assert` fails the node (and, with fail-fast, the
+run) with a named message unless the value is `truthy`, `falsy` or `present`
+(null/`""`/`[]`/`{}` are absent — the same rule `logic.merge` uses);
+`logic.fallback` returns the first *present* of three inputs plus which port it
+came from; `data.extract` reads a dotted path out of an object/array (a numeric
+segment indexes a list) and reports `found: false` + null — or fails by name when
+`onMissing` is `error` — rather than inventing a value. `memory.recall` and
+`memory.remember` are thin adapters over the ONE Eclipse memory service, so its
+policy, dedupe/conflict resolution and retention apply; `recall` returns the same
+bounded `context` block an agent receives. `remember` writes durable state, so it
+declares the `memory.write` capability and a test run is refused (at compile
+time by the capability envelope, and again in the executor).
+
+The memory pack now covers the read/write lifecycle. `memory.context` produces a
+deterministic prompt block under a token budget (lowest-importance records are
+dropped first and the count is reported, no model call); `memory.list` browses by
+scope/type/status without inventing a query; `memory.update` corrects
+content/subject/importance; `memory.forget` soft-archives (never hard-deletes).
+Scopes are `general`, `workflow` (`workflow:<id>`), `run` (`run:<id>`) or a
+literal named scope; a missing workflow id fails by name rather than silently
+writing to `general`. Update/forget are operator-run only.
+
+**Agent task (n8n-style).** `agent.task` is the general Agent node: Instructions
++ Task + Agent preset + tool allowlist + memory mode + output shape. It runs ONE
+bounded turn on the existing agent plane; instructions are appended to the
+preset's system prompt and the tool allowlist can only NARROW the preset (an
+unavailable tool fails by name). `memoryMode` is `none`/`read`/`write`/
+`read_write`; a write stores the final answer as a `summary` memory and is
+refused in a test run. `outputMode: json` parses the answer and checks it against
+`outputSchemaJson`; a mismatch returns `data: null`, `valid: false` and the
+issues — never a coerced object. The wired Input and Context are appended as
+bounded JSON, never spliced in as instructions.
+
+**Vision images (read-only).** `image.attach` uploads/references an image in the
+vision asset store; `image.analyze` (describe/answer/ground/extract),
+`image.ocr`, `image.read_chart`, `image.compare` and `image.batch` wrap the ONE
+vision engine (`vision/orchestrate`) — no rendering, no image generation. Every
+result is labelled `kind: "observation"`, `verified: false`, with the
+provider/model/warnings. `image.read_chart` sets `verified: true` only when the
+engine's own market-data check confirmed the reading. `image.batch` applies the
+same 1–5 questions to 1–8 candidate images and returns one row per image; a
+failed image is a row with `ok: false` and the batch never aborts silently.
+Vision calls are a model effect (no tools), so a test run may read an image.
+Image assets are **owner-scoped**: the front door forwards the verified identity
+token, the runtime resolves the owner from it (never from a query string when
+auth is on), and a non-local owner gets a scoped asset id. Graph runs use the
+same verified owner, so a node reads only the assets its run owner uploaded.
+Uploads are bounded and rate-limited per owner. Existing image rows migrate with
+`ownerId='local'`, so if authentication is enabled after upgrading, re-upload
+(or deliberately migrate) older images for non-local users.
+
+**Structured calls.** Four nodes are ONE bounded model call each, not an agent
+turn: `agent.classify` (text → the one declared label + confidence + scores),
+`agent.extract` (text → a JSON object, checked against a small schema subset:
+`type`/`required`/`properties`/`items`), `agent.summarize` (string, array or
+object → summary + key points) and `agent.critique` (finding + evidence →
+`supported`/`weak`/`contradicted`, issues, score). They use the model runtime
+directly with a strict response schema, so they cannot reach a tool at all and
+they have no `agent`/`maxSteps` knobs — there is no preset or tool loop to
+configure. The node owns the contract: a label outside the declared set, a
+verdict outside the three, a confidence/score outside 0..1 or an empty summary
+FAILS the node instead of being coerced; an extraction that does not match the
+schema reports `valid: false` with the issues on the run log rather than
+pretending the shape matched. `agent.critique`'s `score` is nullable because the
+model may omit it, and the node never invents one. They are `agent.run` +
+`model` nodes, so a test/dry run may call the model (no tools are bound at all).
+
+**Saved bots.** `agent.bot` runs a bot that already exists in Bots mode. It
+resolves the id against the automation store at run time (bound at boot), checks
+the same bot rule the workspace uses (`bot`/`monitor` tag or an `mon_` id), and
+runs ONE bounded turn with the bot's own agent preset and objective, so a saved
+bot can be a step in a graph. It never registers a trigger and never runs the
+bot's schedule — the graph is the caller — and the bot's per-run model override
+is ignored in favour of the run's resolved model settings. A **workflow** bot is
+refused by name (`use flow.subworkflow`): nesting a scheduler run inside a graph
+run is a second execution plane. An optional `context` object is appended to the
+objective as bounded, labelled `Context (JSON)` data, never as instructions. A
+deleted bot makes the node fail by name; the inspector's picker lists the live
+bots and marks workflow ones disabled rather than hiding them.
+
+**Skills.** `skill.invoke` runs an installed skill through the EXISTING skill
+runtime (`AgenticService.run_skill` → `skills/runtime.execute_skill`); the node
+only decides *which* `skill@version` and the inputs. It is ONE generic node, not
+one per installed skill: skills are runtime data while the registry is a static
+contract mirrored by the manifest, so the inspector resolves `skillId` against
+the live skill list (`listSkills`) instead. `inputJson` and the optional `input`
+port are merged per key, the wire winning. Status is the contract: only
+`completed` produces `output`/`result`/`evidence`; `blocked`, `denied`,
+`failed`, `cancelled` and `unavailable` all FAIL the node with the runtime's own
+code and message (a failed skill's partial transcript is never surfaced as an
+output). The skill's permission check runs in code inside the runtime; the node
+passes the run's `operator` flag (an operator run is `not testRun`) so an
+operator-authored permission set is honoured. A test/dry run may execute a skill
+only when every declared tool is in the read-only `DRY_RUN_TOOLS` set — otherwise
+the node fails and names the tools instead of running the procedure with its
+tools silently removed. It reuses the `agent.run` capability (a skill call is a
+model call on the same plane), and its `skills` category is the "Skills" group in
+the node library.
 
 **Chat-to-graph.** `POST /api/graphs/plan` → Python `POST /graphs/plan` turns a
 natural-language objective into a candidate workflow. The model receives the
@@ -963,6 +1225,80 @@ dry-runs the compiler. Only a plan with zero errors becomes a `WorkflowIR`
 rejected plan returns its diagnostics. Model credentials are resolved by the
 front door and used in memory only. The planner is one bounded model call: no
 auto-repair loop, no subworkflows, and no live mode.
+
+**Creating a workflow from chat (terminal mode).** The ChatBot can create a saved
+workflow from a one-sentence idea: the `create_workflow` tool
+(`python/harness/graph_tools.py`) posts the objective to `POST
+/api/workflows/generate`, which resolves the model credentials, runs the SAME
+planner above, re-validates the returned IR and writes it through the normal
+workflow store. The tool returns the saved id/name plus node/edge counts; it
+never runs the graph, and it needs no approval (it is a reversible catalog
+write — `create_workflow` is in `GRAPH_WRITE_TOOLS`, so `plan_only` removes it).
+A plan that does not validate is reported with the planner's diagnostics and
+nothing is saved. Nothing else in the chat surface writes workflows, and the
+gallery refreshes when its keep-alive tab becomes visible again, so a workflow
+created from chat appears without a reload.
+
+**In-editor assistant (tool-calling, not one JSON blob).** `POST
+/api/graphs/assist` → Python `POST /graphs/assist` is the assistant that edits
+the graph the operator is looking at. It deliberately does NOT ask a model to
+emit a whole workflow: `graph_runtime/assistant.py` runs a bounded tool loop
+(max 12 rounds, max 30 operations per turn) over a **working copy** of the IR.
+Tools are `search_nodes` and `get_node_schema` (both read the real registry, so
+the model can find "any node" without holding all ~170 definitions in context),
+`add_node` (optional `after_node_id` auto-wire), `connect_nodes` (typed-port and
+cycle checks), `update_node_config` (coerced + validated), `remove_node`,
+`rename_node`, `validate_graph` and `ask_user`. Ambiguous requests get a
+question instead of a guess.
+
+Every mutating tool records one operation in the same closed vocabulary the
+editor already understands (`add_node`, `add_edge`, `remove_node`,
+`update_node_config`, `update_node_label`, `remove_edge`, `set_settings`,
+`set_meta`). The server compiles the final document before returning it, so an
+operation list that would produce an invalid graph is reported with diagnostics
+and never applied. Trading nodes switch the working copy to `paper` with an
+explicit warning. The client (`assistant-client.ts` → `assistant-ops.ts`) maps
+ops to `Patch[]` and applies them through `dispatchMany`, which makes the whole
+turn ONE undo step. Safe, warning-free edits are applied to the canvas
+immediately (n8n-style) and the canvas centres the new nodes; a proposal with
+warnings or validation errors is shown for review with Apply/Discard. The panel
+is the editor's right dock (`Assistant` in the header, `assistant-panel.tsx`).
+Credentials never cross the bridge: secret-like config
+keys (`apiKey`, `token`, `secret`, `password`, `authorization`, …) and
+`headersJson` are redacted from the graph context before it reaches the model.
+If the configured model returns prose without calling a single tool, the
+response says so instead of pretending the graph changed.
+
+The same turn also streams over SSE (`POST /api/graphs/assist/stream` →
+Python `POST /graphs/assist/stream`): `assistant.py` yields `status`,
+`tool_start`, `tool_end`, `result` and `error` events from ONE generator, so the
+stream can never drift from the request/response API. The panel shows each tool
+step live and offers **Stop**, which aborts the fetch (and therefore the
+upstream request). A large graph sends full configs only for the selection and
+its neighbours (bounded `MAX_FULL_CONFIG_NODES`); the rest carry type/label
+only. The transcript is persisted per workflow in `sessionStorage` (the pending
+proposal is not). The request also carries the last run's status, failed node
+and error, so a failed run offers **Fix the failed run** and the model can
+propose a targeted correction.
+
+The assistant can also close the repair loop itself. `run_workflow` executes the
+working graph through the SAME `GraphService.run_sync` as the editor, but always
+as a **test run** (`RunGrants(test_run=True)`): network, trading and external
+writes are refused by the compiler, and the model receives that refusal plus
+the diagnostics. It returns the status, every failed node with its real error,
+and the terminal output, so the model can fix a config/node and run again. The
+run tool is bounded to `MAX_ASSIST_RUNS` (2) per turn and is never offered in
+Ask mode. An effectful graph still needs the operator run (header Start →
+authorization dialog); the assistant can read that run's failure through
+`lastRun` and fix the graph, but it cannot grant itself network/trading/write.
+Test runs are persisted like any other run, so the user can inspect them in the
+History panel.
+
+Auto-apply is a per-browser preference
+(`be_graph_assistant_autoapply_v1`, on by default); turning it off makes every
+edit wait for Apply/Discard. A proposal is bound to the IR id it was computed
+against, so switching workflows can never apply it to the wrong document. Tests: `python/tests/test_graph_assistant.py`,
+`src/lib/graph-studio/assistant-ops.test.ts`.
 
 **Tabular transforms.** `transform.select`, `transform.sort_limit`,
 `logic.aggregate`, `logic.deduplicate` and `transform.join` operate on arrays of
@@ -1114,6 +1450,20 @@ is reported as not found, not as a forbidden row. The `local_write` side-effect
 class exists so a test run can use datasets while external
 write/network/trading remain refused.
 
+**Local files.** `data.file.attach` turns an uploaded CSV/TSV/JSON/XLSX/text
+file into a graph input. The bytes live in the runtime's own
+`HarnessGraphAsset` table on `agent-memory.db` (content-addressed per owner), and
+the workflow stores only the `gas_` ref plus metadata — never the file itself.
+The inspector has an upload/replace picker; the front door proxies the bytes to
+`/graph/assets` (`src/app/api/graph-studio/assets`). `data.file.parse` runs the
+same parser over a File reference produced upstream (choose a sheet for Excel).
+`data.file.export` writes rows back to a downloadable local asset (CSV/JSON/
+XLSX); it is a `local_write`, so a test run may export. Limits: 25 MB per file,
+200 files and 512 MB total per owner, plus 20 000 rows / 200 000 cells per parse;
+truncation is reported, never silently dropped. A missing or expired ref is an
+explicit failure. The parser is deliberately local: no network fetch, no second
+JDDS, and no fabricated rows.
+
 **Honest data.** Every payload carries provenance (`provider`, `symbol`,
 `interval`, `adjusted`, `rows`, `asOf`, `retrievedAt`). An empty vault is a
 FAILURE with an actionable message ("fetch them first … the graph never
@@ -1121,9 +1471,23 @@ fabricates a price") — never a synthetic series, never a silent zero.
 
 **Test-run policy.** A test run implicitly grants the read-only / local-compute
 capabilities (`market.read`, `quant.compute`, `compute.safe`, `dataset.read`,
-`dataset.write`) plus `agent.run` — a model call is not a world effect — so a
+`dataset.write`, `asset.read`, `asset.write`, `image.read`, `model.vision`) plus
+`agent.run` — a model call is not a world effect — so a
 finance graph can be exercised from the UI. Agent tools are narrowed to
 `DRY_RUN_TOOLS` in that run. External write/network/trading nodes stay refused.
+
+**Media demo.** `npm run demo:graph-media` seeds two real workflows into
+Overview: **File import (demo)** (generated CSV → File → Select → Result) and
+**Candle option review (demo)** (two generated candle images → vision batch →
+Result). The sample assets are written through the SAME graph/vision stores the
+nodes use, so the demo runs on real local data. Both were verified end-to-end
+through the app API: the file demo returns 24 rows, and the image demo returns
+two real observations (9 and 7 candles read, ~850–900 tokens each) from
+`qwen2.5-vl` via the configured provider. If no vision model is reachable the
+batch fails loudly with the provider reason instead of letting an agent reason
+over no readings. The seeder is idempotent — it reuses an existing demo rather
+than piling up versions; delete the workflow and re-run it to regenerate from the
+current templates.
 
 **Templates.** `Market scan (SMA z-score)` — stored bars → SMA(50) → z-score(20)
 → branch → result, plus a second output carrying the data provenance.

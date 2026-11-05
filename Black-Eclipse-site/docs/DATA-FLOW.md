@@ -169,6 +169,25 @@ validated against the JDDS universe, sentiment via `src/lib/sentiment.ts`),
 upserts with a `dedupKey`, and prunes items older than 14 days. `/api/news` then
 reads the DB instead of hitting feeds per request.
 
+`src/lib/news/cluster.ts` collapses near-duplicate headlines into one story with
+`sourceCount` (word-level Jaccard, ±36h window). `sourceCount` is both a display
+badge and the corroboration signal for ranking.
+
+`src/lib/news/importance.ts` is a pure, deterministic scorer
+(`0..100` + `critical|high|medium|low`) over tier, corroboration, recency,
+category, event keywords and the user's watchlist/holdings. It returns the
+`reasons[]` shown in the UI and never invents a direction or a target. `/api/news`
+scores the page it returns and accepts `sort=importance` + `minImportance`;
+`/api/news/alerts` returns the strongest recent stories plus upcoming
+high-impact releases (suppressed when the calendar is only the static fallback).
+`/api/news/alerts/policy` stores the background push policy.
+
+After each ingest, `src/lib/news/alert-scan.ts` scores recent rows and pushes
+`high`/`critical` stories through the existing alert channels. It is disabled by
+default, seeds a baseline on its first run (no backlog replay), dedupes by story id,
+honours quiet hours, and records a durable `PriceAlertEvent` with
+`alertId = "news-alerts"` so in-app notices work without a synthetic watch.
+
 ### Macro
 
 `src/lib/economics/` fetches macro series, caches them in `MacroSeries` as JSON
@@ -209,7 +228,7 @@ reads it through DataHub topics. The world-state cron runs in-process from
 |---|---|---|---|
 | Price refresh | 15 min | `scraper/scheduler.ts` | Round-robin, 4 markets/tick, open markets only |
 | Universe sync | daily | `scraper/scheduler.ts` | TradingView-covered markets |
-| News ingest | 5 min | `news/ingest.ts` | Idempotent, retention-pruned |
+| News ingest | 5 min | `news/ingest.ts` | Idempotent, retention-pruned; then `news/alert-scan.ts` pushes high/critical stories (opt-in) |
 | Boot warm-up | once | `scraper/scheduler.ts` | Production only unless `BE_WARMUP=1`; caps at 1000 rows/market |
 | Alert poll | per-watch | `alerts/alertMonitor.ts` | Evaluates condition trees |
 | Dataset refresh | per-dataset (≥5 min) | `connectors/refresh-scheduler.ts` | Operator connectors; skips while `syncBusy()` |
@@ -281,7 +300,17 @@ The product rule stands: **never present stale or simulated data as live.**
 
 ## Data shape contracts (do not break silently)
 
-- `/api/news` → `{ news, source: 'rss' | 'empty' | 'error', pagination }`
+- `/api/news` → `{ news, source: 'jdds' | 'error', pulse, newsScore, lastIngestAt,
+  pagination }`; each row carries flattened importance fields
+  (`importance`, `alertLevel`, `importanceReasons`, `isBreaking`, `confidence`,
+  `direction`, `horizon`, `invalidates`, `affected`). Query: `sort` (`newest` |
+  `oldest` | `importance`), `minImportance`, `tickers` (filter + watchlist
+  context), `portfolio` (holdings context only).
+- `/api/news/alerts` → `{ alerts, upcoming, calendarSource, threshold,
+  lookbackHours, lastIngestAt, source }`. `upcoming` is empty when the calendar
+  is only the placeholder fallback.
+- `/api/news/alerts/policy` → `{ policy }`; POST accepts a partial
+  `NewsAlertPolicy`.
 - DataHub entry → `{ data, source: DataSource, updatedAt, error?, sourceId? }`
   where `DataSource` is
   `LIVE | CACHED | HISTORICAL | DEMO | ESTIMATED | CUSTOM | UNAVAILABLE`

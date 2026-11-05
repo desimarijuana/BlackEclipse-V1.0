@@ -3,6 +3,7 @@
 // through the CSV importer, so the export is a faithful backup of the journal.
 
 import type { TradeRecord } from "./types";
+import { hasRBasis } from "./trade-math";
 
 export const EXPORT_COLUMNS = [
   "Date",
@@ -81,7 +82,7 @@ export function tradesToCsv(trades: TradeRecord[]): string {
         t.commission,
         t.fee,
         t.pnl,
-        t.rMultiple,
+        hasRBasis(t) ? t.rMultiple : "",
         t.durationSec,
         t.status,
         t.notes,

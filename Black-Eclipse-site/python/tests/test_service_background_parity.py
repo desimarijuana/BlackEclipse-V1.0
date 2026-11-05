@@ -77,6 +77,9 @@ class _StubService:
     def _portfolio_bundle(self) -> Any:
         return "portfolio-sentinel"
 
+    def _ledger_bundle(self) -> Any:
+        return "ledger-sentinel"
+
     def _quant_bundle(self) -> Any:
         return "quant-sentinel"
 
@@ -123,6 +126,8 @@ def test_the_one_kwargs_builder_carries_every_subsystem_bundle() -> None:
         "memory_router", "mcp_manager", "code_store", "code_intel_runtime",
             "evidence_store", "learning_store", "market", "portfolio", "quant",
             "search", "artifact_service", "ui_service",
+            # The General Ledger (double-entry book of record).
+            "ledger",
             # The Fiduciary Gate / Advisory Ledger bundle (ADR-H196).
             "advisory",
             # The durable task manager, for activation-time checkpoint resume.
@@ -132,6 +137,7 @@ def test_the_one_kwargs_builder_carries_every_subsystem_bundle() -> None:
         }
     assert set(kwargs) == expected
     assert kwargs["portfolio"] == "portfolio-sentinel"
+    assert kwargs["ledger"] == "ledger-sentinel"
     assert kwargs["quant"] == "quant-sentinel"
     assert kwargs["ui_service"] == "ui-sentinel"
 

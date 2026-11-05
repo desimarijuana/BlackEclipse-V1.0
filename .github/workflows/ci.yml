@@ -18,6 +18,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege: CI only reads the repository. Without this, the default token
+# inherits whatever the repository setting allows, which is more than a test job
+# needs.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -33,6 +39,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # The committed-secret gate, before anything is installed: a tracked .env,
+      # database or provider token fails the build instead of shipping.
+      - name: Secret scan
+        run: node scripts/scan-secrets.js
 
       - name: Set up Node
         uses: actions/setup-node@v4

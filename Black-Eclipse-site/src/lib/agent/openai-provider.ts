@@ -5,6 +5,7 @@
 import type { ChatMessage, ToolCall } from "./loop";
 import { getLLMConfig } from "@/lib/settings";
 import { isLocalBaseUrl } from "./presets";
+import { assertModelAllowed } from "@/lib/privacy";
 
 interface ChatCompletionResponse {
   choices?: {
@@ -44,6 +45,12 @@ export class OpenAICompatibleProvider {
     try {
       const cfg = await getLLMConfig();
       if (cfg.provider === "mock") return false;
+      // Local-only mode must not report a cloud provider as usable.
+      try {
+        assertModelAllowed(cfg.baseUrl, cfg.provider);
+      } catch {
+        return false;
+      }
       return Boolean(cfg.apiKey) || isLocalBaseUrl(cfg.baseUrl);
     } catch {
       return false;
@@ -55,6 +62,8 @@ export class OpenAICompatibleProvider {
     tools: unknown[]
   ): Promise<{ content: string; toolCalls?: ToolCall[] }> {
     const cfg = await getLLMConfig();
+    // Local-only mode: refuse before any prompt is serialised or sent.
+    assertModelAllowed(cfg.baseUrl, cfg.provider);
     const baseUrl = cfg.baseUrl.replace(/\/$/, "");
     const apiKey = cfg.apiKey;
     const model = cfg.model;

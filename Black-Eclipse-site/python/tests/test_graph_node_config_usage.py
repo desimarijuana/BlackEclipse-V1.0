@@ -25,8 +25,8 @@ import pytest
 
 from harness.graph_runtime.nodes import build_default_registry
 
-# Fields consumed by the SCHEDULER (`GraphExecutor._run_loop` /
-# `_run_subworkflow`), not by a node executor function.
+#: Fields consumed by the SCHEDULER (`GraphExecutor._run_loop` /
+#: `_run_parallel` / `_run_subworkflow`), not by a node executor function.
 SCHEDULER_FIELDS = {
     "flow.subworkflow": {"workflowId", "version"},
     "flow.for_each": {
@@ -36,20 +36,29 @@ SCHEDULER_FIELDS = {
     "flow.while": {
         "workflowId", "version", "condition", "maxIterations", "maxDurationMs",
     },
+    "flow.parallel": {
+        "workflowId", "version", "maxItems", "concurrency", "continueOnError",
+    },
 }
 
 IN_SCOPE = ("logic.", "flow.")
+
+
+def _scheduler_source() -> str:
+    from harness.graph_runtime import executor as executor_module  # noqa: PLC0415
+
+    return (
+        inspect.getsource(executor_module.GraphExecutor._run_loop)
+        + inspect.getsource(executor_module.GraphExecutor._run_parallel)
+        + inspect.getsource(executor_module.GraphExecutor._run_subworkflow)
+    )
 
 
 def _consumer_source(definition) -> str:
     if definition.executor is not None:
         return inspect.getsource(definition.executor)
     # Orchestrated: the scheduler reads these keys.
-    from harness.graph_runtime import executor as executor_module  # noqa: PLC0415
-
-    return inspect.getsource(executor_module.GraphExecutor._run_loop) + inspect.getsource(
-        executor_module.GraphExecutor._run_subworkflow
-    )
+    return _scheduler_source()
 
 
 @pytest.mark.parametrize(
@@ -77,11 +86,7 @@ def test_every_declared_config_field_is_read(definition):
 
 def test_known_scheduler_fields_match_the_scheduler_source():
     """The allowlist above must stay honest: the scheduler has to read them."""
-    from harness.graph_runtime import executor as executor_module  # noqa: PLC0415
-
-    source = inspect.getsource(executor_module.GraphExecutor._run_loop) + inspect.getsource(
-        executor_module.GraphExecutor._run_subworkflow
-    )
+    source = _scheduler_source()
     for node_type, fields in SCHEDULER_FIELDS.items():
         for field in fields:
             assert f'"{field}"' in source, (
@@ -99,6 +104,7 @@ def test_the_pack_is_actually_covered():
     assert {
         "logic.condition", "logic.switch", "logic.merge", "logic.map",
         "logic.filter", "logic.reduce", "logic.wait", "logic.stop",
-        "logic.aggregate", "logic.deduplicate", "flow.gate",
+        "logic.aggregate", "logic.deduplicate", "logic.human_approval", "flow.gate",
         "flow.subworkflow", "flow.for_each", "flow.repeat", "flow.while",
+        "flow.parallel",
     } <= types

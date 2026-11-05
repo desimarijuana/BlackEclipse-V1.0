@@ -177,16 +177,37 @@ export interface DispatchArgs {
   test?: boolean;
 }
 
+export interface NewsAlertDispatchArgs {
+  id: string;
+  headline: string;
+  level: "critical" | "high";
+  score: number;
+  source: string;
+  reasons: string[];
+  ageMinutes: number;
+  ticker?: string | null;
+  url?: string | null;
+}
+
+/** Synthetic alert id for durable news notices (no FK on PriceAlertEvent). */
+export const NEWS_ALERT_ID = "news-alerts";
+
 /**
- * Dispatch one fired alert: build the message, send to every enabled AND
- * configured channel, record the PriceAlertEvent, bump the in-app feed.
+ * Deliver one scored news alert through the configured channels and record it
+ * as a durable in-app notice. The message states the level, the reasons and
+ * the source — it never claims a price direction or a target.
  */
-export async function dispatchAlert(args: DispatchArgs): Promise<{ delivered: string[]; failed: string[] }> {
+export async function dispatchNewsAlert(args: NewsAlertDispatchArgs): Promise<{ delivered: string[]; failed: string[] }> {
   const cfg = await getAlertChannels();
-  const symbol = args.symbols[0] ?? "TEST";
-  const msg = args.test
-    ? `TEST — ${args.alertName}: ${describeFire(symbol, args.details)}`
-    : describeFire(symbol, args.details);
+  const label = args.level === "critical" ? "CRITICAL" : "HIGH ALERT";
+  const reasons = args.reasons.filter(Boolean).slice(0, 4).join(" · ");
+  const lines = [
+    `[${label}] ${args.headline}`,
+    reasons ? `Why: ${reasons}` : "",
+    `${args.source}${args.ticker ? ` · ${args.ticker}` : ""} · ${args.ageMinutes}m ago · score ${args.score}`,
+    args.url || "",
+  ].filter(Boolean);
+  const msg = lines.join("\n");
 
   const delivered: string[] = [];
   const failed: string[] = [];
@@ -204,6 +225,51 @@ export async function dispatchAlert(args: DispatchArgs): Promise<{ delivered: st
       failed.push(`${id}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+
+  await prisma.priceAlertEvent.create({
+    data: {
+      alertId: NEWS_ALERT_ID,
+      symbol: (args.ticker || "NEWS").toUpperCase(),
+      detail: msg + (failed.length ? ` [delivery failed: ${failed.join("; ")}]` : ""),
+    },
+  });
+
+  return { delivered, failed };
+}
+
+/** Send one already-composed message to every enabled AND configured channel. */
+async function sendToChannels(msg: string): Promise<{ delivered: string[]; failed: string[] }> {
+  const cfg = await getAlertChannels();
+  const delivered: string[] = [];
+  const failed: string[] = [];
+
+  for (const [id, c] of Object.entries(cfg.channels) as Array<[ChannelId, ChannelConfig | undefined]>) {
+    if (!channelConfigured(id, c)) continue;
+    try {
+      if (id === "telegram") await sendTelegram(c!, msg);
+      else if (id === "discord") await sendDiscord(c!, msg);
+      else if (id === "ntfy") await sendNtfy(c!, msg);
+      else if (id === "webhook") await sendWebhook(c!, msg);
+      else if (id === "email") await sendEmail(c!, msg);
+      delivered.push(id);
+    } catch (err) {
+      failed.push(`${id}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return { delivered, failed };
+}
+
+/**
+ * Dispatch one fired alert: build the message, send to every enabled AND
+ * configured channel, record the PriceAlertEvent, bump the in-app feed.
+ */
+export async function dispatchAlert(args: DispatchArgs): Promise<{ delivered: string[]; failed: string[] }> {
+  const symbol = args.symbols[0] ?? "TEST";
+  const msg = args.test
+    ? `TEST — ${args.alertName}: ${describeFire(symbol, args.details)}`
+    : describeFire(symbol, args.details);
+
+  const { delivered, failed } = await sendToChannels(msg);
 
   // Always record history. The `PriceAlertEvent` row IS the durable in-app
   // notice (served to the UI via /api/alerts/live) — no separate in-process

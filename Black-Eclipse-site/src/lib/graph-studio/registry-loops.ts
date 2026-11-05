@@ -109,4 +109,35 @@ export const LOOP_DEFINITIONS: NodeDefinition[] = [
     allowedModes: ALL_MODES,
     docs: 'value, index and iterations are in scope. Both caps are enforced by the runtime.',
   },
+  {
+    type: 'flow.parallel',
+    version: '1.0.0',
+    category: 'logic',
+    label: 'Parallel map',
+    description: 'Runs a pinned body workflow once per item, concurrently and bounded.',
+    icon: 'branch',
+    inputs: [
+      port({ id: 'in', name: 'Run', type: 'any', kind: 'control', optional: true }),
+      port({ id: 'items', name: 'Items', type: 'array' }),
+    ],
+    outputs: [
+      port({ id: 'results', name: 'Results', type: 'array' }),
+      port({ id: 'summary', name: 'Summary', type: 'object' }),
+      port({ id: 'done', name: 'Done', type: 'any', kind: 'control' }),
+    ],
+    configSchema: z.object({
+      workflowId: z.string().max(80).default(''),
+      version: z.number().int().min(1).max(1_000_000).default(1),
+      maxItems: z.number().int().min(1).max(100).default(25),
+      concurrency: z.number().int().min(1).max(8).default(4),
+      continueOnError: z.boolean().default(true),
+    }),
+    defaultConfig: () => ({
+      workflowId: '', version: 1, maxItems: 25, concurrency: 4, continueOnError: true,
+    }),
+    capabilities: [],
+    sideEffects: 'none',
+    allowedModes: ALL_MODES,
+    docs: 'Concurrency is capped by the workflow’s maxConcurrency setting and a hard cap of 8. Results keep the INPUT order. Each item is a durable child run, so a resumed parent reuses a succeeded item. A failed item is {error} in results; with continueOnError off the node fails naming the first failure.',
+  },
 ];

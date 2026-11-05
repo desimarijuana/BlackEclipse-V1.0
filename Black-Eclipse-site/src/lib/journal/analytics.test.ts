@@ -85,6 +85,36 @@ describe('computePerformance', () => {
     const p = computePerformance(trades);
     expect(p.maxDrawdown).toBe(3);
   });
+
+  it('classifies trades without an R basis by realized P&L sign', () => {
+    // Broker imports have no stop, so riskAmount/rMultiple are empty. A +$50
+    // trade must count as a win, not as a zero-R breakeven.
+    const trades = [
+      trade({ id: 'a', rMultiple: 0, riskAmount: null, pnl: 50 }),
+      trade({ id: 'b', rMultiple: 0, riskAmount: null, pnl: -20 }),
+      trade({ id: 'c', rMultiple: 0, riskAmount: null, pnl: 0 }),
+    ];
+    const p = computePerformance(trades);
+    expect(p.rAvailable).toBe(false);
+    expect(p.wins).toBe(1);
+    expect(p.losses).toBe(1);
+    expect(p.breakevens).toBe(1);
+    expect(p.winRate).toBeCloseTo(1 / 3, 10);
+    // Profit factor is currency-based and always meaningful.
+    expect(p.profitFactor).toBe(2.5);
+    expect(p.netPnl).toBe(30);
+  });
+
+  it('reports rAvailable when at least one trade has a stop-derived risk', () => {
+    const p = computePerformance([
+      trade({ id: 'a', rMultiple: 2, riskAmount: 5, pnl: 10 }),
+      trade({ id: 'b', rMultiple: 0, riskAmount: null, pnl: -2 }),
+    ]);
+    expect(p.rAvailable).toBe(true);
+    // Outcome still uses R for the trade that has one, P&L for the other.
+    expect(p.wins).toBe(1);
+    expect(p.losses).toBe(1);
+  });
 });
 
 describe('computeDiscipline', () => {
@@ -132,5 +162,19 @@ describe('computeJournalAnalytics', () => {
     expect(a.bySession[0].key).toBe('New York');
     expect(a.byEmotion[0].key).toBe('Calm');
     expect(a.equity).toHaveLength(2);
+  });
+
+  it('groups broker trades by account and magic without dropping manual trades', () => {
+    const trades = [
+      trade({ id: 'a', accountName: 'Live', magic: 1001, rMultiple: 2 }),
+      trade({ id: 'b', accountName: 'Live', magic: 1002, rMultiple: -1 }),
+      trade({ id: 'c', accountName: null, magic: null, rMultiple: 1 }),
+    ];
+    const a = computeJournalAnalytics(trades);
+    expect(a.byAccount).toHaveLength(2);
+    expect(a.byAccount.find((r) => r.key === 'Live')?.trades).toBe(2);
+    expect(a.byAccount.find((r) => r.key === 'Unassigned')?.trades).toBe(1);
+    // Manual trades have no magic and are intentionally absent.
+    expect(a.byMagic.map((r) => r.key).sort()).toEqual(['1001', '1002']);
   });
 });

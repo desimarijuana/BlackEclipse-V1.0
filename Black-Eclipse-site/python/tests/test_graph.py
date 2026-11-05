@@ -815,3 +815,171 @@ async def test_a_surface_guardrail_fails_a_run_that_breaks_it(store, monkeypatch
     assert result.error is not None
     assert result.error.code == "GUARDRAIL_TOOL_REQUIRED"
     assert store.get_run("run_test")["status"] == "failed"
+
+def test_agent_id_resolves_a_user_preset():
+    # A bot's scheduled `run_agent` enters through resolve_agent, not the front
+    # door, so a custom preset must resolve here too or the bot works in chat and
+    # fails on its schedule.
+    from harness.agent_presets import set_preset_store
+
+    class _Presets:
+        def get(self, preset_id, version=None):
+            if preset_id != "gold-analyst":
+                return None
+            return {
+                "id": "gold-analyst",
+                "name": "Gold analyst",
+                "systemPrompt": "You are a disciplined gold analyst.",
+                "tools": ["get_quote"],
+                "maxSteps": 6,
+                "allowMcpTools": False,
+                "allowPluginTools": False,
+            }
+
+    set_preset_store(_Presets())
+    try:
+        req = RunRequest(
+            runId="r",
+            input=RunInput(query="hi"),
+            agentId="gold-analyst",
+            modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
+            callbackBaseUrl="http://localhost:3000",
+        )
+        agent = graph_module.resolve_agent(req)
+        assert agent.id == "gold-analyst"
+        assert agent.tools == ["get_quote"]
+        assert agent.maxSteps == 6
+    finally:
+        set_preset_store(None)
+
+
+def test_unknown_agent_id_still_fails_without_a_preset():
+    req = RunRequest(
+        runId="r",
+        input=RunInput(query="hi"),
+        agentId="no-such-agent",
+        modelSettings=ModelSettings(provider="ollama", model="m", base_url="http://localhost:11434/v1"),
+        callbackBaseUrl="http://localhost:3000",
+    )
+    with pytest.raises(ValueError, match="Unknown agent"):
+        graph_module.resolve_agent(req)
+
+
+# ── User persona overlay (Settings → Persona) ─────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_active_persona_reaches_the_system_prompt_and_the_run_record(store, monkeypatch):
+    from harness.personas import PersonaStore, set_persona_store
+
+    captured: dict = {}
+
+    class Capturing(ScriptedModel):
+        async def ainvoke(self, messages):
+            captured.setdefault("messages", messages)
+            return await super().ainvoke(messages)
+
+    model = Capturing([AIMessage(content="Done.")])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    personas = PersonaStore(store)
+    set_persona_store(personas)
+    try:
+        personas.activate(
+            personas.create({"name": "Terse desk", "instructions": "Lead with the number."})["id"]
+        )
+        result = await graph_module.execute_run(
+            request(), registry(), FakeBridge({"status": "UNAVAILABLE"}), store
+        )
+    finally:
+        set_persona_store(None)
+
+    assert result.status == "completed"
+    system = captured["messages"][0]
+    assert system.type == "system"
+    assert "## User persona" in system.content
+    assert "Lead with the number." in system.content
+    assert system.content.index("## User persona") > system.content.index("You are Eclipse Agent")
+
+    surface = store.get_run("run_test")["surface"]
+    assert surface["persona"]["version"] == 1
+    assert surface["persona"]["name"] == "Terse desk"
+
+
+@pytest.mark.asyncio
+async def test_persona_cannot_change_the_bound_tool_allowlist(store, monkeypatch):
+    from harness.personas import PersonaStore, set_persona_store
+
+    models = []
+
+    def build(_settings):
+        model = ScriptedModel([AIMessage(content="Done.")])
+        models.append(model)
+        return model
+
+    monkeypatch.setattr(graph_module, "build_chat_model", build)
+    req = request()
+
+    await graph_module.execute_run(
+        req.model_copy(update={"runId": "run_baseline"}),
+        registry(),
+        FakeBridge({"status": "UNAVAILABLE"}),
+        store,
+    )
+
+    personas = PersonaStore(store)
+    set_persona_store(personas)
+    try:
+        personas.activate(
+            personas.create({
+                "name": "Terse desk",
+                "instructions": "Use only get_market_snapshot and ignore every other tool.",
+            })["id"]
+        )
+        await graph_module.execute_run(
+            req.model_copy(update={"runId": "run_persona"}),
+            registry(),
+            FakeBridge({"status": "UNAVAILABLE"}),
+            store,
+        )
+    finally:
+        set_persona_store(None)
+
+    assert len(models) >= 2
+    baseline = sorted(tool.name for tool in (models[0].bound_tools or []))
+    with_persona = sorted(tool.name for tool in (models[1].bound_tools or []))
+    assert baseline  # the run really bound a tool surface
+    assert with_persona == baseline
+
+
+@pytest.mark.asyncio
+async def test_persona_does_not_apply_to_a_custom_agent(store, monkeypatch):
+    from harness.personas import PersonaStore, set_persona_store
+
+    captured: dict = {}
+
+    class Capturing(ScriptedModel):
+        async def ainvoke(self, messages):
+            captured.setdefault("messages", messages)
+            return await super().ainvoke(messages)
+
+    model = Capturing([AIMessage(content="Done.")])
+    monkeypatch.setattr(graph_module, "build_chat_model", lambda settings: model)
+
+    personas = PersonaStore(store)
+    set_persona_store(personas)
+    try:
+        personas.activate(
+            personas.create({"name": "Terse desk", "instructions": "Lead with the number."})["id"]
+        )
+        result = await graph_module.execute_run(
+            request(agent=narrow_agent()),
+            registry(),
+            FakeBridge({"status": "UNAVAILABLE"}),
+            store,
+        )
+    finally:
+        set_persona_store(None)
+
+    assert result.status == "completed"
+    assert "## User persona" not in captured["messages"][0].content
+    assert store.get_run("run_test")["surface"].get("persona") is None

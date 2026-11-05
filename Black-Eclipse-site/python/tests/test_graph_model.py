@@ -74,6 +74,10 @@ def test_domain_port_validation_is_structural():
     assert validate_port_value(PortType.INSTRUMENT, {"symbol": "AAPL"}) is None
     assert validate_port_value(PortType.INSTRUMENT, "AAPL") is not None
     assert validate_port_value(PortType.ORDER_INTENT, {"symbol": "AAPL", "side": "buy"}) is None
+    assert validate_port_value(PortType.FILE, {"assetId": "gas_1", "name": "a.csv"}) is None
+    assert validate_port_value(PortType.IMAGE, {"assetId": "img_1", "width": 10}) is None
+    assert validate_port_value(PortType.FILE, "gas_1") is not None
+    assert validate_port_value(PortType.IMAGE, {}) is not None
 
 
 # ── Registry + config ───────────────────────────────────────────────────────

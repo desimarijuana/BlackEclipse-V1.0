@@ -343,6 +343,100 @@ function ratesCheck(): WorkflowIR {
   );
 }
 
+function researchBrief(): WorkflowIR {
+  return buildGraph(
+    'Research brief',
+    'Resolve a stored research run, read its evidence, scan conflicts, audit citations and build a report.',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      { id: 'latest', type: 'research.latest', config: { questionMatch: 'NVDA revenue' } },
+      { id: 'evidence', type: 'research.evidence', config: { limit: 200 } },
+      { id: 'scan', type: 'research.conflict_scan', config: { mergeStored: true } },
+      { id: 'audit', type: 'research.citation_audit', config: { requireCitations: true } },
+      { id: 'report', type: 'research.report', config: { maxItems: 50 } },
+      { id: 'result', type: 'output.result', config: { label: 'Research report' } },
+      { id: 'conflicts', type: 'output.result', config: { label: 'Conflicts found' } },
+    ],
+    [
+      { source: 'trigger', sourceHandle: 'start', target: 'latest', targetHandle: 'question' },
+      { source: 'latest', sourceHandle: 'researchId', target: 'evidence', targetHandle: 'researchId' },
+      { source: 'evidence', sourceHandle: 'evidence', target: 'scan', targetHandle: 'evidence' },
+      { source: 'evidence', sourceHandle: 'evidence', target: 'audit', targetHandle: 'evidence' },
+      { source: 'latest', sourceHandle: 'researchId', target: 'report', targetHandle: 'researchId' },
+      { source: 'report', sourceHandle: 'report', target: 'result', targetHandle: 'value' },
+      { source: 'scan', sourceHandle: 'conflicts', target: 'conflicts', targetHandle: 'value' },
+    ],
+  );
+}
+
+function fileImport(): WorkflowIR {
+  return buildGraph(
+    'File import',
+    'Upload a CSV/JSON/Excel file, parse it, select columns and return the rows.',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      {
+        id: 'when',
+        type: 'logic.condition',
+        config: { operator: 'neq', compareTo: 'skip' },
+        label: 'Run has started',
+      },
+      { id: 'file', type: 'data.file.attach', config: { parseAs: 'auto', header: true } },
+      {
+        id: 'select',
+        type: 'transform.select',
+        config: { fields: '', onMissing: 'null' },
+      },
+      { id: 'result', type: 'output.result', config: { label: 'Rows' } },
+    ],
+    [
+      { source: 'trigger', sourceHandle: 'start', target: 'when', targetHandle: 'value' },
+      { source: 'when', sourceHandle: 'true', target: 'file', targetHandle: 'in' },
+      { source: 'file', sourceHandle: 'rows', target: 'select', targetHandle: 'rows' },
+      { source: 'select', sourceHandle: 'rows', target: 'result', targetHandle: 'value' },
+    ],
+  );
+}
+
+function candleReview(): WorkflowIR {
+  return buildGraph(
+    'Candle option review',
+    'Read several candidate candle images, then ask an agent to compare the readings and pick the best setup.',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      {
+        id: 'batch',
+        type: 'image.batch',
+        config: {
+          questionsJson: '["Describe the candle anatomy.","What pattern is this and what would confirm it?"]',
+          mode: 'analyze',
+          concurrency: 1,
+          maxImages: 8,
+        },
+      },
+      {
+        id: 'agent',
+        type: 'agent.task',
+        config: {
+          task: 'Compare the image readings and say which candle option best matches a valid entry setup. Explain why and state what is unverified.',
+          memoryMode: 'read',
+          memoryScope: 'workflow',
+          outputMode: 'text',
+          includeInput: true,
+        },
+      },
+      { id: 'summary', type: 'output.result', config: { label: 'Batch summary' } },
+      { id: 'result', type: 'output.result', config: { label: 'Option review' } },
+    ],
+    [
+      { source: 'trigger', sourceHandle: 'start', target: 'batch', targetHandle: 'images' },
+      { source: 'batch', sourceHandle: 'results', target: 'agent', targetHandle: 'input' },
+      { source: 'batch', sourceHandle: 'summary', target: 'summary', targetHandle: 'value' },
+      { source: 'agent', sourceHandle: 'output', target: 'result', targetHandle: 'value' },
+    ],
+  );
+}
+
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   { id: 'blank', name: 'Blank', description: 'A trigger and a result. Start here.', build: blank },
   { id: 'if-else', name: 'If / else', description: 'Branch on a value with control gates.', build: ifElse },
@@ -366,6 +460,24 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   { id: 'webhook-http', name: 'Webhook to HTTP', description: 'Signed inbound webhook → public API → result.', build: webhookHttp },
   { id: 'signed-webhook', name: 'Signed webhook', description: 'Manual trigger → signed outbound webhook.', build: signedWebhookDemo },
   { id: 'data-pipeline', name: 'Data pipeline', description: 'Six data nodes wired end to end.', build: dataPipeline },
+  {
+    id: 'candle-review',
+    name: 'Candle option review',
+    description: 'Read 1–8 candle images, then compare the readings with an agent.',
+    build: candleReview,
+  },
+  {
+    id: 'file-import',
+    name: 'File import',
+    description: 'Upload a file, parse it, select columns and return the rows.',
+    build: fileImport,
+  },
+  {
+    id: 'research-brief',
+    name: 'Research brief',
+    description: 'Stored run → evidence → conflict scan → citation audit → report.',
+    build: researchBrief,
+  },
 ];
 
 export function buildTemplate(id: string): WorkflowIR | null {

@@ -49,7 +49,13 @@ from .model_stream import (
     message_text as _text,
 )
 from .models import build_chat_model
-from .model_runtime import ErrorClass, ModelError, classify_exception, get_runtime
+from .model_runtime import (
+    ErrorClass,
+    ModelError,
+    classify_exception,
+    get_runtime,
+    provider_failure_message,
+)
 from .persistence import AgentMemoryStore, now_iso
 from .schemas import AgentConfig, HarnessError, RunRequest, RunResult
 from .surface import (
@@ -388,6 +394,9 @@ def build_graph(
     # The Portfolio Accounting Engine service, so the `portfolio_*` tools reach
     # the ONE ledger/valuation service (reusing the per-run market gateway).
     portfolio: Optional[Any] = None,
+    # The General Ledger service, so `ledger_*` tools reach the ONE double-entry
+    # book (chart of accounts, postings, periods, statements).
+    ledger: Optional[Any] = None,
     # The Advisory Ledger service, so `advisory_*` tools reach the ONE ledger and
     # the answer seam can persist each Fiduciary Gate verdict as a decision.
     advisory: Optional[Any] = None,
@@ -585,6 +594,10 @@ def build_graph(
         # The Portfolio Accounting Engine service, so `portfolio_*` tools reach
         # the ONE ledger/valuation engine and the per-run market gateway.
         portfolio_service=getattr(portfolio, "service", None),
+        # The General Ledger service, so `ledger_*` tools reach the ONE
+        # double-entry book. Accepts either the service or a bundle exposing
+        # `.service`.
+        ledger_service=getattr(ledger, "service", None) or ledger,
         # The unified search service, so the retrieval/search tools reach the ONE
         # index. The run's workspace/owner scope the agent's authorized results.
         search=search,
@@ -701,8 +714,12 @@ def build_graph(
                 error=classify_exception(exc, provider_id=request.modelSettings.provider, model_id=request.modelSettings.model),
                 run_id=request.runId,
             )
-            await emitter.emit("run.failed", {"error": {"code": "PROVIDER_ERROR", "message": str(exc)}})
-            return {**state, "step": step, "error": {"code": "PROVIDER_ERROR", "message": str(exc)}}
+            # Name the local server and the remedy, not a bare "Connection error.".
+            failure_message = provider_failure_message(
+                exc, provider_id=request.modelSettings.provider, model_id=request.modelSettings.model,
+                base_url=getattr(request.modelSettings, "base_url", None))
+            await emitter.emit("run.failed", {"error": {"code": "PROVIDER_ERROR", "message": failure_message}})
+            return {**state, "step": step, "error": {"code": "PROVIDER_ERROR", "message": failure_message}}
 
         runtime.record_step(
             resolution,
@@ -1122,6 +1139,7 @@ async def execute_run(
     learning_store: Optional[Any] = None,
     market: Optional[Any] = None,
     portfolio: Optional[Any] = None,
+    ledger: Optional[Any] = None,
     advisory: Optional[Any] = None,
     quant: Optional[Any] = None,
     project_store: Optional[Any] = None,
@@ -1288,13 +1306,30 @@ async def execute_run(
         allowed, surface_resolution = apply_trade_surface(
             request.input.query, allowed, surface_resolution
         )
+    # Settings → Persona: a bounded user overlay appended to the authoritative
+    # prompt for the ordinary chat agent. It is style/emphasis only — the tool
+    # allowlist above was already resolved, so the block cannot widen it. Read
+    # ONCE at run start and recorded on the run (`surface.persona`), so a later
+    # edit never rewrites what an earlier run saw.
+    persona_meta: Optional[dict[str, Any]] = None
+    if agent.id == DEFAULT_AGENT_ID:
+        from .personas import active_persona_prompt  # noqa: PLC0415
+
+        persona_block, persona_meta = active_persona_prompt()
+        if persona_block:
+            system_prompt = f"{system_prompt}\n\n{persona_block}"
+
     # Round 3 / W2 (ADR-H280): publish the surface resolution on the run, so a
     # missing tool is always explainable - the run names what the surface added,
     # what the autonomy profile removed and what a disabled store removed. The
-    # write is additive and cannot widen anything.
+    # write is additive and cannot widen anything. The active persona rides
+    # alongside it as provenance (id@version), never as a permission.
+    surface_payload = surface_resolution.to_dict()
+    if persona_meta is not None:
+        surface_payload["persona"] = persona_meta
     store.update_run(
         request.runId,
-        surface=surface_resolution.to_dict(),
+        surface=surface_payload,
         autonomy=surface_resolution.autonomy,
         workspaceId=request.workspaceId,
     )
@@ -1548,6 +1583,7 @@ async def execute_run(
             advisory_sink=advisory_collector.add,
             market=market,
             portfolio=portfolio,
+            ledger=ledger,
             advisory_service=advisory,
             quant=quant,
             project_store=project_store,

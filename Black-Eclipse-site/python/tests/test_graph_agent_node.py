@@ -309,3 +309,95 @@ def test_agent_node_runs_in_a_test_run_with_a_model_effect():
         ),
     )
     assert allowed.executable is True, [d.message for d in allowed.diagnostics]
+
+
+# -- agent.bot: a saved bot as one bounded turn --------------------------------
+
+from harness.graph_runtime.agent_nodes import set_bot_resolver  # noqa: E402
+
+
+def _bot(**overrides):
+    bot = {
+        "id": "bot_1", "name": "Gold desk", "isBot": True, "kind": "agent",
+        "agentId": "gold-analyst", "objective": "Watch gold",
+    }
+    bot.update(overrides)
+    return bot
+
+
+def test_bot_node_runs_with_the_bots_own_agent(fake_runner):
+    set_bot_resolver(lambda _bot_id: _bot())
+    try:
+        result = _exec_type("agent.bot", {"botId": "bot_1", "maxSteps": 3}, {"query": "what moved?"})
+    finally:
+        set_bot_resolver(None)
+    assert result["finding"]["text"] == "AAPL looks expensive"
+    assert fake_runner["objective"] == "what moved?"
+    assert fake_runner["config"]["agent"] == "gold-analyst"
+    assert fake_runner["config"]["maxSteps"] == 3
+
+
+def test_bot_node_falls_back_to_the_bots_saved_objective(fake_runner):
+    set_bot_resolver(lambda _bot_id: _bot(objective="Watch gold"))
+    try:
+        _exec_type("agent.bot", {"botId": "bot_1"}, {})
+    finally:
+        set_bot_resolver(None)
+    assert fake_runner["objective"] == "Watch gold"
+
+
+def test_bot_node_appends_bounded_context_as_labelled_data(fake_runner):
+    set_bot_resolver(lambda _bot_id: _bot())
+    try:
+        _exec_type("agent.bot", {"botId": "bot_1"}, {"query": "what moved?", "context": {"symbol": "XAUUSD"}})
+    finally:
+        set_bot_resolver(None)
+    objective = fake_runner["objective"]
+    assert objective.startswith("what moved?")
+    assert "Context (JSON):" in objective
+    assert "XAUUSD" in objective
+
+
+def test_a_workflow_bot_is_refused_by_name(fake_runner):
+    set_bot_resolver(lambda _bot_id: _bot(kind="workflow"))
+    try:
+        with pytest.raises(ValueError, match="flow.subworkflow"):
+            _exec_type("agent.bot", {"botId": "bot_1"}, {"query": "go"})
+    finally:
+        set_bot_resolver(None)
+
+
+def test_an_unknown_bot_fails_by_name():
+    set_bot_resolver(lambda _bot_id: None)
+    try:
+        with pytest.raises(ValueError, match="was not found"):
+            _exec_type("agent.bot", {"botId": "deleted"}, {"query": "go"})
+    finally:
+        set_bot_resolver(None)
+
+
+def test_a_plain_automation_is_not_a_bot():
+    set_bot_resolver(lambda _bot_id: _bot(isBot=False))
+    try:
+        with pytest.raises(ValueError, match="is not a bot"):
+            _exec_type("agent.bot", {"botId": "job_1"}, {"query": "go"})
+    finally:
+        set_bot_resolver(None)
+
+
+def test_bot_node_requires_a_bot_id_and_a_bound_store():
+    with pytest.raises(ValueError, match="pick one"):
+        _exec_type("agent.bot", {}, {"query": "go"})
+    set_bot_resolver(None)
+    with pytest.raises(ValueError, match="bot store"):
+        _exec_type("agent.bot", {"botId": "bot_1"}, {"query": "go"})
+
+
+def test_bot_node_requires_the_agent_runtime():
+    set_bot_resolver(lambda _bot_id: _bot())
+    set_agent_runner(None)
+    try:
+        with pytest.raises(ValueError, match="agent runtime"):
+            _exec_type("agent.bot", {"botId": "bot_1"}, {"query": "go"})
+    finally:
+        set_bot_resolver(None)

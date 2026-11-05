@@ -1,7 +1,7 @@
 ---
 title: Development and production servers
 status: Current
-last-verified: 2026-10-20
+last-verified: 2026-11-04
 ---
 
 # Development and production servers
@@ -25,7 +25,9 @@ The defaults live in `scripts/lib/profiles.js`. `scripts/local-host.js` applies
 them: it sets `PORT`, `HARNESS_PY_URL`, `HARNESS_PY_PORT`,
 `HARNESS_CALLBACK_URL` and `NEXT_DIST_DIR` on the child process, overriding any
 generic `PORT` in `.env`. The dev profile also points
-`AGENT_MEMORY_DB_PATH` and `ECLIPSE_MEMORY_DB_PATH` at `.black-eclipse/dev/`.
+`AGENT_MEMORY_DB_PATH` and `ECLIPSE_MEMORY_DB_PATH` at `.black-eclipse/dev/`,
+and sets `BE_DB_PATH` to the repository `jdds.db` so the market/journal data is
+shared (see below).
 
 **Why separate ports is the point.** `predev`/`prestart` free only their own
 profile's ports (`scripts/kill-port.js dev|prod`). Before the split, both hooks
@@ -37,7 +39,12 @@ production server.
 Shared on purpose:
 
 - `jdds.db` (market-data vault and settings). Dev reads the same snapshot as
-  production instead of copying a large database.
+  production instead of copying a large database. Mechanically: the dev profile
+  sets `BE_DATA_DIR` only for the isolated runtime DBs, and pins
+  `BE_DB_PATH=<repo>/jdds.db`, which `src/lib/db.ts` honours ahead of
+  `BE_DATA_DIR/jdds.db` (as do `doctor.js` and `db-guard.js`). Without the pin,
+  dev would open an empty `.black-eclipse/dev/jdds.db` with no schema and every
+  Prisma-backed screen would fail with `P2021`.
 - The workspace tree and artifacts under `.black-eclipse/` (other than `dev/`).
 - `node_modules`, the Python interpreter, and the git worktree.
 
@@ -53,6 +60,13 @@ Isolated:
 If you need a change to reach production, it must be built:
 `npm run up` rebuilds only when source changed (`scripts/lib/server.js`
 source hash). `npm run dev` never builds.
+
+Production builds are **serialized**: `npm run build`, `npm run up`,
+`black eclipse` and the desktop launcher all take `.next-build.lock` before
+running `next build`, and a second build waits for the first instead of wiping
+the same `.next` directory underneath it. The lock lives outside `.next` because
+the build deletes that directory; it is advisory, so a raw `npx next build`
+bypasses it.
 
 ## Commands
 

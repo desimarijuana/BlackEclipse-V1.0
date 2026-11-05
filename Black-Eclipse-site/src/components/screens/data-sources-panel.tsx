@@ -20,6 +20,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { IconBadge } from "@/components/layout/page-header";
 import { ProviderList } from "./provider-list";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -480,11 +481,8 @@ export function DataSourcesPanel() {
     <div className="animate-fade-in-up">
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-primary font-bold mb-2">Connectors</p>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 shadow-sm shadow-primary/10">
-              <Database className="text-primary w-[18px] h-[18px]" />
-            </div>
+            <IconBadge icon={Database} size="sm" />
             <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Data Sources</h2>
           </div>
           <p className="text-xs text-muted-foreground mt-2 leading-relaxed max-w-lg">

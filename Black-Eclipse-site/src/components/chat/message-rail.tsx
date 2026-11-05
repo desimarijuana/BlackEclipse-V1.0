@@ -32,6 +32,13 @@ function nodeFor(el: HTMLElement, id: string): HTMLElement | null {
 const MAX_TICKS = 14;
 
 /**
+ * Resting width of every tick. Uniform by design: the highlighted
+ * (active) tick is never wider than its neighbours — emphasis is
+ * colour-only. Width variance exists solely as the hover ripple.
+ */
+const BASE_TICK_WIDTH = 7;
+
+/**
  * The hover preview, portaled to `document.body`. The rail lives under a
  * `-translate-y-1/2` ancestor, and a CSS transform creates a backdrop root that
  * silently kills `backdrop-filter` on any descendant — so the glass would render
@@ -146,14 +153,15 @@ export function MessageRail({
         const label = previewOf(msg.content);
         // A calm wave: the hovered tick leads, neighbours follow at a decaying
         // amplitude, each one starting a beat later so the pulse travels
-        // outward. Widths stay hairline-small — the wave reads through length
-        // and timing, never through bulk.
+        // outward. Hover-only — at rest every tick renders at
+        // BASE_TICK_WIDTH, whatever its active state. The wave reads through
+        // length and timing, never through bulk.
         const wave = distance == null ? 0 : Math.max(0, 1 - distance / 4);
-        const width = Math.round(7 + wave * 4 + (active && !hovering ? 2 : 0));
+        const width = Math.round(BASE_TICK_WIDTH + (distance == null ? 0 : wave * 4));
         return (
           <div
             key={msg.id}
-            className="pointer-events-auto relative flex items-center justify-end"
+            className="pointer-events-auto relative flex h-[6px] items-center justify-end"
             onMouseEnter={(e) => {
               setHoverId(msg.id);
               const r = e.currentTarget.getBoundingClientRect();
@@ -174,8 +182,9 @@ export function MessageRail({
                 transitionDelay: distance == null ? undefined : `${distance * 28}ms`,
               }}
               className={cn(
-                // Hairline ticks with a 1px gap between rows: a quiet ruler,
-                // not a stack of pills. Neutral grey — no brand accent.
+                // Hairline ticks on spaced rows: a quiet ruler, not a stack of
+                // pills. Uniform resting width; the active tick is highlighted
+                // by tone, never by size. Neutral grey — no brand accent.
                 "relative block h-px rounded-full transition-[width,background-color] duration-200 ease-out cursor-pointer",
                 // Expand the tap target on touch without changing the visual
                 // footprint (the visible tick stays 1px tall).

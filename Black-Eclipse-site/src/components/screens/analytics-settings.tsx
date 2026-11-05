@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Activity, AlertCircle, BarChart3, Coins, Cpu, Loader2, RefreshCcw, Wrench } from "@/lib/icons";
 import { cn } from "@/lib/utils";
+import { SectionHeader } from "./settings-ui";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { UsageSummary } from "@/lib/harness/types";
@@ -83,18 +84,11 @@ export function AnalyticsSettingsPanel() {
 
   return (
     <div className="animate-fade-in-up">
-      <div className="mb-6">
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-            <BarChart3 className="text-primary" size={22} />
-          </span>
-          <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Token Analytics</h2>
-        </div>
-        <p className="text-xs text-muted-foreground mt-2 leading-relaxed max-w-lg">
-          Real token consumption recorded by the agent runtime for every agent run. Providers that
-          do not report usage are shown honestly rather than estimated.
-        </p>
-      </div>
+      <SectionHeader
+        icon={BarChart3}
+        title="Token Analytics"
+        description="Real token consumption recorded by the agent runtime for every agent run. Providers that do not report usage are shown honestly rather than estimated."
+      />
 
       <div className="flex items-center justify-between gap-3 mb-4">
         <Select value={String(days)} onValueChange={(v) => setDays(Number(v ?? "30"))}>

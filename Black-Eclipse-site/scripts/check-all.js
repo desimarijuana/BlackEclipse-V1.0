@@ -5,12 +5,13 @@
 //   1. prisma generate      (the client the app imports)
 //   2. typecheck            (tsc --noEmit)
 //   3. lint                 (eslint)
-//   4. security preflight   (deploy checklist; advisory on a loopback bind)
-//   5. decision record       (every ADR number names exactly one decision)
-//   6. harness size budget   (the committed total + per-subsystem ceilings)
-//   7. corpus gate           (the corpus vs the COMMITTED baseline)
-//   8. tests                (vitest + python suite)
-//   9. eval gates           (retrieval / contradiction / compaction floors)
+//   4. secret scan          (no credential is tracked or staged)
+//   5. security preflight   (deploy checklist; advisory on a loopback bind)
+//   6. decision record       (every ADR number names exactly one decision)
+//   7. harness size budget   (the committed total + per-subsystem ceilings)
+//   8. corpus gate           (the corpus vs the COMMITTED baseline)
+//   9. tests                (vitest + python suite)
+//  10. eval gates           (retrieval / contradiction / compaction floors)
 //
 // Usage: node scripts/check-all.js   (or `npm run check:all`)
 const { spawnSync } = require("child_process");
@@ -32,6 +33,10 @@ const npx = process.platform === "win32" ? "npx.cmd" : "npx";
 run("prisma generate", npx, ["prisma", "generate"]);
 run("typecheck", npx, ["tsc", "--noEmit"]);
 run("lint", npx, ["eslint", "."]);
+// The committed-secret gate. Cheap, offline, and it fails the release if any
+// tracked file is a secret artifact (.env, *.db, a private key) or contains a
+// recognisable provider credential. Same check the pre-commit hook runs.
+run("secret scan", "node", ["scripts/scan-secrets.js"]);
 // The deploy-time security checklist. On a loopback/dev bind every check is
 // advisory (WARN, exit 0); an exposed misconfiguration — a public bind or a
 // production build without the required secrets — fails the release gate.

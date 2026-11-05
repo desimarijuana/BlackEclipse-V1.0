@@ -193,7 +193,7 @@ export function newDrawingId(): string {
 }
 
 /** Create a fresh drawing of a given type with default style. */
-export function makeDrawing(type: DrawingType, color = '#7aff78'): ChartDrawing {
+export function makeDrawing(type: DrawingType, color = '#b4ff42'): ChartDrawing {
   const base = {
     id: newDrawingId(),
     type,

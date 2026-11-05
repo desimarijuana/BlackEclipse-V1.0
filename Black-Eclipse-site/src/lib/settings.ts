@@ -8,6 +8,7 @@
 
 import { prisma } from "@/lib/db";
 import { isLocalBaseUrl, presetForBaseUrl, CATALOG_ENV_VARS } from "@/lib/agent/presets";
+import { assertModelAllowed } from "@/lib/privacy";
 import { storedProviderKey } from "@/lib/provider-keys";
 
 /**
@@ -202,6 +203,9 @@ export async function setLLMConfig(
   // A `"local"` sentinel is never a real key; drop it here so it cannot survive
   // a switch to a remote endpoint and be sent as the credential.
   if (merged.apiKey === LOCAL_KEY_SENTINEL) merged.apiKey = "";
+
+  // Fail closed before persisting a provider that local-only mode forbids.
+  assertModelAllowed(merged.baseUrl, merged.provider);
 
   if (merged.provider !== "mock" && !merged.apiKey && !isLocalBaseUrl(merged.baseUrl)) {
     // The key may legitimately live in the provider-key vault or the environment

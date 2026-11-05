@@ -224,6 +224,31 @@ def test_paper_order_refuses_a_rejected_decision():
     assert result["reasons"] == ["blocked"]
 
 
+def test_paper_account_reports_no_activity_before_the_first_fill(paper_account):
+    result = _exec("trading.paper_account", {"accountId": "main", "initialCash": 5_000.0}, {})
+    assert result["ok"] is True
+    assert result["exists"] is False
+    assert result["account"]["cash"] == pytest.approx(5_000.0)
+
+
+def test_paper_account_reads_the_book_after_a_fill(paper_account):
+    _exec(
+        "trading.paper_order",
+        {"price": 100.0, "accountId": "main"},
+        {"intent": _intent(quantity=10.0)},
+    )
+    result = _exec("trading.paper_account", {"accountId": "main"}, {})
+    assert result["exists"] is True
+    assert result["account"]["cash"] == pytest.approx(99_000.0)
+    assert result["account"]["positions"]["TESTUSDT"]["quantity"] == pytest.approx(10.0)
+
+
+def test_paper_account_without_a_store_is_a_named_error():
+    set_paper_store(None)
+    with pytest.raises(ValueError, match="paper account store"):
+        _exec("trading.paper_account", {}, {})
+
+
 def test_paper_order_needs_a_price_and_a_valid_intent():
     with pytest.raises(ValueError, match="price"):
         _exec("trading.paper_order", {}, {"intent": _intent()})
@@ -303,6 +328,45 @@ def test_compiler_allows_the_pure_risk_gate_in_a_backtest():
         test_run=False, granted_capabilities=frozenset({"trading.risk"}),
     ))
     assert compiled.executable is True, [d.message for d in compiled.diagnostics]
+
+
+def test_positions_rows_wire_into_the_risk_gate_and_a_wrong_shape_is_refused():
+    def compile_with(target_handle: str, source_node: str, source_handle: str):
+        ir = WorkflowIR.model_validate({
+            "irVersion": 1, "id": "wf_wire", "name": "Wiring",
+            "meta": {"createdAt": "", "updatedAt": "", "tags": []},
+            "nodes": [
+                _node("trig", "trigger.manual"),
+                _node("reads", source_node, {"connectionId": "brk_1"}),
+                _node("risk", "trading.risk_check", {"price": 100.0}),
+                _node("out", "output.result"),
+            ],
+            "edges": [
+                _edge("e1", "trig", "start", "risk", "intent"),
+                _edge("e2", "reads", source_handle, "risk", target_handle),
+                _edge("e3", "risk", "decision", "out", "value"),
+            ],
+            "settings": {
+                "executionMode": "paper", "failFast": False,
+                "maxConcurrency": 1, "timeoutMs": 0,
+            },
+            "requiredCapabilities": ["trading.risk", "trading.broker.read"],
+        })
+        return compile_workflow(ir, REGISTRY, RunGrants(
+            test_run=False,
+            granted_capabilities=frozenset({"trading.risk", "trading.broker.read"}),
+        ))
+
+    ok = compile_with("positions", "trading.broker_positions", "positions")
+    assert ok.executable is True, [d.message for d in ok.diagnostics]
+
+    # The account ENVELOPE is not a position list; the compiler refuses the wire
+    # instead of letting the risk gate read the wrong shape at run time.
+    wrong = compile_with("positions", "trading.broker_account", "account")
+    assert wrong.executable is False
+    assert any(d.code == "incompatible_ports" for d in wrong.diagnostics), [
+        (d.code, d.message) for d in wrong.diagnostics
+    ]
 
 
 def test_compiler_refuses_live_and_an_ungranted_paper_run():

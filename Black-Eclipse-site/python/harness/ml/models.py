@@ -18,7 +18,12 @@ from ..stats.base import StatsError
 # stay interpretable (mirrors STATS_VERSION / FACTOR_ENGINE_VERSION).
 ML_ENGINE_VERSION = "0.1.0"
 
-CONTRACT_SCHEMA_VERSION = "1.0.0"
+# 1.1.0 — additive: dataset `source` (market | records), a `column` target kind
+# and the optional `timeColumn`/`idColumn` provenance fields. Every 1.0.0 shape
+# remains valid, so a stored manifest is never reinterpreted.
+# 1.2.0 — additive: `calibration` on ExperimentConfig (out-of-fold probability
+# calibration; "none" by default so existing runs are unchanged).
+CONTRACT_SCHEMA_VERSION = "1.2.0"
 
 
 class MLError(StatsError):
@@ -45,23 +50,40 @@ TARGET_KINDS = (
     "neutral_zone",         # binary with a dead-band around zero
     "volatility",           # regression on forward realized volatility
     "cross_sectional_rank", # per-date percentile rank of the forward return
+    # A label supplied per row by the operator (records datasets only). `task`
+    # on the TargetSpec decides whether it is regressed or classified.
+    "column",
+    # No label at all: an unsupervised task over the feature columns. `task`
+    # must be "clustering" or "anomaly".
+    "unsupervised",
 )
+
+# Where a dataset's rows come from.
+#   market  — resolved through the one market data gateway (price/volume features)
+#   records — operator-supplied rows (uploaded table); columns are the features
+DATASET_SOURCES = ("market", "records")
+
 
 SPLIT_METHODS = ("chronological", "walk_forward", "purged_kfold")
 
 # "expanding" grows the train window; "rolling" uses a fixed-size train window.
 WINDOW_MODES = ("expanding", "rolling")
 
-TASK_TYPES = ("classification", "regression", "ranking")
+TASK_TYPES = ("classification", "regression", "ranking", "clustering", "anomaly")
+
+# Tasks that need a label. Everything else is unsupervised: the feature matrix is
+# the whole input and no metric may pretend a ground truth exists.
+SUPERVISED_TASKS = ("classification", "regression", "ranking")
 
 MISSING_POLICIES = ("drop", "forward_fill", "fill_zero")
 
 LIFECYCLE_STATUSES = ("draft", "evaluated", "approved_research", "archived")
 
 # Model families whose pure-NumPy implementation ships with the runtime.
-NATIVE_MODEL_FAMILIES = ("dummy", "ridge", "logistic", "random_forest")
+NATIVE_MODEL_FAMILIES = ("dummy", "ridge", "logistic", "random_forest", "kmeans", "mad_z")
 # Model families that require an optional third-party wheel.
-OPTIONAL_MODEL_FAMILIES = ("sklearn_forest", "sklearn_extra_trees", "lightgbm", "xgboost")
+OPTIONAL_MODEL_FAMILIES = ("sklearn_forest", "sklearn_extra_trees", "lightgbm", "xgboost",
+                           "torch_mlp")
 MODEL_FAMILIES = NATIVE_MODEL_FAMILIES + OPTIONAL_MODEL_FAMILIES
 
 # Feature-selection methods fitted ONLY on the training fold.
@@ -78,13 +100,16 @@ class TargetSpec:
     neutral_band: float = 0.0        # |return| <= band -> neutral class (neutral_zone)
     n_classes: int = 3               # bins (direction_multiclass)
     column: str = "target"           # output column name
+    # Only meaningful for kind="column": how the supplied column is modelled.
+    # None on the market kinds, where the kind alone determines the task.
+    task: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "schemaVersion": CONTRACT_SCHEMA_VERSION, "kind": self.kind,
             "horizon": self.horizon, "threshold": self.threshold,
             "neutralBand": self.neutral_band, "nClasses": self.n_classes,
-            "column": self.column,
+            "column": self.column, "task": self.task,
         }
 
 
@@ -114,6 +139,10 @@ class SplitSpec:
 class DatasetSpec:
     """The inputs required to build one immutable dataset version."""
 
+    # "market" (symbols resolved through the gateway) or "records" (rows the
+    # operator supplies). A records dataset ignores `symbols`/`interval` and
+    # takes its features from the named columns of the supplied rows.
+    source: str = "market"
     symbols: list[str] = field(default_factory=list)
     interval: str = "1d"
     start: Optional[str] = None
@@ -124,14 +153,21 @@ class DatasetSpec:
     min_coverage: float = 0.5
     asset_class: str = "equity"
     frequency: Optional[str] = None
+    # records provenance: the row column holding the observation time (must be
+    # sorted ascending — the split engine is chronological and never reorders)
+    # and an optional per-row id used for quality/duplicate reporting.
+    time_column: Optional[str] = None
+    id_column: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schemaVersion": CONTRACT_SCHEMA_VERSION, "symbols": list(self.symbols),
+            "schemaVersion": CONTRACT_SCHEMA_VERSION, "source": self.source,
+            "symbols": list(self.symbols),
             "interval": self.interval, "start": self.start, "end": self.end,
             "featureNames": list(self.feature_names), "target": self.target.to_dict(),
             "missingPolicy": self.missing_policy, "minCoverage": self.min_coverage,
             "assetClass": self.asset_class, "frequency": self.frequency,
+            "timeColumn": self.time_column, "idColumn": self.id_column,
         }
 
 
@@ -150,6 +186,9 @@ class ExperimentConfig:
     seed: int = 42
     scale: bool = True
     task: Optional[str] = None      # inferred from the target when omitted
+    # "none" | "platt" | "isotonic". Fitted on out-of-fold predictions only, so
+    # the holdout is never used to fit it (binary classification only).
+    calibration: str = "none"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -158,7 +197,7 @@ class ExperimentConfig:
             "modelFamily": self.model_family, "hyperparameters": dict(self.hyperparameters),
             "featureNames": list(self.feature_names), "selection": dict(self.selection),
             "split": self.split.to_dict(), "seed": self.seed, "scale": self.scale,
-            "task": self.task,
+            "task": self.task, "calibration": self.calibration,
         }
 
 
@@ -172,9 +211,11 @@ __all__ = [
     "IMMUTABLE_VERSION",
     "REPRODUCIBILITY_MISMATCH",
     "TARGET_KINDS",
+    "DATASET_SOURCES",
     "SPLIT_METHODS",
     "WINDOW_MODES",
     "TASK_TYPES",
+    "SUPERVISED_TASKS",
     "MISSING_POLICIES",
     "LIFECYCLE_STATUSES",
     "NATIVE_MODEL_FAMILIES",

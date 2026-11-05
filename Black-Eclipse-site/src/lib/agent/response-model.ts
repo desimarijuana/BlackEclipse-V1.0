@@ -473,6 +473,7 @@ const TOOL_LABELS: Record<string, string> = {
   execute_sql: 'Querying data',
   capability_external: 'Planning the external connection',
   capability_adapter: 'Drafting the adapter',
+  create_workflow: 'Creating the workflow',
   python_env_install: 'Installing Python packages',
   python_env_remove: 'Removing Python packages',
   python_env_list: 'Checking installed packages',

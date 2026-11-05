@@ -1,5 +1,1155 @@
 # Change Log
 
+## 2026-11-04
+- **chore(ops): re-pin the harness size budget to the measured merged tree.** The
+  branch's `check:size` gate was already red before today's merge: the trading
+  surface (29 graph nodes + 31 broker routes), research-evidence nodes, bounded
+  parallel map and the workflow-authoring bridge outgrew the 2026-11-02 pin.
+  `scripts/size-budget.json` is now pinned to the measured tree (453,425 total;
+  `python/harness/.` 28,764, `code` 18,344, `routers` 20,575,
+  `eclipse_memory` 12,685). This is a deliberate checkpoint, not an allowance —
+  the per-module ratchet resumes from these numbers. Also merges
+  `feat/graph-quant-packs` into `main` so today's work is on the default branch.
+  Docs updated: `docs/CHANGELOG.md`.
+- **ui(graph-studio): cleaner nodes and straight wires.** Single-port nodes no
+  longer render the "Start"/"Value" labels beside their handles (the tooltip
+  still names the port); nodes with several ports keep their labels so branch
+  choices stay readable. Connections are now straight lines instead of beziers,
+  and the hover insert/delete controls on a wire are frosted glass
+  (`bg-white/10 + backdrop-blur-md`) instead of an opaque chip. Files:
+  `src/components/screens/graph-studio/eclipse-node.tsx`,
+  `eclipse-edge.tsx`. Docs updated: `docs/CHANGELOG.md`.
+- **fix(graph-studio): the "New workflow" template menu no longer throws.** The
+  menu's `DropdownMenuLabel` is a Base UI `Menu.GroupLabel`; using it outside a
+  `DropdownMenuGroup` throws "MenuGroupContext is missing" as soon as the menu
+  opens, so the button appeared dead. Wrapped the template list in
+  `DropdownMenuGroup` in `src/components/screens/graph-studio/graph-home.tsx`
+  and fixed the same latent bug in the canvas version-history menu
+  (`src/components/screens/canvas/canvas-center.tsx`). Template creation itself
+  was already working — all 15 templates create successfully through
+  `/api/workflows`. Docs updated: `docs/CHANGELOG.md`.
+- **feat(dashboard): journal drawdown + monthly P&L charts.** The Home Trading
+  edge tile now shows a **drawdown (underwater) area** from
+  `analytics.equityCurrency.drawdown` with the max drawdown labelled, and
+  **last-12-month P&L bars** from `analytics.monthlyReturns` (green/red,
+  magnitude-scaled, per-month tooltip with trade count). Both are derived from
+  data already fetched — no new requests. Per-position price sparklines were
+  evaluated and rejected: broker symbols (XAUUSD/EURUSD) return no JDDS price
+  history, so they would render empty. Docs updated: `docs/trading.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **fix(dashboard): a flat P&L series now reads as a flat line, not a broken chart.**
+  `AreaSpark` projected a zero-variance series to the bottom of its viewBox
+  (`y=36/40`), so the Home Trading "Realized P&L · last 30 days" panel (one
+  EURUSD deal with 0 P&L) looked empty. Flat series now render on the midline,
+  the dashed baseline follows the same projection, and the caption states
+  "no realized P&L in this window" instead of implying a curve. Docs updated:
+  `docs/CHANGELOG.md`.
+- **feat(dashboard): charts in the Home Trading section.** Added a **realized
+  P&L curve** (cumulative broker deals, last 30 local days, zero baseline,
+  min/max day labels, `N deals · broker-reported`) built by
+  `buildDailyRealized` in `src/lib/dashboard/trading-home-model.ts`; a
+  **margin-usage ring** replacing the numeric margin tile (level, band, free
+  margin); inline **P&L bars** on each open position; **diverging bars** for
+  per-symbol exposure; and a **journal equity sparkline** from
+  `analytics.equityCurrency`. `AreaSpark` gained an optional `baseline`;
+  `home-primitives.tsx` gained `DivergingBarRow`. Honest limits: the curve is
+  realized-only (no stored balance history), the broker read covers the last 200
+  deals, and empty/short series render an explicit state rather than a line.
+  Tests: `trading-home-model.test.ts` (daily bucketing, carry-forward, window,
+  trimming). Docs updated: `docs/trading.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **fix(dev): the development server reads the shared `jdds.db` again.** The dev
+  profile sets `BE_DATA_DIR=.black-eclipse/dev/` for isolated runtime DBs, but
+  `src/lib/db.ts` derived the market/journal file from it too — so dev opened an
+  empty `.black-eclipse/dev/jdds.db` with no schema and every Prisma-backed
+  surface failed (`P2021`: `Market`/`JournalProfile` missing; journal analytics
+  500, regime unavailable, empty market cards). `src/lib/db.ts` now honours
+  `BE_DB_PATH` first (the override `doctor.js`/`db-guard.js` already used), and
+  `scripts/lib/profiles.js` pins it to the repository `jdds.db` for dev — the
+  behaviour `docs/environments.md` already documented. Docs updated:
+  `docs/environments.md`, `docs/CHANGELOG.md`.
+- **ui(consistency): every title icon is now one shared frosted tile.** Extracted
+  `IconBadge` + `PageHeader` into `src/components/layout/page-header.tsx` (neutral
+  `border-foreground/10 bg-foreground/[0.06]`, icon 22/26/30 at three sizes) and
+  pointed `SectionHeader` at the same primitive. All page-title headers (Command
+  Center, Market Discover, Market Bubbles, Alerts, Journal, Portfolio, Economics,
+  Chart Workspace, News, Investor Eye) and the drifted Settings sections
+  (Analytics, MCP, Sidebar, Alerts, Security, AI active setup) now use it; the
+  ad-hoc `border-primary/25 bg-primary/15` title tiles are gone. Also normalised
+  Aurora Colors, Data Sources, Charts, Volume Analytics and the New-layout dialog.
+  Icons moved out of `<h1>` text for correct accessible names. no doc change —
+  visual consistency refactor; no architecture, contract, setup or decision
+  changed.
+- **feat(dashboard): the Home brief shows your broker — read-only.** New
+  **Trading** section on the `home` tab (`home-trading-cards.tsx`): broker-reported
+  equity/balance, today's P&L split (deals since local midnight + floating, labelled
+  broker-reported), open positions, working orders, margin-based risk (margin level
+  bands, usage bar, free margin, per-symbol lot breakdown) and the journal edge
+  (win rate, profit factor, net P&L, discipline — all journal trades, labelled
+  not broker-verified). Read-only by design; account mutations stay in the broker
+  console / Quick Trade where the arm + approval gates live. No broker connected
+  renders a slim connect CTA (Settings → Broker connection); a failed read names
+  the broker's reason. Section is hide/reorderable via Customize; placed first for
+  the trader lens. The broker read path was extracted from the Command Center
+  widgets into `src/lib/dashboard/use-broker-snapshot.ts` (10s dedupe, 15s poll,
+  IPC-aware) shared by both surfaces; section data comes from
+  `use-trading-home-data.ts` + pure `trading-home-model.ts` (broker deals, margin
+  health, exposure — unit-tested). Docs updated: `docs/trading.md`,
+  `docs/NAVIGATION.md`, `docs/OVERVIEW.md` (stale "UNAVAILABLE stubs" line),
+  `docs/CHANGELOG.md`.
+- **feat(workflows): the ChatBot can create a saved Graph Studio workflow from a
+  one-line idea.** Added the `create_workflow` agent tool
+  (`python/harness/graph_tools.py`, admitted by `make_graph_authorizer` in the
+  one effect chain and narrowed at `plan_only` via `GRAPH_WRITE_TOOLS`) and the
+  front-door `POST /api/workflows/generate` route, which resolves the model
+  credentials, runs the SAME validated chat-to-graph planner the gallery uses,
+  re-validates the IR and writes it through the normal workflow store. A rejected
+  plan is reported with its diagnostics and nothing is saved; the tool never runs
+  the graph. The gallery now refreshes when its keep-alive tab becomes visible
+  again, so a chat-created workflow appears without a reload. Tests:
+  `python/tests/test_graph_create_tool.py`, `src/app/api/workflows/generate/route.test.ts`.
+  Docs updated: `docs/graph-studio.md`, `docs/agentic-overview.md`,
+  `docs/CHANGELOG.md`.
+- **fix(sound): the AI-result cue is now a calm, dedicated voice instead of the
+  old 0.6s high-RMS message asset.** Added a pack-independent AI-result sound
+  set at `public/sounds/message/` (`chime` default, `marimba`, `glass`, `blip`)
+  generated by `scripts/generate-message-cues.py`, plus a `messageVariant`
+  preference and an **AI result voice** picker in Settings › Sound with instant
+  preview. A crisp interaction pack no longer forces a harsh reply cue.
+  Docs updated: `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **security(privacy): personal data can now live on an encrypted volume, conversations can be pinned to local models, and everything can be wiped on demand.** Added `scripts/setup-data-vault.ps1` (plan/apply): creates a BitLocker-encrypted VHDX, moves the three databases plus `.black-eclipse/`, `python/.black-eclipse/`, backups, `mcp-servers.json` and `.connector-key` onto it, and links the directories back. `BE_DATA_DIR` is now honoured by `src/lib/db.ts`, `prisma.config.ts`, `scripts/db-guard.js` and both Python stores, so SQLite's `-wal`/`-shm` sidecars are encrypted too; `scripts/doctor.js` fails closed when `BE_VAULT_PATH`/`BE_DATA_DIR` is missing instead of creating empty databases. Added `ECLIPSE_PRIVACY=local-models`, enforced at the model chokepoint (`build_chat_model`) and the TS save/test/chat paths, so a remote endpoint is refused before any prompt is sent. Added `scripts/wipe-personal-data.js` (`--confirm=WIPE`). Docs: new `docs/data-and-privacy.md` (data map, threat model, vault, local-only scope, wipe, backups). Docs updated: `docs/data-and-privacy.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **fix(sound): interaction "haptics" are strictly opt-in, and event
+  notifications are their own class.** The click/tick/toggle cues no longer
+  re-enable from a stored blob without an explicit `enabled: true`; the storage
+  key moved to `be_sounds_v4` so a stale on-state cannot survive. `message` is
+  now the **AI result** cue and, like `notification` and `taskdone`, plays
+  independently of the opt-in interaction master switch (per-cue mute is the
+  opt-out; `gainFloor` keeps it audible at the subtle default volume). The
+  `alwaysAudible` flag was replaced by `notification`; the loud task-done alarm
+  lost its full-blast treatment and now starts muted (opt-in), while the AI
+  result and alert cues are on by default. The Settings › Sound `Notifications
+  & alarms` card now includes AI result. Settings › Alerts mirrors the same three
+  toggles and gains the high-impact news policy controls (threshold, lookback,
+  categories, tickers, quiet hours) wired to the existing
+  `/api/news/alerts/policy` scan. Also admitted the two ML registry/local-write
+  tools through the local-write authorizer so the advertised-tool admission
+  guard stays honest. Docs updated: `docs/ARCHITECTURE.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **security(open-source): the repository now fails closed on leaked secrets and
+  ships a hardened container.** Added `scripts/scan-secrets.js` (zero-dep, no
+  false-positive noise from the test fixtures): it rejects tracked/staged secret
+  artifacts (`.env*`, `*.db`, private keys, `.connector-key`, `mcp-servers.json`,
+  channel `secret.key`, `.black-eclipse/`) and recognisable provider tokens, and
+  prints only a redacted prefix. Wired into the pre-commit hook (`--staged`),
+  `npm run check:secrets`, `check-all.js`, and CI (which also gained
+  `permissions: contents: read`). The container stack no longer publishes on all
+  interfaces (loopback by default via `BE_BIND_ADDR`), forces `HARNESS_AUTH=required`,
+  drops all capabilities with `no-new-privileges`, and the image runs as the
+  unprivileged `node` user; `.dockerignore` now also excludes `mcp-servers.json`,
+  `python/.black-eclipse`, and key material. `next.config.ts` adds baseline
+  security headers (nosniff, SAMEORIGIN, referrer policy, permissions policy, and
+  HSTS in production). Added repository-root `SECURITY.md` (private disclosure +
+  operator checklist) and documented the deployment posture. Docs updated:
+  `docs/DEPLOYMENT.md`, `docs/harness/security.md`,
+  `docs/harness/authentication.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **style(notifications): the header bell is outline-only.** The bell and the
+  per-kind icons in the notification panel always render with Phosphor's
+  `regular` (outline) weight; the unread count still carries the state, so no
+  filled icon is needed. `no doc change — visual weight only`.
+- **feat(notifications): a header notification bar with the full ledger.** The
+  app already recorded every raise (price/news alerts, tasks, approvals, agent
+  runs, bots) in `lib/notifications/store` and signalled it via sidebar badges
+  and the browser tab, but there was no in-app place to read the list. Added
+  `src/components/layout/notification-center.tsx` to the `TopBar`: a bell with
+  an unread count opens a frosted panel showing the newest-first ledger,
+  filterable by kind; clicking an entry marks its tab read and navigates via
+  `be:navigate`; `markAllRead` was added to the store for the panel's
+  "Mark all read" action. Opening the panel does not mark items read. Docs
+  updated: `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **feat(news): High Alert — a decision-support layer for the News tab.** The
+  feed was recency-only; tier and cross-source corroboration were filters/badges,
+  never ranking inputs. Added `src/lib/news/importance.ts` (pure, deterministic
+  0–100 score + `critical|high|medium|low`, with `reasons[]`, confidence from
+  tier+corroboration, direction from sentiment, horizon, and what would
+  invalidate the read). `src/lib/news/cluster.ts` is the shared story-cluster
+  primitive. `/api/news` now scores every returned row and accepts
+  `sort=importance` / `minImportance` / `portfolio`; `/api/news/alerts` returns
+  the strongest recent stories plus upcoming high-impact releases (only when a
+  real calendar source exists); `/api/news/alerts/policy` stores the push policy.
+  The News tab gains a High Alert band, BREAKING/critical badges, a high-alert
+  filter, a "trade check" panel, and a wired one-click price watch (the existing
+  `/api/news/alert` endpoint was previously orphaned). After each ingest,
+  `src/lib/news/alert-scan.ts` optionally pushes high/critical stories through
+  the existing channels (disabled by default, first run seeds a baseline, story
+  dedupe, quiet hours, durable `PriceAlertEvent` notice). Settings › Alerts gains
+  the threshold/lookback/categories/tickers/quiet-hours controls. Docs updated:
+  `docs/DATA-FLOW.md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **feat(theme): Lime is the shipped default for every user.** `92db5238` moved
+  the accent and the Crystal sidebar, but several places still encoded the old
+  green default: the launcher splash mirror (`scripts/lib/app-theme.js`), its
+  tests, the Eclipse chart presets (`chart-settings.tsx`), the SDK design
+  placeholder, the default chart-drawing color, the market-overview accent rings
+  and the static `.dark` brand tokens in `globals.css` were already Lime — only
+  the remaining consumers were not. Uncustomized glass recipes now read
+  `var(--glass-shadow, 0 24px 70px rgba(0,0,0,0.60))` so the pre-hydration page
+  matches the themed `dramatic` shadow instead of the old soft one. A saved
+  app-wide theme still wins, so existing users keep their look and can switch
+  away at any time; light presets deliberately keep `soft`. Tests:
+  `desktop-launcher.test.ts` expectations updated alongside the existing
+  theme/Aurora tests. Docs updated: `docs/DECISIONS.md` (ADR-068),
+  `skills/ARCHITECT.md` (ADR-068), `docs/OVERVIEW.md`, `docs/GLOSSARY.md`,
+  `skills/IMPRINT.md`, `docs/CHANGELOG.md`.
+- **feat(settings): the Persona tab is a proper persona library.** The fixed
+  260px rail plus editor inside the `max-w-3xl` settings column squeezed the form
+  into ~480px with 9–11px type. Persona now gets a wider `max-w-5xl` canvas (only
+  that section), a master–detail layout with a 280px library rail of avatar rows
+  and a roomy editor: 13px inputs, a bordered instruction-overlay editor with the
+  character budget in its header, version history with numbered version chips,
+  and a preview that opens beneath the editor. The duplicated inner `SubSection`
+  heading is gone because the page already renders `SectionHeader`. Behaviour,
+  API calls and the draft/active rules are unchanged. No doc change —
+  presentation-only layout fix.
+- **fix(search): ⌘K is complete again — every screen and sub-page is reachable, and drift fails the build.** The palette registry had silently fallen behind the rendered UI: Memory declared 8 of 16 sub-tabs (with stale labels), Skills missed Maintenance, Journal missed Decisions and Notebook, and sidebar-visible screens (Eclipse SDK, Artifacts, Tables, Graph Studio) had no page entry at all — a QA run already had to bypass the registry via `app-screens.ts`. The Memory/Skills/Journal sub-page entries are now **generated** from the same arrays the tab bars render (`app-screens.ts`, new `journal-tabs.ts` which the Journal screen also consumes), so ids, labels and aliases cannot drift. Added missing top-level pages (`sdk`, `artifacts`, `tables`, `overview` for Graph Studio, `tasks`, `pages` for Saved Pages, `ui-builder`). The empty-query "Pages" launcher no longer uses the hand-maintained `TOP_LEVEL_PAGE_IDS`; it is derived from `LAUNCHER_ORDER` in the registry (sidebar order + Bots), and new `registry-sync.test.ts` fails the build if any tab lacks a page, any rendered tab lacks a sub-page, or a sidebar section is missing from the launcher (`chart` stays deliberately retired; legacy `graph-studio` stays an alias of `overview`). Fixed a real navigation bug: the shell strips the `memory.`/`skills.` prefix before dispatching, but those screens split it again, so every palette → Memory/Skills sub-page jump was a silent no-op. Saved (blueprint) pages are now searchable and openable: `/api/search/global` aggregates them from the Python runtime (`/sdk/pages`, operator token, dashboard mirrors excluded, best-effort on failure), `stock-chat` pokes the keep-alive Pages screen with the SDK's synthetic `popstate`, and a saved page's row deep-links to `/?tab=pages&page=<id>`. `INDEX_VERSION` is now one shared constant (`lib/search/index-version.ts`) instead of two hand-synced copies. Tests: `registry-sync.test.ts` (8), full vitest suite green; `tsc --noEmit` clean (3 pre-existing Python tool-registry failures from the ML allowlist work remain — unrelated). Docs updated: `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+
+- **style(chat): the jump rail reads as a spaced ruler, and size never signals
+  state.** `MessageRail` (`src/components/chat/message-rail.tsx`) now stacks
+  1px hairline ticks on 14px-tall rows with a 6px gap (was 2px), every tick
+  rests at a uniform 7px width, and the highlighted (reading-position) tick is
+  emphasized by tone only — the `active` tick no longer renders 2px wider at
+  rest. The decaying "wave" ripple around the hovered tick is now the only
+  source of width variance and exists solely while hovering; it collapses on
+  mouse-leave. No doc change — presentation-only behaviour tweak, no contract
+  change.
+- **style(chat): the jump rail's spacing is now fixed pixels.** Follow-up to the
+  entry above: the rail uses `gap-[6px]` and `h-[14px]` rows instead of the
+  rem-based `gap-1.5`/`h-3.5`, so the 6px rhythm holds at any user text-size
+  setting. No doc change — presentation-only.
+- **style(chat): the jump rail spacing is tightened to minimal.** `gap-[2px]`
+  rows `h-[6px]` (7px between hairlines) instead of 6px/14px, keeping the rail
+  compact while retaining a 14px hover/tap target via the tick's inset. No doc
+  change — presentation-only.
+
+## 2026-11-03
+- **feat(theme): lime brand refresh and a Crystal sidebar.** The shipped accent
+  moves from green `#7aff78` to lime `#b4ff42` across the CSS tokens, the theme
+  store defaults, the Aurora sentiment palette and the Market Bubbles canvas, and
+  the sidebar ships as a translucent Crystal frost (`#1a1a1e`, opacity 0.55, blur
+  34) with `dramatic` shadows as the default (labels updated so the default is
+  marked). Existing user themes keep their saved values; this changes the
+  shipped defaults and their tests. Tests: `theme/tokens.test.ts`,
+  `aurora-sentiment.test.ts` updated. Docs updated: `docs/CHANGELOG.md`.
+- **revert(accounting): the ledger is chat-only — the tab, proxy and browser
+  client are removed.** The accounting capability was meant to be used in
+  conversation, not browsed; a parallel screen doubles the surface that must stay
+  in sync with the book and invites a second place where a total could be
+  computed. Deleted `src/components/screens/accounting/`, `src/lib/ledger/client.ts`
+  and `src/app/api/ledger/[[...path]]/route.ts`, and reverted every trace of the
+  tab: the `AppTab` union, the sidebar section, the shell's lazy import and
+  keep-alive block, search/deep-link registration, the i18n navigation key, the
+  SDK nav mirror, and the shortcut/size pins. The Python engine, the `ledger_*`
+  tools, the `bookkeeper` preset, the ledger monitors and the operator
+  `/ledger/*` routes are untouched. Docs updated: `docs/ledger.md` ("Surfaces
+  (chat only)"), `docs/NAVIGATION.md`, `docs/DECISIONS.md` (ADR-066 amended,
+  ADR-068), `skills/ARCHITECT.md` (same), `docs/CHANGELOG.md`.
+- **feat(ml-lab): scale, lifecycle and the generative path.**
+  The arena and the hyperparameter search now run on the Fabric `ml` worker
+  (`background: true`), so a big comparison can no longer hit the proxy timeout —
+  same worker, timeout, cancellation and progress as training. A registered model
+  becomes a first-class chat capability: `ml_model_<slug>_predict` is registered on
+  the live registry and appended to the default agent's allowlist (existing models
+  re-register at boot), marked `dynamic` so the portable manifest stays a function
+  of the code rather than of the database. `ml_transition_model` exposes the
+  governed lifecycle (`evaluate → approved_research → archived`) with an approval
+  event and audit row per transition. `ml_build_training_corpus` distils a dataset
+  version into instruction/answer JSONL (incomplete rows skipped, never filled) and
+  `ml_finetune_adapter` writes a LoRA corpus + runnable `train_lora.py` + README +
+  manifest under `.black-eclipse/ml/adapters/`, training only when
+  torch/transformers/peft are installed and otherwise reporting MODEL_UNAVAILABLE.
+  Tests: `test_ml_chat_capabilities.py` (9) and two Fabric arena/search cases.
+  Docs updated: `docs/ml-lab/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **fix(journal): R-multiples are unit-correct for FX/CFD, and the trade tables
+  show the time.** A stop 4.96 points away on a 0.1-lot XAUUSD trade was treated
+  as $0.50 of risk instead of $49.60, so the first broker trades to carry a stop
+  showed ~33R. The projection now calibrates the contract multiplier from the
+  broker's own gross P&L (`Σ grossPnl / Σ (price move × quantity)` → 100 for
+  XAUUSD, 100 000 for EURUSD) and converts the stop distance to account currency
+  before dividing; an uncalibrated symbol has no R at all. Also: the Trades list,
+  Overview "Recent Trades" and Daily Journal now render `YYYY-MM-DD HH:MM` (UTC,
+  matching the journal's date contract) via `fmtDateTime`/`fmtClock`, and the
+  broker popup's "N connections" counter no longer sits under the close button.
+  Tests: `project.test.ts` (+2 multiplier cases), `format.test.ts` (new). Docs
+  updated: `docs/journal-broker-sync.md`, `docs/CHANGELOG.md`.
+- **feat(ledger): invoices/bills and consolidation in the tab, plus ledger
+  monitors (completion).** Three gaps closed. (1) The Accounting tab now renders
+  **invoices & bills** — post a document against a customer/vendor with an
+  account, amount and optional tax code, and record a payment against the
+  outstanding balance — and **consolidation** — create a group, add members with
+  an ownership percentage, run the report, and read the consolidated figures,
+  eliminations and findings. (2) Three ledger monitors join the closed catalogue:
+  `ledger_suspense_watch`, `ledger_close_blocked` and `ledger_receivables_watch`,
+  all created switched off. (3) `LedgerFactProvider` resolves
+  `ledger.<id>.<field>` (`suspense`, `blockers`, `warnings`, `ready`, `open_ar`,
+  `open_ap`, `entries`) through the SAME service the tools read; a missing ledger,
+  failed read or unknown field yields NO fact, so a condition evaluates
+  UNAVAILABLE instead of firing on a guessed balance. Tests:
+  `python/tests/test_ledger_monitors.py` (7) plus the full ledger suite; the tab
+  additions are covered by `tsc` and the tab/search/sidebar suites. Docs updated:
+  `docs/ledger.md` (Surfaces, limits, "still open"), `docs/DECISIONS.md`
+  (ADR-067), `skills/ARCHITECT.md` (ADR-067), `docs/CHANGELOG.md`.
+- **feat(ledger): the Accounting tab, a front-door proxy and a closed
+  `bookkeeper` agent preset (Phase 6).** The engine was complete but only reachable
+  from a shell. Phase 6 adds `src/app/api/ledger/[[...path]]/route.ts` — a pure
+  pass-through to the runtime's `/ledger/*` with the same mutation guard as the
+  portfolio proxy and no accounting logic — plus `src/lib/ledger/client.ts` (typed
+  browser client whose one error type carries a refusal code so the UI shows the
+  reason) and the **Accounting** tab: ledger create/select, assets/liabilities/
+  equity/net income, trial balance, P&L breakdown, recent journal, a close-check
+  panel that renders blockers vs warnings by severity, and AR aging with the
+  control-account reconciliation badge. All of it reads the SAME endpoints the
+  agent uses, so a screen can never compute a second set of numbers. The
+  **`bookkeeper` preset** is a closed surface — its allowlist is exactly the
+  `ledger_*` family (no market data, no code, no browser, no MCP) — with a prompt
+  that encodes the ledger's discipline (never invent a number, a posting balances
+  or it does not happen, corrections are reversals, unmatched rows go to suspense,
+  a tax rate is configured data, "reconciled" only when the tool says so);
+  mutations still require `ledger_write` approval. Tab wiring covers `app-tabs`,
+  the sidebar config (APPENDED so F1–F12 keep their sections), the shell's lazy
+  import, search/deep-link and the i18n navigation slice. Tests:
+  `python/tests/test_bookkeeper_preset.py` (5) plus the tab/sidebar/search vitest
+  suites (160). Docs updated: `docs/ledger.md`, `docs/NAVIGATION.md`,
+  `docs/DECISIONS.md` (ADR-066), `skills/ARCHITECT.md` (ADR-066),
+  `docs/CHANGELOG.md`.
+- **fix(journal): broker-imported trades are classified and shown truthfully, and
+  every popup is wide.** MT5 deal history carries no stop loss, so every imported
+  trade had `riskAmount=null` / `rMultiple=0` and the journal counted all 46 of
+  them as breakevens: win rate 0.0 %, `+0.00R` on every row, a flat R equity curve,
+  profit factor 0.00 and an R distribution of zeroes — while the same trades had
+  real P&L (+$766.34). New `classifyTradeOutcome()` uses R when a stop-derived risk
+  exists, otherwise the sign of the realized P&L; wins/losses/breakevens, win
+  rate, streaks, every dimension, the calendar, psychology leaks, weekly reviews,
+  wrapped and the agent summary all use it. `PerformanceStats.rAvailable` (and
+  `DayAggregate.rAvailable`) now says whether R is measurable at all, so Net R /
+  Expectancy / Max Drawdown / R distribution render **UNAVAILABLE — no stops
+  captured** instead of a fabricated `+0.00R`; the equity and drawdown charts fall
+  back to the always-truthful currency curve (`currencyEquity` is now cumulative
+  realized P&L, not R × risk). Profit factor is the standard currency gross-win /
+  gross-loss ratio. Broker `pnlPct` is the price-relative move (the old notional
+  formula produced −70.7 on a 0.01-lot EURUSD trade). Prices render via
+  `fmtPrice()` (no more `3932.2900000000004`), and CSV/PDF R cells are blank/— when
+  R is unavailable. Open positions render `open`/— instead of a fake `+0.00R`, and
+  a sync now refreshes a stale `pnlPct` too (it was excluded from the change
+  detector, so old notional-based values survived). MT5 `history_deals_get` gets a
+  3-day lower-bound margin so a clock skew cannot drop the oldest deals of a
+  backfill. The shared `DialogContent` is wide by default (`sm:max-w-2xl`) and uses
+  the `.glass-card-strong` tier; every popup that had pinned a narrow `max-w-*`
+  override was widened, and the broker connector popup (`sm:max-w-5xl`) now shows
+  the real adapter badge (MT5 / MT4 / Alpaca / IBKR), an accurate description,
+  per-kind bridge labels and a layout-matching skeleton while it reads the broker. Tests: `analytics.test.ts`
+  (+2 fallback/rAvailable cases). Docs updated: `docs/journal-broker-sync.md`,
+  `docs/trading.md`, `docs/CHANGELOG.md`.
+- **feat(ml-lab): the ML workflow is now a chat workflow — prompt guidance, predict-by-name, ensembles.**
+  Every ML tool was already allowlisted, but the chat system prompt named none of
+  them, so the agent never composed the path. It now documents
+  dataset → plan → train → compare/tune → register → predict → drift, with the
+  honesty rules (no invented metric, no family the runtime cannot import, dataset
+  before training, registration before prediction). `ml_predict` also accepts a
+  model NAME, so "predict with my momentum model" works. New `POST /ml/v1/ensembles`
+  (tool `ml_create_ensemble`) registers a composition of already-trained models:
+  members must share one task and one dataset version, their out-of-fold rows are
+  intersected, probabilities are averaged (majority vote without them, ties to the
+  lowest class), and the score is computed on those shared out-of-fold rows — no
+  re-fitting. Prompt cap re-pinned 41,967 → 42,960 in both prompt tests. Tools:
+  19 → 20 (`docs/harness/tool-registry.json` regenerated). Tests:
+  `python/tests/test_ml_ensemble.py` (7).
+  Docs updated: `docs/ml-lab/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **feat(ledger): entity groups, proportionate consolidation, intercompany
+  elimination and exports (Phase 5).** A single set of books cannot answer a
+  group's questions, and "export" had no shape at all. Phase 5 adds
+  `group_store.py`, `consolidation.py`, `exports.py` and `group_tools.py`. A group
+  is a consolidation **scope** that owns no journal: members contribute
+  proportionately (ownership % × every line — stated as `PROPORTIONATE`, no NCI
+  line), accounts are matched **by code and type** (a type clash is a blocker, not
+  an average), a foreign member needs a supplied per-currency rate (never
+  invented), and intercompany pairs are eliminated **by subtype** with only the
+  matched amount removed — the remainder stays on the books and is reported as
+  `INTERCOMPANY_OUT_OF_BALANCE`. Consolidated figures go through the same
+  statement engine, so the accounting equation is checked once. Exports produce
+  `journal_csv`, `trial_balance_csv`, a complete `json` bundle and a well-formed
+  XBRL 2.1 instance that says in its own comment that it is **not**
+  taxonomy-conformant; **SAF-T is refused** with a reason rather than
+  approximated. Adds 5 `ledger_*` tools, `/groups*` + `/export` routes, group
+  tables, four `INTERCOMPANY_*` accounts in the standard chart, and an
+  export range that anchors at the first posting instead of the current month.
+  Tests: `python/tests/test_ledger_{consolidation,exports}.py` plus tool/API
+  round-trips. Docs updated: `docs/ledger.md`, `docs/NAVIGATION.md`,
+  `docs/DECISIONS.md` (ADR-065), `skills/ARCHITECT.md` (ADR-065),
+  `docs/harness/tool-registry.json` (regenerated), `docs/CHANGELOG.md`.
+- **feat(ml-lab): dependency-free hyperparameter search, with the selection caveat built in.**
+  `POST /ml/v1/search` (tool `ml_search_hyperparameters`) runs up to 24 trials of
+  one family over a declared grid or a seeded sample of it, on the caller's exact
+  folds, persisting each as a normal run. Native families ship small documented
+  default spaces; optional families take an explicit grid. The ranking reuses the
+  arena's rule, so an unmeasured trial cannot win, and the top-ranked config is
+  always reported with `withinNoise` saying whether it is actually separable from
+  the runner-up. The note ALWAYS states that the winner was selected on the same
+  folds it is scored on (optimistic) — no search result is dressed up as a
+  generalization estimate. `maxTrials`/`maxSeconds` bound it and `stoppedReason`
+  says which bound hit. The Experiments tab gained "Tune {family}". Tools:
+  18 → 19 (`docs/harness/tool-registry.json` regenerated). Tests:
+  `python/tests/test_ml_search.py` (8), including a within-noise case and a clear
+  winner.
+  Docs updated: `docs/ml-lab/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **feat(ml-lab): explain every family, and take the data with you.**
+  Feature importance only existed for the tree families, so a linear model, a
+  k-means centroid set or the torch MLP had no explanation at all.
+  `finalPermutationImportance` now ranks the selected features for EVERY family by
+  shuffling each one on the final holdout (seeded, 5 repeats) and reporting the
+  drop in accuracy (classification) or negative RMSE (regression) with its spread;
+  below 30 holdout rows it is `None` rather than a confident number from noise.
+  Separately, `GET /ml/v1/datasets/{id}/versions/{v}/export?format=csv|jsonl`
+  returns the version as portable text — features, target, its human labels and
+  the row timestamps, read from the stored artifact — bounded by `limit` and
+  stating `truncated` when it bites; the Datasets tab gained Export CSV/JSONL.
+  No new tool, so the registry digest is unchanged. Tests:
+  `python/tests/test_ml_importance_export.py` (7), including a run-level
+  importance check and a truncation assertion.
+  Docs updated: `docs/ml-lab/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **feat(ml-lab): probability calibration and feature-drift monitoring.**
+  A model that trains well can still be untrustworthy: its scores may not be
+  probabilities, and its inputs may have moved. `calibration` (`none` | `platt` |
+  `isotonic`) is fitted on the pooled OUT-OF-FOLD predictions — never the holdout
+  — reported before/after on Brier and log-loss, stored in the artifact, and
+  applied by `predict_proba`; binary only, and it returns `None` rather than an
+  identity curve when the data cannot support one. `POST /ml/v1/models/{id}/drift`
+  (tool `ml_model_drift`) compares the training dataset version with a later one
+  per feature (PSI under reference quantiles + two-sample KS with an asymptotic
+  p-value) and returns stable/watch/drift, with a schema change reported rather
+  than scored as zero. Contract schema 1.2.0 (additive `calibration`). Tools:
+  17 → 18 (`docs/harness/tool-registry.json` regenerated). Tests:
+  `python/tests/test_ml_calibration_drift.py` (10), including a calibrated
+  service round-trip and a drift verdict on shifted data that stays `stable` on
+  the training version.
+  Docs updated: `docs/ml-lab/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **feat(ledger): AR/AP subledger — customers, vendors, invoices, bills, payments
+  and aging (Phase 4).** A ledger that cannot invoice is still a spreadsheet with
+  double entry. Phase 4 adds `parties.py`, `tax.py`, `documents.py` and
+  `subledger_store.py`: documents compute their own lines (`Dr AR / Cr revenue /
+  Cr tax`, mirrored for a bill) and post through the ONE journal path, so an
+  unbalanced invoice cannot exist. Tax codes are **configured data** — jurisdiction,
+  a fractional rate, the GL account, inclusive/exclusive — with **no bundled rate
+  table**: an unconfigured code is `TAX_CODE_NOT_FOUND` and an unconfigured
+  jurisdiction `UNSUPPORTED_TAX_JURISDICTION`. Control accounts are discovered from
+  the chart by subtype with a per-document override, never invented. Payments
+  allocate (over-payment refused, repeated reference posts once); voiding reverses
+  the journal entry and is refused when payments exist; aging is derived at the
+  report date from documents minus allocations-as-of-that-date and **checked against
+  the control account**, reporting a difference instead of hiding it. Adds 10
+  `ledger_*` tools (mutations behind `ledger_write`), 7 route groups
+  (`/parties`, `/tax-codes`, `/documents*`, `/aging`), four tables on the ONE
+  `agent-memory.db`, and `document_tools.py` so `tools.py` stays within its size
+  budget. Tests: `python/tests/test_ledger_documents.py` plus tool/API round-trips
+  (207 ledger tests total). Docs updated: `docs/ledger.md`, `docs/NAVIGATION.md`,
+  `docs/DECISIONS.md` (ADR-064), `skills/ARCHITECT.md` (ADR-064),
+  `docs/harness/tool-registry.json` (regenerated), `docs/CHANGELOG.md`.
+- **feat(ml-lab): a model arena — compare families on the same folds.**
+  After "build me a model" the next question is "which one?", and the only honest
+  way to answer it is one dataset, one validation design. `POST /ml/v1/compare`
+  (tool `ml_compare_models`) trains up to six families with the caller's exact
+  split spec/seed/selection, persists each as a normal run, and returns a table
+  plus a verdict. The verdict refuses the three usual lies: a null metric is
+  excluded rather than sorted as 0; a margin inside the larger fold standard
+  deviation is reported as "no clear winner"; and a task without ground truth
+  (`anomaly`) is never ranked. Clustering ranks by silhouette only. The ML Lab
+  Experiments tab gained "Compare families", which renders the ranking with fold
+  sd and the not-ranked list. Tools: 16 → 17
+  (`docs/harness/tool-registry.json` regenerated). Tests:
+  `python/tests/test_ml_compare.py` (7) — including a service-level proof that
+  every family saw identical folds.
+  Docs updated: `docs/ml-lab/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **feat(ledger): schedules, accruals, FX revaluation and a real close checklist
+  (Phase 3).** A ledger you cannot close is a ledger you cannot trust. Phase 3
+  adds `schedules.py` — depreciation/amortisation schedules whose every period is
+  derived up front (straight line gives the last period the rounding remainder so
+  the total equals `cost − salvage` exactly; declining balance never dips below
+  salvage), posted idempotently per period and stopping at the first period a
+  closed book refuses; one-off `ledger_accrue` postings with an optional automatic
+  reversal; `revaluation.py` — period-end FX for foreign-currency-restricted
+  accounts at a *supplied* rate (`RATE_REQUIRED` instead of an invented one),
+  convergent and idempotent per account+date+rate, recorded as a `base_only` line
+  so the foreign balance never drifts; and `close.py` — a persisted close run whose
+  findings carry a severity: `SUSPENSE_BALANCE` / `TRIAL_BALANCE_BROKEN` block the
+  close, while negative cash, a stale reconciliation, a due schedule, a missing
+  revaluation, an unfinished import and a possible duplicate are warnings the
+  operator may accept. `close_period` now delegates to that checklist (the old
+  `statements.close_check` was removed — one checker, not two). Adds 9 `ledger_*`
+  tools (mutations behind `ledger_write`), `/schedules*` `/accrue` `/revalue*`
+  `/close/preview` `/close-runs*` routes, `LedgerSchedule` + `LedgerCloseRun`
+  tables and a `JournalLine.baseOnly` column with an additive migration. Tests:
+  `python/tests/test_ledger_{schedules,close}.py` (176 ledger tests total). Docs
+  updated: `docs/ledger.md`, `docs/NAVIGATION.md`, `docs/DECISIONS.md` (ADR-063),
+  `skills/ARCHITECT.md` (ADR-063), `docs/harness/tool-registry.json`
+  (regenerated), `docs/CHANGELOG.md`.
+- **feat(ledger): statement import, categorisation rules and reconciliation
+  (Phase 2).** Phase 1 could keep books but every entry had to be typed. Phase 2
+  brings the money in: `importers.py` parses CSV (with a declared column mapping),
+  OFX and QIF; `rules.py` categorises deterministically (conditions AND, needles
+  OR, magnitude bounds, `(priority, name, version)` order, first match wins,
+  append-only versions); `imports.py` previews and posts a batch through the normal
+  journal path; `reconcile.py` compares a statement to one cash account with
+  MATCHED/MISMATCH/MISSING/UNKNOWN plus a real balance check. The refusals are the
+  feature: the format and date pattern are declared rather than guessed, an
+  unparseable date names its row, a row is idempotent (`stmt:<account>:<row-id>`)
+  so a re-import posts nothing, an unmatched row posts to `9999 Suspense` (and
+  blocks the close) instead of being guessed or dropped, a foreign row without an
+  `fx_rate` is `REQUIRES_FX` and is not posted, an ambiguous amount/date pair is
+  UNKNOWN rather than "the first one", and a run without `statement_balance` is
+  `INCOMPLETE` — rows alone never earn "reconciled". Adds 13 `ledger_*` tools
+  (mutations behind `ledger_write`), `/import/*` + `/rules*` + `/reconcile` routes,
+  `LedgerRule`/`LedgerImportBatch`/`LedgerReconciliation` tables on the ONE
+  `agent-memory.db`. Tests: `python/tests/test_ledger_{imports,reconcile}.py` plus
+  the tools/API round-trips (136 ledger tests total). Docs updated: `docs/ledger.md`,
+  `docs/NAVIGATION.md`, `docs/DECISIONS.md` (ADR-062), `skills/ARCHITECT.md`
+  (ADR-062), `docs/harness/tool-registry.json` (regenerated), `docs/CHANGELOG.md`.
+- **feat(ml-lab): a deterministic model-recipe planner, and an optional deep-learning adapter.**
+  "Build me a model that predicts X" had no policy: the user (or the agent) had
+  to pick a family and validation design unaided. `POST /ml/v1/plan` (tool
+  `ml_plan_model`) now turns a built dataset (or an inline rows/features/task
+  profile) into a reviewable plan — family, hyperparameters, split and
+  feature-selection choice, each with its reason and any warnings — and returns
+  the exact `/ml/v1/experiments` body so planning and running cannot drift. It
+  is pure and deterministic, chooses only families the runtime can actually
+  import, and reports no metric (a plan is a proposal). The ML Lab's Experiments
+  tab gained "Suggest a model", which fills the form from that plan.
+  Separately, `torch_mlp` adds a seeded tabular MLP behind a new, deliberately
+  separate `python/requirements-train.txt` (torch is hundreds of MB and never
+  ships by default). It serializes weights as plain JSON, reports
+  `MODEL_UNAVAILABLE` when torch is absent, and deliberately claims no
+  CNN/RNN — there is no image/sequence data path. Tools: 15 → 16
+  (`docs/harness/tool-registry.json` regenerated). Tests:
+  `python/tests/test_ml_recipes.py` (12) and
+  `python/tests/test_ml_torch_adapter.py` (2 + 1 skipped without torch).
+  Docs updated: `docs/ml-lab/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **feat(ledger): a double-entry book of record, Phase 1 (accounts, journal,
+  periods, statements).** Eclipse could model a company but could not *keep its
+  books*: there was no general ledger, so "post this invoice", "close March" or
+  "show me the balance sheet" had no defensible home. New
+  `python/harness/ledger/` implements the core — chart-of-accounts templates as
+  data (`standard`/`sole_trader`/`minimal`), balanced journal postings with
+  exact `Decimal` arithmetic (Σ debit == Σ credit or a named refusal carrying
+  the exact difference), per-line FX translation, append-only entries with
+  reversing corrections, monthly fiscal periods with OPEN/CLOSED/LOCKED, and a
+  derived trial balance / balance sheet / income statement / cash flow, each
+  returning `checks`. Cash movement that cannot be classified is reported in an
+  explicit `unclassified` bucket instead of being guessed; a non-zero suspense
+  balance blocks a period close. Persistence is on the ONE
+  `agent-memory.db` with `(ledgerId, source, externalId)` import idempotency.
+  Wired as 19 flat `ledger_*` tools (reads free; mutations behind the single-use
+  `ledger_write` approval), an operator-gated `/ledger/*` route group, a boot
+  layer + per-run bundle, and the agent allowlist. `portfolio/money.py` is
+  re-exported, not forked. Tests:
+  `python/tests/test_ledger_{core,statements,tools,authorizer,api}.py` (86).
+  Docs updated: `docs/ledger.md` (new), `docs/NAVIGATION.md`, `docs/DECISIONS.md`
+  (ADR-061), `skills/ARCHITECT.md` (ADR-061), `docs/harness/tool-registry.json`
+  (regenerated), `docs/CHANGELOG.md`.
+- **feat(ml-lab): clustering and anomaly detection (label-free tasks).**
+  The ML Lab could only train supervised models, so "group these rows" or "flag
+  the odd ones" had no path at all. Datasets can now declare
+  `target.kind="unsupervised"` with `target.task` = `clustering` | `anomaly`
+  (both sources: market features or an uploaded table), and two native families
+  were added — `kmeans` (seeded k-means++, serialized as centroids) and `mad_z`
+  (per-feature median/MAD with a training-score quantile threshold). The
+  unsupervised pipeline keeps the temporal discipline: the same folds and
+  leakage assertion, fit-on-train-only standardisation, and every metric is
+  out-of-sample. It refuses feature selection (it needs a label), reports
+  `null` for an undefined silhouette instead of a stand-in number, and reports a
+  rate + score distribution for anomalies rather than an invented accuracy. A
+  label-free dataset's quality coverage is measured on features, not on a label
+  that does not exist. Wired through `/ml/v1`, the ML tools, `capabilities`, and
+  the ML Lab target/task selects. Tests:
+  `python/tests/test_ml_unsupervised.py` (11) plus the existing ML suites.
+  Docs updated: `docs/ml-lab/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **feat(ml-lab): train on any uploaded table, not just market prices.**
+  The ML Lab's datasets came only from the market gateway, so "build me a model"
+  was limited to price/volume features. `DatasetSpec` now declares a `source`:
+  `market` (unchanged) or `records` — operator-supplied rows, with the named
+  numeric columns as features and a `column` target (`target.task` =
+  regression | classification, labels coded in sorted order and stored as
+  `target.classLabels` so predictions decode back). Wired through
+  `/ml/v1/datasets`, the `ml_build_dataset` tool, `GET capabilities`
+  (`datasetSources`) and the ML Lab Datasets tab (CSV upload). Correctness is
+  unchanged: the same chronological/purged split engine and leakage gate apply,
+  and every malformed input is a named error (non-numeric cell → column + row;
+  unsorted `timeColumn` refused rather than silently re-sorted; single-class
+  label; market-only target kind on a records source). Contract schema bumped
+  to 1.1.0 (additive). Tests: `python/tests/test_ml_records_source.py` (13) plus
+  the existing ML suites; `npx tsc --noEmit` clean.
+  Docs updated: `docs/ml-lab/ARCHITECTURE.md`, `docs/CHANGELOG.md`.
+- **fix(harness): an unreachable local model server names itself and the remedy.**
+  A stopped Ollama/LM Studio fails with the SDK's bare `Connection error.`, which
+  reached the operator as an unexplained provider failure (the reported "provider
+  issue" — the local Ollama daemon simply was not running, so every chat turn
+  failed). `provider_failure_message` now turns a network-class failure against a
+  loopback `baseUrl` into an actionable line ("Can't reach ollama at
+  localhost:11434 — the local model server is not running. Start it, then retry;
+  or switch to another provider in Settings.") and leaves every other error
+  message untouched (a remote provider, or a 401 from a local server, keeps its
+  own text). Verified end-to-end: with Ollama started, `/api/harness/chat`
+  answers normally. No doc change — error copy, not an architecture or contract
+  change.
+- **fix(desktop): the launch bar now actually advances.**
+  The old indeterminate shimmer could read as a slider parked at one position.
+  The bar is now a real fill derived from the time spent in the current phase:
+  it never goes backwards, eases toward 72% while building (60s time constant),
+  steps to 86% starting and 93% while waiting for the proxy, and only reaches
+  100% when the app actually answers. A highlight travels inside the filled
+  portion so it keeps reading as active even when the percentage barely moves.
+  Reduced-motion / animations-off keeps the advancing fill but drops the shine.
+  `/status` now exposes `phaseElapsedMs` for that calculation.
+  Docs updated: `docs/CHANGELOG.md`.
+- **feat(desktop): rotating, situation-aware hints on the launch screen.**
+  The single long build paragraph read like documentation and promised a fixed
+  "two seconds". The progress page now rotates a short hint every 7s (server-
+  derived from elapsed time, so no extra timer), cross-faded on the client and
+  disabled under `prefers-reduced-motion` or a theme with animations off
+  (`motion-off` class). The launcher picks the accurate set: first build,
+  rebuild after a source change, or waiting on a build another process started
+  (`BUILD_HINTS` in `scripts/lib/desktop-splash.js`). A specific warning (e.g.
+  the hostname not resolving) is sticky and overrides rotation until the phase
+  changes.
+  Docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
+
+## 2026-11-02
+- **feat(desktop): the launch screen follows the user's app-wide theme; status tag removed.**
+  The progress page is served from `127.0.0.1`, a different origin from the app,
+  so it cannot read the browser's `localStorage` theme cache. It now reads the
+  **app-wide** theme from JDDS (`SystemConfig`, key `eclipse_theme` — the row
+  Settings › Customization writes via `/api/theme`) through the new
+  `scripts/lib/app-theme.js`, and renders with the saved brand color, scheme
+  (dark/light), font stacks, radius, glass tint/blur/opacity, background
+  treatment, glow toggle, shadow weight and logo/favicon. A missing or malformed
+  row falls back to the shipped theme; every value is sanitized (hex-only
+  colors, clamped numbers, stripped font stacks, no remote image URLs) before it
+  reaches CSS or HTML. Custom uploaded logos/favicons (data URLs or files under
+  `public/`) are served at `/logo` and `/favicon`; otherwise the shipped wordmark
+  and favicon are used. The BOOTING/READY/FAILED tag was removed — the page shows
+  the phase line only.
+  Docs updated: `docs/QUICKSTART.md`, `docs/CHANGELOG.md`.
+- **fix(runtime): stored provider keys reach the spawned Python runtime; media demo passes.**
+  The runtime child is spawned from instrumentation BEFORE the boot step that
+  copies vault keys into `process.env`, so it started keyless and agent/vision
+  calls failed with "Provider 'openrouter' is not configured (missing API key)"
+  until some later restart. `python-runtime.ts` now calls
+  `applyStoredKeysToEnv()` immediately before the spawn (a real env var still
+  wins). Related vision fixes: outputs are bounded with `bind(max_tokens=…)` so
+  the account is charged for the reply rather than the model's full 16 384-token
+  generation budget, and a durable graph job re-resolves credentials for
+  `model.vision` runs too, not only `agent.run`. Verified through the app:
+  **Candle option review (demo)** returns two real observations (`qwen2.5-vl`,
+  903/847 tokens) and **File import (demo)** returns 24 rows. Tests: full Vitest
+  4282 passed; Python graph+vision suites 134 passed. Docs updated:
+  `docs/ARCHITECTURE.md`, `docs/graph-studio.md`,
+  `docs/graph-studio-media-agent-memory-nodes-plan.md`, `docs/CHANGELOG.md`.
+- **fix(desktop): a click always shows a live progress page; production builds are serialized.**
+  Double-clicking `start-eclipse.vbs` could look completely dead: the launcher
+  runs with a hidden console, so a cold build (minutes), a failing boot, or a
+  proxy that never bound produced no window and no error. The launcher now opens
+  a loopback progress page (`scripts/lib/desktop-splash.js`, default
+  `127.0.0.1:3197`) *first*; it names the real phase, shows the last server log
+  line, redirects to `https://blackeclipse/?desktop=1` when the app answers, and
+  shows an honest error panel (reason + log path) when boot fails instead of
+  exiting silently. The page renders in the saved app-wide theme (see the entry
+  above) and serves the **real** wordmark and favicon (theme logo when one is
+  set, otherwise `public/branding`), with a text fallback if an asset is missing.
+  A second click attaches to the running launcher's page; a
+  page left over from a dead launcher is ignored. `start-eclipse.vbs` now finds
+  Node on PATH or in the two standard install locations and reports a missing
+  Node with a dialog.
+  The root cause of the intermittent hang was two `next build` runs rewriting
+  the same `.next` directory at once (a terminal `npm run build` plus the
+  launcher, which saw no `BUILD_ID` because the other build had just wiped it).
+  `npm run build` now runs `scripts/build-prod.js`; `scripts/lib/server.js`
+  gained a machine-wide `.next-build.lock` used by `npm run build`, `npm run up`,
+  `black eclipse` and the desktop launcher, which waits for a running build and
+  reuses its output when the source is unchanged. The launcher also waits (with
+  a visible "a build is already running" phase) instead of starting a competing
+  build, and both boot paths now have deadlines that end in a readable error.
+  Docs updated: `docs/QUICKSTART.md`, `docs/environments.md`,
+  `docs/CHANGELOG.md`.
+- **fix(desktop): instant icon opens and a server that stops only when the last tab closes.**
+  Clicking `start-eclipse.vbs` no longer calls `stopExisting()` first: if the
+  production app already answers, the launcher opens the tab in ~0.1s instead of
+  killing and cold-booting a healthy server (the reported "lag"). A cold boot
+  now waits for the **public** URL (proxy included), not just the app port, so
+  the tab cannot open on a 502 page that never beacons. The beacon file became a
+  **refcount of live tabs** (`DesktopSession` sends a per-page-load tab id;
+  `/api/desktop/session` serializes read-modify-write), so closing one of
+  several or duplicated tabs no longer stops the server under the rest. The
+  crash heartbeat fallback moved from 2.5 minutes to 30 minutes and is skipped
+  on the first tick after machine sleep, because a hidden/frozen tab and a
+  suspended laptop both freeze the 10s heartbeat while the page is alive;
+  `visibilitychange`/`focus`/`pageshow` re-beacon on resume. Next's stdout and
+  stderr now go to `.black-eclipse/desktop-server.log` (previously lost in the
+  hidden console), including a log line when the server exits after boot.
+  Docs updated: `docs/QUICKSTART.md`.
+- **harden(broker): operator-only broker routes, URL validation, retries.**
+  All `/api/journal/broker/*` routes and the `/api/trading/*` proxy now require
+  an authenticated **operator** when auth is active (`requireOperatorApiAuth`);
+  auth-off local mode is unchanged. Alpaca/IBKR base URLs are validated
+  (http/https, no embedded credentials) before any request, and both adapters
+  retry 429/5xx with bounded backoff. IBKR `probe` checks
+  `/iserver/auth/status` and reports an expired CPAPI session honestly.
+  Alpaca/IBKR positions without a broker open time are labelled "first seen",
+  never silently dated 1970. A production checklist now lives in
+  `docs/journal-broker-sync.md`. Verified with
+  `npm run build` (clean), `tsc --noEmit`, 4,270 vitest tests and the broker
+  Python subset. Docs updated: `docs/journal-broker-sync.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): seeded files/media demo + demo-found fixes.**
+  `npm run demo:graph-media`/`scripts/seed-graph-media-demo.mts` seeds **File
+  import (demo)** and **Candle option review (demo)** into Overview, generating a
+  CSV and two deterministic candle PNGs through the real graph/vision stores.
+  The file demo was run through the app and returned 24 rows with every node
+  succeeded. The image demo was verified through `image.attach` (asset read +
+  640×360 metadata) and then failed honestly at the provider boundary when the
+  configured model account had insufficient credits; no fake reading was
+  emitted. Demo-found fixes: `validate_port_value` now understands `file`/`image`
+  outputs (the first run failed with `unknown port type file`); the vision asset
+  store persists uploaded metadata and preserves a descriptive name/source when
+  an analysis re-saves the same bytes; `image.batch` fails when every image read
+  fails instead of letting a downstream agent run on an empty result. Added the
+  `File import` template and an optional control input on the File/Parse nodes.
+  Tests: `test_graph_model.py` (file/image port checks), `test_vision_store_owner.py`
+  (name preservation), `test_graph_image_nodes.py` (all-fail batch); full TS
+  suite 4259 passed; build exit 0; full Python suite 9434 passed before these
+  last demo fixes, targeted suites after. Docs updated: `docs/graph-studio.md`,
+  `docs/graph-studio-media-agent-memory-nodes-plan.md`, `docs/CHANGELOG.md`.
+- **feat(broker): Alpaca + IBKR read-only adapters, FIFO normalizer, live smoke test.**
+  `alpaca` (REST) and `ibkr` (Client Portal Gateway) are registered as read-only
+  broker kinds with honest availability/probe. Because neither exposes a
+  position id, a shared `adapters/fifo.py` turns fills/executions into FIFO
+  round-trip legs (scale-ins, partials, shorts, pro-rata fees); the journal
+  marks that P&L `pnlBasis="computed"` and the detail says so. Credentials are
+  always NAMEs (`credentialRef` → env var or `secret://…`), never values.
+  `POST /trading/connections/{id}/smoke` runs probe → account → positions →
+  orders → deals → one sync and returns per-check PASS/FAIL; the CLI
+  `python/scripts/broker_smoke.py` and a **Smoke** button in the broker dialog
+  use it. The broker form now selects MT5 / MT4 bridge / Alpaca / IBKR with the
+  right fields. Tests: FIFO (6), Alpaca (3), IBKR (3), smoke (2).
+  Docs updated: `docs/trading.md`, `docs/journal-broker-sync.md`,
+  `docs/NAVIGATION.md`, `docs/DECISIONS.md` + `skills/ARCHITECT.md`
+  (ADR-059 amendment), `docs/CHANGELOG.md`.
+- **feat(graph-studio): in-editor workflow assistant that builds on the canvas.**
+  Added a tool-calling agent (n8n-style) at `POST /api/graphs/assist` → Python
+  `POST /graphs/assist`: `graph_runtime/assistant.py` lets the model search the
+  REAL node registry, inspect schemas, add/wire/configure/remove nodes and
+  validate the graph in a bounded loop. It returns the editor's closed operation
+  vocabulary plus a compiled IR; `assistant-store.ts` auto-applies safe,
+  warning-free edits through `dispatchMany` (one undo step) and shows a
+  review card when there are warnings/errors. New panel in the editor's right
+  dock (header `Assistant`), with selection-aware context, a New-conversation
+  reset per loaded workflow, Ask mode that refuses mutating tools, and a canvas
+  focus request that centres newly created nodes, secret-like node config
+  redaction before the graph context leaves the process, and an honest warning
+  when the model answers without calling any tools. The turn now streams over
+  SSE (`/api/graphs/assist/stream`) with live tool steps and a Stop button; the
+  transcript is persisted per workflow in `sessionStorage`; large graphs send
+  full configs only for the selection and its neighbours; search understands
+  common aliases (api/http, sma/ema, filter/where, …); and a failed run offers
+  "Fix the failed run" using the run's real error. The assistant can close the
+  loop itself with a bounded `run_workflow` tool: it executes through the same
+  `GraphService.run_sync`, always as a TEST run (network/trading/write refused
+  by the compiler), caps at 2 runs per turn, returns failed nodes + real errors
+  + terminal output, and is never offered in Ask mode. Effectful graphs still
+  require the operator run. Auto-apply is a per-browser preference (on by
+  default) and proposals are bound to the IR id they were computed against, so
+  a cross-workflow apply is refused. Credentials stay in memory.
+  Tests: `python/tests/test_graph_assistant.py`,
+  `src/lib/graph-studio/assistant-ops.test.ts`,
+  `src/lib/graph-studio/assistant-store.test.ts`. Docs updated:
+  `docs/graph-studio.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **chore(graph-studio): regenerate the node registry manifest.**
+  `npm run graph:manifest` synced `registry.manifest.json` with the current
+  `data.file.attach`/`parse` control inputs. No behavior change; the
+  cross-language contract test was red on the stale artifact.
+  no doc change — generated contract artifact.
+- **feat(journal): per-user journal ownership when auth is active.**
+  `JournalProfile` gains a nullable `userId`; `getOrCreateProfile()` resolves the
+  request's auth session and returns a deterministic `jp_<userId>` profile, so
+  trades, broker links, reviews, days and accounts are isolated per user. With
+  auth off (zero-config local), the oldest guest profile is used unchanged. If
+  auth is required but a journal request has no live session, the journal fails
+  closed instead of falling back to the shared guest. The first authenticated
+  user adopts the pre-auth guest journal (one-time, conditional write) so
+  existing trades are not orphaned; later users never inherit it. The boot demo
+  seeder skips when auth is required. Broker connections remain operator-level;
+  the link and projected trades are
+  per-profile. New `src/lib/journal/owner.ts`; guest duplicate-collapse is now
+  scoped to guest rows. Docs updated: `docs/journal-broker-sync.md`,
+  `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-059 amendment),
+  `docs/CHANGELOG.md`.
+- **feat(broker): read-only MT4 HTTP bridge + journal-wide sync affordance.**
+  A second built-in broker adapter, `mt4_bridge`, speaks a documented read-only
+  JSON contract (`/account`, `/positions`, `/orders`, `/orders/{ticket}`,
+  `/quote`, `/deals`) against a local bridge that owns the MT4 login. History
+  reads moved to the base `BrokerAdapter` (a read capability, not execution), so
+  a read-only adapter can feed reconciliation without claiming an order path.
+  `bridgeSecretRef` is a name (env var or `secret://…` vault ref), never a value.
+  The broker dialog now selects MT5 or MT4 bridge and shows the right fields.
+  The Trades tab gains a compact **Broker** sync button with last-sync state and
+  a source filter + BROKER badge, so syncing no longer requires opening
+  Settings. Tests: `python/tests/test_mt4_bridge_adapter.py` (contract, secret,
+  honest refusal, reconcile end-to-end). Docs updated: `docs/trading.md`,
+  `docs/journal-broker-sync.md`, `docs/DECISIONS.md` + `skills/ARCHITECT.md`
+  (ADR-059 amendment), `docs/CHANGELOG.md`.
+- **harden(journal): broker sync production hardening.**
+  Broker-owned execution fields (`entry/exit/stops/quantity/times/commission/fee/
+  symbol/direction`) are now refused on PATCH with `409` and never P&L-recomputed;
+  only user-owned fields are written, so a notes edit cannot race a sync into a
+  price-derived number. The UI hides Edit for broker trades and shows an
+  ownership note. Sync calls coalesce per `(profile, connection)`, and a unique
+  collision from a second server (dev+prod share the DB) is treated as success.
+  Link creation now validates the connection with the runtime, rejects
+  malformed ids (`400`, or `503` when the runtime is down), stamps the account's
+  `brokerConnectionId`, and enforces one account per connection with a unique
+  `(profileId, accountId)` index (applied to the local dev DB after confirming
+  zero link rows). Preview is rate-
+  limited (12/min) and reports an unavailable/stale mirror honestly; API errors
+  are logged server-side and returned as generic messages. Every journal trade
+  lookup filters `ignoredAt` tombstones. New `broker/ownership.ts` + tests.
+  Docs updated: `docs/journal-broker-sync.md`,
+  `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-059 amendment),
+  `docs/CHANGELOG.md`.
+- **feat(journal): deal-level broker fills, account/magic analytics, broker agent tools.**
+  Phase 3. Every projected broker deal is now stored as an immutable `TradeFill`
+  (unique by `(tradeId, dealTicket)`), so the trade detail shows scale-ins,
+  partial closes and multi-fill exits with the broker's own ticket, volume,
+  price, commission, swap and profit. `syncFills` inserts only missing deals;
+  an unchanged trade still backfills fills it lacks. New
+  `GET /api/journal/trades/[id]/fills`. Analytics gains `byAccount` (including
+  `Unassigned`) and `byMagic` (broker trades only), rendered in the Analytics
+  tab. The journal agent gains `get_broker_status` and
+  `get_broker_performance`, which reports broker-sourced performance with
+  per-account/per-magic splits and never mixes manual/demo trades. On the
+  projection engine, `magic` is copied onto `Trade` for grouping. Fills are now
+  paged 1,000 at a time with a stable `(dealtAt, id)` cursor (20 pages max), so a
+  large backfill is no longer truncated at the old 5,000 ceiling.
+  Tests: projection fills assertions, account/magic dimension test, fill-cursor
+  paging.
+  Docs updated: `docs/journal-broker-sync.md`, `docs/NAVIGATION.md`,
+  `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-059 amendment),
+  `docs/CHANGELOG.md`.
+- **harden(graph): owner isolation + upload limits for files and images.**
+  The vision asset store gains an `ownerId` column (idempotent migration, index)
+  and scoped asset ids for non-local owners while keeping the legacy content id
+  for the local operator. All reads/writes/deletes accept an owner filter; the
+  orchestrator, vision tools, document renderers and graph image nodes pass the
+  run/context owner. Graph runs now adopt the verified identity owner (never the
+  self-asserted `x-harness-user` alone), and `routers/graphs` resolves it from
+  the `X-Harness-Identity` token. The asset/image proxies forward that token via
+  `runtimeProxyHeaders`; Python routes resolve the owner from the verified
+  identity and ignore a query-string owner when auth is on. Both upload routes
+  now enforce byte caps at the runtime boundary and a per-owner rate limit.
+  Tests: `test_vision_store_owner.py` (2), `test_graph_asset_routes.py` (3) +
+  affected graph/vision/document/security suites (1061 passed, 6 opt-in skips);
+  full Python suite 9434 passed before this hardening, full Vitest 4259 passed,
+  `npm run build` exit 0. Docs: `docs/graph-studio.md`, ADR-060 mirror, plan,
+  CHANGELOG.
+- **feat(journal): broker history backfill, scheduled auto-sync, attribution UI.**
+  Phase 2 makes the broker link production-usable. `POST /trading/connections/
+  {id}/sync` now accepts `{"days": N}` (1–3650) and calls the adapter's
+  `deals_window(N)` instead of the incremental cursor; `JournalBrokerLink`
+  `backfillDays` drives a first import or a gap recovery, computed from
+  `lastSyncedAt` (no explicit window needed within 5 days). The mirror read
+  ceiling rises from 500 to 5,000 deals (still one bounded response). A new
+  `src/lib/journal/broker/scheduler.ts` runs one opt-in, single-flight timer
+  (`JOURNAL_BROKER_SYNC_SECONDS`, default 300 s, min 60, `0` disables) for links
+  with `autoSync`, with a 5-minute failure backoff per connection. The Settings
+  panel gains rule authoring (magic/comment/symbol → strategy/setup/tags),
+  per-link backfill-window editing and a **Full backfill** action. Python tests
+  cover the explicit-window dedupe; vitest covers the due/backoff rules.
+  Docs updated: `docs/journal-broker-sync.md`, `docs/trading.md`,
+  `docs/NAVIGATION.md`, `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-059
+  amendment), `docs/CHANGELOG.md`.
+- **feat(graph): vision image nodes, n8n-style `agent.task`, memory lifecycle
+  (waves 2–4).** `graph_runtime/image_nodes.py` + `registry-media.ts` add
+  read-only image nodes over the ONE vision engine: `image.attach`,
+  `image.analyze` (describe/answer/ground/extract with schema checking),
+  `image.ocr`, `image.read_chart`, `image.compare`, `image.batch` (1–8 images,
+  one result row each, failed rows preserved). Every output is labelled an
+  observation (`verified: false`); `read_chart` sets `verified: true` only from
+  the engine’s own market check. No rendering, no image generation.
+  `agent.task` adds the full n8n-style form (instructions, task, preset, tool
+  allowlist that can only narrow, memory mode/scope, JSON output schema);
+  instructions/tools were also added additively to `agent.research`/`agent.bot`/
+  `agent.delegate`. Memory gains `memory.context` (budgeted block),
+  `memory.list`, `memory.update`, `memory.forget` (archive) plus
+  `EclipseMemoryService.list_memories/update_memory/archive_memory` and explicit
+  `general|workflow|run` scope resolution. Bootstrap binds the vision runner and
+  asset store; test runs now grant `image.read`/`model.vision`. Front door:
+  `/graph/assets/images` + `/api/graph-studio/images` and an image picker with
+  thumbnail. Fixed `memory.remember`’s graph source to the service’s permitted
+  `manual` value. Tests: `test_graph_image_nodes.py` (12),
+  `test_graph_agent_task_memory_nodes.py` (13), registry parity (30); manifest
+  regenerated; `Candle option review` starter template; ADR-060 in
+  `skills/ARCHITECT.md` + `docs/DECISIONS.md`. Verified: `tsc --noEmit` clean,
+  full Vitest 4254 passed, full Python suite 9434 passed / 30 skipped,
+  `npm run build` exit 0 (after clearing a stale `.next` cache). Docs updated:
+  `docs/graph-studio.md`, `docs/graph-studio-media-agent-memory-nodes-plan.md`,
+  `docs/CHANGELOG.md`.
+- **feat(journal): broker → journal projection (MT5 reconciled fills).**
+  Phase 1 of the broker-linked journal: a `JournalBrokerLink` binds an existing
+  Python `BrokerConnection` to a journal account, and
+  `POST /api/journal/broker/sync` refreshes that connection's reconciled mirror,
+  groups deals by `positionTicket`, and upserts one `Trade` per position keyed by
+  `externalId = broker:<connectionId>:<positionTicket>` — idempotent, never a
+  duplicate. The broker owns execution fields and its own net P&L
+  (`pnlBasis="broker"`, no price×quantity recompute for FX/CFD); notes, emotion,
+  confidence, grade, checklist, screenshots, self-assigned strategy/setup and
+  user tags are never overwritten. Deleting a broker trade tombstones
+  `ignoredAt` so sync cannot resurrect it. Magic/comment/symbol attribution
+  rules fill strategy/setup/tags; per-link `symbolMap` handles broker suffixes.
+  Preview is read-only; a failed sync keeps the last good projection and writes
+  no fake fill. New models `JournalBrokerLink` + `BrokerAttributionRule`, broker
+  provenance fields on `Trade`/`TradingAccount`, pure projection engine with 12
+  tests, and Journal → Settings → Broker Connection UI.
+  Docs updated: `docs/journal-broker-sync.md` (new), `docs/NAVIGATION.md`,
+  `docs/trading.md`, `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-059),
+  `docs/CHANGELOG.md`.
+- **feat(persona): draft/active user personas appended to the fixed prompt.**
+  Settings → Persona adds a named persona library. A persona is a bounded
+  (2,000-char) append-only overlay after the authoritative `eclipse-agent`
+  prompt — tone, structure and emphasis only; the tool allowlist, permissions,
+  data sources and safety/financial rules are resolved before it is read and
+  cannot be changed by it. Edits stage a draft; Activate promotes it into a new
+  immutable version and deactivates the previous persona (one active globally);
+  Discard reverts; Reset to default removes the overlay; Restore loads a version
+  into the draft; Archive keeps history. Every write carries a `revision` token
+  and a stale save is a 409 (never a silent overwrite); history is bounded to
+  the last 50 versions with the active version always kept. The run records
+  `persona id@version` on `surface.persona`, so a later edit never rewrites an
+  earlier run.
+  `python/harness/personas.py` + `/personas/*` router, boot wiring
+  `install_persona_store`, the `eclipse-agent` append in `graph.py`, front door
+  `src/lib/personas/client.ts` + `/api/personas/**`, the Settings panel, and a
+  searchable `settings.persona` palette entry.
+  Tests: `test_personas.py` (13 cases), `test_personas_api.py` (5 cases),
+  `test_graph.py` integration cases (persona reaches the system prompt and the
+  run record; bound tool allowlist is byte-identical with and without a persona;
+  a custom agent is untouched), full vitest (446 files / 4,259 tests), full
+  Python suite (9,452 passed, 30 skipped — vendor `site-packages` tests excluded
+  after a pywin32 COM collection crash); `tsc --noEmit` clean; production
+  `next build` passes; targeted ESLint clean (two pre-existing `settings.tsx`
+  hook warnings, no errors).
+  Docs updated: `docs/harness/architecture.md`, `docs/NAVIGATION.md`,
+  `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-058), `docs/CHANGELOG.md`.
+- **feat(graph): local file nodes + bounded graph asset store (wave 0/1).**
+  `graph_runtime/assets.py` adds `HarnessGraphAsset` on the ONE
+  `agent-memory.db`: content-addressed per owner, 25 MB/200 files/512 MB caps,
+  TTL + owner isolation, explicit missing/expired errors.
+  `graph_runtime/file_nodes.py` adds `data.file.attach` (uploaded CSV/TSV/JSON/
+  XLSX/text → `file` + `text` + `rows`, capped rows/cells with truncation
+  reported), `data.file.parse` (same parser over an upstream File ref; Excel
+  sheet select) and `data.file.export` (CSV/JSON/XLSX local artifact). New
+  `file`/`image` port types and `media` category; `asset.read|asset.write`
+  granted to test runs. Front door: `/graph/assets` runtime routes + Next proxy
+  (`/api/graph-studio/assets[/:id]`) and an inspector file picker; workflow
+  config stores only the `gas_` ref. Tests: `test_graph_file_nodes.py` (13
+  cases), graph-registry parity (30), graph-studio vitest (178); `tsc --noEmit`
+  clean. Docs updated: `docs/graph-studio.md`,
+  `docs/graph-studio-media-agent-memory-nodes-plan.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **docs(graph): plan for files, images, agents and memory nodes.**
+  `docs/graph-studio-media-agent-memory-nodes-plan.md` audits what already
+  exists (agent + memory nodes, candlestick chart rendering, vision asset store,
+  image generation, Artifact Center, dataset store) and specifies the four new
+  families without a second engine: bounded graph asset store +
+  `data.file.attach|parse|export`; **vision-read-only** image nodes
+  (`image.attach`, `image.analyze`, `image.ocr`, `image.read_chart`,
+  `image.compare`, `image.batch`) that wrap the existing vision API and return
+  observations, never evidence, with no chart rendering or image generation;
+  n8n-style `agent.task` plus shared instructions/tools/output-schema/memory
+  upgrades to the existing agent nodes; and `memory.context|list|update|forget`
+  over the ONE memory service. Includes decisions D1–D9, test-run matrix,
+  provenance rules, UI work, test matrix and wave estimates. Docs updated:
+  `docs/graph-studio-media-agent-memory-nodes-plan.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(graph): `research.queries` + `Research brief` template (plan complete).**
+  `research_query_nodes.py` adds a pure query-expansion node: a question, the
+  gaps a run named and weak claims become answer/support/counter-evidence/
+  primary-source queries (deduped, capped, no store/network/model). It is the
+  loop primitive Wave A exposed and pairs with `flow.parallel` +
+  `research.web_search`. Added the `research-brief` starter template (stored run
+  → evidence → conflict scan → citation audit → report). The remaining Wave D
+  candidates (`counter_evidence`, `save_claim`, `calculate`, `notebook`) are
+  explicitly declined in the plan with reasons. Tests: 3 new query cases (19 in
+  the analysis suite) + all 178 graph-studio vitest tests (template validation
+  included). Docs updated: `docs/graph-studio.md`,
+  `docs/graph-studio-research-nodes-plan.md` (status Implemented),
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(graph): `research.ingest` + `research.diff` (Wave C complete).**
+  `research_write_nodes.py` adds `ingest`, which normalizes an
+  `agent.research` blob, an MCP tool result or a manual claim set into
+  `Evidence`/`Claim`/`Source` rows: it derives stable ids, keeps the origin and
+  `eclipseVerified: false` on every row, never verifies a claim and never copies
+  an external answer as the run answer (the run is status `INGESTED`). Rows
+  without an absolute http(s) URL are skipped and reported, and re-ingesting the
+  same payload is idempotent. `research_analysis_nodes.py` adds `diff`: two runs
+  on the SAME question are compared with snapshots preferred when present —
+  evidence added/removed by content hash, claim-status transitions, opened/
+  resolved material conflicts, source URL changes and coverage deltas; different
+  questions are refused as incomparable. Tests:
+  `python/tests/test_graph_research_write_nodes.py` (10 cases: origin/verified
+  flags, no answer copy, idempotence, skipped rows, derived run id, diff
+  evidence/claims/conflicts/sources, incomparable refusal, snapshot preference).
+  Docs updated: `docs/graph-studio.md`,
+  `docs/graph-studio-research-nodes-plan.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): research network adapters (Wave B) + ranking/search/crawl polish.**
+  `research_network_nodes.py` + `registry-research.ts` add `fetch_many`
+  (1-10 known URLs, concurrency 1-4, content-hash dedupe, optional evidence
+  persistence, failed URLs as rows and a failed batch as an explicit error),
+  `scrape` (deterministic table/record collection through the bridge's
+  `web_collect`, honest page status), `extract_facts` (the engine's
+  model-assisted but span-validated extractor; an unvalidated proposal is a
+  rejection note) and `deep_dive` (the existing `ResearchEngine` with budget
+  caps, a 600 s hard timeout and a returned run id). Also: `web_search` accepts
+  a provider preference and optional source persistence (`saveSources`);
+  `web_crawl` takes `maxDepth`/`delayMs`; `source_rank` scores recorded
+  source-type authority (primary/secondary/tertiary); the report numbers its
+  citations. Tests: `python/tests/test_graph_research_network_nodes.py` (10
+  cases) + expanded research/analysis/team suites (55 green) and the
+  registry/executor/compiler suites (114 green). Docs updated:
+  `docs/graph-studio.md`, `docs/graph-studio-research-nodes-plan.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(graph): `research.start_run` + `research.snapshot` (Wave C partial).**
+  `research_write_nodes.py` + `registry-research.ts`: `start_run` creates the
+  run row a cold graph needs and is idempotent per question/objective (a
+  content-derived `r_…` id; an existing run is never overwritten);
+  `snapshot` freezes the selected sections (sources/evidence/claims/citations/
+  conflicts/questions, or all) into the store's immutable, versioned snapshot
+  table and returns the version. Both declare `research.write`; the existing
+  compiler capability gate refuses them in a test run (the capability is not in
+  `TEST_RUN_CAPABILITIES`). Tests: 5 new cases in
+  `test_graph_research_analysis_nodes.py`, including the test-run refusal and
+  the missing-run error. Docs updated: `docs/graph-studio.md`,
+  `docs/graph-studio-research-nodes-plan.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): research analysis pack + research-node fixes (Wave A).** Added
+  ten local `research.*` nodes in `python/harness/graph_runtime/
+  research_analysis_nodes.py` (registered from `node_packs.py` to keep
+  `nodes.py` under its size ceiling) and `src/lib/graph-studio/
+  registry-research.ts`: `latest` (exact/newest run), `sources` (domain/type/
+  date filters + content/family dedupe), `gaps` (unanswered questions, rejected
+  and uncited claims), `freshness` (engine fail-closed point-in-time filter),
+  `conflict_scan` (deterministic detection over unscanned evidence),
+  `citation_audit` (build + validate traceability), `supersession` (revision
+  chains), `quality` (explainable score + disclaimer), `entities` (anchored
+  graph) and `claims_verify` (batch). All are `research.read`/`read`, so a test
+  run can exercise them. Fixes in the shipped nodes: conflict status is
+  normalized (`OPEN`→`UNRESOLVED`, `DISMISSED`→`RESOLVED`) and `candidates` is
+  decoded; `claim_verify` now passes the run's conflicts + `asOf`/`freshness`
+  (and falls back to recorded claim links); reads report `total`/`truncated`;
+  `completeness` gets a real coverage model, `verdict` and `gaps`; `report`
+  degrades to `UNAVAILABLE` without a run row instead of raising, escapes raw
+  HTML, adds Sources/Gaps sections and a bounded `maxItems`; `web_search`
+  over-fetches then filters/dedupes; `web_crawl` reports `linkDiscovery`
+  failures. `manifest.ts` now sorts by codepoint for byte-identical manifests
+  across ICU versions. Tests: `python/tests/
+  test_graph_research_analysis_nodes.py` (11 cases) + existing
+  research/registry/parity suites; graph-studio vitest 178 green. Docs updated:
+  `docs/graph-studio.md`, `docs/graph-studio-research-nodes-plan.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **docs(graph): research & evidence node plan.** Audited the ten shipped
+  `research.*` nodes and wrote an implementation-ready plan:
+  `docs/graph-studio-research-nodes-plan.md`. Records twelve defects (R1–R12)
+  with file:line grounding — `claim_verify` never passes conflicts/asOf/
+  freshness, conflict-status vocabulary drift (`OPEN` vs `UNRESOLVED`) and
+  undecoded `candidates`, silent truncation, the completeness coverage
+  fallback, report injection/missing-run-row failure, the undeclared store
+  write in `web_fetch`, post-limit domain filtering in `web_search`, swallowed
+  link-discovery failures in `web_crawl`, and `source_rank` ignoring recorded
+  authority. Proposes 17 new nodes in three waves (local reads:
+  latest/sources/gaps/freshness/conflict_scan/citation_audit/supersession/
+  quality/entities/claims_verify; network: fetch_many/extract_facts/scrape/
+  deep_dive; local writes: start_run/snapshot/ingest/diff), plus decisions,
+  capability/effect rules (`research.write`, extract=model), limits, file
+  split (`registry-research.ts`, `research_*_nodes.py`), reference graph, test
+  matrix and acceptance gates. Docs updated: `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`. Implementation not started.
+- **fix(graph): adapter-pack registration split out of `nodes.py`.** The Tier
+  2/3 packs pushed `graph_runtime/nodes.py` to 1218 lines (ceiling 1200); the
+  wiring now lives in `graph_runtime/node_packs.py` (`register_extra_packs`),
+  and `graph.py` is re-pinned 2355→2370 for the AgentPreset fallback. Targeted
+  graph/size tests green (79). no doc change — internal split, contracts
+  unchanged.
+- **feat(graph): `flow.parallel` — bounded concurrent map (the last plan item).**
+  The runtime already ran same-layer nodes concurrently (bounded by the
+  workflow's `maxConcurrency`); this adds the DYNAMIC fan-out over data.
+  `executor._run_parallel` + `parallel_workers`: concurrency is
+  `min(config, workflow.maxConcurrency, itemCount, 8)`, so a node can never fan
+  out wider than the graph was authorized to. Results are collected in **input
+  order** (`pool.map`), keeping runs deterministic; each item is a durable child
+  run (`<parent>:<node>:i<N>`), so a resumed parent reuses a succeeded item. A
+  failed item is `{"error": ...}` in `results` and counted in `summary`;
+  `continueOnError` off fails the node naming the first failure. Cancellation is
+  checked per item. The compiler's subworkflow diagnostics
+  (`missing`/`cycle`/`depth`/nested-graph errors) now cover it too. Contract in
+  `loop_nodes.py` + `registry-loops.ts`, presentation/`maxItems`/
+  `concurrency` help in `config-fields.ts`, example added, manifest regenerated.
+  Tests: `python/tests/test_graph_parallel.py` (9 cases: input-order results,
+  per-item failure with/without `continueOnError`, truncation, empty list,
+  compile-time missing body, checkpoint reuse, the concurrency clamp, and a
+  timing proof that three 300 ms items finish under the serial cost).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+- **chore(docs): rotated the changelog window.** Ran
+  `scripts/rotate-changelog.js --write` to archive the oldest dated section into
+  `docs/changelog/2026-10.md` (window of 7 preserved). no doc change — mechanical
+  rotation, no contract or architecture change.
+- **feat(graph): `logic.human_approval` — the approval gate (Tier 3).**
+  `graph_runtime/approval_nodes.py` + `registry-utility.ts`: creates ONE
+  `graph_approval` in the runtime's existing single-use approval store (the same
+  rows the Permissions panel decides), keyed by `graph:<runId>:<nodeId>` and a
+  digest of the request text, with a ≤ 24 h TTL. The decision is **not
+  consumed** — it gates that run+node, so a resumed run reads the same answer.
+  Denials fail the node and name the approver. New runtime primitive:
+  **`DeferredWait(rerun=True)`** (`model.py` + `executor.py`): a rerun-deferred
+  node is left **PENDING** and its outputs/control are NOT checkpointed, so the
+  resumed durable job re-enters it — without this a deferred node was recorded
+  as succeeded and the gate would silently pass. Durable runs therefore pause
+  without holding a worker; synchronous runs poll up to `maxWaitS` (default
+  300 s) and then fail honestly, leaving the request in Approvals. Test runs
+  never create a request. Bootstrap binds `set_approval_runner` to
+  `service.approvals`. Manifest regenerated. Tests:
+  `python/tests/test_graph_approval_node.py` (10 cases) plus a durable
+  integration case in `test_graph_durable.py` proving the paused run leaves the
+  gate non-succeeded and finishes only after approval; parity green.
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+- **feat(graph): the rest of Tier 2 — committee, chart, notify, evidence
+  ranking.** Four nodes complete the plan's candidate set. `agent.team`
+  (`team_nodes.py`, `registry-agents.ts`) runs the Institution committee through
+  the existing team runtime (run → wait → finalize → synthesize), returns the
+  reconciled `decision`, deterministic `synthesis` and terminal `status`
+  (COMPLETED/PARTIAL succeed), never places an order or registers a trigger, and
+  refuses a test run. `output.chart` (`output_nodes.py`, `registry-output.ts`)
+  normalizes a spec / number list / `{values, categories}` / `{series,
+  categories}` / `{rows}` + X/Y fields into a validated `ChartSpec` and the
+  plotly figure the chart engine draws, reporting `rendered: false` (spec still
+  returned) when plotly is absent — never a fake image. `output.notify` sends
+  one message through the ONE channel service (`send_outbound`) with the
+  `network` effect, so a test run can never send and a provider refusal fails
+  the node with its reason. `research.source_rank` (pure, in `research_nodes.py`)
+  ranks evidence by the `confidence` and freshness the items already carry
+  (exponential decay of publishedAt/retrievedAt with a configurable half-life);
+  an item with neither is sorted last and counted `insufficient_signal`, so no
+  score is invented. Runners bound at boot (`set_team_runner`,
+  `set_notify_runner`). Manifest regenerated. Tests:
+  `python/tests/test_graph_team_output_nodes.py` (13 cases) + parity green.
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+
 ## 2026-11-01
 - **chore(ops): re-pin the harness size budget to the measured tree.** Reconciles
   `scripts/size-budget.json` with the tree at the quant node-pack commit
@@ -34,6 +1184,139 @@
   per-directory budget). Raising those ceilings is a deliberate decision that
   belongs to whoever owns that growth; this changelog records the state so it
   cannot be mistaken for a quant regression. no doc change — operational note.
+- **chore(repo): close the remaining gates and ship the trading surface.**
+  `trading.session_filter` gained `sessionsJson`: an explicit calendar
+  (`[{"day":0,"from":"09:00","to":"17:00"}]`, day 0 = Monday, server time) used
+  when the terminal reports no sessions, so session filtering works on brokers
+  whose MT5 build does not expose them. Precedence is broker sessions →
+  configured calendar → UTC window, and `basis` reports which was used; a
+  malformed calendar is a data error naming the shape required. Size gates: the
+  quant presentation moved to `config-fields-quant.ts` (config-fields.ts 1250 →
+  1040), and the three ratchets grown by the concurrent stream (`graph.py`,
+  runtime `service.py`, `eclipse_memory/service.py`) carry PROVISIONAL headroom
+  with a note to tighten once that stream lands. Tests: 3 session-calendar cases.
+  Docs updated: `docs/trading.md`, `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **chore(trade): production hardening — routes, guard lifetime, test-run writes
+  and a demo smoke runner.** Added the two missing REST routes
+  (`GET …/symbols/{symbol}` and `POST …/orders/{ticket}/modify`) and their front-door
+  allowlist entries. Idempotency claims are now **released when the order
+  definitely never reached the broker** (`REFUSED`/`CONFIRMATION_REQUIRED`/
+  `COOLING_OFF`), while `REJECTED`/`UNKNOWN` keep the claim so an ambiguous send is
+  never repeated; guard rows older than 90 days are pruned when the store is
+  wired. `trading.reconcile` and a `syncFirst` drift check are refused in a test
+  run (a test run writes nothing). New `python/scripts/trade_demo_smoke.py` probes
+  a demo terminal, reads account/positions/orders/symbol facts and — opt-in —
+  re-prices one working order and asserts the read-back; it refuses a non-demo
+  connection. Tests: 5 new lifecycle cases (refusal releases the slot, ambiguity
+  keeps it, test-run refusals, guard prune) and 3 route-allowlist cases. Docs
+  updated: `docs/trading.md`, `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(trade): broker sessions (best-effort), symbol-aware partial closes and a
+  pre-check sync.** `symbol_info` now reads the broker's TRADE sessions into
+  `sessionDeals` (day 0 = Monday, `HH:MM`, server time). MetaTrader's Python API
+  does not reliably expose them — the functions are missing or return nothing in
+  several builds (reported to MetaQuotes) — so the read is defensive, skips a
+  boundary that is not a clock value, and reports `sessionsAvailable: false` with
+  the reason instead of inventing a calendar. `trading.session_filter` now PREFERS
+  broker sessions, evaluated in server time from the quote's own server clock (or
+  an explicit `serverOffsetMinutes`), and falls back to its UTC window when the
+  terminal reports none; a new `basis` output says which calendar was used.
+  `trading.partial_close` reads the symbol's own `volumeStep`/`volumeMin` through
+  `symbol_info` when no quote is wired, and refuses a close below the symbol
+  minimum. `trading.drift_check` gained `syncFirst`, which refreshes the mirror
+  through the normal sync path before comparing (the broker stays authoritative;
+  remaining drift is still only reported). Refactor: session parsing and the MT5
+  wire tables live in `trade/adapters/mt5_contract.py`, keeping `mt5.py` (1239
+  lines) inside its pinned size budget. Tests: 6 session cases (broker calendar,
+  server offset, midnight-adjacent session, node using the quote clock, UTC
+  fallback), 2 partial-close symbol-facts cases, 2 drift pre-sync cases and a
+  simulated-terminal session read (MT5 Monday=1 → our 0). Docs updated:
+  `docs/trading.md`, `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(trade): working-order modify, static symbol facts, and a smaller
+  trading-node core.** Added `trading.broker_modify_order` (change a WORKING
+  order's price/SL/TP, carrying its own type/time/expiration across the modify and
+  reading it back as `verified`; risk-reducing, no arm/approval/mandate) and
+  `trading.broker_symbol` (static symbol facts — trade mode, contract size, volume
+  min/max/step, stops/freeze levels, filling mask — with no tick, so it answers
+  when the market is closed). `trading.session_filter` now also accepts
+  `symbolInfo`, so a trade-mode check needs no quote. Adapter contract gained
+  `modify_order` (TradingAdapter) and `symbol_info` (BrokerAdapter, read-only
+  default raises `SYMBOL_INFO_NOT_SUPPORTED`); MT5 implements both, and the
+  service exposes `modify_order`/`symbol_info` (`trade/symbols.py` keeps the
+  service under its size ceiling). **Session calendars are deliberately not
+  implemented**: the adapter does not expose the terminal's session table, and
+  deriving one from local time would be a guess — the code and docs say so.
+  Refactor: paper executors moved to `graph_runtime/trading_paper_nodes.py`, with
+  shared intent parsing in `trading_common.py` and the store/guard in
+  `trading_store.py`; `trading_nodes.py` drops from 980 to 605 lines and
+  `set_paper_store` stays re-exported. The MT5 wire tables and pure record
+  builders moved to `trade/adapters/mt5_contract.py` (imported back, so every
+  call site and test import is unchanged), keeping `mt5.py` inside its pinned
+  size budget; the simulator gained `TRADE_ACTION_MODIFY` + `orders_get(ticket=)`
+  and four simulated adapter cases (re-price verified, ignored modify unverified,
+  missing order named, symbol facts with no tick). Service-level coverage lives
+  in `test_broker_symbol_and_modify.py` (6: honest unavailable, mode gate,
+  unsupported path, field passthrough). Docs updated:
+  `docs/trading.md`, `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(graph): order lifecycle, drift reporting, paper valuation and a
+  double-send guard.** New nodes: `trading.await_fill` (poll the ledger to a
+  terminal state or deadline; `timedOut` is an outcome), `trading.reconcile` (the
+  same sync path as the route; never changes broker state), `trading.drift_check`
+  (in-flight ledger orders with no broker match, untracked broker positions,
+  mirror age — reports, never repairs) and `trading.paper_valuation`
+  (mark-to-market to supplied prices; unpriced symbols listed, never zeroed).
+  `trading.broker_order` and `trading.paper_order` gained
+  `dedupe: none|key|day` + `idempotencyKey` and a `skipped` output; the claim is
+  written to the new `GraphTradingGuard` table on `agent-memory.db` BEFORE the
+  send, so a scheduled run that fires twice sends once. They live in
+  `graph_runtime/trading_lifecycle_nodes.py` (+ the paper guard in
+  `paper_store.py`), aggregated by `build_trading_nodes`; contracts mirrored in
+  `registry-trading.ts` / `config-fields.ts`; manifest regenerated. Tests:
+  `python/tests/test_graph_trading_lifecycle.py` (20: await filled/timeout/
+  terminal/missing, sync success/failure, drift clean/unmatched/untracked/stale/
+  never-synced/unreadable, valuation priced/unpriced/single-symbol, dedupe
+  day/key/no-key/none for paper and once-only for broker orders). Docs updated:
+  `docs/trading.md`, `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(graph): trading-system primitives — sizing, brackets, guards and position
+  management.** Pure nodes (no broker): `trading.size_by_risk` (equity risk budget
+  ÷ stop distance × contract size → volume, floored to the symbol step and capped
+  at its maximum; refuses rather than bumping below-minimum sizes),
+  `trading.bracket` (ATR × multiple or explicit stop distance → direction-aware
+  SL/TP with reward:risk), `trading.spread_guard` (missing spread is never treated
+  as tight) and `trading.session_filter` (broker `tradeMode` from a wired quote +
+  explicit UTC window/weekdays; documented as our clock filter, not the broker's
+  calendar). Risk-reducing management nodes (arm/approval/mandate-free, like
+  close/modify): `trading.break_even` (R measured from the position's own stop),
+  `trading.trail_stop` (tightens only, never widens) and `trading.partial_close`
+  (fraction/volume, floored to the symbol step from a wired quote). They live in
+  `graph_runtime/trading_calc_nodes.py` and `trading_ops_nodes.py`, aggregated by
+  `build_trading_nodes` so `nodes.py` gains no import; contracts mirrored in
+  `registry-trading.ts` / `config-fields.ts`; manifest regenerated. Tests:
+  `python/tests/test_graph_trading_primitives.py` (38: sizing math, step flooring,
+  min/max, bracket direction, guards, session windows incl. midnight wrap and
+  trade modes, break-even trigger/already/no-stop, trail direction and min step,
+  partial-close flooring). Docs updated: `docs/trading.md`,
+  `docs/graph-studio.md`, `docs/CHANGELOG.md`.
+- **feat(graph): read nodes, an intent builder and a no-side-effect order preview.**
+  Added `trading.broker_orders`, `trading.broker_fills` and `trading.order_ledger`
+  (broker working orders, reconciled deals, Eclipse's own submitted-order rows),
+  `trading.paper_account` (durable PAPER cash/positions/realized PnL, positions
+  also emitted as rows) and `trading.order_intent` (validated
+  symbol/side/quantity/type/price/SL/TP/TIF; a pending order without a price is an
+  error). `trading.order_preview` answers "would this be allowed?" through
+  `order_check` + policy + guardrails + optional mandate scope, and
+  `trading.broker_order` gained `dryRun` to use it. Approval creation is now
+  optional in `BrokerService.preview_order` (`record_approval=False`), so a graph
+  dry run leaves no approval cards. `broker_positions`/`risk_check.positions` are
+  now `array` ports, so position rows wire into the gate and an account envelope
+  is refused at compile time. Contracts mirrored in `registry-trading.ts` /
+  `config-fields.ts`; manifest regenerated. The preview body moved to
+  `trade/preview.py` (a delegate in `service.py`) to stay under the module size
+  ceiling. Tests: 30 broker-node cases (preview
+  never creates an approval, mandate verify is non-consuming, dry run sends
+  nothing, port-type wiring) and 3 paper-account cases. Docs updated:
+  `docs/trading.md`, `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
 - **feat(graph): trading nodes gate on live state and report honest outcomes.**
   `trading.risk_check` now accepts `account`/`positions` plus numeric overrides
   and derives equity and open-position count from the broker/paper account
@@ -50,7 +1333,7 @@
   manifest regenerated. Tests: `test_graph_broker_nodes.py`,
   `test_graph_registry_parity.py` (cross-language port parity) and 7 new
   `risk_check` cases. Docs updated: `docs/trading.md`, `docs/graph-studio.md`,
-  `docs/CHANGELOG.md`.
+  `docs/ARCHITECTURE.md`, `docs/harness/security.md`, `docs/CHANGELOG.md`.
 - **ux(graph): readable market-node summaries, direct OHLCV metrics and starter
   templates.** (1) Every gateway read node now emits a compact `summary` object
   (symbol/provider/as-of plus the key figures for that capability — spread,
@@ -484,6 +1767,114 @@
   config warning.
   no doc change — build configuration only; `docs/QUICKSTART.md` already
   describes `npm run build && npm start`.
+- **feat(bots): the bot brain picker shows real agent presets.** The New bot
+  dialog rendered a hardcoded `BOT_AGENTS` array, so a preset authored in
+  Settings › Agents was invisible (and the seven `institution-*` seats in that
+  array could not resolve as a standalone `run_agent`). The option list is now
+  built from the live runtime: `src/lib/agent-presets/choices.ts` (pure:
+  built-ins first, user presets by name, archived kept and flagged, an unknown
+  saved id appended and labelled) + `use-agent-choices.ts` (loader with a
+  built-in fallback). `create-bot-dialog.tsx` renders it grouped and rejects an
+  unknown agent before save; `validateDraft` takes an optional known-id list.
+  **Runtime fix:** `graph.resolve_agent` now falls back to `AgentPresetStore`
+  through the new `agent_presets.agent_config_from_preset`, the same projection
+  `graph_runtime/bootstrap._agent_runner` uses — a bot's scheduled `run_agent`
+  enters there, so without it a custom preset worked in chat and failed on its
+  schedule. Tests: `src/lib/agent-presets/choices.test.ts` (6 cases),
+  `python/tests/test_agent_presets.py` + `test_graph.py` (preset projection,
+  preset resolution, unknown-agent failure).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(graph): `skill.invoke` — installed skills run as a node.** One generic
+  node, not one per skill (skills are runtime data; the registry is a static
+  contract with a manifest + Python mirror). TS contract
+  `src/lib/graph-studio/registry-skills.ts` (`SKILL_DEFINITIONS`, category
+  `skills`, so the library has a "Skills" group), presentation in
+  `config-fields.ts`, `NodeCategory` + the three category maps updated, manifest
+  regenerated. Runtime `python/harness/graph_runtime/skill_nodes.py` is a thin
+  adapter: `bootstrap._skill_runner` calls the EXISTING
+  `AgenticService.run_skill` → `execute_skill`, so permissions, version
+  resolution and the tool check are the same ones chat uses. Status is the
+  contract — only `completed` yields `output`/`result`/`evidence`; `blocked` /
+  `denied` / `failed` / `cancelled` / `unavailable` fail the node with the
+  runtime's code and message, and a failed skill's partial transcript is never
+  surfaced. `inputJson` and the optional `input` port merge per key (wire wins).
+  `NodeExecContext` gained `operator` (filled as `not testRun` by the executor),
+  so an operator-authored permission set is honoured; a test run refuses by name
+  any skill whose declared tools are not all in `DRY_RUN_TOOLS`. The inspector
+  picks from the live skill list (`skills-browser.listSkills`) with status, tools
+  and description. Tests: `python/tests/test_graph_skill_node.py` (18 cases:
+  completed projection, pinned version, wire-vs-config merge, missing skill,
+  unbound runtime, bad payloads, five non-completed statuses, test-run compile,
+  operator default).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(bots): `agent.bot` node + "Start from" an existing bot.** A saved bot
+  can now be a step in a graph: `agent.bot` (`registry-agents.ts`,
+  `graph_runtime/agent_nodes.py`) resolves the id at run time through
+  `set_bot_resolver` (bound in `bootstrap` to
+  `automation_store().get_automation`, the same `bot`/`monitor`/`mon_` rule the
+  workspace uses) and runs ONE bounded turn with the bot's own agent preset and
+  objective. It never registers a trigger or runs the bot's schedule; a
+  **workflow** bot is refused by name (`use flow.subworkflow`), a deleted bot
+  fails by name, and an optional `context` object is appended as bounded
+  labelled JSON data (never instructions). The bot's per-run model override is
+  ignored — the graph run's resolved settings win. Inspector: a live bot picker
+  (workflow bots shown disabled). B2: the New bot dialog gained a **Start from**
+  picker that copies an existing bot's brain/objective/schedule/face into a NEW
+  bot; the original is untouched and a copied schedule is created `draft`
+  (paused), so two copies never fire at the same minute. Manifest regenerated.
+  Tests: 8 new cases in `python/tests/test_graph_agent_node.py` (own agent,
+  objective fallback, bounded context, workflow refusal, unknown bot, non-bot
+  automation, missing id/store, unbound runtime).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(graph): four structured agent nodes — classify, extract, summarize,
+  critique.** Each is ONE bounded model call with a strict response schema, not
+  an agent turn: `python/harness/graph_runtime/agent_structured.py` holds the
+  prompts + JSON schemas + `normalize_labels`/`validate_extraction`;
+  `agent_structured_nodes.py` holds the four contracts and executors, with the
+  model bound at boot through `set_structured_runner` (so tests substitute a
+  fake and the module imports no runtime). TS contracts in
+  `registry-agents.ts`, presentation in `config-fields.ts`, manifest
+  regenerated. The NODE owns the contract: a label outside the declared set, a
+  verdict outside supported/weak/contradicted, a confidence/score outside 0..1
+  or an empty summary fails the node instead of being coerced; an extraction
+  that does not match the schema (type/required/properties/items) returns
+  `valid: false` and logs the issues rather than pretending. Deliberate
+  deviations from the plan: no `agent`/`maxSteps` config (there is no preset or
+  tool loop to bound — these never bind a tool), `agent.critique.score` is
+  nullable (the model may omit it), and `agent.summarize.text` is `any` so it
+  takes an array/object as well as a string. Tests:
+  `python/tests/test_graph_structured_nodes.py` (20 cases).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
+
+- **feat(graph): utility + memory nodes — assert, fallback, extract, recall,
+  remember.** Five nodes: three deterministic primitives
+  (`logic.assert`: fails the node with a named message unless truthy/falsy/
+  present; `logic.fallback`: first PRESENT of three inputs + which port;
+  `data.extract`: dotted path with list indexes, `found: false` or a named
+  failure — never an invented value) in `utility_nodes.py`, and two adapters over
+  the ONE Eclipse memory service (`memory.recall` → `retrieve`, returning the
+  same bounded `context` block an agent gets; `memory.remember` → `write_memory`,
+  so dedupe/conflict/retention stay the service's) in `memory_nodes.py`. Runners
+  are bound at boot (`set_memory_recall_runner` / `set_memory_remember_runner`).
+  `memory.remember` declares `memory.write` + `local_write` and refuses a test
+  run (compile-time capability envelope, plus an executor guard). TS contracts in
+  the new `registry-utility.ts` (+ `MEMORY_TYPES`, asserted against the store by
+  test), presentation in `config-fields.ts`, examples for the two new logic nodes,
+  manifest regenerated. Tests: `python/tests/test_graph_utility_nodes.py` (20
+  cases incl. the MEMORY_TYPES drift guard); parity green.
+  Deliberately NOT shipped (recorded in the plan): `agent.team` (team runtime
+  seam), `output.notify` (delivery is automation-definition-scoped),
+  `output.chart` (artifact plane), `research.source_rank` (duplicates
+  conflicts/completeness and would invent a trust taxonomy).
+  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
+  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
 
 ## 2026-10-31
 - **fix(graph): the template output cap is enforced while rendering.** Nested
@@ -1257,1014 +2648,3 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
   ahead of the critical path; the Market tab shows "Loading markets…" instead of
   a false empty state. `stock-chat.tsx` stayed at its pinned size budget.
   Docs: no doc change — internal performance/UX only (contracts unchanged).
-
-## 2026-10-28
-- **fix(desktop): one launcher at a time, so repeated icon clicks cannot break boot.**
-  `scripts/start-desktop.js` now takes an exclusive lock
-  (`.black-eclipse/desktop-launcher.lock`, stale locks recovered by PID
-  liveness). Before this, clicking the icon again during a cold build started
-  another launcher that killed the port and ran its own `next build`; concurrent
-  builds rewrote the same `.next` folder, failed with exit 1, and left the
-  desktop log spinning for ~18 minutes. Extra clicks now no-op (and reopen the
-  tab once the owner is up) instead of starting competing builds.
-  Docs updated: `docs/QUICKSTART.md`.
-- **fix(modeling): integrated DCF detection, aliases and honest check counts.**
-  `integrated` now builds a DCF when `wacc`/`waccInputs`/`dcf.wacc` is present
-  (snake_case or camelCase), merges DCF/LBO/comps metadata into the audit summary,
-  deduplicates statement checks, counts WARN checks in the audit text, and accepts
-  camelCase comps target/peer fields (`netDebt`, `totalDebt`, `sharesOutstanding`,
-  `netIncome`). Preservation reports now count targeted parts separately from
-  changed/untouched parts.
-- **fix(verification): read back generated artifacts and audit values.** Document
-  tools accept `artifactId`, so a generated XLSX/PPTX can be opened and queried
-  without a filesystem path. `integrated` models now merge DCF/LBO/comps meta, so
-  `financial_model_audit` returns `enterpriseValue`/`equityValue`/`valuePerShare`
-  etc. instead of only PASS/FAIL. The edit result now spells out “N total /
-  M targeted / K untouched” parts so the preservation count cannot be misread.
-  Docs: `docs/harness/document-intelligence.md`,
-  `docs/harness/financial-modeling.md`.
-- **fix(institution): keep the run dialog polling when review queues repairs.**
-  `finalize` can return `status: "repairing"` after queueing bounded repairs; the
-  dialog now resumes polling instead of stopping on the first terminal task state.
-  no doc change — behaviour fix covered by `docs/harness/institution-preset.md`.
-- **feat(agents): Institution multi-agent preset (analyst → debate → trader → risk → PM).**
-  Added one cast spec in `python/harness/institution/` that materialises into
-  `AgentConfig` presets, A2A definitions, a validated `TeamDefinition` task graph
-  and Bots-workspace bot specs. The debate produces a structured record (agreement,
-  unresolved disagreements, missing facts) and never votes or averages; the
-  read-only `read_run_output` tool hands a completed prerequisite memo to the next
-  stage by run id. Added `/team/presets*` routes, the `run_team` automation action,
-  a Bots-screen run dialog with a live stage timeline, and an idempotent bot seeder.
-  Fixed `tasks.manager.recompute_plan` so a multi-level DAG stays `RUNNING` while
-  queued work remains instead of being marked `BLOCKED` after its first stage.
-  Tests: `test_institution_preset.py` (8), `preset-client.test.ts` (2).
-  Docs updated: `docs/harness/institution-preset.md`,
-  `docs/harness/bot-team-orchestration.md`, `docs/NAVIGATION.md`,
-  `docs/harness/decisions.md` (ADR-H330).
-- **feat(hardening): production guards for edits and model builds.** Artifact
-  versions now accept `expectedChecksum` and refuse a stale edit with
-  `ARTIFACT_CONFLICT`; `document_edit` confines path sources to authorized roots,
-  refuses XML DTD/entities (`EDIT_XML_UNSAFE`) and macro packages when policy is
-  off (`EDIT_MACRO_REFUSED`), logs `document.edit`, and is idempotent per
-  plan/source; `financial_model_build` is idempotent per spec hash/format and
-  logs `financial_model.build`; chart data replacement requires an exact series
-  count. Docs: `docs/harness/office-edit.md`,
-  `docs/harness/financial-modeling.md`, `docs/harness/artifact-center.md`.
-- **fix(memory): preference proposals are deduped and never conflict with an active dimension.**
-  `preferences.learn` now treats a pending suggestion as already-asked (no
-  duplicate on every scan), skips any dimension that already has an active
-  preference, and records a gate-staged suggestion exactly once in auto mode.
-  Tests cover double-scan dedupe, active-dimension conflict, auto+ask staging,
-  and the memory-off floor. Docs updated: `docs/harness/personal-memory.md`.
-- **feat(memory): Personal Memory — learned preferences with evidence, not guesses.**
-  Added `python/harness/eclipse_memory/preferences.py`: a closed style/format
-  vocabulary (answer format, length, tone, research depth), deterministic
-  inference with bounded trigger-phrase evidence, and a learner that proposes a
-  preference only after 3 consistent observations across 3 distinct runs.
-  Migration 34 adds `PreferenceObservation` and `MemorySuggestion.structuredData`;
-  proposals stay inert until accepted through the existing suggestion route and
-  the ONE memory gate. Dismissals suppress the inference (30-day cooling-off);
-  explicit preferences win; memory/preference-learning off collects no evidence;
-  secrets and current financial facts are never inferred. Wired into every turn
-  and post-run analysis, exposed as `memory action="preferences"`,
-  `/eclipse-memory/preferences` + operator-gated `/preferences/learn`, and the
-  Eclipse Memory → Preferences tab (pending, remembered, evidence, scan).
-  Tests: `test_preference_learning.py` (14), `test_preference_api.py` (3),
-  `test_memory_tools.py` preferences surface, and the browser client contract.
-  docs updated: `docs/harness/personal-memory.md`, `docs/NAVIGATION.md`,
-  `docs/ARCHITECTURE.md`.
-- **feat(modeling): mid-year DCF, rollover returns and comps FX/calendarization.**
-  `DcfInputs.mid_year` discounts explicit FCF at `t+0.5` (default unchanged);
-  LBO management rollover is a separate equity contribution with sponsor/
-  management exit split and sponsor-only IRR/MOIC; comps translate non-target
-  currencies via `comps.fx`/`fxRate` and calendarize fiscal periods to the target
-  year end with an explicit approximate warning. Docs:
-  `docs/harness/financial-modeling.md`.
-- **feat(documents): structural XLSX edits rewrite references.** Row/column
-  insert/delete now rewrites formulas, defined names, merged ranges, conditional
-  formats, data validations, hyperlinks, auto-filters and column ranges instead of
-  refusing any formula workbook; tables/charts/pivots/OLE are still refused.
-  Docs: `docs/harness/office-edit.md`.
-- **feat(documents): full structural document edits.** PPTX now has
-  `add_smartart_node` / `remove_smartart_node` / `set_smartart_node_text` and
-  `set_smartart_layout` (donor diagram in the same deck); structural XLSX edits
-  rewrite table/chart references, pivot table locations + cache sources
-  (refresh-on-load), and OLE/legacy VML anchors. Docs:
-  `docs/harness/office-edit.md`.
-- **feat(modeling): exact quarterly comps calendarization.** A peer with
-  `quarterly` periods is calendarized by a four-quarter TTM ending at the target
-  fiscal year end (`quarterly_ttm`). Incomplete quarterly data now requires an
-  explicit `calendarizationFactor`; otherwise the peer is excluded. Docs:
-  `docs/harness/financial-modeling.md`.
-- **feat(documents): editable PPTX chart data and SmartArt labels.**
-  `pptx.replace_chart_data` replaces an embedded chart's categories and series
-  caches while preserving chart type, axes and styling; `pptx.replace_text` also
-  scans SmartArt diagram data so labels are editable without changing node
-  structure. Docs: `docs/harness/office-edit.md`.
-- **feat(pdf): optional incremental PDF editing.** When PyMuPDF is installed
-  (`python/requirements-pdf-incremental.txt`, optional because AGPL/commercial),
-  `document_edit` appends an incremental update and reports
-  `preservationMode: "incremental"`; redaction then removes the text objects in
-  place (`incremental_true_removal`). Without it, the pypdf rewrite/rasterized
-  redaction path is used and labelled honestly. Docs: `docs/harness/office-edit.md`.
-- **feat(modeling): comps peer auto-retrieval.** `financial_model_build` accepts
-  `comps.peerSymbols` and resolves each through the same read-only
-  `market_snapshot` + `financial_statements` bridge as every market tool; a peer
-  with no usable price/share count is excluded with a note. Docs:
-  `docs/harness/financial-modeling.md`.
-- **feat(documents): the edit limits are now features.** Added DOCX image
-  insertion and deterministic accept/reject tracked revisions; XLSX
-  insert/delete rows and columns (conservatively refused on formula/merge/chart
-  sheets rather than breaking references); PPTX slide duplicate/delete with
-  relationship + notes remapping; and true PDF redaction that rasterizes the
-  page so the covered text object is removed, not just painted over. Docs:
-  `docs/harness/office-edit.md`.
-- **feat(modeling): reports + LBO leverage.** `financial_model_build` now exports
-  PDF/Word/PowerPoint deliverables alongside the workbook; LBO models support
-  PIK tranches, a revolver with capacity/rate/minimum cash and a cash sweep that
-  preserves the minimum. Docs: `docs/harness/financial-modeling.md`.
-- **feat(guardrails): money-movement guardrails + confirm gate.** Added
-  `python/harness/finance_guardrails/`: a deterministic, model-free layer that
-  normalizes every money-shaped tool call into a `MoneyIntent` and evaluates
-  scam/coercion markers (urgency, secrecy, impersonated authority, remote access,
-  guaranteed returns, gift cards/wire-only), impaired spending (declared state +
-  baseline/escalation signals), crisis mode + panic pause, aggregate
-  per-transaction/daily/velocity limits, counterparty allow/block lists and
-  novelty. A `confirm`/`escalate` routes the exact intent through the existing
-  single-use approval store (`kind="money_guardrail"`, digest-bound) with a
-  cooling-off + typed-confirmation challenge; a `deny` is terminal and explained.
-  Enforced at the computer finance/click handlers, the browser click handler,
-  the shell/terminal authorizer seam and the MCP effect authorizer (before
-  grants), so a prompt or standing grant cannot bypass it. Operator routes `/finance-guardrails/*` + Settings › Money
-  Guardrails; read-only agent tools `finance_guardrail_status`/`_check`.
-  Docs updated: `docs/harness/money-guardrails.md` (new),
-  `docs/harness/security.md`, `docs/NAVIGATION.md`, `docs/DECISIONS.md` +
-  `skills/ARCHITECT.md` (ADR-055).
-- **feat(documents): preservation-first Office/PDF editing.** Added
-  `document_edit` (`python/harness/documents/edit/`): a closed `EditPlan`
-  (DOCX text/table/core props, XLSX cells/formulas/rows/sheet rename, PPTX
-  title/notes/text, PDF forms/rotate/annotate/metadata), an `OoxmlPackage` that
-  copies untouched ZIP parts verbatim, `verify_ooxml` proving every non-target
-  part is unchanged (and refusing on a relationship/XML/expected-text failure),
-  and artifact-version publishing (originals are never edited in place). Adds
-  `pypdf` for the PDF rewrite path (honest `PDF_LIBRARY_MISSING` when absent).
-  Docs: `docs/harness/office-edit.md`, `docs/NAVIGATION.md`, ADR-054.
-- **feat(modeling): deterministic 3-statement/DCF/LBO/comps + Excel model.**
-  Added `python/harness/modeling/` and tools `financial_model_build` /
-  `financial_model_audit`: validated `ModelSpec`, integrated IS/CF/BS/debt with
-  balance and tie checks, DCF composed over `finance_facts.valuation`, LBO
-  sources/uses/debt/IRR/MOIC, comps peer multiples/stats/implied ranges, and a
-  formula-bearing workbook (Assumptions, Three Statement, Values, Checks).
-  Docs: `docs/harness/financial-modeling.md`, `docs/NAVIGATION.md`, ADR-054.
-- **feat(ui): crypto alt-data surfaces over the market pack.** Added the
-  read-only `GET /api/crypto/alt-data` front door (same TS adapters as the agent,
-  30s cache, honest UNAVAILABLE envelope), a `CryptoAltData` panel on Market
-  Overview › Crypto (liquidations, long/short, TVL cards), and two catalog
-  widgets `crypto-tvl` / `crypto-liquidations` in a dedicated
-  `dashboard/crypto-widgets.tsx` (kept separate to respect the source-size
-  budget; `market-overview.tsx` stays at its pinned 2760 lines). Docs:
-  `docs/harness/market-data.md`.
-- **feat(market): CoinGlass + Solscan adapters — the pack is now fully runnable.**
-  Added `providers/coinglass.ts` (V4 liquidation coin-list + global long/short
-  account ratio, `CG-API-KEY`) and `providers/solscan.ts` (V2 account detail,
-  `token` header, Solana lamports). New records `LiquidationStats`/`LongShortRatio`,
-  normalizers, gateway methods, and tools `get_liquidations`/`get_long_short_ratio`;
-  `get_onchain_metric` now routes `etherscan → solscan` (EVM vs base58 address
-  shape decides deterministically). Endpoints verified against official docs
-  before implementation. Docs: `docs/harness/market-data.md`, ADR-053 in
-  `docs/DECISIONS.md` + `skills/ARCHITECT.md`.
-- **feat(market): Hyperliquid read-only perps adapter + hardened POST transport.**
-  Added `safePost` to `connectors/security.ts` (https-only, DNS-pinned, timeout,
-  response/request-size caps, no redirects) so the GET-only bridge can carry
-  Hyperliquid's POST-only `info` endpoint. New `providers/hyperliquid.ts` serves
-  perps funding/open-interest (keyless, read-only; funding is hourly and
-  annualization stays labelled derived). Hyperliquid is now `implemented=True`;
-  funding/OI priority falls back `binance → hyperliquid`. Docs updated:
-  `docs/harness/market-data.md`, ADR-053 amendment in `docs/DECISIONS.md` +
-  `skills/ARCHITECT.md`.
-- **feat(market): crypto/on-chain/alt-data pack — TVL + on-chain capabilities.**
-  Added `tvl` and `onchain` capabilities to the market layer with runnable
-  DefiLlama (`providers/defillama.ts`, keyless protocol/chain TVL) and Etherscan
-  (`providers/etherscan.ts`, keyed EVM account metrics) adapters, new
-  `TvlSnapshot`/`OnchainMetric` records, `get_tvl`/`get_onchain_metric` tools, and
-  catalogued-only descriptors for CoinGlass/Solscan/Hyperliquid (`implemented=False`,
-  so the router never calls a provider without an adapter). Added
-  Etherscan/CoinGlass/Solscan vault keys. Why: extend asset-class coverage through
-  the ONE router/bridge/quality path instead of a second pipeline, and never fake
-  data for sources that are keyed or POST-only. Docs: `docs/harness/market-data.md`,
-  `docs/DECISIONS.md` + `skills/ARCHITECT.md` (ADR-053).
-- **ui(sidebar): give the app list its own scroll pane while chat history is open.**
-  The sidebar's single long scroll is now a fixed control strip (mode switcher
-  and launchers) above two independently scrolling panes: a flexible chat
-  history pane and a capped Apps strip. A long conversation list can no longer
-  push the apps out of reach, and the history list fills its pane instead of a
-  fixed `45vh` cap. Files: `src/components/layout/sidebar.tsx`,
-  `src/components/layout/chat-history-panel.tsx` (`fill` prop),
-  `src/lib/i18n/dictionaries/en.ts` (`sidebar.apps`, ratchet re-pinned).
-  no doc change beyond this entry — presentation only; nav contracts unchanged.
-- **fix(sidebar): put pages above chat history and stop the app rows shrinking.**
-  Corrects the previous layout: on ChatBot only, the app list is the top
-  scrollable strip and chat history fills the space below it, separated by a
-  divider. Nav anchors are now `shrink-0` (also in `saved-pages-nav.tsx`) so rows
-  keep their 32px height and spacing inside a constrained scroll pane instead of
-  compressing. no doc change beyond this entry.
-- **revert(sidebar): restore the original single-scroll navigation.**
-  Reverted the two sidebar layout experiments (the split history/apps panes and
-  the Apps strip above them). Chat history sits under the menu again, only on the
-  ChatBot tab, in the original one-column scroll. Restored `sidebar.tsx`,
-  `chat-history-panel.tsx`, `saved-pages-nav.tsx`, and the `en.ts` /
-  `size-budget.test.ts` entries to their pre-change state. no doc change beyond
-  this entry.
-- **feat(learning): add class-authorized self-modification (Tier B).**
-  `self_improvement/self_modification.py` auto-accepts contract-clean,
-  evaluated candidates and auto-enables **read-only** learned skills under an
-  operator-authored policy (`HARNESS_SELF_MODIFICATION` modes off/accept/enable),
-  with TTL expiry, active-skill/daily caps, durable audit rows, revocation and
-  pause/run/status routes under `/evolution/self-modification`. Effectful skills,
-  tool widening, financial actions and policy edits remain operator-only. Tests:
-  `test_self_modification.py`. Docs: `docs/self-improvement/SELF_MODIFICATION.md`.
-- **feat(skills): port the Minara catalog into the bundled Eclipse skill library.**
-  Added 74 skills under `python/harness/skills/library/<category>/<skill>/`
-  (21 finance, 13 external finance references, 3 research, 2 quality, 35 system),
-  each with a validated `skill.json` and an Eclipse-specific `SKILL.md` that uses
-  only real registered tool names. Read-only analysis skills are enabled;
-  execution, publishing, plugin-backed and iOS skills are inert drafts. Trading
-  and fund-moving skills stop at an approval-gated plan because `trade.execute`
-  is forbidden. Updated the research-category discovery assertion to a subset
-  check so new research skills do not make the test brittle. Tests: 121 focused
-  skills tests passed; `npx tsc --noEmit` passed. no doc change beyond this entry
-  — the new skills are self-describing and registry behavior is unchanged.
-- **docs(changelog): restore the 7-section window and normalize one stray CRLF.**
-  Moved the oldest dated section (`2026-10-21`) into
-  `docs/changelog/2026-10.md`, keeping the newest seven sections, and normalized
-  a single CRLF in `docs/harness/roadmap/progress/phase-05-progress.md` so the
-  tracked-file line-ending guard passes. no behavioral change.
-- **test(harness): re-audit roadmap Phase 5 (coding agent/approvals).**
-  Added `test_phase5_audit.py`: code-agent/finance separation, `allowMcpTools`
-  false, all 389 `plan_only` tools read-only against the real registry,
-  `edit_verify` external-action removal, unknown-autonomy fail-closed, shared
-  `claim_guarded`, and `RunLineage` task checkpoints. Targeted gates: 38 passed.
-  Correction recorded: the roadmap's literal "finance has no code tool" is stale
-  after later phases (`scaffold_kit`, `capability_*`, `python_env_*` are now
-  effect/approval-gated); no external code action reaches finance. Docs:
-  `docs/harness/roadmap/progress/phase-05-progress.md` and the Phase 5 roadmap
-  `last-verified`.
-- **test(learning): pin the operator gates.**
-  Added `test_learning_gates.py` and an accept-route 403 test: candidate
-  acceptance, skill authoring, skill lifecycle writes, and effectful capability
-  activation remain operator-gated; the advisory cadence writes only observed
-  outcomes. These tests run in the default Python suite. Documentation:
-  `docs/self-improvement/GATE_REGRESSION.md`.
-- **feat(advisory): explain and honestly backfill legacy debt.**
-  `GET /advisory/legacy` reports why each legacy recommendation is unscorable
-  (`no_horizon`, `no_entry_price`, `no_symbol`, `no_method`).
-  `POST /advisory/backfill-entry-prices` (operator-gated, dry-run first) fetches
-  a real historical bar at the decision's creation time and stores it with
-  source/as-of provenance; a missing bar is a named skip, and existing prices
-  are never overwritten; dry-run is the default and applying requires an
-  explicit `dryRun:false`. The live 14 legacy rows stay unscorable (no horizon,
-  no price, non-tradable symbols). Tests: `test_advisory_backfill.py`.
-- **feat(advisory): add a bounded unattended outcome-scoring cadence.**
-  `advisory/cadence.py` scores due, priced recommendations on an interval,
-  skips no-price/not-due rows with named counts, makes no market request when
-  nothing is due, and is disabled by `HARNESS_ADVISORY_AUTO_EVALUATE=0`.
-  Operator surfaces `GET /advisory/cadence` and `POST /advisory/cadence/run`
-  expose the last tick; the runtime lifespan starts/stops the single bounded
-  task. No approval gate is touched; no legacy score is invented. Tests:
-  `test_advisory_cadence.py`.
-- **fix(learning): reconcile advisory scoring and make lesson keys structural.**
-  The advisory gate and scorecard now share one canonical definition
-  (`advisory/scoring.py`: evaluated / scorable / no_entry_price / unscored /
-  not_due); `auto_evaluate` scores only due rows with an entry price and counts
-  the two skip reasons separately. Lesson recurrence is keyed by the recorded
-  procedure/failure evidence, not the templated text or a stored signature;
-  explicit corrections are eligible at recurrence 1. Memory promotion runs the
-  recurrence + conflict gate before activating a proposed row. Legacy advisory
-  rows get an additive `legacyUnscored` mark; no score is invented. Tests: 282
-  related advisory/learning/skills/memory tests passed; `npx tsc --noEmit`
-  passed. Docs: `docs/self-improvement/LOOP_MAP.md`,
-  `SCORING_CHANGES.md`, `RECURRENCE_FIX.md`, `MEMORY_PROMOTION.md`.
-- **feat(learning): close the candidate→draft→accept→score→retire loop.**
-  The operator accept route now accepts `detected` and auto-drafted candidates,
-  re-validates the contract, creates/keeps the inert skill and records
-  `accepted` (never enables). Explicit corrections draft on the first
-  occurrence; inferred procedures still require recurrence. Startup evaluates
-  learned drafts and used learned skills, and deprecates a non-discriminating
-  skill instead of keeping it. Proposed memory promotes after recurrence ≥2 with
-  a clean conflict gate; conflicting proposals stay proposed. Legacy reviews are
-  marked `legacyUnscored` without rewriting history. All approval gates are
-  unchanged. Tests: 277 related learning/skills/memory/advisory tests passed;
-  `npx tsc --noEmit` passed. Docs:
-  `docs/self-improvement/LOOP_MAP.md`, `docs/self-improvement/CHANGES.md`,
-  `docs/self-improvement/loop-closure.md`.
-- **fix(chat): make the message rail legible when unselected.** Only the
-  unselected ticks were lightened (`bg-muted-foreground/70`, was `/45`); their
-  size and the active/hover states are unchanged, so the rail stays visible on
-  both light and dark glass without getting heavier. no doc change — visual
-  contrast fix.
-- **feat(learning,graph): tool-widening safety case, boot-time recall, graph UI
-  polish.** Added the evidence-gated `self_improvement/widening.py` ratification
-  package (read/compute only, refusal by default) with its spec and tests; startup
-  now consolidates duplicate automatic memories (contradictions left for review)
-  and backfills completed runs into the session index; the self-improvement
-  denylist now also covers the widening/capability/grant surfaces and can no
-  longer be narrowed by a caller; graph node cards, canvas, home and globals
-  styling were tightened. `npx tsc --noEmit` passed. Docs:
-  `docs/self-improvement/loop-closure.md`, `docs/self-improvement/tool-widening/`,
-  `docs/graph-studio.md`, `docs/harness/tool-registry.json`.
-- **feat(strategy-studio): make the studio a workspace you can come back to.**
-  The tab was a JSON sandbox with amnesia: a refresh lost the thesis, spec,
-  strategy and result, and saved strategies/experiments were never listed. It now
-  has a saved-strategy library, schema-versioned `localStorage` persistence with
-  `?strategy=&experiment=` deep links, this strategy's experiment history with
-  `/quant/compare`, a data-coverage preflight against the stored-series catalogue
-  (absent ≠ impossible; unreadable = unknown), debounced inline validation with
-  copyable spec paths, and metric definitions from the runtime. Also fixed the
-  strategy record's description being passed as its name, and the paper approval
-  recording the same actor for request and decision. Shared `EquityChart`,
-  `DrawdownChart`, `TradeTable` and `MetricGrid` were extracted to
-  `src/components/screens/backtest/shared/` and the Backtest bench now imports
-  them (net −118 lines there). Honest labelling: the paper button replays the
-  research window and says so. Docs updated: `docs/strategy-studio.md` (new),
-  `docs/NAVIGATION.md`.
-- **feat(strategy-studio): research without hand-written JSON.** Robustness is
-  now derived from the spec: `src/lib/strategy-studio/param-space.ts` proposes
-  the engine-supported dotted paths (indicator params, sizing, stop/target and
-  risk limits) and builds `paramSpace`/`paramRanges` from min/max/step rows. A
-  "Run the robustness suite" button runs walk-forward → Monte-Carlo → robustness
-  into one page, and `research-verdict.ts` calls it `robust` ONLY when the whole
-  suite ran and every scored check passed (partial = inconclusive, any failure =
-  fragile; every threshold is printed in its check label, and `info` rows are
-  never scored). The Edge Report now renders in full through the shared
-  `EdgeReportView` (grade, axes, flags, Artifact Center figures, markdown) used
-  by both the Studio and the Backtest bench. Added six starter templates labelled
-  as examples, not recommendations, and an on-demand runtime research plan
-  (hypothesis, assumptions, acceptance criteria, potential biases). Tests:
-  `param-space`, `research-verdict`, `templates`, `research-studio`,
-  `edge-report-view`. Docs updated: `docs/strategy-studio.md`,
-  `docs/NAVIGATION.md`.
-- **feat(strategy-studio): no-code builder, forward paper, versions and
-  publishing.** The spec card now has a Builder view over the same JSON
-  (`src/lib/strategy-studio/spec-edit.ts` deep-clones; unknown fields survive;
-  nested/expression rules are marked `advanced` and left to the JSON tab instead
-  of being silently rewritten). Paper got two explicit modes
-  (`paper-window.ts`): **forward** from the day after the research window ends,
-  or a **replay**; a forward window with no forward period is refused, never
-  downgraded. Every paper run is listed in a track record with its window and
-  drift against the latest backtest (never against another paper run). Added a
-  versions panel with structural diff (`/quant/strategies/{id}/diff`) and JSON
-  bundle export (`format=json`), plus a grade-gated publish into the local
-  gallery. Tests: `spec-edit`, `paper-window`, `spec-builder`, `paper-panel`.
-  Docs updated: `docs/strategy-studio.md`, `docs/NAVIGATION.md`.
-- **chore(test): green the JS suite after the studio work.** Normalised the one
-  stray CRLF line in `mobile-bottom-nav.tsx`, `sidebar/config.ts` and
-  `sidebar/config.test.ts`, and re-pinned the `stock-chat.tsx` line budget
-  1584→1589 for the Strategy Studio keep-alive mount (the page lives in
-  `components/screens/strategy-studio/`). Full Vitest run: 4065/4065.
-  no doc change — test/hygiene only.
-- **feat(strategy-studio): connect the studio to Projects, the dashboard and a
-  share link.** `ProjectLink` attaches the current strategy to a project
-  (`kind: "strategy"`, `ref: strategy.id`, version/symbols in `meta`) through a
-  new `projectClient.addMember`; the dashboard gains a `strategy-studio` widget
-  that lists saved strategies and deep-links each workspace; the header copies
-  the exact `?strategy=&experiment=` link. Docs updated:
-  `docs/strategy-studio.md`, `docs/NAVIGATION.md`.
-- **fix(harness): close eleven pre-existing Python suite failures; add paper
-  health.** Advisory cadence/scoring now honour the caller's clock
-  (`auto_evaluate(now=…)`, forwarded by `run_once`) instead of re-deriving
-  `now_iso()`, so a not-yet-due row can no longer be scored after 00:00 UTC; a
-  regression re-check no longer short-circuits to an unchanged-passed record
-  with no dimensions; the migration-matrix test uses the production
-  `add_column_already_present` guard (now a shared module helper); the four
-  DeFi/derivatives tools are allowlisted for the finance agent; the graph API
-  tests bind their own service instead of the process-wide singleton; the Python
-  size ratchet is re-pinned to the measured tree and its duplicate `service.py`
-  entry removed. The studio also gained a pure paper-health badge (fresh /
-  stale >30 days / drifting ≥10 return points or ≥0.5 Sharpe, thresholds
-  printed). Docs updated: `docs/strategy-studio.md`, `docs/NAVIGATION.md`.
-- **feat(strategy-studio): share card, portfolio runs, import, provider check,
-  mobile summary.** The studio now exports/imports portable bundles (import
-  validates before saving), offers an opt-in 30-day provider check beside the
-  stored-catalogue preflight, runs two or more SAVED strategies through
-  `/quant/portfolio-backtest` with the shared result panels, produces a
-  read-only Markdown share card (identity, metrics, grade, paper state,
-  disclaimer), and shows a compact read-only summary under `md`. The dashboard
-  widget joins the local gallery so each strategy shows the grade its published
-  version earned. Fixed the last two lint warnings (`withCosts` extracted,
-  artifact `<img>` documented). Full Python suite: 8707 passed, 29 skipped, 0
-  failed. Docs updated: `docs/strategy-studio.md`, `docs/NAVIGATION.md`.
-- **feat(strategy-studio): recursive rule builder + mobile summary.** The
-  builder now edits nested rule groups (`rule-tree.tsx`) through the pure tree
-  API in `spec-edit.ts` (`readTree`/`addTreeNode`/`updateTreeNode`/
-  `removeTreeNode`/`setTreeCombine`); expression operands and nesting deeper
-  than three levels stay read-only with a pointer to JSON. Added a compact
-  read-only summary under `md`, a Markdown share card, bundle import, an opt-in
-  provider check, portfolio backtests over saved strategies, and a dashboard
-  widget that shows the grade a published version earned. Docs updated:
-  `docs/strategy-studio.md`, `docs/NAVIGATION.md`.
-
-## 2026-10-27
-- **ui(graph): align the New workflow button with the shared menu system.** The
-  template picker is now a real `DropdownMenu` (anchored, dismissable, keyboard
-  navigable) instead of a hand-rolled floating panel, and the trigger uses the
-  standard primary button sizing alongside Generate from prompt.
-  no doc change — UI consistency only.
-- **ui(graph): move Start workflow into the header toolbar.** The center-stage
-  floating run button is gone; the same save-and-run control now sits inline in
-  the editor header row and uses the standard black primary button style. Docs:
-  `docs/graph-studio.md`.
-- **fix(learning,rsl): finish the loop-closure and widening verification.** Migration
-  32 no longer re-adds columns that the base schema already creates (a fresh or
-  historical db now reopens), the published tool registry is regenerated, the
-  chat-code profile declares `learning_candidate_validate` and
-  `skill_discrimination_check`, and the two recovery tests now retry the same tool
-  (a different tool that merely succeeds is not recovery evidence). A
-  discrimination gap (named base, no outcome metrics) is reported on the
-  dimension but is non-blocking, so an ordinary patch still activates; a
-  mandatory regression/indistinguishability still blocks. Size ratchets re-pinned
-  to the measured tree. Docs: `docs/self-improvement/loop-closure.md`.
-- **feat(learning): close the skill, memory and recall loops.** Automatic
-  memories now carry `authority=automatic` (source `automatic_learning`) instead
-  of masquerading as explicit; gate-approved model preferences save under
-  `automatic_selective`; recurring candidates update their occurrence count and
-  auto-draft an inert `status=draft` skill; recorded user corrections become
-  scoped candidates; startup consolidation merges duplicates but leaves
-  contradictions for review; startup quarantines nonconforming legacy
-  candidates and drafts the ready ones; startup also runs the deterministic
-  evaluation for every `learned.*` draft (enabling stays operator-only); and
-  startup backfills up to 200 historical runs into the session index. A preference inside a long prompt is
-  stored as its own clause, not the whole prompt; a save proposed by the
-  model-facing `memory` tool or post-run analysis is labelled
-  `automatic_learning`/`automatic`, not explicit. `skill_list`/`skill_view` now
-  expose store-only drafts, and `learning_candidate_list` prints the drafted
-  skill id. `session_search` skips the local caller-id filter (indexed messages
-  are unowned in single-user mode), retries a multi-token query with ANY terms,
-  prints `matchMode`, and indexes an explicit `run_id` once before retrying.
-  Migration 33 restores `LearningCandidate.occurrenceCount` on older stores.
-  Nothing is auto-enabled: operator acceptance, evaluation and promotion remain
-  the only activation path. The usage report now separates `automaticSaved` from
-  explicit saves. Tests: 361 related memory / skills / learning / session tests
-  passed; `npx tsc --noEmit` passed. Docs:
-  `docs/self-improvement/loop-closure.md` (Autonomy update).
-- **feat(rsl): add an evidence-gated tool-widening safety-case builder and
-  freeze the mechanism it protects.** `self_improvement/widening.py` assembles a
-  pure, deterministic ratification package for adding one read/compute tool
-  (need, holdout, replay, deny path, conclusion stability, blast radius, TTL,
-  revocation); it never grants, auto-applies or self-renews. `security.py` now
-  refuses RSL targets under `self_improvement/**`, `capabilities/**`,
-  `grants.py` and `recovery/envelope.py`, and the frozen denylist can no longer
-  be replaced by a caller. Tests: `python/tests/test_widening.py` (16 targeted
-  tests passed with the related RSL/autonomy/capability suites). Docs:
-  `docs/self-improvement/tool-widening/{corrections,diagnosis,safety-case-spec,design,risks}.md`.
-- **feat(learning): expose the accept-route dry-run and the mandatory flag.**
-  `learning_candidate_validate` is a read-only probe that returns the HTTP status
-  the operator accept route would produce (404/409/422/200) without writing, so
-  the negative paths are observable from chat. The discrimination probe prints
-  `mandatory=True/False` in its text. Candidate rows already print procedure
-  steps and occurrence count. Live: `gate.ok=true`, `accepted=2`, `detected=0`,
-  typed 1, memory 0/0/2/0. Docs:
-  `docs/self-improvement/loop-closure.md`.
-- **feat(learning): add a read-only discrimination probe and close the remaining
-  read gaps.** `skill_discrimination_check` lets a chat run prove
-  identical→failed / better→passed / worse→failed with caller-supplied metrics
-  without persisting an evaluation. `skill_reviews` now prints the
-  discrimination detail. Candidate rows print `occurrenceCount` and the
-  procedure step count; the queue line prints `quarantinable`; the scorecard
-  prints `needsBackfill`; `learning_review_list(status="superseded")` is a valid
-  filter. The app-API proxy is excluded from recoverable-tool lessons (a retry
-  cannot fix a down front door), so the current typed lesson is the genuine
-  `research_search` transient-`UNAVAILABLE` retry. Live: `gate.ok=true`,
-  `accepted=2`, `detected=0`, current typed lessons 1, memory 0/0/2/0. Docs:
-  `docs/self-improvement/loop-closure.md`.
-- **fix(learning): withdraw the false lessons and keep only a replayable one.**
-  The gate now prints the memory domain too (duplicates/conflicts/residue/
-  related), review rows print the evidence list, candidate rows print
-  `occurrenceCount` and the procedure step count, and a re-review refreshes the
-  review timestamp so a corrected lesson is current. The two `app_api_get`
-  lessons were superseded and their candidates rejected; the sole current typed
-  lesson is the genuine `research_search` transient-`UNAVAILABLE` retry, accepted
-  as `cand_2a07300e`. The generic "record the working source preference" lesson
-  is rejected as a generic action. Live: `gate.ok=true`, `accepted=2`,
-  `detected=0`, current typed lessons 1. Docs:
-  `docs/self-improvement/loop-closure.md`.
-- **fix(learning): only a genuine same-capability recovery becomes a lesson.**
-  A later tool that happens to succeed is no longer treated as recovery
-  evidence; the recovery must be the same tool or the same recorded capability,
-  and its body must not itself report `UNAVAILABLE`/`TimeoutError`/`TOOL_FORBIDDEN`.
-  The two accepted lessons whose `app_api_get` replay timed out were withdrawn
-  (`rejected`, retained) and their reviews superseded; a genuine
-  `research_search` retry from `run_615d7fce` was reviewed, encoded and accepted.
-  Review rows now print the evidence list, and re-evaluating a version marks
-  earlier same-version evaluations `superseded` so a self-referential pass is
-  no longer presented as current. Live: `gate.ok=true`, `accepted=2`,
-  `detected=0`, current typed lessons 2. Docs:
-  `docs/self-improvement/loop-closure.md`.
-- **fix(learning): print the full candidate census and `relatedCount`.** The
-  candidate list now reports the complete store counts by status (not only the
-  page) and the number hidden by the 50-row cap, so a legacy row cannot vanish
-  from the audit. Memory inventory prints `relatedCount` alongside the
-  duplicate/conflict/residue dry-run counts. Gate remains `ok=true`, gaps empty,
-  accepted 3, detected 0. Docs: `docs/self-improvement/loop-closure.md`.
-- **fix(learning): make every gate domain readable from the bound tool.** The
-  `learning_review_list` gate block now prints `contractSince`, current reviews
-  (typed/justified/unjustified), legacy reviews, current and legacy advice
-  (evaluated/unscored/overdue), and candidates (accepted/detected/nonconforming/
-  stale). `learning_candidate_list` prints `staleDetected`/`nonconforming` and an
-  accepted row's limitations; `memory(action="inventory")` reports the
-  consolidation dry-run counts and cross-type `related` pairs. Accepted the last
-  actionable candidate (`cand_421aa3c1`, with the recovery-tool-timeout
-  limitation): live `accepted=3, detected=0, gate.ok=true`. Docs:
-  `docs/self-improvement/loop-closure.md`.
-- **fix(learning): expose the gate on the read tool; tighten discrimination.**
-  `learning_review_list` now returns `gate` (ok, gaps, current/legacy windows) so
-  a chat run can read `gate.ok` without HTTP-body permission. A version with a
-  named base but no outcome metrics now reports `discrimination=needs_review`
-  (explicit gap), not `not_applicable`; a root version stays
-  `not_applicable`. Residue detection is limited to <=2 tokens or the known
-  `loopback can save` fragment, so a real short preference is not mislabelled.
-  Live: `system.anatomy-figure` v1.1.1 vs v1.1.0 is `needs_review`; gate remains
-  `ok=true`, gaps empty. Docs: `docs/self-improvement/loop-closure.md`.
-- **fix(learning): gate the current contract window, report legacy separately.**
-  `gate_report` now counts reviews and advice created since
-  `HARNESS_LEARNING_CONTRACT_SINCE` (default `2026-10-28T00:00:00Z`) for its pass
-  criteria, and reports pre-contract rows under `legacyReviews` /
-  `legacyAdvisory` instead of letting them keep the gate red forever. The advice
-  gate is due-aware: an unscored recommendation is a defect only at its stated
-  horizon, not before. Live result: `gate.ok=true`; current window 3 reviews
-  with 0 unjustified nulls and 2 current recommendations not yet due; legacy
-  window retains 197 bare nulls and 109 unscored rows for audit. Docs:
-  `docs/self-improvement/loop-closure.md`.
-- **fix(advisory): record a basis method and a stated horizon at issue time.**
-  Every recommendation now gets `method` (explicit, else the basis class
-  `portfolio_computation`/`portfolio_read`/`model_advice`, never the action
-  verb), `horizon` (explicit, else the policy default `30d`), and `dueAt`; both
-  are recorded as basis entries. Quote tools (`market_get_quote`/`get_quote`)
-  now contribute an entry price, so a later evaluation can compute a return.
-  Backfill applied to the live ledger (111 rows); `advice_missing_horizon`
-  cleared and the scorecard reports `byMethod`/hit rate/demotion. Also reports
-  memory residue (`fragment: <=4 tokens, no subject`) without touching it, and
-  diagnoses a generic-only all-fail route as a provider failure. Regression
-  evaluation no longer compares a version against itself. Docs:
-  `docs/self-improvement/loop-closure.md`.
-- **fix(learning): persist the falsifiable method and unfreeze intake.** The
-  `LearningCandidate` table now stores `condition`, `action`, `failedCall`,
-  `recoveredCall`, `precondition`, `replayTest` and `occurrenceCount` (migration
-  32), so the writer no longer drops the fields the contract requires. A
-  previously-created detected candidate was repaired from its run draft and is
-  now conforming; intake was re-enabled (`automatic_selective`), a conforming
-  specimen was created and accepted (accepted=2, detected=0,
-  nonconforming=0). `_regression_dimension` never compares a version against a
-  later one (the 1.1.0-vs-1.1.1 inversion), a completed review updates its
-  existing row instead of duplicating, and persisted nulls keep
-  `justified`/`evidenceChecked`. Fresh `system.anatomy-figure` evaluations now
-  carry the `discrimination` dimension (`not_applicable`, explicit gap). Docs:
-  `docs/self-improvement/loop-closure.md`.
-- **fix(harness): persist null justification, dedupe reviews, expose accept/eval.**
-  `_bounded` now keeps `justified`/`evidenceChecked` at the outcome level, so a
-  saved null no longer reads as bare; a completed review for one run updates the
-  existing row instead of appending a duplicate. Adds operator
-  `POST /learning/candidates/{id}/accept` (status only; never enables a skill),
-  extends `POST /skills/{id}/evaluate` with `baseVersion`/`metrics`/`baseMetrics`
-  so `discrimination` is reachable, reports `intake_disabled` when
-  `skill_learning_mode=off`, and records a missing advisory method as
-  `unclassified` rather than echoing the action verb. Live state: accepted 1,
-  detected 0, duplicate review superseded, fresh evaluation includes
-  `discrimination`. Docs: `docs/self-improvement/loop-closure.md`.
-- **fix(harness): make pre-contract learning rows visible and drainable.** The
-  review list now prints every typed lesson and labels a bare null
-  `UNJUSTIFIED`; the candidate list shows `failedCall`/`recoveredCall`/
-  `precondition`/`replayTest` and a `CONTRACT VIOLATION` per stored row. The gate
-  counts unjustified nulls and nonconforming candidates, not only typed lessons.
-  Adds operator-gated quarantine (`POST /learning/candidates/quarantine`) and
-  advisory backfill (`POST /advisory/backfill`) that exposes legacy
-  method/horizon as `unscored` without inventing a result. Consolidation now
-  resolves near-duplicates (containment/subject link) and the verbosity conflict
-  ("straight to the facts" vs "detailed with sources"), still supersede-only.
-  Applied to the live stores: 48 nonconforming candidates quarantined, 2 stale
-  candidates expired, 2 memory records superseded, 109 advisory rows backfilled,
-  and one real review produced a typed lesson (recurrence 1/2). Docs:
-  `docs/self-improvement/loop-closure.md`.
-- **feat(harness): close the learning loop, not just record it.** Reviews now emit
-  a typed lesson (`condition -> action -> evidence`) or a justified `no_learning`
-  null (reason + `evidenceChecked`), and carry a cross-review signal aggregate
-  that requires two distinct runs before a lesson is eligible. Failure-recovery
-  candidates must carry the failed call, recovered call, precondition, procedure
-  and a replay test; templated titles and constant `0.55` confidence are rejected
-  at creation. Skill evaluation adds a `discrimination` dimension against a named
-  base on outcome metrics (identical results fail; repeated identical passes are
-  flagged as a broken harness). Advisory decisions record `method` + `horizon` +
-  `dueAt`, and the scorecard reports unscored/overdue/per-method calibration and
-  demotes methods that do not score. Route health diagnoses generic-vs-market
-  routing defects, active memory is consolidated (duplicates + contradictions
-  supersede to the later statement, retained), and `gate_report` treats an
-  unconsumed candidate queue as a design failure. Docs:
-  `docs/self-improvement/loop-closure.md`; `docs/NAVIGATION.md` rows updated.
-- **fix(harness): scope the candidate empty state and keep the read-only footer.**
-  A status-filtered empty listing now says "No learning candidates captured with
-  status 'accepted' yet." instead of implying the whole store is empty, and every
-  empty response keeps the read-only footer. A request above the 50-row cap now
-  says it was capped. no doc change - bug fix; no contract, setup, or architecture
-  change.
-- **fix(harness): upgrade the graph-run schema before indexing `jobId`.**
-  `GraphRunStore` created `idx_graph_run_job` inside the base schema script, so a
-  legacy `HarnessGraphRun` table without `jobId` raised `no such column: jobId`
-  and left the whole graph runtime unavailable at boot. The index is now created
-  after the column upgrade; regression test covers the legacy table. no doc
-  change - bug fix; no contract, setup, or architecture change.
-- **fix(harness): report the true candidate total past the 50-row page.**
-  `learning_candidate_list` now reads `count_candidates(status)` and says
-  "Showing N of M" when the page is truncated, so an operator cannot mistake the
-  tool's output cap for the queue size. Adds one read-only store count method and
-  a regression test. no doc change - bug fix; no contract, setup, or architecture
-  change.
-- **fix(graph): make the connection aurora actually visible.** The first pass
-  was too faint (2px, blurred, 16–55% opacity). Now a 3px hot core with an
-  accent box-shadow glow plus a wider blurred haze, breathing 45–100% on the
-  same 8s loop. Still respects reduced motion and Glow-off.
-  no doc change - tuning only.
-- **fix(harness): `learning_candidate_list` resolves the Eclipse-Memory store by
-  capability.** It now prefers `memory_service.store` and only accepts
-  `learning_store` when it exposes `list_candidates`, so the research path store
-  can no longer cause an `AttributeError`. The empty state reads
-  `skill_learning_mode` and no longer promises automatic capture when detection
-  is off (or unreadable); tests now use the production wiring. no doc change - bug
-  fix; no contract, setup, or architecture change.
-- **feat(graph): minimal live connection aurora on node edges.** Wired nodes show
-  a small blurred accent light bar on the left (`hasIncoming`) and/or right
-  (`hasOutgoing`) edge, breathing/bobbing on an 8s loop with the two sides
-  phase-offset. Respects `prefers-reduced-motion` and the Glow-off preference.
-  Rendered in `eclipse-node.tsx`; keyframes/classes in `globals.css`.
-  no doc change - visual restyle only; uses existing node data fields.
-- **feat(chat): show the Python program in the activity step.** `analysis_run`
-  and `execute_python` now emit a bounded (`8 000` chars), secret-redacted
-  `codePreview` on `tool.requested`, so the source appears inside the activity
-  step's existing expandable details (not as a separate panel), with honest
-  truncation. The preview is persisted with the run. Producer:
-  `code/activity.py::tool_code_preview`;
-  emitter `graph.py`; client `ActivityItem.codePreview` + `activity-item.tsx` /
-  `output-panel.tsx`. docs updated: `docs/chat-ui-audit.md`, `docs/NAVIGATION.md`.
-- **feat(graph): accent-aurora node restyle.** Graph nodes now use the frosted
-  `node-card` material with a thick accent border, a plain foreground-coloured
-  icon (no tinted tile), and a per-node **aurora** halo when wired. Wires and
-  handles take the source node's category accent (with a gradient stroke + soft
-  glow) instead of the neutral slate/sky hardcode. Category accents moved to
-  `lib/graph-studio/port-style.ts` (`categoryAccent`) as the single source.
-  no doc change - visual restyle; new node/edge data fields are internal to the
-  canvas renderer and no contract changed.
-- **fix(graph): aurora moved off the node body and onto its connected edge.**
-  Follow-up to the node restyle: the accent halo no longer wraps the whole card
-  (which read as background glow). It is now a thin drifting light bar on the
-  node's **left** side when it has incoming wires and on its **right** side when
-  it has outgoing wires (both sides when both). Node borders are near-black
-  again, not accent-coloured; selection uses an accent outline offset outside
-  the frame. Node glass was deepened (multi-layer tint, stronger blur, inset
-  sheen). no doc change - visual restyle only.
-- **fix(graph): n8n-style compact nodes, theme-driven colour.** Narrowed nodes
-  from 244px to 184px and moved the icon to a centred top slot with the label and
-  category stacked beneath. All glow (aurora, wire stroke/glow, handles, `+`
-  affordance, selection outline) now reads `var(--primary)`, so it follows the
-  active theme instead of a hardcoded per-category palette; the unused category
-  accent table was removed from `port-style.ts`. no doc change - visual restyle
-  and internal cleanup only.
-- **fix(graph): remaining blue chrome moved to the theme accent.** The floating
-  "Start workflow" button lost its blue glow and now uses a shared
-  `.graph-accent` control (border/tint/text from `var(--primary)`, no box-shadow).
-  Applied the same class to "Add node", "Add first step", the wire insert `+`, and
-  the schedule action; focus rings, active toggles, inspector tabs/checkboxes and
-  the editor icon now use primary tokens instead of `sky-*`. Running-status dots
-  stay sky (semantic state, not chrome). no doc change - styling only.
-- **feat(graph): black bezel nodes with an inner aurora.** Node body is now true
-  black (not grey), framed by a wide 5px solid-black border with a larger radius.
-  The identity block is centred with a bigger icon and a single label - the
-  category kicker and the divider line above the ports were removed. When a node
-  is connected, an accent aurora now drifts **inside** the card (radial sweep,
-  gated by `data-incoming`/`data-outgoing`) instead of hugging the outside edge.
-  Node border no longer changes colour for run status (the status badge remains).
-  no doc change - visual restyle only.
-- **fix(graph): side aurora, centred handles, glass matched to the system.** The
-  aurora moved back out of the card to the connected **side** (left = incoming,
-  right = outgoing) as a drifting light bar. Port handles are now centred on the
-  node's vertical midline (fanned only for multi-port sides), so wires meet the
-  middle of the card like the reference. `.node-card` now uses the exact
-  `.glass-card` material recipe (black tint, 18px blur, saturate 1.35, inset
-  highlights) instead of a bespoke grey gradient. no doc change - visual restyle
-  only.
-- **fix(graph): node icons tinted with the accent and heavier stroke.** Icons are
-  now outline-style but rendered at `var(--primary)` with `strokeWidth 2.5`
-  (was muted `text-foreground` at default weight), so they read solid rather
-  than faint inside the black card. no doc change - visual restyle only.
-- **fix(graph): 10px node bezel, solid white icons.** Node border widened from
-  5px to 10px. Icons are now solid white filled glyphs (`fill=currentColor`,
-  thin residual stroke) instead of accent outlines. Side aurora stays on the
-  connected wire side and was nudged out to clear the thicker bezel. no doc
-  change - visual restyle only.
-- **fix(graph): solid white icons, inner animated aurora, graphite glass.** Icons
-  render Phosphor `weight="fill"` (true solid glyphs) in white instead of light
-  outline strokes. The accent aurora moved back inside the card as a diagonal
-  sheen that continuously travels beneath the glass on connected nodes. Node body
-  lifted from pure black to a graphite tint (`rgb(34 34 39 / 0.72)`) so the black
-  bezel and white icon have contrast. no doc change - visual restyle only.
-- **fix(graph): wider nodes and a dominant icon.** Node width restored to 244px
-  (from 184px) so port labels and long titles fit again, and the filled icon
-  grew to 34px in a 48px slot — clearly larger than the 12.5px label. Node body
-  darkened to charcoal and the aurora is now a wave running along the connected
-  side. no doc change - visual restyle only.
-- **feat(graph): reference-accurate node card.** Nodes are now wide 244px cards
-  (112px min height, 18px radius, 4px black bezel) with a **horizontal** identity
-  block: solid white filled icon on the left, 16px white title over an 11px muted
-  category subtitle on the right. Visible per-port label rows removed; handles
-  sit on the edge midpoints (fanned per port) with names in the tooltip, and the
-  add-next `+` follows each output handle on hover. Aurora is now a soft radial
-  bloom anchored at each connected edge midpoint (left/right) that breathes
-  in-place, spilling outside the bezel and washing into the body. no doc change -
-  visual restyle only.
-- **fix(graph): inner half-clipped live aurora + lighter glass.** Replaced pseudo
-  blooms with an inner `.node-aurora-clip` layer (`overflow:hidden`) holding two
-  glows centred on the card edges, so only the inner half is visible at the
-  connected side (left incoming, right outgoing) and it drifts/breathes on a
-  loop. Node tint lowered to `rgb(24 24 28 / 0.58)` so the 18px backdrop blur is
-  actually visible. Content and handles sit above the clip layer. no doc change -
-  visual restyle only.
-- **fix(graph): smaller, visibly moving aurora.** Glow reduced to 110px / 104%
-  and the animation now travels horizontally (translate 55% → 22% of its own
-  width, plus scale/opacity) so the motion is obvious. Added a scoped
-  `prefers-reduced-motion` override for `.node-aurora-glow`: the global reset was
-  freezing it on machines with reduce-motion enabled. no doc change - visual
-  restyle only.
-- **fix(graph): aurora ripples in waves, smaller and lighter.** Glow shrunk to
-  88px / 96%, gradient alphas lowered (55% → 22%), and the animation now follows
-  a 5-stop undulating path (in/out + up/down) at 4.8s, so it ripples like an
-  aurora. no doc change - visual restyle only.
-- **fix(graph): real ribbon aurora instead of a moving blur.** Replaced the
-  single radial glow with an inline SVG of three sine ribbons that drift
-  horizontally at different speeds/directions (7/5/10px strokes, blurred,
-  low opacity), faded away from the connected edge via `mask-image`. Renders a
-  proper flowing wave, half-visible at the wire side, inside the clipped card.
-  no doc change - visual restyle only.
-- **fix(graph): aurora ribbons glow instead of reading as lines.** Layered three
-  strokes as a wide soft curtain (14px / blur 12), a mid ribbon (7px / blur 7)
-  and a thin bright crest (3px / blur 3), with `mix-blend-mode: screen` and an
-  accent drop-shadow, on a 2-wave path loop. The strokes now fuse into a glowing
-  band rather than separate lines.   no doc change - visual restyle only.
-- **fix(graph): aurora is now pure blurred waves, no visible strokes.** Removed
-  the thin bright crest and drop-shadow; all three layers are wide strokes with
-  heavy blur (18/14/22px) and low opacity, screen-blended. Nothing resolves into
-  a line — only soft flowing curtains. no doc change - visual restyle only.
-- **fix(graph): aurora confined to a smaller side patch.** Wave canvas inset to
-  18% top/bottom (64% height), mask fade tightened to ~48% of the width, and
-  stroke widths reduced, so the glow is a compact patch at the connected edge
-  instead of spanning the whole card. no doc change - visual restyle only.
-- **fix(graph): aurora waves have real amplitude and show in light mode.** Wave
-  paths now swing across most of the card height (control points near the
-  viewBox edges) instead of tiny ripples that read as a flat line; canvas back to
-  76% height with mask fade at 55%. Light mode switches the blend from `screen`
-  to `multiply`, since screen-on-white was hiding the glow entirely. no doc
-  change - visual restyle only.
-- **fix(graph): aurora sized as a compact centred band.** Wave canvas reduced to
-  48% height (inset 26% top/bottom) with `overflow: hidden` so blur can't bleed
-  toward the card edges, and the side mask now fades out by ~42% of the width.
-  Strokes tightened accordingly. no doc change - visual restyle only.
-- **revert(graph): aurora removed from nodes entirely.** Deleted the inner
-  aurora SVG, clip layer, wave CSS/keyframes and the `data-incoming`/
-  `data-outgoing` hooks. Nodes are now just the black-bezel glass card with the
-  icon/title/subtitle; wires carry the accent colour only. no doc change -
-  visual restyle only.
-- **feat(graph): compact node cards with inline parameter editing.** Node cards
-  shrink from a 112px min-height / 4px bezel to a 46px identity header / 2px
-  bezel (icon 48→32px, title 16→13px), with the run status folded into the header
-  and the hover toolbar tightened. Up to two scalar config fields now render as
-  inline editors on the card (text/number commit on blur or Enter, selects and
-  booleans immediately, Escape reverts); fields supplied by an incoming edge show
-  a read-only "From wire" chip. `config-fields.ts` adds presentation metadata
-  (label/kind/options/inline) over the registry defaults, a shared
-  `config-field.tsx` replaces the inspector's hand-rolled fields, and
-  `dispatch(patch, { coalesceKey })` collapses a typing session into one undo
-  entry. `buildNodes` reuses unchanged node objects so editing one node no longer
-  re-renders the whole canvas. Docs: `docs/graph-studio.md`.
-- **style(graph): node icons are plain outline glyphs.** Removed the filled
-  Phosphor weight and the accent-tinted icon chip; nodes now use the same
-  regular-weight, muted icon treatment as the rest of the site. no doc change —
-  visual restyle only.
-- **fix(graph): remove the node connection glow.** Deleted the side aurora spans,
-  their CSS/keyframes, the handle glow and the now-unused incoming/outgoing
-  flags. Nodes are a flat glass card; wires stay the accent colour. no doc change
-  — visual restyle only.
-
-## 2026-10-26
-- **fix(customization): the "Custom theme" tile is now a real button.** It looked
-  like the preset tiles but was a non-interactive `div`, so clicking it did
-  nothing. It now commits an unsaved custom draft (same path as "Apply changes")
-  or, while a preset is selected, returns to the saved custom theme. The tile
-  shows the selected check once custom is active and previews the saved theme
-  when a preset is being browsed. no doc change — UI interaction fix; token and
-  preset contracts unchanged.
-- **fix(dashboard): market dropdown options were white-on-white.** The global
-  market `<select>` popup rendered on the native white background with light
-  text; options now carry the repo-standard `bg-[#121212] text-foreground` so
-  they are readable. No doc change — style fix only.
-- **feat(graph): n8n-style Graph Studio workspace and canvas UX.** Replaced the
-  cramped sidebar-tabs/right-rail layout with a full-bleed mode (app top bar and
-  sidebar hidden while active), a **Workflows home** gallery (search, templates,
-  prompt-to-graph, continue-editing), a slim editor header, and a collapsible
-  execution dock. Nodes are compact icon-led cards with hover actions, typed
-  ports, add-next/output "+" and run badges; edges expose insert-into-wire and
-  delete on hover. Added a Tab/"+" node search overlay filtered by port
-  compatibility, right-click menus, duplicate/copy/paste/select-all shortcuts,
-  and a wider Parameters/Settings/Output inspector (last-run output is read-only
-  from persisted runs). Compound edits are pure validated patches in the new
-  `edit-ops.ts`; IR/compiler/runtime/authorization contracts are unchanged.
-  Operator runs now use an explicit authorization dialog instead of
-  `window.confirm`. Docs: `docs/graph-studio.md`, `docs/NAVIGATION.md`.
-- **fix(graph): keep the main sidebar and use the full workspace width.** The
-  app sidebar is no longer hidden in Graph Studio; it stays as the Graph Studio
-  mode panel. The workflow home is now a full-width n8n-style table (Workflows /
-  Templates tabs, search, name/description/tags/owner/version/updated columns,
-  row actions) instead of a constrained card grid. Docs:
-  `docs/graph-studio.md`, `docs/NAVIGATION.md`.
-- **feat(tables,graph): Tables page + workflow cards.** Added a top-level
-  **Tables** tab (group `both`) that lists the existing `CustomDataset` tables and
-  opens a read-only row grid with provenance/retrieved timestamps; creation stays
-  in Settings → Market Data → Custom data sources. The Graph Studio mode panel now
-  links directly to **ChatBot** and **Tables**, and the workflow home is back to
-  the full-width **card gallery**. Docs: `docs/tables.md` (new),
-  `docs/graph-studio.md`, `docs/NAVIGATION.md`.
-- **fix(graph): restore the transparent frosted editor canvas.** The workflow
-  editor no longer paints a solid canvas/header fill; the dot grid sits on the
-  shell background again and nodes use the shared `.glass-card` surface. Hover
-  toolbars/edge controls use semi-transparent theme backgrounds so they work in
-  both light and dark. Docs: `docs/graph-studio.md`.
-- **feat(tables): editable spreadsheet tables.** Tables is now a real data store,
-  not a read-only dataset browser: create a table with typed columns, edit cells,
-  add/rename/delete columns, add/delete rows and search. Stored in new
-  `DataTable`/`DataTableRow` Prisma models (JDDS), exposed through
-  `/api/tables` and `/api/tables/[id]`; connector-fed datasets remain under
-  Settings → Data Sources. Docs: `docs/tables.md` (rewritten).
-- **feat(overview): Agentic Overview workflow dashboard.** Added an **Overview**
-  nav tab in Agentic mode with the workflow card gallery, New workflow / templates
-  / prompt-to-graph, and continue-editing. Opening or creating a workflow switches
-  to the Graph Studio editor. Docs: `docs/agentic-overview.md` (new), `docs/NAVIGATION.md`.
-- **fix(nav): Graph Studio uses the standard sidebar.** Removed the dedicated
-  Graph-mode Workflows panel: `graph-studio` is now a normal Agentic nav item,
-  so the sidebar lists ChatBot / Overview / Graph Studio / Tables like every other
-  page. `Alt+G` still opens Graph Studio (inside Agentic). Clicking Tables no
-  longer forces a mode switch. Docs: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
-  `docs/tables.md`.
-- **fix(nav,ui): Terminal boot fallback and consistent buttons.** A stored retired
-  `graph` mode is ignored and hydration falls back to Terminal; the new Overview /
-  Graph Studio / Tables surfaces now use the shared `Button` component (default /
-  outline / ghost / destructive variants) instead of one-off button chrome.
-  no doc change � retired-mode fallback + UI consistency only.
-- **fix(shell): collapsed sidebar keeps its icons.** When the sidebar is
-  collapsed, the Terminal / Agentic / Bots mode switcher becomes a compact icon
-  rail instead of disappearing, and the standard nav list keeps every page icon
-  reachable. no doc change � layout fix only.
-- **fix(bots): bot and group chats read chronologically again.** Threads were
-  rendered newest-first, so a question appeared below its own answer and new
-  turns jumped to the top. Both the bot chat and group room now render oldest →
-  newest, keep the thinking indicator at the bottom, and autoscroll the newest
-  message (including streamed text) into view. no doc change � presentation fix.
-
-- **fix(bots): QA hardening pass across Bots mode, deletion, delegation and scheduling.**
-  Bots are now identified by the `bot` tag (monitors tagged `bot`/`monitor`), so
-  jobs and event rules no longer appear in the Bots list, `bot_list`, the `@`
-  palette or the run watcher. The Schedule editor preserves event/condition
-  triggers instead of downgrading them to manual, and no longer wipes unsaved
-  edits on the 20s background hydrate. Deleting a bot now purges its private
-  memory through both the UI route and `bot_delete`, clears its thread/face and
-  removes it from rooms; group deletion purges member buckets too. Streaming bot
-  and group replies update memory only and persist once at the end. Switching
-  bots/rooms mid-stream remounts and aborts the old turn; retry is limited to the
-  latest failed reply; delegated turns no longer duplicate the prompt; parallel
-  approvals are keyed per approval id; group delegation honours the chosen model;
-  duplicate mention targets are collapsed; bots duplicate their model and run
-  policies. Also fixed the bot composer's global-model leak (interactive turns
-  use the bot's pinned model), group mentions using the shared parser, duplicate
-  names resolving to all matches, the Details avatar ignoring uploaded photos,
-  denied tools/tags rendering, mode-exit navigation, the missing sidebar
-  scheduler button, the finance starter pack being unreachable, and the first-run
-  unread seed. Docs updated: `docs/NAVIGATION.md`,
-  `docs/harness/automation-engine.md`.
-
-- **fix(nav): final navigation shape.** Graph Studio is its own top-level mode
-  again (mode switcher + `Alt+G` + mobile) but renders the STANDARD nav list, not
-  a custom Workflows panel. A fresh shell boots Terminal; a tab that chose a mode
-  keeps it for that session. Tables is Agentic-only (not shown in Terminal or
-  Graph mode). The collapsed sidebar does not show a mode-icon rail. This
-  supersedes the earlier same-day navigation notes above. Docs:
-  `docs/graph-studio.md`, `docs/tables.md`, `docs/NAVIGATION.md`.
-
-- **fix(nav): Overview and Tables are Graph-mode pages only.** Removed them
-  from the Agentic and Terminal menus; each mode now shows only its own pages
-  (plus the shared ChatBot). Docs: `docs/graph-studio.md`, `docs/tables.md`,
-  `docs/agentic-overview.md`, `docs/NAVIGATION.md`.
-
-- **fix(graph): cleaner workflow gallery.** The workflow gallery header is the
-  same on Overview and Graph Studio home — the redundant Home button and the
-  "Agentic workspace" eyebrow are gone. Workflow cards are rebuilt as taller
-  frosted cards with a status-accented icon, hover arrow, aligned metadata and a
-  separated action footer; template tiles match the same language. no doc change
-  — presentation only (the gallery contract is unchanged).
-
-- **refactor(graph): one Graph-mode page — Overview.** Retired the separate
-  Graph Studio nav tab (desktop sidebar, mobile bar, SDK nav manifest). Overview
-  now hosts the whole workspace: gallery in place, and opening/creating a
-  workflow switches that same page into the editor (back returns to the gallery).
-  Old `?tab=graph-studio` links alias to Overview. Overview is pinned directly
-  below ChatBot in Graph mode (desktop + mobile), regardless of saved custom
-  order. Docs: `docs/graph-studio.md`, `docs/agentic-overview.md`,
-  `docs/NAVIGATION.md`.
-
-- **fix(shell): stale chunks self-heal and Graph tabs preload.** Added a
-  `ChunkReloadGuard` that reloads once when a lazily-imported screen's chunk is
-  missing after a rebuild (this was why an old tab could open Graph Studio to a
-  blank page), and warmed the Graph Studio / Overview / Tables chunks while the
-  shell is idle so mode switches are immediate. no doc change — runtime
-  robustness/perf only.
-
-- **feat(graph): header on the gallery, full-bleed editor.** The app top bar is
-  visible on Overview again and is hidden only while the in-place graph editor
-  is open (the workspace reports its internal view to the shell). Docs:
-  `docs/graph-studio.md`.
-
-- **style(overview): use the theme accent for gallery icons and hover.**
-  Workflow-card and template icon tiles, hover borders, top hairline, arrows,
-  tag tints and “Open editor” now use the live `primary` (accent) token instead
-  of hard-coded sky blue, so they follow the user's theme. no doc change — style
-  only.
-
-- **fix(graph): canvas interaction is now industry-standard.** Single click
-  selects a node and **double-click opens the inspector** (n8n/Figma); box select
-  is **Shift+drag only** (Alt/right-drag removed); the pane uses grab/grabbing
-  and crosshair cursors; and the zoom controls include a **? Canvas shortcuts**
-  panel. Left-drag/Space/middle pan and wheel zoom are unchanged. Docs:
-  `docs/graph-studio.md`.
-
-- **fix(graph): n8n-style canvas gestures.** Box selection now works with
-  **Shift+drag** (React Flow's n8n default) in addition to Alt+drag and
-  right-drag; left-drag on the pane pans, wheel zooms, Space/middle-drag pans,
-  Ctrl/Cmd+click multi-selects. Docs: `docs/graph-studio.md`.
-
-- **feat(graph,nav): right-side node library, Workflows mode, glass node
-  material.** The add-node search now opens as a 400px right-side `glass-drawer`
-  (portaled, search + categories + keyboard nav, closes after insertion). The
-  mode formerly labelled Graph Studio is now **Workflows**; the editor header
-  uses an **Overview** breadcrumb back to the gallery and the sidebar footer
-  shows the active mode instead of always “Terminal”. Node cards use a new
-  `.node-card` layered glass material (true page blur is impossible inside React
-  Flow’s transformed viewport). Docs: `docs/graph-studio.md`,
-  `docs/NAVIGATION.md`.
-
-- **feat(graph): center-stage Start workflow button.** The editor now shows a
-  prominent run control centered at the bottom of the canvas. It executes the
-  saved version, and turns into **Save & run** when the graph has unsaved edits;
-  it is disabled with a reason when unsaved/invalid. Docs: `docs/graph-studio.md`.
-
-- **fix(graph): right-drag marquee + cleaner node cards.** Right-button drag on
-  the pane now draws a marquee and selects overlapping nodes (a plain right-click
-  still opens the pane context menu; Alt+drag remains). Removed the colored
-  accent bar along the left edge of every node. Docs: `docs/graph-studio.md`.
-
-- **feat(graph): port-row node cards.** Nodes are now 244px cards with an
-  identity header (icon + name + category) and one always-visible 26px row per
-  typed port, so multi-output nodes (If/else: Value / True / False / Result) grow
-  in height with labels beside their handles instead of hiding them behind a
-  hover overlay. Add-next stays a hover `+` clear of the port; wire drag still
-  works. no doc change — node presentation only.
-
-- **fix(graph): output handles are wireable again.** The invisible "add next
-  step" `+` button sat on top of each output port and swallowed the pointer-down,
-  so dragging a wire never started a connection. It is moved clear of the port
-  (and still appears on hover). no doc change — interaction bug fix.
-
-- **fix(theme): Custom theme tile is selectable again.** The unsaved/saved
-  "Custom theme" tile is now a real button: it applies an unsaved draft, or
-  returns to the saved custom theme after browsing a preset (instead of looking
-  dead / committing the preset under the custom label). no doc change — UI fix.
-
-- **feat(graph): editor affordances + roomier nodes.** Replaced the native
-  execution-mode `<select>` with the shared glass dropdown (fixes the broken
-  dark popup), surfaced **Tidy up layout** as a canvas-control button, added a
-  persistent **Add node** button on the canvas's right edge, and widened node
-  cards (214px) with an icon tile, tighter-but-roomier text hierarchy and larger
-  hover actions. Docs: `docs/graph-studio.md`.
-
-- **feat(graph): full-bleed Graph mode + redesigned editor header.** Graph mode
-  (Overview and its in-place editor) hides the app top bar. The editor header is
-  now 48px with a content-sized workflow name (no more stretched input), a dirty
-  dot, version chip, labeled execution-mode pill, grouped undo/redo and
-  issues/save/test actions. Docs: `docs/graph-studio.md`.
-
-- **fix(graph): pan by default, Alt+drag to box-select.** Canvas drag now pans
-  (the cursor stays in move mode); holding `Alt` while dragging draws the
-  marquee selection box. Node click-vs-drag inspector behaviour is unchanged.
-  Docs: `docs/graph-studio.md`.
-
-- **fix(graph): card hit targets and canvas selection.** A workflow card is now
-  one full-card click target (the footer/whitespace included; delete stays
-  separate), with a pointer cursor. The canvas draws a marquee selection when
-  dragging empty space (middle-mouse/Space pans). Clicking a node opens the
-  inspector; dragging it no longer does. React Flow now owns selection during
-  pointer interaction and the store mirror only applies programmatic changes,
-  fixing a `Maximum update depth` crash during marquee. Docs:
-  `docs/graph-studio.md`.
-

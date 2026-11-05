@@ -20,6 +20,8 @@ export interface MonthlyWrapped {
     profitFactor: number;
     expectancy: number;
     maxDrawdown: number;
+    /** False when no trade in the month carried a stop-derived R basis. */
+    rAvailable: boolean;
   };
   bestSetup: DimensionRow | null;
   bestMarket: DimensionRow | null;
@@ -53,6 +55,7 @@ export function buildMonthlyWrapped(trades: TradeRecord[], year: number, month: 
       profitFactor: perf.profitFactor,
       expectancy: perf.expectancy,
       maxDrawdown: perf.maxDrawdown,
+      rAvailable: perf.rAvailable,
     },
     bestSetup: setups.length > 0 ? setups[0] : null,
     bestMarket: symbols.length > 0 ? symbols[0] : null,

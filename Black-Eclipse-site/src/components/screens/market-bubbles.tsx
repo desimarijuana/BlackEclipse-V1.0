@@ -19,6 +19,7 @@ import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { useActiveInterval } from '@/hooks/use-active-interval';
 import { Search, Sparkles, Orbit, RefreshCw, ZoomIn, ZoomOut, ArrowUpDown, Filter, Gauge, Sliders, TrendingUp } from '@/lib/icons';
 import { TopLoader } from '@/components/ui/top-loader';
+import { PageHeader } from '@/components/layout/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 import { VolumeAnalyticsPanel } from './volume-analytics';
 import {
@@ -180,9 +181,9 @@ class PhysicsBubble {
 
     if (this.data.changePercent > 0) {
       // Translucent bright green branding outline
-      fillColor = 'rgba(122, 255, 120, 0.12)';
-      strokeColor = 'rgba(122, 255, 120, 0.35)';
-      labelColor = '#7aff78';
+      fillColor = 'rgba(180, 255, 66, 0.12)';
+      strokeColor = 'rgba(180, 255, 66, 0.35)';
+      labelColor = '#b4ff42';
     } else if (this.data.changePercent < 0) {
       // Translucent crimson red outline
       fillColor = 'rgba(255, 74, 74, 0.12)';
@@ -894,20 +895,15 @@ export function MarketBubbles({ onAnalyzeTicker, active = true }: MarketBubblesP
       <div ref={rootRef} data-keyboard-scope="Market bubbles" className="flex-1 w-full px-4 md:px-8 py-6 space-y-6 flex flex-col pb-20 select-none overflow-y-auto">
         
         {/* Title Header Section */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/20 pb-4 shrink-0">
-          <div>
-            <h1 className="font-serif text-3xl md:text-4xl font-medium tracking-tight text-foreground flex items-center gap-3">
-              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-                <Orbit className="text-primary animate-spin-slow" size={30} />
-              </span>
-              Market Bubbles
-            </h1>
-            <p className="text-muted-foreground text-xs mt-1">
-              Live turnover map from JDDS — every bubble is a real priced instrument, sized by 24h traded value.
-            </p>
-          </div>
-
-          <div className="flex items-center justify-end gap-3 flex-wrap ml-auto">
+        <PageHeader
+          icon={Orbit}
+          title="Market Bubbles"
+          description="Live turnover map from JDDS — every bubble is a real priced instrument, sized by 24h traded value."
+          size="lg"
+          iconClassName="animate-spin-slow"
+          className="animate-fade-in-up pb-4 border-border/20 shrink-0"
+          actions={
+            <div className="flex items-center justify-end gap-3 flex-wrap">
             {/* Market Selector — the same market list the heatmaps use. */}
             <div className="flex items-center gap-2 glass-card-subtle p-1.5 rounded-3xl border border-border/40 shrink-0">
               <span className="text-[10px] uppercase font-bold text-muted-foreground/80 px-2 tracking-wider">Market:</span>
@@ -952,8 +948,9 @@ export function MarketBubbles({ onAnalyzeTicker, active = true }: MarketBubblesP
                 className="w-full glass-card-subtle border border-border/40 rounded-xl pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/60 transition-all font-mono"
               />
             </div>
-          </div>
-        </div>
+            </div>
+          }
+        />
 
         {/* Filters Banner (Row 1) */}
         <div className="flex flex-wrap items-center gap-4 glass-card-subtle border border-white/5 rounded-2xl p-4 shrink-0 text-xs">

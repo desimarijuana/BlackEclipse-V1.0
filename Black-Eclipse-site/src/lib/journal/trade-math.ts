@@ -101,3 +101,38 @@ export function classifyResult(r: number): "win" | "loss" | "breakeven" {
   if (r < 0) return "loss";
   return "breakeven";
 }
+
+/**
+ * True when the trade carries a usable R basis (a stop loss was known and the
+ * risk per unit is positive). Broker-imported trades almost never have one —
+ * MT5 deal history does not carry SL — so R metrics are unavailable for them.
+ */
+export function hasRBasis(t: { riskAmount: number | null }): boolean {
+  return t.riskAmount != null && t.riskAmount > 0;
+}
+
+/**
+ * Outcome classification with an honest fallback: R when the trade has a risk
+ * basis, otherwise the sign of the net P&L. A +$53.60 trade is a win even
+ * though no stop was captured; a −$0.79 trade is a loss. Breakeven requires an
+ * exactly-zero result on the basis in use.
+ */
+export function classifyTradeOutcome(t: {
+  rMultiple: number;
+  riskAmount: number | null;
+  pnl: number;
+}): "win" | "loss" | "breakeven" {
+  if (hasRBasis(t)) return classifyResult(t.rMultiple);
+  if (t.pnl > 0) return "win";
+  if (t.pnl < 0) return "loss";
+  return "breakeven";
+}
+
+/**
+ * R is measurable only for a CLOSED trade with a positive risk basis. An open
+ * position may carry a stop from the broker snapshot, but its R is unrealized,
+ * so it must not render as `+0.00R`.
+ */
+export function isRMeasurable(t: { riskAmount: number | null; status?: string | null }): boolean {
+  return t.status !== "open" && hasRBasis(t);
+}

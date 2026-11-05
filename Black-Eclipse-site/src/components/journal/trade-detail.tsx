@@ -6,6 +6,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { X, Activity, Layers, ImagePlus, Trash2, PencilLine, Check, History } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { TradeRecord } from '@/lib/journal/types';
+import { classifyTradeOutcome, isRMeasurable } from '@/lib/journal/trade-math';
+import { fmtPrice } from '@/lib/journal/format';
 import { TradeReplayChart, type ReplayBar, type ReplayTrade } from './trade-replay';
 import { fmtR, fmtMoney } from './charts/echarts-container';
 import { AiReview } from './ai-review';
@@ -33,6 +35,20 @@ interface SimilarTrade {
   score: number;
 }
 
+interface BrokerFill {
+  id: string;
+  dealTicket: number;
+  side: string;
+  entry: string;
+  volume: number;
+  price: number;
+  commission: number;
+  swap: number;
+  profit: number;
+  comment: string | null;
+  dealtAt: string;
+}
+
 export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetailProps) {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -41,16 +57,23 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
   const [series, setSeries] = useState<ReplayBar[]>([]);
   const [marketContext, setMarketContext] = useState<MarketContext | null>(null);
   const [similar, setSimilar] = useState<SimilarTrade[]>([]);
-  const [similarStats, setSimilarStats] = useState<{ winRate: number; averageR: number; count: number } | null>(null);
+  const [similarStats, setSimilarStats] = useState<{ winRate: number; averageR: number; count: number; hasR: boolean } | null>(null);
   const [screenshots, setScreenshots] = useState<{ id: string; url: string; phase?: string | null; caption?: string | null }[]>([]);
   const [shotUrl, setShotUrl] = useState('');
   const [shotPhase, setShotPhase] = useState('during');
   const [executions, setExecutions] = useState<{ id: string; kind: string; detail: string | null; createdAt: string }[]>([]);
+  const [fills, setFills] = useState<BrokerFill[]>([]);
 
   const loadExecutions = useCallback(async () => {
     const res = await fetch(`/api/journal/trades/${trade.id}/executions`);
     const data = await res.json();
     setExecutions(data.executions ?? []);
+  }, [trade.id]);
+
+  const loadFills = useCallback(async () => {
+    const res = await fetch(`/api/journal/trades/${trade.id}/fills`);
+    const data = await res.json();
+    setFills(data.fills ?? []);
   }, [trade.id]);
 
   const loadScreenshots = useCallback(async () => {
@@ -118,11 +141,15 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
           .slice(0, 6);
         setSimilar(scored);
         if (scored.length > 0) {
-          const rValues = scored.map((s) => s.trade.rMultiple);
-          const wins = scored.filter((s) => s.trade.rMultiple > 0).length;
+          const rTrades = scored.map((s) => s.trade).filter((t) => isRMeasurable(t));
+          const wins = scored.filter((s) => classifyTradeOutcome(s.trade) === 'win').length;
           setSimilarStats({
             winRate: wins / scored.length,
-            averageR: rValues.reduce((a, b) => a + b, 0) / rValues.length,
+            averageR:
+              rTrades.length > 0
+                ? rTrades.reduce((a, t) => a + t.rMultiple, 0) / rTrades.length
+                : 0,
+            hasR: rTrades.length > 0,
             count: scored.length,
           });
         }
@@ -135,6 +162,7 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadScreenshots(); }, [loadScreenshots]);
   useEffect(() => { void loadExecutions(); }, [loadExecutions]);
+  useEffect(() => { void loadFills(); }, [loadFills]);
 
   const replayTrade: ReplayTrade = {
     symbol: trade.symbol,
@@ -146,6 +174,7 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
     entryTime: trade.entryTime,
     exitTime: trade.exitTime,
     rMultiple: trade.rMultiple,
+    hasR: isRMeasurable(trade),
     mfe: trade.mfe,
     mae: trade.mae,
   };
@@ -159,14 +188,21 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
             <h2 className="font-serif text-lg font-semibold text-foreground">{trade.symbol}</h2>
             <span className={trade.direction === 'LONG' ? 'text-emerald-400' : 'text-rose-400'}>{trade.direction}</span>
             <span className="font-mono text-xs text-muted-foreground">{trade.exitTime.slice(0, 10)}</span>
+            {trade.source === 'broker' && (
+              <span className="rounded-md border border-primary/25 bg-primary/10 px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-widest text-primary">
+                Broker
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setEditing((v) => !v)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-accent/30 px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-primary transition-all cursor-pointer"
-            >
-              <PencilLine size={12} /> {editing ? 'Cancel' : 'Edit'}
-            </button>
+            {trade.source !== 'broker' && (
+              <button
+                onClick={() => setEditing((v) => !v)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-accent/30 px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:text-primary transition-all cursor-pointer"
+              >
+                <PencilLine size={12} /> {editing ? 'Cancel' : 'Edit'}
+              </button>
+            )}
             <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer">
               <X size={16} />
             </button>
@@ -201,11 +237,24 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
           </div>
         )}
 
+        {trade.source === 'broker' && (
+          <p className="mb-4 rounded-xl border border-primary/15 bg-primary/[0.04] px-3 py-2 text-[10px] text-muted-foreground">
+            {trade.pnlBasis === 'computed'
+              ? 'Execution prices come from the broker; P&L is computed from its fills (FIFO) and refreshed on sync.'
+              : 'Execution prices, costs and P&L are owned by the broker and refreshed on sync.'}
+            {' '}Your notes, emotion, grade and checklist stay yours.
+          </p>
+        )}
+
         {/* Key stats */}
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 mb-4">
-          <Stat label="Entry" value={String(trade.entry)} />
-          <Stat label="Exit" value={String(trade.exit)} />
-          <Stat label="R" value={fmtR(trade.rMultiple)} tone={trade.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
+          <Stat label="Entry" value={fmtPrice(trade.entry)} />
+          <Stat label="Exit" value={fmtPrice(trade.exit)} />
+          {isRMeasurable(trade) ? (
+            <Stat label="R" value={fmtR(trade.rMultiple)} tone={trade.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
+          ) : (
+            <Stat label="R" value="UNAVAILABLE" />
+          )}
           <Stat label="Duration" value={fmtDuration(trade.durationSec)} />
           <Stat label="Gross P&L" value={fmtMoney(trade.grossPnl)} />
           <Stat label="Costs" value={trade.commission + trade.fee > 0 ? fmtMoney(-(trade.commission + trade.fee)) : '—'} tone={trade.commission + trade.fee > 0 ? 'text-rose-400' : undefined} />
@@ -254,7 +303,7 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
               <h3 className="font-serif text-sm font-semibold text-foreground">Similar Historical Trades</h3>
               {similarStats && (
                 <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-                  {similarStats.count} trades · {(similarStats.winRate * 100).toFixed(0)}% win · avg {fmtR(similarStats.averageR)}
+                  {similarStats.count} trades · {(similarStats.winRate * 100).toFixed(0)}% win{similarStats.hasR ? ` · avg ${fmtR(similarStats.averageR)}` : ''}
                 </span>
               )}
             </div>
@@ -266,7 +315,9 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
                   </span>
                   <span className="flex items-center gap-3">
                     <span className="font-mono text-muted-foreground/60">{Math.round(s.score * 100)}% match</span>
-                    <span className={cn('font-mono font-bold', s.trade.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{fmtR(s.trade.rMultiple)}</span>
+                    <span className={cn('font-mono font-bold', (isRMeasurable(s.trade) ? s.trade.rMultiple : s.trade.pnl) >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+                      {isRMeasurable(s.trade) ? fmtR(s.trade.rMultiple) : fmtMoney(s.trade.pnl)}
+                    </span>
                   </span>
                 </div>
               ))}
@@ -277,11 +328,62 @@ export function TradeDetail({ trade, allTrades, onClose, onChanged }: TradeDetai
         {/* AI trade review */}
         <div className="mb-4">
           <AiReview
-            query={`Review this trade: ${trade.symbol} ${trade.direction} entry ${trade.entry} exit ${trade.exit} R ${trade.rMultiple.toFixed(2)}. Give a verdict, what went well, concerns, and how it compares to similar trades.`}
+            query={`Review this trade: ${trade.symbol} ${trade.direction} entry ${fmtPrice(trade.entry)} exit ${fmtPrice(trade.exit)} ${isRMeasurable(trade) ? `R ${trade.rMultiple.toFixed(2)}` : 'R unavailable (no stop captured)'} net P&L ${trade.pnl.toFixed(2)}. Give a verdict, what went well, concerns, and how it compares to similar trades.`}
             tradeId={trade.id}
             buttonLabel="AI Trade Review"
           />
         </div>
+
+        {/* Broker fills — the exact deals behind this trade (scale-ins/outs) */}
+        {fills.length > 0 && (
+          <div className="rounded-2xl bg-white/[0.02] p-4 mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <History size={14} className="text-primary" />
+              <h3 className="font-serif text-sm font-semibold text-foreground">Broker Fills</h3>
+              <span className="ml-auto font-mono text-[10px] text-muted-foreground">
+                {fills.length} deal{fills.length === 1 ? '' : 's'} · broker ticket {trade.brokerPositionTicket ?? '—'}
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="text-left font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
+                    <th className="py-1 pr-3 font-normal">Time</th>
+                    <th className="py-1 pr-3 font-normal">Deal</th>
+                    <th className="py-1 pr-3 font-normal">Tag</th>
+                    <th className="py-1 pr-3 font-normal">Side</th>
+                    <th className="py-1 pr-3 text-right font-normal">Volume</th>
+                    <th className="py-1 pr-3 text-right font-normal">Price</th>
+                    <th className="py-1 pr-3 text-right font-normal">Comm.</th>
+                    <th className="py-1 pr-3 text-right font-normal">Swap</th>
+                    <th className="py-1 text-right font-normal">Profit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fills.map((fill) => (
+                    <tr key={fill.id} className="border-t border-white/5 font-mono">
+                      <td className="py-1.5 pr-3 text-muted-foreground whitespace-nowrap">
+                        {new Date(fill.dealtAt).toLocaleString()}
+                      </td>
+                      <td className="py-1.5 pr-3 text-muted-foreground">#{fill.dealTicket}</td>
+                      <td className="py-1.5 pr-3 uppercase text-muted-foreground">{fill.entry.replace(/_/g, ' ')}</td>
+                      <td className={cn('py-1.5 pr-3 uppercase', fill.side === 'buy' ? 'text-emerald-400' : 'text-rose-400')}>
+                        {fill.side}
+                      </td>
+                      <td className="py-1.5 pr-3 text-right">{fill.volume}</td>
+                      <td className="py-1.5 pr-3 text-right">{fmtPrice(fill.price)}</td>
+                      <td className="py-1.5 pr-3 text-right text-muted-foreground">{fill.commission ? fmtMoney(fill.commission) : '—'}</td>
+                      <td className="py-1.5 pr-3 text-right text-muted-foreground">{fill.swap ? fmtMoney(fill.swap) : '—'}</td>
+                      <td className={cn('py-1.5 text-right', fill.profit >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+                        {fill.profit ? fmtMoney(fill.profit) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Execution history — stop/target moves, partial exits, edits */}
         {executions.length > 0 && (

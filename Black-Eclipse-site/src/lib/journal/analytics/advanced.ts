@@ -16,7 +16,7 @@ import type {
   TradeRecord,
   YearReport,
 } from "../types";
-import { classifyResult } from "../trade-math";
+import { classifyTradeOutcome } from "../trade-math";
 import { sortTrades } from "./performance";
 
 /** Per-calendar-month performance (closed trades, UTC). */
@@ -32,7 +32,7 @@ export function monthlyReturns(trades: TradeRecord[]): MonthlyReturn[] {
   return [...groups.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([month, group]) => {
-      const wins = group.filter((t) => classifyResult(t.rMultiple) === "win");
+      const wins = group.filter((t) => classifyTradeOutcome(t) === "win");
       return {
         month,
         trades: group.length,
@@ -53,7 +53,7 @@ export function rollingPerformance(trades: TradeRecord[], window = 20): RollingP
   const points: RollingPoint[] = [];
   for (let i = window - 1; i < closed.length; i++) {
     const slice = closed.slice(i - window + 1, i + 1);
-    const wins = slice.filter((t) => classifyResult(t.rMultiple) === "win").length;
+    const wins = slice.filter((t) => classifyTradeOutcome(t) === "win").length;
     const netR = slice.reduce((s, t) => s + t.rMultiple, 0);
     points.push({
       date: closed[i].exitTime,
@@ -94,8 +94,8 @@ export function durationBuckets(trades: TradeRecord[]): DimensionRow[] {
   return DURATION_BUCKETS.map((b, i) => {
     const min = i === 0 ? 0 : DURATION_BUCKETS[i - 1].max;
     const group = closed.filter((t) => (t.durationSec as number) > min && (t.durationSec as number) <= b.max);
-    const wins = group.filter((t) => classifyResult(t.rMultiple) === "win");
-    const losses = group.filter((t) => classifyResult(t.rMultiple) === "loss");
+    const wins = group.filter((t) => classifyTradeOutcome(t) === "win");
+    const losses = group.filter((t) => classifyTradeOutcome(t) === "loss");
     const grossWinR = wins.reduce((s, t) => s + t.rMultiple, 0);
     const grossLossR = Math.abs(losses.reduce((s, t) => s + t.rMultiple, 0));
     const netR = group.reduce((s, t) => s + t.rMultiple, 0);
@@ -114,25 +114,22 @@ export function durationBuckets(trades: TradeRecord[]): DimensionRow[] {
 }
 
 /**
- * Currency-denominated equity curve. Converts each trade's R-multiple into
- * account currency using `accountSize × riskPerTrade` as the per-trade risk,
- * then runs a running balance starting from `accountSize`. Returns [] when the
- * inputs are missing — the UI then shows an UNAVAILABLE state rather than
- * fabricating a currency curve.
+ * Currency-denominated equity curve: the running realized balance in account
+ * currency. Starts from `accountSize` when known, otherwise from 0 (cumulative
+ * P&L). This is always available — unlike the R curve, which needs a captured
+ * stop for every trade — so the Overview can fall back to it honestly.
  */
 export function currencyEquity(
   trades: TradeRecord[],
   accountSize: number | null | undefined,
-  riskPerTrade: number | null | undefined,
 ): CurrencyEquityPoint[] {
-  if (!accountSize || accountSize <= 0) return [];
-  const risk = (riskPerTrade && riskPerTrade > 0 ? riskPerTrade : 0.01) * accountSize;
+  const start = accountSize && accountSize > 0 ? accountSize : 0;
   const closed = sortTrades(trades.filter((t) => t.status === "closed"));
-  let equity = accountSize;
-  let peak = accountSize;
+  let equity = start;
+  let peak = start;
   const points: CurrencyEquityPoint[] = [];
   for (const t of closed) {
-    equity += t.rMultiple * risk;
+    equity += t.pnl;
     if (equity > peak) peak = equity;
     points.push({ date: t.exitTime, equity, drawdown: peak - equity });
   }
@@ -177,7 +174,7 @@ export function riskAlerts(
   // Losing streak.
   let streak = 0;
   for (const t of closed) {
-    if (classifyResult(t.rMultiple) === "loss") streak++;
+    if (classifyTradeOutcome(t) === "loss") streak++;
     else streak = 0;
   }
   if (streak >= 3) {
@@ -257,8 +254,8 @@ export function yearReports(trades: TradeRecord[]): YearReport[] {
     .map(([year, group]) => ({
       year,
       trades: group.length,
-      wins: group.filter((t) => classifyResult(t.rMultiple) === "win").length,
-      losses: group.filter((t) => classifyResult(t.rMultiple) === "loss").length,
+      wins: group.filter((t) => classifyTradeOutcome(t) === "win").length,
+      losses: group.filter((t) => classifyTradeOutcome(t) === "loss").length,
       netPnl: group.reduce((s, t) => s + t.pnl, 0),
       netR: group.reduce((s, t) => s + t.rMultiple, 0),
       fees: group.reduce((s, t) => s + t.commission + t.fee, 0),

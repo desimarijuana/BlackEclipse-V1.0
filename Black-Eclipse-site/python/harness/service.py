@@ -82,6 +82,13 @@ class AgenticService:
         from .app_api_tools import register_app_api_tools  # noqa: PLC0415
 
         register_app_api_tools(self.registry)
+        # Workflow authoring from chat: creates and SAVES a Graph Studio workflow
+        # through the front door (the catalog lives in JDDS/Prisma, which this
+        # runtime cannot write). The front door owns planning, validation and the
+        # store; this is only the bridge.
+        from .graph_tools import register_graph_tools  # noqa: PLC0415
+
+        register_graph_tools(self.registry)
         # A human-in-the-loop question tool. Read-permission: an answer is not an
         # authorization, and an effectful step still needs the approval card.
         from .clarify_tools import register_clarify_tools  # noqa: PLC0415
@@ -147,6 +154,14 @@ class AgenticService:
         from .portfolio.bootstrap import install_portfolio_layer  # noqa: PLC0415
 
         install_portfolio_layer(self)
+        # The General Ledger: a double-entry book of record (chart of accounts,
+        # balanced postings, periods, trial balance / balance sheet / P&L / cash
+        # flow). Boot wiring lives in `ledger/bootstrap.py`; it reuses the ONE
+        # agent-memory connection and registers its tools on the SAME registry
+        # (read + effect-authorized `ledger_write` mutations).
+        from .ledger.bootstrap import install_ledger_layer  # noqa: PLC0415
+
+        install_ledger_layer(self)
         # The Advisory Ledger: every Fiduciary Gate verdict becomes a durable
         # decision (+ basis + outcome). Boot wiring lives in `advisory/bootstrap.py`;
         # it reuses the ONE agent-memory connection and registers its read tools on
@@ -507,6 +522,12 @@ class AgenticService:
         from .artifacts.bootstrap import install_artifact_layer  # noqa: PLC0415
 
         install_artifact_layer(self)
+        # User personas (Settings → Persona): a bounded, append-only overlay on
+        # the built-in prompt, stored on the same connection. Independent of the
+        # graph layer; a failure only leaves personas unavailable.
+        from .personas import install_persona_store  # noqa: PLC0415
+
+        install_persona_store(self)
         # The Graph runtime: the compiler + deterministic executor for the
         # canonical Workflow IR the visual editor authors. Boot wiring lives in
         # `graph_runtime/bootstrap.py` (NOT `graph.py`, which is the tool loop);
@@ -1319,6 +1340,7 @@ class AgenticService:
             "mcp_manager": self.mcp, "code_store": self.code_store,
             "market": self._market_bundle(),
             "portfolio": self._portfolio_bundle(),
+            "ledger": self._ledger_bundle(),
             "advisory": getattr(self, "advisory", None),
             "quant": self._quant_bundle(),
             "project_store": getattr(self, "project_store", None),
@@ -1358,6 +1380,15 @@ class AgenticService:
         if portfolio is None:
             return None
         return PortfolioBundle(service=portfolio, store=getattr(self, "portfolio_store", None))
+
+    def _ledger_bundle(self) -> Any:
+        """The general-ledger subsystem handed to each run (service + store)."""
+        from .ledger.bootstrap import LedgerBundle  # noqa: PLC0415
+
+        ledger = getattr(self, "ledger", None)
+        if ledger is None:
+            return None
+        return LedgerBundle(service=ledger, store=getattr(self, "ledger_store", None))
 
     def run_lineage(self) -> Any:
         """The process-wide lineage/checkpoint store (Phase 1)."""

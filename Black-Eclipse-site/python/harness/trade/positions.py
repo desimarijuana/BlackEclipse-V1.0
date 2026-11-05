@@ -199,4 +199,48 @@ def modify_position(
     }
 
 
-__all__ = ["close_position", "close_positions", "modify_position"]
+def modify_order(
+    service: Any, connection_id: str, ticket: int, *,
+    price: Optional[float] = None,
+    stop_loss: Optional[float] = None,
+    take_profit: Optional[float] = None,
+) -> dict[str, Any]:
+    """Change a WORKING order's price/bracket. Risk-reducing: no approval.
+
+    Like `modify_position`, re-pricing or re-bracketing a pending order can only
+    reduce or re-scope exposure, so it needs no mandate, approval or live arm —
+    an expired arm must never leave a stale order unpriced. The order's own
+    ticket is the join key, the connection and account modes must agree, and the
+    adapter reads the order back before claiming it stored the change.
+    """
+    if price is None and stop_loss is None and take_profit is None:
+        raise TradeRefused(
+            "INVALID_REQUEST", "pass price, stopLoss and/or takeProfit", status_code=400
+        )
+    connection, adapter = _execution_adapter(service, connection_id, "modifying")
+    try:
+        try:
+            result = adapter.modify_order(
+                int(ticket), price=price,
+                stop_loss=stop_loss, take_profit=take_profit,
+            )
+        except AdapterUnavailable as exc:
+            raise TradeRefused(exc.code, exc.reason, status_code=503) from exc
+    finally:
+        _close(adapter)
+    service.connections.record_event(
+        connection.id,
+        "modify-order",
+        "ok" if result.get("ok") else "rejected",
+        {"ticket": int(ticket), "retcode": result.get("retcode"),
+         "price": result.get("price"), "verified": result.get("verified")},
+    )
+    return {
+        "available": True,
+        "modified": bool(result.get("ok")),
+        "connectionId": connection.id,
+        "result": result,
+    }
+
+
+__all__ = ["close_position", "close_positions", "modify_position", "modify_order"]

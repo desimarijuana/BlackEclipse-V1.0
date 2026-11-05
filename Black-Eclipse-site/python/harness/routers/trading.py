@@ -240,10 +240,42 @@ async def trading_events(
 
 @router.post("/trading/connections/{connection_id}/sync")
 async def trading_connection_sync(
-    connection_id: str, _: bool = Depends(require_operator),
+    connection_id: str,
+    body: dict[str, Any] = Body(default={}),
+    _: bool = Depends(require_operator),
 ) -> dict[str, Any]:
+    # `days` is an explicit read-only backfill window. Without it the reconciler
+    # keeps its small advisory cursor; with it the journal can import history.
+    raw_days = body.get("days") if isinstance(body, dict) else None
+    history_days: int | None = None
+    if raw_days is not None:
+        try:
+            history_days = int(raw_days)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="days must be an integer") from None
+        if history_days < 1 or history_days > 3650:
+            raise HTTPException(status_code=400, detail="days must be between 1 and 3650") from None
     try:
-        return _brokers().sync_connection(connection_id)
+        return _brokers().sync_connection(connection_id, history_days=history_days)
+    except KeyError:
+        raise _not_found(connection_id) from None
+
+
+@router.post("/trading/connections/{connection_id}/smoke")
+async def trading_connection_smoke(
+    connection_id: str,
+    body: dict[str, Any] = Body(default={}),
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Probe, read the broker, then run one sync. Read-only against the broker."""
+    try:
+        days = int((body or {}).get("days") or 7)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="days must be an integer") from None
+    if days < 1 or days > 90:
+        raise HTTPException(status_code=400, detail="days must be between 1 and 90") from None
+    try:
+        return _brokers().smoke_connection(connection_id, days=days)
     except KeyError:
         raise _not_found(connection_id) from None
 
@@ -260,12 +292,21 @@ async def trading_connection_reconciliation(
 
 @router.get("/trading/connections/{connection_id}/fills")
 async def trading_connection_fills(
-    connection_id: str, limit: int = 100, _: bool = Depends(require_operator),
+    connection_id: str,
+    limit: int = 100,
+    beforeDealtAt: int | None = None,
+    beforeId: int | None = None,
+    _: bool = Depends(require_operator),
 ) -> dict[str, Any]:
     try:
         return {
             "available": True,
-            "fills": _brokers().list_fills(connection_id, limit=limit),
+            "fills": _brokers().list_fills(
+                connection_id,
+                limit=limit,
+                before_dealt_at=beforeDealtAt,
+                before_id=beforeId,
+            ),
         }
     except KeyError:
         raise _not_found(connection_id) from None
@@ -363,6 +404,56 @@ async def trading_position_modify(
     except (TypeError, ValueError):
         raise _refusal(
             TradeRefused("INVALID_STOPS", "stopLoss/takeProfit must be numbers")
+        ) from None
+    except KeyError:
+        raise _not_found(connection_id) from None
+    except TradeRefused as exc:
+        raise _refusal(exc) from None
+
+
+@router.get("/trading/connections/{connection_id}/symbols/{symbol}")
+async def trading_symbol_info(
+    connection_id: str,
+    symbol: str,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Static symbol facts (trade mode, contract, volume limits, sessions)."""
+    try:
+        return _brokers().symbol_info(connection_id, symbol)
+    except KeyError:
+        raise _not_found(connection_id) from None
+    except TradeRefused as exc:
+        raise _refusal(exc) from None
+
+
+@router.post("/trading/connections/{connection_id}/orders/{ticket}/modify")
+async def trading_order_modify(
+    connection_id: str,
+    ticket: int,
+    body: dict[str, Any] = Body(default={}),
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Re-price/re-bracket a WORKING order. Risk-reducing: no approval."""
+    values = {key: body.get(key) for key in ("price", "stopLoss", "takeProfit")}
+    if all(value is None for value in values.values()):
+        raise _refusal(
+            TradeRefused("INVALID_REQUEST", "pass price, stopLoss and/or takeProfit")
+        )
+    try:
+        return _brokers().modify_order(
+            connection_id,
+            ticket,
+            price=float(values["price"]) if values["price"] is not None else None,
+            stop_loss=(
+                float(values["stopLoss"]) if values["stopLoss"] is not None else None
+            ),
+            take_profit=(
+                float(values["takeProfit"]) if values["takeProfit"] is not None else None
+            ),
+        )
+    except (TypeError, ValueError):
+        raise _refusal(
+            TradeRefused("INVALID_REQUEST", "price/stopLoss/takeProfit must be numbers")
         ) from None
     except KeyError:
         raise _not_found(connection_id) from None

@@ -32,11 +32,49 @@ def _worker_outcome(ctx: Any, status: str, output: Any = None, error: Optional[s
 
 
 async def _ml_handler(ctx: Any) -> Any:
-    """Fabric handler: run one training experiment with the job's cancel event."""
+    """Fabric handler: run one training experiment, comparison or search.
+
+    The job input carries `mode` ("experiment" by default), so the arena and the
+    hyperparameter search get the SAME isolation, timeout, cancellation and
+    progress as a single training run — without a second worker or a second
+    pipeline.
+    """
     from . import service as S  # noqa: PLC0415
 
     payload = dict(ctx.job.input or {})
-    ctx.report_progress(0.0, "starting training")
+    mode = str(payload.get("mode") or "experiment")
+    ctx.report_progress(0.0, f"starting {mode}")
+
+    if mode in ("compare", "search"):
+        runner = S.compare_models if mode == "compare" else S.search_hyperparameters
+        try:
+            result = await runner(payload, owner=payload.get("owner"),
+                                  cancel_event=ctx.cancel_event,
+                                  progress=ctx.report_progress)
+        except Exception as exc:  # noqa: BLE001 - a failure is a job failure, not a crash
+            code = getattr(exc, "code", "ML_ERROR")
+            if code == "CANCELLED":
+                return _worker_outcome(ctx, "cancelled", error="cancelled by operator",
+                                       error_class="CANCELLED")
+            if code == "TIME_BUDGET_EXCEEDED":
+                return _worker_outcome(ctx, "timed_out", error=str(exc),
+                                       error_class="TIME_BUDGET_EXCEEDED")
+            return _worker_outcome(ctx, "failed", error=str(exc), error_class=code)
+        comparison = result.get("comparison") or {}
+        ranking = (comparison.get("ranking") or [])[:5]
+        summary = {
+            "status": "completed", "mode": mode,
+            "winner": comparison.get("winner"),
+            "note": comparison.get("note"),
+            "primaryMetric": comparison.get("primaryMetric"),
+            "ranking": ranking,
+            "runs": result.get("runs"),
+            "best": result.get("best"),
+            "trials": len(result.get("trials") or []),
+            "stoppedReason": result.get("stoppedReason"),
+        }
+        return _worker_outcome(ctx, "succeeded", output=summary)
+
     outcome = await S.run_experiment_job(
         payload, owner=payload.get("owner"),
         cancel_event=ctx.cancel_event, progress=ctx.report_progress,
@@ -104,12 +142,37 @@ async def submit_ml_experiment(payload: dict[str, Any], *, owner: Optional[str] 
     manager = _manager()
     cfg = get_ml_config()
     job_payload = dict(payload)
+    job_payload["mode"] = "experiment"
     if owner:
         job_payload["owner"] = owner
     return await manager.submit(
         ML_JOB_TYPE, job_payload, mode=mode,
         timeout_ms=timeout_ms or cfg.worker_timeout_ms,
         metadata={"source": "ml", "kind": "experiment"},
+    )
+
+
+async def submit_ml_composite(payload: dict[str, Any], *, kind: str,
+                              owner: Optional[str] = None,
+                              timeout_ms: Optional[int] = None) -> dict[str, Any]:
+    """Enqueue a comparison ("compare") or a hyperparameter search ("search").
+
+    Same worker, same isolation and cancellation as training; the job output is a
+    COMPACT summary (ranking / best config), because the Fabric output column is
+    bounded and the full results already live in the store.
+    """
+    if kind not in ("compare", "search"):
+        raise ValueError(f"unknown composite ML job kind {kind!r}")
+    manager = _manager()
+    cfg = get_ml_config()
+    job_payload = dict(payload)
+    job_payload["mode"] = kind
+    if owner:
+        job_payload["owner"] = owner
+    return await manager.submit(
+        ML_JOB_TYPE, job_payload, mode="BACKGROUND",
+        timeout_ms=timeout_ms or cfg.worker_timeout_ms,
+        metadata={"source": "ml", "kind": kind},
     )
 
 

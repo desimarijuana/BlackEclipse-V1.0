@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import {
-  BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps,
+  BaseEdge, EdgeLabelRenderer, getStraightPath, type EdgeProps,
 } from '@xyflow/react';
 import { Plus, Trash2 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
@@ -21,12 +21,12 @@ export interface EclipseEdgeData extends Record<string, unknown> {
 }
 
 export function EclipseEdge({
-  id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
+  id, sourceX, sourceY, targetX, targetY,
   style, markerEnd, selected, data,
 }: EdgeProps) {
   const [hovered, setHovered] = useState(false);
-  const [edgePath, labelX, labelY] = getBezierPath({
-    sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, curvature: 0.25,
+  const [edgePath, labelX, labelY] = getStraightPath({
+    sourceX, sourceY, targetX, targetY,
   });
   const edgeData = data as EclipseEdgeData | undefined;
   const runState = edgeData?.runState;
@@ -97,7 +97,7 @@ export function EclipseEdge({
                 event.stopPropagation();
                 (data as EclipseEdgeData | undefined)?.onInsert?.(id);
               }}
-              className="graph-accent flex h-6 w-6 items-center justify-center rounded-full border bg-background/90 shadow-md transition-colors"
+              className="graph-accent flex h-6 w-6 items-center justify-center rounded-full border border-white/25 bg-white/10 text-foreground shadow-lg backdrop-blur-md transition-colors hover:border-white/40 hover:bg-white/20"
             >
               <Plus size={12} />
             </button>
@@ -108,7 +108,7 @@ export function EclipseEdge({
                 event.stopPropagation();
                 (data as EclipseEdgeData | undefined)?.onDelete?.(id);
               }}
-              className="flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-background/90 text-muted-foreground shadow-md transition-colors hover:border-rose-400/40 hover:text-rose-300"
+              className="flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-white/10 text-muted-foreground shadow-lg backdrop-blur-md transition-colors hover:border-rose-400/40 hover:bg-white/15 hover:text-rose-300"
             >
               <Trash2 size={11} />
             </button>

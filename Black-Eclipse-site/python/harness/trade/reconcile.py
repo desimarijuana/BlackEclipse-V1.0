@@ -21,7 +21,7 @@ import os
 from contextlib import suppress
 from typing import Any, Optional
 
-from .adapter import AdapterUnavailable, TradingAdapter
+from .adapter import AdapterUnavailable, BrokerAdapter, TradingAdapter
 from .registry import make_adapter
 
 log = logging.getLogger("harness.trade.reconcile")
@@ -43,7 +43,13 @@ class BrokerReconciler:
         self.brokers = brokers
         self.store = brokers.connections
 
-    def sync(self, connection_id: str) -> dict[str, Any]:
+    def sync(self, connection_id: str, *, history_days: Optional[int] = None) -> dict[str, Any]:
+        """Refresh the mirror.
+
+        `history_days` asks for an explicit backfill window instead of the
+        advisory incremental cursor. It is read-only against the broker and
+        deduped by `(connectionId, dealTicket)`, so re-running is safe.
+        """
         connection = self.store.get(connection_id)
         if connection is None:
             raise KeyError(f"no broker connection {connection_id!r}")
@@ -55,8 +61,12 @@ class BrokerReconciler:
         try:
             positions = adapter.positions()
             working = adapter.orders()
-            fills = adapter.deals_since(self.store.last_deal_at(connection.id)) \
-                if isinstance(adapter, TradingAdapter) else []
+            if not isinstance(adapter, BrokerAdapter):
+                fills = []
+            elif history_days is not None:
+                fills = adapter.deals_window(int(history_days))
+            else:
+                fills = adapter.deals_since(self.store.last_deal_at(connection.id))
             added = self.store.save_fills(connection.id, fills)
             self.store.replace_positions(connection.id, positions)
             updated = self._reconcile_ledger(adapter, connection.id, working)

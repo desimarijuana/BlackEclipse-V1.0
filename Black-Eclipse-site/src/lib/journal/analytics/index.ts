@@ -17,6 +17,8 @@ import {
   byTimeframe,
   byRegime,
   byTrend,
+  byAccount,
+  byMagic,
   byEmotion,
 } from "./dimensions";
 import { byConfidence, confidenceCorrelation } from "./psychology";
@@ -80,6 +82,8 @@ export function computeJournalAnalytics(trades: TradeRecord[], options: Analytic
     byTimeframe: byTimeframe(trades),
     byRegime: byRegime(trades),
     byTrend: byTrend(trades),
+    byAccount: byAccount(trades),
+    byMagic: byMagic(trades),
     byEmotion: byEmotion(trades),
     byConfidence: byConfidence(trades),
     confidenceCorrelation: confidenceCorrelation(trades),
@@ -90,7 +94,7 @@ export function computeJournalAnalytics(trades: TradeRecord[], options: Analytic
     mfeMae: mfeMaeScatter(trades),
     confidenceScatter: confidenceScatter(trades),
     durationBuckets: durationBuckets(trades),
-    equityCurrency: currencyEquity(trades, options.accountSize, options.riskPerTrade),
+    equityCurrency: currencyEquity(trades, options.accountSize),
     accounts: accountSummaries(trades, options.accounts ?? []),
     riskAlerts: riskAlerts(trades, { accountSize: options.accountSize, riskPerTrade: options.riskPerTrade }),
     yearReports: yearReports(trades),

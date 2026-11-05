@@ -26,6 +26,7 @@ from . import http_client
 from .agent_nodes import build_agent_nodes
 from .dataset_nodes import build_dataset_nodes
 from .finance_nodes import build_finance_nodes
+from .node_packs import register_extra_packs
 from .quant_nodes import build_quant_nodes
 from .research_nodes import build_research_nodes
 from .table_nodes import build_table_nodes
@@ -1164,6 +1165,9 @@ def build_default_registry() -> NodeRegistry:
     # The agent node is a thin adapter over the existing run plane.
     for definition in build_agent_nodes():
         registry.register(definition)
+    # The adapter packs (skills, structured calls, primitives, memory, the
+    # committee run, outputs and the approval gate) live in `node_packs.py`.
+    register_extra_packs(registry)
     # Bounded loops (Phase 4): a body subworkflow + an explicit cap, never a
     # graph cycle.
     from .loop_nodes import build_loop_nodes  # noqa: PLC0415

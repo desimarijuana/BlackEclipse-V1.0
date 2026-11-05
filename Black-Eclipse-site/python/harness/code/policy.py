@@ -609,6 +609,14 @@ def is_automation_effect(name: str) -> bool:
     return name in AUTOMATION_EFFECT_TOOLS
 
 
+# Graph Studio authoring: `create_workflow` writes a NEW workflow document into
+# the app's catalog. It is a local write (it never runs the graph), so `plan_only`
+# and unknown autonomy remove it like any other write. The effect authorizer
+# admits it unconditionally; the front door's planner + compiler validate the
+# document before a row is written.
+GRAPH_WRITE_TOOLS: tuple[str, ...] = ("create_workflow",)
+
+
 # The scheduling tools (Phase 17, repo-mapped onto the Automation engine). Only
 # `job_create` is effectful: it writes a DISABLED finance job from the fixed
 # catalogue — it can never start work on its own (enabling stays an operator
@@ -721,7 +729,7 @@ def allowed_tools(autonomy: str, declared: tuple[str, ...]) -> tuple[str, ...]:
     unknown          → the read-only subset (fail-closed, same as code_grants)
     """
     if autonomy == "plan_only":
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS) | set(AUTOMATION_EFFECT_TOOLS) | set(ACQUISITION_WRITE_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS) | set(AUTOMATION_EFFECT_TOOLS) | set(ACQUISITION_WRITE_TOOLS) | set(GRAPH_WRITE_TOOLS)
     elif autonomy == "edit_verify":
         # Local container/process mutations stay; CLUSTER/INFRA/CLOUD mutations
         # (kubectl apply/delete/scale/exec, helm install/uninstall, terraform
@@ -734,7 +742,7 @@ def allowed_tools(autonomy: str, declared: tuple[str, ...]) -> tuple[str, ...]:
     elif autonomy == "approve_external":
         banned = set()
     else:
-        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS) | set(AUTOMATION_EFFECT_TOOLS) | set(ACQUISITION_WRITE_TOOLS)
+        banned = set(WRITE_TOOLS) | set(FS_WRITE_TOOLS) | set(EXTERNAL_ACTION_TOOLS) | set(TERMINAL_WRITE_TOOLS) | set(INTEL_WRITE_TOOLS) | set(GIT_WRITE_TOOLS) | set(GIT_EXTERNAL_TOOLS) | set(APP_RUNTIME_WRITE_TOOLS) | set(APP_RUNTIME_K8S_WRITE_TOOLS) | set(BROWSER_EFFECTFUL_TOOLS) | set(COMPUTER_EFFECTFUL_TOOLS) | set(VISION_EXTERNAL_TOOLS) | set(AUTOMATION_EFFECT_TOOLS) | set(ACQUISITION_WRITE_TOOLS) | set(GRAPH_WRITE_TOOLS)
     return tuple(t for t in declared if t not in banned)
 
 
@@ -825,6 +833,7 @@ __all__ = [
     "INTEL_WRITE_TOOLS",
     "NETWORK_DEFAULT",
     "AUTOMATION_EFFECT_TOOLS",
+    "GRAPH_WRITE_TOOLS",
     "SCHEDULING_EFFECT_TOOLS",
     "DATA_COLLECT_TOOLS",
     "ACQUISITION_PROFILES",

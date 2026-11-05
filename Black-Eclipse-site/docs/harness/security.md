@@ -31,6 +31,26 @@ why a tool was allowed, denied or held for approval.
   `agent-memory.db`, mirrored to the Event System (`security.*`) and to
   observability metrics.
 
+## Repository secret hygiene
+
+The gateway protects runtime operations; this section protects the **source
+tree**, which is the other way a credential escapes. An open-source repository
+makes one leaked key a permanent public key.
+
+- `.gitignore` excludes `.env*` (except `.env.example`), `*.db`, `.connector-key`,
+  `mcp-servers.json`, channel `secret.key`, and `.black-eclipse/`.
+- `scripts/scan-secrets.js` is the enforcement: it rejects a tracked/staged
+  secret artifact and recognisable provider tokens (OpenAI, Anthropic, GitHub,
+  AWS, Slack, Google, Stripe, npm, GitLab, HuggingFace, Telegram, private-key
+  blocks). Run it directly with `npm run check:secrets`; the pre-commit hook runs
+  it over staged blobs (`--staged`), and CI runs it over every tracked file.
+- It prints a redacted prefix only, so a finding in a log is not a second leak.
+- A finding is fixed by rotating the credential, removing the file from the
+  index (`git rm --cached`), and only then cleaning history — deleting it in a
+  later commit leaves it in every existing clone.
+- Disclosure policy and the operator checklist live in the repository-root
+  `SECURITY.md`.
+
 ## The pipeline
 
 `SecurityGateway.authorize()` evaluates a request in a fixed order; each stage can
@@ -202,7 +222,10 @@ nodes. The only local write it can grant is the whitelisted `video.render`
 exception: an operator may confirm PAPER trading,
 and only when the workflow mode is `paper` and the graph contains
 `trading.paper_order`. The compiler refuses LIVE mode, refuses an ungranted
-trading node, and refuses every trading node in a test run. `trading.paper_order`
+trading node, and refuses every trading node that has a `trading` side effect in
+a test run. `trading.risk_check` has no side effect (it only evaluates the risk
+engine), so it is allowed in a test/backtest run and can gate simulated entries
+with the same limits. `trading.paper_order`
 never contacts a broker or fetches a quote; it simulates a fill at a supplied
 price. Test runs never perform network, write or trading effects.
 

@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ShieldCheck, ShieldAlert, Lock, Trash2 } from "@/lib/icons";
+import { SectionHeader } from "./settings-ui";
 import {
   decideSecurityApproval,
   getSecurityStatus,
@@ -85,6 +86,11 @@ export function SecuritySettingsPanel() {
 
   return (
     <div className="space-y-4">
+      <SectionHeader
+        icon={ShieldCheck}
+        title="Security"
+        description="Approvals, capabilities and audit — what the agent is allowed to do, and the record of what it actually did. No secrets are ever shown."
+      />
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ShieldCheck size={18} className="text-emerald-400" />

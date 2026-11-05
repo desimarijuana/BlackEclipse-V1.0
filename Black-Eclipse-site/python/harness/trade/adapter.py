@@ -69,6 +69,25 @@ class BrokerAdapter(ABC):
     def quote(self, symbol: str) -> dict[str, Any]:
         ...
 
+    def symbol_info(self, symbol: str) -> dict[str, Any]:
+        """Static symbol facts (no tick). Default: this broker cannot report them."""
+        raise AdapterUnavailable(
+            "SYMBOL_INFO_NOT_SUPPORTED",
+            f"{self.kind or 'this broker'} cannot report symbol information",
+        )
+
+    def deals_since(self, since_ms: int) -> list[dict[str, Any]]:
+        """Deals at/after `since_ms` (server epoch ms). Default: unsupported.
+
+        History is a READ capability, not execution, so a read-only adapter may
+        implement it without claiming an order path.
+        """
+        return []
+
+    def deals_window(self, days: int) -> list[dict[str, Any]]:
+        """Deals from the last `days` days, ignoring any local cursor."""
+        return self.deals_since(0)
+
     def close(self) -> None:
         """Release any shared session. Safe to call more than once."""
 
@@ -119,9 +138,15 @@ class TradingAdapter(BrokerAdapter):
             f"{self.kind or 'this broker'} cannot modify positions",
         )
 
-    def deals_since(self, since_ms: int) -> list[dict[str, Any]]:
-        """Deals at/after `since_ms` (server epoch ms). Default: unsupported."""
-        return []
+    def modify_order(
+        self, ticket: int, price: float | None = None,
+        stop_loss: float | None = None, take_profit: float | None = None,
+    ) -> dict[str, Any]:
+        """Change a working (pending) order. Default: this broker cannot modify orders."""
+        raise AdapterUnavailable(
+            "ORDER_MODIFY_NOT_SUPPORTED",
+            f"{self.kind or 'this broker'} cannot modify working orders",
+        )
 
     def order_status(self, ticket: int) -> dict[str, Any]:
         """The broker's current/historical state for one order ticket."""

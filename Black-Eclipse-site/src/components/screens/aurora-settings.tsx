@@ -21,6 +21,7 @@ import {
   Spline, Grid3x3, Rows3, BarChart3, Blocks,
 } from "@/lib/icons";
 import { cn } from "@/lib/utils";
+import { SectionHeader } from "./settings-ui";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { resolveAuroraVisuals } from "@/lib/aurora-sentiment";
@@ -230,22 +231,17 @@ export function AuroraSettingsPanel() {
 
   return (
     <div className="animate-fade-in-up">
-      <div className="mb-6">
-        <p className="text-[10px] uppercase tracking-[0.2em] text-primary font-bold mb-2 flex items-center gap-1.5">
-          <Sparkles size={11} /> Personalize
-        </p>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 shadow-sm shadow-primary/10">
-            <Palette className="text-primary w-[18px] h-[18px]" />
-          </div>
-          <h2 className="font-serif text-lg font-semibold tracking-tight text-foreground">Aurora Colors</h2>
-        </div>
-        <p className="text-xs text-muted-foreground mt-2 leading-relaxed max-w-lg">
-          Recolor the ambient glow at the top of the terminal. Each market state has a bright
-          <span className="text-foreground"> center </span> and a deep
-          <span className="text-foreground"> edge</span> color; Aurora blends between them as sentiment moves.
-        </p>
-      </div>
+      <SectionHeader
+        icon={Palette}
+        title="Aurora Colors"
+        description={
+          <>
+            Recolor the ambient glow at the top of the terminal. Each market state has a bright
+            <span className="text-foreground"> center </span> and a deep
+            <span className="text-foreground"> edge</span> color; Aurora blends between them as sentiment moves.
+          </>
+        }
+      />
 
       {/* Live preview */}
       <div className="rounded-2xl border border-white/10 dark:border-white/5 glass-card overflow-hidden mb-4">

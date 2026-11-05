@@ -48,6 +48,10 @@ class PortType(str, Enum):
     EVIDENCE = "evidence"
     AGENT_RESULT = "agent_result"
     EXECUTION_RESULT = "execution_result"
+    # Local asset references (graph asset store / vision asset store). They
+    # carry a small metadata object, never the bytes themselves.
+    FILE = "file"
+    IMAGE = "image"
     ANY = "any"
 
 
@@ -257,12 +261,19 @@ class GraphRun(_Model):
 
 
 class DeferredWait(Exception):
-    """A durable wait node asks the run to pause instead of blocking a thread."""
+    """A durable wait node asks the run to pause instead of blocking a thread.
 
-    def __init__(self, wake_after_seconds: float, outputs: dict[str, Any]) -> None:
+    `rerun=True` is the approval-gate variant: the node has NOT finished, so it
+    is left PENDING and the resumed run re-enters it to read the decision.
+    """
+
+    def __init__(
+        self, wake_after_seconds: float, outputs: dict[str, Any], *, rerun: bool = False,
+    ) -> None:
         super().__init__(f"defer for {wake_after_seconds:.3f}s")
         self.wake_after_seconds = max(0.0, float(wake_after_seconds))
         self.outputs = outputs
+        self.rerun = bool(rerun)
 
 
 class RunStopRequest(_Model):

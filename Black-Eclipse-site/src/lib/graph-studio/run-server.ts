@@ -85,18 +85,20 @@ export async function startPersistedRun(options: {
     return { ok: false, status: 400, error: authorized.error ?? 'Run is not authorized' };
   }
 
-  // Only an agent node needs model credentials. They are resolved here from the
-  // vault and sent to the runtime IN MEMORY; the runtime excludes them from the
-  // durable Fabric job payload. A TEST run also needs them now: a model call is
-  // not a world effect, and the runtime narrows the tool surface to read-only.
+  // An agent OR a vision node needs model credentials. They are resolved here
+  // from the vault and sent to the runtime IN MEMORY; the runtime excludes them
+  // from the durable Fabric job payload. A TEST run also needs them now: a model
+  // call is not a world effect, and the runtime narrows the tool surface.
   let modelSettings: Record<string, unknown> | undefined;
-  if (authorized.summary.requiredCapabilities.includes('agent.run')) {
+  const needsModel = authorized.summary.requiredCapabilities.includes('agent.run')
+    || authorized.summary.requiredCapabilities.includes('model.vision');
+  if (needsModel) {
     const llm = await getLLMConfig();
     if (!llm || llm.provider === 'mock') {
       return {
         ok: false,
         status: 400,
-        error: 'This workflow uses an agent node, but no model provider is configured. Configure one in Settings.',
+        error: 'This workflow uses a model node, but no model provider is configured. Configure one in Settings.',
       };
     }
     modelSettings = {

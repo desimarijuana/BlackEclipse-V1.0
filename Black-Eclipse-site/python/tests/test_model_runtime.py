@@ -40,6 +40,8 @@ from harness.model_runtime import (
     UsageStore,
     build_default_registries,
     classify_exception,
+    local_endpoint,
+    provider_failure_message,
 )
 from harness.model_runtime import registry as registry_mod
 from harness.model_runtime.capability import (
@@ -227,6 +229,50 @@ def test_structured_error_has_code() -> None:
     err = classify_exception(Exception("max_tokens_exceeded"))
     assert err.raw_code is None  # message-based, no structured code
     assert err.error_class is ErrorClass.CONTEXT_OVERFLOW
+
+
+# ── actionable local-server failure text ────────────────────────────────────
+
+
+def test_local_endpoint_detects_loopback_only() -> None:
+    assert local_endpoint("http://localhost:11434/v1") == "localhost:11434"
+    assert local_endpoint("127.0.0.1:8000/v1") == "127.0.0.1:8000"
+    assert local_endpoint("https://api.openai.com/v1") is None
+    assert local_endpoint(None) is None
+    assert local_endpoint("not a url") is None
+
+
+def test_unreachable_local_provider_names_the_remedy() -> None:
+    """A stopped Ollama surfaces as "Connection error." — the operator gets the fix."""
+    message = provider_failure_message(
+        Exception("Connection error."),
+        provider_id="ollama",
+        model_id="llama3.1",
+        base_url="http://localhost:11434/v1",
+    )
+    assert "localhost:11434" in message
+    assert "ollama" in message
+    assert "not running" in message
+
+
+def test_remote_provider_message_is_unchanged() -> None:
+    message = provider_failure_message(
+        Exception("Connection error."),
+        provider_id="openai",
+        model_id="gpt-4o-mini",
+        base_url="https://api.openai.com/v1",
+    )
+    assert message == "Connection error."
+
+
+def test_non_network_local_failure_is_not_relabelled() -> None:
+    """A 401 from a local server is a credential problem, not a stopped server."""
+    exc = Exception("401 Unauthorized")
+    message = provider_failure_message(
+        exc, provider_id="ollama", base_url="http://localhost:11434/v1"
+    )
+    assert message == "401 Unauthorized"
+
 
 
 # ── health / circuit / rate limit ───────────────────────────────────────────

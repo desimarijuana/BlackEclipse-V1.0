@@ -6,6 +6,61 @@ const fs = require("fs");
 const path = require("path");
 
 const root = path.join(__dirname, "..");
+
+// `BE_DATA_DIR` moves the personal databases onto an encrypted volume
+// (scripts/setup-data-vault.ps1). Every path below — and prisma.config.ts,
+// src/lib/db.ts and the Python stores — must agree on it.
+function readDotEnvValue(key) {
+  try {
+    const text = fs.readFileSync(path.join(root, ".env"), "utf8");
+    for (const line of text.split(/\r?\n/)) {
+      const m = /^\s*([A-Za-z0-9_]+)\s*=\s*(.*)\s*$/.exec(line);
+      if (m && m[1] === key) return m[2].replace(/^["']|["']$/g, "");
+    }
+  } catch {
+    /* no .env yet */
+  }
+  return undefined;
+}
+
+const dataDir = process.env.BE_DATA_DIR
+  ? path.resolve(process.env.BE_DATA_DIR)
+  : root;
+const jddsPath = path.join(dataDir, "jdds.db");
+
+// Propagate the resolved vault paths to the child processes doctor starts
+// (db-guard in particular) BEFORE they run. Doctor is not Next and does not load
+// `.env` automatically; without this, db-guard would look at <repo>/jdds.db,
+// find nothing, and create an EMPTY database outside the encrypted volume.
+{
+  const envDataDir = process.env.BE_DATA_DIR || readDotEnvValue("BE_DATA_DIR");
+  if (envDataDir) process.env.BE_DATA_DIR = path.resolve(envDataDir);
+  if (dataDir !== root) process.env.BE_DB_PATH = jddsPath;
+}
+
+// ── Encrypted-vault guard ───────────────────────────────────────────────────
+// A locked or detached vault looks exactly like "no database yet" to every
+// later step, and `prisma db push` would happily create an EMPTY one on the
+// wrong disk. Fail closed instead: refuse to start until the volume is mounted.
+{
+  const vaultPath = process.env.BE_VAULT_PATH || readDotEnvValue("BE_VAULT_PATH");
+  const envDataDir = process.env.BE_DATA_DIR || readDotEnvValue("BE_DATA_DIR");
+  const vaultRoot = vaultPath ? path.parse(path.resolve(vaultPath)).root : null;
+  if (vaultRoot && !fs.existsSync(vaultRoot)) {
+    console.error(
+      `[setup] Encrypted data vault is not mounted (${vaultRoot} missing).\n` +
+        "  Mount/unlock your vault volume, then start again. Nothing was created or moved.",
+    );
+    process.exit(1);
+  }
+  if (envDataDir && !fs.existsSync(path.resolve(envDataDir))) {
+    console.error(
+      `[setup] BE_DATA_DIR does not exist: ${path.resolve(envDataDir)}\n` +
+        "  Unlock the vault volume, or unset BE_DATA_DIR in .env to use the repo folder.",
+    );
+    process.exit(1);
+  }
+}
 let fixed = 0;
 
 function run(cmd, opts = {}) {
@@ -61,7 +116,7 @@ if (!fs.existsSync(path.join(root, "src", "generated", "prisma", "client.js")) &
     let bindingOk = false;
     try {
       const Database = require(adapterNested);
-      const db = new Database(path.join(root, "jdds.db"), { readonly: true });
+      const db = new Database(jddsPath, { readonly: true });
       db.prepare("select 1").get();
       db.close();
       bindingOk = true;
@@ -89,7 +144,7 @@ if (!fs.existsSync(path.join(root, "src", "generated", "prisma", "client.js")) &
 }
 
 // 4. Database (committed seed should exist; create empty if clone was partial)
-if (!fs.existsSync(path.join(root, "jdds.db"))) {
+if (!fs.existsSync(jddsPath)) {
   fix("Database", "npx prisma db push");
 }
 
@@ -100,13 +155,13 @@ if (!fs.existsSync(path.join(root, "jdds.db"))) {
 //     are parsed from schema.prisma so this check never goes stale.
 {
   const schemaPath = path.join(root, "prisma", "schema.prisma");
-  const dbExists = fs.existsSync(path.join(root, "jdds.db"));
+  const dbExists = fs.existsSync(jddsPath);
   if (dbExists && fs.existsSync(schemaPath)) {
     try {
       const Database = require(path.join(root, "node_modules", "better-sqlite3"));
       const schema = fs.readFileSync(schemaPath, "utf8");
       const expected = [...schema.matchAll(/^\s*model\s+(\w+)\s*\{/gm)].map((m) => m[1]);
-      const db = new Database(path.join(root, "jdds.db"), { readonly: true });
+      const db = new Database(jddsPath, { readonly: true });
       const present = new Set(
         db.prepare("select name from sqlite_master where type = 'table'").all().map((r) => r.name)
       );
@@ -418,14 +473,30 @@ if (py) {
   if (!authRequired) {
     console.log("[setup] auth: off (single-user local; set HARNESS_AUTH=required to enforce a login)");
   } else if (secretOk) {
-    console.log("[setup] auth: required and configured");
-  } else {
+    console.log("[setup] auth: required and configured");  } else {
     console.warn(
       "[setup] auth: REQUIRED but HARNESS_AUTH_SECRET is not set; requests will fail closed (503).\n" +
       "        Set a random secret (>= 16 chars), e.g. `HARNESS_AUTH_SECRET=$(openssl rand -hex 32)`,\n" +
       "        or set HARNESS_AUTH=off to run accountless on a trusted local-only machine."
     );
   }
+}
+
+// 9. Privacy posture — make the two data-boundary settings visible at boot.
+{
+  const privacy = (process.env.ECLIPSE_PRIVACY || readDotEnvValue("ECLIPSE_PRIVACY") || "").trim();
+  const localModels = /local/i.test(privacy);
+  console.log(
+    localModels
+      ? "[setup] privacy: local-models (remote model endpoints are refused)"
+      : "[setup] privacy: any configured provider (set ECLIPSE_PRIVACY=local-models to block cloud models)",
+  );
+  const vault = process.env.BE_VAULT_PATH || readDotEnvValue("BE_VAULT_PATH");
+  console.log(
+    vault
+      ? `[setup] data: encrypted vault at ${vault}`
+      : "[setup] data: repo folder (not encrypted at rest - see docs/data-and-privacy.md)",
+  );
 }
 
 if (fixed > 0) console.log(`[setup] done — ${fixed} item(s) fixed.`);

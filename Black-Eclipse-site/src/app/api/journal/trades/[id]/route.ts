@@ -18,10 +18,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ success: true, trade });
   } catch (err) {
     console.error("[api/journal/trades] PATCH error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to update trade" },
-      { status: 500 },
-    );
+    const status = (err as { status?: unknown }).status;
+    // 409 is the deliberate broker-ownership refusal; everything else is
+    // internal and must not leak a Prisma message to the client.
+    if (status === 409) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "This trade is broker-owned" },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ error: "Failed to update trade" }, { status: 500 });
   }
 }
 

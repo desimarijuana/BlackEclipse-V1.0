@@ -474,7 +474,10 @@ def test_prompt_char_ceiling():
     # Re-pinned 41619->41829 for the broker-data guidance (`broker_bars` and ATR
     # for a symbol the stored universe does not cover). May only shrink from here.
     # Re-pinned 41829->41967 for the partial-close / modify guidance.
-    assert len(prompt) <= 41967, f"prompt grew to {len(prompt)} chars"
+    # Re-pinned 41967->42960 for the ML workflow guidance (chat named no ML tool, so
+    # the agent never composed the dataset -> plan -> train -> compare/register/predict
+    # -> drift path). Re-pinned to the measured size; may only shrink from here.
+    assert len(prompt) <= 42960, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

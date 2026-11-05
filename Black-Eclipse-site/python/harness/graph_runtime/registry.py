@@ -87,6 +87,10 @@ class NodeExecContext:
     # browser, MCP or broker tools while it can still reason and read locally.
     allow_network: bool = False
     test_run: bool = False
+    # True for an operator run (the reduced test envelope is False). The skill
+    # runtime's actor carries this so an operator-authored permission set is
+    # honoured — and a test run never widens it.
+    operator: bool = False
     # Which of THIS node's wired control inputs fired (keyed by input port id).
     # A gate can then express an AND ("every wired branch arrived") without the
     # scheduler special-casing node types. Empty when nothing is wired.
@@ -317,6 +321,13 @@ def validate_port_value(port_type: PortType, value: Any) -> Optional[str]:
         PortType.EXECUTION_RESULT,
     ):
         return None if isinstance(value, dict) else f"expected a {port_type.value} object"
+    if port_type in (PortType.FILE, PortType.IMAGE):
+        if isinstance(value, dict) and any(
+            isinstance(value.get(key), str) and value.get(key)
+            for key in ("assetId", "asset_id", "ref")
+        ):
+            return None
+        return f"expected a {port_type.value} reference ({{ assetId, name, ... }})"
     return f"unknown port type {port_type.value}"
 
 

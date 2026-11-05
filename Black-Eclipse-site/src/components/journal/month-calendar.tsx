@@ -14,6 +14,8 @@
 import React, { useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import type { TradeRecord } from '@/lib/journal/types';
+import { hasRBasis, isRMeasurable } from '@/lib/journal/trade-math';
+import { fmtMoney } from '@/lib/journal/format';
 import { fmtR } from './charts/echarts-container';
 
 interface MonthCalendarProps {
@@ -27,11 +29,33 @@ const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MAX_TRADES = 3;
 const WEEK_COL = 'w-[64px]';
 
+// One rule everywhere in the grid: show R only when every trade in the group
+// carries a stop-derived R basis; otherwise show the realized P&L, which is
+// always truthful. This keeps broker imports (no SL in MT5 deal history) from
+// rendering a meaningless "+0.00R".
+function groupShowsR(group: TradeRecord[]): boolean {
+  return group.length > 0 && group.every(isRMeasurable);
+}
+function groupValue(group: TradeRecord[]): number {
+  return groupShowsR(group)
+    ? group.reduce((s, t) => s + t.rMultiple, 0)
+    : group.reduce((s, t) => s + t.pnl, 0);
+}
+function groupLabel(group: TradeRecord[]): string {
+  return groupShowsR(group)
+    ? fmtR(group.reduce((s, t) => s + t.rMultiple, 0))
+    : fmtMoney(group.reduce((s, t) => s + t.pnl, 0));
+}
+function tradeLabel(t: TradeRecord): string {
+  if (t.status === 'open') return 'open';
+  return isRMeasurable(t) ? fmtR(t.rMultiple) : fmtMoney(t.pnl);
+}
+
 // The day's fill reads profit/loss: a soft brand wash for a green day, bearish
 // for a red one, neutral for empty days.
-function cellClass(netR: number | null): string {
-  if (netR === null) return 'cal-cell';
-  return netR >= 0 ? 'cal-cell cal-cell--pos' : 'cal-cell cal-cell--neg';
+function cellClass(value: number | null): string {
+  if (value === null) return 'cal-cell';
+  return value >= 0 ? 'cal-cell cal-cell--pos' : 'cal-cell cal-cell--neg';
 }
 
 export function MonthCalendar({ trades, year, month, onSelectDay }: MonthCalendarProps) {
@@ -68,9 +92,10 @@ export function MonthCalendar({ trades, year, month, onSelectDay }: MonthCalenda
   const isoOf = (day: number | null) => (day === null ? null : iso(day));
   const todayKey = new Date().toISOString().slice(0, 10);
 
-  const monthNetR = useMemo(() => trades
-    .filter((t) => t.exitTime.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`))
-    .reduce((s, t) => s + t.rMultiple, 0), [trades, year, month]);
+  const monthTrades = useMemo(
+    () => trades.filter((t) => t.exitTime.startsWith(`${year}-${String(month + 1).padStart(2, '0')}`)),
+    [trades, year, month],
+  );
 
   return (
     <div className="cal-shell rounded-2xl p-2.5 sm:p-3">
@@ -94,7 +119,7 @@ export function MonthCalendar({ trades, year, month, onSelectDay }: MonthCalenda
         {weeks.map((week, wi) => {
           const weekDays = week.filter((d): d is number => d !== null).map(isoOf);
           const weekTrades = weekDays.flatMap((k) => (k ? byDay.get(k) ?? [] : []));
-          const weekNetR = weekTrades.reduce((s, t) => s + t.rMultiple, 0);
+          const weekValue = weekTrades.length > 0 ? groupValue(weekTrades) : null;
           const weekHasTrades = weekTrades.length > 0;
 
           return (
@@ -106,7 +131,7 @@ export function MonthCalendar({ trades, year, month, onSelectDay }: MonthCalenda
                 const dateKey = iso(day);
                 const dayTrades = byDay.get(dateKey) ?? [];
                 const hasTrades = dayTrades.length > 0;
-                const netR = dayTrades.reduce((s, t) => s + t.rMultiple, 0);
+                const dayValue = hasTrades ? groupValue(dayTrades) : null;
                 const isToday = dateKey === todayKey;
                 const dow = new Date(Date.UTC(year, month, day)).getUTCDay();
                 const isWeekend = dow === 0 || dow === 6;
@@ -117,16 +142,16 @@ export function MonthCalendar({ trades, year, month, onSelectDay }: MonthCalenda
                     type="button"
                     onClick={() => onSelectDay(dateKey)}
                     title={hasTrades
-                      ? `${dateKey} · ${dayTrades.length} trade${dayTrades.length > 1 ? 's' : ''} · ${fmtR(netR)}`
+                      ? `${dateKey} · ${dayTrades.length} trade${dayTrades.length > 1 ? 's' : ''} · ${groupLabel(dayTrades)}`
                       : dateKey}
                     className={cn(
                       'group relative flex min-h-[96px] flex-col rounded-xl p-2 text-left',
-                      cellClass(hasTrades ? netR : null),
+                      cellClass(dayValue),
                       isWeekend && !hasTrades && 'cal-cell--muted',
                       isToday && 'ring-1 ring-primary/60',
                     )}
                   >
-                    {/* Date number + day net R */}
+                    {/* Date number + day result */}
                     <div className="flex items-center justify-between">
                       <span
                         className={cn(
@@ -138,21 +163,21 @@ export function MonthCalendar({ trades, year, month, onSelectDay }: MonthCalenda
                       >
                         {day}
                       </span>
-                      {hasTrades && (
-                        <span className={cn('font-mono text-[10px] font-semibold tabular-nums', netR >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-                          {fmtR(netR)}
+                      {hasTrades && dayValue !== null && (
+                        <span className={cn('font-mono text-[10px] font-semibold tabular-nums', dayValue >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+                          {groupLabel(dayTrades)}
                         </span>
                       )}
                     </div>
 
-                    {/* Trades taken that day — plain symbol · R rows, no chip bg */}
+                    {/* Trades taken that day — plain symbol · result rows, no chip bg */}
                     {hasTrades && (
                       <div className="mt-1.5 flex flex-col gap-[2px] overflow-hidden">
                         {dayTrades.slice(0, MAX_TRADES).map((t) => (
                           <div key={t.id} className="flex items-center justify-between gap-1 leading-tight">
                             <span className="truncate font-mono text-[9px] text-foreground/65">{t.symbol}</span>
-                            <span className={cn('shrink-0 font-mono text-[9px] font-semibold tabular-nums', t.rMultiple >= 0 ? 'text-emerald-400/90' : 'text-rose-400/90')}>
-                              {fmtR(t.rMultiple)}
+                            <span className={cn('shrink-0 font-mono text-[9px] font-semibold tabular-nums', (hasRBasis(t) ? t.rMultiple : t.pnl) >= 0 ? 'text-emerald-400/90' : 'text-rose-400/90')}>
+                              {tradeLabel(t)}
                             </span>
                           </div>
                         ))}
@@ -172,17 +197,17 @@ export function MonthCalendar({ trades, year, month, onSelectDay }: MonthCalenda
                 className={cn(
                   'flex flex-col items-center justify-center rounded-xl px-1 text-center',
                   WEEK_COL,
-                  weekHasTrades
-                    ? weekNetR >= 0
+                  weekValue !== null
+                    ? weekValue >= 0
                       ? 'cal-cell cal-cell--pos'
                       : 'cal-cell cal-cell--neg'
                     : 'cal-cell cal-cell--muted',
                 )}
-                title={weekHasTrades ? `${weekTrades.length} trades this week · ${fmtR(weekNetR)}` : 'No trades this week'}
+                title={weekHasTrades ? `${weekTrades.length} trades this week · ${groupLabel(weekTrades)}` : 'No trades this week'}
               >
                 <span className="font-mono text-[8px] uppercase tracking-[0.16em] text-muted-foreground/45">W{wi + 1}</span>
-                <span className={cn('font-mono text-[11px] font-semibold tabular-nums', weekHasTrades ? (weekNetR >= 0 ? 'text-emerald-400' : 'text-rose-400') : 'text-muted-foreground/35')}>
-                  {weekHasTrades ? fmtR(weekNetR) : '—'}
+                <span className={cn('font-mono text-[11px] font-semibold tabular-nums', weekHasTrades && weekValue !== null ? (weekValue >= 0 ? 'text-emerald-400' : 'text-rose-400') : 'text-muted-foreground/35')}>
+                  {weekHasTrades ? groupLabel(weekTrades) : '—'}
                 </span>
                 {weekHasTrades && (
                   <span className="font-mono text-[8px] text-muted-foreground/45">{weekTrades.length}t</span>
@@ -203,8 +228,8 @@ export function MonthCalendar({ trades, year, month, onSelectDay }: MonthCalenda
         <span className="ml-auto text-muted-foreground/45">
           Click a day to open its journal
         </span>
-        <span className={cn('font-semibold tabular-nums', monthNetR >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-          Month {fmtR(monthNetR)}
+        <span className={cn('font-semibold tabular-nums', groupValue(monthTrades) >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+          Month {monthTrades.length > 0 ? groupLabel(monthTrades) : '—'}
         </span>
       </div>
     </div>

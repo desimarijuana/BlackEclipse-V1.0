@@ -17,3 +17,8 @@
 node_modules/
 /_backups/
 /opencode/
+
+# Root-level runtime state written by a launcher started at the repository root
+# (`.black-eclipse/channels/secret.key` is a generated channel-encryption key).
+# Never commit it; the app's own directory has its own `/.black-eclipse/` rule.
+/.black-eclipse/

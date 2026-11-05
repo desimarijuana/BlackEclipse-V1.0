@@ -19,6 +19,7 @@ import {
   RiskCard,
   SectorRotationCard,
 } from './home-alpha-insights';
+import { TradingCard } from './home-trading-cards';
 import {
   FeedCard,
   GreetingHeader,
@@ -37,7 +38,7 @@ import {
 type SectionKey =
   | 'feed' | 'health' | 'week' | 'pulse' | 'results' | 'leaders' | 'research'
   | 'sector' | 'record' | 'attribution' | 'actions' | 'sessions' | 'risk'
-  | 'fx' | 'rotation' | 'relative' | 'alerts';
+  | 'fx' | 'rotation' | 'relative' | 'alerts' | 'trading';
 
 const SECTION_LABELS: Record<SectionKey, string> = {
   attribution: "What moved your book",
@@ -51,6 +52,7 @@ const SECTION_LABELS: Record<SectionKey, string> = {
   relative: 'Relative to benchmark',
   fx: 'Currency exposure',
   week: 'This week for you',
+  trading: 'Trading · broker & edge',
   results: 'Results season',
   leaders: 'Leaders you don’t hold',
   research: 'Research on your holdings',
@@ -59,9 +61,9 @@ const SECTION_LABELS: Record<SectionKey, string> = {
   alerts: 'Alerts',
 };
 
-const INVESTOR_ORDER: SectionKey[] = ['attribution', 'feed', 'health', 'week', 'research', 'sector', 'results', 'pulse', 'rotation', 'risk', 'relative', 'leaders', 'record', 'fx', 'sessions', 'alerts'];
-const TRADER_ORDER: SectionKey[] = ['pulse', 'rotation', 'actions', 'attribution', 'leaders', 'relative', 'feed', 'health', 'sessions', 'week', 'results', 'risk', 'research', 'sector', 'record', 'fx', 'alerts'];
-const BOTH_ORDER: SectionKey[] = ['attribution', 'feed', 'health', 'actions', 'week', 'pulse', 'rotation', 'results', 'leaders', 'relative', 'research', 'sector', 'risk', 'fx', 'sessions', 'record', 'alerts'];
+const TRADER_ORDER: SectionKey[] = ['trading', 'pulse', 'rotation', 'actions', 'attribution', 'leaders', 'relative', 'feed', 'health', 'sessions', 'week', 'results', 'risk', 'research', 'sector', 'record', 'fx', 'alerts'];
+const INVESTOR_ORDER: SectionKey[] = ['attribution', 'feed', 'health', 'week', 'research', 'sector', 'results', 'pulse', 'rotation', 'risk', 'relative', 'leaders', 'record', 'fx', 'sessions', 'trading', 'alerts'];
+const BOTH_ORDER: SectionKey[] = ['attribution', 'feed', 'health', 'actions', 'trading', 'week', 'pulse', 'rotation', 'results', 'leaders', 'relative', 'research', 'sector', 'risk', 'fx', 'sessions', 'record', 'alerts'];
 
 export function HomeDashboardScreen({ active = true }: { active?: boolean }) {
   const data = useHomeData(active);
@@ -136,6 +138,7 @@ export function HomeDashboardScreen({ active = true }: { active?: boolean }) {
     rotation: <SectorRotationCard data={data} />,
     relative: <RelativePerformanceCard data={data} />,
     alerts: <AlertsStripCard data={data} />,
+    trading: <TradingCard />,
   };
 
   return (

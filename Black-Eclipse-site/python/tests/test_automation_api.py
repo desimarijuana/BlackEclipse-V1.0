@@ -166,8 +166,10 @@ def test_monitor_catalogue_is_listed(client):
     res = client.get("/automations/monitors")
     assert res.status_code == 200
     monitors = res.json()["monitors"]
-    assert len(monitors) == 4
-    assert {m["id"] for m in monitors} >= {"cash_buffer_watch", "concentration_watch"}
+    # 4 portfolio shapes + 3 ledger shapes.
+    assert len(monitors) == 7
+    assert {m["id"] for m in monitors} >= {"cash_buffer_watch", "concentration_watch",
+                                           "ledger_close_blocked"}
 
 
 def test_a_monitor_is_created_switched_off(client):

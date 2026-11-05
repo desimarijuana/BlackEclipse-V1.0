@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Check, ChevronDown, ChevronLeft, GitBranch, MoreHorizontal, Play, Redo2, Save, Undo2, WarningCircle, X,
+  Check, ChevronDown, ChevronLeft, GitBranch, MoreHorizontal, Play, Redo2, Save, Sparkles, Undo2, WarningCircle, X,
 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useGraphEditor } from '@/lib/graph-studio/editor-store';
@@ -40,9 +40,10 @@ import { HistoryPanel } from './history-panel';
 import { GraphHealthPanel } from './graph-health-panel';
 import { GraphHome } from './graph-home';
 import { RunAuthorizationDialog } from './run-authorization-dialog';
+import { AssistantPanel } from './assistant-panel';
 
 type WorkspaceView = 'home' | 'editor';
-type RightPanel = 'node' | 'issues' | 'history' | 'health' | null;
+type RightPanel = 'node' | 'issues' | 'history' | 'health' | 'assistant' | null;
 const MODES: ExecutionMode[] = ['research', 'backtest', 'paper', 'live'];
 
 export function GraphStudioScreen({
@@ -175,7 +176,7 @@ export function GraphStudioScreen({
   // node leaves a single-node selection or another panel is pinned open.
   const singleSelectedId = selection.nodeIds.length === 1 ? selection.nodeIds[0] : null;
   useEffect(() => {
-    if (rightPanel === 'issues' || rightPanel === 'history' || rightPanel === 'health') return;
+    if (rightPanel === 'issues' || rightPanel === 'history' || rightPanel === 'health' || rightPanel === 'assistant') return;
     if (singleSelectedId && singleSelectedId === inspectedNodeId) {
       if (rightPanel !== 'node') setRightPanel('node');
     } else if (rightPanel === 'node') {
@@ -514,6 +515,17 @@ export function GraphStudioScreen({
           <span className="mx-0.5 h-4 w-px bg-white/10" />
           <Button
             type="button"
+            variant={rightPanel === 'assistant' ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => setRightPanel((panel) => (panel === 'assistant' ? null : 'assistant'))}
+            title="Workflow assistant"
+            className="gap-1.5"
+          >
+            <Sparkles size={12} />
+            <span className="hidden sm:inline">Assistant</span>
+          </Button>
+          <Button
+            type="button"
             variant={rightPanel === 'issues' ? 'secondary' : 'ghost'}
             size="sm"
             onClick={() => setRightPanel((panel) => (panel === 'issues' ? (selection.nodeIds.length === 1 ? 'node' : null) : 'issues'))}
@@ -663,6 +675,9 @@ export function GraphStudioScreen({
                   setInspectedNodeId(null);
                 }}
               />
+            )}
+            {rightPanel === 'assistant' && (
+              <AssistantPanel onClose={() => setRightPanel(null)} />
             )}
             {rightPanel === 'issues' && (
               <div className="flex h-full flex-col">

@@ -52,6 +52,8 @@ class TargetBody(BaseModel):
     neutralBand: float = 0.0
     nClasses: int = 3
     column: str = "target"
+    # Only for kind="column" (records datasets): regression | classification.
+    task: Optional[str] = None
 
 
 class DatasetBody(BaseModel):
@@ -60,6 +62,8 @@ class DatasetBody(BaseModel):
     owner: Optional[str] = None
     datasetId: Optional[str] = None
     version: Optional[str] = None
+    # "market" (symbols via the gateway) or "records" (operator-supplied rows).
+    source: str = "market"
     symbols: list[str] = Field(default_factory=list)
     interval: str = "1d"
     start: Optional[str] = None
@@ -69,6 +73,10 @@ class DatasetBody(BaseModel):
     missingPolicy: str = "drop"
     minCoverage: float = 0.5
     assetClass: str = "equity"
+    # records only: the rows, and optional time/id columns for provenance.
+    records: Optional[list[dict[str, Any]]] = None
+    timeColumn: Optional[str] = None
+    idColumn: Optional[str] = None
 
 
 class SplitBody(BaseModel):
@@ -91,6 +99,8 @@ class ExperimentBody(BaseModel):
     selection: dict[str, Any] = Field(default_factory=lambda: {"method": "none"})
     split: SplitBody = Field(default_factory=SplitBody)
     seed: int = 42
+    # "none" | "platt" | "isotonic" — fitted on out-of-fold predictions only.
+    calibration: str = "none"
     registerModel: bool = False
     background: bool = False
     name: Optional[str] = None
@@ -112,6 +122,17 @@ class PredictBody(BaseModel):
 @router.get("/capabilities")
 async def ml_capabilities(_: bool = Depends(require_operator)) -> dict[str, Any]:
     return S.engine_capabilities()
+
+
+class PlanBody(BaseModel):
+    datasetId: Optional[str] = None
+    datasetVersion: Optional[str] = None
+    rows: Optional[int] = None
+    features: Optional[int] = None
+    task: Optional[str] = None
+    classCount: Optional[int] = None
+    preference: str = "balanced"
+    seed: int = 42
 
 
 @router.get("/datasets")
@@ -152,9 +173,43 @@ async def ml_dataset_version(dataset_id: str, version: str,
             "manifest": manifest}
 
 
+@router.get("/datasets/{dataset_id}/versions/{version}/export")
+async def ml_export_dataset(dataset_id: str, version: str, format: str = "csv",
+                            limit: int = 10_000,
+                            _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """The dataset version as portable CSV/JSONL text (bounded, truncation stated)."""
+    try:
+        return S.export_dataset(dataset_id, version, fmt=format, limit=limit)
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
 @router.get("/experiments")
 async def ml_experiments(limit: int = 50, _: bool = Depends(require_operator)) -> dict[str, Any]:
     return {"experiments": S.list_experiments(limit=limit)}
+
+
+@router.post("/plan")
+async def ml_plan(body: PlanBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Plan a model recipe — no training, no metric claim."""
+    try:
+        return S.plan_model(body.model_dump())
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+class CompareBody(BaseModel):
+    datasetId: str
+    datasetVersion: str
+    families: list[str] = Field(default_factory=list)
+    hyperparameters: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    selection: dict[str, Any] = Field(default_factory=lambda: {"method": "none"})
+    split: SplitBody = Field(default_factory=SplitBody)
+    seed: int = 42
+    scale: bool = True
+    owner: Optional[str] = None
+    # Run on the Execution Fabric worker instead of inside the request.
+    background: bool = False
 
 
 @router.post("/experiments")
@@ -165,6 +220,46 @@ async def ml_run_experiment(body: ExperimentBody, _: bool = Depends(require_oper
             return {"background": True, "job": job}
         result = await S.execute_experiment(body.model_dump(), owner=body.owner)
         return result
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+class SearchBody(BaseModel):
+    datasetId: str
+    datasetVersion: str
+    modelFamily: str
+    grid: dict[str, list[Any]] = Field(default_factory=dict)
+    maxTrials: int = 8
+    maxSeconds: float = 300.0
+    selection: dict[str, Any] = Field(default_factory=lambda: {"method": "none"})
+    split: SplitBody = Field(default_factory=SplitBody)
+    seed: int = 42
+    scale: bool = True
+    calibration: str = "none"
+    owner: Optional[str] = None
+    background: bool = False
+
+
+@router.post("/compare")
+async def ml_compare(body: CompareBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Train several families on one dataset with one validation design, then compare."""
+    try:
+        if body.background:
+            job = await S.submit_compare_background(body.model_dump(), owner=body.owner)
+            return {"background": True, "job": job}
+        return await S.compare_models(body.model_dump(), owner=body.owner)
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.post("/search")
+async def ml_search(body: SearchBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Grid/random hyperparameter search over one family, on the same folds."""
+    try:
+        if body.background:
+            job = await S.submit_search_background(body.model_dump(), owner=body.owner)
+            return {"background": True, "job": job}
+        return await S.search_hyperparameters(body.model_dump(), owner=body.owner)
     except Exception as exc:  # noqa: BLE001
         raise _http(exc) from exc
 
@@ -251,11 +346,43 @@ async def ml_transition(model_id: str, body: TransitionBody,
         raise _http(exc) from exc
 
 
+class DriftBody(BaseModel):
+    version: Optional[str] = None
+    datasetId: str
+    datasetVersion: str
+
+
 @router.get("/models/{model_id}/verify")
 async def ml_verify(model_id: str, version: Optional[str] = None,
                     _: bool = Depends(require_operator)) -> dict[str, Any]:
     try:
         return S.verify_model_artifact(model_id, version)
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+class EnsembleBody(BaseModel):
+    name: str = "ensemble"
+    members: list[dict[str, Any]] = Field(default_factory=list)
+    owner: Optional[str] = None
+
+
+@router.post("/ensembles")
+async def ml_create_ensemble(body: EnsembleBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Register an ensemble of already-trained models (mean of their predictions)."""
+    try:
+        return S.create_ensemble(body.model_dump(), owner=body.owner)
+    except Exception as exc:  # noqa: BLE001
+        raise _http(exc) from exc
+
+
+@router.post("/models/{model_id}/drift")
+async def ml_model_drift(model_id: str, body: DriftBody,
+                         _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """Compare the model's training data with a later dataset version (PSI/KS)."""
+    try:
+        return S.model_drift(model_id, dataset_id=body.datasetId,
+                             dataset_version=body.datasetVersion, version=body.version)
     except Exception as exc:  # noqa: BLE001
         raise _http(exc) from exc
 

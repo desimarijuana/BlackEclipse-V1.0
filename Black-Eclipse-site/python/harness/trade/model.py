@@ -42,7 +42,7 @@ SECRET_KEYS: frozenset[str] = frozenset({
 #: keys, but the store only persists this set so a typo cannot silently vanish.
 ALLOWED_CONFIG_KEYS: frozenset[str] = frozenset({
     "terminalPath", "portable", "login", "server", "magic", "symbolMap",
-    "symbols", "bridgeUrl", "bridgeSecretRef", "baseUrl", "accountId",
+    "symbols", "bridgeUrl", "bridgeSecretRef", "baseUrl", "dataUrl", "accountId",
     "host", "port", "clientId", "credentialRef", "notes",
     # P1 demo-execution limits (all optional; 0/empty = off).
     "maxMargin", "maxVolume", "maxOpenPositions", "maxSpreadPoints",

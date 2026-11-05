@@ -22,60 +22,19 @@ from ..quant.risk import RiskContext, RiskEngine
 from ..quant.strategy import RiskRules
 from .model import ExecutionMode, PortDef, PortType, SideEffect
 from .registry import ConfigField, NodeDef, NodeExecContext
+from .trading_common import MAX_QUANTITY, number_input, order_intent, order_price
+from .trading_store import claim_guard, release_guard, set_paper_store
 
-_PAPER = (ExecutionMode.PAPER,)
+#: Ledger statuses that mean the order never reached the broker. A guard slot is
+#: released for these so a refusal does not burn the day/key; `REJECTED` and
+#: `UNKNOWN` are NOT here — both may have reached the broker, so the slot stays.
+_NOT_SENT = frozenset({"REFUSED", "CONFIRMATION_REQUIRED", "COOLING_OFF"})
+
 _BROKER = (ExecutionMode.PAPER, ExecutionMode.LIVE)
 # A risk check has no side effect, so it is meaningful in a backtest too: the
 # same limits that gate a live order should gate a simulated one.
 _RISK = tuple(ExecutionMode)
-MAX_QUANTITY = 1_000_000_000.0
-
-_paper_store: Any = None
-
-
-def set_paper_store(store: Any) -> None:
-    global _paper_store
-    _paper_store = store
-
-
-def _require_paper_store() -> Any:
-    if _paper_store is None:
-        raise ValueError("the paper account store is not configured in this runtime")
-    return _paper_store
-
-
-def _intent(context: NodeExecContext) -> dict[str, Any]:
-    raw = context.inputs.get("intent")
-    if not isinstance(raw, dict):
-        raise ValueError("an order intent is required on the intent input")
-    symbol = str(raw.get("symbol") or "").strip().upper()
-    side = str(raw.get("side") or "").strip().lower()
-    if not symbol:
-        raise ValueError("the order intent needs a symbol")
-    if side not in ("buy", "sell"):
-        raise ValueError("the order intent side must be buy or sell")
-    try:
-        quantity = float(raw.get("quantity"))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("the order intent quantity must be a number") from exc
-    if not 0 < quantity <= MAX_QUANTITY:
-        raise ValueError(f"the order intent quantity must be in (0, {MAX_QUANTITY:g}]")
-    out = dict(raw)
-    out.update({"symbol": symbol, "side": side, "quantity": quantity})
-    return out
-
-
-def _price(context: NodeExecContext, intent: dict[str, Any]) -> float:
-    raw = context.inputs.get("price", context.config.get("price"))
-    if raw is None:
-        raw = intent.get("price")
-    try:
-        price = float(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("price is required: wire a quote/number in or set the node's price") from exc
-    if price <= 0:
-        raise ValueError("price must be greater than zero")
-    return price
+_ALL_MODES = tuple(ExecutionMode)
 
 
 def _optional_pct(value: Any) -> float | None:
@@ -99,19 +58,6 @@ def _risk_rules(config: dict[str, Any]) -> RiskRules:
         allow_long=bool(config.get("allowLong", True)),
         allow_short=bool(config.get("allowShort", True)),
     )
-
-
-def _number_input(context: NodeExecContext, handle: str) -> float | None:
-    """A wired number, or None. A non-numeric wire is a node data error."""
-    raw = context.inputs.get(handle)
-    if raw is None or raw == "":
-        return None
-    if isinstance(raw, bool):
-        raise ValueError(f"{handle} must be a number, not a boolean")
-    try:
-        return float(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{handle} must be a number") from exc
 
 
 def _account_payload(raw: Any) -> dict[str, Any]:
@@ -144,8 +90,8 @@ def _first_number(source: dict[str, Any], *keys: str) -> float | None:
 
 
 def exec_risk_check(context: NodeExecContext) -> dict[str, Any]:
-    intent = _intent(context)
-    price = _price(context, intent)
+    intent = order_intent(context)
+    price = order_price(context, intent)
     config = context.config
     account = _account_payload(context.inputs.get("account"))
     positions_wired = context.inputs.get("positions") is not None
@@ -161,7 +107,7 @@ def exec_risk_check(context: NodeExecContext) -> dict[str, Any]:
         default: float,
         derived: tuple[str, float | None] | None = None,
     ) -> float:
-        wired = _number_input(context, name)
+        wired = number_input(context, name)
         if wired is not None:
             state[name] = {"value": wired, "source": "input"}
             return wired
@@ -235,7 +181,19 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
     stops the order here, so wiring the gate to the intent alone can never send
     an order the gate refused.
     """
-    intent = _intent(context)
+    intent = order_intent(context)
+    if bool(context.config.get("dryRun")):
+        # A dry run is the preview path: broker order_check + policy +
+        # guardrails, no send and no approval row.
+        preview = exec_order_preview(context)
+        return {
+            "result": preview["result"],
+            "status": "PREVIEW_ALLOWED" if preview["allowed"] else "PREVIEW_REFUSED",
+            "orderId": "",
+            "ok": preview["allowed"],
+            "skipped": False,
+            "reason": preview["reason"],
+        }
     decision = context.inputs.get("decision")
     if isinstance(decision, dict) and decision.get("allowed") is False:
         reasons = [str(reason) for reason in (decision.get("reasons") or [])]
@@ -247,6 +205,7 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
             "status": "REJECTED",
             "orderId": "",
             "ok": False,
+            "skipped": False,
             "reason": "; ".join(reasons) or "risk decision not allowed",
         }
     connection_id = str(context.config.get("connectionId") or "").strip()
@@ -258,10 +217,23 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
             "a mandateId is required for an unattended broker order; create one in "
             "Settings › Trading"
         )
+    scope = f"broker:{connection_id}"
+    claimed, guard_key = claim_guard(context, scope)
+    if not claimed:
+        context.emit("broker order skipped: this idempotency key was already used")
+        return {
+            "result": {"status": "SKIPPED", "sent": False},
+            "status": "SKIPPED",
+            "orderId": "",
+            "ok": False,
+            "skipped": True,
+            "reason": "this node already sent an order for the same key/period",
+        }
     from ..trade.bootstrap import get_service  # noqa: PLC0415 - avoids an import cycle
 
     service = get_service()
     if service is None:
+        release_guard(scope, guard_key)
         raise ValueError("broker connectivity is unavailable in this runtime")
 
     payload = dict(intent)
@@ -278,6 +250,10 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
         node_id=context.node_id,
     )
     status = str(result.get("status") or "UNKNOWN")
+    if status in _NOT_SENT:
+        # The service refused before a send (policy, guardrail, confirmation or
+        # cooling-off), so nothing reached the broker: give the slot back.
+        release_guard(scope, guard_key)
     reasons = [str(reason) for reason in (result.get("reasons") or [])]
     ok = status in ("filled", "placed")
     if status in ("filled", "placed", "unknown"):
@@ -289,75 +265,157 @@ def exec_broker_order(context: NodeExecContext) -> dict[str, Any]:
         "status": status,
         "orderId": str(result.get("orderId") or ""),
         "ok": ok,
+        "skipped": False,
         "reason": "" if ok else ("; ".join(reasons) or status),
     }
 
 
-def exec_paper_order(context: NodeExecContext) -> dict[str, Any]:
-    intent = _intent(context)
-    decision = context.inputs.get("decision")
-    if isinstance(decision, dict) and decision.get("allowed") is False:
-        context.emit(f"paper {intent['side']} {intent['symbol']}: rejected by risk")
+def _input_or_config(
+    context: NodeExecContext, handle: str, config_key: str | None = None,
+) -> Any:
+    raw = context.inputs.get(handle)
+    if raw is None or raw == "":
+        raw = context.config.get(config_key or handle)
+    return raw
+
+
+def _positive_number(raw: Any, label: str) -> float | None:
+    if raw is None or raw == "":
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be a number") from exc
+    if value <= 0:
+        raise ValueError(f"{label} must be greater than zero")
+    return value
+
+
+_ORDER_TYPES = ("market", "limit", "stop")
+_TIME_IN_FORCE = ("gtc", "day")
+
+
+def exec_order_intent(context: NodeExecContext) -> dict[str, Any]:
+    """Build ONE validated order intent from ports/config.
+
+    This is the canonical shape both execution adapters read, so a graph never
+    has to hand-assemble a JSON object: the builder normalizes the symbol and
+    side, checks that a pending order carries a price, and emits `quantity` and
+    `volume` (the paper adapter reads the first, the broker adapter accepts
+    either). Nothing is submitted.
+    """
+    symbol = str(_input_or_config(context, "symbol") or "").strip().upper()
+    if not symbol:
+        raise ValueError("the order intent needs a symbol (wire the port or set it on the node)")
+    side = str(_input_or_config(context, "side") or "").strip().lower()
+    if side not in ("buy", "sell"):
+        raise ValueError("the order intent side must be buy or sell")
+    order_type = str(_input_or_config(context, "orderType") or "market").strip().lower()
+    if order_type not in _ORDER_TYPES:
+        raise ValueError("orderType must be market, limit or stop")
+    time_in_force = str(_input_or_config(context, "timeInForce") or "gtc").strip().lower()
+    if time_in_force not in _TIME_IN_FORCE:
+        raise ValueError("timeInForce must be gtc or day")
+    quantity = _positive_number(_input_or_config(context, "quantity"), "quantity")
+    if quantity is None:
+        raise ValueError("the order intent needs a positive quantity")
+    if quantity > MAX_QUANTITY:
+        raise ValueError(f"quantity must be at most {MAX_QUANTITY:g}")
+    price = _positive_number(_input_or_config(context, "price"), "price")
+    if order_type in ("limit", "stop") and price is None:
+        raise ValueError(f"a {order_type} order needs a positive price")
+    stop_loss = _positive_number(_input_or_config(context, "stopLoss"), "stopLoss")
+    take_profit = _positive_number(_input_or_config(context, "takeProfit"), "takeProfit")
+
+    intent: dict[str, Any] = {
+        "symbol": symbol,
+        "side": side,
+        "quantity": quantity,
+        "volume": quantity,
+        "type": order_type,
+        "orderType": order_type,
+        "timeInForce": time_in_force,
+    }
+    if order_type != "market" and price is not None:
+        intent["price"] = price
+    if stop_loss is not None:
+        intent["stopLoss"] = stop_loss
+    if take_profit is not None:
+        intent["takeProfit"] = take_profit
+    context.emit(
+        f"intent {side} {quantity:g} {symbol} ({order_type})"
+        + (f" @ {price:g}" if price is not None else "")
+    )
+    return {"intent": intent, "ok": True, "reason": ""}
+
+
+def exec_order_preview(context: NodeExecContext) -> dict[str, Any]:
+    """Ask the broker + policy + guardrails whether an order would be allowed.
+
+    Nothing is sent and NO approval is created: this is the safe way to dry-run a
+    workflow. With a `mandateId` the mandate's scope is also checked (verify does
+    not consume a use), so a graph can confirm it would fit before it arms.
+    """
+    try:
+        intent = order_intent(context)
+    except ValueError as exc:
+        # An unusable intent (missing symbol, zero quantity after a rejected risk
+        # check) is an outcome here, not an exception: nothing was sent.
         return {
-            "fill": None,
-            "status": "REJECTED",
-            "intent": intent,
-            "account": None,
-            "reasons": list(decision.get("reasons") or []),
+            "result": {"status": "INVALID_INTENT", "reasons": [str(exc)]},
+            "allowed": False,
+            "ok": False,
+            "reason": str(exc),
+        }
+    connection_id = str(context.config.get("connectionId") or "").strip()
+    if not connection_id:
+        raise ValueError("connectionId is required for an order preview")
+    mandate_id = str(context.config.get("mandateId") or "").strip()
+    from ..trade.bootstrap import get_service  # noqa: PLC0415 - avoids an import cycle
+    from ..trade.model import TradeRefused  # noqa: PLC0415 - avoids an import cycle
+
+    service = get_service()
+    if service is None:
+        raise ValueError("broker connectivity is unavailable in this runtime")
+    payload = dict(intent)
+    if "volume" not in payload:
+        payload["volume"] = payload.get("quantity")
+    if "type" not in payload and "orderType" not in payload:
+        payload["type"] = "market"
+    try:
+        result = service.preview_order(connection_id, payload, record_approval=False)
+    except TradeRefused as exc:
+        result = {
+            "available": False,
+            "allowed": False,
+            "status": exc.code,
+            "error": exc.to_dict(),
+            "reasons": [exc.message],
         }
 
-    price = _price(context, intent)
-    commission_pct = float(context.config.get("commissionPct", 0.0) or 0)
-    slippage_pct = float(context.config.get("slippagePct", 0.0) or 0)
-    if commission_pct < 0 or slippage_pct < 0:
-        raise ValueError("commissionPct and slippagePct cannot be negative")
+    allowed = bool(result.get("allowed"))
+    reasons = [str(reason) for reason in (result.get("reasons") or [])]
+    if mandate_id and result.get("available"):
+        try:
+            service.mandates.verify(
+                mandate_id,
+                connection_id=str(result.get("connectionId") or connection_id),
+                symbol=str(intent["symbol"]),
+                margin=float((result.get("preview") or {}).get("margin") or 0),
+                mode=str(result.get("mode") or ""),
+                workflow_id=getattr(context, "workflow_id", ""),
+            )
+        except TradeRefused as exc:
+            allowed = False
+            reasons.append(exc.message)
 
-    direction = 1.0 if intent["side"] == "buy" else -1.0
-    fill_price = price * (1.0 + direction * slippage_pct / 100.0)
-    notional = fill_price * float(intent["quantity"])
-    commission = abs(notional) * commission_pct / 100.0
-    account_id = str(context.config.get("accountId") or "paper").strip()[:80] or "paper"
-    persist = bool(context.config.get("persist", True))
-    account = None
-    if persist:
-        account = _require_paper_store().apply_fill(
-            account_id,
-            symbol=intent["symbol"],
-            side=intent["side"],
-            quantity=float(intent["quantity"]),
-            price=fill_price,
-            commission=commission,
-            initial_cash=float(context.config.get("initialCash", 100_000.0)),
-            run_id=context.run_id,
-            node_id=context.node_id,
-        )
-    fill = {
-        "status": "FILLED",
-        "mode": "paper",
-        "symbol": intent["symbol"],
-        "side": intent["side"],
-        "quantity": float(intent["quantity"]),
-        "referencePrice": price,
-        "price": round(fill_price, 8),
-        "notional": round(notional, 6),
-        "commission": round(commission, 6),
-        "slippagePct": slippage_pct,
-        "cashDelta": round(-direction * (notional + commission), 6),
-        "positionDelta": round(direction * float(intent["quantity"]), 8),
-        "accountId": account_id if persist else None,
-        "persisted": persist,
-        "note": "Simulated paper fill; no broker was contacted and no live order was placed.",
-    }
+    ok = bool(result.get("available"))
+    reason = "" if allowed else ("; ".join(reasons) or str(result.get("status") or ""))
     context.emit(
-        f"paper {intent['side']} {intent['quantity']:g} {intent['symbol']} @ {fill['price']}"
+        f"preview {intent['side']} {intent['symbol']}: "
+        + ("would be allowed" if allowed else f"would be refused ({reason})")
     )
-    return {
-        "fill": fill,
-        "status": "FILLED",
-        "intent": intent,
-        "account": account,
-        "reasons": [],
-    }
+    return {"result": result, "allowed": allowed, "ok": ok, "reason": reason}
 
 
 def build_trading_nodes() -> list[NodeDef]:
@@ -382,7 +440,7 @@ def build_trading_nodes() -> list[NodeDef]:
         ConfigField("allowLong", "boolean", True),
         ConfigField("allowShort", "boolean", True),
     )
-    return [
+    nodes = [
         NodeDef(
             type="trading.risk_check", version="1.0.0", label="Risk check",
             category="trading",
@@ -390,7 +448,7 @@ def build_trading_nodes() -> list[NodeDef]:
                 PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
                 PortDef(id="price", name="Price", type=PortType.NUMBER, optional=True),
                 PortDef(id="account", name="Broker/paper account", type=PortType.OBJECT, optional=True),
-                PortDef(id="positions", name="Open positions", type=PortType.OBJECT, optional=True),
+                PortDef(id="positions", name="Open positions", type=PortType.ARRAY, optional=True),
                 PortDef(id="equity", name="Equity", type=PortType.NUMBER, optional=True),
                 PortDef(id="grossExposure", name="Gross exposure", type=PortType.NUMBER, optional=True),
                 PortDef(id="openPositions", name="Open positions", type=PortType.NUMBER, optional=True),
@@ -420,41 +478,6 @@ def build_trading_nodes() -> list[NodeDef]:
             },
         ),
         NodeDef(
-            type="trading.paper_order", version="1.0.0", label="Paper order",
-            category="trading",
-            inputs=(
-                PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
-                PortDef(id="price", name="Price", type=PortType.NUMBER, optional=True),
-                PortDef(id="decision", name="Risk decision", type=PortType.OBJECT, optional=True),
-            ),
-            outputs=(
-                PortDef(id="fill", name="Fill", type=PortType.OBJECT),
-                PortDef(id="status", name="Status", type=PortType.STRING),
-                PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
-                PortDef(id="account", name="Paper account", type=PortType.OBJECT),
-            ),
-            config_fields=(
-                ConfigField("price", "number", 0.0, minimum=0.0, maximum=1_000_000_000),
-                ConfigField("commissionPct", "number", 0.0, minimum=0.0, maximum=10.0),
-                ConfigField("slippagePct", "number", 0.0, minimum=0.0, maximum=10.0),
-                ConfigField("accountId", "string", "paper", max_length=80),
-                ConfigField("persist", "boolean", True),
-                ConfigField("initialCash", "number", 100_000.0, minimum=0.0, maximum=1_000_000_000_000),
-            ),
-            capabilities=("trading.paper",),
-            side_effects=SideEffect.TRADING,
-            allowed_modes=_PAPER,
-            executor=exec_paper_order,
-            metadata={
-                "docs": (
-                    "PAPER-only execution adapter: fills at the supplied price with "
-                    "slippage/commission and (by default) records the fill in the durable "
-                    "paper account. No broker is contacted and no live order is placed. "
-                    "Requires an explicit operator paper-trading grant."
-                ),
-            },
-        ),
-        NodeDef(
             type="trading.broker_order", version="1.0.0",
             label="Broker order",
             category="trading",
@@ -467,11 +490,15 @@ def build_trading_nodes() -> list[NodeDef]:
                 PortDef(id="status", name="Status", type=PortType.STRING),
                 PortDef(id="orderId", name="Order id", type=PortType.STRING),
                 PortDef(id="ok", name="Sent", type=PortType.BOOLEAN),
+                PortDef(id="skipped", name="Skipped (already sent)", type=PortType.BOOLEAN),
                 PortDef(id="reason", name="Reason", type=PortType.STRING),
             ),
             config_fields=(
                 ConfigField("connectionId", "string", "", max_length=80),
                 ConfigField("mandateId", "string", "", max_length=80),
+                ConfigField("dryRun", "boolean", False),
+                ConfigField("dedupe", "enum", "none", enum=("none", "key", "day")),
+                ConfigField("idempotencyKey", "string", "", max_length=120),
             ),
             capabilities=("trading.broker",),
             side_effects=SideEffect.TRADING,
@@ -487,17 +514,104 @@ def build_trading_nodes() -> list[NodeDef]:
                     "still applies policy, money guardrails and the account-mode check, "
                     "and consumes one mandate use atomically. A rejected risk `decision` "
                     "wire stops the order before it reaches the broker; `ok` is true "
-                    "only for a filled or placed order."
+                    "only for a filled or placed order. With `dryRun` it runs the "
+                    "preview instead: nothing is sent, no approval is created, and "
+                    "`ok` means the order WOULD be allowed."
+                ),
+            },
+        ),
+        NodeDef(
+            type="trading.order_intent", version="1.0.0", label="Order intent",
+            category="trading",
+            inputs=(
+                PortDef(id="symbol", name="Symbol", type=PortType.STRING, optional=True),
+                PortDef(id="side", name="Side", type=PortType.STRING, optional=True),
+                PortDef(id="quantity", name="Quantity", type=PortType.NUMBER, optional=True),
+                PortDef(id="price", name="Order price", type=PortType.NUMBER, optional=True),
+                PortDef(id="stopLoss", name="Stop loss", type=PortType.NUMBER, optional=True),
+                PortDef(id="takeProfit", name="Take profit", type=PortType.NUMBER, optional=True),
+            ),
+            outputs=(
+                PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
+                PortDef(id="ok", name="OK", type=PortType.BOOLEAN),
+                PortDef(id="reason", name="Reason", type=PortType.STRING),
+            ),
+            config_fields=(
+                ConfigField("symbol", "string", "", max_length=40),
+                ConfigField("side", "enum", "buy", enum=("buy", "sell")),
+                ConfigField("orderType", "enum", "market", enum=_ORDER_TYPES),
+                ConfigField("quantity", "number", 0.0, minimum=0.0, maximum=MAX_QUANTITY),
+                ConfigField("price", "number", 0.0, minimum=0.0, maximum=1_000_000_000),
+                ConfigField("stopLoss", "number", 0.0, minimum=0.0, maximum=1_000_000_000),
+                ConfigField("takeProfit", "number", 0.0, minimum=0.0, maximum=1_000_000_000),
+                ConfigField("timeInForce", "enum", "gtc", enum=_TIME_IN_FORCE),
+            ),
+            capabilities=("trading.intent",),
+            side_effects=SideEffect.NONE,
+            allowed_modes=_RISK,
+            executor=exec_order_intent,
+            metadata={
+                "docs": (
+                    "Builds ONE validated order intent (symbol, side, quantity, "
+                    "type, price, SL/TP, time-in-force) for the execution adapters. "
+                    "A limit/stop order without a price is an error, never a market "
+                    "order in disguise. Pure: nothing is submitted and no broker is "
+                    "contacted."
+                ),
+            },
+        ),
+        NodeDef(
+            type="trading.order_preview", version="1.0.0", label="Order preview",
+            category="trading",
+            inputs=(
+                PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),
+            ),
+            outputs=(
+                PortDef(id="result", name="Result", type=PortType.OBJECT),
+                PortDef(id="allowed", name="Would be allowed", type=PortType.BOOLEAN),
+                PortDef(id="ok", name="OK", type=PortType.BOOLEAN),
+                PortDef(id="reason", name="Reason", type=PortType.STRING),
+            ),
+            config_fields=(
+                ConfigField("connectionId", "string", "", max_length=80),
+                ConfigField("mandateId", "string", "", max_length=80),
+            ),
+            capabilities=("trading.broker.read",),
+            side_effects=SideEffect.READ,
+            allowed_modes=_ALL_MODES,
+            timeout_ms=45_000,
+            executor=exec_order_preview,
+            metadata={
+                "docs": (
+                    "The broker's order_check plus connection policy, money "
+                    "guardrails and (optionally) mandate scope — nothing is sent and "
+                    "no approval is created. `ok` means the check ran; `allowed` means "
+                    "the order would pass. Use it as the dry run for a whole workflow."
                 ),
             },
         ),
     ]
 
+    # Phase 9 primitives live in their own modules to keep this file small; the
+    # trading category owns the aggregation so `nodes.py` needs no new import.
+    from .trading_calc_nodes import build_calc_nodes  # noqa: PLC0415 - leaf modules
+    from .trading_ops_nodes import build_ops_nodes  # noqa: PLC0415 - leaf modules
+    from .trading_lifecycle_nodes import build_lifecycle_nodes  # noqa: PLC0415
+    from .trading_paper_nodes import build_paper_nodes  # noqa: PLC0415
+
+    return (
+        nodes
+        + build_paper_nodes()
+        + build_calc_nodes()
+        + build_ops_nodes()
+        + build_lifecycle_nodes()
+    )
 
 __all__ = [
     "build_trading_nodes",
     "set_paper_store",
     "exec_broker_order",
     "exec_risk_check",
-    "exec_paper_order",
+    "exec_order_intent",
+    "exec_order_preview",
 ]

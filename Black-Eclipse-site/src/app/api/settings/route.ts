@@ -9,6 +9,7 @@ import {
   getIntegrationsStatus,
 } from "@/lib/settings";
 import { guardMutation, checkOutboundUrl } from "@/lib/api-guard";
+import { PrivacyViolationError } from "@/lib/privacy";
 
 export const dynamic = "force-dynamic";
 
@@ -155,6 +156,9 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ success: true, ...payload });
   } catch (err) {
+    if (err instanceof PrivacyViolationError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 403 });
+    }
     console.error("[api/settings] POST error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to save settings" },

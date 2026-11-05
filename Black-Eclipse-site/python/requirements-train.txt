@@ -1,0 +1,21 @@
+# BlackEclipse ML — OPTIONAL deep-learning adapter (torch_mlp).
+#
+# NOT part of the default runtime (`python/requirements.txt`), and NOT part of
+# `python/requirements-ml.txt` (the classical wheels). Torch is hundreds of MB,
+# so it is a deliberate, separate opt-in — the app keeps working with the pure
+# NumPy families until you choose to install it.
+#
+# Install into the runtime the app uses:
+#
+#   scripts/vendor/python/python.exe -m pip install -r python/requirements-train.txt
+#
+# Until then `GET /ml/v1/capabilities` (and the `ml_model_capabilities` tool)
+# reports `torch_mlp` as unavailable with the real import error, and asking for
+# that family fails with MODEL_UNAVAILABLE. Nothing is substituted silently.
+#
+# What it adds: a seeded, fully-connected network for TABULAR classification and
+# regression (hidden sizes, dropout, epochs, learning rate, batch size). There is
+# no image/sequence data path in the ML Lab, so no CNN/RNN adapter is claimed.
+# CPU is enough; a CUDA build is not required.
+
+torch>=2.2,<3

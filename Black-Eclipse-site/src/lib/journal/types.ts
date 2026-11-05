@@ -5,8 +5,14 @@
 
 export type Direction = "LONG" | "SHORT";
 export type TradeStatus = "open" | "closed";
-/** Provenance of a trade: user-entered vs seeded sample data. */
-export type TradeSource = "manual" | "demo";
+/**
+ * Provenance of a trade:
+ *  - `manual`: user-entered or CSV-imported
+ *  - `demo`:   seeded sample data (clearly labelled, removable)
+ *  - `broker`: projected from a reconciled broker deal; the broker owns the
+ *              execution fields and P&L
+ */
+export type TradeSource = "manual" | "demo" | "broker";
 
 /** A normalized trade record the analytics engine consumes. */
 export interface TradeRecord {
@@ -37,8 +43,16 @@ export interface TradeRecord {
   /** JSON: { [ruleId]: boolean } — pre-trade checklist state. */
   checklist?: string | null;
   status: TradeStatus;
-  /** 'manual' (user/CSV) or 'demo' (seeded sample). Never fabricated prices. */
+  /** 'manual' (user/CSV), 'demo' (seeded sample) or 'broker'. Never fabricated prices. */
   source?: TradeSource;
+  /** Broker provenance. Null for manual/CSV/demo rows. */
+  externalId?: string | null;
+  brokerConnectionId?: string | null;
+  brokerPositionTicket?: number | null;
+  /** MT5 magic number when the trade came from a broker. Null otherwise. */
+  magic?: number | null;
+  /** 'broker' means the broker's net profit is authoritative, not the math. */
+  pnlBasis?: "computed" | "broker";
   strategyId?: string | null;
   strategyName?: string | null;
   setupId?: string | null;
@@ -72,6 +86,8 @@ export interface DayAggregate {
   netR: number;
   bestR: number;
   worstR: number;
+  /** False when no trade that day carried an R basis (R shows as unavailable). */
+  rAvailable: boolean;
   discipline: number | null;
 }
 
@@ -97,6 +113,8 @@ export interface PerformanceStats {
   averageWin: number;
   averageLoss: number;
   netPnl: number;
+  /** True when at least one closed trade carries a stop-derived R basis. */
+  rAvailable: boolean;
   netR: number;
   expectancy: number;
   profitFactor: number;
@@ -140,7 +158,7 @@ export interface EquityPoint {
   drawdown: number; // drawdown from peak in R
 }
 
-/** Equity in account currency (derived from R × risk-per-trade). */
+/** Equity in account currency (cumulative realized P&L). */
 export interface CurrencyEquityPoint {
   date: string;
   equity: number; // running balance in account currency
@@ -238,6 +256,8 @@ export interface JournalAnalytics {
   byTimeframe: DimensionRow[];
   byRegime: DimensionRow[];
   byTrend: DimensionRow[];
+  byAccount: DimensionRow[];
+  byMagic: DimensionRow[];
   byEmotion: DimensionRow[];
   byConfidence: DimensionRow[];
   confidenceCorrelation: number | null;

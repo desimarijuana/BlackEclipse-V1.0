@@ -72,7 +72,14 @@ describe("resolveAuthContext", () => {
   function reqWithCookie(token: string): Request {
     return new Request("http://localhost/api/x", { headers: { cookie: `${AUTH_COOKIE}=${encodeURIComponent(token)}` } });
   }
-  const user: AuthUser = { id: "u1", username: "ada", scope: "tenant-a", createdAt: "x", disabled: false };
+  const user: AuthUser = {
+    id: "u1",
+    username: "ada",
+    scope: "tenant-a",
+    role: "operator",
+    createdAt: "x",
+    disabled: false,
+  };
 
   it("returns anonymous without a cookie", async () => {
     const ctx = await resolveAuthContext(new Request("http://localhost/api/x"), {

@@ -10,6 +10,8 @@ import type {
   SearchEntity,
 } from './types';
 import { INDEX_DEFS } from '@/lib/indices';
+import { MEMORY_TABS, SKILLS_TABS } from '@/lib/app-screens';
+import { JOURNAL_TABS } from '@/lib/journal-tabs';
 
 // ── Page (destination) registry ─────────────────────────────────────────────
 interface PageEntry {
@@ -77,6 +79,46 @@ function pageToEntity(p: PageEntry): SearchEntity {
     rankBoost: p.rankBoost,
     destination,
   };
+}
+
+/**
+ * The palette's empty-query "Pages" launcher, in sidebar order (ChatBot → … →
+ * Tables) plus Bots (its own mode, kept for discoverability). ONE list, guarded
+ * by `registry-sync.test.ts`: every sidebar section must appear here and every
+ * entry must be a registered top-level page — no sub-pages, no `settings`
+ * (a modal), no `chart` (retired). Labs stay searchable, just not launcher rows.
+ */
+export const LAUNCHER_ORDER = [
+  'page-chat',
+  'page-home',
+  'page-dashboard',
+  'page-investor-eye',
+  'page-market-workspace',
+  'page-screener',
+  'page-portfolio',
+  'page-journal',
+  'page-news',
+  'page-heatmap',
+  'page-economics',
+  'page-alerts',
+  'page-strategy-studio',
+  'page-overview',
+  'page-skills',
+  'page-sdk',
+  'page-memory',
+  'page-artifacts',
+  'page-tables',
+  'page-bots',
+] as const;
+
+/** Launcher rows for the palette, in LAUNCHER_ORDER. */
+export function getLauncherPages(): SearchEntity[] {
+  const out: SearchEntity[] = [];
+  for (const id of LAUNCHER_ORDER) {
+    const page = getPage(id);
+    if (page) out.push(page);
+  }
+  return out;
 }
 
 // ── Instrument (securities/indicators) registry ────────────────────────────
@@ -186,33 +228,85 @@ registerPage({ id: 'page-strategy-studio', kind: 'page', title: 'Strategy Studio
 registerPage({ id: 'page-research-data', kind: 'page', title: 'Research Data', aliases: ['research data', 'datasets', 'data quality', 'dataset explorer', 'verification', 'provenance', 'universe'], keywords: ['research', 'data', 'dataset', 'quality', 'providers', 'verification', 'provenance', 'calendar', 'universe'], icon: 'activity', tab: 'research-data', rankBoost: 1.2 });
   registerPage({ id: 'page-factor-lab', kind: 'page', title: 'Factor Lab', aliases: ['factor lab', 'factor', 'factors', 'alpha', 'alpha research', 'ic', 'rank ic', 'information coefficient', 'quantile portfolio', 'factor library', 'alpha composer'], keywords: ['factor', 'alpha', 'ic', 'rank ic', 'momentum', 'value', 'quality', 'quantile', 'portfolio', 'decay', 'validation', 'research'], icon: 'activity', tab: 'factor-lab', rankBoost: 1.2 });
   registerPage({ id: 'page-ml-lab', kind: 'page', title: 'ML Lab', aliases: ['ml lab', 'machine learning', 'ml research', 'model training', 'train model', 'dataset builder', 'model registry', 'walk forward', 'experiments'], keywords: ['ml', 'machine learning', 'model', 'training', 'dataset', 'feature', 'target', 'experiment', 'registry', 'walk forward', 'purged', 'leakage', 'evaluation', 'drift'], icon: 'activity', tab: 'ml-lab', rankBoost: 1.2 });
+// Sidebar-visible screens that previously had no palette entry.
+registerPage({ id: 'page-overview', kind: 'page', title: 'Graph Studio', aliases: ['graph studio', 'overview', 'graph', 'workflows', 'workflow gallery'], keywords: ['graph', 'studio', 'overview', 'workflow', 'gallery', 'nodes', 'canvas'], icon: 'dashboard', tab: 'overview', rankBoost: 1.1 });
+registerPage({ id: 'page-sdk', kind: 'page', title: 'Eclipse SDK', aliases: ['eclipse sdk', 'sdk', 'sdk console', 'extensibility'], keywords: ['sdk', 'eclipse', 'extensibility', 'blueprint', 'capabilities'], icon: 'sdk', tab: 'sdk', rankBoost: 1.1 });
+registerPage({ id: 'page-artifacts', kind: 'page', title: 'Artifacts', aliases: ['artifacts', 'artifact center', 'artifact gallery', 'files center'], keywords: ['artifacts', 'artifact', 'gallery', 'files', 'deliverables'], icon: 'artifacts', tab: 'artifacts', rankBoost: 1.1 });
+registerPage({ id: 'page-tables', kind: 'page', title: 'Tables', aliases: ['tables', 'data tables', 'table editor'], keywords: ['tables', 'table', 'data', 'rows'], icon: 'tables', tab: 'tables' });
+// Shell-reachable screens outside the sidebar (ChatBot tools land here).
+registerPage({ id: 'page-tasks', kind: 'page', title: 'Tasks', aliases: ['tasks', 'task list', 'agent tasks', 'todo'], keywords: ['tasks', 'task', 'todo', 'plan', 'checklist'], icon: 'tasks', tab: 'tasks' });
+registerPage({ id: 'page-pages', kind: 'page', title: 'Saved Pages', aliases: ['saved pages', 'pages', 'my pages', 'blueprints', 'custom pages'], keywords: ['pages', 'blueprint', 'saved', 'custom', 'page'], icon: 'pages', tab: 'pages' });
+registerPage({ id: 'page-ui-builder', kind: 'page', title: 'UI Builder', aliases: ['ui builder', 'capability studio', 'component builder'], keywords: ['ui', 'builder', 'capability', 'components', 'studio'], icon: 'ui-builder', tab: 'ui-builder' });
 
 // Market Regime — not a tab. Selecting it opens the top-bar Market Regime panel
 // (the shell handles the `action: 'open-regime'` param and returns before any tab
 // switch). Discoverable by searching "market regime", "risk on", "sentiment", etc.
 registerPage({ id: 'page-market-regime', kind: 'page', title: 'Market Regime', aliases: ['market regime', 'regime', 'risk on', 'risk off', 'risk-on', 'risk-off', 'market sentiment', 'market breadth', 'volatility regime', 'aurora'], keywords: ['market regime', 'regime', 'sentiment', 'risk on', 'risk off', 'breadth', 'volatility', 'vix', 'aurora', 'macro'], icon: 'activity', tab: 'dashboard', params: { action: 'open-regime' }, rankBoost: 1.2 });
 
-// Skills sub-pages — so the Learning Queue and draft review are reachable from
-// an originating chat run ("Learn from this run" → Learning Queue), not only by
-// opening the Skills tab and hunting for the right sub-tab.
-registerPage({ id: 'sub-skills-library', kind: 'page', title: 'Skill Library', aliases: ['skill library', 'skills'], keywords: ['skills', 'library'], icon: 'skills', tab: 'skills', subroute: 'skills.library', group: 'skills', child: true });
-registerPage({ id: 'sub-skills-start', kind: 'page', title: 'Start Here', aliases: ['start here', 'onboarding', 'getting started', 'how memory works'], keywords: ['skills', 'start', 'onboarding', 'help'], icon: 'skills', tab: 'skills', subroute: 'skills.start', group: 'skills', child: true, rankBoost: 1.2 });
-registerPage({ id: 'sub-skills-project', kind: 'page', title: 'Project Skills', aliases: ['project skills', 'repository skills', 'trust project'], keywords: ['skills', 'project', 'repository', 'trust'], icon: 'skills', tab: 'skills', subroute: 'skills.project', group: 'skills', child: true, rankBoost: 1.1 });
-registerPage({ id: 'sub-skills-bundles', kind: 'page', title: 'Skill Bundles', aliases: ['skill bundles', 'task profiles', 'bundles'], keywords: ['skills', 'bundles', 'workflow', 'tasks'], icon: 'skills', tab: 'skills', subroute: 'skills.bundles', group: 'skills', child: true });
-registerPage({ id: 'sub-skills-learn', kind: 'page', title: 'Learn a Skill', aliases: ['learn a skill', 'learn from run', 'learn from document', 'guided learn'], keywords: ['skills', 'learn', 'draft', 'procedure'], icon: 'skills', tab: 'skills', subroute: 'skills.learn', group: 'skills', child: true, rankBoost: 1.15 });
-registerPage({ id: 'sub-skills-learning', kind: 'page', title: 'Learning Queue', aliases: ['learning queue', 'learning candidates', 'learn from run', 'candidates'], keywords: ['learning', 'candidates', 'queue', 'learn'], icon: 'skills', tab: 'skills', subroute: 'skills.learning', group: 'skills', child: true, rankBoost: 1.15 });
-registerPage({ id: 'sub-skills-journey', kind: 'page', title: 'Learning Journey', aliases: ['learning journey', 'provenance graph', 'how did this skill'], keywords: ['skills', 'journey', 'provenance', 'graph', 'history'], icon: 'skills', tab: 'skills', subroute: 'skills.journey', group: 'skills', child: true });
-registerPage({ id: 'sub-skills-evaluation', kind: 'page', title: 'Evaluation Center', aliases: ['evaluation', 'skill evaluation'], keywords: ['evaluation', 'skills'], icon: 'skills', tab: 'skills', subroute: 'skills.evaluation', group: 'skills', child: true });
-registerPage({ id: 'sub-skills-activity', kind: 'page', title: 'Execution Activity', aliases: ['skill activity', 'skill executions'], keywords: ['skills', 'activity', 'executions'], icon: 'skills', tab: 'skills', subroute: 'skills.activity', group: 'skills', child: true });
-// Eclipse Memory sub-pages.
-registerPage({ id: 'sub-memory-explorer', kind: 'page', title: 'Memory Explorer', aliases: ['memory explorer', 'saved memory'], keywords: ['memory', 'explorer'], icon: 'memory', tab: 'memory', subroute: 'memory.explorer', group: 'memory', child: true });
-registerPage({ id: 'sub-memory-activity', kind: 'page', title: 'Memory Activity', aliases: ['memory activity', 'retrieval diagnostics'], keywords: ['memory', 'activity', 'retrieval'], icon: 'memory', tab: 'memory', subroute: 'memory.activity', group: 'memory', child: true });
-registerPage({ id: 'sub-memory-health', kind: 'page', title: 'Memory Health', aliases: ['memory health', 'database identity'], keywords: ['memory', 'health', 'database'], icon: 'memory', tab: 'memory', subroute: 'memory.health', group: 'memory', child: true });
-registerPage({ id: 'sub-memory-lifecycle', kind: 'page', title: 'Memory Lifecycle', aliases: ['memory lifecycle', 'expired memory', 'superseded memory'], keywords: ['memory', 'lifecycle', 'expired', 'superseded', 'conflicts'], icon: 'memory', tab: 'memory', subroute: 'memory.lifecycle', group: 'memory', child: true });
-registerPage({ id: 'sub-memory-policies', kind: 'page', title: 'Memory Policies', aliases: ['memory policies', 'memory retention'], keywords: ['memory', 'policy', 'retention'], icon: 'memory', tab: 'memory', subroute: 'memory.policies', group: 'memory', child: true });
-registerPage({ id: 'sub-memory-profile', kind: 'page', title: 'Memory Profile', aliases: ['memory profile', 'persistent context', 'user profile'], keywords: ['memory', 'profile', 'context', 'personalization'], icon: 'memory', tab: 'memory', subroute: 'memory.profile', group: 'memory', child: true });
-registerPage({ id: 'sub-memory-history', kind: 'page', title: 'Session History', aliases: ['session history', 'past sessions', 'conversation history'], keywords: ['memory', 'history', 'sessions', 'recall'], icon: 'memory', tab: 'memory', subroute: 'memory.history', group: 'memory', child: true });
-registerPage({ id: 'sub-memory-reviews', kind: 'page', title: 'Learning Reviews', aliases: ['learning review', 'self improvement'], keywords: ['memory', 'learning', 'review', 'self-improvement'], icon: 'memory', tab: 'memory', subroute: 'memory.reviews', group: 'memory', child: true });
+// ─── Generated sub-pages (Skills / Memory / Journal) ──────────────────────────
+// Those screens render ONE tab bar each and consume subroutes by matching the
+// RENDERED tab id (`useSubroute` + `screenTab`). Hand-writing palette entries
+// for them drifted twice (stale labels, missing views), so the entries are
+// generated from the same arrays the bars render (`app-screens.ts`,
+// `journal-tabs.ts`). `SUB_PAGE_HINTS` carries only curated search vocabulary
+// (aliases / boosts) — never ids or labels.
+const SUB_PAGE_HINTS: Record<string, { aliases?: string[]; keywords?: string[]; rankBoost?: number }> = {
+  'memory.memories': { aliases: ['memory explorer', 'saved memory', 'facts'], keywords: ['explorer', 'facts', 'saved'] },
+  'memory.history': { aliases: ['session history', 'session search', 'past sessions', 'conversation history'], keywords: ['recall'], rankBoost: 1.1 },
+  'memory.reviews': { aliases: ['learning reviews', 'learning review', 'self improvement'], keywords: ['learning', 'review'] },
+  'memory.health': { aliases: ['memory health', 'health export', 'database identity'], keywords: ['export'] },
+  'memory.lifecycle': { aliases: ['memory lifecycle', 'expired memory', 'superseded memory'], keywords: ['expired', 'superseded', 'conflicts'] },
+  'memory.policies': { aliases: ['memory policies', 'memory retention'], keywords: ['policy', 'retention'] },
+  'memory.profile': { aliases: ['memory profile', 'persistent context', 'user profile'], keywords: ['profile', 'context'] },
+  'memory.activity': { aliases: ['memory activity', 'retrieval diagnostics'], keywords: ['activity', 'retrieval'] },
+  'skills.start': { aliases: ['start here', 'onboarding', 'getting started'], keywords: ['start', 'onboarding'], rankBoost: 1.2 },
+  'skills.project': { aliases: ['project skills', 'repository skills', 'trust project'], keywords: ['project', 'repository'], rankBoost: 1.1 },
+  'skills.learn': { aliases: ['learn a skill', 'learn from run', 'learn from document', 'guided learn'], keywords: ['learn', 'draft'], rankBoost: 1.15 },
+  'skills.learning': { aliases: ['learning queue', 'learning candidates', 'learn from run', 'candidates'], keywords: ['learning', 'queue', 'candidates'], rankBoost: 1.15 },
+  'skills.journey': { aliases: ['learning journey', 'provenance graph', 'how did this skill'], keywords: ['journey', 'provenance'] },
+  'skills.maintenance': { aliases: ['skill maintenance', 'cleanup'], keywords: ['maintenance', 'cleanup'] },
+  'skills.evaluation': { aliases: ['evaluation center', 'skill evaluation'], keywords: ['evaluation'] },
+  'skills.bundles': { aliases: ['skill bundles', 'task profiles'], keywords: ['bundles'] },
+  'journal.trades': { aliases: ['journal trades', 'my trades', 'trade log'], keywords: ['trades', 'log'], rankBoost: 1.1 },
+  'journal.analytics': { aliases: ['journal analytics', 'performance', 'stats'], keywords: ['analytics', 'performance'], rankBoost: 1.1 },
+  'journal.decisions': { aliases: ['advisory decisions', 'decision log'], keywords: ['advisory', 'decisions'] },
+  'journal.notebook': { aliases: ['journal notebook', 'notes'], keywords: ['notes'] },
+  'journal.playbook': { aliases: ['journal playbook', 'setups', 'strategies'], keywords: ['playbook', 'setups'] },
+};
+
+function dedupe(xs: Array<string | undefined>): string[] {
+  return [...new Set(xs.filter((x): x is string => Boolean(x && x.trim())).map((x) => x.trim().toLowerCase()))];
+}
+
+function registerScreenSubPages(
+  tab: 'memory' | 'skills' | 'journal',
+  icon: string,
+  defs: readonly { id: string; label: string; aliases?: string[] }[],
+) {
+  for (const def of defs) {
+    const slug = `${tab}.${def.id}`;
+    const hints = SUB_PAGE_HINTS[slug] ?? {};
+    const label = def.label.toLowerCase();
+    const words = label.split(/[^a-z0-9]+/).filter(Boolean);
+    registerPage({
+      id: `sub-${tab}-${def.id}`,
+      kind: 'page',
+      title: def.label,
+      aliases: dedupe([label, `${tab} ${label}`, ...(def.aliases ?? []), ...(hints.aliases ?? [])]),
+      keywords: dedupe([tab, ...words, ...(def.aliases ?? []), ...(hints.keywords ?? [])]),
+      icon,
+      tab,
+      subroute: slug,
+      group: tab,
+      child: true,
+      ...(hints.rankBoost ? { rankBoost: hints.rankBoost } : {}),
+    });
+  }
+}
+
+registerScreenSubPages('skills', 'skills', SKILLS_TABS);
+registerScreenSubPages('memory', 'memory', MEMORY_TABS);
+registerScreenSubPages('journal', 'book', JOURNAL_TABS);
 
 // ── Sub-pages ────────────────────────────────────────────────────────────────
 // Every internal view that used to be unreachable (the shell ignored
@@ -225,15 +319,7 @@ registerPage({ id: 'sub-econ-overview', kind: 'page', title: 'Overview', aliases
 registerPage({ id: 'sub-econ-calendar', kind: 'page', title: 'Calendar', aliases: ['economic calendar', 'econ calendar', 'releases'], keywords: ['economics', 'calendar', 'events', 'releases'], icon: 'globe', tab: 'economics', subroute: 'economics.calendar', group: 'economics', child: true, rankBoost: 1.1 });
 registerPage({ id: 'sub-econ-explorer', kind: 'page', title: 'Time-series Explorer', aliases: ['econ explorer', 'time series', 'macro data'], keywords: ['economics', 'explorer', 'time series', 'series'], icon: 'globe', tab: 'economics', subroute: 'economics.explorer', group: 'economics', child: true });
 
-// Journal — one row per sub-tab.
-registerPage({ id: 'sub-journal-overview', kind: 'page', title: 'Overview', aliases: ['journal overview'], keywords: ['journal', 'overview'], icon: 'book', tab: 'journal', subroute: 'journal.overview', group: 'journal', child: true });
-registerPage({ id: 'sub-journal-calendar', kind: 'page', title: 'Calendar', aliases: ['journal calendar'], keywords: ['journal', 'calendar'], icon: 'book', tab: 'journal', subroute: 'journal.calendar', group: 'journal', child: true });
-registerPage({ id: 'sub-journal-trades', kind: 'page', title: 'Trades', aliases: ['journal trades', 'my trades', 'trade log'], keywords: ['journal', 'trades', 'log'], icon: 'book', tab: 'journal', subroute: 'journal.trades', group: 'journal', child: true, rankBoost: 1.1 });
-registerPage({ id: 'sub-journal-analytics', kind: 'page', title: 'Analytics', aliases: ['journal analytics', 'performance', 'stats'], keywords: ['journal', 'analytics', 'performance', 'stats'], icon: 'book', tab: 'journal', subroute: 'journal.analytics', group: 'journal', child: true, rankBoost: 1.1 });
-registerPage({ id: 'sub-journal-psychology', kind: 'page', title: 'Psychology', aliases: ['journal psychology', 'emotions'], keywords: ['journal', 'psychology', 'emotions'], icon: 'book', tab: 'journal', subroute: 'journal.psychology', group: 'journal', child: true });
-registerPage({ id: 'sub-journal-playbook', kind: 'page', title: 'Playbook', aliases: ['journal playbook', 'setups', 'strategies'], keywords: ['journal', 'playbook', 'setups', 'strategy'], icon: 'book', tab: 'journal', subroute: 'journal.playbook', group: 'journal', child: true });
-registerPage({ id: 'sub-journal-reviews', kind: 'page', title: 'Reviews', aliases: ['journal reviews'], keywords: ['journal', 'reviews'], icon: 'book', tab: 'journal', subroute: 'journal.reviews', group: 'journal', child: true });
-registerPage({ id: 'sub-journal-insights', kind: 'page', title: 'Insights', aliases: ['journal insights'], keywords: ['journal', 'insights'], icon: 'book', tab: 'journal', subroute: 'journal.insights', group: 'journal', child: true });
+// Journal sub-pages are generated above from 'journal-tabs.ts' — one row per rendered tab.
 
 // Screener — asset-class tabs.
 registerPage({ id: 'sub-disc-markets', kind: 'page', title: 'Markets', aliases: ['screener markets', 'global markets'], keywords: ['screener', 'markets', 'indices'], icon: 'screen', tab: 'discovery', subroute: 'discovery.markets', group: 'discovery', child: true });
@@ -256,6 +342,7 @@ registerPage({ id: 'sub-alerts-history', kind: 'page', title: 'Alert History', a
 //   Market Data · News · Charts · Sidebar & Navigation · Alerts · Data &
 //   Storage · System.
 registerPage({ id: 'sub-set-general', kind: 'page', title: 'General', aliases: ['startup', 'start screen', 'preferences', 'general', 'currency', 'timezone', 'refresh', 'confirm', 'theme', 'branding', 'logo', 'favicon', 'app name', 'brand color', 'preset', 'density', 'radius', 'font', 'typography', 'language', 'translate', 'locale', 'accessibility', 'a11y', 'reduce motion', 'high contrast', 'text size', 'font size', 'rtl'], keywords: ['settings', 'general', 'startup', 'start screen', 'market', 'currency', 'timezone', 'refresh', 'customization', 'theme', 'branding', 'logo', 'favicon', 'font', 'colors', 'brand color', 'language', 'accessibility', 'motion', 'contrast', 'text size'], icon: 'settings', tab: 'settings', subroute: 'settings.general', group: 'settings', child: true, rankBoost: 1.1 });
+registerPage({ id: 'sub-set-persona', kind: 'page', title: 'Persona', aliases: ['persona', 'personas', 'personality', 'system prompt', 'custom instructions', 'prompt', 'tone', 'style', 'chat behavior'], keywords: ['settings', 'persona', 'personality', 'prompt', 'instructions', 'tone', 'style', 'draft', 'active', 'reset'], icon: 'settings', tab: 'settings', subroute: 'settings.persona', group: 'settings', child: true, rankBoost: 1.3 });
 registerPage({ id: 'sub-set-sound', kind: 'page', title: 'Sound', aliases: ['sound', 'sounds', 'audio', 'ui sounds', 'volume', 'click sound', 'tick sound', 'toggle sound', 'notification sound', 'sound pack', 'mute sounds', 'silence'], keywords: ['settings', 'sound', 'sounds', 'audio', 'volume', 'click', 'tick', 'toggle', 'notification', 'feedback', 'pack', 'mute'], icon: 'settings', tab: 'settings', subroute: 'settings.sound', group: 'settings', child: true, rankBoost: 1.35 });
 registerPage({ id: 'sub-set-voice', kind: 'page', title: 'Voice', aliases: ['tts', 'text to speech', 'text-to-speech', 'read aloud', 'read out loud', 'speak replies', 'narration', 'voice', 'speech', 'auto speak', 'dictation', 'voice input', 'microphone', 'mic', 'whisper', 'transcribe', 'transcription'], keywords: ['settings', 'voice', 'tts', 'speech', 'read', 'aloud', 'narration', 'rate', 'pitch', 'auto', 'accessibility', 'dictation', 'microphone', 'whisper', 'transcribe'], icon: 'settings', tab: 'settings', subroute: 'settings.voice', group: 'settings', child: true, rankBoost: 1.35 });
 registerPage({ id: 'sub-set-ai', kind: 'page', title: 'AI / LLM', aliases: ['llm provider', 'ai model', 'agent settings', 'openai', 'anthropic', 'ollama', 'api key', 'model'], keywords: ['settings', 'ai', 'llm', 'model', 'provider', 'openai', 'anthropic', 'ollama', 'key'], icon: 'settings', tab: 'settings', subroute: 'settings.ai', group: 'settings', child: true, rankBoost: 1.3 });

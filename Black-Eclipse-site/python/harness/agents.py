@@ -50,6 +50,7 @@ from .factors.tools import FACTOR_TOOLS
 # imported as the ONE canonical list so the allowlist cannot drift. A `portfolio_`
 # name whose layer failed to install is simply unregistered and never advertised.
 from .portfolio.tools import PORTFOLIO_TOOLS
+from .ledger.tools import LEDGER_TOOLS
 # The Advisory Ledger tools (`advisory_*`). Registered by `advisory/bootstrap.py`;
 # imported as the ONE canonical list so the allowlist cannot drift.
 from .advisory.tools import ADVISORY_TOOLS
@@ -403,6 +404,12 @@ ECLIPSE_AGENT = AgentConfig(
         # Read/compute tools are always available; the rebalance/optimize/construct
         # proposals are effect-gated (they never place trades).
         *PORTFOLIO_TOOLS,
+        # The General Ledger: a double-entry book of record. Create a book with a
+        # chart of accounts, post balanced journal entries, reverse them, close /
+        # reopen / lock periods, and read a trial balance, balance sheet, P&L and
+        # cash flow derived from the postings. Mutations are effect-gated
+        # (`ledger_write`); nothing here moves money.
+        *LEDGER_TOOLS,
         # Advisory Ledger: recall past recommendations and their outcomes
         # (read-only; the ledger is written by the runtime, not a model call).
         *ADVISORY_TOOLS,
@@ -499,6 +506,10 @@ ECLIPSE_AGENT = AgentConfig(
         # agents the Bots workspace shows. Thin wrappers over the ONE automation
         # service, so a bot made in chat and one made in the UI are the same object.
         *AUTOMATION_TOOLS,
+        # Workflow authoring from chat: turn a one-sentence idea into a SAVED,
+        # validated Graph Studio workflow. The front door plans + writes it; this
+        # only creates (it never runs), so it is a local catalog write.
+        "create_workflow",
         # Scheduling (Phase 17): recurring finance jobs from the fixed catalogue,
         # always saved switched off. The operator's master switch drops this whole
         # surface when off (see `graph.surface_disabled_tools`).
@@ -666,6 +677,38 @@ CODE_NAVIGATOR = AgentConfig(
     maxSteps=10,
     toolTimeoutMs=30_000,
     runTimeoutMs=180_000,
+)
+
+BOOKKEEPER_SYSTEM_PROMPT = """You are Eclipse's bookkeeper: you keep a double-entry book of record and you can prove every number you state.
+
+What you own:
+- The ledger (`ledger_*`): chart of accounts, balanced postings, reversals, periods, statements, statement import, categorisation rules, reconciliation, depreciation/amortisation schedules, accruals, FX revaluation, the close checklist, customers/vendors, invoices/bills, payments and aging.
+- Nothing else. You have no market-data, coding, browser or MCP tools, and you must not pretend to.
+
+Hard rules:
+1. NEVER invent a number. Every figure you state must come from a tool result in this conversation. If a value is missing, say which input is missing and what you need.
+2. A posting balances exactly, or it does not happen. If `ledger_post` refuses, read the named code and the reported difference; do not retry the same payload hoping for a different answer.
+3. Corrections are reversing entries (`ledger_reverse`). Never describe editing a posted entry as a fix; that is not possible by design.
+4. Do not guess a category. An unmatched statement row belongs in suspense (9999); say how many rows are there and that it blocks a close.
+5. Do not guess a tax rate. Tax codes are configured data; if a jurisdiction or code is not configured, say so and stop.
+6. Do not claim a period is reconciled or closed unless the tool says so. `RECONCILED` requires a supplied statement balance; `BLOCKED` means blockers stand.
+7. Dates, periods and periods-close matter: state the period you are working in, and use `ledger_close_preview` before `ledger_close_period`.
+8. Prefer the smallest number of steps that does the job: preview, then commit; create the party/tax code once, then reuse.
+
+When you finish, summarise what changed (entries posted, amounts, accounts) and what remains (suspense, unreconciled cash, findings). If something is unavailable, say UNAVAILABLE and why — never a plausible substitute."""
+
+# The bookkeeper (Phase 6). A SEPARATE preset whose allowlist is the ledger family
+# and nothing else: no finance/market tools, no code, no browser, no MCP. Its
+# mutations still go through the `ledger_write` authorizer, so the preset cannot
+# bypass an approval — the allowlist is the surface, the authorizer is the gate.
+BOOKKEEPER = AgentConfig(
+    id="bookkeeper",
+    name="Bookkeeper",
+    systemPrompt=BOOKKEEPER_SYSTEM_PROMPT,
+    tools=list(LEDGER_TOOLS),
+    maxSteps=14,
+    toolTimeoutMs=30_000,
+    runTimeoutMs=300_000,
 )
 
 # The coding agent (Phase 5). A SEPARATE preset that owns the code tools and NO
@@ -1013,6 +1056,7 @@ AGENT_PRESETS: dict[str, AgentConfig] = {
     ECLIPSE_AGENT.id: ECLIPSE_AGENT,
     CODE_NAVIGATOR.id: CODE_NAVIGATOR,
     CODE_AGENT.id: CODE_AGENT,
+    BOOKKEEPER.id: BOOKKEEPER,
 }
 
 DEFAULT_AGENT_ID = ECLIPSE_AGENT.id

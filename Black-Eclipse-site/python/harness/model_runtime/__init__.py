@@ -14,7 +14,7 @@ construction path (`build_chat_model`).
 
 from __future__ import annotations
 
-from .errors import ErrorClass, ModelError, classify_exception
+from .errors import ErrorClass, ModelError, classify_exception, local_endpoint, provider_failure_message
 from .catalog import ALIASES, TASK_PROFILES
 from .registry import (
     CapabilityRegistry,
@@ -115,5 +115,7 @@ __all__ = [
     "classify_exception",
     "extract_usage",
     "get_runtime",
+    "local_endpoint",
+    "provider_failure_message",
     "set_runtime",
 ]

@@ -57,6 +57,24 @@ def _forward_volatility(returns: np.ndarray, horizon: int) -> np.ndarray:
     return out
 
 
+def build_unsupervised_target(n: int, spec: TargetSpec) -> dict[str, Any]:
+    """A label-free target for clustering / anomaly detection.
+
+    There is no label, so ``values`` is all-NaN and the label interval is the row
+    itself. That is deliberate: NaN can never be mistaken for a ground truth, and
+    the unsupervised pipeline reads only the feature matrix.
+    """
+    task = (spec.task or "clustering").lower()
+    if task not in ("clustering", "anomaly"):
+        raise MLError(INVALID_INPUT,
+                      "an 'unsupervised' target needs task='clustering' or 'anomaly'")
+    return {"kind": "unsupervised", "task": task,
+            "values": np.full(n, np.nan),
+            "labelStart": np.arange(n, dtype=int), "labelEnd": np.arange(n, dtype=int),
+            "horizon": 0, "classes": None, "classLabels": None, "bins": None,
+            "column": spec.column}
+
+
 def build_target(prices: np.ndarray, spec: TargetSpec) -> dict[str, Any]:
     """Construct a label matrix and its [start, end] period indices.
 
@@ -70,6 +88,10 @@ def build_target(prices: np.ndarray, spec: TargetSpec) -> dict[str, Any]:
     t, n = prices.shape
     if spec.kind not in TARGET_KINDS:
         raise MLError(INVALID_INPUT, f"unknown target kind {spec.kind!r}")
+    if spec.kind == "unsupervised":
+        # Label-free: the feature matrix is the whole input.
+        base = build_unsupervised_target(t, spec)
+        return {**base, "values": np.full((t, n), np.nan)}
     if spec.horizon < 1:
         raise MLError(INVALID_INPUT, "target horizon must be >= 1")
     if n < 1 or t <= spec.horizon:
@@ -140,4 +162,69 @@ def build_target(prices: np.ndarray, spec: TargetSpec) -> dict[str, Any]:
     }
 
 
-__all__ = ["build_target", "task_for"]
+def build_column_target(values: list[Any], spec: TargetSpec) -> dict[str, Any]:
+    """Label a supplied per-row column (``kind="column"``).
+
+    Unlike the market targets there is no forward horizon: the label interval is
+    the row itself. ``spec.task`` must say how the column is modelled —
+    ``regression`` (numeric values; a non-numeric entry is a data error, never a
+    silent NaN) or ``classification`` (the distinct values become classes, in
+    sorted order, and are returned as ``classLabels`` so a prediction can be
+    decoded back to the operator's own vocabulary).
+
+    Never invents a label: a blank/None entry is ``NaN`` and is dropped
+    downstream by the existing finite-row filter.
+    """
+    n = len(values)
+    if n == 0:
+        raise MLError(INSUFFICIENT_DATA, "the target column has no values", 422)
+    task = (spec.task or "regression").lower()
+    if task not in ("classification", "regression"):
+        raise MLError(INVALID_INPUT,
+                      "a 'column' target needs task='regression' or 'classification'")
+
+    label_start = np.arange(n, dtype=int)
+    label_end = label_start.copy()
+
+    if task == "regression":
+        y = np.full(n, np.nan)
+        for i, raw in enumerate(values):
+            if raw is None or (isinstance(raw, str) and raw.strip() == ""):
+                continue
+            try:
+                y[i] = float(raw)
+            except (TypeError, ValueError):
+                raise MLError(
+                    INVALID_INPUT,
+                    f"target column {spec.column!r} holds a non-numeric value at row {i}: "
+                    f"{raw!r} (use task='classification' for categorical labels)",
+                ) from None
+        if not np.isfinite(y).any():
+            raise MLError(INSUFFICIENT_DATA,
+                          f"target column {spec.column!r} has no numeric values", 422)
+        return {"kind": "column", "task": "regression", "values": y,
+                "labelStart": label_start, "labelEnd": label_end, "horizon": 0,
+                "classes": None, "classLabels": None, "bins": None,
+                "column": spec.column}
+
+    # Two passes so the code→label mapping is sorted (deterministic), not
+    # dependent on the order rows happen to arrive in.
+    labels = sorted({str(raw) for raw in values
+                     if raw is not None and not (isinstance(raw, str) and raw.strip() == "")})
+    if len(labels) < 2:
+        raise MLError(INSUFFICIENT_DATA,
+                      f"target column {spec.column!r} needs at least two classes "
+                      f"(found {len(labels)})", 422)
+    codes = {label: i for i, label in enumerate(labels)}
+    y = np.full(n, np.nan)
+    for i, raw in enumerate(values):
+        if raw is None or (isinstance(raw, str) and raw.strip() == ""):
+            continue
+        y[i] = float(codes[str(raw)])
+    return {"kind": "column", "task": "classification", "values": y,
+            "labelStart": label_start, "labelEnd": label_end, "horizon": 0,
+            "classes": [float(i) for i in range(len(labels))], "classLabels": labels,
+            "bins": None, "column": spec.column}
+
+
+__all__ = ["build_target", "build_column_target", "build_unsupervised_target", "task_for"]

@@ -38,13 +38,15 @@ if (!Database) {
 }
 
 const root = path.join(__dirname, "..");
-// BE_DB_PATH override lets CI/tests point the guard at a throwaway DB file.
+// `BE_DATA_DIR` is the encrypted-volume directory (scripts/setup-data-vault.ps1).
+// BE_DB_PATH still overrides it for CI/tests pointing at a throwaway file.
+const dataDir = process.env.BE_DATA_DIR ? path.resolve(process.env.BE_DATA_DIR) : root;
 const dbPath = process.env.BE_DB_PATH
   ? path.resolve(process.env.BE_DB_PATH)
-  : path.join(root, "jdds.db");
+  : path.join(dataDir, "jdds.db");
 const backupsDir = process.env.BE_DB_BACKUPS_DIR
   ? path.resolve(process.env.BE_DB_BACKUPS_DIR)
-  : path.join(root, "backups");
+  : path.join(dataDir, "backups");
 
 const ROLLING_BACKUPS = 5;
 

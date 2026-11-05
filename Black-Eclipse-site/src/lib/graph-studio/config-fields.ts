@@ -9,20 +9,25 @@
 // overrides. Presentation only: persisted config and semantics are untouched.
 
 import type { ConfigFieldDef, NodeDefinition } from './types';
+import { MEMORY_TYPES } from './registry-utility';
+import { QUANT_FIELD_OVERRIDES } from './config-fields-quant';
+import {
+  TRADING_FIELD_OVERRIDES,
+  TRADING_REQUIRED_FIELDS,
+} from './config-fields-trading';
 
 type Override = Omit<ConfigFieldDef, 'key'> & { key: string };
 
 const opts = (...values: string[]): ConfigFieldDef['options'] =>
   values.map((value) => ({ value, label: value }));
 
-/** Bar intervals the quant pack accepts (resample + benchmark annualization). */
-const QUANT_INTERVALS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1mo'];
 
 /** One-line explanations shared by every node that uses the key. */
 const KEY_HELP: Record<string, string> = {
 
   objective: 'What the agent should do. A wired query overrides this.',
   agent: 'Agent preset id. Pick a built-in or a preset from Settings › Agents.',
+  botId: 'Saved bot to run. The graph resolves it at run time; a deleted bot fails by name.',
   agentVersion: '0 uses the preset’s current version; a positive value pins a snapshot.',
   maxSteps: 'Maximum model turns for one bounded run.',
   maxTasks: 'Maximum delegated tasks (1–6).',
@@ -35,7 +40,9 @@ const KEY_HELP: Record<string, string> = {
   workflowId: 'Saved workflow used as the loop body or subworkflow.',
   version: 'Pinned version of the referenced workflow.',
   condition: 'Safe formula over value, index and iterations.',
-  maxIterations: 'Hard stop on loop iterations (1–1000).',
+  maxIterations: 'Hard stop on loop iterations (1-1000).',
+  maxItems: 'Hard cap on items mapped (1-100); extra items are dropped and reported as truncated.',
+  concurrency: 'Body runs in flight at once (hard cap 8, never above the workflow’s Max concurrency).',
   maxDurationMs: 'Optional wall-clock cap in milliseconds (0 = none).',
   count: 'How many times the body runs.',
   timezone: 'IANA timezone, e.g. UTC or America/New_York.',
@@ -181,76 +188,22 @@ const GROUP_BY_KEY: Record<string, string> = {
 /** Parameters the inspector marks with a required asterisk. */
 const REQUIRED_FIELDS: Record<string, string[]> = {
   'file.write': ['path'],
+  'data.file.attach': ['assetId'],
+  'image.attach': ['assetId'],
+  'memory.update': ['memoryId'],
+  'memory.forget': ['memoryId'],
   'flow.for_each': ['workflowId'],
   'flow.repeat': ['workflowId'],
   'flow.while': ['workflowId'],
+  'flow.parallel': ['workflowId'],
   'flow.subworkflow': ['workflowId'],
-  'trading.broker_order': ['connectionId', 'mandateId'],
-  'trading.broker_account': ['connectionId'],
-  'trading.broker_positions': ['connectionId'],
-  'trading.broker_quote': ['connectionId'],
-  'trading.broker_bars': ['connectionId'],
-  'trading.broker_close': ['connectionId'],
-  'trading.broker_modify': ['connectionId'],
-  'trading.broker_cancel': ['connectionId'],
   'integration.http': ['url'],
   'integration.webhook_send': ['url', 'secretEnv'],
+  ...TRADING_REQUIRED_FIELDS,
 };
 
 // Shared quant parameter presentation. Every quant node reuses the same
 // strategy/risk vocabulary, so one definition keeps the labels consistent.
-const quantInstrument: Override[] = [
-  { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, group: 'Instrument & series', placeholder: 'AAPL' },
-  { key: 'interval', label: 'Interval', kind: 'select', inline: true, group: 'Instrument & series', options: opts('1m', '5m', '15m', '30m', '1h', '4h', '1d', '1w', '1mo') },
-];
-const quantStrategy: Override[] = [
-  { key: 'preset', label: 'Strategy preset', kind: 'select', inline: true, group: 'Strategy', options: opts('ema_cross', 'rsi_reversion') },
-  { key: 'fast', label: 'Fast EMA', kind: 'number', group: 'Strategy', min: 2, max: 500 },
-  { key: 'slow', label: 'Slow EMA', kind: 'number', group: 'Strategy', min: 2, max: 2_000 },
-  { key: 'rsiPeriod', label: 'RSI period', kind: 'number', group: 'Strategy', min: 2, max: 500 },
-  { key: 'oversold', label: 'Oversold level', kind: 'number', group: 'Strategy', min: 0, max: 100 },
-  { key: 'overbought', label: 'Overbought level', kind: 'number', group: 'Strategy', min: 0, max: 100 },
-  { key: 'atrPeriod', label: 'ATR period', kind: 'number', group: 'Strategy', min: 2, max: 500 },
-  { key: 'atrMult', label: 'ATR multiple', kind: 'number', group: 'Strategy', min: 0, max: 100 },
-  { key: 'strategyJson', label: 'Custom strategy (JSON)', kind: 'json', group: 'Strategy', help: 'A full StrategySpec. Leave empty to use the preset.' },
-];
-const quantRisk: Override[] = [
-  { key: 'initialCapital', label: 'Initial capital', kind: 'number', group: 'Risk & costs', min: 1 },
-  { key: 'sizePct', label: 'Position size %', kind: 'number', group: 'Risk & costs', min: 1, max: 100 },
-  { key: 'stopPct', label: 'Stop loss %', kind: 'number', group: 'Risk & costs', min: 0, max: 100 },
-  { key: 'reward', label: 'Reward : risk', kind: 'number', group: 'Risk & costs', min: 0, max: 100 },
-  { key: 'riskFreeRate', label: 'Risk-free rate', kind: 'number', group: 'Risk & costs' },
-];
-const quantAdvanced: Override[] = [
-  { key: 'randomSeed', label: 'Random seed', kind: 'number', group: 'Advanced' },
-  { key: 'maxBars', label: 'Max bars (0 = all)', kind: 'number', group: 'Advanced', min: 0 },
-  { key: 'includeSeries', label: 'Include series curves', kind: 'boolean', group: 'Advanced' },
-  { key: 'objective', label: 'Objective', kind: 'select', group: 'Advanced', options: opts('sharpe', 'sortino', 'total_return', 'calmar', 'profit_factor') },
-  { key: 'method', label: 'Method', kind: 'select', group: 'Advanced', options: opts('grid', 'random', 'evolutionary', 'bayesian', 'trade_reshuffle', 'return_bootstrap', 'regime_block') },
-  { key: 'maxEvaluations', label: 'Max evaluations', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'paramSpaceJson', label: 'Parameter space (JSON)', kind: 'json', group: 'Advanced' },
-  { key: 'objectivesJson', label: 'Objectives (JSON)', kind: 'json', group: 'Advanced' },
-  { key: 'leaderboardSize', label: 'Leaderboard size', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'trainBars', label: 'Train bars', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'testBars', label: 'Test bars', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'stepBars', label: 'Step bars', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'anchored', label: 'Anchored windows', kind: 'boolean', group: 'Advanced' },
-  { key: 'simulations', label: 'Simulations', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'ruinThreshold', label: 'Ruin threshold', kind: 'number', group: 'Advanced', min: 0, max: 1, step: 0.01 },
-  { key: 'regimeMix', label: 'Regime mix', kind: 'select', group: 'Advanced', options: opts('resample', 'preserve') },
-  { key: 'regimeBlockLength', label: 'Regime block length', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'perturbationPct', label: 'Perturbation %', kind: 'number', group: 'Advanced', min: 0, max: 100, step: 0.1 },
-  { key: 'perturbationJson', label: 'Perturbation (JSON)', kind: 'json', group: 'Advanced' },
-  { key: 'executionPerturbationJson', label: 'Execution perturbation (JSON)', kind: 'json', group: 'Advanced' },
-  { key: 'oosFraction', label: 'OOS fraction', kind: 'number', group: 'Advanced', min: 0, max: 1, step: 0.01 },
-  { key: 'oosStartIndex', label: 'OOS start index', kind: 'number', group: 'Advanced', min: 0 },
-  { key: 'bootstrapIterations', label: 'Bootstrap iterations', kind: 'number', group: 'Advanced', min: 1 },
-  { key: 'confidence', label: 'Confidence', kind: 'number', group: 'Advanced', min: 0, max: 1, step: 0.01 },
-];
-
-const pickQuantAdvanced = (...keys: string[]): Override[] =>
-  quantAdvanced.filter((field) => keys.includes(field.key));
-
 const FIELD_OVERRIDES: Record<string, Override[]> = {
   // trigger.manual is deliberately zero-config (n8n-style): Start is the run
   // input or null. Stored defaults belong in data.value / data.set_variables.
@@ -259,44 +212,96 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'value', label: 'Value', kind: 'textarea', inline: true, help: 'A literal. Object/array types accept JSON; a wired input overrides it.' },
     { key: 'dataType', label: 'Type', kind: 'select', inline: true, options: opts('string', 'number', 'boolean', 'object', 'array') },
   ],
+  'data.file.attach': [
+    { key: 'assetId', label: 'File', kind: 'file', inline: true, quick: 1, required: true, help: 'Upload or replace a CSV/TSV/JSON/XLSX/text file. Stored locally; only the file reference is saved in the workflow.' },
+    {
+      key: 'parseAs',
+      label: 'Parse as',
+      kind: 'select',
+      inline: true,
+      options: opts('auto', 'text', 'json', 'csv', 'tsv', 'xlsx', 'binary'),
+      help: 'auto detects by extension then MIME. binary returns metadata only.',
+    },
+    { key: 'header', label: 'First row is a header', kind: 'boolean' },
+    { key: 'delimiter', label: 'Delimiter', kind: 'text', placeholder: ',', help: 'CSV/TSV only. TSV defaults to a tab even when this is blank.' },
+    { key: 'maxRows', label: 'Max rows', kind: 'number', min: 1, max: 20_000, help: 'Rows beyond this are dropped and reported as truncated.' },
+    { key: 'encoding', label: 'Encoding', kind: 'text', placeholder: 'utf-8-sig', help: 'Text/CSV/JSON encoding. Use the file’s real encoding.' },
+  ],
+  'data.file.parse': [
+    { key: 'assetId', label: 'File', kind: 'file', inline: true, quick: 1, help: 'Used when no File input is wired.' },
+    {
+      key: 'parseAs',
+      label: 'Parse as',
+      kind: 'select',
+      inline: true,
+      options: opts('auto', 'text', 'json', 'csv', 'tsv', 'xlsx', 'binary'),
+    },
+    { key: 'sheet', label: 'Excel sheet', kind: 'text', placeholder: 'first sheet', help: 'Blank uses the workbook’s first sheet.' },
+    { key: 'header', label: 'First row is a header', kind: 'boolean' },
+    { key: 'delimiter', label: 'Delimiter', kind: 'text', placeholder: ',' },
+    { key: 'maxRows', label: 'Max rows', kind: 'number', min: 1, max: 20_000 },
+    { key: 'encoding', label: 'Encoding', kind: 'text', placeholder: 'utf-8-sig' },
+  ],
+  'data.file.export': [
+    { key: 'format', label: 'Format', kind: 'select', inline: true, options: opts('csv', 'json', 'xlsx') },
+    { key: 'name', label: 'File name', kind: 'text', inline: true, placeholder: 'export', help: 'The extension is appended when missing.' },
+    { key: 'includeHeader', label: 'Include header row', kind: 'boolean' },
+    { key: 'rowsJson', label: 'Rows (JSON)', kind: 'code', help: 'Used when the Rows input is not wired. An array of objects or arrays.' },
+    { key: 'maxRows', label: 'Max rows', kind: 'number', min: 1, max: 20_000 },
+  ],
+  'image.attach': [
+    { key: 'assetId', label: 'Image', kind: 'image', inline: true, quick: 1, required: true, help: 'Upload or replace a PNG/JPEG/WebP/GIF/BMP/TIFF. The bytes are stored locally; only the asset id is saved in the workflow.' },
+    { key: 'notes', label: 'Notes', kind: 'text', help: 'Optional note for the operator. Never sent to the model.' },
+  ],
+  'image.analyze': [
+    { key: 'assetId', label: 'Image', kind: 'image', inline: true, quick: 1, help: 'Used when no Image input is wired.' },
+    {
+      key: 'mode',
+      label: 'Mode',
+      kind: 'select',
+      inline: true,
+      options: opts('describe', 'answer', 'ground', 'extract'),
+      help: 'describe · answer a question · ground elements with boxes · extract a JSON object checked against a schema.',
+    },
+    { key: 'question', label: 'Question', kind: 'textarea', help: 'Required in answer mode. A wired Question wins.' },
+    { key: 'schemaJson', label: 'Output schema (JSON)', kind: 'code', help: 'extract mode only. A JSON Schema subset; a mismatch returns data: null and the issues.' },
+    { key: 'region', label: 'Region (x,y,w,h)', kind: 'text', placeholder: '0,0,640,480', help: 'Blank analyzes the whole image.' },
+    { key: 'maxObservations', label: 'Max observations', kind: 'number', min: 1, max: 200 },
+  ],
+  'image.ocr': [
+    { key: 'assetId', label: 'Image', kind: 'image', inline: true, quick: 1 },
+    { key: 'language', label: 'Language', kind: 'text', placeholder: 'auto' },
+    { key: 'region', label: 'Region (x,y,w,h)', kind: 'text', placeholder: '0,0,640,480' },
+  ],
+  'image.read_chart': [
+    { key: 'assetId', label: 'Chart image', kind: 'image', inline: true, quick: 1 },
+    { key: 'question', label: 'Question', kind: 'textarea', help: 'Optional. A wired Question wins.' },
+    { key: 'symbol', label: 'Symbol (for verification)', kind: 'text', inline: true, placeholder: 'AAPL', help: 'When set, the engine can cross-check the reading against market data. Without it, verified is false.' },
+    { key: 'market', label: 'Market', kind: 'text', placeholder: 'auto' },
+    { key: 'timeframe', label: 'Timeframe', kind: 'text', placeholder: '1h' },
+  ],
+  'image.compare': [
+    { key: 'assetId', label: 'Candidate', kind: 'image', inline: true, quick: 1 },
+    { key: 'compareAssetId', label: 'Reference', kind: 'image', inline: true, quick: 2 },
+    { key: 'mode', label: 'Mode', kind: 'select', inline: true, options: opts('pixel', 'visual', 'both'), help: 'pixel is deterministic; visual asks the model; both reports which basis produced Same.' },
+    { key: 'threshold', label: 'Pixel threshold', kind: 'number', min: 0, max: 1, step: 0.01 },
+    { key: 'question', label: 'What to compare', kind: 'textarea' },
+  ],
+  'image.batch': [
+    { key: 'assetIds', label: 'Candidate images', kind: 'images', help: 'Upload up to 8 images. Used when Images is not wired; a wired array wins.' },
+    { key: 'questionsJson', label: 'Questions (JSON array or one per line)', kind: 'textarea', help: '1–5 questions applied to every image. One result row per image.' },
+    { key: 'mode', label: 'Mode', kind: 'select', inline: true, options: opts('analyze', 'read_chart', 'ocr') },
+    { key: 'concurrency', label: 'Concurrency', kind: 'number', inline: true, min: 1, max: 3 },
+    { key: 'maxImages', label: 'Max images', kind: 'number', min: 1, max: 8 },
+    { key: 'symbol', label: 'Symbol (read_chart)', kind: 'text', placeholder: 'AAPL' },
+    { key: 'outputSchemaJson', label: 'Output schema (JSON)', kind: 'code', help: 'analyze mode only; each row is checked against it.' },
+  ],
   'data.set_variables': [
     { key: 'variables', label: 'Variables', kind: 'keyvalue', help: 'Named values merged over the input object. Configured keys win.' },
   ],
   'data.json.parse': [
     { key: 'text', label: 'JSON text', kind: 'code', help: 'Used when the Text port is not wired. The wire wins when connected.' },
     { key: 'strict', label: 'Strict', kind: 'boolean', help: 'Reject invalid JSON instead of passing the raw text through.' },
-  ],
-  'trading.broker_order': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-    { key: 'mandateId', label: 'Mandate (live/paper)', kind: 'text' },
-  ],
-  'trading.broker_account': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-  ],
-  'trading.broker_positions': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-  ],
-  'trading.broker_quote': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'XAUUSD' },
-  ],
-  'trading.broker_bars': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-    { key: 'symbol', label: 'Symbol', kind: 'text', inline: true, placeholder: 'XAUUSD' },
-    { key: 'timeframe', label: 'Timeframe', kind: 'select', options: opts('M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1') },
-    { key: 'count', label: 'Bars', kind: 'number', min: 1, max: 500 },
-  ],
-  'trading.broker_close': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-    { key: 'symbol', label: 'Symbol (close all in it)', kind: 'text', inline: true, placeholder: 'XAUUSD' },
-    { key: 'closeAll', label: 'Close all positions', kind: 'boolean' },
-    { key: 'deviation', label: 'Deviation (points)', kind: 'number', min: 0, max: 1_000 },
-  ],
-  'trading.broker_modify': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
-  ],
-  'trading.broker_cancel': [
-    { key: 'connectionId', label: 'Broker connection', kind: 'text' },
   ],
   'file.write': [
     { key: 'path', label: 'Path (relative)', kind: 'text', inline: true, placeholder: 'reports/aapl.csv', help: 'Relative to the scope root; ".." and absolute paths are refused.' },
@@ -628,119 +633,125 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'market', label: 'Market', kind: 'text' },
     { key: 'freshness', label: 'Freshness', kind: 'select', options: opts('realtime', 'intraday', 'daily', 'slow', 'any') },
   ],
-  'quant.risk_metrics': [
-    { key: 'inputKind', label: 'Input', kind: 'select', inline: true, options: opts('returns', 'prices') },
-    { key: 'confidence', label: 'VaR confidence', kind: 'number', inline: true, min: 0.5, max: 0.999, step: 0.001 },
-    { key: 'riskFreeRate', label: 'Risk-free rate', kind: 'number', min: -0.5, max: 0.5, step: 0.001 },
-    { key: 'periodsPerYear', label: 'Periods / year', kind: 'number', min: 1, max: 1_000 },
+  'agent.team': [
+    { key: 'objective', label: 'Objective', kind: 'text', inline: true, quick: 1, port: 'objective', help: 'What the committee decides on. A wired objective wins.' },
+    { key: 'universe', label: 'Universe', kind: 'text', help: 'Optional symbols/instruments the committee covers.' },
+    { key: 'horizon', label: 'Horizon', kind: 'text', help: 'Optional time horizon, e.g. 1-3 months.' },
+    { key: 'timeoutS', label: 'Timeout (s)', kind: 'number', min: 30, max: 3_600 },
   ],
-  'quant.drawdown': [
-    { key: 'inputKind', label: 'Input', kind: 'select', inline: true, options: opts('equity', 'returns') },
+  'agent.task': [
+    { key: 'instructions', label: 'Instructions', kind: 'textarea', group: 'Prompt', help: 'Appended to the agent preset’s system prompt. The preset still owns its base rules.' },
+    { key: 'task', label: 'Task', kind: 'textarea', group: 'Task', inline: true, quick: 1, help: 'What this turn must do. A wired Task wins.' },
+    { key: 'includeInput', label: 'Include the wired Input as JSON', kind: 'boolean', group: 'Task' },
+    { key: 'agent', label: 'Agent preset', kind: 'text', group: 'Agent', inline: true, quick: 2 },
+    { key: 'agentVersion', label: 'Version (0 = latest)', kind: 'number', group: 'Agent', min: 0 },
+    { key: 'maxSteps', label: 'Max steps', kind: 'number', group: 'Agent', min: 1, max: 32 },
+    { key: 'tools', label: 'Tool allowlist', kind: 'text', group: 'Tools', placeholder: 'get_market_data, research_search', help: 'Comma separated. It can only narrow the preset’s tools; an unavailable tool fails by name.' },
+    { key: 'memoryMode', label: 'Memory', kind: 'select', group: 'Memory', inline: true, options: opts('none', 'read', 'write', 'read_write'), help: 'read recalls memory into the prompt; write stores the final answer as a summary. Writes need an operator run.' },
+    { key: 'memoryScope', label: 'Memory scope', kind: 'select', group: 'Memory', options: opts('general', 'workflow', 'run') },
+    { key: 'memoryLimit', label: 'Recall limit', kind: 'number', group: 'Memory', min: 1, max: 50 },
+    { key: 'memoryImportance', label: 'Write importance', kind: 'number', group: 'Memory', min: 0, max: 1, step: 0.1 },
+    { key: 'outputMode', label: 'Output', kind: 'select', group: 'Output', inline: true, options: opts('text', 'json') },
+    { key: 'outputSchemaJson', label: 'Output schema (JSON)', kind: 'code', group: 'Output', help: 'json mode only. On a mismatch, Data is null and Valid is false with the issues.' },
   ],
-  'quant.correlation': [
-    { key: 'method', label: 'Method', kind: 'select', inline: true, options: opts('pearson', 'spearman') },
-    { key: 'window', label: 'Rolling window (0 = full)', kind: 'number', inline: true, min: 0, max: 2_000 },
+  'output.chart': [
+    { key: 'kind', label: 'Chart', kind: 'select', inline: true, options: opts('line', 'area', 'bar', 'scatter', 'pie', 'donut') },
+    { key: 'title', label: 'Title', kind: 'text', inline: true },
+    { key: 'xLabel', label: 'X label', kind: 'text' },
+    { key: 'yLabel', label: 'Y label', kind: 'text' },
+    { key: 'xField', label: 'X field (rows payload)', kind: 'text' },
+    { key: 'yField', label: 'Y field (rows payload)', kind: 'text' },
   ],
-  'quant.beta': [
-    { key: 'inputKind', label: 'Input', kind: 'select', inline: true, options: opts('returns', 'prices') },
-    { key: 'window', label: 'Rolling window (0 = full)', kind: 'number', inline: true, min: 0, max: 2_000 },
-    { key: 'riskFreeRate', label: 'Risk-free rate', kind: 'number', min: -0.5, max: 0.5, step: 0.001 },
-    { key: 'periodsPerYear', label: 'Periods / year', kind: 'number', min: 1, max: 1_000 },
+  'output.notify': [
+    { key: 'channel', label: 'Channel', kind: 'text', inline: true, quick: 1, help: 'A channel configured in Settings, e.g. telegram, slack, discord, google_chat, lark, webhook.' },
+    { key: 'destination', label: 'Destination', kind: 'text', inline: true, quick: 2, help: 'Chat / channel id the message goes to.' },
+    { key: 'title', label: 'Title', kind: 'text', help: 'Optional first line of the message.' },
+    { key: 'message', label: 'Message', kind: 'textarea', help: 'Used when the Message port is not wired.' },
   ],
-  'quant.grade': [
-    { key: 'minTrades', label: 'Minimum trades', kind: 'number', inline: true, min: 1, max: 10_000 },
-    { key: 'goodTrades', label: 'Good trade count', kind: 'number', min: 1, max: 100_000 },
-    { key: 'highProbabilityOfLoss', label: 'High loss probability (%)', kind: 'number', min: 0, max: 100, step: 0.1 },
+  'research.source_rank': [
+    { key: 'halfLifeDays', label: 'Freshness half-life (days)', kind: 'number', inline: true, min: 1, max: 3_650, help: 'An item this old scores 0.5 on freshness. Confidence and freshness are averaged.' },
   ],
-  'quant.benchmark': [
-    { key: 'interval', label: 'Interval', kind: 'select', inline: true, options: opts(...QUANT_INTERVALS) },
-    { key: 'assetClass', label: 'Asset class', kind: 'select', inline: true, options: opts('equity', 'crypto') },
-    { key: 'riskFreeRate', label: 'Risk-free rate', kind: 'number', min: -0.5, max: 0.5, step: 0.001 },
+  'logic.human_approval': [
+    { key: 'title', label: 'Title', kind: 'text', inline: true, quick: 1, help: 'What the operator is approving.' },
+    { key: 'message', label: 'Message', kind: 'textarea', help: 'Shown on the approval card. The Message port wins.' },
+    { key: 'risk', label: 'Risk', kind: 'select', inline: true, options: opts('low', 'medium', 'high') },
+    { key: 'ttlHours', label: 'Expires after (hours)', kind: 'number', min: 1, max: 24, help: 'An expired request is never approved.' },
+    { key: 'pollSeconds', label: 'Re-check every (s)', kind: 'number', min: 2, max: 60, help: 'Also the durable job’s pause interval.' },
+    { key: 'maxWaitS', label: 'Max wait (s, synchronous runs)', kind: 'number', min: 10, max: 3_600 },
   ],
-  'quant.resample': [
-    { key: 'targetInterval', label: 'Target interval', kind: 'select', inline: true, options: opts(...QUANT_INTERVALS) },
-    { key: 'sourceInterval', label: 'Source interval (blank = from series)', kind: 'text', inline: true, placeholder: '1h' },
+  'logic.assert': [
+    { key: 'expect', label: 'Expect', kind: 'select', inline: true, options: opts('truthy', 'falsy', 'present') },
+    { key: 'message', label: 'Failure message', kind: 'text', inline: true, quick: 1, help: 'Shown as the node error (and the run error with fail-fast).' },
   ],
-  'quant.robustness': [
-    ...quantInstrument, ...quantStrategy, ...quantRisk,
-    ...pickQuantAdvanced('randomSeed', 'objective', 'paramSpaceJson'),
-    { key: 'costMultipliersJson', label: 'Cost multipliers (JSON)', kind: 'json', group: 'Robustness', placeholder: '[1, 2, 5]' },
-    { key: 'costMaterialDrop', label: 'Material cost drop', kind: 'number', group: 'Robustness', min: 0, max: 1, step: 0.01 },
-    { key: 'concentrationTopN', label: 'Concentration top N', kind: 'number', group: 'Robustness', min: 1, max: 100 },
-    { key: 'concentrationThreshold', label: 'Concentration threshold', kind: 'number', group: 'Robustness', min: 0, max: 1, step: 0.01 },
-    { key: 'minTrades', label: 'Minimum trades', kind: 'number', group: 'Robustness', min: 1, max: 10_000 },
-    { key: 'splits', label: 'Regime splits', kind: 'number', group: 'Robustness', min: 1, max: 20 },
+  'data.extract': [
+    { key: 'path', label: 'Path', kind: 'text', inline: true, quick: 1, help: 'Dotted path, e.g. data.items.0.price. A numeric segment indexes a list.' },
+    { key: 'onMissing', label: 'When missing', kind: 'select', inline: true, options: opts('null', 'error') },
   ],
-  'quant.trade_analysis': [
-    { key: 'maxEntries', label: 'Max analysed entries', kind: 'number', inline: true, min: 1, max: 5_000 },
-    { key: 'symbol', label: 'Symbol (blank = from series)', kind: 'text', inline: true, placeholder: 'AAPL' },
+  'memory.recall': [
+    { key: 'query', label: 'Query', kind: 'text', inline: true, quick: 1 },
+    { key: 'types', label: 'Memory types', kind: 'text', help: 'Comma separated. Blank reads all types the policy allows.' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 50 },
+    { key: 'scope', label: 'Scope', kind: 'text', help: 'Blank uses the memory service default.' },
   ],
-  'quant.multiple_testing': [
-    { key: 'periodsPerYear', label: 'Periods / year', kind: 'number', inline: true, min: 1, max: 1_000 },
-    { key: 'nSplits', label: 'CSCV splits', kind: 'number', min: 2, max: 64 },
-    { key: 'trialSharpesJson', label: 'Trial Sharpes (JSON)', kind: 'text', placeholder: '[1.2, 0.8, …]' },
-    { key: 'returnsMatrixJson', label: 'Returns matrix (JSON)', kind: 'text', placeholder: '[[…], […]]' },
+  'memory.remember': [
+    { key: 'content', label: 'Content', kind: 'textarea', inline: true, quick: 1 },
+    { key: 'memoryType', label: 'Type', kind: 'select', inline: true, options: MEMORY_TYPES.map((value) => ({ value, label: value })) },
+    { key: 'scope', label: 'Scope', kind: 'text' },
+    { key: 'subject', label: 'Subject', kind: 'text' },
+    { key: 'importance', label: 'Importance', kind: 'number', min: 0, max: 1, step: 0.1 },
   ],
-  'quant.align': [
-    { key: 'join', label: 'Join', kind: 'select', inline: true, options: opts('inner', 'outer') },
-    { key: 'column', label: 'Column', kind: 'text', inline: true, placeholder: 'close' },
-    { key: 'fill', label: 'Fill', kind: 'select', inline: true, options: opts('none', 'ffill', 'zero') },
+  'memory.context': [
+    { key: 'query', label: 'Query', kind: 'text', inline: true, quick: 1 },
+    { key: 'types', label: 'Memory types', kind: 'text', help: 'Comma separated; blank reads every allowed type.' },
+    { key: 'limit', label: 'Recall limit', kind: 'number', min: 1, max: 50 },
+    { key: 'budgetTokens', label: 'Budget (tokens)', kind: 'number', min: 128, max: 8_000, help: 'Lowest-importance records are dropped first; the drop count is reported.' },
+    { key: 'format', label: 'Format', kind: 'select', inline: true, options: opts('bullets', 'prose', 'compact') },
+    { key: 'scope', label: 'Scope', kind: 'text', placeholder: 'general', help: 'general · workflow · run, or a literal named scope.' },
   ],
-  'quant.regime': [
-    { key: 'fast', label: 'Fast trend window', kind: 'number', inline: true, min: 1, max: 500 },
-    { key: 'slow', label: 'Slow trend window', kind: 'number', inline: true, min: 2, max: 500 },
-    { key: 'atrPeriod', label: 'ATR period', kind: 'number', min: 1, max: 500 },
-    { key: 'volPeriod', label: 'Volatility window', kind: 'number', min: 1, max: 500 },
-    { key: 'volBaseline', label: 'Volatility baseline', kind: 'number', min: 1, max: 2_000 },
-    { key: 'trendThreshold', label: 'Trend threshold (ATR)', kind: 'number', min: 0, max: 10, step: 0.1 },
-    { key: 'highVolRatio', label: 'High-vol ratio', kind: 'number', min: 1, max: 10, step: 0.1 },
-    { key: 'lowVolRatio', label: 'Low-vol ratio', kind: 'number', min: 0.01, max: 1, step: 0.01 },
+  'memory.list': [
+    { key: 'memoryType', label: 'Type', kind: 'text', placeholder: 'semantic' },
+    { key: 'scope', label: 'Scope', kind: 'text', placeholder: 'general' },
+    { key: 'status', label: 'Status', kind: 'text', placeholder: 'active' },
+    { key: 'subject', label: 'Subject', kind: 'text' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 200 },
+    { key: 'includeInactive', label: 'Include archived/inactive', kind: 'boolean' },
   ],
-  'quant.position_size': [
-    { key: 'method', label: 'Method', kind: 'select', inline: true, options: opts(
-      'fixed_quantity', 'fixed_dollar', 'percent_equity', 'percent_risk', 'atr',
-      'volatility', 'kelly', 'fractional_kelly', 'risk_parity', 'equal_weight',
-    ) },
-    { key: 'value', label: 'Method value', kind: 'number', inline: true },
-    { key: 'equity', label: 'Equity', kind: 'number', inline: true, min: 0 },
-    { key: 'atrMultiplier', label: 'ATR multiplier', kind: 'number', min: 0.1, max: 20, step: 0.1 },
-    { key: 'maxFraction', label: 'Max equity fraction', kind: 'number', min: 0, max: 10, step: 0.05 },
-    { key: 'kellyFraction', label: 'Kelly fraction', kind: 'number', min: 0, max: 1, step: 0.05 },
-    { key: 'winRate', label: 'Win rate', kind: 'number', min: 0, max: 1, step: 0.01 },
-    { key: 'payoff', label: 'Win/loss payoff', kind: 'number', min: 0.1, max: 100, step: 0.1 },
-    { key: 'realizedVol', label: 'Realized volatility', kind: 'number', min: 0, max: 10, step: 0.01 },
-    { key: 'weight', label: 'Target weight', kind: 'number', min: 0, max: 1, step: 0.01 },
-    { key: 'minQuantity', label: 'Venue minimum', kind: 'number', min: 0 },
-    { key: 'lotSize', label: 'Lot size', kind: 'number', min: 0 },
-    { key: 'quantityPrecision', label: 'Quantity precision', kind: 'number', min: 0, max: 12 },
-    { key: 'contractMultiplier', label: 'Contract multiplier', kind: 'number', min: 0.0001, max: 10_000 },
+  'memory.update': [
+    { key: 'memoryId', label: 'Memory id', kind: 'text', inline: true, quick: 1, required: true },
+    { key: 'content', label: 'New content', kind: 'textarea', help: 'Leave blank to change only the subject or importance.' },
+    { key: 'subject', label: 'Subject', kind: 'text' },
+    { key: 'updateImportance', label: 'Change importance', kind: 'boolean' },
+    { key: 'importance', label: 'Importance', kind: 'number', min: 0, max: 1, step: 0.1 },
   ],
-  'quant.portfolio_backtest': [
-    // A portfolio has no single `symbol` and no single `strategyJson`; those two
-    // single-series fields are dropped from the shared presentation blocks.
-    ...quantInstrument.filter((field) => field.key !== 'symbol'),
-    ...quantStrategy.filter((field) => field.key !== 'strategyJson'),
-    ...quantRisk,
-    ...pickQuantAdvanced('randomSeed', 'maxBars', 'includeSeries'),
-    { key: 'strategiesJson', label: 'Strategies (JSON array)', kind: 'json', group: 'Strategy', help: 'One StrategySpec per strategy; each must declare universe.symbols. Empty = the preset on every symbol.' },
+  'memory.forget': [
+    { key: 'memoryId', label: 'Memory id', kind: 'text', inline: true, quick: 1, required: true },
+    { key: 'reason', label: 'Reason', kind: 'text', help: 'Recorded on the archive event.' },
   ],
-  'quant.costs': [
-    { key: 'kind', label: 'Cost family', kind: 'select', inline: true, options: opts('transaction', 'slippage', 'spread', 'impact') },
-    { key: 'executionJson', label: 'Execution model (JSON)', kind: 'json', help: 'The engine’s execution block: commission, slippage, spread, marketImpact.' },
-    { key: 'randomSeed', label: 'Random seed', kind: 'number' },
+  'agent.classify': [
+    { key: 'labels', label: 'Labels (comma separated)', kind: 'text', inline: true, quick: 1, help: 'At least two. The model must return one of these exactly; anything else fails the node.' },
+    { key: 'instructions', label: 'Instructions', kind: 'textarea', help: 'Optional guidance for the classifier. It cannot widen the label set.' },
   ],
-  'quant.edge_report': [],
-  'quant.options_strategy': [
-    { key: 'spotMin', label: 'Payoff range min', kind: 'number', inline: true, min: 0 },
-    { key: 'spotMax', label: 'Payoff range max', kind: 'number', inline: true, min: 0 },
-    { key: 'points', label: 'Payoff points', kind: 'number', inline: true, min: 3, max: 2_001 },
-    { key: 'riskFree', label: 'Risk-free rate', kind: 'number', min: -0.5, max: 0.5, step: 0.001 },
+  'agent.extract': [
+    { key: 'schemaJson', label: 'Target schema (JSON)', kind: 'code', help: 'JSON Schema subset used to CHECK the extraction: type, required, properties, items. Empty = no check.' },
+    { key: 'instructions', label: 'Instructions', kind: 'textarea', help: 'What to extract and how to read the text.' },
   ],
-  'quant.futures_continuous': [
-    { key: 'rollDatesJson', label: 'Roll dates (JSON)', kind: 'json', inline: true, placeholder: '["2024-03-15"]' },
-    { key: 'adjustment', label: 'Adjustment', kind: 'select', inline: true, options: opts('none', 'difference', 'ratio') },
-    { key: 'symbol', label: 'Series symbol', kind: 'text', inline: true, placeholder: 'CONTINUOUS' },
-    { key: 'interval', label: 'Interval', kind: 'select', options: opts(...QUANT_INTERVALS) },
+  'agent.summarize': [
+    { key: 'maxWords', label: 'Max words', kind: 'number', inline: true, min: 10, max: 2_000 },
+    { key: 'style', label: 'Style', kind: 'select', inline: true, options: opts('prose', 'bullets') },
+  ],
+  'agent.critique': [
+    { key: 'rubric', label: 'Rubric (optional)', kind: 'textarea', help: 'What counts as support. Blank uses the built-in rubric.' },
+  ],
+  'agent.bot': [
+    { key: 'botId', label: 'Bot', kind: 'text', quick: 1, help: 'Saved bot to run. Pick one above; the node resolves it at run time.' },
+    { key: 'objective', label: 'Objective (optional)', kind: 'text', quick: 2, port: 'query', help: 'Overrides the bot’s saved objective for this run. A wired query wins.' },
+    { key: 'maxSteps', label: 'Max steps', kind: 'number', min: 1, max: 32 },
+  ],
+  'skill.invoke': [
+    { key: 'skillId', label: 'Skill', kind: 'text', inline: true, quick: 1, help: 'Installed skill id. Pick one above; the runtime re-checks its status and permissions at run time.' },
+    { key: 'version', label: 'Version (blank = latest)', kind: 'text', help: 'Pin a skill version. Blank uses the registry’s current version.' },
+    { key: 'inputJson', label: 'Input (JSON)', kind: 'code', help: 'Used when the Input port is not wired; wired keys win over these.' },
+    { key: 'timeoutMs', label: 'Timeout (ms)', kind: 'number', min: 1_000, max: 900_000 },
   ],
   'video.render': [
     { key: 'title', label: 'Title', kind: 'text', inline: true },
@@ -752,51 +763,6 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'fast', label: 'Fast', kind: 'number', min: 1, max: 500 },
     { key: 'slow', label: 'Slow', kind: 'number', min: 1, max: 500 },
     { key: 'signal', label: 'Signal', kind: 'number', min: 1, max: 500 },
-  ],
-  'quant.backtest': [
-    ...quantInstrument, ...quantStrategy, ...quantRisk,
-    ...pickQuantAdvanced('randomSeed', 'maxBars', 'includeSeries'),
-  ],
-  'quant.walkforward': [
-    ...quantInstrument, ...quantStrategy, ...quantRisk,
-    ...pickQuantAdvanced(
-      'randomSeed', 'maxEvaluations', 'method', 'objective', 'paramSpaceJson',
-      'trainBars', 'testBars', 'stepBars', 'anchored',
-    ),
-  ],
-  'quant.optimize': [
-    ...quantInstrument, ...quantStrategy, ...quantRisk,
-    ...pickQuantAdvanced(
-      'randomSeed', 'maxEvaluations', 'method', 'objective', 'paramSpaceJson',
-      'objectivesJson', 'leaderboardSize',
-    ),
-  ],
-  'quant.montecarlo': [
-    ...quantInstrument, ...quantStrategy, ...quantRisk,
-    ...pickQuantAdvanced(
-      'randomSeed', 'method', 'simulations', 'ruinThreshold', 'regimeMix',
-      'regimeBlockLength', 'perturbationPct', 'perturbationJson',
-      'executionPerturbationJson',
-    ),
-  ],
-  'quant.oos': [
-    ...quantInstrument, ...quantStrategy, ...quantRisk,
-    ...pickQuantAdvanced(
-      'randomSeed', 'oosFraction', 'oosStartIndex', 'bootstrapIterations',
-      'confidence', 'objective',
-    ),
-  ],
-  'quant.returns': [
-    { key: 'kind', label: 'Returns', kind: 'select', inline: true, options: opts('simple', 'log') },
-    { key: 'period', label: 'Period', kind: 'number', inline: true, min: 1, max: 500 },
-  ],
-  'quant.zscore': [
-    { key: 'period', label: 'Period', kind: 'number', inline: true, min: 2, max: 500 },
-  ],
-  'quant.volatility': [
-    { key: 'period', label: 'Period', kind: 'number', inline: true, min: 2, max: 500 },
-    { key: 'annualize', label: 'Annualize', kind: 'boolean', inline: true },
-    { key: 'periodsPerYear', label: 'Periods / year', kind: 'number', min: 1, max: 1_000 },
   ],
   'agent.research': [
     { key: 'objective', label: 'Objective', kind: 'text', inline: true, quick: 1, port: 'query' },
@@ -832,12 +798,16 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
   ],
   'research.report': [
     { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'maxItems', label: 'Max items / section', kind: 'number', min: 1, max: 1_000 },
   ],
   'research.web_search': [
     { key: 'query', label: 'Query', kind: 'text', inline: true },
     { key: 'limit', label: 'Results', kind: 'number', inline: true, min: 1, max: 15 },
     { key: 'domains', label: 'Include domains', kind: 'json' },
     { key: 'excludeDomains', label: 'Exclude domains', kind: 'json' },
+    { key: 'provider', label: 'Provider preference', kind: 'text', placeholder: 'leave empty for the ordered chain' },
+    { key: 'researchId', label: 'Research id (to save sources)', kind: 'text' },
+    { key: 'saveSources', label: 'Save result pointers as sources', kind: 'boolean' },
   ],
   'research.web_fetch': [
     { key: 'url', label: 'URL', kind: 'text', inline: true, placeholder: 'https://…' },
@@ -850,30 +820,149 @@ const FIELD_OVERRIDES: Record<string, Override[]> = {
     { key: 'maxPages', label: 'Max pages', kind: 'number', min: 1, max: 10 },
     { key: 'maxChars', label: 'Max chars / page', kind: 'number', min: 500, max: 100_000 },
     { key: 'sameDomain', label: 'Same domain', kind: 'boolean' },
+    { key: 'maxDepth', label: 'Max link depth', kind: 'number', min: 0, max: 2 },
+    { key: 'delayMs', label: 'Delay between pages (ms)', kind: 'number', min: 0, max: 2_000 },
   ],
   'research.claim_verify': [
     { key: 'claim', label: 'Claim', kind: 'text', inline: true },
     { key: 'researchId', label: 'Research id', kind: 'text' },
     { key: 'evidenceIds', label: 'Evidence ids', kind: 'json' },
+    { key: 'asOf', label: 'As of', kind: 'text', placeholder: '2026-01-01T00:00:00Z' },
+    { key: 'freshness', label: 'Freshness', kind: 'text', placeholder: 'any | day | week | month | quarter | year' },
   ],
-  'trading.risk_check': [
-    { key: 'equity', label: 'Equity', kind: 'number', inline: true, min: 1, help: 'Used only when no `equity`/`account` input is wired.' },
-    { key: 'price', label: 'Price', kind: 'number', min: 0 },
-    { key: 'maxPositionPct', label: 'Max position %', kind: 'number', min: 0, max: 100 },
-    { key: 'maxLeverage', label: 'Max leverage', kind: 'number', min: 0, max: 100 },
-    { key: 'requireStop', label: 'Require stop', kind: 'boolean' },
+  'research.latest': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'questionMatch', label: 'Question contains', kind: 'text', inline: true },
+    { key: 'latest', label: 'Newest match', kind: 'boolean' },
+    { key: 'limit', label: 'Scan limit', kind: 'number', min: 1, max: 50 },
   ],
-  'trading.paper_order': [
-    { key: 'price', label: 'Price', kind: 'number', inline: true, min: 0 },
-    { key: 'accountId', label: 'Paper account', kind: 'text', inline: true },
-    { key: 'initialCash', label: 'Initial cash', kind: 'number', min: 0 },
-    { key: 'commissionPct', label: 'Commission %', kind: 'number', min: 0, max: 10 },
-    { key: 'slippagePct', label: 'Slippage %', kind: 'number', min: 0, max: 10 },
-    { key: 'persist', label: 'Persist fill', kind: 'boolean' },
+  'research.sources': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'limit', label: 'Limit', kind: 'number', inline: true, min: 1, max: 1_000 },
+    { key: 'domain', label: 'Domain', kind: 'text' },
+    { key: 'sourceType', label: 'Source type', kind: 'text' },
+    { key: 'publishedAfter', label: 'Published after', kind: 'text', placeholder: '2026-01-01' },
+    { key: 'dedupe', label: 'Dedupe by content/family', kind: 'boolean' },
+  ],
+  'research.gaps': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'includeOptional', label: 'Include optional questions', kind: 'boolean' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 500 },
+  ],
+  'research.freshness': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'asOf', label: 'As of', kind: 'text', placeholder: '2026-01-01T00:00:00Z' },
+    { key: 'freshness', label: 'Freshness', kind: 'text' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
+  ],
+  'research.conflict_scan': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'tolerance', label: 'Numeric tolerance', kind: 'number', inline: true, min: 0, max: 1, step: 0.001 },
+    { key: 'mergeStored', label: 'Merge stored conflicts', kind: 'boolean' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
+  ],
+  'research.citation_audit': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'requireCitations', label: 'Require citations', kind: 'boolean', inline: true },
+    { key: 'asOf', label: 'As of', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'text' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
+  ],
+  'research.supersession': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
+  ],
+  'research.quality': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'freshness', label: 'Freshness', kind: 'text' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
+  ],
+  'research.entities': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'name', label: 'Entity name', kind: 'text' },
+    { key: 'kind', label: 'Kind', kind: 'text' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
+  ],
+  'research.claims_verify': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'asOf', label: 'As of', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'text' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 200 },
+  ],
+  'research.start_run': [
+    { key: 'question', label: 'Question', kind: 'text', inline: true },
+    { key: 'researchId', label: 'Research id (optional)', kind: 'text' },
+    { key: 'objective', label: 'Objective', kind: 'text' },
+    { key: 'depth', label: 'Depth', kind: 'text', placeholder: 'quick | standard | deep' },
+    { key: 'asOf', label: 'As of', kind: 'text' },
+    { key: 'freshness', label: 'Freshness', kind: 'text' },
+  ],
+  'research.snapshot': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'include', label: 'Sections', kind: 'text', placeholder: 'all | sources,evidence,claims,…' },
+  ],
+  'research.fetch_many': [
+    { key: 'urls', label: 'URLs', kind: 'json' },
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'maxChars', label: 'Max chars / page', kind: 'number', min: 500, max: 100_000 },
+    { key: 'allowBrowser', label: 'Allow browser escalation', kind: 'boolean' },
+    { key: 'concurrency', label: 'Concurrency', kind: 'number', inline: true, min: 1, max: 4 },
+    { key: 'dedupe', label: 'Dedupe by content hash', kind: 'boolean' },
+    { key: 'saveEvidence', label: 'Save evidence to the run', kind: 'boolean' },
+  ],
+  'research.scrape': [
+    { key: 'url', label: 'URL', kind: 'text', inline: true, placeholder: 'https://…' },
+    { key: 'selector', label: 'Selector', kind: 'text' },
+    { key: 'attribute', label: 'Attribute', kind: 'text' },
+    { key: 'fields', label: 'Fields', kind: 'json' },
+    { key: 'tables', label: 'Collect tables', kind: 'boolean' },
+    { key: 'maxRows', label: 'Max rows', kind: 'number', min: 1, max: 200 },
+  ],
+  'research.extract_facts': [
+    { key: 'objective', label: 'Objective', kind: 'text', inline: true },
+    { key: 'legsJson', label: 'Fact legs', kind: 'json' },
+    { key: 'permittedTiers', label: 'Permitted source tiers', kind: 'json' },
+    { key: 'timeoutMs', label: 'Timeout (ms)', kind: 'number', min: 10_000, max: 180_000 },
+  ],
+  'research.deep_dive': [
+    { key: 'question', label: 'Question', kind: 'text', inline: true },
+    { key: 'depth', label: 'Depth', kind: 'select', inline: true, options: opts('quick', 'standard', 'deep', 'financial', 'forensic') },
+    { key: 'freshness', label: 'Freshness', kind: 'text' },
+    { key: 'asOf', label: 'As of', kind: 'text' },
+    { key: 'minSources', label: 'Min sources', kind: 'number', min: 1, max: 20 },
+    { key: 'maxSources', label: 'Max sources', kind: 'number', min: 1, max: 30 },
+    { key: 'maxQueries', label: 'Max queries', kind: 'number', min: 1, max: 30 },
+    { key: 'maxTimeSeconds', label: 'Max time (s)', kind: 'number', min: 10, max: 600 },
+    { key: 'citationsRequired', label: 'Require citations', kind: 'boolean' },
+    { key: 'primarySourcesRequired', label: 'Require primary sources', kind: 'boolean' },
+  ],
+  'research.ingest': [
+    { key: 'researchId', label: 'Research id', kind: 'text', inline: true },
+    { key: 'question', label: 'Question (when creating a run)', kind: 'text' },
+    { key: 'sourceLabel', label: 'Source label', kind: 'text', inline: true, placeholder: 'mcp:server/tool' },
+    { key: 'createRun', label: 'Create the run row', kind: 'boolean' },
+    { key: 'limit', label: 'Max rows / collection', kind: 'number', min: 1, max: 200 },
+  ],
+  'research.diff': [
+    { key: 'baseId', label: 'Base research id', kind: 'text', inline: true },
+    { key: 'compareId', label: 'Compare research id', kind: 'text', inline: true },
+    { key: 'byContentHash', label: 'Match evidence by content hash', kind: 'boolean' },
+    { key: 'useSnapshots', label: 'Prefer snapshots', kind: 'boolean' },
+    { key: 'limit', label: 'Limit', kind: 'number', min: 1, max: 1_000 },
+  ],
+  'research.queries': [
+    { key: 'question', label: 'Question', kind: 'text', inline: true },
+    { key: 'claimsJson', label: 'Claims to test', kind: 'json' },
+    { key: 'includeCounterEvidence', label: 'Add disconfirming queries', kind: 'boolean', inline: true },
+    { key: 'includePrimarySources', label: 'Add a primary-source query', kind: 'boolean' },
+    { key: 'siteFilter', label: 'Site filter', kind: 'text', placeholder: 'sec.gov' },
+    { key: 'maxQueries', label: 'Max queries', kind: 'number', min: 1, max: 20 },
   ],
   'output.result': [
     { key: 'label', label: 'Result label', kind: 'text', inline: true },
   ],
+  ...TRADING_FIELD_OVERRIDES,
+  ...QUANT_FIELD_OVERRIDES,
 };
 
 function inferKind(value: unknown): ConfigFieldDef['kind'] {

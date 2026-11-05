@@ -10,6 +10,7 @@
 import React, { useMemo, useState } from 'react';
 import { Activity, BarChart3, Info } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { IconBadge } from '@/components/layout/page-header';
 import type { VolumeSummary } from '@/lib/heatmap';
 /** Compact currency formatter (1.2B / 945.0M / 12.3K). */
 function fmtCompact(v: number, currency: string): string {
@@ -101,9 +102,7 @@ export function VolumeAnalyticsPanel({
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/5 pb-3">
         <div className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-primary/25 bg-primary/15">
-            <BarChart3 className="text-primary" size={17} />
-          </span>
+          <IconBadge icon={BarChart3} size="sm" />
           <div>
             <h2 className="font-serif text-lg font-semibold text-foreground">Volume Analytics</h2>
             <p className="text-[10px] text-muted-foreground font-mono">

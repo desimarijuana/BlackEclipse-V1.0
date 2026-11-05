@@ -62,6 +62,10 @@ def export_tool_schemas(registry: Optional[ToolRegistry] = None) -> list[dict[st
     reg = registry if registry is not None else _default_registry()
     exported: list[dict[str, Any]] = []
     for tool in sorted(reg.list(), key=lambda t: t.name):
+        if getattr(tool, "dynamic", False):
+            # A per-model predictor is state, not surface: including it would make
+            # the manifest (and its digest) depend on the database contents.
+            continue
         permission = str(getattr(tool, "permission", "") or "")
         effect = getattr(tool, "effect", None)
         if permission != "read" and (not effect or effect not in PUBLISHABLE_EFFECTS):

@@ -156,6 +156,14 @@ def test_web_search_requires_a_query(store, bridge):
         _exec("research.web_search", {})
 
 
+def test_web_search_can_save_result_pointers_as_sources(store, bridge):
+    result = _exec("research.web_search", {
+        "query": "revenue", "researchId": RID, "saveSources": True,
+    })
+    assert result["summary"]["savedSources"] == 2
+    assert len(store.list_sources(RID)) == 2
+
+
 def test_web_fetch_saves_evidence_when_a_research_id_is_set(store, bridge):
     result = _exec("research.web_fetch", {
         "url": "https://example.com/page", "researchId": RID, "maxChars": 600,
@@ -231,6 +239,18 @@ def test_web_crawl_is_bounded_to_the_same_domain(store):
     assert "other.test" not in " ".join(urls)
 
 
+def test_web_crawl_max_depth_zero_only_fetches_the_start_page(store):
+    set_research_bridge(_CrawlBridge())
+    try:
+        result = _exec("research.web_crawl", {
+            "url": "https://example.com/a", "maxPages": 5, "maxDepth": 0,
+        })
+    finally:
+        set_research_bridge(None)
+    assert [page["url"] for page in result["pages"]] == ["https://example.com/a"]
+    assert result["summary"]["maxDepth"] == 0
+
+
 def test_web_fetch_without_evidence_store_is_explicit(store, bridge):
     set_evidence_store(None)
     try:
@@ -272,7 +292,7 @@ def _network_ir(node_type: str, config: dict) -> WorkflowIR:
             {"id": "e2", "source": "web", "sourceHandle": "results", "target": "out", "targetHandle": "value"},
         ],
         "settings": {"executionMode": "research", "failFast": False, "maxConcurrency": 1, "timeoutMs": 0},
-        "requiredCapabilities": ["network.egress"],
+        "requiredCapabilities": ["network.egress", "research.read", "research.write"],
     })
 
 
@@ -282,6 +302,8 @@ def test_web_nodes_need_an_explicit_network_grant():
     assert denied.executable is False
     assert any(d.code == "permission_denied" for d in denied.diagnostics)
     allowed = compile_workflow(ir, REGISTRY, RunGrants(
-        test_run=False, granted_capabilities=frozenset({"network.egress"}), allow_network=True,
+        test_run=False,
+        granted_capabilities=frozenset({"network.egress", "research.read", "research.write"}),
+        allow_network=True,
     ))
     assert allowed.executable is True

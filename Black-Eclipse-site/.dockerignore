@@ -18,6 +18,11 @@ scripts/vendor
 .env
 .env.*
 !.env.example
+mcp-servers.json
+python/.black-eclipse
+*.pem
+*.p12
+*.pfx
 *.log
 Dockerfile
 docker-compose.yml

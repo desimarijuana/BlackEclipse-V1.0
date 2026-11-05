@@ -7,6 +7,8 @@ import React, { useMemo, useState } from 'react';
 import { ShieldCheck } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';
+import { hasRBasis, isRMeasurable } from '@/lib/journal/trade-math';
+import { fmtPrice, fmtDateTime } from '@/lib/journal/format';
 import { EquityCurveChart, DimensionBarChart, WinLossChart, DrawdownChart, DailyPerformanceChart, RDistributionChart, fmtR, fmtMoney } from './charts';
 import { MiniCalendar } from './mini-calendar';
 import { MonthCalendarCard } from './month-calendar-card';
@@ -25,7 +27,7 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
   const p = analytics?.performance;
   const [equityCurrency, setEquityCurrency] = useState(false);
   const recent = useMemo(() => [...trades].sort((a, b) => Date.parse(b.exitTime) - Date.parse(a.exitTime)).slice(0, 8), [trades]);
-  const rValues = useMemo(() => trades.filter((t) => t.status === 'closed').map((t) => t.rMultiple), [trades]);
+  const rValues = useMemo(() => trades.filter((t) => t.status === 'closed' && hasRBasis(t)).map((t) => t.rMultiple), [trades]);
 
   if (!analytics || !p) {
     return (
@@ -42,10 +44,16 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
     { label: 'Total Trades', value: String(p.totalTrades) },
     { label: 'Win Rate', value: `${(p.winRate * 100).toFixed(1)}%`, sub: `${p.wins}W / ${p.losses}L / ${p.breakevens}B` },
     { label: 'Net P&L', value: fmtMoney(p.netPnl), tone: p.netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400' },
-    { label: 'Net R', value: fmtR(p.netR), tone: p.netR >= 0 ? 'text-emerald-400' : 'text-rose-400' },
-    { label: 'Expectancy', value: fmtR(p.expectancy), tone: p.expectancy >= 0 ? 'text-emerald-400' : 'text-rose-400' },
+    p.rAvailable
+      ? { label: 'Net R', value: fmtR(p.netR), tone: p.netR >= 0 ? 'text-emerald-400' : 'text-rose-400' }
+      : { label: 'Net R', value: 'UNAVAILABLE', sub: 'no stops captured' },
+    p.rAvailable
+      ? { label: 'Expectancy', value: fmtR(p.expectancy), tone: p.expectancy >= 0 ? 'text-emerald-400' : 'text-rose-400' }
+      : { label: 'Expectancy', value: 'UNAVAILABLE', sub: 'no stops captured' },
     { label: 'Profit Factor', value: p.profitFactor === Infinity ? '∞' : p.profitFactor.toFixed(2) },
-    { label: 'Max Drawdown', value: fmtR(-p.maxDrawdown), tone: 'text-rose-400' },
+    p.rAvailable
+      ? { label: 'Max Drawdown', value: fmtR(-p.maxDrawdown), tone: 'text-rose-400' }
+      : { label: 'Max Drawdown', value: 'UNAVAILABLE', sub: 'no stops captured' },
     { label: 'Avg Win / Loss', value: `${fmtMoney(p.averageWin)} / ${fmtMoney(p.averageLoss)}` },
     { label: 'Streak', value: p.currentStreak > 0 ? `${p.currentStreak}W` : p.currentStreak < 0 ? `${-p.currentStreak}L` : '—', tone: p.currentStreak > 0 ? 'text-emerald-400' : p.currentStreak < 0 ? 'text-rose-400' : undefined },
     { label: 'Discipline', value: `${analytics.discipline.total}/100`, sub: `v${analytics.discipline.total >= 80 ? 'strong' : analytics.discipline.total >= 50 ? 'ok' : 'needs work'}` },
@@ -68,7 +76,7 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="rounded-2xl glass-card p-4 lg:col-span-2">
           <div className="mb-2 flex items-center justify-end gap-1.5">
-            {analytics.equityCurrency.length >= 2 && (
+            {p.rAvailable && analytics.equityCurrency.length >= 2 && (
               <div className="inline-flex rounded-lg border border-white/10 bg-white/[0.03] p-0.5 text-[10px] font-semibold">
                 <button onClick={() => setEquityCurrency(false)} className={cn('rounded-md px-2 py-0.5 cursor-pointer', !equityCurrency ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground')}>R</button>
                 <button onClick={() => setEquityCurrency(true)} className={cn('rounded-md px-2 py-0.5 cursor-pointer', equityCurrency ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:text-foreground')}>Currency</button>
@@ -76,8 +84,8 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
             )}
           </div>
           <EquityCurveChart
-            equity={equityCurrency ? analytics.equityCurrency : analytics.equity}
-            currency={equityCurrency}
+            equity={!p.rAvailable || equityCurrency ? analytics.equityCurrency : analytics.equity}
+            currency={!p.rAvailable || equityCurrency}
             height={260}
           />
         </div>
@@ -102,33 +110,40 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
           <MonthCalendarCard trades={trades} onSelectDay={(d) => onOpenCalendar?.(d)} />
         </div>
         <div className="rounded-2xl glass-card p-4">
-          <DrawdownChart equity={analytics.equity} height={200} />
+          <DrawdownChart equity={p.rAvailable ? analytics.equity : analytics.equityCurrency} height={200} />
         </div>
       </div>
 
       {/* Daily performance + R distribution */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div className="rounded-2xl glass-card p-4">
-          <DailyPerformanceChart days={analytics.days.map((d) => ({ date: d.date, netR: d.netR }))} height={220} />
+          <DailyPerformanceChart days={analytics.days} basis={p.rAvailable ? 'R' : 'pnl'} height={220} />
         </div>
         <div className="rounded-2xl glass-card p-4">
-          <RDistributionChart rValues={rValues} height={220} />
+          {p.rAvailable ? (
+            <RDistributionChart rValues={rValues} height={220} />
+          ) : (
+            <div className="flex h-[220px] flex-col items-center justify-center gap-1.5 text-center">
+              <p className="font-mono text-[10px] uppercase tracking-widest font-bold text-muted-foreground">R Distribution</p>
+              <p className="text-xs text-muted-foreground italic">UNAVAILABLE — no trade has a captured stop, so R cannot be measured.</p>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Best / worst dimensions */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.bySymbol.slice(0, 6)} title="Best / Worst Symbols" hint="NET R" height={200} />
+          <DimensionBarChart rows={analytics.bySymbol.slice(0, 6)} title="Best / Worst Symbols" hint={p.rAvailable ? 'NET R' : 'NET P&L'} basis={p.rAvailable ? 'R' : 'pnl'} height={200} />
         </div>
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.bySetup.slice(0, 6)} title="Best / Worst Setups" hint="NET R" height={200} />
+          <DimensionBarChart rows={analytics.bySetup.slice(0, 6)} title="Best / Worst Setups" hint={p.rAvailable ? 'NET R' : 'NET P&L'} basis={p.rAvailable ? 'R' : 'pnl'} height={200} />
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.bySession.slice(0, 6)} title="Best / Worst Sessions" hint="NET R" height={200} />
+          <DimensionBarChart rows={analytics.bySession.slice(0, 6)} title="Best / Worst Sessions" hint={p.rAvailable ? 'NET R' : 'NET P&L'} basis={p.rAvailable ? 'R' : 'pnl'} height={200} />
         </div>
         <div className="rounded-2xl glass-card p-4">
           <DisciplinePanel analytics={analytics} />
@@ -151,7 +166,7 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
             <table className="w-full text-left text-xs font-mono">
               <thead className="sticky top-0 bg-[#0f0f0f]/95 border-b border-white/10">
                 <tr>
-                  {['Date', 'Symbol', 'Dir', 'Entry', 'Exit', 'R', 'P&L'].map((h) => (
+                  {['Date / time', 'Symbol', 'Dir', 'Entry', 'Exit', 'R', 'P&L'].map((h) => (
                     <th key={h} className="px-3 py-2 text-[9px] uppercase tracking-widest text-muted-foreground font-bold">{h}</th>
                   ))}
                 </tr>
@@ -159,13 +174,13 @@ export function JournalOverview({ analytics, trades, onOpenTrades, onOpenCalenda
               <tbody>
                 {recent.map((t) => (
                   <tr key={t.id} className="border-b border-white/5 last:border-0 hover:bg-white/[0.03]">
-                    <td className="px-3 py-2 text-muted-foreground">{t.exitTime.slice(0, 10)}</td>
+                    <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{fmtDateTime(t.exitTime)}</td>
                     <td className="px-3 py-2 font-bold text-foreground">{t.symbol}</td>
                     <td className="px-3 py-2">{t.direction === 'LONG' ? <span className="text-emerald-400">LONG</span> : <span className="text-rose-400">SHORT</span>}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{t.entry}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{t.exit}</td>
-                    <td className={cn('px-3 py-2 font-bold', t.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{fmtR(t.rMultiple)}</td>
-                    <td className={cn('px-3 py-2 font-bold', t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{fmtMoney(t.pnl)}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{fmtPrice(t.entry)}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{t.status === 'open' ? '—' : fmtPrice(t.exit)}</td>
+                    <td className={cn('px-3 py-2 font-bold', !isRMeasurable(t) ? 'text-muted-foreground/50' : t.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{isRMeasurable(t) ? fmtR(t.rMultiple) : '—'}</td>
+                    <td className={cn('px-3 py-2 font-bold', t.status === 'open' ? 'text-muted-foreground/70' : t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{t.status === 'open' ? 'open' : fmtMoney(t.pnl)}</td>
                   </tr>
                 ))}
               </tbody>

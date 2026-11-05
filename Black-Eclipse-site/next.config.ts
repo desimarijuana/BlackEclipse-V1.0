@@ -2,6 +2,25 @@ import type { NextConfig } from "next";
 
 const isDev = process.env.NODE_ENV === "development";
 
+// Baseline response headers for every route. They are cheap, additive and do
+// not depend on the app's rendering: nosniff stops MIME confusion, SAMEORIGIN
+// stops clickjacking while still allowing the app's own iframes, the referrer
+// policy keeps query strings (which can carry tokens) out of third-party logs,
+// and Permissions-Policy leaves camera/microphone available to this origin only
+// (voice dictation) while denying geolocation.
+const securityHeaders: { key: string; value: string }[] = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "SAMEORIGIN" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=()" },
+];
+// HSTS is only meaningful over HTTPS and only safe once the deployment actually
+// terminates TLS; a loopback http:// install ignores it. No includeSubDomains:
+// a LAN hostname may legitimately have siblings that are not upgraded.
+if (!isDev) {
+  securityHeaders.push({ key: "Strict-Transport-Security", value: "max-age=31536000" });
+}
+
 const nextConfig: NextConfig = {
   // Turbopack names a dev chunk after the MODULE it serves (e.g.
   // `src_components_screens_a6343f43._.js`), not after the bytes it holds. When
@@ -16,14 +35,18 @@ const nextConfig: NextConfig = {
   // so a second tab gets a cheap 304 instead of re-downloading the whole
   // ~20 MB client graph, and a changed chunk is always fetched fresh.
   // Production is unaffected: real builds are content-hashed and immutable.
-  headers: isDev
-    ? async () => [
-        {
-          source: "/_next/static/chunks/:path*",
-          headers: [{ key: "Cache-Control", value: "public, max-age=0, must-revalidate" }],
-        },
-      ]
-    : undefined,
+  headers: async () => {
+    const rules: { source: string; headers: { key: string; value: string }[] }[] = [
+      { source: "/:path*", headers: securityHeaders },
+    ];
+    if (isDev) {
+      rules.push({
+        source: "/_next/static/chunks/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=0, must-revalidate" }],
+      });
+    }
+    return rules;
+  },
   experimental: {
     // The icon surface re-exports ~250 icons from a 9k-icon barrel. Without
     // this, the full icon definition set (~1.5 MB) lands in the boot chunk.

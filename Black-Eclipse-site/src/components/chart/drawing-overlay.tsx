@@ -189,7 +189,7 @@ export function DrawingOverlay({ getChart, manager, controller, tool }: DrawingO
       type: tool as never,
       visible: true,
       locked: false,
-      style: { color: '#7aff78', width: 1.5, lineStyle: 'solid' as const, opacity: 0.6 },
+      style: { color: '#b4ff42', width: 1.5, lineStyle: 'solid' as const, opacity: 0.6 },
       createdAt: 0,
       updatedAt: 0,
     };

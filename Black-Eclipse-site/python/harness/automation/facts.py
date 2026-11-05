@@ -245,12 +245,96 @@ def default_fact_provider(service: Any) -> FactProvider:
     return CompositeFactProvider([
         MarketFactProvider(service),
         PortfolioFactProvider(service),
+        LedgerFactProvider(service),
     ])
+
+
+class LedgerFactProvider:
+    """Resolves `ledger.<ledgerId>.<field>` variables through the ledger engine.
+
+    Fields: `suspense` (absolute suspense balance), `blockers` / `warnings` (the
+    current period's close findings), `ready` (1 when the period has no blocker),
+    `open_ar` / `open_ap` (open-item totals) and `entries`. Every value comes from
+    the same service the tools and the UI read; a missing ledger, a failed read or
+    an unknown field yields NO fact, so the condition evaluates UNAVAILABLE rather
+    than firing on a fabricated number.
+    """
+
+    _FIELDS = frozenset({"suspense", "blockers", "warnings", "ready",
+                         "open_ar", "open_ap", "entries"})  # documented field set
+
+    def __init__(self, service: Any) -> None:
+        self._service = service
+
+    async def snapshot(self, variables: Iterable[str]) -> dict[str, Any]:
+        ledger = getattr(self._service, "ledger", None)
+        if ledger is None:
+            return {}
+        by_ledger: dict[str, list[str]] = {}
+        for path in variables:
+            parts = str(path).split(".")
+            if len(parts) >= 3 and parts[0] == "ledger" and parts[1]:
+                by_ledger.setdefault(parts[1], []).append(str(path))
+        facts: dict[str, Any] = {}
+        for ledger_id, paths in by_ledger.items():
+            try:
+                resolved = self._facts_for(ledger, ledger_id)
+            except Exception:  # noqa: BLE001 - a failed read is no fact, not a crash
+                continue
+            for path in paths:
+                field = path.split(".")[2]
+                if field in resolved:
+                    facts[path] = resolved[field]
+        return facts
+
+    def _facts_for(self, service: Any, ledger_id: str) -> dict[str, Any]:
+        from datetime import date  # noqa: PLC0415
+
+        from ..ledger import statements as ledger_statements  # noqa: PLC0415
+
+        record = service.store.get_ledger(ledger_id)
+        if record is None:
+            return {}
+        today = date.today().isoformat()
+        accounts = service.store.list_accounts(ledger_id)
+        balances = ledger_statements.build_balances(
+            accounts, (), service.store.postings(ledger_id, end=today)
+        )
+        facts: dict[str, Any] = {}
+        suspense = sum((entry.net for entry in balances.values()
+                        if entry.account.subtype == "SUSPENSE"), 0)
+        facts["suspense"] = float(abs(suspense))
+        facts["entries"] = float(service.store.count_entries(ledger_id, end=today))
+        try:
+            from ..ledger import close as ledger_close  # noqa: PLC0415
+            from ..ledger.periods import fiscal_position, period_bounds  # noqa: PLC0415
+
+            fiscal_year, period_no = fiscal_position(record.fiscal_year_start_month,
+                                                     date.fromisoformat(today))
+            start, end = period_bounds(record.fiscal_year_start_month,
+                                       fiscal_year, period_no)
+            report = ledger_close.evaluate(service, ledger_id,
+                                           start=start.isoformat(), end=end.isoformat())
+            facts["blockers"] = float(report["blockerCount"])
+            facts["warnings"] = float(report["warningCount"])
+            facts["ready"] = 1.0 if report["status"] == "READY" else 0.0
+        except Exception:  # noqa: BLE001 - the close fields are simply absent
+            pass
+        try:
+            from ..ledger.documents import aging  # noqa: PLC0415
+
+            for field, kind in (("open_ar", "AR"), ("open_ap", "AP")):
+                report = aging(service, ledger_id, kind=kind, as_of=today)
+                facts[field] = float(report["openTotal"])
+        except Exception:  # noqa: BLE001 - open items are simply absent
+            pass
+        return facts
 
 
 __all__ = [
     "CompositeFactProvider",
     "FactProvider",
+    "LedgerFactProvider",
     "MarketFactProvider",
     "PortfolioFactProvider",
     "StaticFactProvider",

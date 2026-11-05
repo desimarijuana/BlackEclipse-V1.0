@@ -110,7 +110,23 @@ async def call_model(
     started = time.monotonic()
 
     def _builder(s: Any) -> Any:
-        return build_chat_model(s)
+        model = build_chat_model(s)
+        # A vision reply is a small JSON object, but OpenRouter-compatible
+        # endpoints otherwise reserve the model's full generation budget (e.g.
+        # 16 384 tokens) against the account's credits before the call. Bound
+        # the OUTPUT explicitly so a legitimate small image read is affordable.
+        try:
+            import os  # noqa: PLC0415
+
+            from ..models import PROVIDER_CATALOG  # noqa: PLC0415
+
+            spec = PROVIDER_CATALOG.get(getattr(s, "provider", ""))
+            if spec is not None and spec.kind == "openai":
+                limit = int(os.environ.get("BLACK_ECLIPSE_VISION_MAX_TOKENS", "4096"))
+                model = model.bind(max_tokens=max(256, min(limit, 16_384)))
+        except Exception:  # noqa: BLE001 - binding is best-effort, never fatal
+            pass
+        return model
 
     async def _invoke(model: Any) -> Any:
         call = model.ainvoke([message])

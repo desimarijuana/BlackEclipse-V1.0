@@ -6,12 +6,10 @@
 // the client already; only the volatile asset universe is fetched here.
 
 import { NextResponse } from "next/server";
+import { INDEX_VERSION } from "@/lib/search/index-version";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
-
-// Bump whenever the wire format changes so stale caches are invalidated.
-const INDEX_VERSION = "2.0.0";
 
 // Derive a coarse asset class from market + security type so the client can
 // render a category icon without a lookup.

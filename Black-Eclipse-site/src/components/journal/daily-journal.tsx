@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { Save, Check, ArrowLeft } from '@/lib/icons';
 import { cn } from '@/lib/utils';
+import { fmtPrice, fmtClock } from '@/lib/journal/format';
 import { fmtR, fmtMoney } from './charts';
 
 interface DayTrade {
@@ -16,6 +17,11 @@ interface DayTrade {
   entry: number;
   exit: number;
   rMultiple: number;
+  status?: string;
+  riskAmount?: number | null;
+  stopLoss?: number | null;
+  entryTime?: string;
+  exitTime?: string | null;
   pnl: number;
   session: string | null;
   setup?: { name: string } | null;
@@ -125,7 +131,9 @@ export function DailyJournal({ date, onBack }: DailyJournalProps) {
   const trades = day?.trades ?? [];
   const netR = trades.reduce((s, t) => s + t.rMultiple, 0);
   const netPnl = trades.reduce((s, t) => s + t.pnl, 0);
-  const wins = trades.filter((t) => t.rMultiple > 0).length;
+  const hasR = (t: DayTrade) => t.status !== 'open' && t.riskAmount != null && t.riskAmount > 0;
+  const rAvailable = trades.some(hasR);
+  const wins = trades.filter((t) => (hasR(t) ? t.rMultiple > 0 : t.pnl > 0)).length;
   const winRate = trades.length > 0 ? (wins / trades.length) * 100 : 0;
 
   const inputCls = 'w-full rounded-lg bg-background/60 border border-border/40 hover:border-primary/50 px-2.5 py-1.5 text-xs font-mono focus:ring-1 focus:ring-primary outline-none';
@@ -166,7 +174,11 @@ export function DailyJournal({ date, onBack }: DailyJournalProps) {
         <>
           {/* Performance summary */}
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-            <Stat label="Net R" value={fmtR(netR)} tone={netR >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
+            {rAvailable ? (
+              <Stat label="Net R" value={fmtR(netR)} tone={netR >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
+            ) : (
+              <Stat label="Net R" value="UNAVAILABLE" />
+            )}
             <Stat label="Trades" value={String(trades.length)} />
             <Stat label="Win Rate" value={trades.length > 0 ? `${winRate.toFixed(0)}%` : '—'} />
             <Stat label="Net P&L" value={fmtMoney(netPnl)} tone={netPnl >= 0 ? 'text-emerald-400' : 'text-rose-400'} />
@@ -219,7 +231,7 @@ export function DailyJournal({ date, onBack }: DailyJournalProps) {
                 <table className="w-full text-left text-xs font-mono">
                   <thead className="border-b border-white/10">
                     <tr>
-                      {['Symbol', 'Dir', 'Entry', 'Exit', 'R', 'P&L', 'Session', 'Setup', 'Emotion'].map((h) => (
+                      {['Time', 'Symbol', 'Dir', 'Entry', 'Exit', 'R', 'P&L', 'Session', 'Setup', 'Emotion'].map((h) => (
                         <th key={h} className="px-3 py-2 text-[9px] uppercase tracking-widest text-muted-foreground font-bold">{h}</th>
                       ))}
                     </tr>
@@ -227,11 +239,15 @@ export function DailyJournal({ date, onBack }: DailyJournalProps) {
                   <tbody>
                     {trades.map((t) => (
                       <tr key={t.id} className="border-b border-white/5 last:border-0">
+                        <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">
+                          {fmtClock(t.entryTime)}
+                          {t.exitTime ? <span className="text-muted-foreground/50"> → {fmtClock(t.exitTime)}</span> : <span className="text-muted-foreground/50"> → open</span>}
+                        </td>
                         <td className="px-3 py-2 font-bold text-foreground">{t.symbol}</td>
                         <td className="px-3 py-2">{t.direction === 'LONG' ? <span className="text-emerald-400">LONG</span> : <span className="text-rose-400">SHORT</span>}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{t.entry}</td>
-                        <td className="px-3 py-2 text-muted-foreground">{t.exit}</td>
-                        <td className={cn('px-3 py-2 font-bold', t.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{fmtR(t.rMultiple)}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{fmtPrice(t.entry)}</td>
+                        <td className="px-3 py-2 text-muted-foreground">{fmtPrice(t.exit)}</td>
+                        <td className={cn('px-3 py-2 font-bold', !hasR(t) ? 'text-muted-foreground/50' : t.rMultiple >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{hasR(t) ? fmtR(t.rMultiple) : '—'}</td>
                         <td className={cn('px-3 py-2 font-bold', t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400')}>{fmtMoney(t.pnl)}</td>
                         <td className="px-3 py-2 text-muted-foreground">{t.session ?? '—'}</td>
                         <td className="px-3 py-2 text-muted-foreground">{t.setup?.name ?? '—'}</td>

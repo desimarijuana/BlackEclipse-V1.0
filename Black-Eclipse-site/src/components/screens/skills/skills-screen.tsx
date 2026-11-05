@@ -47,9 +47,10 @@ export function SkillsScreen({ isOperator = false }: { isOperator?: boolean }) {
   const [tab, setTab] = useState<Tab>("library");
   // Deep links (e.g. "Learning Queue" from an originating chat run) land on the
   // matching sub-tab. The slug list is the rendered tab list, so a tab cannot
-  // exist in the bar but be unreachable by link.
+  // exist in the bar but be unreachable by link. The shell strips the
+  // `skills.` prefix before dispatching, so pass the slug as-is.
   useSubroute("skills", (req) => {
-    const def = screenTab(SKILLS_TABS, req.subroute.split(".")[1]);
+    const def = screenTab(SKILLS_TABS, req.subroute);
     if (def) setTab(def.id);
   });
   const [skills, setSkills] = useState<SkillSummary[]>([]);

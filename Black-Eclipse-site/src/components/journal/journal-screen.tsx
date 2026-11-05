@@ -2,7 +2,7 @@
 
 // ── JournalScreen — the Journal tab shell ─────────────────────────────────────
 // Hosts the sub-tab navigation (Overview / Calendar / Trades / Analytics /
-// Playbook / Reviews / Insights) and loads the shared analytics bundle once,
+// Decisions / Psychology / Playbook / Reviews / Insights / Notebook) and loads the shared analytics bundle once,
 // passing it down to each sub-screen. Keeps the analytics fetch in one place
 // so sub-screens stay pure and fast.
 
@@ -10,6 +10,7 @@ import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { BookOpen, Brain, CalendarDays, LayoutDashboard, LineChart, ListChecks, MessageSquareText, ShieldCheck, Sparkles, StickyNote } from '@/lib/icons';
 import { TabBar } from '@/components/ui/tab-bar';
+import { PageHeader } from '@/components/layout/page-header';
 import { useSubroute } from '@/hooks/use-subroute';
 import type { JournalAnalytics, TradeRecord } from '@/lib/journal/types';
 import { JournalOverview } from './overview';
@@ -27,20 +28,25 @@ import { JournalSettings } from './journal-settings';
 import { JournalNotebook } from './notebook';
 import { AdvisoryDecisions } from './advisory-decisions';
 
-export type JournalTab = 'overview' | 'calendar' | 'trades' | 'analytics' | 'decisions' | 'psychology' | 'playbook' | 'reviews' | 'insights' | 'notebook';
+import { JOURNAL_TABS, type JournalTabId } from '@/lib/journal-tabs';
 
-const TABS: { id: JournalTab; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
-  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { id: 'calendar', label: 'Calendar', icon: CalendarDays },
-  { id: 'trades', label: 'Trades', icon: ListChecks },
-  { id: 'analytics', label: 'Analytics', icon: LineChart },
-  { id: 'decisions', label: 'Decisions', icon: ShieldCheck },
-  { id: 'psychology', label: 'Psychology', icon: Brain },
-  { id: 'playbook', label: 'Playbook', icon: BookOpen },
-  { id: 'reviews', label: 'Reviews', icon: MessageSquareText },
-  { id: 'insights', label: 'Insights', icon: Sparkles },
-  { id: 'notebook', label: 'Notebook', icon: StickyNote },
-];
+export type JournalTab = JournalTabId;
+
+const TAB_ICONS: Record<JournalTabId, React.ComponentType<{ size?: number; className?: string }>> = {
+  overview: LayoutDashboard,
+  calendar: CalendarDays,
+  trades: ListChecks,
+  analytics: LineChart,
+  decisions: ShieldCheck,
+  psychology: Brain,
+  playbook: BookOpen,
+  reviews: MessageSquareText,
+  insights: Sparkles,
+  notebook: StickyNote,
+};
+
+const TABS: { id: JournalTab; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] =
+  JOURNAL_TABS.map((t) => ({ id: t.id, label: t.label, icon: TAB_ICONS[t.id] }));
 
 export function JournalScreen() {
   const [tab, setTab] = useState<JournalTab>('overview');
@@ -108,16 +114,12 @@ export function JournalScreen() {
     <div ref={rootRef} data-keyboard-scope="Trading journal" className="animate-fade-in-up w-full">
       {/* Header — the Add-Trade action lives here so it is reachable from every
           sub-tab, not just Trades/Calendar. */}
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/25 bg-primary/15 shadow-lg shadow-primary/10">
-          <BookOpen className="text-primary" size={22} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <h1 className="font-serif text-2xl font-semibold tracking-tight text-foreground">Trading Journal</h1>
-          <p className="text-muted-foreground text-xs mt-0.5">Every trade becomes data. Every day becomes behavioral data.</p>
-        </div>
-        {!dailyOpen && (
-          <div className="flex items-center gap-2">
+      <PageHeader
+        icon={BookOpen}
+        title="Trading Journal"
+        description="Every trade becomes data. Every day becomes behavioral data."
+        actions={!dailyOpen && (
+          <>
             <JournalSettings onChanged={refresh} />
             <QuickAddTrade
               onAdded={refresh}
@@ -125,9 +127,9 @@ export function JournalScreen() {
               open={quickAddOpen}
               onOpenChange={setQuickAddOpen}
             />
-          </div>
+          </>
         )}
-      </div>
+      />
 
       {/* Sub-tab navigation */}
       <TabBar

@@ -4,6 +4,7 @@
 
 import React, { useMemo } from 'react';
 import type { DimensionRow, JournalAnalytics, TradeRecord } from '@/lib/journal/types';
+import { hasRBasis } from '@/lib/journal/trade-math';
 import { DimensionBarChart, RDistributionChart, EquityCurveChart, ScatterChart, RollingMetricsChart, fmtR } from './charts';
 
 interface AnalyticsProps {
@@ -13,13 +14,17 @@ interface AnalyticsProps {
 
 export function JournalAnalyticsView({ analytics, trades }: AnalyticsProps) {
   const rValues = useMemo(
-    () => trades.filter((t) => t.status === 'closed').map((t) => t.rMultiple),
+    () => trades.filter((t) => t.status === 'closed' && hasRBasis(t)).map((t) => t.rMultiple),
     [trades],
   );
 
   if (!analytics) {
     return <EmptyState />;
   }
+
+  const rAvailable = analytics.performance.rAvailable;
+  const basis: 'R' | 'pnl' = rAvailable ? 'R' : 'pnl';
+  const basisHint = (suffix = '') => (rAvailable ? `NET R${suffix}` : `NET P&L${suffix}`);
 
   // Monthly returns reuse the DimensionRow bar chart shape.
   const monthlyRows: DimensionRow[] = analytics.monthlyReturns.map((m) => ({
@@ -37,13 +42,13 @@ export function JournalAnalyticsView({ analytics, trades }: AnalyticsProps) {
   return (
     <div className="flex flex-col gap-5">
       <div className="rounded-2xl glass-card p-4">
-        <EquityCurveChart equity={analytics.equity} height={260} />
+        <EquityCurveChart equity={rAvailable ? analytics.equity : analytics.equityCurrency} currency={!rAvailable} height={260} />
       </div>
 
       {/* Depth analytics (Phase 4) */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={monthlyRows} title="Monthly Returns" hint="NET R / MONTH" height={Math.max(160, monthlyRows.length * 28)} />
+          <DimensionBarChart rows={monthlyRows} title="Monthly Returns" hint={basisHint(' / MONTH')} basis={basis} height={Math.max(160, monthlyRows.length * 28)} />
         </div>
         <div className="rounded-2xl glass-card p-4">
           <RollingMetricsChart rolling={analytics.rolling} height={Math.max(160, monthlyRows.length * 28)} />
@@ -75,40 +80,53 @@ export function JournalAnalyticsView({ analytics, trades }: AnalyticsProps) {
           />
         </div>
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.durationBuckets} title="By Holding Time" hint="NET R" height={Math.max(160, analytics.durationBuckets.length * 28)} />
+          <DimensionBarChart rows={analytics.durationBuckets} title="By Holding Time" hint={basisHint()} basis={basis} height={Math.max(160, analytics.durationBuckets.length * 28)} />
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.bySymbol} title="By Symbol" hint="NET R" height={Math.max(160, analytics.bySymbol.length * 28)} />
+          <DimensionBarChart rows={analytics.bySymbol} title="By Symbol" hint={basisHint()} basis={basis} height={Math.max(160, analytics.bySymbol.length * 28)} />
         </div>
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.bySetup} title="By Setup" hint="NET R" height={Math.max(160, analytics.bySetup.length * 28)} />
+          <DimensionBarChart rows={analytics.bySetup} title="By Setup" hint={basisHint()} basis={basis} height={Math.max(160, analytics.bySetup.length * 28)} />
         </div>
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.bySession} title="By Session" hint="NET R" height={Math.max(160, analytics.bySession.length * 28)} />
+          <DimensionBarChart rows={analytics.bySession} title="By Session" hint={basisHint()} basis={basis} height={Math.max(160, analytics.bySession.length * 28)} />
         </div>
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.byDayOfWeek} title="By Day of Week" hint="NET R" height={Math.max(160, analytics.byDayOfWeek.length * 28)} />
+          <DimensionBarChart rows={analytics.byDayOfWeek} title="By Day of Week" hint={basisHint()} basis={basis} height={Math.max(160, analytics.byDayOfWeek.length * 28)} />
         </div>
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.byHour} title="By Trading Hour (UTC)" hint="NET R" height={Math.max(160, analytics.byHour.length * 28)} />
+          <DimensionBarChart rows={analytics.byHour} title="By Trading Hour (UTC)" hint={basisHint()} basis={basis} height={Math.max(160, analytics.byHour.length * 28)} />
         </div>
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.byTimeframe} title="By Timeframe" hint="NET R" height={Math.max(160, analytics.byTimeframe.length * 28)} />
+          <DimensionBarChart rows={analytics.byTimeframe} title="By Timeframe" hint={basisHint()} basis={basis} height={Math.max(160, analytics.byTimeframe.length * 28)} />
         </div>
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.byDirection} title="By Direction" hint="NET R" height={Math.max(160, analytics.byDirection.length * 28)} />
+          <DimensionBarChart rows={analytics.byDirection} title="By Direction" hint={basisHint()} basis={basis} height={Math.max(160, analytics.byDirection.length * 28)} />
         </div>
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.byTrend} title="By Trend" hint="NET R" height={Math.max(160, analytics.byTrend.length * 28)} />
+          <DimensionBarChart rows={analytics.byTrend} title="By Trend" hint={basisHint()} basis={basis} height={Math.max(160, analytics.byTrend.length * 28)} />
         </div>
         <div className="rounded-2xl glass-card p-4">
-          <DimensionBarChart rows={analytics.byRegime} title="By Market Regime" hint="NET R" height={Math.max(160, analytics.byRegime.length * 28)} />
+          <DimensionBarChart rows={analytics.byRegime} title="By Market Regime" hint={basisHint()} basis={basis} height={Math.max(160, analytics.byRegime.length * 28)} />
         </div>
         <div className="rounded-2xl glass-card p-4">
-          <RDistributionChart rValues={rValues} height={220} />
+          <DimensionBarChart rows={analytics.byAccount} title="By Account" hint={basisHint()} basis={basis} height={Math.max(160, analytics.byAccount.length * 28)} />
+        </div>
+        <div className="rounded-2xl glass-card p-4">
+          <DimensionBarChart rows={analytics.byMagic} title="By Broker Magic" hint={basisHint(' · BROKER TRADES')} basis={basis} height={Math.max(160, analytics.byMagic.length * 28)} />
+        </div>
+        <div className="rounded-2xl glass-card p-4">
+          {rAvailable ? (
+            <RDistributionChart rValues={rValues} height={220} />
+          ) : (
+            <div className="flex h-[220px] flex-col items-center justify-center gap-1.5 text-center">
+              <p className="font-mono text-[10px] uppercase tracking-widest font-bold text-muted-foreground">R Distribution</p>
+              <p className="text-xs text-muted-foreground italic">UNAVAILABLE — no trade has a captured stop, so R cannot be measured.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

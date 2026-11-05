@@ -39,7 +39,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TabBar } from "@/components/ui/tab-bar";
+import {
+  ConnectionForm,
+  inputClass,
+  type BrokerKindId,
+} from "@/components/layout/broker-connection-form";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Skeleton, SkeletonBlock } from "@/components/ui/skeleton";
 import {
   armBrokerConnection,
   cancelBrokerOrder,
@@ -57,6 +63,7 @@ import {
   listBrokerConnections,
   listBrokerKinds,
   listLedgerOrders,
+  runBrokerSmoke,
   syncBrokerConnection,
   testBrokerConnection,
   updateBrokerConnection,
@@ -80,8 +87,17 @@ import {
 } from "./sidebar-broker-panels";
 
 const DEFAULT_TERMINAL = "C:\\Program Files\\MetaTrader 5\\terminal64.exe";
-const inputClass =
-  "w-full rounded-xl border border-border/40 bg-transparent px-2.5 py-1.5 text-xs text-foreground focus:border-primary/40 focus:outline-none";
+
+/** Short adapter badge for the dialog header (never mislabel another broker as MT5). */
+const KIND_BADGE: Record<string, string> = {
+  mt5: "MT5",
+  mt4_bridge: "MT4 bridge",
+  alpaca: "Alpaca",
+  ibkr: "IBKR",
+};
+const kindBadge = (kind: string | null | undefined) =>
+  kind ? KIND_BADGE[kind] ?? kind.toUpperCase() : "new";
+
 
 type TabId = "overview" | "positions" | "orders" | "activity" | "settings";
 
@@ -121,8 +137,8 @@ export function SidebarBrokerButton({
             : "rounded-lg p-1.5 hover:bg-accent",
           collapsed && "flex h-9 w-9 items-center justify-center rounded-lg",
         )}
-        title="Broker connection (MetaTrader)"
-        aria-label="Broker connection (MetaTrader)"
+        title="Broker connection"
+        aria-label="Broker connection"
       >
         <Lock size={variant === "launcher" ? 15 : 16} className="shrink-0" />
         {connected != null && (
@@ -169,9 +185,16 @@ function SidebarBrokerDialog({
   const [quoteBusy, setQuoteBusy] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
 
+  const [kind, setKind] = useState<BrokerKindId>("mt5");
   const [label, setLabel] = useState("MT5 demo");
   const [mode, setMode] = useState<"demo" | "live">("demo");
   const [terminalPath, setTerminalPath] = useState(DEFAULT_TERMINAL);
+  const [bridgeUrl, setBridgeUrl] = useState("http://127.0.0.1:8090");
+  const [bridgeSecretRef, setBridgeSecretRef] = useState("");
+  const [baseUrl, setBaseUrl] = useState("https://paper-api.alpaca.markets");
+  const [dataUrl, setDataUrl] = useState("https://data.alpaca.markets");
+  const [credentialRef, setCredentialRef] = useState("");
+  const [brokerAccountId, setBrokerAccountId] = useState("");
   const [magic, setMagic] = useState("0");
   const [maxMargin, setMaxMargin] = useState("0");
   const [editOpen, setEditOpen] = useState(false);
@@ -179,7 +202,7 @@ function SidebarBrokerDialog({
   const [armPhrase, setArmPhrase] = useState("");
 
   const selected = connections.find((c) => c.id === selectedId) ?? connections[0] ?? null;
-  const mt5 = kinds.find((kind) => kind.id === "mt5");
+  const selectedKind = kinds.find((k) => k.id === (selected?.kind ?? kind));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -287,8 +310,28 @@ function SidebarBrokerDialog({
     setQuote(null);
     setQuoteError(null);
     setLabel(connection.label);
+    const nextKind: BrokerKindId =
+      connection.kind === "mt4_bridge" ||
+      connection.kind === "alpaca" ||
+      connection.kind === "ibkr"
+        ? connection.kind
+        : "mt5";
+    setKind(nextKind);
     setMode(connection.mode === "live" ? "live" : "demo");
     setTerminalPath(String(connection.config?.terminalPath ?? DEFAULT_TERMINAL));
+    setBridgeUrl(String(connection.config?.bridgeUrl ?? "http://127.0.0.1:8090"));
+    setBridgeSecretRef(String(connection.config?.bridgeSecretRef ?? ""));
+    setBaseUrl(
+      String(
+        connection.config?.baseUrl ??
+          (nextKind === "ibkr"
+            ? "https://localhost:5000/v1/api"
+            : "https://paper-api.alpaca.markets"),
+      ),
+    );
+    setDataUrl(String(connection.config?.dataUrl ?? "https://data.alpaca.markets"));
+    setCredentialRef(String(connection.config?.credentialRef ?? ""));
+    setBrokerAccountId(String(connection.config?.accountId ?? ""));
     setMagic(String(connection.config?.magic ?? "0"));
     setMaxMargin(String(connection.config?.maxMargin ?? "0"));
     setEditOpen(false);
@@ -318,26 +361,55 @@ function SidebarBrokerDialog({
     }
   };
 
-  const buildConfig = (): Record<string, unknown> => {
-    const config: Record<string, unknown> = { ...(selected?.config ?? {}), terminalPath: terminalPath.trim() };
-    const magicNumber = Number(magic);
-    const marginNumber = Number(maxMargin);
-    if (Number.isFinite(magicNumber) && magicNumber > 0) config.magic = magicNumber;
-    else delete config.magic;
-    if (Number.isFinite(marginNumber) && marginNumber > 0) config.maxMargin = marginNumber;
-    else delete config.maxMargin;
+  const buildConfig = (forKind: BrokerKindId = kind): Record<string, unknown> => {
+    const config: Record<string, unknown> = {};
+    if (forKind === "mt4_bridge") {
+      if (bridgeUrl.trim()) config.bridgeUrl = bridgeUrl.trim();
+      if (bridgeSecretRef.trim()) config.bridgeSecretRef = bridgeSecretRef.trim();
+    } else if (forKind === "alpaca" || forKind === "ibkr") {
+      config.baseUrl =
+        baseUrl.trim() ||
+        (forKind === "ibkr"
+          ? "https://localhost:5000/v1/api"
+          : "https://paper-api.alpaca.markets");
+      if (forKind === "alpaca" && dataUrl.trim()) config.dataUrl = dataUrl.trim();
+      if (brokerAccountId.trim()) config.accountId = brokerAccountId.trim();
+      if (credentialRef.trim()) config.credentialRef = credentialRef.trim();
+    } else {
+      Object.assign(config, selected?.config ?? {}, { terminalPath: terminalPath.trim() });
+      // Never carry another adapter's settings into an MT5 connection.
+      for (const key of ["bridgeUrl", "bridgeSecretRef", "credentialRef", "dataUrl", "accountId"]) {
+        delete config[key];
+      }
+      const marginNumber = Number(maxMargin);
+      if (Number.isFinite(marginNumber) && marginNumber > 0) config.maxMargin = marginNumber;
+      else delete config.maxMargin;
+    }
+    if (forKind === "mt5" || forKind === "mt4_bridge") {
+      const magicNumber = Number(magic);
+      if (Number.isFinite(magicNumber) && magicNumber > 0) config.magic = magicNumber;
+      else delete config.magic;
+    }
     return config;
   };
 
   const add = () => {
+    const fallbackLabel =
+      kind === "mt4_bridge"
+        ? "MT4 bridge"
+        : kind === "alpaca"
+          ? "Alpaca"
+          : kind === "ibkr"
+            ? "Interactive Brokers"
+            : "MT5";
     void run(
       "create",
       async () => {
         const created = await createBrokerConnection({
-          kind: "mt5",
-          label: label.trim() || "MT5",
+          kind,
+          label: label.trim() || fallbackLabel,
           mode,
-          config: buildConfig(),
+          config: buildConfig(kind),
         });
         setSelectedId(created.id);
         await testBrokerConnection(created.id);
@@ -349,13 +421,27 @@ function SidebarBrokerDialog({
 
   const saveEdit = () => {
     if (!selected) return;
+    const forKind: BrokerKindId =
+      selected.kind === "mt4_bridge" ||
+      selected.kind === "alpaca" ||
+      selected.kind === "ibkr"
+        ? selected.kind
+        : "mt5";
+    const fallbackLabel =
+      forKind === "mt4_bridge"
+        ? "MT4 bridge"
+        : forKind === "alpaca"
+          ? "Alpaca"
+          : forKind === "ibkr"
+            ? "Interactive Brokers"
+            : "MT5";
     void run(
       "save",
       () =>
         updateBrokerConnection(selected.id, {
-          label: label.trim() || "MT5",
+          label: label.trim() || fallbackLabel,
           mode,
-          config: buildConfig(),
+          config: buildConfig(forKind),
         }),
       "Connection updated.",
     );
@@ -389,6 +475,18 @@ function SidebarBrokerDialog({
   const sync = () => {
     if (!selected) return;
     void run("sync", () => syncBrokerConnection(selected.id), "Fills and positions synced.");
+  };
+
+  const smoke = () => {
+    if (!selected) return;
+    void run(
+      "smoke",
+      async () => {
+        const report = await runBrokerSmoke(selected.id, 7);
+        if (!report.ok) throw new Error(report.error || "the smoke test failed");
+      },
+      "Smoke test passed (probe, reads and sync).",
+    );
   };
 
   const closeOne = (ticket: number) => {
@@ -474,12 +572,12 @@ function SidebarBrokerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(88dvh,860px)] w-[calc(100vw-2rem)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl border border-white/10 glass-card-strong p-0 text-foreground sm:max-w-3xl">
+      <DialogContent className="flex max-h-[min(90dvh,900px)] w-[calc(100vw-2rem)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl border border-white/10 glass-card-strong p-0 text-foreground sm:max-w-5xl">
         <DialogHeader className="shrink-0 border-b border-border/10 px-5 py-3.5">
-          <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+          <DialogTitle className="flex items-center gap-2 pr-12 text-sm font-semibold">
             <Handshake size={15} className="text-muted-foreground" /> Broker connection
             <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-300">
-              MT5
+              {kindBadge(selected?.kind)}
             </span>
             {selected && (
               <span
@@ -495,10 +593,19 @@ function SidebarBrokerDialog({
                 {armed ? "armed" : selected.status}
               </span>
             )}
+            {selected?.mode === "live" && (
+              <span className="rounded-full border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose-300">
+                live
+              </span>
+            )}
+            <span className="ml-auto font-mono text-[9.5px] font-normal text-muted-foreground">
+              {connections.length} connection{connections.length === 1 ? "" : "s"}
+            </span>
           </DialogTitle>
           <DialogDescription className="text-[11px] text-muted-foreground">
-            Attach Eclipse to a running MetaTrader 5 terminal. No password is stored — the terminal
-            must already be logged in.
+            Attach Eclipse to a running MetaTrader 5 terminal, a read-only MT4 bridge, or an
+            Alpaca / IBKR account. Reads are always safe; credentials stay inside the Python
+            runtime, never in the journal database.
           </DialogDescription>
         </DialogHeader>
 
@@ -558,21 +665,54 @@ function SidebarBrokerDialog({
             {liveError && <p className="text-[10px] text-amber-300">{liveError}</p>}
 
             {loading ? (
-              <p className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                <Loader2 size={13} className="animate-spin" /> Reading the broker…
-              </p>
+              <div className="space-y-3" aria-label="Reading the broker">
+                <div className="flex gap-1.5">
+                  <Skeleton className="h-6 w-32 rounded-xl" />
+                  <Skeleton className="h-6 w-24 rounded-xl" />
+                  <Skeleton className="h-6 w-28 rounded-xl" />
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <Skeleton className="h-16 rounded-xl" />
+                  <Skeleton className="h-16 rounded-xl" />
+                  <Skeleton className="h-16 rounded-xl" />
+                  <Skeleton className="h-16 rounded-xl" />
+                </div>
+                <SkeletonBlock className="h-40 p-4">
+                  <Skeleton className="h-3 w-28" />
+                  <Skeleton className="mt-3 h-24 w-full" />
+                </SkeletonBlock>
+              </div>
             ) : !selected ? (
               <div className="space-y-3">
-                <p className="text-[11px] text-muted-foreground">
-                  No broker connection yet. Add your MetaTrader 5 terminal below.
-                </p>
+                <div className="rounded-xl border border-primary/15 bg-primary/[0.04] px-3 py-2.5">
+                  <p className="text-[11px] font-semibold text-foreground">No broker connected yet</p>
+                  <p className="mt-0.5 text-[10.5px] text-muted-foreground">
+                    Add a MetaTrader 5 terminal, a read-only MT4 bridge, or an Alpaca / IBKR
+                    account. Eclipse tests the connection immediately and never stores a password.
+                  </p>
+                </div>
                 <ConnectionForm
+                  kind={kind}
+                  setKind={setKind}
+                  allowKindChange
                   label={label}
                   setLabel={setLabel}
                   mode={mode}
                   setMode={setMode}
                   terminalPath={terminalPath}
                   setTerminalPath={setTerminalPath}
+                  bridgeUrl={bridgeUrl}
+                  setBridgeUrl={setBridgeUrl}
+                  bridgeSecretRef={bridgeSecretRef}
+                  setBridgeSecretRef={setBridgeSecretRef}
+                  baseUrl={baseUrl}
+                  setBaseUrl={setBaseUrl}
+                  dataUrl={dataUrl}
+                  setDataUrl={setDataUrl}
+                  credentialRef={credentialRef}
+                  setCredentialRef={setCredentialRef}
+                  brokerAccountId={brokerAccountId}
+                  setBrokerAccountId={setBrokerAccountId}
                   magic={magic}
                   setMagic={setMagic}
                   maxMargin={maxMargin}
@@ -589,8 +729,8 @@ function SidebarBrokerDialog({
                     connection={selected}
                     account={account}
                     bridge={{
-                      available: mt5 ? mt5.available : null,
-                      reason: mt5?.unavailableReason ?? null,
+                      available: selectedKind ? selectedKind.available : null,
+                      reason: selectedKind?.unavailableReason ?? null,
                     }}
                     quote={quote}
                     quoteSymbol={quoteSymbol}
@@ -602,6 +742,7 @@ function SidebarBrokerDialog({
                     refreshing={liveLoading}
                     onTest={test}
                     onSync={sync}
+                    onSmoke={smoke}
                     busy={busy}
                   />
                 )}
@@ -669,12 +810,27 @@ function SidebarBrokerDialog({
                       {editOpen && (
                         <div className="space-y-2 pt-1">
                           <ConnectionForm
+                            kind={kind}
+                            setKind={setKind}
+                            allowKindChange={false}
                             label={label}
                             setLabel={setLabel}
                             mode={mode}
                             setMode={setMode}
                             terminalPath={terminalPath}
                             setTerminalPath={setTerminalPath}
+                            bridgeUrl={bridgeUrl}
+                            setBridgeUrl={setBridgeUrl}
+                            bridgeSecretRef={bridgeSecretRef}
+                            setBridgeSecretRef={setBridgeSecretRef}
+                            baseUrl={baseUrl}
+                            setBaseUrl={setBaseUrl}
+                            dataUrl={dataUrl}
+                            setDataUrl={setDataUrl}
+                            credentialRef={credentialRef}
+                            setCredentialRef={setCredentialRef}
+                            brokerAccountId={brokerAccountId}
+                            setBrokerAccountId={setBrokerAccountId}
                             magic={magic}
                             setMagic={setMagic}
                             maxMargin={maxMargin}
@@ -785,12 +941,27 @@ function SidebarBrokerDialog({
                     >
                       {showForm ? (
                         <ConnectionForm
+                          kind={kind}
+                          setKind={setKind}
+                          allowKindChange
                           label={label}
                           setLabel={setLabel}
                           mode={mode}
                           setMode={setMode}
                           terminalPath={terminalPath}
                           setTerminalPath={setTerminalPath}
+                          bridgeUrl={bridgeUrl}
+                          setBridgeUrl={setBridgeUrl}
+                          bridgeSecretRef={bridgeSecretRef}
+                          setBridgeSecretRef={setBridgeSecretRef}
+                          baseUrl={baseUrl}
+                          setBaseUrl={setBaseUrl}
+                          dataUrl={dataUrl}
+                          setDataUrl={setDataUrl}
+                          credentialRef={credentialRef}
+                          setCredentialRef={setCredentialRef}
+                          brokerAccountId={brokerAccountId}
+                          setBrokerAccountId={setBrokerAccountId}
                           magic={magic}
                           setMagic={setMagic}
                           maxMargin={maxMargin}
@@ -802,7 +973,7 @@ function SidebarBrokerDialog({
                         />
                       ) : (
                         <p className="text-[10px] text-muted-foreground">
-                          Use Add to attach another MT5 terminal or account.
+                          Use Add to attach another MT5 terminal, MT4 bridge, or account.
                         </p>
                       )}
                     </PanelBox>
@@ -837,8 +1008,9 @@ function SidebarBrokerDialog({
 
             <p className="text-[10px] text-muted-foreground">
               Live arming, mandates and per-order approvals live in{" "}
-              <span className="font-medium text-foreground">Settings → Broker connection</span>. Eclipse
-              never stores your MT5 password.
+              <span className="font-medium text-foreground">Settings → Broker connection</span>.
+              Journal → Settings links this broker and imports its trades. Eclipse never stores
+              your broker password.
             </p>
           </div>
         </div>
@@ -852,96 +1024,5 @@ function CountBadge({ value }: { value: number }) {
     <span className="ml-0.5 rounded-full border border-border/40 px-1 text-[8.5px] leading-4 text-muted-foreground">
       {value}
     </span>
-  );
-}
-
-function ConnectionForm({
-  label,
-  setLabel,
-  mode,
-  setMode,
-  terminalPath,
-  setTerminalPath,
-  magic,
-  setMagic,
-  maxMargin,
-  setMaxMargin,
-  busy,
-  onSubmit,
-  submitLabel,
-  compact = false,
-}: {
-  label: string;
-  setLabel: (value: string) => void;
-  mode: "demo" | "live";
-  setMode: (value: "demo" | "live") => void;
-  terminalPath: string;
-  setTerminalPath: (value: string) => void;
-  magic: string;
-  setMagic: (value: string) => void;
-  maxMargin: string;
-  setMaxMargin: (value: string) => void;
-  busy: boolean;
-  onSubmit: () => void;
-  submitLabel: string;
-  compact?: boolean;
-}) {
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-2">
-        <label className="col-span-2 space-y-1">
-          <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Label</span>
-          <input value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} />
-        </label>
-        <label className="space-y-1">
-          <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Mode</span>
-          <Select
-            value={mode}
-            onValueChange={(value) => setMode(value === "live" ? "live" : "demo")}
-          >
-            <SelectTrigger className={cn(inputClass, "h-auto w-full justify-between py-1.5")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="min-w-[var(--anchor-width)]">
-              <SelectItem value="demo">Demo</SelectItem>
-              <SelectItem value="live">Live (arm in Settings)</SelectItem>
-            </SelectContent>
-          </Select>
-        </label>
-        <label className="space-y-1">
-          <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Magic</span>
-          <input value={magic} onChange={(event) => setMagic(event.target.value)} className={inputClass} />
-        </label>
-        <label className="col-span-2 space-y-1">
-          <span className="text-[9px] uppercase tracking-widest text-muted-foreground">Terminal path</span>
-          <input
-            value={terminalPath}
-            onChange={(event) => setTerminalPath(event.target.value)}
-            className={inputClass}
-          />
-        </label>
-        <label className="col-span-2 space-y-1">
-          <span className="text-[9px] uppercase tracking-widest text-muted-foreground">
-            Max margin (live only)
-          </span>
-          <input
-            value={maxMargin}
-            onChange={(event) => setMaxMargin(event.target.value)}
-            className={inputClass}
-          />
-        </label>
-      </div>
-      {!compact && (
-        <p className="text-[9.5px] text-muted-foreground">
-          No password is stored: Eclipse attaches to the account already logged into the terminal.
-          Enable <span className="font-medium text-foreground">Algo Trading</span> in MT5 before
-          placing any order.
-        </p>
-      )}
-      <Button type="button" size="sm" className="w-full" onClick={onSubmit} disabled={busy}>
-        {busy ? <Loader2 size={12} className="animate-spin" /> : <Handshake size={12} />}
-        {submitLabel}
-      </Button>
-    </div>
   );
 }

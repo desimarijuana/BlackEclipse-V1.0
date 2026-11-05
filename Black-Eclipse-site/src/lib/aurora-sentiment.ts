@@ -54,11 +54,11 @@ export interface AuroraPalette {
 }
 
 /**
- * Shipped default palette. Green-on-black brand identity: neutral is a subdued
+ * Shipped default palette. Lime-on-black brand identity: neutral is a subdued
  * green, bullish brightens the same hue, bearish shifts red. Never purple.
  */
 export const DEFAULT_AURORA_PALETTE: AuroraPalette = {
-  bullish: { core: '#7aff78', edge: '#022c22' },
+  bullish: { core: '#b4ff42', edge: '#022c22' },
   neutral: { core: '#3d9e63', edge: '#02170f' },
   bearish: { core: '#ff0000', edge: '#3a0000' },
 };

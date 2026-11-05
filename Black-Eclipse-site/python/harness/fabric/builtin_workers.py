@@ -104,6 +104,7 @@ def _tool_context(service: Any, ctx: WorkerContext) -> Any:
         market_gateway=getattr(service, "market_gateway", None),
         market_store=getattr(service, "market_store", None),
         portfolio_service=getattr(service, "portfolio", None),
+        ledger_service=getattr(service, "ledger", None),
         quant_store=getattr(service, "quant_store", None),
         dataset_store=getattr(service, "dataset_store", None),
         search=getattr(service, "search", None),

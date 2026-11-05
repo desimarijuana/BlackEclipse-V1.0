@@ -71,6 +71,7 @@ def find_soffice() -> Optional[str]:
 def render_page(
     data: bytes, *, kind: str, page_index: int = 0, scale: float = 2.0, name: str = "",
     cfg: Optional[DocumentConfig] = None, asset_store: Any = None, run_id: Optional[str] = None,
+    owner: str = "local",
 ) -> RenderedPage:
     """Render one page/slide to a PNG `RenderedPage`."""
     cfg = cfg or document_config()
@@ -100,7 +101,10 @@ def render_page(
             from ..vision.image import decode_bytes
 
             decoded = decode_bytes(png, source=f"render:{name}:{page_index}", expected_mime="image/png")
-            asset = asset_store.save(decoded, run_id=run_id, source_kind="document", source_ref=name[:500])
+            asset = asset_store.save(
+                decoded, run_id=run_id, source_kind="document", source_ref=name[:500],
+                owner=owner,
+            )
             rendered.asset_id = asset.asset_id
         except Exception as exc:  # noqa: BLE001 - storage is best-effort
             rendered.warnings.append(f"could not store the rendered page: {exc}")

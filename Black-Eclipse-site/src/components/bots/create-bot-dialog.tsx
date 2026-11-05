@@ -20,17 +20,18 @@ import { ScheduleEditor } from '@/components/bots/schedule-editor';
 import { RunBehaviourEditor } from '@/components/bots/run-behaviour-editor';
 import { BotModelPicker } from '@/components/bots/bot-model-picker';
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { createAutomation, type AutomationView } from '@/lib/harness/automation-browser';
 import { listWorkflows, type WorkflowSummary } from '@/lib/graph-studio/persistence-client';
 import { useBotAvatarStore } from '@/lib/bots/avatar-store';
 import { fileToAvatarDataUrl } from '@/lib/bots/image';
+import { useAgentChoices } from '@/lib/agent-presets/use-agent-choices';
 import {
   DEFAULT_GHOST_SPEC, createRng, ghostSpecFromId, ghostSpecKey, randomGhostSpec, type GhostSpec,
 } from '@/lib/bots/ghost';
 import {
-  BOT_AGENTS, buildModelConfig, buildPolicies, buildTrigger, detectSchedule, emptyBotDraft,
+  buildModelConfig, buildPolicies, buildTrigger, detectSchedule, draftFromBot, emptyBotDraft,
   validateDraft, type BotDraft, type DraftIssue,
 } from '@/lib/bots/state';
 
@@ -51,10 +52,12 @@ export interface CreateBotDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   existingNames: string[];
+  /** The user's bots — a new bot can start from one of them. */
+  bots?: AutomationView[];
   onCreated: (bot: AutomationView) => void;
 }
 
-export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }: CreateBotDialogProps) {
+export function CreateBotDialog({ open, onOpenChange, existingNames, bots = [], onCreated }: CreateBotDialogProps) {
   const t = useT();
   const setAvatar = useBotAvatarStore((s) => s.setAvatar);
   const setAvatarImage = useBotAvatarStore((s) => s.setImage);
@@ -83,7 +86,24 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
   const [issues, setIssues] = useState<DraftIssue[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The bot this draft was started from, or ''. Never a live link — a copy. */
+  const [reuseId, setReuseId] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // The live agent list: built-ins + the operator's own presets. A saved value
+  // the runtime no longer knows is shown (labelled) instead of vanishing, so an
+  // edit cannot silently retarget the bot to the default agent.
+  const {
+    choices: agentChoices,
+    loading: agentChoicesLoading,
+    error: agentChoicesError,
+  } = useAgentChoices(open, draft.agentId);
+
+  const agentGroups = useMemo(() => ({
+    builtins: agentChoices.filter((choice) => choice.source === 'builtin'),
+    presets: agentChoices.filter((choice) => choice.source === 'preset'),
+    unknown: agentChoices.filter((choice) => choice.source === 'unknown'),
+  }), [agentChoices]);
 
   // Fresh dialog each time it opens — a new face, empty fields, collapsed Advanced.
   useEffect(() => {
@@ -106,6 +126,7 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
     setAdvanced(false);
     setIssues([]);
     setError(null);
+    setReuseId('');
     void listWorkflows()
       .then(setWorkflows)
       .catch(() => setWorkflows([]));
@@ -176,6 +197,43 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
     setSpec({ ...DEFAULT_GHOST_SPEC, bodyColor: spec.bodyColor, accentColor: spec.accentColor });
   };
 
+  const reuseSource = useMemo(
+    () => (reuseId ? bots.find((bot) => bot.id === reuseId) ?? null : null),
+    [bots, reuseId],
+  );
+
+  // Start from an existing bot: a COPY of its brain, schedule and identity.
+  // Nothing links the two afterwards; editing this draft never touches the
+  // original, and the original keeps its own schedule.
+  const applyReuse = (id: string) => {
+    setReuseId(id);
+    const source = bots.find((bot) => bot.id === id);
+    if (!source) return;
+    const base = draftFromBot(source);
+    const taken = new Set(existingNames.map((name) => name.trim().toLowerCase()));
+    let candidate = `Copy of ${source.name}`.slice(0, 160);
+    let suffix = 2;
+    while (taken.has(candidate.trim().toLowerCase())) {
+      candidate = `Copy of ${source.name} (${suffix})`.slice(0, 160);
+      suffix += 1;
+    }
+    setName(candidate);
+    setTitle(source.description ?? '');
+    setDescription(source.action.objective ?? source.description ?? '');
+    setDraft({ ...base, name: candidate });
+    setIssues([]);
+    // The objective text must not re-detect a schedule over the copied one.
+    setScheduleTouched(true);
+    setDetectedSchedule(null);
+    setAutoSchedule(false);
+    // Keep the face, so the copy is recognisable as a sibling.
+    const avatarState = useBotAvatarStore.getState();
+    const face = avatarState.avatars[id];
+    if (face) setSpec(face);
+    setImage(avatarState.images[id] ?? null);
+    setFollowName(false);
+  };
+
   const onUpload = async (file: File | undefined) => {
     if (!file) return;
     try {
@@ -190,19 +248,28 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
   const create = useCallback(async () => {
     if (saving) return;
     const nextDraft: BotDraft = { ...draft, name: name.trim(), objective: description.trim() };
-    const found = validateDraft(nextDraft);
+    // Only enforce the agent id when the live list actually loaded; a network
+    // failure must not block saving an unrelated edit.
+    const knownAgentIds = agentChoicesError
+      ? undefined
+      : agentChoices.filter((choice) => choice.source !== 'unknown').map((choice) => choice.id);
+    const found = validateDraft(nextDraft, knownAgentIds);
     if (nameKey && existingNames.some((n) => n.trim().toLowerCase() === nameKey)) {
       found.push({ field: 'name', message: t('bots.create.duplicate') });
     }
     setIssues(found);
     if (found.length) return;
+    // A reused bot that runs on a cadence starts PAUSED: two copies firing at
+    // the same minute is a surprise, and the user opted into creating a bot,
+    // not into duplicating its schedule.
+    const cloneScheduled = Boolean(reuseSource) && buildTrigger(nextDraft).type !== 'manual';
     setSaving(true);
     setError(null);
     try {
       const bot = await createAutomation({
         name: nextDraft.name,
         description: title.trim() || undefined,
-        state: 'active',
+        state: cloneScheduled ? 'draft' : 'active',
         trigger: buildTrigger(nextDraft),
         action: nextDraft.kind === 'workflow'
           ? {
@@ -231,15 +298,44 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
     } finally {
       setSaving(false);
     }
-  }, [saving, draft, name, description, title, nameKey, existingNames, t, spec, image, workflows, onCreated, onOpenChange, setAvatar, setAvatarImage]);
+  }, [saving, draft, name, description, title, nameKey, existingNames, t, spec, image, workflows, onCreated, onOpenChange, setAvatar, setAvatarImage, agentChoices, agentChoicesError, reuseSource]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!saving) onOpenChange(next); }}>
-      <DialogContent className="glass-card-strong max-h-[92vh] overflow-y-auto rounded-2xl border border-white/15 dark:border-white/10 sm:max-w-md">
+      <DialogContent className="glass-card-strong max-h-[92vh] overflow-y-auto rounded-2xl border border-white/15 dark:border-white/10 sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('bots.dialog.title')}</DialogTitle>
           <DialogDescription>{t('bots.dialog.subtitle')}</DialogDescription>
         </DialogHeader>
+
+        {/* Start from an existing bot (a copy — the original is untouched). */}
+        {bots.length > 0 && (
+          <div>
+            <div className="mb-1 text-[11px] font-medium text-muted-foreground">Start from</div>
+            <select
+              value={reuseId}
+              onChange={(event) => {
+                if (event.target.value) applyReuse(event.target.value);
+                else setReuseId('');
+              }}
+              className="w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none focus-visible:border-ring"
+            >
+              <option value="">Blank bot</option>
+              {bots.map((bot) => (
+                <option key={bot.id} value={bot.id}>
+                  {bot.name}
+                  {bot.action.type === 'execute_workflow' ? ' · workflow' : ' · agent'}
+                </option>
+              ))}
+            </select>
+            {reuseSource && (
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                Copies its brain, objective{reuseSource.trigger.type !== 'manual' ? ', schedule (created paused)' : ''} and face.
+                The original keeps its own schedule; editing this copy never changes it.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Face preview */}
         <div className="flex justify-center">
@@ -482,16 +578,53 @@ export function CreateBotDialog({ open, onOpenChange, existingNames, onCreated }
                 <>
                   <div>
                     <div className="mb-1 text-[11px] font-medium text-muted-foreground">{t('bots.create.agent')}</div>
-                    <Select value={draft.agentId} onValueChange={(v) => setDraft((d) => ({ ...d, agentId: v ?? d.agentId }))}>
+                    <Select
+                      value={draft.agentId}
+                      onValueChange={(v) => {
+                        setDraft((d) => ({ ...d, agentId: v ?? d.agentId }));
+                        setIssues((prev) => prev.filter((i) => i.field !== 'agentId'));
+                      }}
+                    >
                       <SelectTrigger className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {BOT_AGENTS.map((a) => (
-                          <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>
-                        ))}
+                        {agentGroups.builtins.length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel>Built-in</SelectLabel>
+                            {agentGroups.builtins.map((choice) => (
+                              <SelectItem key={choice.id} value={choice.id}>{choice.label}</SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
+                        {agentGroups.presets.length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel>Your presets</SelectLabel>
+                            {agentGroups.presets.map((choice) => (
+                              <SelectItem key={choice.id} value={choice.id}>
+                                {choice.label}
+                                {choice.archived ? ' (archived)' : ''}
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
+                        {agentGroups.unknown.length > 0 && (
+                          <SelectGroup>
+                            <SelectLabel>Not found</SelectLabel>
+                            {agentGroups.unknown.map((choice) => (
+                              <SelectItem key={choice.id} value={choice.id}>{choice.label}</SelectItem>
+                            ))}
+                          </SelectGroup>
+                        )}
                       </SelectContent>
                     </Select>
+                    {agentChoicesLoading && (
+                      <p className="mt-1 text-[10px] text-muted-foreground">Loading agents…</p>
+                    )}
+                    {agentChoicesError && (
+                      <p className="mt-1 text-[10px] text-amber-300">{agentChoicesError}</p>
+                    )}
+                    <FieldError issue={issueFor('agentId')} />
                   </div>
                   <BotModelPicker
                     provider={draft.modelProvider}

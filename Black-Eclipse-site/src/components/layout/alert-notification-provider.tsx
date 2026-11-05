@@ -113,6 +113,10 @@ export function AlertNotificationProvider() {
             alertId: e.alertId,
             tab: 'alerts',
             kind: 'alert',
+            // A fired price/news alert is exactly the event the alert cue is
+            // for. The cue is a per-cue opt-out in Settings, so this does not
+            // make interaction "haptics" audible.
+            sound: 'notification',
           });
         }
       } catch {

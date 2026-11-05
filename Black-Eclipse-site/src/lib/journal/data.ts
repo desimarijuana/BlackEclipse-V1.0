@@ -4,27 +4,73 @@
 // analytics engine; this layer only persists and reads.
 
 import { prisma } from "@/lib/db";
+import { brokerOwnedFieldsIn } from "./broker/ownership";
+import {
+  claimGuestJournalForUser,
+  currentJournalUserId,
+  JournalAuthRequired,
+  mayUseGuestProfile,
+} from "./owner";
 import { computeTradeMath } from "./trade-math";
 import type { TradeRecord } from "./types";
 
 /**
- * The single guest profile id. Creates it on first use.
+ * The profile id for this request. Authenticated deployments get one profile
+ * per auth user; the zero-config local app gets the single guest profile.
  *
- * Concurrent callers used to race here: two requests both saw no profile and
- * both created one, leaving duplicate "Trader" rows (which is exactly what the
- * committed DB ended up with). The lookup is now deterministic — always the
- * OLDEST row — and creating is guarded so a duplicate is collapsed on sight.
+ * A user profile id is deterministic (`jp_<userId>`), so two concurrent first
+ * requests create the same row instead of racing two profiles. The guest path
+ * keeps its historical behaviour: always the OLDEST guest row, collapsing any
+ * duplicates a previous race left behind.
  */
 export async function getOrCreateProfile(): Promise<string> {
+  const userId = await currentJournalUserId();
+
+  if (userId) {
+    // A claimed guest profile keeps its original id; prefer it over the
+    // deterministic id so a pre-auth journal is never orphaned.
+    const claimed = await prisma.journalProfile.findFirst({
+      where: { userId },
+      select: { id: true },
+    });
+    if (claimed) return claimed.id;
+
+    // First authenticated journal access adopts the pre-auth guest journal.
+    await claimGuestJournalForUser(userId);
+    const afterClaim = await prisma.journalProfile.findFirst({
+      where: { userId },
+      select: { id: true },
+    });
+    if (afterClaim) return afterClaim.id;
+
+    const id = `jp_${userId}`;
+    const existing = await prisma.journalProfile.findUnique({ where: { id } });
+    if (existing) return existing.id;
+    try {
+      const created = await prisma.journalProfile.create({ data: { id, userId } });
+      return created.id;
+    } catch (err) {
+      // A concurrent first request created it between the lookup and the write.
+      if ((err as { code?: string }).code === "P2002") {
+        const again = await prisma.journalProfile.findUnique({ where: { id } });
+        if (again) return again.id;
+      }
+      throw err;
+    }
+  }
+
+  // Fail closed: never hand a signed-out request the shared profile when this
+  // deployment requires authentication.
+  if (!mayUseGuestProfile()) throw new JournalAuthRequired();
+
   const existing = await prisma.journalProfile.findFirst({
+    where: { userId: null },
     orderBy: { createdAt: "asc" },
   });
   if (existing) {
-    // Collapse any duplicates a previous race left behind. Cascades clean up
-    // their relations; since the survivor is the oldest, nothing the user
-    // created is lost.
+    // Collapse any duplicates a previous race left behind, guest rows only.
     const dupes = await prisma.journalProfile.findMany({
-      where: { id: { not: existing.id } },
+      where: { userId: null, id: { not: existing.id } },
       select: { id: true },
     });
     if (dupes.length > 0) {
@@ -32,7 +78,7 @@ export async function getOrCreateProfile(): Promise<string> {
     }
     return existing.id;
   }
-  const created = await prisma.journalProfile.create({ data: {} });
+  const created = await prisma.journalProfile.create({ data: { userId: null } });
   return created.id;
 }
 
@@ -85,6 +131,12 @@ export function toTradeRecord(t: {
   checklist?: string | null;
   status: string;
   source?: string | null;
+  externalId?: string | null;
+  brokerConnectionId?: string | null;
+  brokerPositionTicket?: number | null;
+  magic?: number | null;
+  pnlBasis?: string | null;
+  ignoredAt?: Date | null;
   accountId?: string | null;
   strategyId: string | null;
   setupId: string | null;
@@ -128,7 +180,12 @@ export function toTradeRecord(t: {
     grade: t.grade ?? null,
     checklist: t.checklist ?? null,
     status: t.status as TradeRecord["status"],
-    source: (t.source === "demo" ? "demo" : "manual") as TradeRecord["source"],
+    source: (t.source === "demo" || t.source === "broker" ? t.source : "manual") as TradeRecord["source"],
+    externalId: t.externalId ?? null,
+    brokerConnectionId: t.brokerConnectionId ?? null,
+    brokerPositionTicket: t.brokerPositionTicket ?? null,
+    magic: t.magic ?? null,
+    pnlBasis: t.pnlBasis === "broker" ? "broker" : "computed",
     strategyId: t.strategyId,
     strategyName: t.strategy?.name,
     setupId: t.setupId,
@@ -162,7 +219,9 @@ const tradeInclude = {
 /** Load all closed trades for a profile as TradeRecords. */
 export async function loadTrades(profileId: string): Promise<TradeRecord[]> {
   const rows = await prisma.trade.findMany({
-    where: { profileId },
+    // A broker-sourced trade the user explicitly deleted is ignored, not
+    // re-projected: `ignoredAt` is a tombstone for its externalId.
+    where: { profileId, ignoredAt: null },
     include: tradeInclude,
     orderBy: { entryTime: "asc" },
   });
@@ -287,8 +346,23 @@ export async function createTrade(profileId: string, input: CreateTradeInput) {
   return toTradeRecord(trade);
 }
 
-/** Delete a trade. */
+/**
+ * Delete a trade.
+ *
+ * A broker-sourced trade is tombstoned instead of destroyed: the next sync
+ * would otherwise recreate it from the broker's history. `ignoredAt` keeps the
+ * externalId out of every read while leaving the audit trail intact.
+ */
 export async function deleteTrade(profileId: string, tradeId: string): Promise<boolean> {
+  const trade = await prisma.trade.findFirst({
+    where: { id: tradeId, profileId },
+    select: { id: true, source: true },
+  });
+  if (!trade) return false;
+  if (trade.source === "broker") {
+    await prisma.trade.update({ where: { id: trade.id }, data: { ignoredAt: new Date() } });
+    return true;
+  }
   const result = await prisma.trade.deleteMany({ where: { id: tradeId, profileId } });
   return result.count > 0;
 }
@@ -330,8 +404,24 @@ export interface UpdateTradeInput {
  * Returns the updated TradeRecord, or null if the trade isn't found.
  */
 export async function updateTrade(profileId: string, tradeId: string, input: UpdateTradeInput) {
-  const existing = await prisma.trade.findFirst({ where: { id: tradeId, profileId } });
+  const existing = await prisma.trade.findFirst({
+    where: { id: tradeId, profileId, ignoredAt: null },
+  });
   if (!existing) return null;
+
+  // A broker-sourced trade's execution fields belong to the broker. Editing
+  // them here would silently diverge from the broker until the next sync, so
+  // the request is refused with a 409 rather than half-applied.
+  if (existing.source === "broker") {
+    const owned = brokerOwnedFieldsIn(input as Record<string, unknown>);
+    if (owned.length > 0) {
+      const error = new Error(
+        `This trade is broker-owned. ${owned.join(", ")} ${owned.length === 1 ? "is" : "are"} refreshed from the broker and cannot be edited here.`,
+      ) as Error & { status?: number };
+      error.status = 409;
+      throw error;
+    }
+  }
 
   const nextExit = input.exit !== undefined ? input.exit : existing.exit;
   const providedExitTime = input.exitTime !== undefined
@@ -369,32 +459,63 @@ export async function updateTrade(profileId: string, tradeId: string, input: Upd
     status: isOpen ? "open" : "closed",
   };
 
-  // Recompute derived metrics from the merged values.
-  const math = computeTradeMath({
-    direction: next.direction as "LONG" | "SHORT",
-    entry: next.entry,
-    exit: next.exit,
-    stopLoss: next.stopLoss,
-    takeProfit: next.takeProfit,
-    quantity: next.quantity,
-    entryTime: next.entryTime.toISOString(),
-    exitTime: (next.exitTime ?? next.entryTime).toISOString(),
-    commission: next.commission,
-    fee: next.fee,
-  });
+  // A broker trade keeps the broker's own P&L arithmetic; recomputing from
+  // prices would corrupt it (FX/CFD contract sizes are not in the record).
+  const isBrokerPnl = existing.pnlBasis === "broker" || existing.source === "broker";
+  const math = isBrokerPnl
+    ? null
+    : computeTradeMath({
+        direction: next.direction as "LONG" | "SHORT",
+        entry: next.entry,
+        exit: next.exit,
+        stopLoss: next.stopLoss,
+        takeProfit: next.takeProfit,
+        quantity: next.quantity,
+        entryTime: next.entryTime.toISOString(),
+        exitTime: (next.exitTime ?? next.entryTime).toISOString(),
+        commission: next.commission,
+        fee: next.fee,
+      });
+
+  // On a broker trade, write ONLY user-owned fields. Re-writing the broker's
+  // execution fields from a stale read would race a concurrent sync.
+  const writable = isBrokerPnl
+    ? {
+        timeframe: next.timeframe,
+        session: next.session,
+        marketRegime: next.marketRegime,
+        trend: next.trend,
+        confluences: next.confluences,
+        emotion: next.emotion,
+        confidence: next.confidence,
+        mistakes: next.mistakes,
+        notes: next.notes,
+        grade: next.grade,
+        checklist: next.checklist,
+        strategyId: next.strategyId,
+        setupId: next.setupId,
+        accountId: next.accountId,
+      }
+    : {
+        ...next,
+        ...(math
+          ? {
+              grossPnl: math.grossPnl,
+              pnl: math.pnl,
+              pnlPct: math.pnlPct,
+              rMultiple: math.rMultiple,
+              riskAmount: math.riskAmount,
+              rewardAmount: math.rewardAmount,
+              actualRR: math.actualRR,
+              durationSec: math.durationSec,
+            }
+          : {}),
+      };
 
   const updated = await prisma.trade.update({
     where: { id: tradeId },
     data: {
-      ...next,
-      grossPnl: math.grossPnl,
-      pnl: math.pnl,
-      pnlPct: math.pnlPct,
-      rMultiple: math.rMultiple,
-      riskAmount: math.riskAmount,
-      rewardAmount: math.rewardAmount,
-      actualRR: math.actualRR,
-      durationSec: math.durationSec,
+      ...writable,
       executions: {
         create: {
           kind: input.eventKind ?? "updated",
@@ -430,7 +551,7 @@ export interface SaveMarketContextInput {
 
 /** Upsert market context for a trade. */
 export async function saveMarketContext(profileId: string, tradeId: string, input: SaveMarketContextInput) {
-  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId }, select: { id: true } });
+  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId, ignoredAt: null }, select: { id: true } });
   if (!trade) return null;
   return prisma.marketContext.upsert({
     where: { tradeId },
@@ -441,7 +562,7 @@ export async function saveMarketContext(profileId: string, tradeId: string, inpu
 
 /** Update a trade's MFE/MAE values. */
 export async function updateTradeMfeMae(profileId: string, tradeId: string, mfe: number | null, mae: number | null) {
-  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId }, select: { id: true } });
+  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId, ignoredAt: null }, select: { id: true } });
   if (!trade) return null;
   return prisma.trade.update({ where: { id: tradeId }, data: { mfe, mae } });
 }
@@ -487,7 +608,7 @@ export async function bulkImportTrades(profileId: string, rows: CreateTradeInput
 
 /** Add a screenshot to a trade. */
 export async function addTradeScreenshot(profileId: string, tradeId: string, url: string, phase?: string | null, caption?: string | null) {
-  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId }, select: { id: true } });
+  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId, ignoredAt: null }, select: { id: true } });
   if (!trade) return null;
   return prisma.tradeScreenshot.create({
     data: { tradeId, url, phase: phase ?? null, caption: caption ?? null },
@@ -496,7 +617,7 @@ export async function addTradeScreenshot(profileId: string, tradeId: string, url
 
 /** List screenshots for a trade. */
 export async function listTradeScreenshots(profileId: string, tradeId: string) {
-  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId }, select: { id: true } });
+  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId, ignoredAt: null }, select: { id: true } });
   if (!trade) return [];
   return prisma.tradeScreenshot.findMany({ where: { tradeId }, orderBy: { createdAt: "asc" } });
 }
@@ -505,7 +626,7 @@ export async function listTradeScreenshots(profileId: string, tradeId: string) {
 export async function deleteTradeScreenshot(profileId: string, screenshotId: string): Promise<boolean> {
   const shot = await prisma.tradeScreenshot.findUnique({ where: { id: screenshotId } });
   if (!shot) return false;
-  const trade = await prisma.trade.findFirst({ where: { id: shot.tradeId, profileId }, select: { id: true } });
+  const trade = await prisma.trade.findFirst({ where: { id: shot.tradeId, profileId, ignoredAt: null }, select: { id: true } });
   if (!trade) return false;
   await prisma.tradeScreenshot.delete({ where: { id: screenshotId } });
   return true;
@@ -608,9 +729,24 @@ export async function deleteAccount(profileId: string, accountId: string): Promi
 
 /** List the execution log for a trade (newest first). */
 export async function listTradeExecutions(profileId: string, tradeId: string) {
-  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId }, select: { id: true } });
+  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId, ignoredAt: null }, select: { id: true } });
   if (!trade) return [];
   return prisma.tradeExecution.findMany({ where: { tradeId }, orderBy: { createdAt: "desc" } });
+}
+
+// ── Broker fills (projected deals) ───────────────────────────────────────────
+
+/** List the broker deals projected into a trade (chronological). */
+export async function listTradeFills(profileId: string, tradeId: string) {
+  const trade = await prisma.trade.findFirst({
+    where: { id: tradeId, profileId, ignoredAt: null },
+    select: { id: true },
+  });
+  if (!trade) return [];
+  return prisma.tradeFill.findMany({
+    where: { tradeId },
+    orderBy: [{ dealtAt: "asc" }],
+  });
 }
 
 // ── Free-form journal entries (Phase 5) ──────────────────────────────────────
@@ -714,7 +850,7 @@ export async function deleteWatchlistItem(profileId: string, id: string): Promis
 
 /** List annotations for a trade. */
 export async function listTradeAnnotations(profileId: string, tradeId: string) {
-  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId }, select: { id: true } });
+  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId, ignoredAt: null }, select: { id: true } });
   if (!trade) return [];
   return prisma.tradeAnnotation.findMany({ where: { tradeId }, orderBy: { createdAt: "asc" } });
 }
@@ -728,7 +864,7 @@ export interface AnnotationInput {
 
 /** Add a chart annotation to a trade. */
 export async function addTradeAnnotation(profileId: string, tradeId: string, input: AnnotationInput) {
-  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId }, select: { id: true } });
+  const trade = await prisma.trade.findFirst({ where: { id: tradeId, profileId, ignoredAt: null }, select: { id: true } });
   if (!trade) return null;
   return prisma.tradeAnnotation.create({
     data: {
@@ -745,7 +881,7 @@ export async function addTradeAnnotation(profileId: string, tradeId: string, inp
 export async function deleteTradeAnnotation(profileId: string, annotationId: string): Promise<boolean> {
   const ann = await prisma.tradeAnnotation.findUnique({ where: { id: annotationId } });
   if (!ann) return false;
-  const trade = await prisma.trade.findFirst({ where: { id: ann.tradeId, profileId }, select: { id: true } });
+  const trade = await prisma.trade.findFirst({ where: { id: ann.tradeId, profileId, ignoredAt: null }, select: { id: true } });
   if (!trade) return false;
   await prisma.tradeAnnotation.delete({ where: { id: annotationId } });
   return true;

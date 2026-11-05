@@ -103,3 +103,21 @@ def test_tool_catalog_reports_the_effect_class():
     catalog = {item["name"]: item for item in _store().catalog()}
     assert catalog["get_quote"]["permission"] == "read"
     assert catalog["write_file"]["permission"] == "write"
+
+def test_preset_projects_onto_a_runnable_agent_config():
+    # The ONE projection both the graph runner and ordinary runs use: a preset
+    # must not behave differently depending on which surface resolved it.
+    from harness.agent_presets import agent_config_from_preset
+
+    store = _store()
+    preset = store.get(store.create(_payload())["id"])
+    agent = agent_config_from_preset(preset)
+    assert agent.id == preset["id"]
+    assert agent.name == "Gold analyst"
+    assert agent.systemPrompt == "You are a disciplined gold analyst."
+    assert agent.tools == ["get_quote", "research_search"]
+    assert agent.maxSteps == 6
+    assert agent.allowMcpTools is False
+
+    narrowed = agent_config_from_preset(preset, max_steps=2)
+    assert narrowed.maxSteps == 2

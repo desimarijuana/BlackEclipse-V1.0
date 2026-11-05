@@ -193,15 +193,83 @@ function post<T>(path: string, body: unknown): Promise<T> {
   return request<T>(path, { method: "POST", body: JSON.stringify(body) });
 }
 
+export interface RecipePlan {
+  task: string;
+  modelFamily: string;
+  hyperparameters: Record<string, unknown>;
+  split: { method: string; nSplits: number; purge?: boolean; embargo?: number };
+  selection: { method: string; topK?: number };
+  scale: boolean;
+  rationale: string[];
+  warnings: string[];
+}
+
+export interface PlanResult {
+  plan: RecipePlan;
+  profile: Record<string, unknown>;
+  experiment: Record<string, unknown> | null;
+}
+
+export interface ComparisonRow {
+  modelFamily: string | null;
+  runId: string;
+  status: string;
+  error: string | null;
+  task: string;
+  pooledMetrics: Record<string, number | null>;
+  foldMetricsMean: Record<string, number | null>;
+  foldMetricsStd: Record<string, number | null>;
+}
+
+export interface Comparison {
+  task: string;
+  primaryMetric: { key: string; direction: 'higher' | 'lower' } | null;
+  rows: ComparisonRow[];
+  ranking: { modelFamily: string | null; runId: string; value: number; std: number | null; rank: number }[];
+  unmeasured: { modelFamily: string | null; reason: string; detail?: string | null }[];
+  winner: { modelFamily: string | null; value: number } | null;
+  note: string;
+}
+
+export interface CompareResult {
+  comparison: Comparison;
+  runs: { modelFamily: string | null; runId: string; experimentId: string; status: string; error: string | null }[];
+}
+
 export const mlClient = {
   capabilities: () => request<Capabilities>("capabilities"),
   listDatasets: () => request<{ datasets: DatasetRecord[] }>("datasets"),
   buildDataset: (body: Record<string, unknown>) => post<BuildDatasetResult>("datasets", body),
+  /** Plan a recipe (family + validation design) for a dataset or an inline profile. */
+  planModel: (body: Record<string, unknown>) => post<PlanResult>("plan", body),
+  /** Train several families on ONE dataset with the SAME folds, then compare. */
+  compareModels: (body: Record<string, unknown>) => post<CompareResult>("compare", body),
+  /** Grid/random hyperparameter search over one family on the same folds. */
+  searchModels: (body: Record<string, unknown>) => post<{
+    family: string;
+    trials: { index: number; hyperparameters: Record<string, unknown>; runId: string; status: string }[];
+    best: { hyperparameters: Record<string, unknown>; value: number; metric: string; withinNoise: boolean; runId: string } | null;
+    note: string;
+    stoppedReason: string;
+  }>("search", body),
   listDatasetVersions: (datasetId: string) =>
     request<{ versions: DatasetVersion[] }>(`datasets/${encodeURIComponent(datasetId)}/versions`),
   getDatasetVersion: (datasetId: string, version: string) =>
     request<{ datasetId: string; version: string; dataHash: string; manifest: Record<string, unknown> }>(
       `datasets/${encodeURIComponent(datasetId)}/versions/${encodeURIComponent(version)}`,
+    ),
+  /** The dataset version as portable CSV/JSONL text (bounded by `limit`). */
+  exportDataset: (datasetId: string, version: string, format: 'csv' | 'jsonl' = 'csv', limit = 10000) =>
+    request<{
+      content: string;
+      filename: string;
+      contentType: string;
+      rows: number;
+      totalRows: number;
+      truncated: boolean;
+    }>(
+      `datasets/${encodeURIComponent(datasetId)}/versions/${encodeURIComponent(version)}/export` +
+        `?format=${format}&limit=${limit}`,
     ),
   listExperiments: () => request<{ experiments: ExperimentRecord[] }>("experiments"),
   runExperiment: (body: Record<string, unknown>) => post<ExperimentRunResult>("experiments", body),
@@ -226,7 +294,15 @@ export const mlClient = {
       `models/${encodeURIComponent(modelId)}/verify${version ? `?version=${encodeURIComponent(version)}` : ""}`,
     ),
   predict: (modelId: string, body: { features: number[][]; version?: string }) =>
-    post<{ modelId: string; version: string; task: string; pred: (number | null)[]; proba: number[][] | null }>(
+    post<{
+      modelId: string;
+      version: string;
+      task: string;
+      pred: (number | null)[];
+      /** Code→label mapping for a column target (null for market targets). */
+      classLabels?: string[] | null;
+      proba: number[][] | null;
+    }>(
       `models/${encodeURIComponent(modelId)}/predict`,
       body,
     ),

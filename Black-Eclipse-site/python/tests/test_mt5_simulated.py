@@ -7,6 +7,8 @@ a modify the broker silently ignores. No package and no IPC are involved.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 import harness.trade.adapters.mt5 as mt5_module
@@ -123,3 +125,70 @@ def test_unknown_timeframe_is_refused_without_touching_the_terminal(sim):
         _adapter().bars("XAUUSD", "H7", 10)
     assert caught.value.code == "INVALID_TIMEFRAME"
     assert sim.initialize_calls == 0
+
+
+def _pending_order(sim, ticket: int = 5001, price: float = 1.0800):
+    sim.orders[ticket] = SimpleNamespace(
+        ticket=ticket, symbol="EURUSD", type=2, price_open=price, sl=0.0, tp=0.0,
+        magic=777001, type_time=0, time_expiration=0, volume_current=0.1,
+        volume_initial=0.1, state=1, price_current=price,
+    )
+    return ticket
+
+
+def test_a_working_order_is_re_priced_and_verified(sim):
+    ticket = _pending_order(sim)
+    result = _adapter().modify_order(ticket, price=1.0750, stop_loss=1.0900)
+    assert result["ok"] is True
+    assert result["verified"] is True
+    assert result["price"] == pytest.approx(1.0750)
+    assert result["requestedPrice"] == 1.0750
+    assert sim.orders[ticket].sl == 1.0900
+
+
+def test_an_ignored_order_modify_is_reported_unverified(sim):
+    ticket = _pending_order(sim)
+    sim.ignore_modify_order = True
+    result = _adapter().modify_order(ticket, price=1.0750)
+    assert result["ok"] is True
+    assert result["verified"] is False
+    assert "stored order differs" in result["verifyNote"]
+
+
+def test_modifying_a_missing_order_is_named(sim):
+    result = _adapter().modify_order(999999, price=1.0750)
+    assert result["ok"] is False
+    assert result["retcodeName"] == "ORDER_NOT_FOUND"
+
+
+def test_modify_order_needs_a_field_to_change(sim):
+    result = _adapter().modify_order(123)
+    assert result["retcodeName"] == "INVALID_REQUEST"
+
+
+def test_symbol_info_answers_with_no_tick_at_all(sim):
+    sim.ticks.clear()  # the market is closed: there is no quote to read
+    facts = _adapter().symbol_info("xauusd")
+    assert facts["symbol"] == "XAUUSD"
+    assert facts["tradeMode"] == "full"
+    assert facts["contractSize"] == 100.0
+    assert facts["volumeStep"] == 0.01
+    assert facts["sessionsAvailable"] is False
+
+
+def test_symbol_info_reports_broker_sessions_when_the_terminal_does(sim):
+    from datetime import time as clock
+
+    def session(symbol, day, index):
+        # MT5 day 1 is Monday; day 2 is Tuesday. Index 0 is the only session.
+        if day in (1, 2) and index == 0:
+            return SimpleNamespace(**{"from": clock(9, 0), "to": clock(17, 0)})
+        return None
+
+    sim.symbol_info_session_trade = session
+    facts = _adapter().symbol_info("EURUSD")
+    assert facts["sessionsAvailable"] is True
+    assert facts["sessionDeals"] == [
+        {"day": 0, "from": "09:00", "to": "17:00"},
+        {"day": 1, "from": "09:00", "to": "17:00"},
+    ]

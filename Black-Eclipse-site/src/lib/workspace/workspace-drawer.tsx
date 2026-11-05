@@ -99,7 +99,7 @@ export function WorkspaceDrawer({ onClose, workspace, widgets }: WorkspaceDrawer
       </div>
 
       <Dialog open={confirm !== null} onOpenChange={(o) => { if (!o) setConfirm(null); }}>
-        <DialogContent className="max-w-sm rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong">
+        <DialogContent className="max-w-2xl rounded-2xl border border-white/15 dark:border-white/10 glass-card-strong">
           <DialogTitle className="sr-only">Confirm</DialogTitle>
           <h3 className="font-serif text-base text-foreground">
             {confirm?.kind === 'reset' ? 'Reset layout?' : 'Replace current layout?'}

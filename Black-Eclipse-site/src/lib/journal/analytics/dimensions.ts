@@ -3,7 +3,7 @@
 // returns a sorted DimensionRow[] (best → worst by net R).
 
 import type { DimensionRow, TradeRecord } from "../types";
-import { classifyResult } from "../trade-math";
+import { classifyTradeOutcome } from "../trade-math";
 
 type KeyExtractor = (t: TradeRecord) => string | null | undefined;
 
@@ -20,12 +20,12 @@ function breakdown(trades: TradeRecord[], extract: KeyExtractor): DimensionRow[]
 
   const rows: DimensionRow[] = [];
   for (const [key, group] of groups) {
-    const wins = group.filter((t) => classifyResult(t.rMultiple) === "win");
-    const losses = group.filter((t) => classifyResult(t.rMultiple) === "loss");
+    const wins = group.filter((t) => classifyTradeOutcome(t) === "win");
+    const losses = group.filter((t) => classifyTradeOutcome(t) === "loss");
     const netR = group.reduce((s, t) => s + t.rMultiple, 0);
     const netPnl = group.reduce((s, t) => s + t.pnl, 0);
-    const grossWinR = wins.reduce((s, t) => s + t.rMultiple, 0);
-    const grossLossR = Math.abs(losses.reduce((s, t) => s + t.rMultiple, 0));
+    const grossWinPnl = wins.reduce((s, t) => s + Math.max(0, t.pnl), 0);
+    const grossLossPnl = Math.abs(losses.reduce((s, t) => s + Math.min(0, t.pnl), 0));
     rows.push({
       key,
       trades: group.length,
@@ -35,11 +35,14 @@ function breakdown(trades: TradeRecord[], extract: KeyExtractor): DimensionRow[]
       netR,
       netPnl,
       expectancy: group.length > 0 ? netR / group.length : 0,
-      profitFactor: grossLossR > 0 ? grossWinR / grossLossR : grossWinR > 0 ? Infinity : 0,
+      profitFactor: grossLossPnl > 0 ? grossWinPnl / grossLossPnl : grossWinPnl > 0 ? Infinity : 0,
     });
   }
 
-  return rows.sort((a, b) => b.netR - a.netR);
+  // When no trade carries an R basis every netR is 0; fall back to P&L so the
+  // "best/worst" ordering is still meaningful instead of arbitrary.
+  const anyR = rows.some((row) => row.netR !== 0);
+  return rows.sort((a, b) => (anyR ? b.netR - a.netR : b.netPnl - a.netPnl));
 }
 
 export const bySymbol = (trades: TradeRecord[]) => breakdown(trades, (t) => t.symbol);
@@ -56,6 +59,12 @@ export const byEmotion = (trades: TradeRecord[]) => breakdown(trades, (t) => t.e
 export const byTimeframe = (trades: TradeRecord[]) => breakdown(trades, (t) => t.timeframe ?? null);
 export const byRegime = (trades: TradeRecord[]) => breakdown(trades, (t) => t.marketRegime ?? null);
 export const byTrend = (trades: TradeRecord[]) => breakdown(trades, (t) => t.trend ?? null);
+/** Per trading account (unassigned trades are grouped, not dropped). */
+export const byAccount = (trades: TradeRecord[]) =>
+  breakdown(trades, (t) => t.accountName ?? "Unassigned");
+/** Per broker magic number. Manual/CSV trades have no magic and are skipped. */
+export const byMagic = (trades: TradeRecord[]) =>
+  breakdown(trades, (t) => (t.magic != null && t.magic !== 0 ? String(t.magic) : null));
 
 /** Trading hour (UTC, 0-23) — reveals the trader's best time of day. */
 export const byHour = (trades: TradeRecord[]) =>

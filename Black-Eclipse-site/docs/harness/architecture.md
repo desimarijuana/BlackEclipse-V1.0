@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-10-21
+last-verified: 2026-11-02
 ---
 
 # Harness Architecture
@@ -143,6 +143,31 @@ drift from the allowlist it describes, guard tests (`python/tests/
 test_memory_tools.py`) assert over BOTH presets that every tool a prompt names is
 in its preset's allowlist and that a prompt never denies a capability its
 allowlist contains (ADR-H106).
+
+### User personas are an append-only overlay (ADR-058)
+
+Settings → Persona lets the operator keep named, versioned personas. A persona
+is **not** a prompt replacement: it is a bounded (2,000-character) block appended
+after the resolved `eclipse-agent` prompt, wrapped in a fixed "user persona"
+frame that states it is guidance, not policy, and cannot add tools, grant
+permissions, select data sources or override the safety/evidence/financial
+rules. The tool allowlist is resolved before the persona is read, so the overlay
+cannot widen it. It applies only to runs using the default chat agent
+(`eclipse-agent` — ordinary chat, bots, and any graph node that selects it); a
+Graph Studio custom agent preset keeps its own prompt.
+
+Storage is `python/harness/personas.py` on the ONE `agent-memory.db` connection:
+a current row plus append-only versions. Editing writes `draftInstructions`;
+`activate()` promotes the draft into a new immutable version and deactivates the
+previous persona (exactly one active globally); `reset` leaves no overlay;
+`restore` loads an old version into the draft; `archive` keeps history. Every
+write is guarded by a `revision` token (a stale save from another window is a
+409, never a silent overwrite), and history is bounded to the last 50 versions
+(the active version is always within the window). Text is sanitized (role
+markers and code fences neutralized) and capped at write time.
+The run records `persona id@version` alongside `surface`, so a later edit never
+rewrites what an earlier run saw. `GET /personas/preview` returns the effective
+prompt (base + overlay) for the operator UI.
 
 ### The Financial Retrieval Layer (Phase 2)
 

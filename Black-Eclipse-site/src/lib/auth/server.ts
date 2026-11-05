@@ -83,3 +83,17 @@ export async function requireApiAuth(request: Request): Promise<Response | null>
   if (ctx.authenticated) return null;
   return json(401, { error: "Sign in required", code: "AUTH_REQUIRED" });
 }
+
+/**
+ * Broker surfaces are operator-only. When auth is off (local single user) this
+ * is a no-op; when auth is on, an authenticated non-operator gets a 403. This is
+ * the authoritative check; the middleware only proves the cookie signature.
+ */
+export async function requireOperatorApiAuth(request: Request): Promise<Response | null> {
+  const denied = await requireApiAuth(request);
+  if (denied) return denied;
+  if (!authConfig().required) return null;
+  const ctx = await getAuthContext(request);
+  if (ctx.user?.role === "operator") return null;
+  return json(403, { error: "Operator access required", code: "OPERATOR_REQUIRED" });
+}

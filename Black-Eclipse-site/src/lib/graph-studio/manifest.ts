@@ -153,6 +153,13 @@ function nodeOf(definition: NodeDefinition): ManifestNode {
 export function buildNodeManifest(): NodeManifest {
   const nodes = listNodeDefinitions()
     .map(nodeOf)
-    .sort((a, b) => `${a.type}@${a.version}`.localeCompare(`${b.type}@${b.version}`));
+    // Plain codepoint ordering, never localeCompare: a manifest generated on a
+    // machine with different ICU collation must be byte-identical, otherwise
+    // `broker_modify` and `broker_modify_order` swap and the parity test fails.
+    .sort((a, b) => {
+      const left = `${a.type}@${a.version}`;
+      const right = `${b.type}@${b.version}`;
+      return left < right ? -1 : left > right ? 1 : 0;
+    });
   return { manifestVersion: 1, source: 'eclipse-workflow-ir', nodes };
 }

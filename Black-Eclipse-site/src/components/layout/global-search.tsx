@@ -34,6 +34,11 @@ import {
   ScanEye,
   Settings,
   Sparkles,
+  FileText,
+  FolderOpen,
+  Database,
+  Wrench,
+  ListChecks,
   type LucideIcon,
 } from '@/lib/icons';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -47,7 +52,7 @@ import {
 } from '@/lib/search/commands';
 import { loadSidebarConfig } from '@/lib/sidebar/config';
 import { universeCount } from '@/lib/search/universe';
-import { getPage } from '@/lib/search/registry';
+import { getLauncherPages } from '@/lib/search/registry';
 import { destinationToHref } from '@/lib/search/deep-link';
 import { DEFAULT_SCOPE, SCOPES, parseQuery, type ScopeMeta } from '@/lib/search/grammar';
 import type { EntityKind, SearchEntity } from '@/lib/search/types';
@@ -77,6 +82,12 @@ const NAME_ICON: Record<string, LucideIcon> = {
   memory: Brain,
   ghost: Ghost,
   activity: Activity,
+  sdk: Wrench,
+  artifacts: FolderOpen,
+  tables: Database,
+  pages: FileText,
+  tasks: ListChecks,
+  'ui-builder': Blocks,
 };
 
 function nameIcon(name?: string): LucideIcon {
@@ -84,27 +95,11 @@ function nameIcon(name?: string): LucideIcon {
 }
 
 /**
- * Top-level pages shown in the palette's Pages list, in sidebar order
- * (ChatBot → … → Price Alerts). Deliberately excludes `settings` (a modal) and
- * the retired `chart` tab.
+ * Top-level pages shown in the palette's empty-query launcher, in sidebar
+ * order — see `LAUNCHER_ORDER` in `@/lib/search/registry` (ONE list, guarded by
+ * `registry-sync.test.ts`: every sidebar section must appear, entries must be
+ * top-level, and `settings`/`chart` never do).
  */
-const TOP_LEVEL_PAGE_IDS = [
-  'page-chat',
-  'page-home',
-  'page-dashboard',
-  'page-investor-eye',
-  'page-market-workspace',
-  'page-screener',
-  'page-portfolio',
-  'page-journal',
-  'page-news',
-  'page-heatmap',
-  'page-economics',
-  'page-alerts',
-  'page-skills',
-  'page-memory',
-  'page-bots',
-];
 
 const KIND_ICON: Record<EntityKind, LucideIcon> = {
   security: ChartCandlestick,
@@ -278,13 +273,12 @@ export function GlobalSearchOverlay() {
   // Pages-group collapse (shares the store's collapsedGroups list).
   const navCollapsed = store.collapsedGroups.includes('nav');
 
-  // The Pages list = the app's top-level tabs only, in sidebar order. Typing
-  // still searches everything (instruments, indicators, markets, actions);
-  // this list is purely the page launcher.
+  // The Pages list = LAUNCHER_ORDER from the registry, in sidebar order.
+  // Typing still searches everything (instruments, indicators, markets,
+  // actions); this list is purely the page launcher.
   const navPages: QuickAction[] = useMemo(
     () =>
-      TOP_LEVEL_PAGE_IDS.map((id) => getPage(id))
-        .filter((p): p is SearchEntity => Boolean(p))
+      getLauncherPages()
         .map((p) => ({
           id: `nav-${p.id}`,
           label: p.title,
@@ -549,7 +543,7 @@ export function GlobalSearchOverlay() {
     <Dialog open={store.open} onOpenChange={(o) => store.setOpen(o)}>
       <DialogContent
         showCloseButton={false}
-        className="command-glass top-0 translate-y-0 left-1/2 -translate-x-1/2 sm:max-w-lg max-w-[calc(100%-1rem)] mt-2 sm:mt-5 w-full p-0 gap-0 rounded-xl overflow-hidden"
+        className="command-glass top-0 translate-y-0 left-1/2 -translate-x-1/2 sm:max-w-2xl max-w-[calc(100%-1rem)] mt-2 sm:mt-5 w-full p-0 gap-0 rounded-xl overflow-hidden"
       >
         <DialogTitle className="sr-only">Global Search</DialogTitle>
 

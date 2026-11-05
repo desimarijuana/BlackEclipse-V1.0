@@ -296,6 +296,77 @@ def test_durable_wait_defers_then_resumes_from_the_checkpoint(service):
     assert second.output == 120_000
 
 
+def test_durable_approval_gate_pauses_as_pending_then_finishes_after_approval(service):
+    """An approval gate must NOT be checkpointed as succeeded while undecided."""
+    from harness.graph_runtime.approval_nodes import set_approval_runner
+    from harness.graph_runtime.model import RunDeferred
+
+    ir = WorkflowIR.model_validate({
+        "irVersion": 1, "id": "wf_approval", "name": "Approval",
+        "meta": {"createdAt": "", "updatedAt": "", "tags": []},
+        "nodes": [
+            {"id": "trig", "type": "trigger.manual", "version": "1.0.0", "config": {}, "layout": {"x": 0, "y": 0}},
+            {"id": "gate", "type": "logic.human_approval", "version": "1.0.0",
+             "config": {"title": "Release the report?", "pollSeconds": 5}, "layout": {"x": 0, "y": 0}},
+            {"id": "out", "type": "output.result", "version": "1.0.0", "config": {}, "layout": {"x": 0, "y": 0}},
+        ],
+        "edges": [
+            {"id": "e2", "source": "gate", "sourceHandle": "value", "target": "out", "targetHandle": "value"},
+        ],
+        "settings": {"executionMode": "research", "failFast": False, "maxConcurrency": 1, "timeoutMs": 0},
+        "requiredCapabilities": ["approval.request"],
+    })
+    service = GraphService(service._store, registry=build_default_registry())
+    grants = RunGrants(test_run=False, granted_capabilities=frozenset({"approval.request"}))
+    plan = service.compile(ir, grants)
+    assert plan.executable, [d.message for d in plan.diagnostics]
+
+    state = {"status": "pending"}
+
+    def runner(_context, _args):
+        if state["status"] == "approved":
+            return {"status": "approved", "approval": {"decidedBy": "operator"}}
+        return {"status": "pending", "approval": {}}
+
+    set_approval_runner(runner)
+    try:
+        run_id = "grun_approval"
+        service._store.create_run(GraphRun(
+            id=run_id, workflowId=ir.id, workflowVersion=1, irVersion=1,
+            mode=plan.mode, testRun=False, status=RunStatus.RUNNING,
+            startedAt=now_iso(), plan=plan,
+        ))
+        payload = {
+            "ir": ir.model_dump(by_alias=True),
+            "subworkflows": {},
+            "runId": run_id,
+            "workflowVersion": 1,
+            "ownerId": "local",
+            "runInput": None,
+            "grants": {
+                "testRun": False,
+                "grantedCapabilities": ["approval.request"],
+                "allowNetwork": False,
+                "allowTrading": False,
+            },
+        }
+
+        first = service.execute_job(payload, cancel_event=threading.Event())
+        assert isinstance(first, RunDeferred)
+        stored = service._store.get_run(run_id)
+        assert stored["status"] == "queued"
+        # The gate has NOT succeeded, so the resumed run re-enters it.
+        assert stored["nodeStatus"].get("gate") != "succeeded"
+        assert "out" not in stored["nodeStatus"]
+
+        state["status"] = "approved"
+        second = service.execute_job(payload, cancel_event=threading.Event())
+        assert isinstance(second, GraphRun)
+        assert second.status == RunStatus.SUCCEEDED
+    finally:
+        set_approval_runner(None)
+
+
 class _FakeFabric:
     def __init__(self):
         self.payload = None

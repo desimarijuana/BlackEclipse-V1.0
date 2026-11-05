@@ -3,6 +3,256 @@
   "source": "eclipse-workflow-ir",
   "nodes": [
     {
+      "type": "agent.bot",
+      "version": "1.0.0",
+      "category": "agent",
+      "label": "Run bot",
+      "description": "Runs a saved bot as one bounded agent turn.",
+      "inputs": [
+        {
+          "id": "query",
+          "name": "Query",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "context",
+          "name": "Context",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "finding",
+          "name": "Finding",
+          "type": "research_finding",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "evidence",
+          "name": "Evidence",
+          "type": "evidence",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "botId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 120
+          }
+        },
+        {
+          "name": "instructions",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8000
+          }
+        },
+        {
+          "name": "maxSteps",
+          "kind": "number",
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 32,
+            "integer": true
+          }
+        },
+        {
+          "name": "objective",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "tools",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        }
+      ],
+      "capabilities": [
+        "agent.run"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "agent.classify",
+      "version": "1.0.0",
+      "category": "agent",
+      "label": "Classify",
+      "description": "One bounded model call that returns one of the declared labels.",
+      "inputs": [
+        {
+          "id": "text",
+          "name": "Text",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "label",
+          "name": "Label",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "confidence",
+          "name": "Confidence",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "scores",
+          "name": "Scores",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "instructions",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "labels",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 500
+          }
+        }
+      ],
+      "capabilities": [
+        "agent.run"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "agent.critique",
+      "version": "1.0.0",
+      "category": "agent",
+      "label": "Critique finding",
+      "description": "One bounded model call that judges a finding against its evidence.",
+      "inputs": [
+        {
+          "id": "finding",
+          "name": "Finding",
+          "type": "research_finding",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "evidence",
+          "name": "Evidence",
+          "type": "evidence",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "rubric",
+          "name": "Rubric",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "verdict",
+          "name": "Verdict",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "issues",
+          "name": "Issues",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "score",
+          "name": "Score",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        }
+      ],
+      "configFields": [
+        {
+          "name": "rubric",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        }
+      ],
+      "capabilities": [
+        "agent.run"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "agent.delegate",
       "version": "1.0.0",
       "category": "agent",
@@ -56,6 +306,14 @@
           }
         },
         {
+          "name": "instructions",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8000
+          }
+        },
+        {
           "name": "maxSteps",
           "kind": "number",
           "default": 8,
@@ -77,6 +335,94 @@
         },
         {
           "name": "tasksJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        },
+        {
+          "name": "tools",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        }
+      ],
+      "capabilities": [
+        "agent.run"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "agent.extract",
+      "version": "1.0.0",
+      "category": "agent",
+      "label": "Extract",
+      "description": "One bounded model call that extracts a JSON object.",
+      "inputs": [
+        {
+          "id": "text",
+          "name": "Text",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "schema",
+          "name": "Schema",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "data",
+          "name": "Data",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "raw",
+          "name": "Raw JSON",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "valid",
+          "name": "Valid",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "instructions",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "schemaJson",
           "kind": "string",
           "default": "",
           "constraints": {
@@ -214,6 +560,14 @@
           }
         },
         {
+          "name": "instructions",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8000
+          }
+        },
+        {
           "name": "maxSteps",
           "kind": "number",
           "default": 8,
@@ -230,10 +584,394 @@
           "constraints": {
             "maxLength": 2000
           }
+        },
+        {
+          "name": "tools",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
         }
       ],
       "capabilities": [
         "agent.run"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "agent.summarize",
+      "version": "1.0.0",
+      "category": "agent",
+      "label": "Summarize",
+      "description": "One bounded model call that compresses text, an array or an object.",
+      "inputs": [
+        {
+          "id": "text",
+          "name": "Text",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "keyPoints",
+          "name": "Key points",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "maxWords",
+          "kind": "number",
+          "default": 200,
+          "constraints": {
+            "min": 10,
+            "max": 2000,
+            "integer": true
+          }
+        },
+        {
+          "name": "style",
+          "kind": "string",
+          "default": "prose",
+          "constraints": {
+            "enum": [
+              "prose",
+              "bullets"
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "agent.run"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "agent.task",
+      "version": "1.0.0",
+      "category": "agent",
+      "label": "Agent",
+      "description": "Runs one bounded agent turn with a prompt, task, tools and memory.",
+      "inputs": [
+        {
+          "id": "input",
+          "name": "Input",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "context",
+          "name": "Context",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "task",
+          "name": "Task",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "output",
+          "name": "Output",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "data",
+          "name": "Data",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "finding",
+          "name": "Finding",
+          "type": "research_finding",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "run",
+          "name": "Run",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "valid",
+          "name": "Valid",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "issues",
+          "name": "Issues",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "agent",
+          "kind": "string",
+          "default": "eclipse-agent",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "agentVersion",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000,
+            "integer": true
+          }
+        },
+        {
+          "name": "includeInput",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "instructions",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8000
+          }
+        },
+        {
+          "name": "maxSteps",
+          "kind": "number",
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 32,
+            "integer": true
+          }
+        },
+        {
+          "name": "memoryImportance",
+          "kind": "number",
+          "default": 0.5,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "name": "memoryLimit",
+          "kind": "number",
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 50,
+            "integer": true
+          }
+        },
+        {
+          "name": "memoryMode",
+          "kind": "string",
+          "default": "read",
+          "constraints": {
+            "enum": [
+              "none",
+              "read",
+              "write",
+              "read_write"
+            ]
+          }
+        },
+        {
+          "name": "memoryScope",
+          "kind": "string",
+          "default": "workflow",
+          "constraints": {
+            "enum": [
+              "general",
+              "workflow",
+              "run"
+            ]
+          }
+        },
+        {
+          "name": "outputMode",
+          "kind": "string",
+          "default": "text",
+          "constraints": {
+            "enum": [
+              "text",
+              "json"
+            ]
+          }
+        },
+        {
+          "name": "outputSchemaJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        },
+        {
+          "name": "task",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
+        },
+        {
+          "name": "tools",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        }
+      ],
+      "capabilities": [
+        "agent.run"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "agent.team",
+      "version": "1.0.0",
+      "category": "agent",
+      "label": "Run committee",
+      "description": "Runs the institution committee and returns its terminal decision.",
+      "inputs": [
+        {
+          "id": "objective",
+          "name": "Objective",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "decision",
+          "name": "Decision",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "synthesis",
+          "name": "Synthesis",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "horizon",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 100
+          }
+        },
+        {
+          "name": "objective",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "timeoutS",
+          "kind": "number",
+          "default": 600,
+          "constraints": {
+            "min": 30,
+            "max": 3600,
+            "integer": true
+          }
+        },
+        {
+          "name": "universe",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "agent.run",
+        "team.run"
       ],
       "sideEffects": "model",
       "allowedModes": [
@@ -398,6 +1136,448 @@
         "dataset.write"
       ],
       "sideEffects": "local_write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "data.extract",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Extract field",
+      "description": "Reads a dotted path out of an object or array.",
+      "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "value",
+          "name": "Value",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "value",
+          "name": "Value",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "found",
+          "name": "Found",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "onMissing",
+          "kind": "string",
+          "default": "null",
+          "constraints": {
+            "enum": [
+              "null",
+              "error"
+            ]
+          }
+        },
+        {
+          "name": "path",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 500
+          }
+        }
+      ],
+      "capabilities": [],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "data.file.attach",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "File",
+      "description": "Turns an uploaded local file into text or rows.",
+      "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "file",
+          "name": "File",
+          "type": "file",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "text",
+          "name": "Text",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "rows",
+          "name": "Rows",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "delimiter",
+          "kind": "string",
+          "default": ",",
+          "constraints": {
+            "maxLength": 4
+          }
+        },
+        {
+          "name": "encoding",
+          "kind": "string",
+          "default": "utf-8-sig",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "header",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "maxRows",
+          "kind": "number",
+          "default": 5000,
+          "constraints": {
+            "min": 1,
+            "max": 20000,
+            "integer": true
+          }
+        },
+        {
+          "name": "parseAs",
+          "kind": "string",
+          "default": "auto",
+          "constraints": {
+            "enum": [
+              "auto",
+              "text",
+              "json",
+              "csv",
+              "tsv",
+              "xlsx",
+              "binary"
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "asset.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "data.file.export",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Export file",
+      "description": "Exports rows to a downloadable local CSV, JSON or Excel file.",
+      "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "rows",
+          "name": "Rows",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "artifact",
+          "name": "Artifact",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "name",
+          "name": "Name",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "bytes",
+          "name": "Bytes",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "format",
+          "kind": "string",
+          "default": "csv",
+          "constraints": {
+            "enum": [
+              "csv",
+              "json",
+              "xlsx"
+            ]
+          }
+        },
+        {
+          "name": "includeHeader",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "maxRows",
+          "kind": "number",
+          "default": 5000,
+          "constraints": {
+            "min": 1,
+            "max": 20000,
+            "integer": true
+          }
+        },
+        {
+          "name": "name",
+          "kind": "string",
+          "default": "export",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "rowsJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 1000000
+          }
+        }
+      ],
+      "capabilities": [
+        "asset.write"
+      ],
+      "sideEffects": "local_write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "data.file.parse",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Parse file",
+      "description": "Parses a file reference into rows, columns and text.",
+      "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "file",
+          "name": "File",
+          "type": "file",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "rows",
+          "name": "Rows",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "columns",
+          "name": "Columns",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "text",
+          "name": "Text",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "delimiter",
+          "kind": "string",
+          "default": ",",
+          "constraints": {
+            "maxLength": 4
+          }
+        },
+        {
+          "name": "encoding",
+          "kind": "string",
+          "default": "utf-8-sig",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "header",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "maxRows",
+          "kind": "number",
+          "default": 5000,
+          "constraints": {
+            "min": 1,
+            "max": 20000,
+            "integer": true
+          }
+        },
+        {
+          "name": "parseAs",
+          "kind": "string",
+          "default": "auto",
+          "constraints": {
+            "enum": [
+              "auto",
+              "text",
+              "json",
+              "csv",
+              "tsv",
+              "xlsx",
+              "binary"
+            ]
+          }
+        },
+        {
+          "name": "sheet",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 120
+          }
+        }
+      ],
+      "capabilities": [
+        "asset.read"
+      ],
+      "sideEffects": "read",
       "allowedModes": [
         "backtest",
         "live",
@@ -2653,6 +3833,111 @@
       "terminal": false
     },
     {
+      "type": "flow.parallel",
+      "version": "1.0.0",
+      "category": "logic",
+      "label": "Parallel map",
+      "description": "Runs a pinned body workflow once per item, concurrently and bounded.",
+      "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "items",
+          "name": "Items",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "results",
+          "name": "Results",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "concurrency",
+          "kind": "number",
+          "default": 4,
+          "constraints": {
+            "min": 1,
+            "max": 8,
+            "integer": true
+          }
+        },
+        {
+          "name": "continueOnError",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "maxItems",
+          "kind": "number",
+          "default": 25,
+          "constraints": {
+            "min": 1,
+            "max": 100,
+            "integer": true
+          }
+        },
+        {
+          "name": "version",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 1,
+            "max": 1000000,
+            "integer": true
+          }
+        },
+        {
+          "name": "workflowId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        }
+      ],
+      "capabilities": [],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "flow.repeat",
       "version": "1.0.0",
       "category": "logic",
@@ -2958,6 +4243,623 @@
       ],
       "capabilities": [],
       "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "image.analyze",
+      "version": "1.0.0",
+      "category": "media",
+      "label": "Analyze image",
+      "description": "One bounded vision read: describe, answer, ground or extract JSON.",
+      "inputs": [
+        {
+          "id": "image",
+          "name": "Image",
+          "type": "image",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "question",
+          "name": "Question",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "description",
+          "name": "Description",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "observations",
+          "name": "Observations",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "data",
+          "name": "Data",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "maxObservations",
+          "kind": "number",
+          "default": 60,
+          "constraints": {
+            "min": 1,
+            "max": 200,
+            "integer": true
+          }
+        },
+        {
+          "name": "mode",
+          "kind": "string",
+          "default": "describe",
+          "constraints": {
+            "enum": [
+              "describe",
+              "answer",
+              "ground",
+              "extract"
+            ]
+          }
+        },
+        {
+          "name": "question",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
+        },
+        {
+          "name": "region",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "schemaJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        }
+      ],
+      "capabilities": [
+        "image.read",
+        "model.vision"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "image.attach",
+      "version": "1.0.0",
+      "category": "media",
+      "label": "Image",
+      "description": "Uploads or references one local image.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "image",
+          "name": "Image",
+          "type": "image",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "notes",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 500
+          }
+        }
+      ],
+      "capabilities": [
+        "image.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "image.batch",
+      "version": "1.0.0",
+      "category": "media",
+      "label": "Read image options",
+      "description": "Applies the same questions to 1–8 images, one result per image.",
+      "inputs": [
+        {
+          "id": "images",
+          "name": "Images",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "results",
+          "name": "Results",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "failed",
+          "name": "Failed",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetIds",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8000
+          }
+        },
+        {
+          "name": "concurrency",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 1,
+            "max": 3,
+            "integer": true
+          }
+        },
+        {
+          "name": "maxImages",
+          "kind": "number",
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 8,
+            "integer": true
+          }
+        },
+        {
+          "name": "mode",
+          "kind": "string",
+          "default": "analyze",
+          "constraints": {
+            "enum": [
+              "analyze",
+              "read_chart",
+              "ocr"
+            ]
+          }
+        },
+        {
+          "name": "outputSchemaJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        },
+        {
+          "name": "questionsJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 10000
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "image.read",
+        "model.vision"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "image.compare",
+      "version": "1.0.0",
+      "category": "media",
+      "label": "Compare images",
+      "description": "Compares two images (pixel diff and/or visual description).",
+      "inputs": [
+        {
+          "id": "a",
+          "name": "Candidate",
+          "type": "image",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "b",
+          "name": "Reference",
+          "type": "image",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "same",
+          "name": "Same",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "score",
+          "name": "Similarity",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "differences",
+          "name": "Differences",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "compareAssetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "mode",
+          "kind": "string",
+          "default": "both",
+          "constraints": {
+            "enum": [
+              "pixel",
+              "visual",
+              "both"
+            ]
+          }
+        },
+        {
+          "name": "question",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "threshold",
+          "kind": "number",
+          "default": 0.02,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        }
+      ],
+      "capabilities": [
+        "image.read",
+        "model.vision"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "image.ocr",
+      "version": "1.0.0",
+      "category": "media",
+      "label": "Read text (OCR)",
+      "description": "Extracts text and pixel spans from an image.",
+      "inputs": [
+        {
+          "id": "image",
+          "name": "Image",
+          "type": "image",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "text",
+          "name": "Text",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "spans",
+          "name": "Spans",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "language",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "region",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        }
+      ],
+      "capabilities": [
+        "image.read",
+        "model.vision"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "image.read_chart",
+      "version": "1.0.0",
+      "category": "media",
+      "label": "Read chart",
+      "description": "Reads a chart image into trend, patterns, candles and levels.",
+      "inputs": [
+        {
+          "id": "image",
+          "name": "Image",
+          "type": "image",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "question",
+          "name": "Question",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "reading",
+          "name": "Reading",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "description",
+          "name": "Description",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "verified",
+          "name": "Verified",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "assetId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "market",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20
+          }
+        },
+        {
+          "name": "question",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "timeframe",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "image.read",
+        "market.read",
+        "model.vision"
+      ],
+      "sideEffects": "model",
       "allowedModes": [
         "backtest",
         "live",
@@ -3586,6 +5488,88 @@
       "terminal": false
     },
     {
+      "type": "logic.assert",
+      "version": "1.0.0",
+      "category": "logic",
+      "label": "Assert",
+      "description": "Fails the run with a named message when the condition is not met.",
+      "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "value",
+          "name": "Value",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "message",
+          "name": "Message",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "value",
+          "name": "Value",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "expect",
+          "kind": "string",
+          "default": "truthy",
+          "constraints": {
+            "enum": [
+              "truthy",
+              "falsy",
+              "present"
+            ]
+          }
+        },
+        {
+          "name": "message",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 500
+          }
+        }
+      ],
+      "capabilities": [],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "logic.condition",
       "version": "1.0.0",
       "category": "logic",
@@ -3758,6 +5742,83 @@
       "terminal": false
     },
     {
+      "type": "logic.fallback",
+      "version": "1.0.0",
+      "category": "logic",
+      "label": "Fallback",
+      "description": "Returns the first present input and which port it came from.",
+      "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "in1",
+          "name": "First",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "in2",
+          "name": "Second",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "in3",
+          "name": "Third",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "value",
+          "name": "Value",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "source",
+          "name": "Source",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [],
+      "capabilities": [],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "logic.filter",
       "version": "1.0.0",
       "category": "logic",
@@ -3821,6 +5882,144 @@
         "compute.safe"
       ],
       "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "logic.human_approval",
+      "version": "1.0.0",
+      "category": "logic",
+      "label": "Wait for approval",
+      "description": "Pauses until an operator approves (or denies) this step.",
+      "inputs": [
+        {
+          "id": "in",
+          "name": "Run",
+          "type": "any",
+          "kind": "control",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "value",
+          "name": "Value",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "message",
+          "name": "Message",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "value",
+          "name": "Value",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "approved",
+          "name": "Approved",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "decidedBy",
+          "name": "Decided by",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "done",
+          "name": "Done",
+          "type": "any",
+          "kind": "control",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "maxWaitS",
+          "kind": "number",
+          "default": 300,
+          "constraints": {
+            "min": 10,
+            "max": 3600,
+            "integer": true
+          }
+        },
+        {
+          "name": "message",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 1000
+          }
+        },
+        {
+          "name": "pollSeconds",
+          "kind": "number",
+          "default": 5,
+          "constraints": {
+            "min": 2,
+            "max": 60,
+            "integer": true
+          }
+        },
+        {
+          "name": "risk",
+          "kind": "string",
+          "default": "medium",
+          "constraints": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          }
+        },
+        {
+          "name": "title",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "ttlHours",
+          "kind": "number",
+          "default": 12,
+          "constraints": {
+            "min": 1,
+            "max": 24,
+            "integer": true
+          }
+        }
+      ],
+      "capabilities": [
+        "approval.request"
+      ],
+      "sideEffects": "local_write",
       "allowedModes": [
         "backtest",
         "live",
@@ -4283,6 +6482,779 @@
       ],
       "capabilities": [],
       "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "memory.context",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Memory context",
+      "description": "Builds a deterministic, budgeted memory prompt block.",
+      "inputs": [
+        {
+          "id": "query",
+          "name": "Query",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "context",
+          "name": "Context",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "memories",
+          "name": "Memories",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "count",
+          "name": "Count",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "dropped",
+          "name": "Dropped",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "meta",
+          "name": "Meta",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "budgetTokens",
+          "kind": "number",
+          "default": 1200,
+          "constraints": {
+            "min": 128,
+            "max": 8000,
+            "integer": true
+          }
+        },
+        {
+          "name": "format",
+          "kind": "string",
+          "default": "bullets",
+          "constraints": {
+            "enum": [
+              "bullets",
+              "prose",
+              "compact"
+            ]
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 50,
+            "integer": true
+          }
+        },
+        {
+          "name": "query",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "scope",
+          "kind": "string",
+          "default": "general",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "types",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 300
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "memory.forget",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Forget memory",
+      "description": "Soft-forgets (archives) one memory record.",
+      "inputs": [
+        {
+          "id": "memoryId",
+          "name": "Memory id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "memory",
+          "name": "Memory",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "forgotten",
+          "name": "Forgotten",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "memoryId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "reason",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 500
+          }
+        }
+      ],
+      "capabilities": [
+        "memory.write"
+      ],
+      "sideEffects": "local_write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "memory.list",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "List memories",
+      "description": "Browses stored memories by scope, type and status.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "memories",
+          "name": "Memories",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "count",
+          "name": "Count",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "scopes",
+          "name": "Scopes",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "types",
+          "name": "Types",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "includeInactive",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 50,
+          "constraints": {
+            "min": 1,
+            "max": 200,
+            "integer": true
+          }
+        },
+        {
+          "name": "memoryType",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "scope",
+          "kind": "string",
+          "default": "general",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "status",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "subject",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "memory.recall",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Recall memory",
+      "description": "Reads the app memory service into the graph.",
+      "inputs": [
+        {
+          "id": "query",
+          "name": "Query",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "memories",
+          "name": "Memories",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "context",
+          "name": "Context",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "count",
+          "name": "Count",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 50,
+            "integer": true
+          }
+        },
+        {
+          "name": "query",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "scope",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "types",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 300
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "memory.remember",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Remember",
+      "description": "Writes one durable memory record.",
+      "inputs": [
+        {
+          "id": "content",
+          "name": "Content",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "memory",
+          "name": "Memory",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "written",
+          "name": "Written",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "content",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
+        },
+        {
+          "name": "importance",
+          "kind": "number",
+          "default": 0.5,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "name": "memoryType",
+          "kind": "string",
+          "default": "observation",
+          "constraints": {
+            "enum": [
+              "episodic",
+              "semantic",
+              "procedural",
+              "preference",
+              "constraint",
+              "correction",
+              "observation",
+              "summary"
+            ]
+          }
+        },
+        {
+          "name": "scope",
+          "kind": "string",
+          "default": "general",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "subject",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "memory.write"
+      ],
+      "sideEffects": "local_write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "memory.update",
+      "version": "1.0.0",
+      "category": "data",
+      "label": "Update memory",
+      "description": "Corrects one memory record.",
+      "inputs": [
+        {
+          "id": "memoryId",
+          "name": "Memory id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "content",
+          "name": "Content",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "memory",
+          "name": "Memory",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "updated",
+          "name": "Updated",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "content",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
+        },
+        {
+          "name": "importance",
+          "kind": "number",
+          "default": 0.5,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "name": "memoryId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "subject",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "updateImportance",
+          "kind": "boolean",
+          "default": false
+        }
+      ],
+      "capabilities": [
+        "memory.write"
+      ],
+      "sideEffects": "local_write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "output.chart",
+      "version": "1.0.0",
+      "category": "output",
+      "label": "Chart",
+      "description": "Builds a chart spec (and its figure) from a payload.",
+      "inputs": [
+        {
+          "id": "series",
+          "name": "Series",
+          "type": "any",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "spec",
+          "name": "Spec",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "figure",
+          "name": "Figure",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": true
+        },
+        {
+          "id": "rendered",
+          "name": "Rendered",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "kind",
+          "kind": "string",
+          "default": "line",
+          "constraints": {
+            "enum": [
+              "line",
+              "area",
+              "bar",
+              "scatter",
+              "pie",
+              "donut"
+            ]
+          }
+        },
+        {
+          "name": "title",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "xField",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 120
+          }
+        },
+        {
+          "name": "xLabel",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 120
+          }
+        },
+        {
+          "name": "yField",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 120
+          }
+        },
+        {
+          "name": "yLabel",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 120
+          }
+        }
+      ],
+      "capabilities": [],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "output.notify",
+      "version": "1.0.0",
+      "category": "output",
+      "label": "Notify",
+      "description": "Sends one message through a configured channel.",
+      "inputs": [
+        {
+          "id": "message",
+          "name": "Message",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "data",
+          "name": "Data",
+          "type": "any",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "delivered",
+          "name": "Delivered",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "detail",
+          "name": "Detail",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "channel",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "destination",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "message",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
+        },
+        {
+          "name": "title",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "notification.send"
+      ],
+      "sideEffects": "network",
       "allowedModes": [
         "backtest",
         "live",
@@ -7847,6 +10819,125 @@
       "terminal": false
     },
     {
+      "type": "research.citation_audit",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Audit citations",
+      "description": "Checks that every material claim is traceable to honest citations.",
+      "inputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "claims",
+          "name": "Claims",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "citations",
+          "name": "Citations",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "evidence",
+          "name": "Evidence",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "audit",
+          "name": "Audit",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "issues",
+          "name": "Issues",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "asOf",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 500,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "requireCitations",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "research.citations",
       "version": "1.0.0",
       "category": "research",
@@ -7875,6 +10966,14 @@
           "id": "claims",
           "name": "Claims",
           "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
           "kind": "data",
           "optional": false,
           "nullable": false
@@ -7972,6 +11071,14 @@
       ],
       "configFields": [
         {
+          "name": "asOf",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
           "name": "claim",
           "kind": "string",
           "default": "",
@@ -7983,6 +11090,104 @@
           "name": "evidenceIds",
           "kind": "array",
           "default": []
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.claims_verify",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Verify claims (batch)",
+      "description": "Verifies many claims with the run’s conflicts and point-in-time rules.",
+      "inputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "claims",
+          "name": "Claims",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "claims",
+          "name": "Verified claims",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "asOf",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 200,
+          "constraints": {
+            "min": 1,
+            "max": 200,
+            "integer": true
+          }
         },
         {
           "name": "researchId",
@@ -8054,6 +11259,94 @@
       "terminal": false
     },
     {
+      "type": "research.conflict_scan",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Scan conflicts",
+      "description": "Runs the deterministic conflict detector over evidence.",
+      "inputs": [
+        {
+          "id": "evidence",
+          "name": "Evidence",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "conflicts",
+          "name": "Conflicts",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 200,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "mergeStored",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "tolerance",
+          "kind": "number",
+          "default": 0.01,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "research.conflicts",
       "version": "1.0.0",
       "category": "research",
@@ -8077,6 +11370,14 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
@@ -8088,6 +11389,329 @@
             "min": 1,
             "max": 1000,
             "integer": true
+          }
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.deep_dive",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Run research engine",
+      "description": "Runs the existing research engine end to end and returns its run id.",
+      "inputs": [
+        {
+          "id": "question",
+          "name": "Question",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "answer",
+          "name": "Answer",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "asOf",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "citationsRequired",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "depth",
+          "kind": "string",
+          "default": "standard",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "maxQueries",
+          "kind": "number",
+          "default": 12,
+          "constraints": {
+            "min": 1,
+            "max": 30,
+            "integer": true
+          }
+        },
+        {
+          "name": "maxSources",
+          "kind": "number",
+          "default": 12,
+          "constraints": {
+            "min": 1,
+            "max": 30,
+            "integer": true
+          }
+        },
+        {
+          "name": "maxTimeSeconds",
+          "kind": "number",
+          "default": 300,
+          "constraints": {
+            "min": 10,
+            "max": 600,
+            "integer": true
+          }
+        },
+        {
+          "name": "minSources",
+          "kind": "number",
+          "default": 3,
+          "constraints": {
+            "min": 1,
+            "max": 20,
+            "integer": true
+          }
+        },
+        {
+          "name": "primarySourcesRequired",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "question",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        }
+      ],
+      "capabilities": [
+        "agent.run",
+        "network.egress",
+        "research.read",
+        "research.write"
+      ],
+      "sideEffects": "network",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.diff",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Compare runs",
+      "description": "Compares two runs answering the same question.",
+      "inputs": [
+        {
+          "id": "baseId",
+          "name": "Base research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "compareId",
+          "name": "Compare research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "diff",
+          "name": "Diff",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "baseId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "byContentHash",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "compareId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 200,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "useSnapshots",
+          "kind": "boolean",
+          "default": true
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.entities",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Entities & relations",
+      "description": "Reads the evidence-anchored entity and relation graph.",
+      "inputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "entities",
+          "name": "Entities",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "relations",
+          "name": "Relations",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "kind",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 200,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "name",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
           }
         },
         {
@@ -8186,6 +11810,818 @@
       "terminal": false
     },
     {
+      "type": "research.extract_facts",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Extract facts",
+      "description": "Model-assisted, span-validated financial fact extraction.",
+      "inputs": [
+        {
+          "id": "pages",
+          "name": "Pages",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "evidence",
+          "name": "Evidence",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "rejected",
+          "name": "Rejected",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "legsJson",
+          "kind": "array",
+          "default": []
+        },
+        {
+          "name": "objective",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "permittedTiers",
+          "kind": "array",
+          "default": [
+            "primary",
+            "official",
+            "structured",
+            "secondary"
+          ]
+        },
+        {
+          "name": "timeoutMs",
+          "kind": "number",
+          "default": 120000,
+          "constraints": {
+            "min": 10000,
+            "max": 180000,
+            "integer": true
+          }
+        }
+      ],
+      "capabilities": [
+        "agent.run"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.fetch_many",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Fetch pages",
+      "description": "Fetches a known list of URLs through the SSRF-hardened bridge.",
+      "inputs": [
+        {
+          "id": "urls",
+          "name": "URLs",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "results",
+          "name": "Search results",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "pages",
+          "name": "Pages",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "evidence",
+          "name": "Evidence",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "allowBrowser",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "concurrency",
+          "kind": "number",
+          "default": 2,
+          "constraints": {
+            "min": 1,
+            "max": 4,
+            "integer": true
+          }
+        },
+        {
+          "name": "dedupe",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "maxChars",
+          "kind": "number",
+          "default": 8000,
+          "constraints": {
+            "min": 500,
+            "max": 100000,
+            "integer": true
+          }
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "saveEvidence",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "urls",
+          "kind": "array",
+          "default": []
+        }
+      ],
+      "capabilities": [
+        "network.egress",
+        "research.read",
+        "research.write"
+      ],
+      "sideEffects": "network",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.freshness",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Point-in-time filter",
+      "description": "Partitions evidence into admissible and rejected by as-of/freshness.",
+      "inputs": [
+        {
+          "id": "evidence",
+          "name": "Evidence",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "evidence",
+          "name": "Admissible evidence",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "rejected",
+          "name": "Rejected",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "asOf",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 100,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.gaps",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Coverage gaps",
+      "description": "Names unanswered questions, rejected claims and uncited claims.",
+      "inputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "gaps",
+          "name": "Gaps",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "includeOptional",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 100,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.ingest",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Ingest external research",
+      "description": "Normalizes agent/MCP/manual evidence, claims and sources into the store.",
+      "inputs": [
+        {
+          "id": "research",
+          "name": "Research payload",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "evidence",
+          "name": "Evidence",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "claims",
+          "name": "Claims",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "sources",
+          "name": "Sources",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "evidenceCount",
+          "name": "Evidence count",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "claimCount",
+          "name": "Claim count",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "sourceCount",
+          "name": "Source count",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "createRun",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 200,
+          "constraints": {
+            "min": 1,
+            "max": 200,
+            "integer": true
+          }
+        },
+        {
+          "name": "question",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "sourceLabel",
+          "kind": "string",
+          "default": "external",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read",
+        "research.write"
+      ],
+      "sideEffects": "local_write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.latest",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Resolve research run",
+      "description": "Resolves an exact research id or the newest run matching a question.",
+      "inputs": [
+        {
+          "id": "question",
+          "name": "Question",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "run",
+          "name": "Run",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "latest",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 20,
+          "constraints": {
+            "min": 1,
+            "max": 50,
+            "integer": true
+          }
+        },
+        {
+          "name": "questionMatch",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 500
+          }
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.quality",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Quality score",
+      "description": "Aggregates the engine’s explainable research-quality score.",
+      "inputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "sources",
+          "name": "Sources",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "evidence",
+          "name": "Evidence",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "claims",
+          "name": "Claims",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "quality",
+          "name": "Quality",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 1000,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.queries",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Plan search queries",
+      "description": "Expands a question, gaps and weak claims into search queries.",
+      "inputs": [
+        {
+          "id": "question",
+          "name": "Question",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "claims",
+          "name": "Claims",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "gaps",
+          "name": "Gaps",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "queries",
+          "name": "Queries",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "claimsJson",
+          "kind": "array",
+          "default": []
+        },
+        {
+          "name": "includeCounterEvidence",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "includePrimarySources",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "maxQueries",
+          "kind": "number",
+          "default": 8,
+          "constraints": {
+            "min": 1,
+            "max": 20,
+            "integer": true
+          }
+        },
+        {
+          "name": "question",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "siteFilter",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "research.report",
       "version": "1.0.0",
       "category": "research",
@@ -8220,6 +12656,535 @@
         }
       ],
       "configFields": [
+        {
+          "name": "maxItems",
+          "kind": "number",
+          "default": 50,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.scrape",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Collect table / records",
+      "description": "Collects table/record rows from one page without a model.",
+      "inputs": [
+        {
+          "id": "url",
+          "name": "URL",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "rows",
+          "name": "Rows",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "tables",
+          "name": "Tables",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "page",
+          "name": "Page",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "attribute",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "fields",
+          "kind": "array",
+          "default": []
+        },
+        {
+          "name": "maxRows",
+          "kind": "number",
+          "default": 100,
+          "constraints": {
+            "min": 1,
+            "max": 200,
+            "integer": true
+          }
+        },
+        {
+          "name": "selector",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "tables",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "url",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        }
+      ],
+      "capabilities": [
+        "network.egress"
+      ],
+      "sideEffects": "network",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.snapshot",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Snapshot run",
+      "description": "Freezes selected sections of a run into an immutable snapshot.",
+      "inputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "snapshotId",
+          "name": "Snapshot id",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "version",
+          "name": "Version",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "include",
+          "kind": "string",
+          "default": "all",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read",
+        "research.write"
+      ],
+      "sideEffects": "local_write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.source_rank",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Rank evidence",
+      "description": "Ranks evidence by the confidence and freshness it already carries.",
+      "inputs": [
+        {
+          "id": "evidence",
+          "name": "Evidence",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "evidence",
+          "name": "Ranked evidence",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ranking",
+          "name": "Ranking",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "halfLifeDays",
+          "kind": "number",
+          "default": 30,
+          "constraints": {
+            "min": 1,
+            "max": 3650,
+            "integer": true
+          }
+        }
+      ],
+      "capabilities": [],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.sources",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Sources",
+      "description": "Reads stored sources with domain, type and date filters.",
+      "inputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "sources",
+          "name": "Sources",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "dedupe",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "domain",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 200,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "publishedAfter",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "sourceType",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.start_run",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Start research run",
+      "description": "Creates the run row a cold graph needs; idempotent per question.",
+      "inputs": [
+        {
+          "id": "question",
+          "name": "Question",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "run",
+          "name": "Run",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "asOf",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "depth",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "freshness",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "objective",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "question",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 2000
+          }
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        }
+      ],
+      "capabilities": [
+        "research.read",
+        "research.write"
+      ],
+      "sideEffects": "local_write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "research.supersession",
+      "version": "1.0.0",
+      "category": "research",
+      "label": "Revision chain",
+      "description": "Builds the restatement/amendment chain from recorded revision metadata.",
+      "inputs": [
+        {
+          "id": "evidence",
+          "name": "Evidence",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "chain",
+          "name": "Chain",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 500,
+          "constraints": {
+            "min": 1,
+            "max": 1000,
+            "integer": true
+          }
+        },
         {
           "name": "researchId",
           "kind": "string",
@@ -8277,12 +13242,32 @@
       ],
       "configFields": [
         {
+          "name": "delayMs",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 2000,
+            "integer": true
+          }
+        },
+        {
           "name": "maxChars",
           "kind": "number",
           "default": 4000,
           "constraints": {
             "min": 500,
             "max": 100000,
+            "integer": true
+          }
+        },
+        {
+          "name": "maxDepth",
+          "kind": "number",
+          "default": 2,
+          "constraints": {
+            "min": 0,
+            "max": 2,
             "integer": true
           }
         },
@@ -8423,6 +13408,14 @@
           "kind": "data",
           "optional": true,
           "nullable": false
+        },
+        {
+          "id": "researchId",
+          "name": "Research id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
         }
       ],
       "outputs": [
@@ -8465,16 +13458,39 @@
           }
         },
         {
+          "name": "provider",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
           "name": "query",
           "kind": "string",
           "default": "",
           "constraints": {
             "maxLength": 500
           }
+        },
+        {
+          "name": "researchId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 200
+          }
+        },
+        {
+          "name": "saveSources",
+          "kind": "boolean",
+          "default": false
         }
       ],
       "capabilities": [
-        "network.egress"
+        "network.egress",
+        "research.read",
+        "research.write"
       ],
       "sideEffects": "network",
       "allowedModes": [
@@ -8482,6 +13498,455 @@
         "live",
         "paper",
         "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "skill.invoke",
+      "version": "1.0.0",
+      "category": "skills",
+      "label": "Run skill",
+      "description": "Runs an installed skill through the existing skill runtime.",
+      "inputs": [
+        {
+          "id": "input",
+          "name": "Input",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "output",
+          "name": "Output",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "result",
+          "name": "Result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "evidence",
+          "name": "Evidence",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "inputJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 20000
+          }
+        },
+        {
+          "name": "skillId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 120
+          }
+        },
+        {
+          "name": "timeoutMs",
+          "kind": "number",
+          "default": 300000,
+          "constraints": {
+            "min": 1000,
+            "max": 900000,
+            "integer": true
+          }
+        },
+        {
+          "name": "version",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "agent.run"
+      ],
+      "sideEffects": "model",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.await_fill",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Await fill",
+      "description": "Waits for a ledger order to reach a terminal state or the deadline.",
+      "inputs": [
+        {
+          "id": "orderId",
+          "name": "Order id",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "order",
+          "name": "Ledger order",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "filled",
+          "name": "Filled",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "timedOut",
+          "name": "Timed out",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "orderId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "pollSeconds",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 0.05,
+            "max": 60
+          }
+        },
+        {
+          "name": "timeoutSeconds",
+          "kind": "number",
+          "default": 30,
+          "constraints": {
+            "min": 1,
+            "max": 240
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "live",
+        "paper"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.bracket",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Bracket",
+      "description": "Direction-aware stop and target from an ATR multiple or explicit distance.",
+      "inputs": [
+        {
+          "id": "entry",
+          "name": "Entry price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "atr",
+          "name": "ATR",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "side",
+          "name": "Side",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "stopLoss",
+          "name": "Stop loss",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "takeProfit",
+          "name": "Take profit",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "riskDistance",
+          "name": "Risk distance",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "rewardDistance",
+          "name": "Reward distance",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "basis",
+          "name": "Basis",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "atrMultiple",
+          "kind": "number",
+          "default": 1.5,
+          "constraints": {
+            "min": 0.01,
+            "max": 1000
+          }
+        },
+        {
+          "name": "entry",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "rewardRisk",
+          "kind": "number",
+          "default": 2,
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
+        },
+        {
+          "name": "side",
+          "kind": "string",
+          "default": "buy",
+          "constraints": {
+            "enum": [
+              "buy",
+              "sell"
+            ]
+          }
+        },
+        {
+          "name": "stopDistance",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.bracket"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.break_even",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Break even",
+      "description": "Moves the stop to entry after triggerR. Risk-reducing.",
+      "inputs": [
+        {
+          "id": "ticket",
+          "name": "Ticket",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "price",
+          "name": "Current price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "moved",
+          "name": "Stop moved",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "stopLoss",
+          "name": "Stop loss",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "closed",
+          "name": "Closed",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "offset",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": -1000000,
+            "max": 1000000
+          }
+        },
+        {
+          "name": "triggerR",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 0.01,
+            "max": 100
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker"
+      ],
+      "sideEffects": "trading",
+      "allowedModes": [
+        "live",
+        "paper"
       ],
       "terminal": false
     },
@@ -8859,6 +14324,87 @@
       "terminal": false
     },
     {
+      "type": "trading.broker_fills",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Broker fills",
+      "description": "Broker deals from Eclipse's reconciled history.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "fills",
+          "name": "Fills",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "count",
+          "name": "Count",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 50,
+          "constraints": {
+            "min": 1,
+            "max": 200,
+            "integer": true
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "trading.broker_modify",
       "version": "1.0.0",
       "category": "trading",
@@ -8871,6 +14417,100 @@
           "type": "number",
           "kind": "data",
           "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "stopLoss",
+          "name": "Stop loss",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "takeProfit",
+          "name": "Take profit",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "name": "Result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker"
+      ],
+      "sideEffects": "trading",
+      "allowedModes": [
+        "live",
+        "paper"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.broker_modify_order",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Modify order",
+      "description": "Re-prices or re-brackets a working (pending) order. Risk-reducing.",
+      "inputs": [
+        {
+          "id": "ticket",
+          "name": "Ticket",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "price",
+          "name": "New price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
           "nullable": false
         },
         {
@@ -9002,6 +14642,14 @@
           "nullable": false
         },
         {
+          "id": "skipped",
+          "name": "Skipped (already sent)",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
           "id": "reason",
           "name": "Reason",
           "type": "string",
@@ -9017,6 +14665,31 @@
           "default": "",
           "constraints": {
             "maxLength": 80
+          }
+        },
+        {
+          "name": "dedupe",
+          "kind": "string",
+          "default": "none",
+          "constraints": {
+            "enum": [
+              "none",
+              "key",
+              "day"
+            ]
+          }
+        },
+        {
+          "name": "dryRun",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "idempotencyKey",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 120
           }
         },
         {
@@ -9039,17 +14712,88 @@
       "terminal": false
     },
     {
+      "type": "trading.broker_orders",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Broker orders",
+      "description": "The broker's own working (pending) orders.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "orders",
+          "name": "Working orders",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "count",
+          "name": "Count",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "trading.broker_positions",
       "version": "1.0.0",
       "category": "trading",
       "label": "Broker positions",
-      "description": "The broker's open positions as a structured list.",
+      "description": "The broker's open positions as rows.",
       "inputs": [],
       "outputs": [
         {
           "id": "positions",
           "name": "Positions",
-          "type": "object",
+          "type": "array",
           "kind": "data",
           "optional": false,
           "nullable": false
@@ -9190,6 +14934,617 @@
       "terminal": false
     },
     {
+      "type": "trading.broker_symbol",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Broker symbol",
+      "description": "Static symbol facts (trade mode, contract, volume limits) — no tick needed.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol facts",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "tradeMode",
+          "name": "Trade mode",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.drift_check",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Drift check",
+      "description": "Compares the order ledger with the broker mirror and reports drift.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "drift",
+          "name": "Drift found",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "stale",
+          "name": "Mirror stale",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "unmatchedOrders",
+          "name": "Unmatched orders",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "untrackedPositions",
+          "name": "Untracked positions",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 100,
+          "constraints": {
+            "min": 1,
+            "max": 200,
+            "integer": true
+          }
+        },
+        {
+          "name": "maxAgeSeconds",
+          "kind": "number",
+          "default": 300,
+          "constraints": {
+            "min": 0,
+            "max": 86400
+          }
+        },
+        {
+          "name": "syncFirst",
+          "kind": "boolean",
+          "default": false
+        }
+      ],
+      "capabilities": [
+        "trading.broker.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.order_intent",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Order intent",
+      "description": "Builds the validated order intent the execution adapters read.",
+      "inputs": [
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "side",
+          "name": "Side",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "quantity",
+          "name": "Quantity",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "price",
+          "name": "Order price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "stopLoss",
+          "name": "Stop loss",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "takeProfit",
+          "name": "Take profit",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "intent",
+          "name": "Order intent",
+          "type": "order_intent",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "orderType",
+          "kind": "string",
+          "default": "market",
+          "constraints": {
+            "enum": [
+              "market",
+              "limit",
+              "stop"
+            ]
+          }
+        },
+        {
+          "name": "price",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "quantity",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "side",
+          "kind": "string",
+          "default": "buy",
+          "constraints": {
+            "enum": [
+              "buy",
+              "sell"
+            ]
+          }
+        },
+        {
+          "name": "stopLoss",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "symbol",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 40
+          }
+        },
+        {
+          "name": "takeProfit",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "timeInForce",
+          "kind": "string",
+          "default": "gtc",
+          "constraints": {
+            "enum": [
+              "gtc",
+              "day"
+            ]
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.intent"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.order_ledger",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Order ledger",
+      "description": "Eclipse's own submitted-order ledger, newest first.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "orders",
+          "name": "Ledger rows",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "count",
+          "name": "Count",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 50,
+          "constraints": {
+            "min": 1,
+            "max": 200,
+            "integer": true
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.order_preview",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Order preview",
+      "description": "Would this order be allowed? Broker check, policy, guardrails, mandate — nothing sent.",
+      "inputs": [
+        {
+          "id": "intent",
+          "name": "Order intent",
+          "type": "order_intent",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "result",
+          "name": "Result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "allowed",
+          "name": "Would be allowed",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "mandateId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.paper_account",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Paper account",
+      "description": "Reads the durable PAPER account: cash, positions, realized PnL.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "account",
+          "name": "Paper account",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "positions",
+          "name": "Position rows",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "exists",
+          "name": "Has activity",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "accountId",
+          "kind": "string",
+          "default": "paper",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "initialCash",
+          "kind": "number",
+          "default": 100000,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000000
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.paper"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "paper"
+      ],
+      "terminal": false
+    },
+    {
       "type": "trading.paper_order",
       "version": "1.0.0",
       "category": "trading",
@@ -9253,6 +15608,14 @@
           "kind": "data",
           "optional": false,
           "nullable": false
+        },
+        {
+          "id": "skipped",
+          "name": "Skipped (already filled)",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
         }
       ],
       "configFields": [
@@ -9271,6 +15634,26 @@
           "constraints": {
             "min": 0,
             "max": 10
+          }
+        },
+        {
+          "name": "dedupe",
+          "kind": "string",
+          "default": "none",
+          "constraints": {
+            "enum": [
+              "none",
+              "key",
+              "day"
+            ]
+          }
+        },
+        {
+          "name": "idempotencyKey",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 120
           }
         },
         {
@@ -9316,6 +15699,316 @@
       "terminal": false
     },
     {
+      "type": "trading.paper_valuation",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Paper valuation",
+      "description": "Marks the PAPER book to prices you supply (equity, unrealized PnL).",
+      "inputs": [
+        {
+          "id": "prices",
+          "name": "Prices (symbol → price)",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "price",
+          "name": "Price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "symbol",
+          "name": "Symbol",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "valuation",
+          "name": "Valuation",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "equity",
+          "name": "Equity",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "unrealizedPnl",
+          "name": "Unrealized PnL",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "accountId",
+          "kind": "string",
+          "default": "paper",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "initialCash",
+          "kind": "number",
+          "default": 100000,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000000
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.paper"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "paper"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.partial_close",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Partial close",
+      "description": "Closes a fraction or an explicit volume of one position. Risk-reducing.",
+      "inputs": [
+        {
+          "id": "ticket",
+          "name": "Ticket",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "volume",
+          "name": "Volume",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "fraction",
+          "name": "Fraction (0-1)",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "quote",
+          "name": "Broker quote",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "closed",
+          "name": "Closed",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "volume",
+          "name": "Closed volume",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "remainingVolume",
+          "name": "Remaining volume",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "verified",
+          "name": "Read back",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "moved",
+          "name": "Stop moved",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "stopLoss",
+          "name": "Stop loss",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "deviation",
+          "kind": "number",
+          "default": 20,
+          "constraints": {
+            "min": 0,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "fraction",
+          "kind": "number",
+          "default": 0.5,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker"
+      ],
+      "sideEffects": "trading",
+      "allowedModes": [
+        "live",
+        "paper"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.reconcile",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Reconcile",
+      "description": "Refreshes the durable broker mirror (deals, positions, sync state).",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "result",
+          "name": "Sync result",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "status",
+          "name": "Status",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "trading.risk_check",
       "version": "1.0.0",
       "category": "trading",
@@ -9349,7 +16042,7 @@
         {
           "id": "positions",
           "name": "Open positions",
-          "type": "object",
+          "type": "array",
           "kind": "data",
           "optional": true,
           "nullable": false
@@ -9585,6 +16278,524 @@
         "live",
         "paper",
         "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.session_filter",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Session filter",
+      "description": "UTC clock window plus the broker trade mode. Open or closed.",
+      "inputs": [
+        {
+          "id": "quote",
+          "name": "Broker quote",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "symbolInfo",
+          "name": "Broker symbol facts",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "side",
+          "name": "Side",
+          "type": "string",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "time",
+          "name": "Time (ISO, UTC)",
+          "type": "datetime",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "open",
+          "name": "Open",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "tradeMode",
+          "name": "Broker trade mode",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "basis",
+          "name": "Calendar basis",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "endUtc",
+          "kind": "string",
+          "default": "00:00",
+          "constraints": {
+            "maxLength": 5
+          }
+        },
+        {
+          "name": "serverOffsetMinutes",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": -1440,
+            "max": 1440
+          }
+        },
+        {
+          "name": "sessionsJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 4000
+          }
+        },
+        {
+          "name": "side",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "enum": [
+              "",
+              "buy",
+              "sell"
+            ]
+          }
+        },
+        {
+          "name": "startUtc",
+          "kind": "string",
+          "default": "00:00",
+          "constraints": {
+            "maxLength": 5
+          }
+        },
+        {
+          "name": "weekdays",
+          "kind": "string",
+          "default": "mon,tue,wed,thu,fri,sat,sun",
+          "constraints": {
+            "maxLength": 40
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.guard"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.size_by_risk",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Size by risk",
+      "description": "Volume from an equity risk budget, a stop distance and contract size.",
+      "inputs": [
+        {
+          "id": "equity",
+          "name": "Equity",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "entry",
+          "name": "Entry price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "stop",
+          "name": "Stop price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "quote",
+          "name": "Broker quote",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "quantity",
+          "name": "Quantity",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "riskBudget",
+          "name": "Risk budget",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "riskAtStop",
+          "name": "Risk at stop",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "capped",
+          "name": "Capped at max volume",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "contractSize",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 0,
+            "max": 1000000
+          }
+        },
+        {
+          "name": "entry",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "equity",
+          "kind": "number",
+          "default": 100000,
+          "constraints": {
+            "min": 1,
+            "max": 1000000000000
+          }
+        },
+        {
+          "name": "riskPct",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 0.01,
+            "max": 100
+          }
+        },
+        {
+          "name": "stop",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "volumeMax",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000
+          }
+        },
+        {
+          "name": "volumeMin",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000
+          }
+        },
+        {
+          "name": "volumeStep",
+          "kind": "number",
+          "default": 0.01,
+          "constraints": {
+            "min": 0,
+            "max": 1000000
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.sizing"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.spread_guard",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Spread guard",
+      "description": "Blocks a trade while the broker spread is wider than the cap.",
+      "inputs": [
+        {
+          "id": "quote",
+          "name": "Broker quote",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "spreadPoints",
+          "name": "Spread (points)",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "ok",
+          "name": "Within cap",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "spreadPoints",
+          "name": "Spread (points)",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "maxSpreadPoints",
+          "name": "Cap (points)",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "maxSpreadPoints",
+          "kind": "number",
+          "default": 10,
+          "constraints": {
+            "min": 0.01,
+            "max": 100000
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.guard"
+      ],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trading.trail_stop",
+      "version": "1.0.0",
+      "category": "trading",
+      "label": "Trail stop",
+      "description": "Tightens the stop behind price, never widening risk.",
+      "inputs": [
+        {
+          "id": "ticket",
+          "name": "Ticket",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "price",
+          "name": "Current price",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "distance",
+          "name": "Distance",
+          "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "moved",
+          "name": "Stop moved",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "stopLoss",
+          "name": "Stop loss",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "closed",
+          "name": "Closed",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "connectionId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "distance",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "name": "minStep",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000
+          }
+        }
+      ],
+      "capabilities": [
+        "trading.broker"
+      ],
+      "sideEffects": "trading",
+      "allowedModes": [
+        "live",
+        "paper"
       ],
       "terminal": false
     },

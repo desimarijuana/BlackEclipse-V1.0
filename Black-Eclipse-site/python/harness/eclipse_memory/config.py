@@ -40,6 +40,11 @@ def default_db_path() -> str:
     override = os.environ.get("ECLIPSE_MEMORY_DB_PATH")
     if override:
         return os.path.abspath(override)
+    # `BE_DATA_DIR` relocates the personal databases onto an encrypted volume
+    # (scripts/setup-data-vault.ps1), the same variable the other two stores read.
+    data_dir = os.environ.get("BE_DATA_DIR")
+    if data_dir:
+        return os.path.join(os.path.abspath(data_dir), DB_FILENAME)
     return os.path.join(repo_root(), DB_FILENAME)
 
 

@@ -35,6 +35,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { IconBadge } from "@/components/layout/page-header";
 import { LLM_PRESETS, presetForBaseUrl, isLocalBaseUrl, type LLMPreset } from "@/lib/agent/presets";
 import { REASONING_OPTIONS, type ReasoningLevel } from "@/lib/agent/reasoning";
 import { loadModelCatalog, type ModelCatalog } from "@/lib/agent/model-catalog";
@@ -207,9 +208,7 @@ function ActiveSetup({
     <div className="rounded-2xl border border-white/10 dark:border-white/5 glass-card p-5 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.06]">
-            <Cpu className="text-primary" size={18} />
-          </span>
+          <IconBadge icon={Cpu} size="sm" />
           <div className="min-w-0">
             <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-primary">Active setup</p>
             <p className="text-sm font-semibold text-foreground truncate">
