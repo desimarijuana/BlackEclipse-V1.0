@@ -17,15 +17,20 @@ import {
   cancelCodeTask,
   decideCodeApproval,
   discardCodeTask,
+  getCodeScorecard,
+  getCodeSession,
   getCodeTask,
   getCodeTaskDiff,
   listCodeApprovals,
   listCodeTasks,
   resumeCodeTask,
   type CodeApproval,
+  type CodeScorecard,
+  type CodeSession,
   type CodeTask,
   type CodeTaskDiff,
 } from '@/lib/harness/code-browser';
+import { ScorecardStrip } from './scorecard-strip';
 import { TaskList } from './task-list';
 import { TaskDetail } from './task-detail';
 import { CodeApprovals } from './code-approvals';
@@ -37,8 +42,10 @@ export function CodeScreen() {
   const t = useT();
   const [tasks, setTasks] = useState<CodeTask[]>([]);
   const [approvals, setApprovals] = useState<CodeApproval[]>([]);
+  const [scorecard, setScorecard] = useState<CodeScorecard | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<CodeTask | null>(null);
+  const [session, setSession] = useState<CodeSession | null>(null);
   const [diff, setDiff] = useState<CodeTaskDiff | null>(null);
   const [view, setView] = useState<CodeView>('tasks');
   const [error, setError] = useState<string | null>(null);
@@ -51,9 +58,12 @@ export function CodeScreen() {
 
   const refresh = useCallback(async () => {
     try {
-      const [nextTasks, nextApprovals] = await Promise.all([listCodeTasks(), listCodeApprovals()]);
+      const [nextTasks, nextApprovals, nextScorecard] = await Promise.all([
+        listCodeTasks(), listCodeApprovals(), getCodeScorecard(),
+      ]);
       setTasks(nextTasks);
       setApprovals(nextApprovals);
+      setScorecard(nextScorecard);
       setError(null);
     } catch {
       setError(t('code.task.loadFailed'));
@@ -65,20 +75,26 @@ export function CodeScreen() {
   // Load the selected task's detail + its change (the diff is optional: a task
   // with no bound work area simply has none).
   useEffect(() => {
-    if (!selectedId) { setDetail(null); setDiff(null); return; }
+    if (!selectedId) { setDetail(null); setDiff(null); setSession(null); return; }
     let alive = true;
     void (async () => {
       try {
-        const [task, change] = await Promise.all([getCodeTask(selectedId), getCodeTaskDiff(selectedId)]);
-        if (alive) { setDetail(task); setDiff(change); }
+        const [task, change, nextSession] = await Promise.all([
+          getCodeTask(selectedId), getCodeTaskDiff(selectedId), getCodeSession(selectedId),
+        ]);
+        if (alive) { setDetail(task); setDiff(change); setSession(nextSession); }
       } catch {
-        if (alive) { setDetail(null); setDiff(null); }
+        if (alive) { setDetail(null); setDiff(null); setSession(null); }
       }
     })();
     return () => { alive = false; };
   }, [selectedId, tasks]);
 
   const after = useCallback(async () => { await refresh(); }, [refresh]);
+  const refreshSession = useCallback(() => {
+    if (!selectedId) return;
+    void getCodeSession(selectedId).then(setSession).catch(() => {});
+  }, [selectedId]);
 
   return (
     <div className="space-y-3 p-4">
@@ -113,6 +129,8 @@ export function CodeScreen() {
         </div>
       </header>
 
+      <ScorecardStrip card={scorecard} />
+
       {error && (
         <div className="glass-card-subtle rounded-xl border border-red-500/30 p-2.5 text-[12px] text-red-300">
           {error}
@@ -124,6 +142,7 @@ export function CodeScreen() {
         {detail ? (
           <TaskDetail
             task={detail}
+            session={session}
             diffFiles={diff ? [...diff.added, ...diff.modified, ...diff.deleted] : []}
             diffUnified={diff?.unified}
             diffDigest={diff?.digest ?? null}
@@ -135,6 +154,7 @@ export function CodeScreen() {
             onResume={() => { void resumeCodeTask(detail.id).then(after); }}
             onCancel={() => { void cancelCodeTask(detail.id).then(after); }}
             onDiscard={() => { void discardCodeTask(detail.id).then(() => { setSelectedId(null); return after(); }); }}
+            onChecked={refreshSession}
           />
         ) : (
           <div className="glass-card-subtle rounded-xl p-3 text-[12px] text-muted-foreground">

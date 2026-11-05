@@ -6,11 +6,11 @@
 // component — importing the server client pulls `child_process` into the browser
 // bundle and the page fails to compile.
 
-import type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord } from './code-client';
+import type { Autonomy, BudgetProfile, CodeApproval, CodePlan, CodeScorecard, CodeSession, CodeTask, CodeTaskDiff, LandCheck, LandCheckResult, LandPlan, LandResult, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord } from './code-client';
 
 // Re-export the wire types so a component imports everything from ONE client-safe
 // module (a type-only re-export is erased at compile time — no server code ships).
-export type { Autonomy, CodeApproval, CodePlan, CodeTask, CodeTaskDiff, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord };
+export type { Autonomy, BudgetProfile, CodeApproval, CodePlan, CodeScorecard, CodeSession, CodeTask, CodeTaskDiff, LandCheck, LandCheckResult, LandPlan, LandResult, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord };
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
@@ -30,6 +30,36 @@ export async function listCodeTasks(): Promise<CodeTask[]> {
 export async function getCodeTask(id: string): Promise<CodeTask> {
   const body = await api<{ task: CodeTask }>(`/api/code/tasks/${encodeURIComponent(id)}`);
   return body.task;
+}
+
+/** Phase 22 / S2: the build session's goal, budget and resume state. */
+export async function getCodeSession(id: string): Promise<CodeSession | null> {
+  const body = await api<{ session: CodeSession | null }>(
+    `/api/code/tasks/${encodeURIComponent(id)}`,
+  );
+  return body.session ?? null;
+}
+
+/** Phase 22 / S4: the checks this change must pass. Read-only. */
+export async function getLandPlan(id: string): Promise<LandPlan> {
+  const body = await api<{ plan: LandPlan }>(`/api/code/tasks/${encodeURIComponent(id)}/land`);
+  return body.plan;
+}
+
+/** Run the checks. `full` includes the long test suite. */
+export async function verifyLanding(
+  id: string, full = false,
+): Promise<{ result: LandResult; previewDigest: string | null; checkpointId: string }> {
+  return api(`/api/code/tasks/${encodeURIComponent(id)}/land/verify`, {
+    method: 'POST',
+    body: JSON.stringify({ full }),
+  });
+}
+
+/** Phase 22 / S6: the self-build scorecard. */
+export async function getCodeScorecard(days = 30): Promise<CodeScorecard> {
+  const body = await api<{ scorecard: CodeScorecard }>(`/api/code/scorecard?days=${days}`);
+  return body.scorecard;
 }
 
 export async function createCodeTask(input: CreateTaskInput): Promise<CodeTask> {
@@ -88,9 +118,12 @@ export async function getCodeTaskDiff(id: string): Promise<CodeTaskDiff | null> 
 
 /** Preview exactly what a task's change would put into the real project. */
 export async function previewPromotion(
-  taskId: string,
+  taskId: string, include: string[] = [],
 ): Promise<{ preview: PromotionPreview; approval: { id: string; status: string } | null; landing?: PromotionLanding }> {
-  return api(`/api/code/tasks/${encodeURIComponent(taskId)}/promote/preview`, { method: 'POST' });
+  return api(`/api/code/tasks/${encodeURIComponent(taskId)}/promote/preview`, {
+    method: 'POST',
+    body: JSON.stringify({ include }),
+  });
 }
 
 /** Confirm a previewed change and put it into the real project. */
@@ -98,21 +131,22 @@ export async function applyPromotion(
   taskId: string,
   approvalId: string,
   previewDigest: string,
+  include: string[] = [],
 ): Promise<{ ok: boolean; filesChanged: number; rollbackId?: string | null; landing?: PromotionLanding }> {
   const body = await api<{ promotion: { ok: boolean; filesChanged: number; rollbackId?: string | null; landing?: PromotionLanding } }>(
     `/api/code/tasks/${encodeURIComponent(taskId)}/promote`,
-    { method: 'POST', body: JSON.stringify({ approvalId, previewDigest }) },
+    { method: 'POST', body: JSON.stringify({ approvalId, previewDigest, include }) },
   );
   return body.promotion;
 }
 
 /** Put a previously-promoted change back — the exact original contents. */
 export async function rollbackPromotion(
-  rollbackId: string,
+  rollbackId: string, runId?: string,
 ): Promise<{ ok: boolean; rollbackId: string; restored: string[]; filesChanged: number }> {
   const body = await api<{ rollback: { ok: boolean; rollbackId: string; restored: string[]; filesChanged: number } }>(
     `/api/code/promotions/${encodeURIComponent(rollbackId)}/rollback`,
-    { method: 'POST' },
+    { method: 'POST', body: JSON.stringify({ runId }) },
   );
   return body.rollback;
 }

@@ -878,7 +878,10 @@ const CODE: CommandSpec = {
   version: V,
   status: "available",
   args: [{ name: "task", description: "What to build or change.", variadic: true }],
-  flags: [{ name: "autonomy", description: "Autonomy profile.", type: "string", values: ["plan_only", "edit_verify"] }],
+  flags: [
+    { name: "autonomy", description: "Autonomy profile.", type: "string", values: ["plan_only", "edit_verify"] },
+    { name: "budget", description: "How long the build may run.", type: "string", values: ["small", "standard", "deep"] },
+  ],
   handler: { type: "native", target: "code.task" },
   permissions: { approval: "operator" },
   risk: "high",

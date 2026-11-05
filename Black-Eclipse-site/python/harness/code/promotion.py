@@ -31,7 +31,7 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from . import patch as patch_mod
 from . import policy
@@ -247,6 +247,44 @@ def _map_patch_error(code: str, reason: str) -> PromotionError:
     if code == "PATCH_TOO_LARGE":
         return PromotionError("PROMOTION_TOO_LARGE", reason or "This change is too large.")
     return PromotionError("PROMOTION_FAILED", reason or code or "The change couldn't be put into your project.")
+
+
+def filter_preview(
+    preview: dict[str, Any], include: Iterable[str],
+) -> dict[str, Any]:
+    """Narrow a preview to the files the reviewer kept. Pure.
+
+    The digest is recomputed over the KEPT set, so the approval is bound to
+    exactly what will be written. An empty `include` means "keep everything";
+    an include that keeps nothing is refused rather than silently landing an
+    empty change.
+    """
+    keep = {
+        str(path).replace("\\", "/").lstrip("./")
+        for path in include if str(path or "").strip()
+    }
+    if not keep:
+        return preview
+    files = [
+        item for item in (preview.get("files") or [])
+        if str(item.get("path") or "") in keep
+    ]
+    if not files:
+        raise PromotionError(
+            "PROMOTION_NO_FILES",
+            "None of the selected files are part of this change.",
+        )
+    files.sort(key=lambda item: str(item.get("path")))
+    return {
+        **preview,
+        "files": files,
+        "filesChanged": len(files),
+        "added": sum(1 for item in files if item.get("op") == "create"),
+        "modified": sum(1 for item in files if item.get("op") == "overwrite"),
+        "deleted": sum(1 for item in files if item.get("op") == "delete"),
+        "previewDigest": promotion_digest(files),
+        "filtered": True,
+    }
 
 
 def apply_promotion(preview: dict[str, Any]) -> dict[str, Any]:

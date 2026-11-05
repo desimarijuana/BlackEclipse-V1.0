@@ -4,10 +4,11 @@ import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
+  const body = (await request.json().catch(() => ({}))) as { include?: string[] };
   try {
-    const result = await previewPromotion(id);
+    const result = await previewPromotion(id, body.include ?? []);
     return NextResponse.json({ success: true, ...result });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

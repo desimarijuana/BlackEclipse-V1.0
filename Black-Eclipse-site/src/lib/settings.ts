@@ -87,6 +87,12 @@ export interface LLMConfig {
    */
   reasoningEffort?: "low" | "medium" | "high" | "very_high";
   /**
+   * Optional coding model. When set, a build run (a chat code turn or a Code
+   * task) uses this model on the SAME provider/key/URL. A profile, not a second
+   * provider: it is the "best for building" knob.
+   */
+  codingModel?: string;
+  /**
    * Optional model-routing preference (spec §44). Sent to the runtime as
    * `input.context.modelPolicy`, where it outranks the automatic router. Absent
    * means normal routing. Every field is opt-in and additive.
@@ -181,6 +187,7 @@ export async function setLLMConfig(
   config: Omit<Partial<LLMConfig>, "contextWindow" | "reasoningEffort"> & {
     contextWindow?: number | null;
     reasoningEffort?: LLMConfig["reasoningEffort"] | null;
+    codingModel?: string | null;
   },
 ): Promise<LLMConfig> {
   // Merge over the RAW config so persisting never folds a vault key into the
@@ -199,6 +206,8 @@ export async function setLLMConfig(
   }
   // An explicit `null` clears the routing preference similarly.
   if ((config as { routingPolicy?: unknown }).routingPolicy === null) delete merged.routingPolicy;
+  // An explicit `null` clears the coding model back to the chat model.
+  if (config.codingModel === null) delete merged.codingModel;
 
   // A `"local"` sentinel is never a real key; drop it here so it cannot survive
   // a switch to a remote endpoint and be sent as the credential.

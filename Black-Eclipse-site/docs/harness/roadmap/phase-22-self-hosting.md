@@ -1,6 +1,6 @@
 ---
 title: "Phase 22 - Self-Hosting: using Eclipse to build Eclipse"
-status: Active (S1 shipped)
+status: Active (S1-S6 shipped; S5 slice 2 shipped; Builder tab deliberately not duplicated)
 phase: 22
 depends_on: [5, 10, 14, 15, 17, 19, 20]
 unlocks: []
@@ -30,12 +30,12 @@ below is read out of the source or measured, not recalled.
 | Workstream | State | Evidence |
 |---|---|---|
 | S1 Project memory | **Shipped 2026-11-05** | `python/harness/code/project_memory.py`, `python/tests/test_project_memory.py`, first-turn wiring in `graph_context._repo_map_context`, the read-only `project_rules` tool |
-| S2 Durable build session | Not started | - |
-| S3a Builder/target boundary | Not started | - |
-| S3b Maintenance mode | Not started | - |
-| S4 Land pipeline | Not started | - |
-| S5 Builder surface | Not started | - |
-| S6 Model roles + scorecard | Not started | - |
+| S2 Durable build session | **Shipped 2026-11-05** | `python/harness/code/session.py` (budget ladder, `session.created` checkpoint, session view), additive `RunRequest.maxSteps`/`runTimeoutMs`, `graph.requested_budget` clamps, `POST /code/tasks` budget profile, the Code detail session card, tests `test_build_session.py` |
+| S3a Builder/target boundary | **Shipped 2026-11-05** | `selfhost.LandingPlan` + `plan_landing` (runtime -> `restart_builder`, front end -> `build_frontend`, authority -> `maintenance`), tests in `test_maintenance.py` |
+| S3b Maintenance mode | **Shipped 2026-11-05** | `python/harness/code/maintenance.py` (offline plan/run with injected effects, authority-only rule, dirty-tree refusal, verify-before-restart, rollback on any failure), `npm run self:maintenance` (`scripts/self-maintenance.js`), tests `test_maintenance.py` |
+| S4 Land pipeline | **Shipped 2026-11-05** | `python/harness/code/land.py` (ordered checks, project override, docs obligation, stop-on-first-required-failure), `GET/POST /code/tasks/{id}/land[/verify]`, `land.verified` checkpoint, Code-screen `LandChecks` panel, tests `test_land.py`. Checks run against the on-disk project AFTER apply (the disposable copy has no installed deps); hard pre-land gating moves to S5. |
+| S5 Builder surface | **Shipped 2026-11-05** | Slice 1: derived phase + next action, session `land` record, pre-land gate, per-file collapsible diffs. Slice 2: per-file accept/reject (`promotion.filter_preview` recomputes the digest; the preview/apply routes take `include`), review notes with an optional file:line that open a new chat turn (`navigateTo({tab:"chat", params:{prompt}})`). The Code screen IS the Builder surface; a second tab would duplicate it. |
+| S6 Model roles + scorecard | **Shipped 2026-11-05** | `scorecard.py` (builds, first-pass, landed, rollbacks, steps/tokens/time-to-first-change, `byModel`; `UNKNOWN` where unmeasured), landing markers, `GET /code/scorecard`, Code-screen strip, the optional `codingModel` used by code turns + Code tasks, Settings field, and the acceptance eval `python/harness/code/selfbuild_eval.py` (6 fixtures; commands off by default; human grade `UNKNOWN`). Tests `test_scorecard.py`, `test_selfbuild_eval.py`. |
 
 ## 0. How the reference harness does it (and what is actually transferable)
 

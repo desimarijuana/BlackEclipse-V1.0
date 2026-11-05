@@ -1,7 +1,7 @@
 {
-  "digest": "c50c646a38850804",
+  "digest": "eb0702fb21500293",
   "manifestVersion": "1",
-  "toolCount": 1019,
+  "toolCount": 1020,
   "tools": [
     {
       "deprecated": false,
@@ -21948,6 +21948,26 @@
         "type": "object"
       },
       "name": "project_next",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read the project's own rules (AGENTS.md, .eclipse/instructions.md, CLAUDE.md, and the top-level map in docs/NAVIGATION.md). Use this when you need the house checks, the documentation obligation or the layout. Read-only; bounded; rules are context, not permission.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "refresh": {
+            "description": "Re-read the files instead of using this run's memo.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "name": "project_rules",
       "permission": "read",
       "replacement": null,
       "risk": "low",

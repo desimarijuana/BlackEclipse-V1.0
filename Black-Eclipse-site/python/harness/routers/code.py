@@ -9,12 +9,15 @@ never a request-body flag — mirroring the MCP router. Shared state comes from
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..code.request_intent import classify_code_request
+from ..code.land import LandPlan, plan_land_checks, run_land_plan
+from ..code.session import SessionError, SessionStore, apply_budget, resolve_budget
 from ..code.tasks import DEFAULT_AUTONOMY, TaskStore
 from ..deps import require_operator, service
 from ..schemas import RunInput, RunRequest
@@ -42,6 +45,12 @@ class CreateTaskRequest(BaseModel):
     # Phase 11 (additive): a caller-supplied scope FILTER label. It narrows what is
     # listed; it NEVER authorizes anything — `require_operator` does.
     scopeId: Optional[str] = Field(None, max_length=200)  # noqa: N815
+    # Phase 22 (additive): the build session's budget profile (small / standard /
+    # deep). Absent means `standard`. It is a profile NAME, never a raw number.
+    budgetProfile: Optional[str] = Field(None, max_length=20)  # noqa: N815
+    # What "done" means, in the caller's words. Recorded with the budget so a
+    # resumed session can restate its contract.
+    acceptance: list[str] = Field(default_factory=list, max_length=20)
 
 
 class CodeIntentRequest(BaseModel):
@@ -71,6 +80,14 @@ class PromoteRequest(BaseModel):
 
     approvalId: str = Field(min_length=1, max_length=64)  # noqa: N815
     previewDigest: str = Field(min_length=8, max_length=128)  # noqa: N815
+    # Phase 22 / S5 slice 2: the files the reviewer kept. Empty = all of them.
+    include: list[str] = Field(default_factory=list)
+
+
+class PreviewRequest(BaseModel):
+    """Narrow the preview to the files the reviewer kept. Empty = all."""
+
+    include: list[str] = Field(default_factory=list)
 
 
 class PostLandingRequest(BaseModel):
@@ -91,6 +108,10 @@ def _resolve_autonomy(raw: Optional[str]) -> str:
 
 def _tasks() -> TaskStore:
     return service.code_tasks()
+
+
+def _sessions() -> SessionStore:
+    return SessionStore(service.store)
 
 
 # ── Chat request classification (Phase 14) ──────────────────────────────────
@@ -173,6 +194,10 @@ def code_root(_: bool = Depends(require_operator)) -> dict[str, Any]:
 async def create_task(body: CreateTaskRequest, _: bool = Depends(require_operator)) -> dict[str, Any]:
     """Create and run a code task. The autonomy defaults to edit_verify."""
     autonomy = _resolve_autonomy(body.autonomy)
+    try:
+        budget = resolve_budget(body.budgetProfile)
+    except SessionError as exc:
+        raise HTTPException(status_code=400, detail=exc.code) from exc
     run_id = body.runId or f"code_{abs(hash(body.query)) & 0xFFFFFFFF:08x}_{int(__import__('time').time())}"
     if body.modelSettings is None:
         raise HTTPException(status_code=400, detail="modelSettings is required")
@@ -188,6 +213,8 @@ async def create_task(body: CreateTaskRequest, _: bool = Depends(require_operato
         userId=body.scopeId,
         direct=body.direct,
     )
+    # Phase 22 / S2: the session's budget floor (clamped again in the graph).
+    apply_budget(request, budget)
     # Create the run ROW first: `RunCheckpoint` has a FOREIGN KEY on
     # `HarnessRun(id)`, so `record_created` before the row exists fails with a
     # FOREIGN KEY constraint error. `execute_run` re-uses this row (it does not
@@ -205,8 +232,18 @@ async def create_task(body: CreateTaskRequest, _: bool = Depends(require_operato
     _tasks().record_created(
         run_id, workspace_id=body.workspaceId, autonomy=autonomy, scope_id=body.scopeId,
     )
+    # Phase 22 / S2: the goal + acceptance + budget, on the SAME lineage.
+    _sessions().record(
+        run_id, goal=body.query, budget=budget,
+        acceptance=body.acceptance, workspace_id=body.workspaceId,
+    )
     result = await service.run(request)
-    return {"success": True, "task": _tasks().view(run_id), "run": result.model_dump()}
+    return {
+        "success": True,
+        "task": _tasks().view(run_id),
+        "session": _sessions().view(run_id),
+        "run": result.model_dump(),
+    }
 
 
 @router.get("/code/tasks")
@@ -218,12 +255,88 @@ def list_tasks(
     return {"success": True, "tasks": _tasks().list(limit=limit, status=status, scope_id=scopeId)}
 
 
+@router.get("/code/scorecard")
+def code_scorecard(days: int = 30, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """The honest self-build scorecard. Read-only; `UNKNOWN` where unmeasured."""
+    from ..code.scorecard import build_scorecard  # noqa: PLC0415
+
+    return {"success": True, **build_scorecard(service.store, window_days=days)}
+
+
 @router.get("/code/tasks/{task_id}")
 def get_task(task_id: str) -> dict[str, Any]:
     view = _tasks().view(task_id)
     if view is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    return {"success": True, "task": view}
+    return {"success": True, "task": view, "session": _sessions().view(task_id)}
+
+
+def _land_preview(task_id: str) -> tuple[dict[str, Any], Path]:
+    """The task's current preview and the folder the checks must run in.
+
+    Checks run against the project ON DISK (the checkout the change lands in),
+    not the disposable copy: the copy has no installed dependencies, so npm and
+    the vendored Python would fail there for the wrong reason. The Code screen
+    places the checks after the change is applied.
+    """
+    from ..code import promotion  # noqa: PLC0415
+    from ..code.workspace import default_root  # noqa: PLC0415
+
+    try:
+        preview = promotion.build_preview(task_id, code_store=service.code_store)
+    except promotion.PromotionError as exc:
+        raise HTTPException(status_code=400, detail=exc.code) from exc
+    root = default_root() or Path(".")
+    return preview, Path(root).resolve()
+
+
+@router.get("/code/tasks/{task_id}/land")
+def get_land_plan(task_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+    """The ordered checks this change must pass. Read-only, runs nothing."""
+    preview, root = _land_preview(task_id)
+    files = [str(item.get("path") or "") for item in (preview.get("files") or [])]
+    plan = plan_land_checks(files, root=root)
+    return {
+        "success": True,
+        "previewDigest": preview.get("previewDigest"),
+        "plan": plan.to_dict(),
+    }
+
+
+@router.post("/code/tasks/{task_id}/land/verify")
+def verify_landing(
+    task_id: str, full: bool = False, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Run the landing checks. `full=false` skips the long suite for a quick pass.
+
+    The exit code is the judge; the result is recorded as a `land.verified`
+    checkpoint so the landing is auditable. A check that cannot run is an error,
+    never a pass.
+    """
+    preview, root = _land_preview(task_id)
+    files = [str(item.get("path") or "") for item in (preview.get("files") or [])]
+    plan = plan_land_checks(files, root=root)
+    if not full:
+        plan = LandPlan(
+            changed=plan.changed,
+            checks=tuple(check for check in plan.checks if check.id != "tests"),
+            source=plan.source, warnings=plan.warnings,
+        )
+    result = run_land_plan(plan, root=root)
+    checkpoint = service.run_lineage().save_checkpoint(task_id, "land.verified", {
+        "previewDigest": preview.get("previewDigest"),
+        "ok": result.ok,
+        "failed": result.failed,
+        "full": bool(full),
+        "checks": [item.to_dict() for item in result.results],
+    })
+    return {
+        "success": True,
+        "previewDigest": preview.get("previewDigest"),
+        "full": bool(full),
+        "checkpointId": checkpoint["id"],
+        "result": result.to_dict(),
+    }
 
 
 @router.post("/code/tasks/{task_id}/resume")
@@ -420,7 +533,10 @@ def request_task_action(
 
 
 @router.post("/code/tasks/{task_id}/promote/preview")
-def promote_preview(task_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
+def promote_preview(
+    task_id: str, body: Optional[PreviewRequest] = None,
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
     """Preview exactly what a task's change would put into the user's project."""
     from ..code import promotion, selfhost  # noqa: PLC0415
 
@@ -428,6 +544,9 @@ def promote_preview(task_id: str, _: bool = Depends(require_operator)) -> dict[s
         raise HTTPException(status_code=404, detail="Task not found")
     try:
         preview = promotion.build_preview(task_id, code_store=service.code_store)
+        include = (body.include if body else []) or []
+        if include:
+            preview = promotion.filter_preview(preview, include)
     except promotion.PromotionError as exc:
         raise HTTPException(status_code=400, detail=exc.code) from exc
     verdict = selfhost.classify_landing([str(f.get("path") or "") for f in preview.get("files", [])])
@@ -469,6 +588,8 @@ def promote_apply(
     # the confirmed set stale and the promotion is refused (nothing is written).
     try:
         preview = promotion.build_preview(task_id, code_store=service.code_store)
+        if body.include:
+            preview = promotion.filter_preview(preview, body.include)
     except promotion.PromotionError as exc:
         raise HTTPException(status_code=400, detail=exc.code) from exc
     if preview["previewDigest"] != body.previewDigest:
@@ -490,6 +611,18 @@ def promote_apply(
         result = promotion.apply_promotion(preview)
     except promotion.PromotionError as exc:
         raise HTTPException(status_code=409, detail=exc.code) from exc
+    # Phase 22 / S6: the durable landing marker the self-build scorecard reads.
+    # A best-effort checkpoint: a landing that succeeded must not be reported as
+    # failed because its metric row could not be written.
+    try:
+        service.run_lineage().save_checkpoint(task_id, "land.promoted", {
+            "previewDigest": preview.get("previewDigest"),
+            "rollbackId": result.get("rollbackId"),
+            "filesChanged": result.get("filesChanged"),
+            "landing": verdict.to_dict(),
+        })
+    except Exception:  # noqa: BLE001 - metrics never block a landing
+        pass
     # Tell the front door whether this change needs a runtime restart / build gate
     # (self-hosting). The route cannot restart the process, so it reports the
     # requirement; `code/selfhost.py` owns the health-gated apply when a restart
@@ -518,8 +651,11 @@ def promote_apply(
 
 
 @router.post("/code/promotions/{rollback_id}/rollback")
-def rollback_promotion_route(rollback_id: str, _: bool = Depends(require_operator)) -> dict[str, Any]:
-    """Put a previously-promoted change back — the exact original contents.
+def rollback_promotion_route(
+    rollback_id: str, runId: Optional[str] = None,  # noqa: N803 - the wire name
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Put a previously-promoted change back - the exact original contents.
 
     The inverse of promotion: a created file is removed, an edited file is
     restored, a deleted file is recreated. Both versions are kept.
@@ -530,6 +666,14 @@ def rollback_promotion_route(rollback_id: str, _: bool = Depends(require_operato
         result = promotion.rollback_promotion(rollback_id)
     except promotion.PromotionError as exc:
         raise HTTPException(status_code=409, detail=exc.code) from exc
+    # The scorecard's rollback marker, only when the caller named the run.
+    if runId:
+        try:
+            service.run_lineage().save_checkpoint(runId, "land.rolled_back", {
+                "rollbackId": rollback_id,
+            })
+        except Exception:  # noqa: BLE001 - metrics never block a rollback
+            pass
     return {"success": True, "rollback": result}
 
 

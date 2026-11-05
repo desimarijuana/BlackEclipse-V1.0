@@ -4,13 +4,14 @@ import { HarnessRuntimeUnavailable } from "@/lib/harness";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(_request: Request, { params }: { params: Promise<{ rollbackId: string }> }) {
+export async function POST(request: Request, { params }: { params: Promise<{ rollbackId: string }> }) {
   const { rollbackId } = await params;
   if (!rollbackId) {
     return NextResponse.json({ error: "rollbackId is required" }, { status: 400 });
   }
   try {
-    const rollback = await rollbackPromotion(rollbackId);
+    const parsed = (await request.json().catch(() => ({}))) as { runId?: string };
+    const rollback = await rollbackPromotion(rollbackId, parsed.runId);
     return NextResponse.json({ success: true, rollback });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

@@ -97,9 +97,54 @@ def classify_landing(paths: Iterable[str]) -> LandingVerdict:
     )
 
 
+@dataclass(frozen=True)
+class LandingPlan:
+    """How a landed change reaches the running app, as ordered steps.
+
+    The plan is the process-boundary contract: a runtime change restarts only
+    the BUILDER, a front-end change builds only the TARGET, and an authority
+    change is not a live landing at all - it exits through maintenance mode.
+    """
+
+    steps: tuple[str, ...]
+    restartRequired: bool  # noqa: N815 - matches the wire shape
+    buildRequired: bool  # noqa: N815
+    maintenanceRequired: bool  # noqa: N815
+    authorities: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "steps": list(self.steps),
+            "restartRequired": self.restartRequired,
+            "buildRequired": self.buildRequired,
+            "maintenanceRequired": self.maintenanceRequired,
+            "authorities": list(self.authorities),
+        }
+
+
+def plan_landing(paths: Iterable[str]) -> LandingPlan:
+    """Classify a file set into the ordered landing steps. Pure."""
+    verdict = classify_landing(paths)
+    if verdict.refused:
+        return LandingPlan(
+            steps=("maintenance",), restartRequired=False, buildRequired=False,
+            maintenanceRequired=True, authorities=verdict.authorities,
+        )
+    steps: list[str] = ["apply"]
+    if verdict.restartRequired:
+        steps.append("restart_builder")
+    if verdict.buildRequired:
+        steps.append("build_frontend")
+    steps.append("health")
+    return LandingPlan(
+        steps=tuple(steps), restartRequired=verdict.restartRequired,
+        buildRequired=verdict.buildRequired, maintenanceRequired=False,
+        authorities=(),
+    )
+
+
 def _default_apply(preview: dict[str, Any]) -> dict[str, Any]:
     return promotion.apply_promotion(preview)
-
 
 def _default_rollback(rollback_id: str) -> dict[str, Any]:
     return promotion.rollback_promotion(rollback_id)
@@ -168,8 +213,10 @@ __all__ = [
     "AUTHORITY_PATHS",
     "FRONTEND_PREFIXES",
     "RUNTIME_PREFIXES",
+    "LandingPlan",
     "LandingVerdict",
     "SelfHostError",
     "classify_landing",
     "guarded_land",
+    "plan_landing",
 ]

@@ -40,12 +40,17 @@ export interface PromoteChangeProps {
   /** The run whose prepared change is offered. */
   runId: string;
   compact?: boolean;
+  /** Phase 22 / S5: the Code screen can gate landing on a full check pass. */
+  disabled?: boolean;
+  disabledHint?: string;
 }
 
-export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
+export function PromoteChange({ runId, compact = false, disabled = false, disabledHint }: PromoteChangeProps) {
   const t = useT();
   const [phase, setPhase] = useState<Phase>('idle');
   const [preview, setPreview] = useState<PromotionPreview | null>(null);
+  const [allFiles, setAllFiles] = useState<PromotionPreview['files']>([]);
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [approvalId, setApprovalId] = useState<string | null>(null);
   const [rollbackId, setRollbackId] = useState<string | null>(null);
   const [landing, setLanding] = useState<PromotionLanding | null>(null);
@@ -53,15 +58,22 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
   const [postLanding, setPostLanding] = useState<'idle' | 'checking' | 'healthy' | 'rolled_back' | 'unverified' | 'error'>('idle');
   const [messageKey, setMessageKey] = useState<TranslationKey>('code.promote.error.generic');
 
-  async function review() {
+  async function review(includeOverride?: string[]) {
     setPhase('loading');
     try {
-      const { preview: result, approval, landing: verdict } = await previewPromotion(runId);
+      const excludedPaths = includeOverride === undefined
+        ? [...excluded]
+        : allFiles.filter((f) => !includeOverride.includes(f.path)).map((f) => f.path);
+      const include = includeOverride
+        ?? allFiles.filter((f) => !excluded.has(f.path)).map((f) => f.path);
+      const { preview: result, approval, landing: verdict } = await previewPromotion(runId, include);
       if (!result || result.filesChanged === 0 || !approval?.id) {
         setMessageKey('code.promote.empty');
         setPhase('error');
         return;
       }
+      if (allFiles.length === 0) setAllFiles(result.files);
+      setExcluded(new Set(excludedPaths));
       setPreview(result);
       setApprovalId(approval.id);
       setLanding(verdict ?? null);
@@ -76,7 +88,8 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
     if (!preview || !approvalId) return;
     setPhase('applying');
     try {
-      const result = await applyPromotion(runId, approvalId, preview.previewDigest);
+      const include = allFiles.filter((f) => !excluded.has(f.path)).map((f) => f.path);
+      const result = await applyPromotion(runId, approvalId, preview.previewDigest, include);
       setRollbackId(result.rollbackId ?? null);
       if (result.landing) setLanding(result.landing);
       setPhase('done');
@@ -90,7 +103,7 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
     if (!rollbackId) return;
     setPhase('rolling_back');
     try {
-      await rollbackPromotion(rollbackId);
+      await rollbackPromotion(rollbackId, runId);
       setPhase('rolled_back');
     } catch (err) {
       setMessageKey(errorKey(err instanceof Error ? err.message : ''));
@@ -128,6 +141,8 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
   function reset() {
     setPhase('idle');
     setPreview(null);
+    setAllFiles([]);
+    setExcluded(new Set());
     setApprovalId(null);
     setRollbackId(null);
     setLanding(null);
@@ -138,6 +153,13 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
   const size = compact ? 'text-[10.5px]' : 'text-[11.5px]';
 
   if (phase === 'idle') {
+    if (disabled) {
+      return (
+        <div className={cn('glass-card-subtle mt-2 rounded-lg border border-border/40 px-3 py-1 text-muted-foreground', size)}>
+          {disabledHint ?? t('code.promote.gate')}
+        </div>
+      );
+    }
     return (
       <button
         type="button"
@@ -245,18 +267,39 @@ export function PromoteChange({ runId, compact = false }: PromoteChangeProps) {
   }
 
   // preview
-  const files = preview?.files ?? [];
+  const files = allFiles.length > 0 ? allFiles : preview?.files ?? [];
   const shown = files.slice(0, MAX_SHOWN_FILES);
   const extra = files.length - shown.length;
+  const toggle = (path: string) => {
+    const next = new Set(excluded);
+    if (next.has(path)) next.delete(path);
+    else {
+      if (next.size + 1 >= files.length) return; // keep at least one file
+      next.add(path);
+    }
+    const include = files.filter((f) => !next.has(f.path)).map((f) => f.path);
+    void review(include);
+  };
   return (
     <div className={cn('glass-card mt-2 rounded-xl border border-border/40 p-2.5', size)}>
       <div className="text-foreground">{t('code.promote.title')}</div>
+      <div className="mt-1 text-[11px] text-muted-foreground/70">{t('code.promote.includeHint')}</div>
       <ul className="mt-1 space-y-0.5 font-mono text-muted-foreground/80">
-        {shown.map((f) => (
-          <li key={`${f.op}:${f.path}`} className="truncate">
-            {t(opKey(f.op), { name: f.path })}
-          </li>
-        ))}
+        {shown.map((f) => {
+          const kept = !excluded.has(f.path);
+          return (
+            <li key={`${f.op}:${f.path}`} className={cn('flex items-center gap-2 truncate', !kept && 'opacity-40')}>
+              <input
+                type="checkbox"
+                checked={kept}
+                onChange={() => toggle(f.path)}
+                aria-label={f.path}
+                className="h-3 w-3 shrink-0"
+              />
+              <span className="truncate">{t(opKey(f.op), { name: f.path })}</span>
+            </li>
+          );
+        })}
         {extra > 0 && <li className="text-muted-foreground/60">{t('code.promote.more', { count: extra })}</li>}
       </ul>
       <div className="mt-2 flex flex-wrap gap-2">

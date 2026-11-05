@@ -509,9 +509,10 @@ export const handlers: Record<string, Handler> = {
       .trim();
     if (!query) return invalid("MISSING_ARG", "Usage: `/code <task description>`.");
     const autonomy = typeof args.flags.autonomy === "string" ? args.flags.autonomy : "plan_only";
+    const budgetProfile = typeof args.flags.budget === "string" ? args.flags.budget : "standard";
     const { ok, status, data } = await deps.frontDoor.request("/api/code/tasks", {
       method: "POST",
-      body: { query, autonomy },
+      body: { query, autonomy, budgetProfile },
       timeoutMs: 300_000,
     });
     if (!ok) return fail("CODE_FAILED", frontDoorError(data, status));

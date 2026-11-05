@@ -36,6 +36,7 @@
     "check:adr": "node scripts/check-adr-numbers.js",
     "check:size": "node scripts/size-budget.js",
     "check:secrets": "node scripts/scan-secrets.js",
+    "self:maintenance": "node scripts/self-maintenance.js",
     "vault:plan": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-data-vault.ps1 -DryRun",
     "vault:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-data-vault.ps1 -Apply",
     "data:wipe": "node scripts/wipe-personal-data.js",

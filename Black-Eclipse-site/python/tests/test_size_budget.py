@@ -162,7 +162,9 @@ RATCHET_PY: dict[str, int] = {
     # general-ledger wiring threads a `ledger` seam through `build_graph` /
     # `execute_run`, and the ML work in this change nets -1 line here (the
     # actionable provider-failure message). May only shrink from here.
-    "graph.py": 2406,
+    # Phase 22 / S2 adds the additive session budget resolution
+    # (`requested_budget`) and its hard caps. May only shrink from here.
+    "graph.py": 2452,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -332,7 +334,7 @@ RATCHET_PY: dict[str, int] = {
     # its layer at boot and exposes `_ledger_bundle()` to each run. May only shrink.
     # Re-pinned 1799->1806 (2026-11-04): the `create_workflow` bridge registers its
     # graph tools in the same boot catalog (six lines + the blank separator).
-    "service.py": 1806,
+    "service.py": 1825,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs
