@@ -70,12 +70,11 @@ export function ActivityFeed({ activities, status, compact = false, autoExpand =
   // Phase 14: a coding turn with no tool activity still shows its capability
   // (what Eclipse set out to do), so the line is never silently lost.
   if (activities.length === 0) {
-    if (!capability?.autonomy && !capability?.verification) return null;
+    if (!capability?.autonomy) return null;
     return (
       <div className={cn('w-full', compact ? 'mb-2' : 'mb-3')}>
         <ChatCapabilityPanel
           autonomy={capability?.autonomy}
-          verification={capability?.verification}
           compact={compact}
         />
       </div>

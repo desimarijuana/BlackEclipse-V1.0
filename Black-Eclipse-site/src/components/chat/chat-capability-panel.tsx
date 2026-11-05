@@ -2,9 +2,10 @@
 
 // ── The chat capability panel (Phase 14) ─────────────────────────────────────
 // Renders, for a chat turn that used the code capability: what Eclipse set out to
-// do (the profile, in plain words), the proof it ran (the existing Phase-4
-// CodeVerificationPanel, composed — never re-rendered), and the raw refusal code
-// behind a "details" affordance.
+// do (the profile, in plain words), the "put this change into your project"
+// action, and the raw refusal code behind a "details" affordance. The
+// "Proof it works" ledger is NOT shown here — it lives on the Code screen.
+// Only the Sources panel stays under an ordinary chat answer.
 //
 // The classifier's verdict is NEVER shown as a category: the user sees what
 // Eclipse will do ("I'll look at the project, make the change in a copy, and run
@@ -16,14 +17,11 @@ import { Hammer, Search } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import { coerceChatCapability, headlineKey } from '@/lib/harness/chat-capability-view';
-import { CodeVerificationPanel } from './code-verification-panel';
 import { PromoteChange } from './promote-change';
 
 export interface ChatCapabilityPanelProps {
   /** The narrow profile the turn was bound to, when it was a coding request. */
   autonomy?: string | null;
-  /** The run's Phase-4 verification ledger, when the turn used code. */
-  verification?: unknown;
   /** Phase 14 §6.4: the runtime-derived view; when present it wins. */
   capability?: unknown;
   /** The run id, so a made change can be put into the real project (Phase 15). */
@@ -31,18 +29,16 @@ export interface ChatCapabilityPanelProps {
   compact?: boolean;
 }
 
-export function ChatCapabilityPanel({ autonomy, verification, capability, runId, compact = false }: ChatCapabilityPanelProps) {
+export function ChatCapabilityPanel({ autonomy, capability, runId, compact = false }: ChatCapabilityPanelProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  // Prefer the runtime-derived view; fall back to the flat fields (an older row
-  // that persisted only the verification blob).
+  // Prefer the runtime-derived view; fall back to the flat profile field.
   const view = coerceChatCapability(capability);
   const effectiveAutonomy = view?.profile ?? autonomy;
-  const effectiveVerification = view?.verification ?? verification;
   const key = view?.headline ?? headlineKey(effectiveAutonomy);
 
-  // An ordinary turn with no code profile and no verification renders nothing.
-  if (!key && !effectiveVerification) return null;
+  // An ordinary turn with no code profile renders nothing.
+  if (!key) return null;
 
   const editVerify = effectiveAutonomy === 'edit_verify';
 
@@ -64,9 +60,6 @@ export function ChatCapabilityPanel({ autonomy, verification, capability, runId,
           </button>
         </div>
       )}
-
-      {/* The proof it ran — the existing panel, composed. */}
-      <CodeVerificationPanel verification={effectiveVerification} compact={compact} />
 
       {/* Phase 15: the user's decision to put a made change into their project. */}
       {editVerify && runId && <PromoteChange runId={runId} compact={compact} />}

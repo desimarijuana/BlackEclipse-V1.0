@@ -788,9 +788,33 @@ document panel appear everywhere.
 The card's second line is a METHOD a person can read. A provenance detail that
 is really a debug dump of the runtime's Python object (`type <class 'dict'> ·
 keys [...]`) is dropped rather than shown — it describes the object, not the
-calculation — and a "Proof it works" panel with no recorded check, claim,
-artifact, review or repair renders nothing at all, because a "0 check(s)" card
-claims a check that never happened.
+calculation.
+
+### Only Sources stays under an answer
+
+The chat transcript shows **one** provenance block under an answer:
+`research-evidence-panel.tsx` ("Sources consulted"). It opens on the numbered
+**Sources** list by default when the run cited anything — that is the question
+the block exists to answer. Calculations, limitations and run detail follow
+inside the same open body; the always-visible header still carries the status
+summary and limitation count. A run with no citation stays collapsed.
+
+Two cards that used to appear beside it are deliberately **not in the chat**:
+
+- **"Proof it works"** (`code-verification-panel.tsx`) lives on the Code screen
+  (`screens/code/check-results.tsx`), where a verification ledger belongs. In
+  that panel the header never prints a check count when no check was recorded,
+  and it opens by default on a recorded failure (an unsupported claim or a
+  non-zero check). The chat code headline (`chat-capability-panel.tsx`) keeps
+  only what Eclipse set out to do and the "put this change into your project"
+  action.
+- **The generated-capability card** (`capability-card.tsx`) lives in Capability
+  Studio. A speculative `gap` / `needs_source` offer ("I can build that") is not
+  evidence about the answer, so the transcript no longer renders the card at
+  all — building a reusable capability remains an explicit studio flow.
+
+The underlying provenance, fail-closed rendering and verification ledger are
+unchanged; this is a transcript-presentation rule, not a relaxation.
 
 Diagnostics are split by **severity**: only `error` diagnostics raise the amber
 panel; a warning-only answer renders quietly (an empty-but-valid envelope says so

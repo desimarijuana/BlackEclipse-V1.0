@@ -73,9 +73,14 @@ describe('chat code capability panel', () => {
     expect(row).toContain('ChatCapabilityPanel');
   });
 
-  it('composes the existing verification panel rather than re-rendering it', () => {
+  it('keeps the proof-of-work and build cards out of the transcript', () => {
+    // Only the Sources panel stays under a normal answer. The code-verification
+    // ledger lives on the Code screen; the capability card lives in Capability
+    // Studio. Neither is rendered into the conversation.
     const panel = surfaceSource('chat-capability-panel.tsx');
-    expect(panel).toContain('CodeVerificationPanel');
+    expect(panel).not.toContain('CodeVerificationPanel');
+    const history = surfaceSource('chat-history.tsx');
+    expect(history).not.toContain('CapabilityCard');
   });
 
   it('coerces the runtime capability view, rejecting an ordinary or unknown one', () => {

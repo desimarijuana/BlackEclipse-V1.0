@@ -161,12 +161,11 @@ export function ActivityItemRow({ item, compact = false, capability, latest = fa
       )}
 
       {/* Phase 14: the chat capability panel, rendered once beneath the anchor
-          activity row of a coding turn. It composes the existing verification
-          panel; it never re-renders its content. */}
+          activity row of a coding turn. It names what Eclipse set out to do; the
+          verification ledger lives on the Code screen, not in the chat. */}
       {capability && (
         <ChatCapabilityPanel
           autonomy={capability.autonomy}
-          verification={capability.verification}
           compact={compact}
         />
       )}

@@ -29,9 +29,10 @@ import {
 // assistant answer (the answer prose no longer embeds citations or footers) in
 // a deliberate order:
 //
-//   1. Calculations   (optional, deterministic inputs + formula)
-//   2. Limitations    (always visible; kept separate from the source list)
-//   3. Sources        (collapsible, numbered [1], [2] … — never a raw URL in prose)
+//   1. Sources        (THE useful part — numbered [1], [2] … — never a raw URL
+//                       in prose; the panel opens on these by default)
+//   2. Calculations   (optional, deterministic inputs + formula)
+//   3. Limitations    (kept separate from the source list and never hidden)
 //   4. Run metadata   (coverage, claims, conflicts, retrieval paths, receipt link)
 //
 // It never claims "verified" for a claim the deterministic validator left as
@@ -216,20 +217,20 @@ function Limitations({ limitations }: { limitations: string[] }) {
 
 export function ResearchEvidencePanel({ research, compact = false }: { research: unknown; compact?: boolean }) {
   const info = coerceResearchRun(research);
-  // The whole provenance block is COLLAPSED by default and muted, so it reads as
-  // attached metadata rather than an extension of the answer. The one always-
-  // visible line is the status summary, which includes source/limitation counts.
-  const [blockOpen, setBlockOpen] = useState(false);
+  const metadata: ResearchMetadata | null | undefined = info?.metadata;
+  const citations = metadata?.citations ?? [];
+  // The sources ARE the useful part, so the panel opens on them by default.
+  // Calculations, limitations and run detail stay nested inside the open body;
+  // the always-visible header line still carries the status summary and counts.
+  const [blockOpen, setBlockOpen] = useState(citations.length > 0);
   const [metaOpen, setMetaOpen] = useState(false);
   const bodyId = useId();
   if (!info) return null;
 
   const meta = STATUS_META[info.status] ?? STATUS_META.partial;
   const Icon = meta.icon;
-  const metadata: ResearchMetadata | null | undefined = info.metadata;
   const legs = info.coverage?.legs ?? [];
   const claims = info.validation?.claims ?? [];
-  const citations = metadata?.citations ?? [];
   const calculations = metadata?.calculations ?? [];
   const conflicts = metadata?.conflicts ?? [];
   const escalation = info.escalation ?? null;
@@ -276,13 +277,7 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
 
       {blockOpen ? (
         <div id={bodyId} className="mt-3 space-y-4 text-[10px]">
-          {/* 1. Calculations */}
-          <Calculations calculations={calculations} index={index} />
-
-          {/* 2. Limitations */}
-          <Limitations limitations={limitations} />
-
-          {/* 3. Sources — numbered, in a bounded scroll area so a long list stays
+          {/* 1. Sources — numbered, in a bounded scroll area so a long list stays
               manageable instead of spilling the whole transcript. */}
           {citations.length > 0 || failedRoutes.length > 0 ? (
             <section>
@@ -315,6 +310,12 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
               ) : null}
             </section>
           ) : null}
+
+          {/* 2. Calculations */}
+          <Calculations calculations={calculations} index={index} />
+
+          {/* 3. Limitations */}
+          <Limitations limitations={limitations} />
 
           {/* 4. Run metadata (coverage, claims, conflicts, retrieval paths, receipt) */}
           {hasMetaDetail ? (
