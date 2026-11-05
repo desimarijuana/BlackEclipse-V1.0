@@ -20,6 +20,7 @@ import { ChatInput } from '@/components/chat/chat-input';
 import { ApprovalCard } from '@/components/chat/approval-card';
 import { ClarificationCard } from '@/components/chat/clarification-card';
 import { SessionBar } from '@/components/chat/session-bar';
+import { ProjectChip } from '@/components/chat/project-chip';
 import { CheckpointBar } from '@/components/chat/checkpoint-bar';
 import { NotebookButton, NotebookProvider } from '@/components/chat/notebook-provider';
 import { ChatWordmark } from '@/components/chat/chat-wordmark';
@@ -1207,7 +1208,13 @@ function StockChatContent() {
                       effortState={reasoningEffort}
                       mentionTargets={mentionTargets}
                     />
-                    <div className="flex w-full items-center justify-between gap-2 px-4 md:px-6"><SessionBar session={sessionController} /><NotebookButton /></div>
+                    <div className="flex w-full items-center justify-between gap-2 px-4 md:px-6">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <SessionBar session={sessionController} />
+                        <ProjectChip chatId={activeConversationId ?? undefined} />
+                      </div>
+                      <NotebookButton />
+                    </div>
                   </div>
                 ) : (
                   <div
@@ -1270,8 +1277,9 @@ function StockChatContent() {
                       )}
                       <AttachmentPreview preview={sessionController.preview} onClose={sessionController.closePreview} />
                       <div className="mt-1.5 flex items-center gap-2">
-                        <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
                           <SessionBar session={sessionController} />
+                          <ProjectChip chatId={activeConversationId ?? undefined} compact />
                         </div>
                         <NotebookButton />
                         <CheckpointBar

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { guardExpensiveMutation } from "@/lib/api-guard";
 import { chatWithAgent, HarnessError, HarnessRuntimeUnavailable, toHarnessErrorJson, MAX_QUERY_LENGTH } from "@/lib/harness";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
-import { loadContextDocuments, writeSessionFile } from "@/lib/chat/session-store";
+import { loadContextDocuments, readSessionWorkspaceRootId, writeSessionFile } from "@/lib/chat/session-store";
 import { isReasoningLevel } from "@/lib/agent/reasoning";
 import { parseCommandInvocation } from "@/lib/harness/command-parser";
 import { executeCommandFromText, isRoutedCommand } from "@/lib/harness/command-router";
@@ -85,6 +85,12 @@ export async function POST(request: Request) {
     const chatId = typeof (body as Record<string, unknown>).chatId === "string"
       ? ((body as Record<string, unknown>).chatId as string)
       : "";
+    // Phase 23: this conversation's approved project folder. Read SERVER-SIDE
+    // (the browser never supplies it), so a chat is bound to a folder the user
+    // chose in the picker. An absent binding keeps the existing default.
+    const workspaceRootId = chatId
+      ? await readSessionWorkspaceRootId(chatId).catch(() => undefined)
+      : undefined;
     // Bot chats and group-member turns opt into private per-conversation memory.
     const memoryScope = (body as Record<string, unknown>).memoryScope === "conversation"
       ? ("conversation" as const)
@@ -136,7 +142,7 @@ export async function POST(request: Request) {
       : undefined;
 
     const identityHeaders = await runtimeIdentityHeaders(request);
-    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId);
+    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId);
     if (result.status === "failed") {
       return NextResponse.json(
         { success: false, error: result.error, runId: result.runId },

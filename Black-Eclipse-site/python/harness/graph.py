@@ -217,6 +217,32 @@ def chat_step_budget(agent: AgentConfig, request: Any) -> int:
     return max(1, min(CHAT_MAX_STEPS_CEILING, base))
 
 
+# Phase 22 / S2: a build session may buy more than the chat ceiling, but only up
+# to these hard caps. The caps belong to the runtime; a caller cannot raise them.
+HARD_MAX_STEPS = 240
+HARD_RUN_TIMEOUT_S = 10_800.0
+
+
+def requested_budget(
+    max_steps: int, run_timeout_s: float, request: Any,
+) -> tuple[int, float]:
+    """Apply a session's additive budget, clamped to the hard caps.
+
+    Absent fields leave the run's existing budget untouched. A value can only
+    RAISE the budget: a session is a floor on the work, never a way to shrink a
+    run that already has more. Pure, so the policy is testable without a graph.
+    """
+    steps = getattr(request, "maxSteps", None)
+    if steps:
+        max_steps = max(max_steps, min(int(steps), HARD_MAX_STEPS))
+    timeout_ms = getattr(request, "runTimeoutMs", None)
+    if timeout_ms:
+        run_timeout_s = max(
+            run_timeout_s, min(float(timeout_ms) / 1000.0, HARD_RUN_TIMEOUT_S),
+        )
+    return max_steps, run_timeout_s
+
+
 def _task_profile_of(request: RunRequest, agent: AgentConfig) -> str:
     """The task profile the ModelRouter scores against for this run (spec Â§14)."""
     from .model_runtime.integration import task_profile_of
@@ -313,6 +339,18 @@ def _project_brief_block(project_id: Optional[str], project_store: Optional[Any]
     return brief
 
 
+def _run_workspace(request: Any) -> Any:
+    """Resolve this run's workspace, honouring a per-chat approved root id.
+
+    Called without the second argument when the run has no per-chat binding, so
+    the historical one-argument seam (and tests that patch it) stays intact.
+    """
+    root_id = getattr(request, "workspaceRootId", None)
+    if root_id:
+        return resolve_workspace(request.workspace, root_id)
+    return resolve_workspace(request.workspace)
+
+
 def _resolve_direct(request: Any) -> bool:
     """Whether a run edits the real folder or a disposable copy.
 
@@ -323,8 +361,14 @@ def _resolve_direct(request: Any) -> bool:
     explicit = getattr(request, "direct", None)
     if explicit is not None:
         return bool(explicit)
-    from .code.workspace import trusted_root_selected  # noqa: PLC0415
+    from .code.workspace import trusted_root_path, trusted_root_selected  # noqa: PLC0415
 
+    # A per-chat approved folder is a user act, exactly like the global
+    # selection: edit it directly. Without a per-run id, fall back to the
+    # globally selected trusted root (the built-in repo root stays isolated).
+    root_id = getattr(request, "workspaceRootId", None)
+    if root_id:
+        return trusted_root_path(root_id) is not None
     return trusted_root_selected()
 
 
@@ -436,6 +480,8 @@ def build_graph(
     run_timeout_s = (agent.runTimeoutMs or 120_000) / 1000
     if request.autonomy in ("edit_verify", "approve_external"):
         max_steps = max(max_steps, 24); run_timeout_s = max(run_timeout_s, 600.0)
+    # Phase 22 / S2: a build session's budget, clamped to the hard caps.
+    max_steps, run_timeout_s = requested_budget(max_steps, run_timeout_s, request)
     # A hard total tool-call budget. A skill manifest declares
     # `limits.maxToolCalls`; this ENFORCES it in the loop (a skill cannot exceed
     # its declared budget by prompting or by looping). None = unbounded (chat).
@@ -518,7 +564,7 @@ def build_graph(
         mcp_manager=mcp_manager,
         # The read-only workspace binding for this run (Phase 1). Absent â‡’ no
         # code capability (the default-actor rule).
-        workspace=resolve_workspace(request.workspace),
+        workspace=_run_workspace(request),
         # Phase 2: the run's autonomy profile and the code-workspace store.
         autonomy=request.autonomy,
         code_store=code_store,
@@ -1426,7 +1472,7 @@ async def execute_run(
     # guess a path to find out what exists. Its digest is the cache key's
     # witness that the project shape has not changed.
     repo_map_block, repo_map_digest = await _repo_map_context(
-        request, workspace=resolve_workspace(request.workspace),
+        request, workspace=_run_workspace(request),
         code_intel_runtime=code_intel_runtime, emitter=emitter,
     )
     if repo_map_block:

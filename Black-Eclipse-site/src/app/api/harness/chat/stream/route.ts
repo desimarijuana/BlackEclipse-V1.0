@@ -9,7 +9,7 @@ import {
 } from "@/lib/harness";
 import { HARNESS_PY_URL } from "@/lib/harness/python-runtime";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
-import { loadContextDocuments, writeSessionFile } from "@/lib/chat/session-store";
+import { loadContextDocuments, readSessionWorkspaceRootId, writeSessionFile } from "@/lib/chat/session-store";
 import { isReasoningLevel } from "@/lib/agent/reasoning";
 import { parseCommandInvocation } from "@/lib/harness/command-parser";
 import { executeCommandFromText, isRoutedCommand } from "@/lib/harness/command-router";
@@ -113,6 +113,11 @@ export async function POST(request: Request) {
     : [];
 
   const chatId = typeof body.chatId === "string" ? body.chatId : "";
+  // Phase 23: this conversation's approved project folder, read SERVER-SIDE so
+  // the browser cannot point a run at an arbitrary directory.
+  const workspaceRootId = chatId
+    ? await readSessionWorkspaceRootId(chatId).catch(() => undefined)
+    : undefined;
   // Bot chats and group-member turns opt into private per-conversation memory.
   // Only the one known value is honoured; anything else is ignored.
   const memoryScope = body.memoryScope === "conversation" ? ("conversation" as const) : undefined;
@@ -158,7 +163,7 @@ export async function POST(request: Request) {
   let id: string;
   try {
     const identityHeaders = await runtimeIdentityHeaders(request);
-    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId);
+    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

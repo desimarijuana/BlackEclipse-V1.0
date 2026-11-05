@@ -329,10 +329,14 @@ class AgenticService:
         # before the built-in repo root — so zero-config is unchanged and a
         # chosen folder takes effect on the next run without a restart.
         from .code.roots import TrustedRootStore  # noqa: PLC0415
-        from .code.workspace import set_trusted_root_provider  # noqa: PLC0415
+        from .code.workspace import set_trusted_root_lookup, set_trusted_root_provider  # noqa: PLC0415
 
         self.trusted_roots = TrustedRootStore(self.store)
         set_trusted_root_provider(self._selected_trusted_root)
+        # Phase 23: a per-chat project binds ONE approved root by id, without
+        # making it the global selection. The lookup can only return a row that
+        # exists in TrustedRoot, so the per-run path is still an approved one.
+        set_trusted_root_lookup(self._trusted_root_by_id)
         # Browser Automation Runtime: ONE process-wide manager owning every live
         # session, the provider registry/router, the vault and the profile store.
         # Its tools register on the SAME registry, so validation, permission and
@@ -665,6 +669,21 @@ class AgenticService:
             selected = self.trusted_roots.selected()
             return selected.path if selected else None
         except Exception:  # noqa: BLE001 - a root lookup must never break a run
+            return None
+
+    def _trusted_root_by_id(self, root_id: str) -> Optional[str]:
+        """The path of an APPROVED root id, or None. Never raises."""
+        from pathlib import Path  # noqa: PLC0415
+
+        try:
+            root = self.trusted_roots.get(str(root_id))
+        except Exception:  # noqa: BLE001 - a root lookup must never break a run
+            return None
+        if root is None:
+            return None
+        try:
+            return root.path if Path(root.path).is_dir() else None
+        except Exception:  # noqa: BLE001
             return None
 
     def trusted_root_store(self) -> Any:

@@ -17,19 +17,16 @@ import { ChevronRight, FilePlus, FolderPlus, Plus, Trash2, X } from '@/lib/icons
 import { useT } from '@/lib/i18n/use-t';
 import { cn } from '@/lib/utils';
 import {
-  approveTrustedRoot,
-  browseFolders,
   deleteWorkspacePath,
   listTrustedRoots,
   listWorkspaceFiles,
   makeWorkspaceFolder,
   readWorkspaceFile,
-  selectTrustedRoot,
   writeWorkspaceFile,
-  type BrowseEntry,
   type EditorEntry,
   type TrustedRoot,
 } from '@/lib/harness/code-browser';
+import { FolderPicker } from '@/components/workspace/folder-picker';
 
 export function EditorScreen() {
   const t = useT();
@@ -87,7 +84,8 @@ export function EditorScreen() {
       {picking && (
         <FolderPicker
           onClose={() => setPicking(false)}
-          onPicked={() => { setPicking(false); void refreshRoots(); }}
+          onApproved={() => { setPicking(false); void refreshRoots(); }}
+          selectGlobally
         />
       )}
     </div>
@@ -383,107 +381,6 @@ function NameInput({
       <button type="button" onClick={onCancel} className="shrink-0 rounded p-0.5 text-muted-foreground/60 hover:text-foreground">
         <X size={11} />
       </button>
-    </div>
-  );
-}
-
-// ── Folder picker (a modal that browses and approves) ────────────────────────
-
-function FolderPicker({ onClose, onPicked }: { onClose: () => void; onPicked: () => void }) {
-  const t = useT();
-  const [path, setPath] = useState<string | null>(null);
-  const [entries, setEntries] = useState<BrowseEntry[]>([]);
-  const [parent, setParent] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async (target?: string) => {
-    setBusy(true);
-    try {
-      const result = await browseFolders(target);
-      setPath(result.path);
-      setEntries(result.entries);
-      setParent(result.parent);
-      setError(result.reason);
-    } catch {
-      setError(t('editor.listFailed'));
-    } finally {
-      setBusy(false);
-    }
-  }, [t]);
-
-  useEffect(() => { void load(undefined); }, [load]);
-
-  const open = useCallback(async () => {
-    if (!path) return;
-    setBusy(true);
-    try {
-      const root = await approveTrustedRoot(path);
-      await selectTrustedRoot(root.id);
-      onPicked();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('editor.listFailed'));
-      setBusy(false);
-    }
-  }, [path, onPicked, t]);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="glass-card-strong flex max-h-[70vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="border-b border-white/5 px-3 py-2 text-[13px] font-medium text-foreground">
-          {t('editor.chooseFolder')}
-        </div>
-        <div className="flex items-center gap-2 border-b border-white/5 px-3 py-1.5">
-          <button
-            type="button"
-            disabled={!parent}
-            onClick={() => parent && void load(parent)}
-            className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-30"
-          >
-            ↑ {t('editor.up')}
-          </button>
-          <span className="truncate text-[11px] text-muted-foreground" title={path ?? ''}>
-            {path ?? '—'}
-          </span>
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto p-1.5">
-          {busy && entries.length === 0 && (
-            <p className="p-2 text-[12px] text-muted-foreground">{t('editor.loading')}</p>
-          )}
-          {entries.filter((e) => e.isDir).map((entry) => (
-            <button
-              key={entry.path}
-              type="button"
-              onClick={() => void load(entry.path)}
-              className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[12px] text-foreground/80 hover:bg-white/5"
-            >
-              <span className="text-[10px] text-muted-foreground">▸</span>
-              <span className="truncate">{entry.name}</span>
-            </button>
-          ))}
-          {error && <p className="p-2 text-[11px] text-amber-300/80">{error}</p>}
-        </div>
-        <div className="flex items-center justify-end gap-2 border-t border-white/5 px-3 py-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg px-3 py-1.5 text-[12px] text-muted-foreground hover:text-foreground"
-          >
-            {t('editor.cancel')}
-          </button>
-          <button
-            type="button"
-            disabled={!path || busy}
-            onClick={() => void open()}
-            className="glass-button rounded-lg px-3 py-1.5 text-[12px] text-foreground disabled:opacity-40"
-          >
-            {t('editor.approve')}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

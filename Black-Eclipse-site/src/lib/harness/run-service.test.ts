@@ -65,6 +65,32 @@ describe("startRun", () => {
     expect(payload.runId).toMatch(/^run_/);
   });
 
+  it("forwards a per-chat workspace root id (an id, never a path)", async () => {
+    runViaRuntime.mockResolvedValue({
+      runId: "run_1",
+      status: "completed",
+      output: "ok",
+      modelSteps: 1,
+      toolCalls: 0,
+      toolErrors: 0,
+    });
+    await startRun({ input: { query: "fix this project" }, workspaceRootId: "root_abc" });
+    const [payload] = runViaRuntime.mock.calls[0];
+    expect(payload.workspaceRootId).toBe("root_abc");
+    // No caller-supplied path is ever sent; the runtime resolves the id.
+    expect(payload.workspace).toBeUndefined();
+  });
+
+  it("forwards the session project root id on the streaming chat path", async () => {
+    await startChatRun(
+      "fix this project", [], [], undefined, "chat_1",
+      undefined, undefined, undefined, undefined, undefined, undefined, "root_abc",
+    );
+    const [payload] = startRunBackground.mock.calls[0];
+    expect(payload.workspaceRootId).toBe("root_abc");
+    expect(payload.workspace).toBeUndefined();
+  });
+
   it("passes an explicit agent id through", async () => {
     listAgentsFromRuntime.mockResolvedValue({
       agents: [

@@ -66,7 +66,8 @@ const RATCHET: Record<string, number> = {
   // drift-candidate badge. Re-pinned 1263→1266: the post-landing restart
   // verification keys (`code.promote.postLanding*`). The standing split
   // candidate is still per-domain dictionary modules. May only shrink.
-  "src/lib/i18n/dictionaries/en.ts": 1268,
+  // Phase 22 / S2/S4/S5/S6 adds session, landing, phase and scorecard keys. May only shrink.
+  "src/lib/i18n/dictionaries/en.ts": 1312,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file
@@ -200,7 +201,10 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1589→1596: the chat surface gained the AI-result cue wiring and
   // related stream-state affordances. Split candidate: the message renderer
   // from the composer/stream controller. May only shrink.
-  "src/components/screens/stock-chat.tsx": 1596,
+  // Re-pinned 1596→1603: the per-chat project chip in the empty-state and
+  // composer rows (Phase 23). The chip itself is a separate component; this is
+  // only its two mount points. May only shrink.
+  "src/components/screens/stock-chat.tsx": 1603,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

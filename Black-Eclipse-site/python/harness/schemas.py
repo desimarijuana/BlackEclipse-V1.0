@@ -297,6 +297,11 @@ class RunRequest(BaseModel):
     # Phase 1 (additive, optional): bind this run to a read-only workspace. Absent
     # ⇒ the run has no code capability at all (the default-actor rule, Phase 0).
     workspace: Optional[RunWorkspace] = None
+    # Phase 23 (additive, optional): the APPROVED workspace root chosen for this
+    # chat session. An id, never a path — the runtime resolves it against
+    # TrustedRoot and refuses an unknown/revoked id. Absent ⇒ the globally
+    # selected root, then the repo root (zero-config unchanged).
+    workspaceRootId: Optional[str] = Field(default=None, max_length=200)  # noqa: N815
     # Phase 2 (additive, optional): the run's autonomy profile. Only a workspace-
     # bound run with a known profile may hold code verbs (Phase 0). "edit_verify"
     # is what grants code.write; absent/unknown grants nothing (fail-closed).
@@ -305,6 +310,11 @@ class RunRequest(BaseModel):
     # tool called with no binding is refused (Phase 0: no workspace ⇒ no code
     # permissions, whatever the profile).
     workspaceId: Optional[str] = None  # noqa: N815
+    # Phase 22 (additive, optional): a build session's budget. Absent means the
+    # agent/profile default. The runtime clamps both to its hard ceilings, so a
+    # caller can never buy an unbounded run.
+    maxSteps: Optional[int] = Field(None, ge=1, le=240)  # noqa: N815
+    runTimeoutMs: Optional[int] = Field(None, ge=1_000, le=10_800_000)  # noqa: N815
     # Phase 8 (additive, optional): enable the analysis sandbox for THIS run.
     # Default False — discovery is not activation. A computed number is always
     # labelled "worked out by Eclipse" and never presented as retrieved data.

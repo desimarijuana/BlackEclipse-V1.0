@@ -30,6 +30,9 @@ export interface StartRunOptions {
   // Phase 1 (optional): bind this run to a read-only workspace. Validated here
   // and forwarded; the runtime only ever binds its server-resolved root.
   workspace?: { root: string; baseRevision?: string };
+  // Phase 23 (optional): the APPROVED root chosen for this chat session. An id,
+  // never a path — the runtime resolves it against TrustedRoot.
+  workspaceRootId?: string;
   // Phase 14 (optional): a chat turn recognised as a coding request narrows the
   // run with an autonomy profile and (for a code change) the analysis sandbox.
   // Validated here; the runtime enforces the actual grant.
@@ -77,6 +80,7 @@ export async function chatWithAgent(
   uiContext?: Record<string, unknown>,
   memoryScope?: "conversation",
   projectId?: string,
+  workspaceRootId?: string,
 ): Promise<{
   output: string;
   runId: string;
@@ -133,6 +137,7 @@ export async function chatWithAgent(
     sessionId,
     ...(memoryScope === "conversation" && sessionId ? { conversationId: sessionId } : {}),
     ...(projectId ? { projectId } : {}),
+    ...(workspaceRootId ? { workspaceRootId } : {}),
     ...(forcedAutonomy ? { autonomy: forcedAutonomy } : {}),
     analysisEnabled: true,
     ...(parsedCommand ? { command: parsedCommand.command.name } : agentCommand ? { command: agentCommand.command } : {}),
@@ -173,14 +178,17 @@ export async function chatWithAgent(
  * task is started from a UI surface that has no vault access. There is still one
  * resolution path — this function.
  */
-export async function resolveRunModelSettings(model?: string) {
-  return resolveModelSettings(model);
+export async function resolveRunModelSettings(model?: string, role?: "code") {
+  return resolveModelSettings(model, role);
 }
 
-async function resolveModelSettings(modelOverride?: string) {
+async function resolveModelSettings(modelOverride?: string, role?: "code") {
   const cfg = await getLLMConfig();
   const provider = cfg.provider === "auto" || cfg.provider === "mock" ? "openai" : cfg.provider;
-  const chosen = modelOverride?.trim();
+  // An explicit composer pick wins. Otherwise a build run uses the operator's
+  // coding model when one is configured; everything else keeps the chat model.
+  const chosen = modelOverride?.trim()
+    || (role === "code" ? cfg.codingModel?.trim() : undefined);
   return {
     provider,
     baseUrl: cfg.baseUrl,
@@ -251,6 +259,7 @@ export async function startChatRun(
   uiContext?: Record<string, unknown>,
   memoryScope?: "conversation",
   projectId?: string,
+  workspaceRootId?: string,
 ): Promise<string> {
   // A leading `/command` (e.g. `/eclipsesdk`) is a DETERMINISTIC profile switch:
   // parse it, strip it, and force the command's profile — do NOT ask the
@@ -274,7 +283,6 @@ export async function startChatRun(
   });
   const agent = await getAgentPreset("eclipse-agent");
   const cfg = await getLLMConfig();
-  const modelSettings = await resolveModelSettings(model);
   // User routing preference (spec §44): merged into the run's context, where the
   // runtime's ModelRouter treats it as an override over automatic selection.
   const policyContext = routingPolicyContext(cfg);
@@ -286,12 +294,6 @@ export async function startChatRun(
   const effortContext = reasoningContext(cfg, reasoningEffort);
   if (Object.keys(effortContext).length) {
     input.context = { ...(input.context ?? {}), ...effortContext };
-  }
-  if (!modelSettings.apiKey && !/localhost|127\.0\.0\.1/.test(modelSettings.baseUrl)) {
-    throw new HarnessError(
-      "PROVIDER_NOT_CONFIGURED",
-      "No LLM provider is configured. Add a key in Settings → AI."
-    );
   }
   const id = runId ?? newRunId();
   // Phase 14: a chat turn recognised as a coding request is narrowed with a code
@@ -324,6 +326,14 @@ export async function startChatRun(
   if (appControl) {
     input.context = { ...(input.context ?? {}), appControl: true };
   }
+  // Phase 22 / S6: a build turn uses the operator's coding model when set.
+  const modelSettings = await resolveModelSettings(model, autonomy ? "code" : undefined);
+  if (!modelSettings.apiKey && !/localhost|127\.0\.0\.1/.test(modelSettings.baseUrl)) {
+    throw new HarnessError(
+      "PROVIDER_NOT_CONFIGURED",
+      "No LLM provider is configured. Add a key in Settings -> AI."
+    );
+  }
   const payload: RunRequestPayload = {
     runId: id,
     input,
@@ -336,6 +346,8 @@ export async function startChatRun(
     // The project this turn is scoped to. The runtime resolves it and puts the
     // project's members in front of the model as a per-run context note.
     ...(projectId ? { projectId } : {}),
+    // This chat session's approved project folder (an id, never a path).
+    ...(workspaceRootId ? { workspaceRootId } : {}),
     ...(autonomy ? { autonomy } : {}),
     ...(analysisEnabled ? { analysisEnabled: true } : {}),
     // The command marker, when a command forced this turn. The runtime never
@@ -360,7 +372,9 @@ export async function startRun(
   // also warms the cache) without sending a prompt copy.
   const agent = await getAgentPreset(options.agentId);
   const cfg = await getLLMConfig();
-  const modelSettings = await resolveModelSettings(options.model);
+  const modelSettings = await resolveModelSettings(
+    options.model, options.autonomy ? "code" : undefined,
+  );
   const policyContext = routingPolicyContext(cfg);
   if (Object.keys(policyContext).length) {
     input.context = { ...(input.context ?? {}), ...policyContext };
@@ -399,6 +413,8 @@ export async function startRun(
     projectId: options.projectId,
     // Phase 1 (optional): a narrowing/confirmation of the workspace root.
     workspace,
+    // Phase 23 (optional): this chat session's approved project folder.
+    ...(options.workspaceRootId ? { workspaceRootId: options.workspaceRootId } : {}),
     // Phase 14 (optional): the code profile resolved for a recognised coding
     // turn. Absent for an ordinary finance turn, which is unchanged.
     ...(options.autonomy ? { autonomy: options.autonomy } : {}),
