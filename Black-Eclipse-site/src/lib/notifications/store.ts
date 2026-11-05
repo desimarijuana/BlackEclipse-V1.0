@@ -18,6 +18,7 @@ import { create } from 'zustand';
 import type { AppTab } from '@/lib/app-tabs';
 import type { SoundName } from '@/lib/sounds';
 import { APP_TABS } from '@/lib/search/deep-link';
+import { persistNotificationRemote, persistNotificationsRemote } from './remote';
 
 export type NotificationKind = 'alert' | 'task' | 'approval' | 'agent' | 'bot';
 
@@ -178,6 +179,9 @@ export const useNotificationsStore = create<NotificationsStore>((set, get) => ({
     const next = [item, ...items].slice(0, MAX_NOTIFICATIONS);
     persist(next);
     set({ items: next });
+    // Mirror to the durable archive. Fire-and-forget; the local ledger is the
+    // immediate surface and the server dedupes by `item.id`.
+    persistNotificationRemote(item);
     return true;
   },
 
@@ -208,6 +212,17 @@ export function useHydrateNotifications(): void {
   const hydrate = useNotificationsStore((s) => s.hydrate);
   const hydrated = useNotificationsStore((s) => s.hydrated);
   useEffect(() => {
-    if (!hydrated) hydrate();
+    if (!hydrated) {
+      hydrate();
+      return;
+    }
+    // One-time archive backfill: notifications raised before the durable table
+    // existed still become searchable in Alerts › History. Server-side upserts
+    // make this idempotent across reloads and multiple hook call sites.
+    if (archiveBackfilled) return;
+    archiveBackfilled = true;
+    persistNotificationsRemote(useNotificationsStore.getState().items);
   }, [hydrated, hydrate]);
 }
+
+let archiveBackfilled = false;

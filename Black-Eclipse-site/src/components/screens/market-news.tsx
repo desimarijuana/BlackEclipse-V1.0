@@ -9,8 +9,14 @@ import { TopLoader } from '@/components/ui/top-loader';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePageShortcuts } from '@/hooks/use-page-shortcuts';
 import { useListNavigation } from '@/hooks/use-list-navigation';
-import { NewsHighAlerts } from './news-high-alerts';
 import { loadPortfolioSymbols } from '@/lib/news/client-context';
+import {
+  clearCardSettings,
+  DEFAULT_CARD_SETTINGS,
+  loadCardSettings,
+  saveCardSettings,
+  type CardSettings,
+} from '@/lib/news/card-settings';
 
 export interface NewsItem {
   id: string;
@@ -100,53 +106,7 @@ interface FilterState {
 
 const EMPTY_FILTERS: FilterState = { category: '', region: '', tier: '', sentiment: '', q: '' };
 
-// ─── Card customization ────────────────────────────────────────────────
-// User-tunable card appearance, persisted per-browser in localStorage.
-
-export interface CardSettings {
-  columns: 1 | 2 | 3;            // grid layout
-  density: 'compact' | 'cozy';   // card padding + font scale
-  showSummary: boolean;
-  summaryLines: 2 | 3 | 4 | 0;   // 0 = unlimited
-  showBadges: boolean;           // source/category/ticker row
-  showSentiment: boolean;        // sentiment pill + swing estimate
-  showButtons: boolean;          // footer action row
-  showTimestamp: boolean;
-  glow: boolean;                 // ambient sentiment glow
-  perPage: 10 | 20 | 30 | 50;    // cards per page
-  sort: 'newest' | 'oldest' | 'importance'; // list order
-  autoRefresh: boolean;          // poll for new articles in the background
-  refreshSec: 30 | 60 | 120;     // poll interval
-}
-
-const DEFAULT_CARD_SETTINGS: CardSettings = {
-  columns: 1,
-  density: 'cozy',
-  showSummary: true,
-  summaryLines: 3,
-  showBadges: true,
-  showSentiment: true,
-  showButtons: true,
-  showTimestamp: true,
-  glow: true,
-  perPage: 10,
-  sort: 'newest',
-  autoRefresh: true,
-  refreshSec: 60,
-};
-
-const CARD_SETTINGS_KEY = 'be_news_card_settings';
-
-function loadCardSettings(): CardSettings {
-  if (typeof window === 'undefined') return DEFAULT_CARD_SETTINGS;
-  try {
-    const raw = window.localStorage.getItem(CARD_SETTINGS_KEY);
-    if (!raw) return DEFAULT_CARD_SETTINGS;
-    return { ...DEFAULT_CARD_SETTINGS, ...JSON.parse(raw) };
-  } catch {
-    return DEFAULT_CARD_SETTINGS;
-  }
-}
+// ─── Card customization constants ──────────────────────────────────────
 
 const CARD_COLUMNS_CLASS: Record<CardSettings['columns'], string> = {
   1: 'grid-cols-1',
@@ -224,7 +184,6 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
   const [highAlertOnly, setHighAlertOnly] = useState(false);
   const [portfolioTickers, setPortfolioTickers] = useState<string[]>([]);
   const [alertNotice, setAlertNotice] = useState<string | null>(null);
-  const [alertRefreshKey, setAlertRefreshKey] = useState(0);
   const [actingAlertId, setActingAlertId] = useState<string | null>(null);
 
   const SAVED_IDS_KEY = 'be_news_saved_ids';
@@ -257,13 +216,13 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
   const updateCards = (patch: Partial<CardSettings>) => {
     setCards((prev) => {
       const next = { ...prev, ...patch };
-      try { window.localStorage.setItem(CARD_SETTINGS_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+      saveCardSettings(next);
       return next;
     });
   };
 
   const resetCards = () => {
-    try { window.localStorage.removeItem(CARD_SETTINGS_KEY); } catch { /* ignore */ }
+    clearCardSettings();
     setCards(DEFAULT_CARD_SETTINGS);
   };
 
@@ -349,11 +308,9 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
       setStagedNews([]);
       setNewCount(0);
       await fetchNews(1);
-      setAlertRefreshKey((k) => k + 1);
     } catch {
       // refresh trigger failure is non-fatal; list refresh alone is fine
       await fetchNews(1);
-      setAlertRefreshKey((k) => k + 1);
     } finally {
       setRefreshing(false);
     }
@@ -409,12 +366,13 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
   // ─── Auto-refresh: silent background polling ─────────────────────────
   // Fetches page 1 quietly (no loading skeleton), compares against the
   // displayed list, and stages new items behind a "N new articles" pill
-  // instead of yanking the list out from under the user. Only polls while
-  // the tab is visible; refetches immediately when the tab regains focus.
+  // instead of yanking the list out from under the user. Under importance
+  // ranking new stories already belong at the top, so the ranked page is
+  // replaced in place instead. Only polls while the tab is visible; refetches
+  // immediately when the tab regains focus.
   const pollForNew = async () => {
-    // Importance ranking reorders the window, so "N new articles" staging does
-    // not apply. The High Alert band has its own refresh loop.
-    if (highAlertOnly || cards.sort === 'importance') return;
+    // The High Alert filter is a user-pinned query; leave it alone.
+    if (highAlertOnly) return;
     try {
       const params = new URLSearchParams({ page: '1', limit: String(cards.perPage), sort: cards.sort });
       if (filters.category) params.set('category', filters.category);
@@ -431,11 +389,18 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
       const known = new Set([...newsList, ...stagedNews].map((n) => n.id));
       const fresh = incoming.filter((n) => !known.has(n.id));
       if (fresh.length > 0 && page === 1) {
-        setStagedNews((prev) => {
-          const seen = new Set(prev.map((n) => n.id));
-          return [...prev, ...fresh.filter((n) => !seen.has(n.id))];
-        });
-        setNewCount((prev) => prev + fresh.filter((n) => !known.has(n.id)).length);
+        if (cards.sort === 'importance') {
+          // Ranking order shifts as new stories arrive — swap the page quietly.
+          setNewsList(incoming);
+          setTotalPages(data.pagination?.totalPages || 1);
+          setTotalItems(data.pagination?.total || incoming.length);
+        } else {
+          setStagedNews((prev) => {
+            const seen = new Set(prev.map((n) => n.id));
+            return [...prev, ...fresh.filter((n) => !seen.has(n.id))];
+          });
+          setNewCount((prev) => prev + fresh.filter((n) => !known.has(n.id)).length);
+        }
         if (data.pulse) setPulse(data.pulse);
         if (data.lastIngestAt) setLastIngestAt(data.lastIngestAt);
       }
@@ -764,14 +729,9 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
   if (fullPage) {
     return (
       <div ref={rootRef} data-keyboard-scope="Market news" className="w-full flex flex-col gap-6 select-none">
-        {/* ─── High Alert band — the strongest market-moving stories ─── */}
-        <NewsHighAlerts
-          watchlist={watchTickers}
-          portfolio={portfolioTickers}
-          active={active}
-          refreshKey={alertRefreshKey}
-          onDiscuss={onDiscussNews}
-        />
+        {/* High-level stories are not a separate band: they are ranked into the
+            main feed (most-critical first) and surfaced in the header ledger by
+            `NewsAlertWatcher`. */}
 
         {/* ─── Filter Bar ─── */}
         <div className="w-full rounded-2xl border border-border/10 glass-card p-4 flex flex-col lg:flex-row lg:items-center gap-3">
@@ -1032,7 +992,7 @@ export function MarketNews({ onDiscussNews, fullPage = false, onNewsSentiment, s
                       cards.sort === s ? 'bg-primary/15 text-primary border-primary/40' : 'text-muted-foreground border-border/40 hover:bg-accent/40'
                     }`}
                   >
-                    {s === 'importance' ? 'High alert' : s}
+                    {s === 'importance' ? 'Critical first' : s}
                   </button>
                 ))}
                 <span className="mx-2 w-px self-stretch bg-border/60" aria-hidden />

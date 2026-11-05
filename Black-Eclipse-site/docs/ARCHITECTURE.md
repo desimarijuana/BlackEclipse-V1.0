@@ -773,7 +773,13 @@ tab (count, `9+` cap) and an aggregate badge on the Terminal/Agentic/Bots menu
 switcher for tabs the active menu hides; opening a tab (the sidebar is the
 shell's visible-tab signal) marks that tab's entries read, and an entry raised
 for the visible tab is recorded read on arrival — it is already in front of the
-operator. The header adds the **in-app notification bar**:
+operator. The ledger is also mirrored to the durable `AppNotification` table
+(`POST /api/notifications`, idempotent on the producer id; the local ledger is
+backfilled once on hydrate). Alerts › **History** reads the union of that archive
+and the price engine's `PriceAlertEvent` log through `GET /api/alerts/history`
+(search + kind/tab + 24h/7d/30d/all filters), so every alert ever received stays
+findable even after the in-memory ring rolls over or site data is cleared. The
+header adds the **in-app notification bar**:
 `src/components/layout/notification-center.tsx` renders a bell with the unread
 count and a frosted panel listing the full ledger, filterable by kind (alerts,
 tasks, approvals, agent, bots). Selecting an entry marks its tab read and
@@ -809,6 +815,18 @@ history and a toast. A finished chat reply raised while the operator is on
 another tab is announced the same way from `use-agent-run.ts` (ChatBot tab,
 `taskdone` cue);
 while the ChatBot is visible the surfaces keep their soft `message` cue.
+
+**High-alert news** is a root producer too: `news-watcher.tsx` polls
+`GET /api/news/alerts` every two minutes (watchlist symbols sharpen the rank),
+seeds the seen set on the first poll without notifying, then raises a
+`news`-tab `alert` for each newly seen `critical`/`high` story and each
+high-impact release inside a 90-minute horizon. It deliberately does NOT
+backfill the current set into the ledger, so historical news cannot crowd out
+price-alert/task/agent entries (the other watchers seed the same way). The News
+tab itself no longer renders a separate High Alert band — the same stories are
+ranked into the main feed with `sort=importance`, most-critical first. The
+header panel always shows every kind filter (count 0 included) so all producer
+lanes are discoverable.
 
 ## The two workspace systems (read this twice)
 

@@ -68,6 +68,43 @@
   on hover) with the theme accent reserved for a running workflow; success and
   failure keep their status colors. Added `layout.test.ts`. No doc change —
   interaction/presentation fix only.
+- **fix(news): high-level stories join the feed and notify the header.** The News
+  tab no longer opens with a separate High Alert band. Those stories are ranked
+  into the main feed with `sort=importance` (default, one-time migration for a
+  saved `newest` preference) so the first rows are the most critical, and the
+  existing cards carry the CRITICAL/HIGH ALERT/BREAKING badges. Added the pure
+  `src/lib/notifications/news-diff.ts` + root-mounted
+  `src/lib/notifications/news-watcher.tsx`, which polls `/api/news/alerts`, seeds
+  the current set silently, then raises a `news`-tab ledger entry (header bell +
+  sidebar badge + toast/cue) for each newly seen critical/high story and each
+  high-impact release within 90 minutes. Removed the now-unused
+  `news-high-alerts.tsx`; the card preferences moved to
+  `src/lib/news/card-settings.ts` to keep the screen inside the size budget
+  (re-pinned 1486→1446). Tests: `news-diff.test.ts`. Docs updated:
+  `docs/ARCHITECTURE.md`, `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
+- **fix(notifications): the header ledger is not a news backfill.** The news
+  watcher was seeding the current high-alert set into the ledger on load, which
+  made the header look like a news-only feed and pushed the operator's
+  price-alert/task/agent entries down (or out of the 100-item ring over time).
+  The first poll now only seeds the seen set — no ledger write — so news behaves
+  exactly like the task/bot/price watchers: it records events that happen after
+  the app opens. The notification panel also always renders every kind filter
+  (Alerts/Tasks/Approvals/Agent/Bots, count 0 included) so each producer lane is
+  discoverable. Tests updated: `news-diff.test.ts`. Docs updated:
+  `docs/ARCHITECTURE.md`, `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
+- **feat(alerts): durable alert archive + a filterable History tab.** Every
+  notification raised in the app is now mirrored from the header ledger into a
+  new `AppNotification` table through `POST /api/notifications` (idempotent on
+  the producer's stable id; the local ledger backfills once on hydrate). New
+  `GET /api/alerts/history` unions that archive with the price engine's
+  `PriceAlertEvent` log (deduped by id, newest-first) and supports `q`,
+  `kind`, `tab` and `24h/7d/30d/all` ranges. Alerts › History now shows all
+  sources (news/price/tasks/approvals/agent/bots) with a search box, source and
+  range filters, and plays the alert cue once when a genuinely new archived row
+  arrives. `prisma/schema.prisma` gains `AppNotification` (additive; `db push`
+  applies it, so `jdds.db` is not committed). Tests:
+  `api/alerts/history/route.test.ts`, `api/notifications/route.test.ts`. Docs
+  updated: `docs/ARCHITECTURE.md`, `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-04
 - **test(trade-learning): pin the unbound-bridge precondition.** The full Python

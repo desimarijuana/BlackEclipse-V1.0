@@ -103,8 +103,10 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1338→1486: the High Alert feature (importance filter, alert
   // creation from a card, portfolio relevance) is wired into the existing news
   // component. That work belongs on this screen; the near-term split is the
-  // card renderer + filter bar into their own modules. May only shrink.
-  "src/components/screens/market-news.tsx": 1486,
+  // card renderer + filter bar into their own modules. Re-pinned 1486→1446 when
+  // card settings moved to `src/lib/news/card-settings.ts` and the High Alert
+  // band was folded into the ranked feed. May only shrink.
+  "src/components/screens/market-news.tsx": 1446,
   // Grew when the AI section gained a real provider select + model dropdown
   // (the previous datalist was not surfaced by the input primitive). Pinned
   // until the deferred AI-section split; may only shrink from here.
