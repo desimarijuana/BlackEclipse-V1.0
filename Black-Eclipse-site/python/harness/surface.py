@@ -184,6 +184,8 @@ def _declared_allowlist(agent: AgentConfig, registry: ToolRegistry) -> Optional[
     if getattr(agent, "allowPluginTools", False):
         allowed.update(name for name in registry.names() if name.startswith("plug_"))
         allowed.update(name for name in registry.names() if name.startswith("plugin_"))
+    if getattr(agent, "allowModelTools", False):
+        allowed.update(name for name in registry.names() if name.startswith("ml_model_"))
     return allowed
 
 

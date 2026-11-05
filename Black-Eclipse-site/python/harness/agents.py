@@ -628,6 +628,12 @@ ECLIPSE_AGENT = AgentConfig(
     # discovery/invoke tools (`plugin_*`). Registration only happens for enabled
     # plugins; the invoked tool's own permission/effect rules still apply.
     allowPluginTools=True,
+    # ML Lab: registered models become first-class predict tools
+    # (`ml_model_<name>_predict`). They are registered at boot from the model
+    # catalog, so this opt-in expands only to the names CURRENTLY in the
+    # registry; deleting a model removes the tool on the next boot instead of
+    # leaving a ghost in the agent's allowlist. Custom agents keep the default.
+    allowModelTools=True,
 )
 
 # The dry/test-run surface: read-only finance + local evidence + response

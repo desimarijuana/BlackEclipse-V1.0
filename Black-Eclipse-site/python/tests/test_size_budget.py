@@ -330,7 +330,9 @@ RATCHET_PY: dict[str, int] = {
     # headroom while that stream is still landing — tighten afterwards.
     # Re-pinned 1795->1799 (2026-11-03): the same in-flight ledger wiring installs
     # its layer at boot and exposes `_ledger_bundle()` to each run. May only shrink.
-    "service.py": 1799,
+    # Re-pinned 1799->1806 (2026-11-04): the `create_workflow` bridge registers its
+    # graph tools in the same boot catalog (six lines + the blank separator).
+    "service.py": 1806,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

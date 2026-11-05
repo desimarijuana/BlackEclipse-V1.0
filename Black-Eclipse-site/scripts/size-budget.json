@@ -1,8 +1,8 @@
 {
   "_comment": "The harness size budget (Round 3 / W7, ADR-H288). The TOTAL is the binding constraint; the per-module ratchet lives in python/tests/test_size_budget.py. Raising a ceiling is allowed but must be a deliberate edit to this file - the point is that growth cannot happen silently. Re-pinned on 2026-11-04 to the measured merged tree: the trading surface (29 graph nodes + 31 broker/reconciliation routes), the research-evidence node family, bounded parallel map and the workflow-authoring bridge grew `routers`, the harness root, `code` and `eclipse_memory`. These ceilings are the measured values, not padding; the ratchet resumes from here.",
-  "totalLines": 453425,
+  "totalLines": 453427,
   "directories": {
-    ".": 28764,
+    ".": 28780,
     "quant": 19665,
     "code": 18344,
     "routers": 20575,

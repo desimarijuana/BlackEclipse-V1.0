@@ -5,12 +5,34 @@
   branch's `check:size` gate was already red before today's merge: the trading
   surface (29 graph nodes + 31 broker routes), research-evidence nodes, bounded
   parallel map and the workflow-authoring bridge outgrew the 2026-11-02 pin.
-  `scripts/size-budget.json` is now pinned to the measured tree (453,425 total;
-  `python/harness/.` 28,764, `code` 18,344, `routers` 20,575,
+  `scripts/size-budget.json` is now pinned to the measured tree (453,427 total;
+  `python/harness/.` 28,780, `code` 18,344, `routers` 20,575,
   `eclipse_memory` 12,685). This is a deliberate checkpoint, not an allowance —
   the per-module ratchet resumes from these numbers. Also merges
   `feat/graph-quant-packs` into `main` so today's work is on the default branch.
   Docs updated: `docs/CHANGELOG.md`.
+- **fix(tests): the full suite is green again.** Three real failures surfaced in
+  the full run. (1) Per-model ML predict tools (`ml_model_*_predict`) were
+  appended to the shared `ECLIPSE_AGENT` allowlist when a model was registered,
+  so a later boot with a deleted model left "ghosts" (`test_registry_visibility`).
+  They are now an explicit dynamic surface (`allowModelTools`, expanded from the
+  tools CURRENTLY registered, like `mcp_*`/`plugin_*`); the global mutation is
+  gone. (2) `ml_finetune_adapter` advertised a 60-minute timeout above the
+  contract's 30-minute maximum — now `1_800_000`. (3) `service.py` was 7 lines
+  over its ratchet after the workflow bridge registration; re-pinned to the
+  measured 1806 with justification, and `scripts/size-budget.json` re-pinned to
+  the measured merged tree (453,427). Docs updated: `docs/CHANGELOG.md`.
+- **fix(desktop): the shortcut no longer leaves a duplicate tab open.** The
+  launcher handed the progress page off to the app with
+  `location.replace(...)`, then re-opened the browser 20 s later whenever the
+  app tab had not beaconed yet — on a slow first hydrate that is *always*, so
+  every launch ended with two app tabs. The progress page now sends a one-shot
+  `POST /handoff` beacon immediately before it navigates, and the launcher's
+  "no beacon yet" retry is skipped once that handoff is recorded (the retry
+  still fires when the page never ran its redirect, e.g. JS disabled or the
+  tab was closed). Files: `scripts/lib/desktop-splash.js`,
+  `scripts/start-desktop.js`, test `src/lib/desktop-launcher.test.ts`. Docs
+  updated: `docs/CHANGELOG.md` (bug fix — no architecture/contract change).
 - **ui(graph-studio): cleaner nodes and straight wires.** Single-port nodes no
   longer render the "Start"/"Value" labels beside their handles (the tooltip
   still names the port); nodes with several ports keep their labels so branch

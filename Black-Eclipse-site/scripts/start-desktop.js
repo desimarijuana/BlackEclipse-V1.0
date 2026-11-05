@@ -769,10 +769,17 @@ async function main(attempt = 0) {
     // The page never beaconed (JS failed, wrong browser, or the user closed the
     // progress page): retry the open once before giving up, then leave the
     // server up rather than killing something the user may still be using.
-    if (!lastEvent && Date.now() - startedAt > 20_000 && !reopened) {
+    // But if the progress page already handed off to the app, the app tab
+    // exists — it is only slow to hydrate/heartbeat. Reopening here is what
+    // left a second duplicate tab after every launch.
+    const handedOff = Boolean(splash && splash.handoff);
+    if (!lastEvent && Date.now() - startedAt > 20_000 && !reopened && !handedOff) {
       reopened = true;
       log("no beacon yet; reopening browser");
       openBrowser(dest);
+    } else if (handedOff && !lastEvent && !noBeaconLogged && Date.now() - startedAt > 20_000) {
+      log("progress page handed off to the app; waiting for its beacon instead of opening a second tab");
+      noBeaconLogged = true;
     }
     if (!lastEvent && Date.now() - startedAt > FIRST_BEACON_MS) {
       // No beacon at all (JS failed, unsupported browser): keep the server and

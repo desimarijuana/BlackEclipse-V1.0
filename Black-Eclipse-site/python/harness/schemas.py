@@ -176,6 +176,14 @@ class AgentConfig(BaseModel):
     # plugin is enabled, which is an operator decision.
     allowPluginTools: bool = False  # noqa: N815
 
+    # When True, the run's effective allowlist is expanded to include the ML
+    # Lab's per-model predict tools (`ml_model_*_predict`) that are CURRENTLY
+    # registered. Those tools are created at boot from the model catalog, so
+    # they cannot be named in a static allowlist and must never be appended to
+    # the shared agent config (that leaked deleted models into the surface).
+    # Default False, so a custom/skill agent keeps its exact allowlist.
+    allowModelTools: bool = False  # noqa: N815
+
     # Surface-controlled CONTEXT policy (v3 P3). None means the runtime
     # default; a value narrows how much context the agent receives. Neither
     # field grants a tool, a permission or an effect: they only bound what is
