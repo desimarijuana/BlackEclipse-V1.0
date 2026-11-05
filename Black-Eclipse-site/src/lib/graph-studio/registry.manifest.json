@@ -13592,6 +13592,710 @@
       "terminal": false
     },
     {
+      "type": "trade.commit",
+      "version": "1.0.0",
+      "category": "learning",
+      "label": "Commit playbook",
+      "description": "Appends a playbook version the risk gate enforces; operator run only.",
+      "inputs": [
+        {
+          "id": "candidate",
+          "name": "Candidate",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "bounds",
+          "name": "Bounds",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "playbook",
+          "name": "Active playbook",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "changed",
+          "name": "Changed",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "revertsAt",
+          "name": "Reverts at",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "reason",
+          "kind": "string",
+          "default": "operator commit",
+          "constraints": {
+            "maxLength": 500
+          }
+        },
+        {
+          "name": "ttlDays",
+          "kind": "number",
+          "default": 14,
+          "constraints": {
+            "min": 1,
+            "max": 90,
+            "integer": true
+          }
+        }
+      ],
+      "capabilities": [
+        "learning.self_modify",
+        "learning.write"
+      ],
+      "sideEffects": "write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trade.improve",
+      "version": "1.0.0",
+      "category": "learning",
+      "label": "Improve playbook",
+      "description": "Runs a seeded recursive climb and ranks playbook variants out-of-sample.",
+      "inputs": [
+        {
+          "id": "trades",
+          "name": "Trades",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "findings",
+          "name": "Findings",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "playbook",
+          "name": "Playbook",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "candidates",
+          "name": "Ranked candidates",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "best",
+          "name": "Best playbook",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "accepted",
+          "name": "Improved",
+          "type": "boolean",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reason",
+          "name": "Reason",
+          "type": "string",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "baseline",
+          "name": "Baseline (in/out of sample)",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "boundsJson",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 8000
+          }
+        },
+        {
+          "name": "equity",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000000000
+          }
+        },
+        {
+          "name": "generations",
+          "kind": "number",
+          "default": 2,
+          "constraints": {
+            "min": 1,
+            "max": 3,
+            "integer": true
+          }
+        },
+        {
+          "name": "k",
+          "kind": "number",
+          "default": 3,
+          "constraints": {
+            "min": 1,
+            "max": 5,
+            "integer": true
+          }
+        },
+        {
+          "name": "minLiftR",
+          "kind": "number",
+          "default": 0.02,
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
+        },
+        {
+          "name": "minValidationTrades",
+          "kind": "number",
+          "default": 10,
+          "constraints": {
+            "min": 2,
+            "max": 1000,
+            "integer": true
+          }
+        },
+        {
+          "name": "seed",
+          "kind": "number",
+          "default": 7,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000,
+            "integer": true
+          }
+        },
+        {
+          "name": "splitPct",
+          "kind": "number",
+          "default": 0.7,
+          "constraints": {
+            "min": 0.5,
+            "max": 0.95
+          }
+        }
+      ],
+      "capabilities": [],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trade.journal",
+      "version": "1.0.0",
+      "category": "learning",
+      "label": "Journal trades",
+      "description": "Loads a bounded window of journal trades and their execution log.",
+      "inputs": [
+        {
+          "id": "trades",
+          "name": "Trades",
+          "type": "array",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "trades",
+          "name": "Trades",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "executions",
+          "name": "Execution log",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "completeness",
+          "name": "Data completeness",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "includeExecutions",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 200,
+          "constraints": {
+            "min": 1,
+            "max": 500,
+            "integer": true
+          }
+        },
+        {
+          "name": "lookbackDays",
+          "kind": "number",
+          "default": 90,
+          "constraints": {
+            "min": 1,
+            "max": 3650,
+            "integer": true
+          }
+        },
+        {
+          "name": "setupId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "status",
+          "kind": "string",
+          "default": "closed",
+          "constraints": {
+            "enum": [
+              "closed",
+              "open",
+              "all"
+            ]
+          }
+        },
+        {
+          "name": "strategyId",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 80
+          }
+        },
+        {
+          "name": "symbols",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 400
+          }
+        }
+      ],
+      "capabilities": [
+        "journal.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trade.learn",
+      "version": "1.0.0",
+      "category": "learning",
+      "label": "Learn from review",
+      "description": "Records findings, counts recurrence and drafts inert lesson candidates.",
+      "inputs": [
+        {
+          "id": "findings",
+          "name": "Findings",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "coverage",
+          "name": "Data coverage",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "recorded",
+          "name": "Findings recorded",
+          "type": "number",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "recurring",
+          "name": "Recurring patterns",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "candidates",
+          "name": "Inert candidates",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "thresholds",
+          "name": "Thresholds",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "draftCandidates",
+          "kind": "boolean",
+          "default": true
+        },
+        {
+          "name": "minCostR",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 0,
+            "max": 1000000
+          }
+        },
+        {
+          "name": "minCoverage",
+          "kind": "number",
+          "default": 0.8,
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "name": "minOccurrences",
+          "kind": "number",
+          "default": 3,
+          "constraints": {
+            "min": 1,
+            "max": 100,
+            "integer": true
+          }
+        },
+        {
+          "name": "windowDays",
+          "kind": "number",
+          "default": 90,
+          "constraints": {
+            "min": 1,
+            "max": 3650,
+            "integer": true
+          }
+        }
+      ],
+      "capabilities": [
+        "learning.write"
+      ],
+      "sideEffects": "local_write",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trade.playbook",
+      "version": "1.0.0",
+      "category": "learning",
+      "label": "Read playbook",
+      "description": "Reads the active risk envelope and its version history.",
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "playbook",
+          "name": "Playbook",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "versions",
+          "name": "Versions",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "provenance",
+          "name": "Provenance",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "includeHistory",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "limit",
+          "kind": "number",
+          "default": 10,
+          "constraints": {
+            "min": 1,
+            "max": 50,
+            "integer": true
+          }
+        }
+      ],
+      "capabilities": [
+        "learning.read"
+      ],
+      "sideEffects": "read",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
+      "type": "trade.review",
+      "version": "1.0.0",
+      "category": "learning",
+      "label": "Review trades",
+      "description": "Finds process mistakes with deterministic detectors and names the field.",
+      "inputs": [
+        {
+          "id": "trades",
+          "name": "Trades",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "executions",
+          "name": "Execution log",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "playbook",
+          "name": "Playbook",
+          "type": "object",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        }
+      ],
+      "outputs": [
+        {
+          "id": "findings",
+          "name": "Findings",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "summary",
+          "name": "Summary",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "reviewed",
+          "name": "Clean trades",
+          "type": "array",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        },
+        {
+          "id": "coverage",
+          "name": "Data coverage",
+          "type": "object",
+          "kind": "data",
+          "optional": false,
+          "nullable": false
+        }
+      ],
+      "configFields": [
+        {
+          "name": "accountEquity",
+          "kind": "number",
+          "default": 0,
+          "constraints": {
+            "min": 0,
+            "max": 1000000000000000
+          }
+        },
+        {
+          "name": "detectors",
+          "kind": "string",
+          "default": "",
+          "constraints": {
+            "maxLength": 400
+          }
+        },
+        {
+          "name": "duplicateWindowMin",
+          "kind": "number",
+          "default": 60,
+          "constraints": {
+            "min": 0,
+            "max": 1440,
+            "integer": true
+          }
+        },
+        {
+          "name": "includeOpen",
+          "kind": "boolean",
+          "default": false
+        },
+        {
+          "name": "maxTradesPerDay",
+          "kind": "number",
+          "default": 3,
+          "constraints": {
+            "min": 0,
+            "max": 100,
+            "integer": true
+          }
+        },
+        {
+          "name": "minRForEarlyExit",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
+        },
+        {
+          "name": "revengeWindowMin",
+          "kind": "number",
+          "default": 30,
+          "constraints": {
+            "min": 0,
+            "max": 1440,
+            "integer": true
+          }
+        },
+        {
+          "name": "reviewGraceHours",
+          "kind": "number",
+          "default": 24,
+          "constraints": {
+            "min": 0,
+            "max": 8760,
+            "integer": true
+          }
+        },
+        {
+          "name": "riskPct",
+          "kind": "number",
+          "default": 1,
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
+        }
+      ],
+      "capabilities": [],
+      "sideEffects": "none",
+      "allowedModes": [
+        "backtest",
+        "live",
+        "paper",
+        "research"
+      ],
+      "terminal": false
+    },
+    {
       "type": "trading.await_fill",
       "version": "1.0.0",
       "category": "trading",
@@ -16075,6 +16779,14 @@
           "id": "dailyPnl",
           "name": "Daily P&L",
           "type": "number",
+          "kind": "data",
+          "optional": true,
+          "nullable": false
+        },
+        {
+          "id": "policy",
+          "name": "Playbook",
+          "type": "object",
           "kind": "data",
           "optional": true,
           "nullable": false

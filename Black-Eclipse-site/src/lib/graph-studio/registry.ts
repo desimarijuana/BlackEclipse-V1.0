@@ -26,6 +26,7 @@ import { RESEARCH_ANALYSIS_DEFINITIONS } from './registry-research';
 import { SKILL_DEFINITIONS } from './registry-skills';
 import { TRANSFORM_DEFINITIONS } from './registry-transform';
 import { TRADING_DEFINITIONS } from './registry-trading';
+import { LEARNING_DEFINITIONS } from './registry-learning';
 import { OUTPUT_DEFINITIONS } from './registry-output';
 import { UTILITY_DEFINITIONS } from './registry-utility';
 import { WRITE_DEFINITIONS } from './registry-write';
@@ -1110,6 +1111,7 @@ const DEFINITIONS: NodeDefinition[] = [
   },
   ...RESEARCH_ANALYSIS_DEFINITIONS,
   ...TRADING_DEFINITIONS,
+  ...LEARNING_DEFINITIONS,
   {
     type: 'output.result',
     version: '1.0.0',

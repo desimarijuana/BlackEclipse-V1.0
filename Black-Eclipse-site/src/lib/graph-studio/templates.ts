@@ -437,6 +437,42 @@ function candleReview(): WorkflowIR {
   );
 }
 
+function tradeLearning(): WorkflowIR {
+  // The operator bounds are the authority the climb cannot exceed. They are
+  // deliberately conservative so a first run proposes a small step, not a jump.
+  const bounds = {
+    requireStop: { allow: true },
+    riskPerTradePct: { min: 0.25, max: 5 },
+    maxTradesPerDay: { min: 1, max: 10 },
+  };
+  return buildGraph(
+    'Trade learning loop',
+    'Review journal trades → learn recurring patterns → improve the playbook out-of-sample → commit (operator run).',
+    [
+      { id: 'trigger', type: 'trigger.manual' },
+      { id: 'journal', type: 'trade.journal', config: { lookbackDays: 90, limit: 200 } },
+      { id: 'review', type: 'trade.review' },
+      { id: 'learn', type: 'trade.learn', config: { minOccurrences: 3, windowDays: 90 } },
+      { id: 'improve', type: 'trade.improve', config: { boundsJson: JSON.stringify(bounds), k: 3, generations: 2 } },
+      { id: 'commit', type: 'trade.commit', config: { reason: 'trade learning loop', ttlDays: 14 } },
+      { id: 'result', type: 'output.result', config: { label: 'Learning result' } },
+    ],
+    [
+      // A wired run input (a trades array) wins over the bridge; an empty
+      // manual run falls through to the journal read.
+      { source: 'trigger', sourceHandle: 'start', target: 'journal', targetHandle: 'trades' },
+      { source: 'journal', sourceHandle: 'trades', target: 'review', targetHandle: 'trades' },
+      { source: 'journal', sourceHandle: 'executions', target: 'review', targetHandle: 'executions' },
+      { source: 'review', sourceHandle: 'findings', target: 'learn', targetHandle: 'findings' },
+      { source: 'review', sourceHandle: 'coverage', target: 'learn', targetHandle: 'coverage' },
+      { source: 'journal', sourceHandle: 'trades', target: 'improve', targetHandle: 'trades' },
+      { source: 'review', sourceHandle: 'findings', target: 'improve', targetHandle: 'findings' },
+      { source: 'improve', sourceHandle: 'best', target: 'commit', targetHandle: 'candidate' },
+      { source: 'commit', sourceHandle: 'playbook', target: 'result', targetHandle: 'value' },
+    ],
+  );
+}
+
 export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
   { id: 'blank', name: 'Blank', description: 'A trigger and a result. Start here.', build: blank },
   { id: 'if-else', name: 'If / else', description: 'Branch on a value with control gates.', build: ifElse },
@@ -477,6 +513,12 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     name: 'Research brief',
     description: 'Stored run → evidence → conflict scan → citation audit → report.',
     build: researchBrief,
+  },
+  {
+    id: 'trade-learning',
+    name: 'Trade learning loop',
+    description: 'Review journal trades → learn recurring patterns → improve the playbook → commit.',
+    build: tradeLearning,
   },
 ];
 

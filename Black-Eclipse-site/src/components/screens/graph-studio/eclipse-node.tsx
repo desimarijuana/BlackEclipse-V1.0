@@ -89,6 +89,7 @@ const CATEGORY_LABEL: Record<NodeCategory, string> = {
   skills: 'Skill',
   research: 'Research',
   trading: 'Trading',
+  learning: 'Learning',
   media: 'Media',
   output: 'Output',
 };

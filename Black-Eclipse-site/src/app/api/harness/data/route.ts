@@ -55,6 +55,8 @@ const CAPABILITIES: DataCapability[] = [
   // the SEC filing index, and the operator's declared dataset records.
   "sec_filing_list",
   "custom_dataset_records",
+  // The trade-learning loop's read-only journal window (owner-scoped).
+  "journal_trades",
 ];
 
 export async function POST(request: Request) {

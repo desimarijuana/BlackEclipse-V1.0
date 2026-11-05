@@ -26,6 +26,7 @@ from .research_query_nodes import build_research_query_nodes
 from .research_write_nodes import build_research_write_nodes
 from .skill_nodes import build_skill_nodes
 from .team_nodes import build_team_nodes
+from .trade_learning_nodes import build_trade_learning_nodes
 from .utility_nodes import build_utility_nodes
 
 #: Ordered so a duplicate id is caught against the pack that came before it.
@@ -57,6 +58,9 @@ PACKS = (
     build_research_network_nodes,
     # Pure query expansion (the loop primitive: gaps/claims → search queries).
     build_research_query_nodes,
+    # The trade-learning loop: deterministic review, the ONE recurrence ledger,
+    # and a bounded playbook climb. No broker path, no code edits.
+    build_trade_learning_nodes,
 )
 
 

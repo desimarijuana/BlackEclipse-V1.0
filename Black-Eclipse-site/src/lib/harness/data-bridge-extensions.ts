@@ -17,6 +17,8 @@ export async function dispatchExtendedCapability(
       return (await import("./data-bridge-filings")).secFilingListCapability(params);
     case "custom_dataset_records":
       return (await import("./data-bridge-datasets")).customDatasetRecordsCapability(params);
+    case "journal_trades":
+      return (await import("./data-bridge-journal")).journalTradesCapability(params);
     default:
       return null;
   }

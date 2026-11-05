@@ -26,6 +26,7 @@ export const TRADING_DEFINITIONS: NodeDefinition[] = [
       port({ id: 'grossExposure', name: 'Gross exposure', type: 'number', optional: true }),
       port({ id: 'openPositions', name: 'Open positions', type: 'number', optional: true }),
       port({ id: 'dailyPnl', name: 'Daily P&L', type: 'number', optional: true }),
+      port({ id: 'policy', name: 'Playbook', type: 'object', optional: true }),
     ],
     outputs: [
       port({ id: 'intent', name: 'Order intent', type: 'order_intent' }),
@@ -64,7 +65,7 @@ export const TRADING_DEFINITIONS: NodeDefinition[] = [
     capabilities: ['trading.risk'],
     sideEffects: 'none',
     allowedModes: ['research', 'backtest', 'paper', 'live'],
-    docs: 'Runs harness/quant/risk.py. A limit of 0 disables it. A rejection is an outcome, not an error. Equity and open-position count are derived from a wired account/positions when available; the `state` output names the source of every figure. Pure, so a backtest can gate with the same rules.',
+    docs: 'Runs harness/quant/risk.py. A limit of 0 disables it. A rejection is an outcome, not an error. Equity and open-position count are derived from a wired account/positions when available; the `state` output names the source of every figure. Pure, so a backtest can gate with the same rules. Wiring the optional `policy` input (from `trade.playbook`) tightens the gate with the learned envelope — only the limits this stateless gate can enforce are applied, and `state.playbook` names the rest.',
   },
   {
     type: 'trading.paper_order',

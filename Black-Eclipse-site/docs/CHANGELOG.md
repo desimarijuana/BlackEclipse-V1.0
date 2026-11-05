@@ -1,6 +1,44 @@
 # Change Log
 
 ## 2026-11-04
+- **test(trade-learning): pin the unbound-bridge precondition.** The full Python
+  suite runs after a test that boots the service and binds the real journal
+  loader, so the "no bridge" node test saw a live connection attempt instead of
+  its own precondition. The test now clears the loader first. Test-only change.
+  No doc change beyond this note.
+- **fix(docs): normalize CRLF after appending ADR-069.** The ADR text was
+  appended with bare LF into two CRLF files (`docs/DECISIONS.md`,
+  `skills/ARCHITECT.md`), which the line-ending guard rejects. Both files are
+  pure CRLF again; content unchanged. No doc change beyond this note.
+- **feat(graph-studio): the trade learning loop ships as six nodes.** `trade.journal`
+  (read-only, owner-scoped `journal_trades` bridge over JDDS), `trade.review`
+  (pure deterministic detectors that cite the field: no stop, risk over limit,
+  stop widened, target reduced, early exit, held past stop, overtraded, revenge,
+  no plan, checklist violation, off-session, off-symbol, duplicate entry,
+  unreviewed), `trade.learn` (findings + the ONE `LearningRecurrence` ledger
+  keyed by trade id + inert RSL candidate), `trade.improve` (seeded recursive
+  climb; variants mutate from measured states, acceptance is holdout-only),
+  `trade.commit` (operator-only append of a playbook version) and
+  `trade.playbook` (read). The runtime refuses any playbook transition that
+  widens risk (`NOT_A_TIGHTENING` / `OUT_OF_BOUNDS`); the loop has no broker path
+  and never edits code. New domain `python/harness/trade_learning/`, nodes
+  `python/harness/graph_runtime/trade_learning_nodes.py` +
+  `src/lib/graph-studio/registry-learning.ts`, manifest regenerated, `learning`
+  node category, `journal_trades` capability, tests
+  `python/tests/test_trade_learning.py` + `test_graph_trade_learning_nodes.py`.
+  The `Trade learning loop` starter template wires the whole chain with
+  conservative operator bounds. Docs: new
+  `docs/graph-studio-trade-learning-nodes-plan.md`, `docs/graph-studio.md`,
+  `docs/NAVIGATION.md`, ADR-069.
+- **docs(graph-studio): plan for a trade learning loop (mistake → lesson →
+  recurrence → bounded remediation).** Audits the existing mistake store,
+  recurrence ledger, lesson contract and Tier-B self-modification, then designs a
+  five-node `learning` pack (`trade.journal` / `trade.review` / `trade.learn` /
+  `trade.playbook` / `trade.remediate`), a deterministic trade-mistake taxonomy,
+  a scoped recurrence key reusing `LearningRecurrence`, a read-only `journal_trades`
+  JDDS bridge capability, and an append-only tighten-only playbook envelope that
+  the risk gate enforces. No behaviour change — plan only. Docs: new
+  `docs/graph-studio-trade-learning-nodes-plan.md`.
 - **feat(graph-studio): the workflow assistant is a real sidebar chat with
   pause/resume and approvals.** The editor's right rail is now a vertical
   tab strip (Assistant / Node / Issues / History / Health) with a resizable,
