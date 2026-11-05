@@ -506,6 +506,10 @@ ECLIPSE_AGENT = AgentConfig(
         # agents the Bots workspace shows. Thin wrappers over the ONE automation
         # service, so a bot made in chat and one made in the UI are the same object.
         *AUTOMATION_TOOLS,
+        # Workflow authoring from chat: turn a one-sentence idea into a SAVED,
+        # validated Graph Studio workflow. The front door plans + writes it; this
+        # only creates (it never runs), so it is a local catalog write.
+        "create_workflow",
         # Scheduling (Phase 17): recurring finance jobs from the fixed catalogue,
         # always saved switched off. The operator's master switch drops this whole
         # surface when off (see `graph.surface_disabled_tools`).

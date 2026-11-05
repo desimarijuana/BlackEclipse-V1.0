@@ -1,7 +1,7 @@
 ---
 title: Broker Connectivity
 status: Current
-last-verified: 2026-10-30
+last-verified: 2026-11-04
 ---
 
 # Broker Connectivity
@@ -619,7 +619,7 @@ adapter's `deals_window(N)` and still dedupes by deal ticket. See
 | Client | `src/lib/harness/trading-client.ts` |
 | Settings UI | `src/components/screens/trading-settings.tsx` |
 | Sidebar connect | `src/components/layout/sidebar-broker-dialog.tsx`, `src/components/layout/sidebar-broker-panels.tsx` |
-| Dashboard widgets | `src/lib/dashboard/trading-widgets.tsx` |
+| Dashboard widgets | `src/lib/dashboard/trading-widgets.tsx`; shared read path `src/lib/dashboard/use-broker-snapshot.ts`; Home Trading section `src/components/screens/dashboard/home-trading-cards.tsx` + `src/lib/dashboard/use-trading-home-data.ts` + `src/lib/dashboard/trading-home-model.ts` |
 
 Routes are operator-gated (loopback or runtime token); the front door injects
 the token and never exposes it. The allowlist includes preview/submit/cancel,
@@ -647,9 +647,20 @@ path, and that handler/service enforces the demo account mode, policy, money
 guardrails, symbol allowlist, max margin and the mandate order count. Live mandates
 do not exist, so the agent cannot reach live.
 
-The dashboard's five `trading` widgets (Quick Trade, Open Positions, Working
-Orders, Margin Usage, Today P&L) now read the FIRST saved connection and poll it
-every 15 s. Quick Trade runs preview → approve → submit against the same API and
+The dashboard's six `trading` widgets (Quick Trade, Open Positions, Working
+Orders, Margin Usage, Today P&L, Recent Trades) read the FIRST saved connection
+and poll it every 15 s through a shared snapshot (`use-broker-snapshot.ts`, 10 s
+dedupe). The Home dashboard's **Trading** section (`home-trading-cards.tsx`)
+reads the same snapshot — read-only: broker-reported equity, today P&L
+(deals since local midnight plus floating), a **realized P&L curve** built from
+the broker's deals (last 30 days, cumulative, zero baseline), a **margin-usage
+ring**, open positions with inline P&L bars, broker-reported margin risk with
+per-symbol diverging bars, and the journal's edge stats plus an **equity
+sparkline** (`analytics.equityCurrency`; all journal trades, not
+broker-verified), a **drawdown (underwater) mini-chart** with max drawdown, and
+**last-12-month P&L bars** from `analytics.monthlyReturns`. There is deliberately no broker equity curve: Eclipse stores
+no balance history, and floating P&L is a single current number, so the curve is
+realized-only rather than a fabricated balance line. Quick Trade runs preview → approve → submit against the same API and
 shows the policy/guardrail reasons; Working Orders can cancel a ticket (risk-reducing,
 no approval); a missing connection renders a Settings → Broker connection setup note instead
 of a fake number. Today P&L is broker deals since local midnight plus the account's

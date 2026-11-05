@@ -195,6 +195,14 @@ def build_effect_authorizer(
 
     code_authorizer = make_journal_authorizer(code_authorizer)
 
+    # Graph Studio authoring: `create_workflow` writes a NEW workflow document
+    # into the app catalog (the front door owns the planner, the IR validation
+    # and the store). It is a reversible local write — it never runs the graph —
+    # so admission happens here and no approval is invented for it.
+    from ..graph_tools import make_graph_authorizer  # noqa: PLC0415
+
+    code_authorizer = make_graph_authorizer(code_authorizer)
+
     if approvals is None or not workspace_id:
         code_authorizer = _wrap_with_money_guardrails(code_authorizer, run_id)
         return _wrap_with_security(code_authorizer, run_id, workspace_id)

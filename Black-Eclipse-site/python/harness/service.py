@@ -82,6 +82,13 @@ class AgenticService:
         from .app_api_tools import register_app_api_tools  # noqa: PLC0415
 
         register_app_api_tools(self.registry)
+        # Workflow authoring from chat: creates and SAVES a Graph Studio workflow
+        # through the front door (the catalog lives in JDDS/Prisma, which this
+        # runtime cannot write). The front door owns planning, validation and the
+        # store; this is only the bridge.
+        from .graph_tools import register_graph_tools  # noqa: PLC0415
+
+        register_graph_tools(self.registry)
         # A human-in-the-loop question tool. Read-permission: an answer is not an
         # authorization, and an effectful step still needs the approval card.
         from .clarify_tools import register_clarify_tools  # noqa: PLC0415

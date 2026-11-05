@@ -131,7 +131,8 @@ These are product promises, not style preferences:
 
 - **Never fabricate financial data.** If a source is unavailable, show an
   `UNAVAILABLE` state. Widgets that need brokers or feeds they do not have must
-  say so plainly — the trading widgets are currently `UNAVAILABLE` stubs.
+  say so plainly — the broker-backed widgets and the Home Trading section
+  render an honest setup note when no broker is connected.
 - **Label simulated and stale data.** Imported/stale universes are
   distinguishable from live scrapes (`Price.source`); demo data sits behind a
   visible `DEMO` banner.

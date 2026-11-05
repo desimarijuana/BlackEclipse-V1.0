@@ -104,6 +104,11 @@ function devDataEnv() {
     AGENT_MEMORY_DB_PATH: path.join(dir, "agent-memory.db"),
     ECLIPSE_MEMORY_DB_PATH: path.join(dir, "eclipse-memory.db"),
     BE_DATA_DIR: dir,
+    // Market + journal data stays shared with the real snapshot: BE_DATA_DIR
+    // above would otherwise make `src/lib/db.ts` open an empty
+    // `.black-eclipse/dev/jdds.db` with no schema. `BE_DB_PATH` is the
+    // established single-file override (doctor.js / db-guard.js honour it).
+    BE_DB_PATH: path.join(ROOT, "jdds.db"),
   });
 }
 

@@ -205,15 +205,20 @@ export function ChangeText({
   );
 }
 
-function buildPath(values: number[], close: boolean): string {
+function projectY(value: number, min: number, max: number): number {
+  const span = max - min;
+  // A flat series must read as a calm midline, not a sliver at the bottom.
+  if (span === 0) return 20;
+  return 36 - ((value - min) / span) * 32;
+}
+
+function buildPath(values: number[], close: boolean, extent?: { min: number; max: number }): string {
   if (values.length < 2) return '';
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
+  const min = extent?.min ?? Math.min(...values);
+  const max = extent?.max ?? Math.max(...values);
   const points = values.map((value, index) => {
     const x = (index / (values.length - 1)) * 100;
-    const y = 36 - ((value - min) / span) * 32;
-    return `${x.toFixed(2)},${y.toFixed(2)}`;
+    return `${x.toFixed(2)},${projectY(value, min, max).toFixed(2)}`;
   });
   return `M${points.join(' L')}${close ? ' L100,40 L0,40 Z' : ''}`;
 }
@@ -224,18 +229,28 @@ export function AreaSpark({
   stroke = '#e5e7eb',
   fill = true,
   strokeWidth = 1.6,
+  baseline = null,
 }: {
   values: number[];
   className?: string;
   stroke?: string;
   fill?: boolean;
   strokeWidth?: number;
+  /** Value-space line (usually 0) that must stay in view and is drawn dashed. */
+  baseline?: number | null;
 }) {
   const id = useId().replace(/:/g, '');
   if (values.length < 2) {
     return <div className={cn('flex h-full w-full items-center justify-center text-[10px] text-muted-foreground/60', className)}>UNAVAILABLE</div>;
   }
-  const path = buildPath(values, false);
+  const extent = baseline == null
+    ? undefined
+    : {
+        min: Math.min(...values, baseline),
+        max: Math.max(...values, baseline),
+      };
+  const baselineY = extent ? projectY(baseline!, extent.min, extent.max) : null;
+  const path = buildPath(values, false, extent);
   return (
     <svg viewBox="0 0 100 40" preserveAspectRatio="none" className={cn('h-full w-full overflow-visible', className)} aria-hidden>
       {fill && (
@@ -246,8 +261,11 @@ export function AreaSpark({
               <stop offset="100%" stopColor={stroke} stopOpacity="0" />
             </linearGradient>
           </defs>
-          <path d={buildPath(values, true)} fill={`url(#fill-${id})`} />
+          <path d={buildPath(values, true, extent)} fill={`url(#fill-${id})`} />
         </>
+      )}
+      {baselineY != null && (
+        <line x1="0" y1={baselineY} x2="100" y2={baselineY} stroke="rgba(255,255,255,0.16)" strokeWidth="0.6" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
       )}
       <path d={path} fill="none" stroke={stroke} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
     </svg>
@@ -435,6 +453,47 @@ export function WeightBar({
   return (
     <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]', className)}>
       <div className="h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, value))}%`, backgroundColor: color }} />
+    </div>
+  );
+}
+
+/**
+ * Zero-centred horizontal bar for a signed value (P&L, exposure delta).
+ * `maxAbs` scales the row against its siblings; `valueLabel` carries the
+ * formatted value so callers control currency/precision.
+ */
+export function DivergingBarRow({
+  label,
+  meta,
+  value,
+  maxAbs,
+  valueLabel,
+  className,
+}: {
+  label: React.ReactNode;
+  meta?: React.ReactNode;
+  value: number;
+  maxAbs: number;
+  valueLabel: React.ReactNode;
+  className?: string;
+}) {
+  const safeMax = maxAbs > 0 ? maxAbs : 1;
+  const width = `${Math.max(0, Math.min(50, (Math.abs(value) / safeMax) * 50)).toFixed(2)}%`;
+  const positive = value > 0;
+  return (
+    <div className={cn('flex items-center gap-2 py-1.5', className)}>
+      <span className="min-w-0 flex-1 truncate text-[10px] text-foreground/80">{label}</span>
+      {meta != null && <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{meta}</span>}
+      <span className="relative h-1.5 w-14 shrink-0 rounded-full bg-white/[0.06]" aria-hidden>
+        <span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-white/20" />
+        <span
+          className={cn('absolute top-0 h-full rounded-full', positive ? 'left-1/2 bg-emerald-400/70' : 'right-1/2 bg-rose-400/70')}
+          style={{ width }}
+        />
+      </span>
+      <span className={cn('w-16 shrink-0 text-right text-[10px] tabular-nums', value > 0 ? 'text-emerald-400' : value < 0 ? 'text-rose-400' : 'text-muted-foreground')}>
+        {valueLabel}
+      </span>
     </div>
   );
 }

@@ -14,10 +14,16 @@ const globalForPrisma = globalThis as unknown as {
 // Python stores read, and it must be a real directory on that volume: SQLite
 // writes its `-wal`/`-shm` sidecars next to this path, so a file symlink would
 // leave the newest transactions outside the encrypted volume.
+//
+// `BE_DB_PATH` overrides ONLY the market/journal SQLite file. The dev profile
+// uses it to share the checked-in JDdS snapshot while keeping its agent memory
+// isolated (see scripts/lib/profiles.js); doctor.js/db-guard.js already honour it.
 const dataDir = process.env.BE_DATA_DIR
   ? path.resolve(process.env.BE_DATA_DIR)
   : process.cwd();
-const dbPath = path.join(dataDir, "jdds.db");
+const dbPath = process.env.BE_DB_PATH
+  ? path.resolve(process.env.BE_DB_PATH)
+  : path.join(dataDir, "jdds.db");
 const adapter = new PrismaBetterSqlite3({
   url: `file:${dbPath}`,
 });

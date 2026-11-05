@@ -317,10 +317,12 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
         </button>
       )}
 
-      {/* Ports are LABELLED. A dot with the name hidden in a tooltip is the one
-          thing that made branches unusable: "if true / if false" on the card is
-          the difference between a guess and a choice. Control ports are square
-          (they gate execution, not values); data ports are round. */}
+      {/* Ports are labelled ONLY when a node has a real choice to make. A single
+          "Start"/"Value" label is noise the user has to decode; the handle's
+          tooltip still names it. Multi-port nodes keep their labels because
+          "if true / if false" on the card is the difference between a guess and
+          a choice. Control ports are square (they gate execution); data ports
+          are round. */}
       {data.inputs.map((port, index) => (
         <Handle
           key={port.id}
@@ -338,7 +340,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
           title={`${port.name} Â· ${port.kind === 'control' ? 'control' : port.type}${port.optional ? ' Â· optional' : ''}`}
         />
       ))}
-      {data.inputs.map((port, index) => (
+      {data.inputs.length > 1 && data.inputs.map((port, index) => (
         <span
           key={`in-label-${port.id}`}
           className="pointer-events-none absolute left-[-9px] z-10 -translate-x-full -translate-y-1/2 whitespace-nowrap rounded bg-background/80 px-1 text-[8.5px] font-medium leading-none text-muted-foreground backdrop-blur-sm"
@@ -364,7 +366,7 @@ export function EclipseNode({ id, data, selected }: NodeProps<Node<EclipseNodeDa
           title={`${port.name} Â· ${port.kind === 'control' ? 'control' : port.type}${port.optional ? ' Â· optional' : ''}`}
         />
       ))}
-      {data.outputs.map((port, index) => (
+      {data.outputs.length > 1 && data.outputs.map((port, index) => (
         <span
           key={`out-label-${port.id}`}
           className={cn(

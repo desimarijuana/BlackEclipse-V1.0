@@ -45,7 +45,7 @@ const MAX_CHARS = 2000;
 const WARN_CHARS = 1500;
 
 const inputClass =
-  'w-full rounded-lg border border-white/10 bg-background/60 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary/50';
+  'w-full rounded-xl border border-white/10 bg-background/60 px-3 py-2 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary/50';
 
 function statusLabel(persona: PersonaSummary): string {
   if (persona.isActive) return 'Active';
@@ -59,7 +59,7 @@ function StatusPill({ persona }: { persona: PersonaSummary }) {
   return (
     <span
       className={cn(
-        'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+        'inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide',
         active
           ? 'bg-primary/15 text-primary'
           : draft
@@ -67,25 +67,66 @@ function StatusPill({ persona }: { persona: PersonaSummary }) {
             : 'bg-white/5 text-muted-foreground',
       )}
     >
+      <span className="h-1.5 w-1.5 rounded-full bg-current" />
       {statusLabel(persona)}
     </span>
   );
 }
 
-/** One selectable persona tile in the picker. */
-function PersonaTile({
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase();
+}
+
+/** Round persona avatar. Falls back to the Bot glyph for the default prompt. */
+function Avatar({
+  name,
+  icon,
+  size = 'md',
+  muted,
+}: {
+  name?: string;
+  icon?: React.ReactNode;
+  size?: 'sm' | 'md' | 'lg';
+  muted?: boolean;
+}) {
+  const box = size === 'lg' ? 'h-12 w-12 rounded-2xl text-base' : size === 'sm' ? 'h-8 w-8 rounded-lg text-[11px]' : 'h-10 w-10 rounded-xl text-[12px]';
+  return (
+    <span
+      className={cn(
+        'flex shrink-0 items-center justify-center border font-semibold tracking-wide',
+        box,
+        muted
+          ? 'border-white/10 bg-white/[0.04] text-muted-foreground'
+          : 'border-primary/25 bg-gradient-to-br from-primary/25 to-white/[0.03] text-primary',
+      )}
+    >
+      {icon ?? (name ? initials(name) : <Bot size={16} />)}
+    </span>
+  );
+}
+
+/** One row in the persona library rail. */
+function LibraryRow({
   selected,
   title,
-  subtitle,
-  icon,
-  status,
+  meta,
+  avatar,
+  active,
+  draft,
   onClick,
 }: {
   selected: boolean;
   title: string;
-  subtitle: string;
-  icon?: React.ReactNode;
-  status?: React.ReactNode;
+  meta: string;
+  avatar: React.ReactNode;
+  active?: boolean;
+  draft?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -93,23 +134,20 @@ function PersonaTile({
       type="button"
       onClick={onClick}
       className={cn(
-        'flex w-full items-start gap-2.5 rounded-xl border p-3 text-left transition-colors',
+        'flex w-full items-center gap-3 rounded-xl border p-2.5 text-left transition-colors',
         selected
           ? 'border-primary/40 bg-primary/10'
-          : 'border-white/10 bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.05]',
+          : 'border-transparent hover:border-white/10 hover:bg-white/[0.04]',
       )}
     >
-      {icon && (
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-primary">
-          {icon}
-        </span>
-      )}
+      {avatar}
       <span className="min-w-0 flex-1">
-        <span className="flex items-start justify-between gap-2">
-          <span className="truncate text-xs font-medium text-foreground">{title}</span>
-          {status}
+        <span className="flex items-center gap-1.5">
+          <span className="truncate text-[13px] font-medium text-foreground">{title}</span>
+          {active && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" title="Active" />}
+          {draft && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300" title="Draft pending" />}
         </span>
-        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{subtitle}</span>
+        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">{meta}</span>
       </span>
     </button>
   );
@@ -348,255 +386,272 @@ export function PersonaSettingsPanel() {
   const activePersona = personas.find((item) => item.isActive) ?? null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {error && (
-        <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[12px] text-rose-200">
+        <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3.5 py-2.5 text-[12px] text-rose-200">
           {error}
         </p>
       )}
       {notice && (
-        <p className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-[12px] text-emerald-200">
+        <p className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2.5 text-[12px] text-emerald-200">
           {notice}
         </p>
       )}
 
-      {/* ── Picker ──────────────────────────────────────────────────────
-          A wrapping grid of tiles instead of a 260px rail: the settings
-          column is only ~768px wide, so a fixed sidebar squeezed the editor
-          into ~480px. The full-width editor below now gets the room. */}
-      <Panel className="p-4">
-        <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h3 className="text-xs font-semibold tracking-tight text-foreground">Your personas</h3>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-              Pick one to edit. Editing stages a draft; one persona is active at a time.
-            </p>
-          </div>
-          <Button type="button" size="sm" variant="ghost" onClick={() => void create()} disabled={busy} className="gap-1.5">
-            <Plus size={13} /> New persona
-          </Button>
-        </div>
-
-        <div className="grid gap-2 sm:grid-cols-2">
-          <PersonaTile
-            selected={selectedId === null}
-            title="Eclipse default"
-            subtitle="Built-in prompt · no overlay"
-            icon={<Bot size={15} />}
-            status={
-              !activePersona ? (
-                <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                  Active
-                </span>
-              ) : undefined
-            }
-            onClick={selectDefault}
-          />
-
-          {personas.map((item) => (
-            <PersonaTile
-              key={item.id}
-              selected={selectedId === item.id}
-              title={item.name}
-              subtitle={`${item.instructionChars} chars${
-                item.activeVersion ? ` · v${item.activeVersion}` : ' · not published'
-              }${item.hasDraft ? ' · draft pending' : ''}`}
-              status={<StatusPill persona={item} />}
-              onClick={() => void open(item.id)}
-            />
-          ))}
-        </div>
-
-        {loading && <p className="mt-3 px-1 text-[11px] text-muted-foreground">Loading…</p>}
-        {!loading && personas.length === 0 && (
-          <p className="mt-3 px-1 text-[11px] text-muted-foreground">
-            No personas yet. Create one to shape tone and format.
-          </p>
-        )}
-      </Panel>
-
-      {/* ── Editor / detail ─────────────────────────────────────────── */}
-      <Panel className="p-4">
-        {selectedId === null ? (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-primary">
-                <Bot size={15} />
-              </span>
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-foreground">Eclipse default</h3>
-                <p className="text-[11px] text-muted-foreground">Built-in prompt only</p>
-              </div>
+      <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+        {/* ── Library rail ─────────────────────────────────────────── */}
+        <Panel className="flex max-h-[720px] flex-col p-0">
+          <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] px-4 py-3.5">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold tracking-tight text-foreground">Library</h3>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {loading ? 'Loading…' : `${personas.length} custom ${personas.length === 1 ? 'persona' : 'personas'}`}
+              </p>
             </div>
-            <p className="max-w-xl text-[12px] leading-relaxed text-muted-foreground">
-              The built-in Eclipse prompt is always the base. It is never edited from Settings — a persona is
-              appended after it and clearly marked as lower precedence. Reset removes the overlay; the base prompt
-              is unaffected.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" size="sm" variant="ghost" onClick={() => void loadPreview()} disabled={busy} className="gap-1.5">
-                <Eye size={13} /> Preview effective prompt
-              </Button>
-              {activePersona && (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => void resetDefault()}
-                  disabled={busy}
-                  className="gap-1.5 text-rose-300 hover:text-rose-200"
-                >
-                  <RotateCcw size={13} /> Reset to default
-                </Button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/[0.06] pb-3">
-              <div className="min-w-0 space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="truncate text-sm font-semibold text-foreground">{persona?.name || 'Persona'}</h3>
-                  {persona && <StatusPill persona={persona} />}
-                </div>
-                {dirty ? (
-                  <p className="text-[11px] text-amber-200">Unsaved changes</p>
-                ) : persona?.hasDraft ? (
-                  <p className="text-[11px] text-amber-200">Draft saved · not applied</p>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => void archive()}
-                  disabled={busy}
-                  className="gap-1.5 text-rose-300 hover:text-rose-200"
-                >
-                  <Trash2 size={13} /> Archive
-                </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => void saveDraft()} disabled={busy || tooLong} className="gap-1.5">
-                  <Save size={13} /> Save draft
-                </Button>
-                <Button type="button" size="sm" onClick={() => void activate()} disabled={busy || tooLong} className="gap-1.5">
-                  <RotateCcw size={13} /> Activate
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Name">
-                <input value={name} onChange={(event) => setName(event.target.value)} className={inputClass} placeholder="Gold desk analyst" />
-              </Field>
-              <Field label="Description">
-                <input
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  className={inputClass}
-                  placeholder="Terse intraday voice"
-                />
-              </Field>
-            </div>
-
-            <Field
-              label="Instructions"
-              hint="Appended after the authoritative Eclipse prompt. Tone, structure and emphasis only — it cannot add tools, permissions or data sources."
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => void create()}
+              disabled={busy}
+              className="shrink-0 gap-1.5"
             >
-              <textarea
-                value={instructions}
-                onChange={(event) => setInstructions(event.target.value)}
-                rows={10}
-                className={cn(inputClass, 'min-h-[200px] resize-y font-mono text-[12px] leading-relaxed')}
-                placeholder="Be terse. Lead with the number, then the evidence. Use tables for multi-asset comparisons."
-              />
-            </Field>
+              <Plus size={13} /> New
+            </Button>
+          </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className={cn('text-[11px] tabular-nums', tooLong ? 'text-rose-300' : charCount > WARN_CHARS ? 'text-amber-200' : 'text-muted-foreground')}>
-                {charCount} / {MAX_CHARS} characters
-              </span>
-              <div className="flex items-center gap-1.5">
-                {persona?.hasDraft && (
-                  <Button type="button" size="sm" variant="ghost" onClick={() => void discard()} disabled={busy} className="gap-1.5">
-                    <Undo2 size={13} /> Discard draft
-                  </Button>
-                )}
-                <Button type="button" size="sm" variant="ghost" onClick={() => void loadPreview()} disabled={busy} className="gap-1.5">
-                  <Eye size={13} /> Preview
-                </Button>
-              </div>
-            </div>
+          <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-2.5">
+            <LibraryRow
+              selected={selectedId === null}
+              title="Eclipse default"
+              meta="Built-in prompt · no overlay"
+              avatar={<Avatar icon={<Bot size={16} />} />}
+              active={!activePersona}
+              onClick={selectDefault}
+            />
 
-            {tooLong && (
-              <p className="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[12px] text-rose-200">
-                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                Instructions are capped at {MAX_CHARS} characters. Shorten them before saving.
+            {!loading && personas.length === 0 && (
+              <p className="px-2 py-4 text-[11px] leading-relaxed text-muted-foreground">
+                No personas yet. Create one to shape tone and format.
               </p>
             )}
 
-            <div className="space-y-2 border-t border-white/[0.06] pt-4">
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <History size={13} /> Versions
-              </span>
-              {versions.length === 0 ? (
-                <p className="text-[11px] text-muted-foreground">No published versions yet. Activate to publish v1.</p>
-              ) : (
-                <div className="max-h-[180px] overflow-y-auto rounded-xl border border-white/10">
-                  {versions.map((version) => (
-                    <div
-                      key={version.version}
-                      className="flex items-center justify-between gap-3 border-b border-white/[0.04] px-3 py-2 transition-colors last:border-0 hover:bg-white/[0.03]"
-                    >
-                      <span className="min-w-0">
-                        <span className="font-mono text-[12px] text-foreground">v{version.version}</span>
-                        <span className="ml-2 text-[11px] text-muted-foreground">
-                          {version.instructionChars} chars · {version.createdAt.replace('T', ' ').slice(0, 16)}
-                        </span>
-                      </span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => void restore(version.version)}
-                        disabled={busy}
-                        className="shrink-0 gap-1 text-[11px]"
-                      >
-                        <Undo2 size={12} /> Restore
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {personas.map((item) => (
+              <LibraryRow
+                key={item.id}
+                selected={selectedId === item.id}
+                title={item.name}
+                meta={`${item.instructionChars} chars${
+                  item.activeVersion ? ` · v${item.activeVersion}` : ' · not published'
+                }`}
+                avatar={<Avatar name={item.name} muted={!item.isActive} />}
+                active={item.isActive}
+                draft={item.hasDraft}
+                onClick={() => void open(item.id)}
+              />
+            ))}
           </div>
-        )}
+        </Panel>
 
-        {preview && (
-          <div className="mt-4 space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <Eye size={13} /> Effective prompt
-              </span>
-              <button
-                type="button"
-                onClick={() => setPreview(null)}
-                className="text-muted-foreground transition-colors hover:text-foreground"
-                aria-label="Close preview"
-              >
-                <X size={14} />
-              </button>
+        {/* ── Detail ───────────────────────────────────────────────── */}
+        <Panel className="flex min-h-[560px] flex-col p-0">
+          {selectedId === null ? (
+            <div className="flex flex-1 flex-col justify-center p-8">
+              <Avatar icon={<Bot size={24} />} size="lg" />
+              <h3 className="mt-4 text-lg font-semibold tracking-tight text-foreground">Eclipse default</h3>
+              <p className="mt-2 max-w-md text-[12px] leading-relaxed text-muted-foreground">
+                The built-in Eclipse prompt is always the base. It is never edited from Settings — a persona is
+                appended after it and clearly marked as lower precedence. Reset removes the overlay; the base prompt
+                is unaffected.
+              </p>
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={() => void loadPreview()} disabled={busy} className="gap-1.5">
+                  <Eye size={13} /> Preview effective prompt
+                </Button>
+                {activePersona && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void resetDefault()}
+                    disabled={busy}
+                    className="gap-1.5 text-rose-300 hover:text-rose-200"
+                  >
+                    <RotateCcw size={13} /> Reset to default
+                  </Button>
+                )}
+              </div>
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              {preview.effectiveChars} characters total · {preview.isDefault ? 'built-in prompt only' : `overlay: ${preview.persona?.name}`}
-            </p>
-            <pre className="max-h-[300px] overflow-auto whitespace-pre-wrap rounded-lg bg-background/60 p-3 font-mono text-[11px] leading-relaxed text-foreground/80">
-              {preview.basePrompt}
-              {preview.personaBlock ? `\n\n${preview.personaBlock}` : ''}
-            </pre>
-          </div>
-        )}
-      </Panel>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/[0.06] px-5 py-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar name={persona?.name} size="lg" />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="truncate text-base font-semibold tracking-tight text-foreground">
+                        {persona?.name || 'Persona'}
+                      </h3>
+                      {persona && <StatusPill persona={persona} />}
+                    </div>
+                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {dirty
+                        ? 'Unsaved changes'
+                        : persona?.hasDraft
+                          ? 'Draft saved · not applied'
+                          : persona?.description || 'No description'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => void archive()}
+                    disabled={busy}
+                    className="gap-1.5 text-rose-300 hover:text-rose-200"
+                  >
+                    <Trash2 size={13} /> Archive
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => void saveDraft()} disabled={busy || tooLong} className="gap-1.5">
+                    <Save size={13} /> Save draft
+                  </Button>
+                  <Button type="button" size="sm" onClick={() => void activate()} disabled={busy || tooLong} className="gap-1.5">
+                    <RotateCcw size={13} /> Activate
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-5 p-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Name">
+                    <input value={name} onChange={(event) => setName(event.target.value)} className={inputClass} placeholder="Gold desk analyst" />
+                  </Field>
+                  <Field label="Description">
+                    <input
+                      value={description}
+                      onChange={(event) => setDescription(event.target.value)}
+                      className={inputClass}
+                      placeholder="Terse intraday voice"
+                    />
+                  </Field>
+                </div>
+
+                <div className="overflow-hidden rounded-xl border border-white/10 bg-background/40">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] px-3.5 py-2.5">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Instruction overlay
+                    </span>
+                    <span
+                      className={cn(
+                        'text-[11px] tabular-nums',
+                        tooLong ? 'text-rose-300' : charCount > WARN_CHARS ? 'text-amber-200' : 'text-muted-foreground',
+                      )}
+                    >
+                      {charCount} / {MAX_CHARS}
+                    </span>
+                  </div>
+                  <textarea
+                    value={instructions}
+                    onChange={(event) => setInstructions(event.target.value)}
+                    rows={11}
+                    className="min-h-[240px] w-full resize-y border-0 bg-transparent px-3.5 py-3 font-mono text-[12.5px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/50"
+                    placeholder="Be terse. Lead with the number, then the evidence. Use tables for multi-asset comparisons."
+                  />
+                </div>
+                <p className="-mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                  Appended after the authoritative Eclipse prompt. Tone, structure and emphasis only — it cannot add
+                  tools, permissions or data sources.
+                </p>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {persona?.hasDraft && (
+                      <Button type="button" size="sm" variant="ghost" onClick={() => void discard()} disabled={busy} className="gap-1.5">
+                        <Undo2 size={13} /> Discard draft
+                      </Button>
+                    )}
+                    <Button type="button" size="sm" variant="ghost" onClick={() => void loadPreview()} disabled={busy} className="gap-1.5">
+                      <Eye size={13} /> Preview effective prompt
+                    </Button>
+                  </div>
+                  {tooLong && (
+                    <p className="flex items-center gap-1.5 text-[11px] text-rose-300">
+                      <AlertTriangle size={13} className="shrink-0" />
+                      Capped at {MAX_CHARS} characters.
+                    </p>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-white/10">
+                  <div className="flex items-center gap-1.5 border-b border-white/[0.06] px-3.5 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <History size={13} /> Version history
+                  </div>
+                  {versions.length === 0 ? (
+                    <p className="px-3.5 py-3 text-[11px] text-muted-foreground">
+                      No published versions yet. Activate to publish v1.
+                    </p>
+                  ) : (
+                    <div className="max-h-[190px] overflow-y-auto">
+                      {versions.map((version) => (
+                        <div
+                          key={version.version}
+                          className="flex items-center justify-between gap-3 border-b border-white/[0.04] px-3.5 py-2 transition-colors last:border-0 hover:bg-white/[0.03]"
+                        >
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] font-mono text-[10px] text-foreground">
+                              {version.version}
+                            </span>
+                            <span className="truncate text-[11px] text-muted-foreground">
+                              {version.instructionChars} chars · {version.createdAt.replace('T', ' ').slice(0, 16)}
+                            </span>
+                          </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => void restore(version.version)}
+                            disabled={busy}
+                            className="shrink-0 gap-1 text-[11px]"
+                          >
+                            <Undo2 size={12} /> Restore
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {preview && (
+            <div className="space-y-2 border-t border-white/[0.06] bg-black/20 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Eye size={13} /> Effective prompt
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPreview(null)}
+                  className="text-muted-foreground transition-colors hover:text-foreground"
+                  aria-label="Close preview"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {preview.effectiveChars} characters total · {preview.isDefault ? 'built-in prompt only' : `overlay: ${preview.persona?.name}`}
+              </p>
+              <pre className="max-h-[300px] overflow-auto whitespace-pre-wrap rounded-lg bg-background/60 p-3 font-mono text-[11px] leading-relaxed text-foreground/80">
+                {preview.basePrompt}
+                {preview.personaBlock ? `\n\n${preview.personaBlock}` : ''}
+              </pre>
+            </div>
+          )}
+        </Panel>
+      </div>
     </div>
   );
 }

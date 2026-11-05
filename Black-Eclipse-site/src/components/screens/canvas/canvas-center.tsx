@@ -14,7 +14,7 @@ import type { CanvasSnapshot } from '@/lib/harness/canvas-client';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { CanvasEditor } from './canvas-editors';
@@ -146,6 +146,7 @@ export function CanvasCenter(props: CanvasCenterProps) {
             <ChevronDown className="h-3 w-3" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-[280px]">
+            <DropdownMenuGroup>
             <DropdownMenuLabel>Version history</DropdownMenuLabel>
             {snapshot.versions.length === 0 ? (
               <div className="px-1.5 py-1 text-xs text-muted-foreground/60">No history yet.</div>
@@ -165,6 +166,7 @@ export function CanvasCenter(props: CanvasCenterProps) {
                 </DropdownMenuItem>
               ))
             )}
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
 

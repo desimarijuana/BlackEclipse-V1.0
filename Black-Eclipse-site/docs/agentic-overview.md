@@ -1,7 +1,7 @@
 ---
 title: Overview — Graph Studio Workspace
 status: Current
-last-verified: 2026-10-26
+last-verified: 2026-11-04
 ---
 
 # Overview
@@ -22,7 +22,9 @@ Overview is the entry point.
 - The editor's **Workflows** back action returns to the gallery. Old
   `?tab=graph-studio` links alias to Overview.
 - It never edits workflow semantics itself: the gallery is a view over the
-  shared `catalog-store`, and the editor remains the single authoring surface.
+  shared `catalog-store`, and the editor remains the authoring surface for an
+  open workflow. (The ChatBot can also *create* a new workflow from a sentence
+  through the `create_workflow` tool; see `docs/graph-studio.md`.)
 
 ## Where it lives
 

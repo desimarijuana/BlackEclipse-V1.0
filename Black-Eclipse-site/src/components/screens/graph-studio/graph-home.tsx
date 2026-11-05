@@ -5,7 +5,7 @@
 // workflows plus the template starter set and the prompt-to-graph entry point.
 // Opening a workflow switches the workspace into the full-bleed editor.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight, ChevronDown, Clock, GitBranch, Plus, Search, Sparkles, Trash2,
 } from '@/lib/icons';
@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuTrigger,
@@ -71,6 +72,31 @@ export function GraphHome({
     void refresh();
   }, [refresh]);
 
+  // The gallery lives in a keep-alive tab, so a workflow created elsewhere (the
+  // chat's `create_workflow` tool writes through the front door, not this store)
+  // would otherwise never show up. Refresh whenever this surface becomes
+  // visible again; the first observation is skipped because the mount effect
+  // above already loaded it.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const wasHidden = useRef(false);
+  useEffect(() => {
+    const node = rootRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.some((entry) => entry.isIntersecting);
+      if (!visible) {
+        wasHidden.current = true;
+        return;
+      }
+      if (wasHidden.current) {
+        wasHidden.current = false;
+        void refresh();
+      }
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [refresh]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return summaries;
@@ -117,7 +143,7 @@ export function GraphHome({
   };
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div ref={rootRef} className="h-full overflow-y-auto">
       <div className="w-full px-4 py-6 md:px-6 lg:px-8">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -151,17 +177,19 @@ export function GraphHome({
                 <Plus size={13} /> New workflow <ChevronDown size={11} className="opacity-70" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-72 p-1.5">
-                <DropdownMenuLabel className="px-2 pb-1 pt-0.5">Start from a template</DropdownMenuLabel>
-                {WORKFLOW_TEMPLATES.map((template) => (
-                  <DropdownMenuItem
-                    key={template.id}
-                    onClick={() => void beginFromTemplate(template.id)}
-                    className="flex-col items-start gap-0.5 rounded-lg px-2 py-2"
-                  >
-                    <span className="text-[12px] font-medium text-foreground">{template.name}</span>
-                    <span className="text-[10.5px] leading-snug text-muted-foreground">{template.description}</span>
-                  </DropdownMenuItem>
-                ))}
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="px-2 pb-1 pt-0.5">Start from a template</DropdownMenuLabel>
+                  {WORKFLOW_TEMPLATES.map((template) => (
+                    <DropdownMenuItem
+                      key={template.id}
+                      onClick={() => void beginFromTemplate(template.id)}
+                      className="flex-col items-start gap-0.5 rounded-lg px-2 py-2"
+                    >
+                      <span className="text-[12px] font-medium text-foreground">{template.name}</span>
+                      <span className="text-[10.5px] leading-snug text-muted-foreground">{template.description}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

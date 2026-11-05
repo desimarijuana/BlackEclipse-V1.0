@@ -1,6 +1,63 @@
 # Change Log
 
 ## 2026-11-04
+- **ui(graph-studio): cleaner nodes and straight wires.** Single-port nodes no
+  longer render the "Start"/"Value" labels beside their handles (the tooltip
+  still names the port); nodes with several ports keep their labels so branch
+  choices stay readable. Connections are now straight lines instead of beziers,
+  and the hover insert/delete controls on a wire are frosted glass
+  (`bg-white/10 + backdrop-blur-md`) instead of an opaque chip. Files:
+  `src/components/screens/graph-studio/eclipse-node.tsx`,
+  `eclipse-edge.tsx`. Docs updated: `docs/CHANGELOG.md`.
+- **fix(graph-studio): the "New workflow" template menu no longer throws.** The
+  menu's `DropdownMenuLabel` is a Base UI `Menu.GroupLabel`; using it outside a
+  `DropdownMenuGroup` throws "MenuGroupContext is missing" as soon as the menu
+  opens, so the button appeared dead. Wrapped the template list in
+  `DropdownMenuGroup` in `src/components/screens/graph-studio/graph-home.tsx`
+  and fixed the same latent bug in the canvas version-history menu
+  (`src/components/screens/canvas/canvas-center.tsx`). Template creation itself
+  was already working — all 15 templates create successfully through
+  `/api/workflows`. Docs updated: `docs/CHANGELOG.md`.
+- **feat(dashboard): journal drawdown + monthly P&L charts.** The Home Trading
+  edge tile now shows a **drawdown (underwater) area** from
+  `analytics.equityCurrency.drawdown` with the max drawdown labelled, and
+  **last-12-month P&L bars** from `analytics.monthlyReturns` (green/red,
+  magnitude-scaled, per-month tooltip with trade count). Both are derived from
+  data already fetched — no new requests. Per-position price sparklines were
+  evaluated and rejected: broker symbols (XAUUSD/EURUSD) return no JDDS price
+  history, so they would render empty. Docs updated: `docs/trading.md`,
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **fix(dashboard): a flat P&L series now reads as a flat line, not a broken chart.**
+  `AreaSpark` projected a zero-variance series to the bottom of its viewBox
+  (`y=36/40`), so the Home Trading "Realized P&L · last 30 days" panel (one
+  EURUSD deal with 0 P&L) looked empty. Flat series now render on the midline,
+  the dashed baseline follows the same projection, and the caption states
+  "no realized P&L in this window" instead of implying a curve. Docs updated:
+  `docs/CHANGELOG.md`.
+- **feat(dashboard): charts in the Home Trading section.** Added a **realized
+  P&L curve** (cumulative broker deals, last 30 local days, zero baseline,
+  min/max day labels, `N deals · broker-reported`) built by
+  `buildDailyRealized` in `src/lib/dashboard/trading-home-model.ts`; a
+  **margin-usage ring** replacing the numeric margin tile (level, band, free
+  margin); inline **P&L bars** on each open position; **diverging bars** for
+  per-symbol exposure; and a **journal equity sparkline** from
+  `analytics.equityCurrency`. `AreaSpark` gained an optional `baseline`;
+  `home-primitives.tsx` gained `DivergingBarRow`. Honest limits: the curve is
+  realized-only (no stored balance history), the broker read covers the last 200
+  deals, and empty/short series render an explicit state rather than a line.
+  Tests: `trading-home-model.test.ts` (daily bucketing, carry-forward, window,
+  trimming). Docs updated: `docs/trading.md`, `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **fix(dev): the development server reads the shared `jdds.db` again.** The dev
+  profile sets `BE_DATA_DIR=.black-eclipse/dev/` for isolated runtime DBs, but
+  `src/lib/db.ts` derived the market/journal file from it too — so dev opened an
+  empty `.black-eclipse/dev/jdds.db` with no schema and every Prisma-backed
+  surface failed (`P2021`: `Market`/`JournalProfile` missing; journal analytics
+  500, regime unavailable, empty market cards). `src/lib/db.ts` now honours
+  `BE_DB_PATH` first (the override `doctor.js`/`db-guard.js` already used), and
+  `scripts/lib/profiles.js` pins it to the repository `jdds.db` for dev — the
+  behaviour `docs/environments.md` already documented. Docs updated:
+  `docs/environments.md`, `docs/CHANGELOG.md`.
 - **ui(consistency): every title icon is now one shared frosted tile.** Extracted
   `IconBadge` + `PageHeader` into `src/components/layout/page-header.tsx` (neutral
   `border-foreground/10 bg-foreground/[0.06]`, icon 22/26/30 at three sizes) and

@@ -1,7 +1,7 @@
 ---
 title: Graph Studio — Visual Workflow Engineering
 status: Current
-last-verified: 2026-11-02
+last-verified: 2026-11-04
 ---
 
 # Graph Studio
@@ -1225,6 +1225,19 @@ dry-runs the compiler. Only a plan with zero errors becomes a `WorkflowIR`
 rejected plan returns its diagnostics. Model credentials are resolved by the
 front door and used in memory only. The planner is one bounded model call: no
 auto-repair loop, no subworkflows, and no live mode.
+
+**Creating a workflow from chat (terminal mode).** The ChatBot can create a saved
+workflow from a one-sentence idea: the `create_workflow` tool
+(`python/harness/graph_tools.py`) posts the objective to `POST
+/api/workflows/generate`, which resolves the model credentials, runs the SAME
+planner above, re-validates the returned IR and writes it through the normal
+workflow store. The tool returns the saved id/name plus node/edge counts; it
+never runs the graph, and it needs no approval (it is a reversible catalog
+write — `create_workflow` is in `GRAPH_WRITE_TOOLS`, so `plan_only` removes it).
+A plan that does not validate is reported with the planner's diagnostics and
+nothing is saved. Nothing else in the chat surface writes workflows, and the
+gallery refreshes when its keep-alive tab becomes visible again, so a workflow
+created from chat appears without a reload.
 
 **In-editor assistant (tool-calling, not one JSON blob).** `POST
 /api/graphs/assist` → Python `POST /graphs/assist` is the assistant that edits
