@@ -726,7 +726,7 @@ BOOKKEEPER = AgentConfig(
 CODE_AGENT_TOOLS = [
     # Read / navigate (Phase 1)
     "workspace_status", "workspace_list",
-    "workspace_read", "workspace_docs",
+    "workspace_read", "workspace_docs", "project_rules",
     # Change (Phase 2) â€” effectful; removed at plan_only
     "workspace_diff", "workspace_revert",
     # File-system subsystem (Phase FS) â€” read/inspect first, then minimal edits.
@@ -921,7 +921,7 @@ CODE_AGENT = AgentConfig(
 # `code_deploy` stay on the Code Tasks surface where the approval panel lives.
 CHAT_CODE_TOOLS: tuple[str, ...] = (
     "workspace_status", "workspace_list",
-    "workspace_read", "workspace_docs",
+    "workspace_read", "workspace_docs", "project_rules",
     "workspace_diff", "workspace_revert",
     "command_run", "terminal_run", "shell_run", "shell_spawn",
     "process_output", "process_kill", "process_list",

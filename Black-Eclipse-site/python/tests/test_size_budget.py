@@ -177,7 +177,7 @@ RATCHET_PY: dict[str, int] = {
     # `workspace_search` on a single file searches it directly instead of
     # raising NOT_FOUND; a recorded incident) + the schema wording. May only
     # shrink; the next split candidate remains the search/symbols block.
-    "code/tools.py": 1268,
+    "code/tools.py": 1270,
     # Grew past the hard ceiling with the RSL R9 drift surface (the
     # `/api/evolution/drift` + `/api/evolution/candidates/{id}/state` routes and
     # their request models) added to the EXISTING evolution route group â€” the

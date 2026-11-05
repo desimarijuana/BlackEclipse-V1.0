@@ -512,6 +512,35 @@ async def _repo_map_context(
     root = getattr(workspace, "root", None)
     if root is None:
         return "", None
+
+    parts: list[str] = []
+    map_digest: Optional[str] = None
+
+    # Phase 22 / S1: the project's own rules arrive BEFORE the map. They are
+    # context, never permission (the policy authority is untouched), and a
+    # project with no rules simply yields no block.
+    try:
+        from .code.project_memory import load_project_rules  # noqa: PLC0415
+
+        rules = load_project_rules(root)
+        if rules.text:
+            parts.append(rules.text)
+        try:
+            await emitter.emit("code.project_rules_loaded", {
+                "sources": list(rules.sources),
+                "missing": list(rules.missing),
+                "digest": rules.digest,
+                "truncated": rules.truncated,
+                "characters": len(rules.text),
+            })
+        except Exception:  # noqa: BLE001 - telemetry must not break a run
+            pass
+    except Exception as exc:  # noqa: BLE001 - rules must never break a run
+        try:
+            await emitter.emit("code.project_rules_failed", {"error": str(exc)[:200]})
+        except Exception:  # noqa: BLE001
+            pass
+
     try:
         from .code.intel.context import context_budget_s  # noqa: PLC0415
         from .code.intel.repo_map import build_repo_map, render_repo_map  # noqa: PLC0415
@@ -525,12 +554,16 @@ async def _repo_map_context(
         deadline = started + budget
         repo_map = build_repo_map(root, deadline=started + budget / 2)
         block = render_repo_map(repo_map)
+        if block:
+            parts.append(block)
+        map_digest = repo_map.digest
     except Exception as exc:  # noqa: BLE001 - a map must never break a run
         try:
             await emitter.emit("code.repo_map_failed", {"error": str(exc)[:200]})
         except Exception:  # noqa: BLE001
             pass
-        return "", None
+        # The rules still made it into the turn; only the map is absent.
+        return "\n\n".join(parts), None
     seeded = ""
     seed_truncated = False
     if code_intel_runtime is not None and time.monotonic() < deadline:
@@ -547,7 +580,8 @@ async def _repo_map_context(
                 await emitter.emit("code.repo_map_seed_failed", {"error": str(exc)[:200]})
             except Exception:  # noqa: BLE001
                 pass
-    parts = [p for p in (block, seeded) if p]
+    if seeded:
+        parts.append(seeded)
     try:
         await emitter.emit("code.repo_map_built", {
             "files": repo_map.total_files,
@@ -561,7 +595,7 @@ async def _repo_map_context(
         })
     except Exception:  # noqa: BLE001
         pass
-    return "\n\n".join(parts), repo_map.digest
+    return "\n\n".join(parts), map_digest
 
 
 def _render_seeded_slice(slice_: dict[str, Any]) -> str:

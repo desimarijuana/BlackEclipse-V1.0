@@ -43,6 +43,7 @@ file, not here.
 | 19 — Verifying what it produced | [phase-19](./phase-19-self-verification.md) ✅ Done 2026-10-13 (ADR-H191) | 14, 18 | 20 | new |
 | 20 — Measuring all of it | [phase-20](./phase-20-measuring-all-of-it.md) ✅ Done (every class graded; `test_capability_classes` asserts no unmeasured row; ADR-H193) | 13–19 | — | §15.3 **7F** extended |
 | 21 — Editable notebook cells in chat | [phase-21](./phase-21-notebook-cells.md) ✅ Done 2026-10-22 (cell document, sandbox run/restart, chart codegen, Monaco surface — ADR-H323) | 14, 18 | — | new |
+| 22 - Self-hosting: using Eclipse to build Eclipse | [phase-22](./phase-22-self-hosting.md) -> Draft 2026-11-05 (project memory, durable build sessions, builder/target boundary, maintenance mode, land pipeline, Builder surface, self-build scorecard) | 5, 10, 14, 15, 17, 19, 20 | - | new |
 
 **Round 3 (2026-10-20) — competitive as a coding harness, shippable as a
 product.** Rounds 1 and 2 built the machinery and made it reachable. Round 3

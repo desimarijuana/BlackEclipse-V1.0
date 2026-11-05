@@ -1049,10 +1049,13 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
     # The fs subsystem's tools are registered first; handlers build a service lazily.
     from .edit_tools import register_edit_tools  # noqa: PLC0415
     from .fs_tools import register_fs_tools  # noqa: PLC0415
+    from .project_memory import register_project_memory_tools  # noqa: PLC0415
 
     fs_names = register_fs_tools(registry)
     # Round 3 / W3 (ADR-H282): the ONE text-edit tool.
     register_edit_tools(registry)
+    # Phase 22 / S1: the project's own rules, read-only.
+    register_project_memory_tools(registry)
 
     _INPUT_SCHEMAS["terminal_run"] = terminal_schema()
     from .shell_tools import (  # noqa: PLC0415
