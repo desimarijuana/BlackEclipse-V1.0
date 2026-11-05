@@ -4,8 +4,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ResearchEvidencePanel } from './research-evidence-panel';
 import type { ResearchCitation } from '@/lib/harness/types';
 
-// The sources are the useful part of the provenance block, so a run that cited
-// them opens on the source list by default. A run with no citation stays quiet.
+// The provenance block stays COLLAPSED by default so it reads as attached
+// metadata. The always-visible header carries the status summary; opening it
+// reveals Sources first.
 
 function run(citations: ResearchCitation[], limitations: string[] = []) {
   return {
@@ -26,7 +27,7 @@ function run(citations: ResearchCitation[], limitations: string[] = []) {
 }
 
 describe('ResearchEvidencePanel', () => {
-  it('opens on the sources when the run cited them', () => {
+  it('stays collapsed by default even when the run cited sources', () => {
     const html = renderToStaticMarkup(
       <ResearchEvidencePanel
         research={run([{
@@ -37,11 +38,12 @@ describe('ResearchEvidencePanel', () => {
         }])}
       />,
     );
-    expect(html).toContain('Sources');
-    expect(html).toContain('Annual report');
+    // The header summary is visible; the source list is not rendered until open.
+    expect(html).toContain('1 source');
+    expect(html).not.toContain('Annual report');
   });
 
-  it('stays collapsed when there is no source to show', () => {
+  it('keeps the limitation count visible in the collapsed header', () => {
     const html = renderToStaticMarkup(
       <ResearchEvidencePanel research={run([], ['One period was unknown.'])} />,
     );

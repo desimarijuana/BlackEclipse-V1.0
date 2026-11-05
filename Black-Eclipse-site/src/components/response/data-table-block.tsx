@@ -193,7 +193,16 @@ export function DataTableBlock({
                     onClick={() => toggleSort(col.key)}
                     aria-sort={active ? (sort!.dir === 'asc' ? 'ascending' : 'descending') : sortable ? 'none' : undefined}
                   >
-                    <span className="inline-flex items-center gap-1.5">
+                    {/* The sort icon is always in the flow (opacity, not
+                        display), so on a right-aligned column it would push the
+                        label away from the values. Reverse the row there: the
+                        label's right edge then lines up with every cell. */}
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1.5',
+                        alignments[col.key] === 'right' && 'flex-row-reverse',
+                      )}
+                    >
                       {renderInline(parseInline(col.label))}
                       {sortable && (
                         <span

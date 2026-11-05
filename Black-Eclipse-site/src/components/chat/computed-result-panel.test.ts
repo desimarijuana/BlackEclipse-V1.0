@@ -1,5 +1,11 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { humanMethodLine } from './computed-result-panel';
+import { ComputedResultPanel, humanMethodLine } from './computed-result-panel';
+
+function render(result: unknown): string {
+  return renderToStaticMarkup(createElement(ComputedResultPanel, { result }));
+}
 
 // The computed-result card names a result Eclipse worked out. Its second line is
 // a METHOD ("Q1 vs Q2, same basis"), never a debug dump of the runtime's object.
@@ -24,5 +30,43 @@ describe('humanMethodLine', () => {
     expect(humanMethodLine('   ')).toBeNull();
     expect(humanMethodLine(null)).toBeNull();
     expect(humanMethodLine(undefined)).toBeNull();
+  });
+});
+
+describe('ComputedResultPanel empty states', () => {
+  const provenance = { kind: 'computed', label: 'Worked out by Eclipse', detail: 'Sharpe' };
+
+  it('renders nothing when the number has no provenance record', () => {
+    const html = render({
+      status: 'ok',
+      provenance: null,
+      outputs: { sharpe: 1.42 },
+      artifacts: [],
+      figure: null,
+    });
+    expect(html).toBe('');
+  });
+
+  it('renders nothing when there is no content to show', () => {
+    const html = render({
+      status: 'ok',
+      provenance,
+      outputs: {},
+      artifacts: [],
+      figure: null,
+    });
+    expect(html).toBe('');
+  });
+
+  it('still renders a computed result that has data', () => {
+    const html = render({
+      status: 'ok',
+      provenance,
+      outputs: { sharpe: 1.42 },
+      artifacts: [],
+      figure: null,
+    });
+    expect(html).toContain('Worked out by Eclipse');
+    expect(html).toContain('1.42');
   });
 });

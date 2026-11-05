@@ -219,10 +219,10 @@ export function ResearchEvidencePanel({ research, compact = false }: { research:
   const info = coerceResearchRun(research);
   const metadata: ResearchMetadata | null | undefined = info?.metadata;
   const citations = metadata?.citations ?? [];
-  // The sources ARE the useful part, so the panel opens on them by default.
-  // Calculations, limitations and run detail stay nested inside the open body;
-  // the always-visible header line still carries the status summary and counts.
-  const [blockOpen, setBlockOpen] = useState(citations.length > 0);
+  // The panel stays COLLAPSED by default so it reads as attached metadata rather
+  // than an extension of the answer. The always-visible header line carries the
+  // status summary and counts; opening reveals Sources first.
+  const [blockOpen, setBlockOpen] = useState(false);
   const [metaOpen, setMetaOpen] = useState(false);
   const bodyId = useId();
   if (!info) return null;

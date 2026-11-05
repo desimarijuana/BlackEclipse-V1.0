@@ -384,7 +384,10 @@ export function ResponseView({ response, compact = false, className, onFollowup 
   return (
     <InputsStateProvider value={inputsState}>
       <section className={cn('w-full', className)} aria-label="Structured response">
-        <div className="flex flex-wrap items-start justify-between gap-2">
+        {/* Breathing room around the export/action row: it used to sit flush
+            against the content above and below, which read as one crowded
+            block. */}
+        <div className="mb-3 mt-1 flex flex-wrap items-start justify-between gap-x-2 gap-y-1.5">
           <ResponseHeader response={finalizedResolved} />
           <ResponseActions response={finalizedResolved} />
         </div>

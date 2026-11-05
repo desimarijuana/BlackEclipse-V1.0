@@ -1,6 +1,149 @@
 # Change Log
 
 ## 2026-11-05
+- **feat(code): per-file review and review notes (Phase 22 / S5 slice 2).** The
+  promotion preview now accepts `include`: `promotion.filter_preview` keeps only
+  the files the reviewer ticked and RECOMPUTES the digest over that set, so the
+  single-use approval is bound to exactly what will be written. The preview and
+  apply routes take the same `include`, and the promote card renders a checkbox
+  per file (re-previewing on every toggle; at least one file stays selected).
+  A new "Request changes" panel records an optional `file:line` and a note, then
+  opens a new chat turn with `/eclipsesdk <goal>` plus the notes through the
+  shell's `navigateTo` prompt param. Honest limits: per-HUNK accept is not
+  supported (file granularity only), and the note starts a NEW chat turn in a
+  new working copy rather than editing the same one in place. Tests
+  `python/tests/test_promotion_filter.py` (4 passed). Size budget re-pinned
+  (total, `code`, `routers`; `en.ts` 1305 -> 1312).
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S5 slice 2),
+  `docs/harness/roadmap/README.md`.
+- **feat(chat): per-chat project folder (Phase 23).** Each conversation can now be
+  bound to one APPROVED workspace root, OpenCode-style, instead of the whole app
+  sharing the single global selection. A **project chip** beside the session bar
+  shows the current folder and opens a picker (approved folders + "Open folder…" +
+  "Use Eclipse repo"). The binding is stored per chat as
+  `.black-eclipse/sessions/<chatId>/project.json`, and the run routes forward an
+  approved **root id** (never a path) as `RunRequest.workspaceRootId`; the runtime
+  resolves it through `TrustedRootStore` and binds that run's workspace. An
+  unknown/revoked id yields NO workspace (honest refusal), never a silent
+  fallback; `direct` mode follows the per-run folder exactly like the global
+  selection. New: `src/components/chat/project-chip.tsx`,
+  `src/components/workspace/folder-picker.tsx` (extracted from the editor),
+  `src/app/api/chat/session/project/route.ts`, `project.json` helpers in
+  `src/lib/chat/session-store.ts`, `set_trusted_root_lookup` in
+  `python/harness/code/workspace.py`. Tests: `python/tests/test_workspace_per_chat.py`,
+  `src/lib/chat/session-project.test.ts`, plus run-service cases. Docs updated:
+  `docs/NAVIGATION.md`.
+- **feat(code): the self-build acceptance eval (Phase 22 / S6, final slice).** New
+  `python/harness/code/selfbuild_eval.py`: six acceptance fixtures, one per
+  shipped self-build capability (project memory, build session, maintenance door,
+  land pipeline, Builder surface, scorecard). Each fixture names the exact files
+  and contract strings that must exist after a candidate change, so it grades a
+  worktree deterministically. Commands are OFF by default (a release run passes
+  `--commands`) and a skipped command is reported as skipped, never a pass. The
+  human diff grade is `UNKNOWN` - the eval never invents a quality number. The
+  repository passes 6/6 today as a regression check. Tests
+  `python/tests/test_selfbuild_eval.py` (4 passed). Size budget re-pinned to the
+  measured tree (total, `code`). This completes S6; S5 slice 2 (per-hunk review,
+  line comments, dedicated Builder tab) remains.
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S6),
+  `docs/harness/roadmap/README.md`.
+- **feat(models): a coding model for build runs (Phase 22 / S6, slice 2).** The
+  LLM config gains an optional `codingModel` (same provider/key/URL): chat turns
+  the deterministic classifier recognises as code, forced `/eclipsesdk` turns,
+  and Code tasks now resolve that model; every other turn keeps the chat model.
+  The Settings > AI surface gains a "Coding model (optional)" field, and the
+  value round-trips through the settings API. The self-build scorecard also
+  breaks results down by `provider/model` (`byModel`). `planner`/`editor`/
+  `reviewer` multi-role routing is folded into this one build model on purpose:
+  one run still uses one model, and no second router was added. Tests
+  `python/tests/test_scorecard.py` (4 passed), `tsc` clean. Size budget re-pinned
+  (total, `code`; `en.ts` 1302 -> 1305). Repo eval remains.
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S6),
+  `docs/harness/roadmap/README.md`.
+- **feat(code): the self-build scorecard (Phase 22 / S6, slice 1).** New
+  `python/harness/code/scorecard.py` derives the honest numbers from the ONE run
+  lineage: builds (`session.created`), checks run, first-pass checks, landed
+  (`land.promoted`), rolled back (`land.rolled_back`), average steps, tokens and
+  median time-to-first-change. A dimension with no data is `UNKNOWN`, never `0`;
+  cost and human edits are named as unmeasured. `promote_apply` now records
+  `land.promoted`, and rollback records `land.rolled_back` when the caller names
+  the run (the chat and Code rollback paths pass it). `GET /code/scorecard`
+  exposes it; the Code screen shows a compact strip. Tests
+  `python/tests/test_scorecard.py` (4 passed). Size budget re-pinned to the
+  measured tree (total, `code`, `routers`; `en.ts` 1297 -> 1302).
+  Model roles (`planner`/`editor`/`reviewer`) and the repo eval remain.
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S6 slice 1),
+  `docs/harness/roadmap/README.md`.
+- **feat(code): the Builder surface, slice 1 (Phase 22 / S5).** The Code screen
+  now derives ONE honest state from recorded facts (`session.derive_phase`:
+  planning / editing / checking / ready / blocked / stopped) plus the single next
+  action, and exposes the latest `land.verified` result on the session view. The
+  landing gate is real in the Code screen: `PromoteChange` is disabled until a
+  FULL check pass, with a plain-language hint. The diff viewer splits a unified
+  diff into per-file, collapsible sections (`src/lib/code/diff-sections.ts`), so a
+  multi-file change is reviewable file by file. Tests: `test_build_session.py`
+  (11 passed), `diff-sections.test.ts`. Size budget re-pinned to the measured
+  tree (total, `code`; `en.ts` 1285 -> 1297).
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S5 slice 1),
+  `docs/harness/roadmap/README.md`.
+- **feat(code): the landing pipeline (Phase 22 / S4).** New
+  `python/harness/code/land.py`: an ordered, data-driven check plan (typecheck,
+  tests, size, secret scan, the change-log obligation, and a build when
+  `src/**` changed), with `.black-eclipse/land.json` as a project override and
+  the exit code as the judge. A check that cannot run is an `error`, never a
+  pass; the first required failure stops the pipeline and the rest are reported
+  as `skipped`. `GET /code/tasks/{id}/land` is the read-only plan;
+  `POST /code/tasks/{id}/land/verify` runs it (`full=false` skips the long suite)
+  and records a `land.verified` checkpoint. The checks run against the project on
+  disk (the disposable copy has no installed dependencies), so the Code-screen
+  `LandChecks` panel sits after the change is applied and offers quick/full runs
+  with per-check output, plus the `code.land.*` i18n keys. Tests
+  `python/tests/test_land.py` (8 passed). Size
+  budget re-pinned to the measured tree (total, `code`, `routers`; `en.ts`
+  1272 -> 1285).
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S4 shipped),
+  `docs/harness/roadmap/README.md`.
+- **feat(code): the self-build boundary and offline maintenance mode (Phase 22 / S3).**
+  `selfhost.plan_landing` turns the existing classifier into ordered steps:
+  `python/harness/**` restarts only the builder, `src/**` builds only the target,
+  and an authority file exits through maintenance - never a live hot-swap. New
+  `python/harness/code/maintenance.py` is the one authority door: it refuses a
+  non-authority change, refuses a dirty tree unless explicitly allowed, stops the
+  builder, applies, runs the gate, restarts, health-checks, and rolls back on any
+  failure after the apply. Every side effect is injected, so the order is tested
+  without a live process. `npm run self:maintenance -- plan|execute` is the thin
+  operator runner (`scripts/self-maintenance.js`), and `plan` is read-only. Tests
+  `python/tests/test_maintenance.py` (11 passed). Size budget re-pinned to the
+  measured tree (total, `code`; no ratcheted-file growth).
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S3 shipped),
+  `docs/harness/roadmap/README.md`.
+- **feat(code): durable build sessions with a budget ladder (Phase 22 / S2).**
+  New `python/harness/code/session.py`: a session is a lens over the existing
+  run lineage, not a second store. It records the goal, the acceptance list and
+  the budget as one `session.created` checkpoint, and derives progress/resume
+  from the checkpoints the task lifecycle already writes. The budget is a
+  profile NAME (`small` 24 steps / 10 min, `standard` 80 / 45 min, `deep` 240 /
+  3 h), never a raw number from the caller. `RunRequest` gains additive
+  `maxSteps` / `runTimeoutMs`; `graph.requested_budget` applies them as a floor
+  and clamps to the runtime's hard caps, so a deep session can run long without
+  widening the autonomy floor or the tool surface. `POST /code/tasks` accepts
+  `budgetProfile` + `acceptance` and returns the session block; `GET
+  /code/tasks/{id}` carries it too. The front door validates the profile and the
+  `/code` command gains `--budget`. The Code task detail now shows the session
+  (goal, budget, acceptance, finished state) through `getCodeSession` and
+  `TaskDetail`, with four `code.session.*` i18n keys. Tests
+  `python/tests/test_build_session.py` (9 passed). Size budget re-pinned to the
+  measured tree (`.`, `code`, `routers`, total; `graph.py` 2406 -> 2434;
+  `en.ts` 1268 -> 1272).
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S2 shipped).
 - **feat(code): load the project's own rules into a code turn (Phase 22 / S1).**
   New `python/harness/code/project_memory.py`: a bounded, deterministic loader for
   `AGENTS.md`, `.eclipse/instructions.md`, `CLAUDE.md` and the top-level map in
@@ -11,15 +154,19 @@
   by `graph_context._repo_map_context`, and a new read-only `project_rules` tool
   lets the agent re-read it on demand. The rules are **context, never
   permission** - no rule can change the allowlist or the autonomy floor.
-  `CHAT_CODE_TOOLS` and `CODE_AGENT_TOOLS` gain the tool; the code-agent and chat
-  prompts say so. Tests `python/tests/test_project_memory.py` (12 pass, 1
-  symlink skip), plus the updated exact-surface pin in
-  `python/tests/test_chat_code_profile.py`. The harness size budget is re-pinned
+  `CHAT_CODE_TOOLS` and `CODE_AGENT_TOOLS` gain the tool; the task code-agent
+  prompt says so. The chat prompt is unchanged - the injected block already
+  carries the "context, never permission" rule - so the ECLIPSE prompt-size
+  ratchet and the read-only navigator prompt both stay put. The published tool
+  registry is regenerated (`docs/harness/tool-registry.json`, 1020 tools). Tests
+  `python/tests/test_project_memory.py` (12 pass, 1 symlink skip), plus the
+  updated exact-surface pin in `python/tests/test_chat_code_profile.py`. The harness size budget is re-pinned
   to the measured tree (`scripts/size-budget.json`; the `code/tools.py` ratchet
   moves 1268 -> 1270) because `python/harness/code` was at its ceiling.
   Docs updated: `docs/NAVIGATION.md`,
   `docs/harness/roadmap/phase-22-self-hosting.md` (S1 shipped),
-  `docs/harness/roadmap/README.md`; `docs/CHANGELOG.md`.
+  `docs/harness/roadmap/README.md`, `docs/harness/tool-registry.json`;
+  `docs/CHANGELOG.md`.
 - **docs(harness): add the Phase 22 self-hosting plan.** The gap analysis for
   using Eclipse to build Eclipse, grounded in the merged tree: no project-rule
   loader (nothing reads `AGENTS.md` under `python/harness/`), a 24-step / 600s
@@ -52,6 +199,36 @@
   default. No runtime/provenance logic changed — presentation only. Tests updated:
   `chat-capability-panel.test.ts` now asserts both cards are absent from the
   transcript. Docs updated: `docs/interactive-response-engine.md`.
+- **fix(chat): drop the empty computed-result card.** A result with no
+  provenance record (the "This number has no record of where it came from…"
+  UNAVAILABLE state) or with nothing to show (no outputs, artifact, figure or
+  recipe) no longer renders a card at all; the fail-closed refusal still happens
+  at the runtime boundary. A computed result with provenance and data is
+  unchanged. Covered by new empty-state cases in
+  `computed-result-panel.test.ts`. Docs updated: `docs/interactive-response-engine.md`.
+- **fix(chat): keep the Sources panel collapsed and align table columns.** Two
+  follow-ups from the browser review. (1) "Sources consulted" no longer opens by
+  default; the header summary stays visible and the body (Sources first) is
+  behind the toggle. (2) Tables now use ONE alignment per column shared by the
+  header and every body cell — the Markdown path previously right-aligned each
+  numeric cell individually, leaving the header on the opposite side and mixed
+  columns flipping; `data-table-block.tsx` also reverses the header row on a
+  right-aligned column so the always-present sort icon does not push the label
+  away from the numbers. Covered by new `markdown-table.test.tsx`, an updated
+  `research-evidence-panel.test.tsx`, and a header-alignment case in
+  `render.test.tsx`. Docs updated: `docs/interactive-response-engine.md`,
+  `docs/chat-ui-audit.md`.
+- **style(chat): give the response action row room to breathe.** The export row
+  (JSON / Read aloud / MD / PDF / Save / Open in Canvas) sat flush against the
+  header above and the content below. It now has a little top margin and a
+  clear bottom gap, with wrap row-gap, so it reads as its own strip.
+  Presentation-only; no doc change beyond this note.
+- **style(canvas): the inline Canvas dock opens as one surface card.** Replaced
+  the thin `Eclipse response · REPORT · Save to edit` toolbar with the rounded
+  card from the review: a rounded icon tile plus a surface label (`Writing` for a
+  prose answer, otherwise `Code` / `Report` / `Web page` / `Image`), with Save to
+  edit and Close on the right and the document title as the card tooltip.
+  Presentation-only. Docs updated: `docs/canvas.md`.
 - **style(graph-studio): simplify canvas nodes to a borderless solid surface.**
   The node card now uses a solid `#0E0E0E` fill with no outer border and a soft
   lift instead of the heavy 2px black bezel and translucent gradient. The header

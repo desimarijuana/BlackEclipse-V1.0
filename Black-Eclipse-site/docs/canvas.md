@@ -37,6 +37,11 @@ overlay) and is resizable.
   and on any assistant message (`chat-history.tsx`) opens the viewer; the Artifact
   Center's `Edit in Canvas` opens the editable artifact. Ephemeral views offer
   **Save to edit**, which registers an artifact and switches to the editor.
+- **Dock header** (`canvas-dock.tsx`): the inline chat dock opens as one rounded
+  surface card — a rounded icon tile plus the surface label (`Writing` for a
+  prose answer, otherwise `Code` / `Report` / `Web page` / `Image`) — with
+  Save to edit and Close at its right edge. The actual document title is the
+  card's tooltip.
 - **No manual chooser.** There are no "New Document/Code/Visual" buttons; creation
   is chat-driven, and an empty dock is a ready state that points at the entry
   points.

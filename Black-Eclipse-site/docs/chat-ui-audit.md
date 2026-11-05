@@ -542,8 +542,10 @@ actually writes.
 
 - **Numeric tables** — a column whose cells are genuinely numeric (thousands
   separators, currency, percent, magnitude, parenthesised negatives) is
-  right-aligned with tabular figures; tickers/words are left alone. Negative
-  values render in the loss colour.
+  right-aligned with tabular figures; tickers/words are left alone. The
+  alignment is decided once per column and shared by the header and every body
+  cell, so a mixed column cannot flip sides or leave the header on the opposite
+  edge. Negative values render in the loss colour.
 - **Unavailable marking** — a cell or inline run that is exactly an unavailable
   marker (`UNAVAILABLE`, `n/a`, `—`, `null`, …) renders as a muted chip, so
   "we don't have this" never reads as a value.
