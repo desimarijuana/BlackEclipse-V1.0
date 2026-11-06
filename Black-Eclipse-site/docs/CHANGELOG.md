@@ -1,6 +1,17 @@
 # Change Log
 
 ## 2026-11-06
+- **feat(builds): project scope is visible everywhere (polish).** A task view now
+  names the project each build belongs to (`projectRoot`, read from the recorded
+  workspace row), `GET /code/tasks` takes `rootId` to list one project, and the
+  Builds list shows the folder and follows the project bar. The task detail gains
+  **Continue in chat** (the next turn for a durable build), the preview gains
+  **Restart** and stops the previous project's server when the project changes,
+  and the Capability Studio can filter generated capabilities by project
+  (`GET /capabilities?rootId=`, resolved server-side). Tests: a task's project is
+  attributed and filterable (`test_code_tasks.py`), and the existing capability
+  API/tools suites still pass. Docs updated: `docs/CHANGELOG.md`,
+  `docs/NAVIGATION.md`.
 - **feat(builds): the preview names its command before it runs.** The idle
   preview status now carries the discovered plan, so the Builds run panel shows
   "Runs npm run dev" (or "no way to run this project") and disables Run when

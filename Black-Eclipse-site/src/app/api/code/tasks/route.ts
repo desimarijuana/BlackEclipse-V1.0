@@ -10,9 +10,10 @@ export const dynamic = "force-dynamic";
 const AUTONOMY: Autonomy[] = ["plan_only", "edit_verify", "approve_external"];
 const BUDGETS = ["small", "standard", "deep"] as const;
 
-export async function GET() {
+export async function GET(request: Request) {
+  const rootId = new URL(request.url).searchParams.get("rootId") ?? undefined;
   try {
-    const tasks = await listCodeTasks();
+    const tasks = await listCodeTasks(rootId ? { rootId } : {});
     return NextResponse.json({ success: true, tasks });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

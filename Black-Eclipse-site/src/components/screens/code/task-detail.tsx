@@ -50,6 +50,13 @@ export function TaskDetail({
       <div className="glass-card rounded-xl border border-border/40 p-3 text-[12px]">
         <div className="text-foreground">{task.query}</div>
         <div className="mt-1 text-muted-foreground">{t(progressKey)}</div>
+        <button
+          type="button"
+          onClick={() => navigateTo({ tab: 'chat', params: { prompt: `Continue this build: ${task.query}` } })}
+          className="glass-button mt-2 rounded-lg px-2.5 py-1 text-[11px] text-foreground"
+        >
+          {t('code.task.continue')}
+        </button>
       </div>
       {session && (
         <div className="glass-card-subtle rounded-xl border border-border/40 p-3 text-[12px]">

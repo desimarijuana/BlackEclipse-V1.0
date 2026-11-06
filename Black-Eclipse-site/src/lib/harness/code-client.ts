@@ -26,6 +26,8 @@ export interface CodeTask {
   status: TaskStatus;
   autonomy: Autonomy;
   workspaceId: string | null;
+  /** The project checkout this build belongs to ("" when unattributed). */
+  projectRoot?: string;
   query: string;
   plan: CodePlan | null;
   verification: CodeVerification | null;
@@ -277,8 +279,9 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
   return body as T;
 }
 
-export async function listCodeTasks(): Promise<CodeTask[]> {
-  const body = await request<{ tasks: CodeTask[] }>("/code/tasks", { method: "GET" });
+export async function listCodeTasks(target: ProjectTarget = {}): Promise<CodeTask[]> {
+  const query = target.rootId ? `?rootId=${encodeURIComponent(target.rootId)}` : "";
+  const body = await request<{ tasks: CodeTask[] }>(`/code/tasks${query}`, { method: "GET" });
   return body.tasks ?? [];
 }
 

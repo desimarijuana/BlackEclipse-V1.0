@@ -161,6 +161,11 @@ export function TaskList({ tasks, selectedId, onSelect, onChanged, workspaceRoot
               )}
             >
               <span className="min-w-0 flex-1 truncate text-foreground">{task.query || t('code.task.title')}</span>
+              {task.projectRoot ? (
+                <span className="shrink-0 truncate text-muted-foreground/60" title={task.projectRoot}>
+                  {task.projectRoot.replace(/\\/g, '/').split('/').filter(Boolean).pop()}
+                </span>
+              ) : null}
               <span className="shrink-0 text-muted-foreground/70">
                 {t(AUTONOMY_KEY[task.autonomy] ?? 'code.task.badge.planOnly')}
               </span>

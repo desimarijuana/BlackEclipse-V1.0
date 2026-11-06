@@ -72,7 +72,8 @@ export function CodeScreen() {
   const refresh = useCallback(async () => {
     try {
       const [nextTasks, nextApprovals] = await Promise.all([
-        listCodeTasks(), listCodeApprovals(),
+        listCodeTasks(projectRootId ? { rootId: projectRootId } : undefined),
+        listCodeApprovals(),
       ]);
       setTasks(nextTasks);
       setApprovals(nextApprovals);
@@ -80,7 +81,7 @@ export function CodeScreen() {
     } catch {
       setError(t('code.task.loadFailed'));
     }
-  }, [t]);
+  }, [t, projectRootId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => { void refreshScorecard(); }, [refreshScorecard]);

@@ -32,6 +32,22 @@ def _create_run(store, run_id="run_t", agent_id="code-agent"):
     store.create_run(run_id, agent_id, {"query": "build a report generator"}, "u")
 
 
+def test_a_task_view_names_its_project_and_can_be_filtered(store):
+    from harness.code.store import CodeWorkspaceStore
+
+    _create_run(store, "run_p1")
+    tasks = TaskStore(store)
+    tasks.record_created("run_p1", workspace_id="ws_p1", autonomy="edit_verify")
+    CodeWorkspaceStore(store).save_workspace(
+        "ws_p1", "/tmp/x/.black-eclipse/code-workspaces/ws_p1", "HEAD", "worktree",
+        run_id="run_p1", checkout_root="/tmp/project-a",
+    )
+
+    assert tasks.view("run_p1")["projectRoot"].endswith("project-a")
+    assert [task["id"] for task in tasks.list(project_root="/tmp/project-a")] == ["run_p1"]
+    assert tasks.list(project_root="/tmp/project-b") == []
+
+
 def test_created_boundary_is_recorded(store):
     _create_run(store)
     tasks = TaskStore(store)

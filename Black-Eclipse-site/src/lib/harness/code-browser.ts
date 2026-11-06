@@ -34,8 +34,9 @@ function workspaceBase(): string {
   return '';
 }
 
-export async function listCodeTasks(): Promise<CodeTask[]> {
-  const body = await api<{ tasks: CodeTask[] }>('/api/code/tasks');
+export async function listCodeTasks(target: ProjectTarget = {}): Promise<CodeTask[]> {
+  const query = target.rootId ? `?rootId=${encodeURIComponent(target.rootId)}` : '';
+  const body = await api<{ tasks: CodeTask[] }>(`/api/code/tasks${query}`);
   return body.tasks ?? [];
 }
 

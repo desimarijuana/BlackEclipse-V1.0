@@ -33,4 +33,6 @@ export const builds = {
   // Which builds the scorecard counts.
   'code.scorecard.scope.project': 'This project',
   'code.scorecard.scope.all': 'All builds',
+  'code.task.continue': 'Continue in chat',
+  'code.preview.restart': 'Restart',
 } as const;

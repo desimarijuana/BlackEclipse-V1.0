@@ -263,9 +263,23 @@ async def create_task(body: CreateTaskRequest, _: bool = Depends(require_operato
 def list_tasks(
     status: Optional[str] = None, limit: int = 50,
     scopeId: Optional[str] = None,  # noqa: N803 - the wire name
+    rootId: Optional[str] = None,  # noqa: N803
 ) -> dict[str, Any]:
-    """List code tasks. `scopeId` is a caller-supplied FILTER, never authorization."""
-    return {"success": True, "tasks": _tasks().list(limit=limit, status=status, scope_id=scopeId)}
+    """List code tasks. `scopeId` and `rootId` are FILTERS, never authorization."""
+    from ..code.workspace import trusted_root_path  # noqa: PLC0415
+
+    project_root: Optional[str] = None
+    if rootId:
+        root = trusted_root_path(rootId)
+        if root is None:
+            raise HTTPException(status_code=400, detail="UNKNOWN_PROJECT")
+        project_root = str(root)
+    return {
+        "success": True,
+        "tasks": _tasks().list(
+            limit=limit, status=status, scope_id=scopeId, project_root=project_root,
+        ),
+    }
 
 
 @router.get("/code/scorecard")
