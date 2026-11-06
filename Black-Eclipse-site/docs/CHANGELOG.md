@@ -1,6 +1,20 @@
 # Change Log
 
 ## 2026-11-06
+- **fix(builds): four defects found by the live run.** (1) `GET /code/tasks/{id}/diff`
+  read `workspaceId` from the `task.created` payload — a SCOPE LABEL, null for an
+  unscoped task — so the diff 404'd for every such build even though the worktree
+  was correct; it now reads the recorded `CodeWorkspace` row (and the external
+  action route does the same). (2) The front-door `/api/code/preview` proxy built
+  its target from `taskId`/`rootId` only, dropping `mode`, so the UI could never
+  run the prepared change; `mode` is forwarded. (3) `capability_request` returned
+  "ready to build" without the request id in the model-facing text, so the model
+  invented ids and `capability_build` refused `REQUEST_NOT_FOUND`; the text now
+  names the request and the exact next call. (4) The front-door rollback route read
+  `runId` from the body while its client sends it in the query, so a rollback
+  could not resolve the project or write the `land.rolled_back` marker (the
+  scorecard showed zero rollbacks); it now accepts both. Tests: affected suites
+  (80 passed). Docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
 - **fix(builds): readiness pass — git hygiene, full policy coverage, clean task list.**
   A user's repo has no `.black-eclipse` ignore rule, so the first build left
   untracked state in their `git status`; the directory now writes a self-ignoring

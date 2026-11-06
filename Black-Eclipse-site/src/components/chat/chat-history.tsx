@@ -20,6 +20,7 @@ import { VideoPanel } from './video-panel';
 import { DocumentPanel } from './document-panel';
 import { MemoryActionPanel } from './memory-action-panel';
 import { ComputedResultPanel } from './computed-result-panel';
+import { CanvasInlineNotice } from '@/components/screens/canvas/canvas-banner';
 
 import { AcquisitionPanel } from './acquisition-panel';
 import { MessageRail } from './message-rail';
@@ -73,6 +74,11 @@ interface ChatHistoryProps {
   onFollowup?: (prompt: string) => void;
   /** Open this assistant message's content in the Canvas reading dock. */
   onOpenCanvas?: (msg: Message) => void;
+  /**
+   * The assistant message whose response is currently open in Canvas. Its body
+   * is replaced by a compact notice (the content lives in the Canvas surface).
+   */
+  canvasMessageId?: string | null;
   /**
    * Optional external ref to the transcript's scroll element. The full-page
    * ChatBot wrapper uses it to forward wheel/trackpad scrolling from the
@@ -163,7 +169,7 @@ const AssistantContent = memo(function AssistantContent(props: AssistantContentP
   );
 });
 
-export function ChatHistory({ messages, compact = false, onEditMessage, onResendMessage, onRetryMessage, onOpenAttachment, onFeedback, onFollowup, onOpenCanvas, scrollRef: externalScrollRef, bottomInset }: ChatHistoryProps) {
+export function ChatHistory({ messages, compact = false, onEditMessage, onResendMessage, onRetryMessage, onOpenAttachment, onFeedback, onFollowup, onOpenCanvas, canvasMessageId, scrollRef: externalScrollRef, bottomInset }: ChatHistoryProps) {
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const rootRef = useRef<HTMLDivElement>(null);
@@ -371,6 +377,7 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
       <div className={compact ? 'space-y-3' : 'space-y-6'}>
         {messages.map((msg) => {
           const working = msg.role === 'assistant' && msg.status != null && msg.status !== 'completed';
+          const inCanvas = msg.role === 'assistant' && canvasMessageId != null && canvasMessageId === msg.id;
           return (
             <div
               key={msg.id}
@@ -454,6 +461,10 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                       </div>
                     </div>
                   )}
+                  {inCanvas ? (
+                    <CanvasInlineNotice />
+                  ) : (
+                    <>
                   {msg.changes && msg.changes.length > 0 && (
                     <ChangeCards changes={msg.changes} compact={compact} />
                   )}
@@ -493,6 +504,8 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                   {msg.documents ? (
                     <DocumentPanel documents={msg.documents} compact={compact} />
                   ) : null}
+                    </>
+                  )}
                   {msg.memory ? (
                     <MemoryActionPanel memory={msg.memory} runId={msg.runId} compact={compact} />
                   ) : null}

@@ -16,6 +16,7 @@ import { useIsMobile } from '@/hooks/use-media-query';
 import { EmptyState } from '@/components/chat/empty-state';
 import { PageHeader } from '@/components/layout/page-header';
 import { ChatHistory } from '@/components/chat/chat-history';
+import { CanvasPageBanner } from '@/components/screens/canvas/canvas-banner';
 import { ChatInput } from '@/components/chat/chat-input';
 import { ApprovalCard } from '@/components/chat/approval-card';
 import { ClarificationCard } from '@/components/chat/clarification-card';
@@ -209,15 +210,18 @@ function StockChatContent() {
   const pendingCanvasArtifactId = useCommandStore((s) => s.pendingCanvasArtifactId);
   const canvasInlineOpen = useCommandStore((s) => s.canvasInlineOpen);
   const canvasView = useCommandStore((s) => s.canvasView);
+  const canvasSource = useCommandStore((s) => s.canvasSource);
   const canvasOpen = canvasInlineOpen || Boolean(pendingCanvasArtifactId) || Boolean(canvasView);
   const openMessageInCanvas = useCallback((msg: { id: string; content?: string; response?: { title?: string } }) => {
     if (!msg.content) return;
     // The canvas content builder imports the response contract (Zod). Load it
     // only when the operator actually opens a message in the canvas.
     void import('@/lib/canvas/content').then(({ contentFromMessage }) => {
-      useCommandStore.getState().openCanvasContent(
-        contentFromMessage(msg.content!, { id: msg.id, title: msg.response?.title }),
-      );
+      const content = contentFromMessage(msg.content!, { id: msg.id, title: msg.response?.title });
+      useCommandStore.getState().openCanvasContent(content, {
+        messageId: msg.id,
+        title: content.title || 'Canvas',
+      });
     });
   }, []);
   const [query, setQuery] = useState('');
@@ -1192,6 +1196,7 @@ function StockChatContent() {
               )}
                 style={{ fontFamily: 'var(--chat-font, var(--font-sans))' }}
               >
+                {!focusMode && (canvasView || pendingCanvasArtifactId) && <CanvasPageBanner />}
                 {messages.length === 0 ? (
                   <div className="flex-1 flex w-full flex-col items-center min-h-0">
                     <EmptyState
@@ -1232,6 +1237,7 @@ function StockChatContent() {
   onFeedback={handleFeedback}
   onFollowup={handleFollowup}
   onOpenCanvas={openMessageInCanvas}
+  canvasMessageId={focusMode ? null : canvasSource?.messageId ?? null}
   scrollRef={chatScrollRef}
   bottomInset={132} />
                     <div className={cn(

@@ -262,7 +262,10 @@ async def capability_request(args: dict[str, Any], ctx: ToolContext) -> tuple[st
         "I can't do that yet — but I can build it.\n"
         f"Need: {request.need}\n"
         f"Surface: {assessment.surface}\n"
-        f"Status: ready to build ({missing})",
+        f"Status: ready to build ({missing})\n"
+        f"Request: {request.request_id}\n"
+        f'Next: call capability_build with requestId="{request.request_id}" plus the '
+        "implementation and a test. Do not invent a request id.",
         data,
     )
 

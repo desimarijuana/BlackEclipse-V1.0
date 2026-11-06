@@ -10,8 +10,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ rol
     return NextResponse.json({ error: "rollbackId is required" }, { status: 400 });
   }
   try {
-    const parsed = (await request.json().catch(() => ({}))) as { runId?: string };
-    const rollback = await rollbackPromotion(rollbackId, parsed.runId);
+    // The client sends `runId` in the query (see `rollbackPromotion`); accept a
+    // body too so both shapes work. Without it the runtime cannot resolve the
+    // project or write the `land.rolled_back` marker.
+    const runId =
+      new URL(request.url).searchParams.get("runId") ??
+      ((await request.json().catch(() => ({}))) as { runId?: string }).runId;
+    const rollback = await rollbackPromotion(rollbackId, runId ?? undefined);
     return NextResponse.json({ success: true, rollback });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

@@ -473,14 +473,20 @@ def task_checks(task_id: str) -> dict[str, Any]:
 @router.get("/code/tasks/{task_id}/diff")
 def task_diff(task_id: str) -> dict[str, Any]:
     """The worktree diff for a task's disposable copy, when one is bound."""
-    created = _tasks().latest_created(task_id)
-    workspace_id = ((created or {}).get("payload") or {}).get("workspaceId")
-    if not workspace_id:
-        raise HTTPException(status_code=404, detail="No workspace bound to this task")
+    row = _task_workspace_row(task_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No change was prepared for this task")
     try:
         from ..code import worktree  # noqa: PLC0415
 
-        return {"success": True, "diff": worktree.diff(workspace_id)}
+        checkout = str(row.get("checkoutRoot") or "").strip()
+        diff = worktree.diff(
+            str(row.get("id") or ""),
+            str(row.get("baseRevision") or "HEAD") or "HEAD",
+            strategy=str(row.get("strategy") or "worktree"),
+            root=(Path(checkout) if checkout else None),
+        )
+        return {"success": True, "diff": diff}
     except Exception as exc:  # noqa: BLE001 - a diff failure is an honest 400
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -519,6 +525,19 @@ class PreviewBody(BaseModel):
     rootId: Optional[str] = Field(default=None, max_length=200)  # noqa: N815
     # "checkout" (the project on disk) or "change" (this task's prepared change).
     mode: Optional[str] = Field(default=None, max_length=16)
+
+
+def _task_workspace_row(task_id: str) -> Optional[dict[str, Any]]:
+    """The task's recorded disposable workspace row (or None).
+
+    The `workspaceId` on `task.created` is a SCOPE LABEL, not the code workspace;
+    the authoritative row is `CodeWorkspace`, keyed by the run id.
+    """
+    try:
+        rows = service.code_store.list_workspaces(run_id=task_id, limit=1)
+    except Exception:  # noqa: BLE001 - an unreadable row means "no change"
+        return None
+    return rows[0] if rows else None
 
 
 def _task_workspace(task_id: str) -> Optional[tuple[Path, Optional[Path]]]:
@@ -690,8 +709,8 @@ def request_task_action(
         raise HTTPException(status_code=400, detail=f"unknown action {body.action!r}")
     if service.approvals is None:
         raise HTTPException(status_code=503, detail="approvals unavailable")
-    created = _tasks().latest_created(task_id)
-    workspace_id = ((created or {}).get("payload") or {}).get("workspaceId")
+    row = _task_workspace_row(task_id)
+    workspace_id = str((row or {}).get("id") or "")
     if not workspace_id:
         raise HTTPException(status_code=400, detail="no workspace bound to this task")
     request = CodeActionRequest(

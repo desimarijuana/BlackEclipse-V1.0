@@ -10,8 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { FileJson, FileText, Loader2, SquareCode, SquarePen, X } from '@/lib/icons';
 import type { CanvasContent, CanvasContentKind } from '@/lib/canvas/content';
-import { createCanvasArtifact } from '@/lib/harness/canvas-client';
-import { responseToJson } from '@/lib/response/export';
+import { makeCanvasEditable } from '@/lib/canvas/save-to-edit';
 import { useCommandStore } from '@/lib/search/store';
 import { CanvasViewer } from './canvas-viewer';
 
@@ -100,7 +99,6 @@ export function CanvasDock() {
   const content = useCommandStore((s) => s.canvasView);
   const artifactId = useCommandStore((s) => s.pendingCanvasArtifactId);
   const close = useCommandStore((s) => s.closeCanvas);
-  const openCanvas = useCommandStore((s) => s.openCanvas);
 
   const [width, setWidth] = useState(loadWidth);
   const [saving, setSaving] = useState(false);
@@ -137,30 +135,21 @@ export function CanvasDock() {
     setSaving(true);
     setSaveError(null);
     try {
-      const kind = content.kind === 'code' ? 'code' : content.kind === 'report' ? 'visual' : 'document';
-      const text = content.kind === 'code'
-        ? content.code?.text ?? ''
-        : content.kind === 'report' && content.response
-          ? responseToJson(content.response)
-          : content.markdown ?? '';
-      const snap = await createCanvasArtifact({
-        name: content.title,
-        kind,
-        language: content.kind === 'code' ? content.code?.language : undefined,
-        content: text,
-      });
-      openCanvas(snap.artifactId);
+      await makeCanvasEditable();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Could not save this to Canvas');
     } finally {
       setSaving(false);
     }
-  }, [content, openCanvas]);
+  }, [content]);
 
   // Artifact-backed: the editor owns its own card + header.
   if (artifactId) {
     return (
-      <div className="hidden h-full shrink-0 md:flex" style={{ width }}>
+      <div
+        className="fixed inset-0 z-[150] flex h-full w-full flex-col bg-background md:static md:z-auto md:w-auto md:shrink-0"
+        style={typeof window !== 'undefined' && window.innerWidth >= 768 ? { width } : undefined}
+      >
         <CanvasScreen inline initialArtifactId={artifactId} onClose={close} />
       </div>
     );
@@ -168,8 +157,8 @@ export function CanvasDock() {
 
   return (
     <aside
-      className="relative flex h-full w-full shrink-0 flex-col md:w-auto"
-      style={{ width: typeof window !== 'undefined' && window.innerWidth >= 768 ? width : undefined }}
+      className="fixed inset-0 z-[150] flex h-full w-full flex-col bg-background md:static md:z-auto md:h-full md:w-auto"
+      style={typeof window !== 'undefined' && window.innerWidth >= 768 ? { width } : undefined}
       aria-label="Eclipse Canvas"
     >
       {/* Drag handle — lets the user resize the reading surface. */}
