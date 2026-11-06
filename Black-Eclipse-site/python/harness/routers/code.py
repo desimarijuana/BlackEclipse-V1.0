@@ -599,6 +599,21 @@ def preview_logs(
     return {"success": True, "preview": _preview_manager().logs(key, tail=tail)}
 
 
+@router.get("/code/project")
+def get_project(
+    taskId: Optional[str] = None, rootId: Optional[str] = None,  # noqa: N803
+    _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """The project brief the onboarding surface shows BEFORE the first build.
+
+    Stack, run command, discovered checks, git state and whether the project
+    ships its own rules. Read-only and resolved server-side, like the preview.
+    """
+    from ..code.onboarding import project_brief  # noqa: PLC0415
+
+    return {"success": True, "project": project_brief(_preview_root(taskId, rootId))}
+
+
 # ── The approval queue ──────────────────────────────────────────────────────
 # the user has no way to approve it.
 _REVIEWABLE_APPROVAL_KINDS = (

@@ -1,6 +1,17 @@
 # Change Log
 
 ## 2026-11-06
+- **feat(builds): open a project with a brief, not a guess (P5).** A new
+  `code/onboarding.py::project_brief` answers, before the first build: the stack
+  (`package.json` / pyproject / Cargo / go / Make), the git branch and uncommitted
+  count, the command that would run, the checks a change must pass (and where
+  they came from), and whether the project ships its own rules. `GET /code/project`
+  (server-resolved like the preview) backs a compact card in Builds; its
+  **Prepare** action indexes the project (`POST /code/intel/index`), so symbol
+  search and repo context are ready. A preview's dev server is already torn down
+  by `stop_terminal()` on runtime shutdown; no second teardown was added. Tests: 4
+  `test_project_brief.py` cases. Docs updated: `docs/CHANGELOG.md`,
+  `docs/NAVIGATION.md`.
 - **feat(builds): project scope is visible everywhere (polish).** A task view now
   names the project each build belongs to (`projectRoot`, read from the recorded
   workspace row), `GET /code/tasks` takes `rootId` to list one project, and the

@@ -32,6 +32,7 @@ import {
 } from '@/lib/harness/code-browser';
 import { ScorecardStrip } from './scorecard-strip';
 import { ProjectBar } from './project-bar';
+import { ProjectBriefCard } from './project-brief';
 import { PreviewPanel } from './preview-panel';
 import { TaskList } from './task-list';
 import { TaskDetail } from './task-detail';
@@ -165,6 +166,8 @@ export function CodeScreen() {
       <ScorecardStrip card={scorecard} />
 
       <ProjectBar onChange={setProjectRootId} />
+
+      <ProjectBriefCard taskId={selectedId} rootId={projectRootId} />
 
       <PreviewPanel taskId={selectedId} rootId={projectRootId} />
 

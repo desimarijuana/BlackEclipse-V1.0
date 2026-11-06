@@ -94,6 +94,36 @@ export interface ProjectTarget {
 
 export type PreviewTarget = ProjectTarget;
 
+export interface ProjectBrief {
+  available: boolean;
+  reason?: string;
+  name?: string;
+  path?: string;
+  stack?: string[];
+  git?: { available: boolean; branch: string | null; dirty: number };
+  run?: { command: string; source: string };
+  checks?: Array<{ id: string; label: string }>;
+  checksSource?: string;
+  warnings?: string[];
+  hasRules?: boolean;
+  isHarnessRepo?: boolean;
+}
+
+export async function getProjectBrief(target: ProjectTarget = {}): Promise<ProjectBrief> {
+  const query = new URLSearchParams();
+  if (target.taskId) query.set("taskId", target.taskId);
+  if (target.rootId) query.set("rootId", target.rootId);
+  const body = await request<{ project: ProjectBrief }>(`/code/project?${query.toString()}`, {
+    method: "GET",
+  });
+  return body.project;
+}
+
+/** Index the selected project so symbol search and repo context are ready. */
+export async function prepareProjectIndex(): Promise<Record<string, unknown>> {
+  return request("/code/intel/index", { method: "POST", timeoutMs: 300_000 });
+}
+
 export async function getCodePreview(target: PreviewTarget = {}): Promise<CodePreview> {
   const query = new URLSearchParams();
   if (target.taskId) query.set("taskId", target.taskId);

@@ -35,4 +35,17 @@ export const builds = {
   'code.scorecard.scope.all': 'All builds',
   'code.task.continue': 'Continue in chat',
   'code.preview.restart': 'Restart',
+
+  // The project brief shown before the first build.
+  'code.project.prepare': 'Prepare',
+  'code.project.preparing': 'Preparing…',
+  'code.project.prepared': 'Ready',
+  'code.project.rulesOn': 'Uses its own rules file',
+  'code.project.checksLabel': 'Checks',
+  'code.project.noRun': 'No run command found',
+  'code.project.dirty': '{count} uncommitted',
+  'code.project.checks.detected': 'found here',
+  'code.project.checks.project': 'from its land.json',
+  'code.project.checks.defaults': 'Eclipse defaults',
+  'code.project.checks.none': 'none found',
 } as const;

@@ -6,11 +6,11 @@
 // component — importing the server client pulls `child_process` into the browser
 // bundle and the page fails to compile.
 
-import type { Autonomy, BudgetProfile, CodeApproval, CodePlan, CodePreview, CodeScorecard, CodeSession, CodeTask, CodeTaskDiff, LandCheck, LandCheckResult, LandPlan, LandResult, ProjectTarget, PreviewTarget, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord } from './code-client';
+import type { Autonomy, BudgetProfile, CodeApproval, CodePlan, CodePreview, CodeScorecard, CodeSession, CodeTask, CodeTaskDiff, LandCheck, LandCheckResult, LandPlan, LandResult, ProjectTarget, ProjectBrief, PreviewTarget, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord } from './code-client';
 
 // Re-export the wire types so a component imports everything from ONE client-safe
 // module (a type-only re-export is erased at compile time — no server code ships).
-export type { Autonomy, BudgetProfile, CodeApproval, CodePlan, CodePreview, CodeScorecard, CodeSession, CodeTask, CodeTaskDiff, LandCheck, LandCheckResult, LandPlan, LandResult, ProjectTarget, PreviewTarget, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord };
+export type { Autonomy, BudgetProfile, CodeApproval, CodePlan, CodePreview, CodeScorecard, CodeSession, CodeTask, CodeTaskDiff, LandCheck, LandCheckResult, LandPlan, LandResult, ProjectTarget, ProjectBrief, PreviewTarget, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord };
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
@@ -79,6 +79,16 @@ export async function getCodeScorecard(days = 30, target: ProjectTarget = {}): P
 }
 
 // ── Running the user's project (Phase 24 / P2) ───────────────────────────────
+
+export async function getProjectBrief(target: PreviewTarget = {}): Promise<ProjectBrief> {
+  const body = await api<{ project: ProjectBrief }>(`/api/code/project?${previewQuery(target)}`);
+  return body.project;
+}
+
+export async function prepareProjectIndex(): Promise<Record<string, unknown>> {
+  const body = await api<{ result: Record<string, unknown> }>('/api/code/intel', { method: 'POST' });
+  return body.result;
+}
 
 function previewQuery(target: PreviewTarget): string {
   const query = new URLSearchParams();
