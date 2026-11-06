@@ -83,6 +83,7 @@ export async function chatWithAgent(
   workspaceRootId?: string,
   quantMode?: "on" | "off",
   choicesMode?: "on" | "off",
+  planMode?: "on" | "off",
 ): Promise<{
   output: string;
   runId: string;
@@ -130,6 +131,9 @@ export async function chatWithAgent(
     // The composer's Auto/Choices/Off preference. "on" asks the runtime to nudge
     // the model toward one options question before an ambiguous turn; guidance only.
     ...(choicesMode ? { choicesMode } : {}),
+    // The composer's Auto/Plan/Off preference. "on" asks the model to lay out a
+    // plan and wait for approval before starting the work; guidance only.
+    ...(planMode ? { planMode } : {}),
   };
   const result = await startRun({
     input: {
@@ -270,6 +274,7 @@ export async function startChatRun(
   workspaceRootId?: string,
   quantMode?: "on" | "off",
   choicesMode?: "on" | "off",
+  planMode?: "on" | "off",
 ): Promise<string> {
   // A leading `/command` (e.g. `/eclipsesdk`) is a DETERMINISTIC profile switch:
   // parse it, strip it, and force the command's profile — do NOT ask the
@@ -292,6 +297,9 @@ export async function startChatRun(
     // The composer's Auto/Choices/Off preference for this turn. "on" nudges the
     // model toward one options question before an ambiguous turn. Guidance only.
     ...(choicesMode ? { choicesMode } : {}),
+    // The composer's Auto/Plan/Off preference for this turn. "on" asks the model
+    // to plan first and wait for approval. Guidance only.
+    ...(planMode ? { planMode } : {}),
   };
   const input = assertRunInput({
     query: effectiveQuery,

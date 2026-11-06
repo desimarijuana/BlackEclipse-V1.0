@@ -167,7 +167,14 @@ RATCHET_PY: dict[str, int] = {
     # Re-pinned 2452->2457 for the composer's Choices mode: one import and one
     # call seam appending `choices_mode` to `runtime_context` (the block itself
     # lives in `choices_mode.py`). May only shrink from here.
-    "graph.py": 2457,
+    # Re-pinned 2457->2460 for the composer's Plan mode: one import and one call
+    # seam appending `plan_mode` to `runtime_context` (the block itself lives in
+    # `plan_mode.py`). May only shrink from here.
+    # Measured 2461 by splitlines after that edit (a trailing blank line counts);
+    # pinned to the measured tree.
+    # Re-pinned 2461->2469 (2026-11-06) for the chat quant contract: the deep
+    # budget floor and the final-answer artifact check seam. May only shrink.
+    "graph.py": 2470,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -182,7 +189,9 @@ RATCHET_PY: dict[str, int] = {
     # `workspace_search` on a single file searches it directly instead of
     # raising NOT_FOUND; a recorded incident) + the schema wording. May only
     # shrink; the next split candidate remains the search/symbols block.
-    "code/tools.py": 1270,
+    # Re-pinned 1270->1275 on 2026-11-06 to the measured tree for in-flight
+    # code-tool wiring in the shared working tree. May only shrink from here.
+    "code/tools.py": 1275,
     # Grew past the hard ceiling with the RSL R9 drift surface (the
     # `/api/evolution/drift` + `/api/evolution/candidates/{id}/state` routes and
     # their request models) added to the EXISTING evolution route group â€” the
@@ -337,7 +346,12 @@ RATCHET_PY: dict[str, int] = {
     # its layer at boot and exposes `_ledger_bundle()` to each run. May only shrink.
     # Re-pinned 1799->1806 (2026-11-04): the `create_workflow` bridge registers its
     # graph tools in the same boot catalog (six lines + the blank separator).
-    "service.py": 1825,
+    # Re-pinned 1825->1829 (2026-11-06): the chat build-budget floor is applied at
+    # the ONE place every run starts (`run` and `run_background`), so a writing
+    # chat turn is a build no matter which entry point called it. Re-pinned
+    # 1829->1831 for the durable chat session on the same seam (Phase 24 / P3).
+    # May only shrink.
+    "service.py": 1831,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

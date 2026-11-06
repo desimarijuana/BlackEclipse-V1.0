@@ -58,6 +58,9 @@ def test_quant_tiers(query: str, tier: str, kind: str) -> None:
         "what is a moving average",
         "how does a backtest work",
         "show me the latest AAPL earnings",
+        "write alpha.py that prints ALPHA_OK",
+        "Build a small package: write alpha.py and beta.py, run both, then write report.txt",
+        "create model.py with a helper function",
     ],
 )
 def test_lookups_and_explanations_stay_none(query: str) -> None:

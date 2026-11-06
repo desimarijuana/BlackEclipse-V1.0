@@ -482,6 +482,11 @@ def build_graph(
         max_steps = max(max_steps, 24); run_timeout_s = max(run_timeout_s, 600.0)
     # Phase 22 / S2: a build session's budget, clamped to the hard caps.
     max_steps, run_timeout_s = requested_budget(max_steps, run_timeout_s, request)
+    # A deep quant cycle (catalog -> data -> build -> validate -> robustness ->
+    # artifact) needs more than the ordinary chat navigation budget.
+    from .quant_intent import is_deep_quant_turn  # noqa: PLC0415
+    if is_deep_quant_turn(request.input.query, getattr(request.input, "history", None)):
+        max_steps = max(max_steps, 32); run_timeout_s = max(run_timeout_s, 600.0)
     # A hard total tool-call budget. A skill manifest declares
     # `limits.maxToolCalls`; this ENFORCES it in the loop (a skill cannot exceed
     # its declared budget by prompting or by looping). None = unbounded (chat).
@@ -808,7 +813,11 @@ def build_graph(
         usage_state = {"prompt_tokens": total_prompt, "completion_tokens": total_completion}
 
         if not tool_calls:
-            final_text = _text(response)
+            from .quant_intent import finalize_quant_text  # noqa: PLC0415
+            final_text = finalize_quant_text(
+                request.input.query, getattr(request.input, "history", None),
+                state["messages"], _text(response),
+            )
             # A forced final turn that produced no text is not an answer. Report
             # the honest failure rather than a blank "completed".
             if finalizing and not final_text.strip():
@@ -1468,6 +1477,10 @@ async def execute_run(
     # adds guidance (the `clarify` tool stays read-only, and this grants nothing).
     from .choices_mode import apply_choices_context  # noqa: PLC0415 - choices mode
     runtime_context = apply_choices_context(request, allowed, runtime_context)
+    # The composer's "Plan" preference: `on` tells the model to lay out a plan and
+    # wait for approval before starting the work. Guidance only; it grants nothing.
+    from .plan_mode import apply_plan_context  # noqa: PLC0415 - plan mode
+    runtime_context = apply_plan_context(request, allowed, runtime_context)
     # The project this run is scoped to (its members and instruments). Per-run
     # and cache-key-excluded, exactly like the date and the UI focus.
     project_brief = _project_brief_block(getattr(request, "projectId", None),

@@ -142,7 +142,7 @@ export function MemoryActionPanel({
         // asked to learn after every run.
         const captured = eligibility.autoCaptured || eligibility.skillDraftReady;
         return (
-          <div className="flex flex-wrap items-center gap-2 text-muted-foreground/80">
+          <div className="flex flex-wrap items-center gap-2 gap-y-1 py-1.5 leading-relaxed text-muted-foreground/80">
             {captured ? (
               <Brain className="h-3.5 w-3.5 shrink-0 text-primary/80" />
             ) : (

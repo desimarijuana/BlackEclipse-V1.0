@@ -111,6 +111,10 @@ export async function POST(request: Request) {
     // forwarded; "auto"/absent leaves the base prompt's act-don't-ask guidance.
     const rawChoicesMode = (body as Record<string, unknown>).choicesMode;
     const choicesMode = rawChoicesMode === "on" || rawChoicesMode === "off" ? rawChoicesMode : undefined;
+    // The composer's Auto/Plan/Off preference. Only the explicit values are
+    // forwarded; "auto"/absent leaves the base guidance in charge.
+    const rawPlanMode = (body as Record<string, unknown>).planMode;
+    const planMode = rawPlanMode === "on" || rawPlanMode === "off" ? rawPlanMode : undefined;
     // Client-supplied run id so cancellation is possible mid-run; ignored when
     // absent, in which case the server mints one.
     const rawRunId = (body as Record<string, unknown>).runId;
@@ -150,7 +154,7 @@ export async function POST(request: Request) {
       : undefined;
 
     const identityHeaders = await runtimeIdentityHeaders(request);
-    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode);
+    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode);
     if (result.status === "failed") {
       return NextResponse.json(
         { success: false, error: result.error, runId: result.runId },

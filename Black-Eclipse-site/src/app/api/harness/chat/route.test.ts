@@ -99,6 +99,15 @@ describe("POST /api/harness/chat — honest failure", () => {
     expect(chatWithAgent.mock.calls[1][13]).toBeUndefined();
   });
 
+  it("forwards an explicit plan mode and drops auto", async () => {
+    chatWithAgent.mockResolvedValue({ status: "completed", output: "ok", runId: "run_p" });
+    await POST(post({ query: "plan the launch", planMode: "on" }));
+    expect(chatWithAgent.mock.calls[0][14]).toBe("on");
+
+    await POST(post({ query: "plan the launch", planMode: "auto" }));
+    expect(chatWithAgent.mock.calls[1][14]).toBeUndefined();
+  });
+
   it("returns 502 when the run itself failed (never a fabricated success)", async () => {
     chatWithAgent.mockResolvedValueOnce({
       status: "failed", error: "upstream provider error", runId: "run_x",

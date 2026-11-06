@@ -42,8 +42,21 @@ _MODEL_OBJECTS = (
     "forecasting model", "ml model", "machine learning model",
     "trading strategy", "quant strategy", "momentum strategy",
     "mean reversion strategy", "trading algorithm", "trading bot",
-    "strategy", "factor", "alpha", "signal", "backtest", "pipeline",
-    "predictor", "classifier", "forecaster", "model",
+    "strategy", "factor", "alpha model", "alpha factor", "signal",
+    "backtest", "pipeline", "predictor", "classifier", "forecaster", "model",
+)
+
+# A code-build task must not be mistaken for quantitative research. `alpha.py`,
+# `model.py` and `print(...)` are code, not an alpha/model request; the guard
+# only applies when no genuine quant term is present.
+_CODE_TASK_TERMS = (
+    ".py", ".ts", ".tsx", ".js", ".jsx", "def ", "print(", "function ",
+    "class ", "import ", "small package", "package:",
+)
+_CODE_TASK_QUANT_TERMS = (
+    "backtest", "quant", "forecast", "portfolio", "volatility", "drawdown",
+    "monte carlo", "optimi", "alpha model", "alpha factor", "trading model",
+    "quant model", "factor model", "machine learning", "predict",
 )
 
 # Distinctive quantitative vocabulary. A hit plus an analysis verb/asset/horizon
@@ -134,6 +147,15 @@ _EXPLAIN_TERMS = (
 _FOLLOW_UPS = (
     "do it", "do that", "go ahead", "proceed", "continue", "run it",
     "run that", "yes please", "sounds good", "and then", "same for",
+)
+
+# A request to use what already exists. This is a quant turn even without a
+# build verb, and the protocol tells the model to check `model_catalog`.
+_REUSE_TERMS = (
+    "reuse", "re-use", "use the model", "use the strategy", "use the factor",
+    "existing model", "existing strategy", "existing factor", "same model",
+    "last model", "previous model", "catalog", "models", "strategies",
+    "experiments", "factors",
 )
 
 _TRADE_PRECEDENCE = "trade"
@@ -299,6 +321,7 @@ def classify_quant_intent(
     prediction = _prediction_hit(text)
     lookup = _first(text, _LOOKUP_TERMS)
     explain = _first(text, _EXPLAIN_TERMS)
+    reuse = _first(text, _REUSE_TERMS)
 
     # A short follow-up ("do it", "what about silver?") inherits the prior turn.
     if not (build or strong or prediction) and text.startswith(_FOLLOW_UPS):
@@ -315,7 +338,7 @@ def classify_quant_intent(
             ("build", build), ("model", model), ("strong", strong), ("deep", deep),
             ("metric", metric), ("analysis", analysis), ("asset", asset),
             ("horizon", horizon), ("prediction", prediction), ("lookup", lookup),
-            ("explain", explain),
+            ("explain", explain), ("reuse", reuse),
         ) if value
     )
 
@@ -325,7 +348,7 @@ def classify_quant_intent(
     concept_request = (
         explain is not None
         and text.startswith(("explain", "what", "how", "why", "define", "teach", "walk"))
-        and not (build or prediction or asset or horizon)
+        and not (build or prediction or asset or horizon or reuse)
         and not any(_has(text, k) for k in (
             "backtest this", "backtest my", "backtest our", "run a",
             "calculate", "compute", "analyse", "analyze", "measure",
@@ -335,8 +358,34 @@ def classify_quant_intent(
     if concept_request:
         return _none("concept explanation", signals)
     # A plain lookup stays fast unless a quantitative signal is present.
-    if lookup and not (build or strong or prediction):
+    if lookup and not (build or strong or prediction or reuse):
         return _none("plain retrieval", signals)
+
+    # A code-build task is not quantitative research. This guard is why
+    # "write alpha.py that prints ALPHA_OK" cannot lose the file tools to a
+    # quant surface; a real quant term still gets through.
+    if any(term in text for term in _CODE_TASK_TERMS) and not any(
+        _has(text, term) for term in _CODE_TASK_QUANT_TERMS
+    ):
+        return _none("code task", signals)
+
+    # A reuse/catalog request is quantitative even without a build verb: the
+    # model should look up what exists before doing anything new.
+    if reuse and not build and (
+        model or _has(text, "catalog")
+        or reuse in ("models", "strategies", "experiments", "factors")
+    ):
+        kind = _kind(text, build=False)
+        if kind == "analysis" and (
+            _has(text, "catalog")
+            or reuse in ("models", "strategies", "experiments", "factors")
+        ):
+            kind = "model"
+        return QuantIntent(
+            tier="deep" if _has(text, "backtest") or deep else "standard",
+            kind=kind, confidence="likely", signals=signals,
+            reasons=("reuse/catalog request",),
+        )
 
     # An explicit "act as a quant" / "use quantitative methods" is a standing
     # instruction for this turn even without a named instrument.
@@ -369,8 +418,8 @@ def classify_quant_intent(
             missing=_missing(text, "financial_model"),
         )
     if build and (model or any(_has(text, k) for k in (
-        "model", "strategy", "factor", "alpha", "signal", "pipeline",
-        "algorithm", "backtest",
+        "model", "strategy", "factor", "alpha model", "alpha factor",
+        "signal", "pipeline", "algorithm", "backtest",
     ))):
         kind = _kind(text, build=True)
         return QuantIntent(
@@ -509,7 +558,15 @@ def quant_intent_block(
             "   analysis id, chart or report. Name it.",
             "7. Caveat: label estimates and what-if; state the counter-case and what",
             "   would invalidate the view. No guaranteed return, no 'tomorrow will be X'.",
+            "8. End with exactly one line: `Artifacts: <comma-separated ids>` or",
+            "   `Artifacts: none — <what is missing>`. Chat is the only delivery surface.",
+            "9. For gold, state the basis: spot XAUUSD vs GC=F futures; never mix them.",
         ])
+        if _has_tool(available, "model_catalog"):
+            lines.append(
+                "Before building a new model/strategy/factor, check `model_catalog` "
+                "and reuse a fitting artifact instead of rebuilding a duplicate."
+            )
 
     if intent.tier == "deep":
         lines.extend([
@@ -531,6 +588,18 @@ def quant_intent_block(
                 "Write the research plan first (hypothesis, universe, period, costs, "
                 "benchmark, acceptance criteria, known biases), then execute it."
             )
+        if _has_tool(available, "model_catalog"):
+            lines.append(
+                "For a build/create request, call `model_catalog` FIRST. If a fitting "
+                "strategy/model/factor exists, reuse it; do not rebuild a duplicate. "
+                "If none fits, build it, then confirm the new id is registered and "
+                "name it in the artifact line."
+            )
+        lines.append(
+            "If the model family is ambiguous (valuation/DCF vs ML prediction vs "
+            "trading strategy vs risk model), ask ONE clarify question with those "
+            "options before building."
+        )
 
     if intent.tier in ("standard", "deep") and intent.missing:
         lines.append(
@@ -568,6 +637,7 @@ _QUANT_SURFACE_EXTRA = frozenset({
     "analysis_run", "python_chart", "eclipse_report", "clarify", "memory",
     "response_block_schema", "response_style_guide", "response_validate",
     "scaffold_kit", "financial_model_build", "financial_model_audit",
+    "model_catalog",
     # Stats tools that do not share a prefix
     "run_statistical_analysis", "submit_statistical_analysis",
     "stats_capabilities", "stats_analysis_status", "stats_cancel_analysis",
@@ -652,7 +722,8 @@ def apply_intent_surfaces(
 
 
 _ARTIFACT_RE = re.compile(
-    r"\b(?:exp|experiment|model|factor|strategy|analysis|capability)_[A-Za-z0-9-]{4,}\b"
+    r"\b(?:exp|experiment|strat|strategy|model|mdl|dataset|ds|factor|fac|"
+    r"feature|feat|analysis|capability|cap|artifact|art)_[A-Za-z0-9-]{4,}\b"
 )
 _OOS_TERMS = (
     "out-of-sample", "out of sample", "walk-forward", "walk forward", "oos",
@@ -666,6 +737,7 @@ _COMPUTE_PREFIXES = (
     "analysis_run", "run_", "plot_", "calculate_", "compute_", "ml_", "stats_",
     "factor_", "python_chart", "portfolio_", "price_option", "implied_volatility",
     "build_", "create_strategy", "compile_", "generate_", "simulate_",
+    "model_catalog",
 )
 _VALIDATION_TOOLS = frozenset({
     "run_backtest", "run_portfolio_backtest", "run_walk_forward",
@@ -731,6 +803,63 @@ def evaluate_quant_outcome(
     }
 
 
+def is_deep_quant_turn(query: str, history: Optional[list[Any]] = None) -> bool:
+    """Whether this turn needs the deep research budget."""
+    return classify_quant_intent(query, history).tier == "deep"
+
+
+def _tool_names_from_messages(messages: Iterable[Any]) -> list[str]:
+    names: list[str] = []
+    for message in messages or ():
+        for call in getattr(message, "tool_calls", None) or ():
+            name = call.get("name") if isinstance(call, dict) else getattr(call, "name", None)
+            if name:
+                names.append(str(name))
+        name = getattr(message, "name", None)
+        if name and getattr(message, "type", "") == "tool":
+            names.append(str(name))
+    return names
+
+
+def finalize_quant_text(
+    query: str,
+    history: Optional[list[Any]],
+    messages: Iterable[Any],
+    text: str,
+) -> str:
+    """Append the chat contract's honest check when a quant answer omits it.
+
+    This never rewrites the model's facts and never invents an artifact: it only
+    states that no artifact id was named and, when the run's tools/text lack
+    required evidence, names what is missing. A non-quant turn is unchanged.
+    """
+    body = str(text or "")
+    intent = classify_quant_intent(query, history)
+    if intent.tier not in ("standard", "deep") or not body.strip():
+        return body
+    outcome = evaluate_quant_outcome(
+        intent.to_dict(), _tool_names_from_messages(messages), body,
+    )
+    additions: list[str] = []
+    if "artifacts:" not in body.lower():
+        artifacts = outcome["artifacts"] if outcome else []
+        if artifacts:
+            additions.append(
+                "Artifacts: " + ", ".join(artifacts) + " (Eclipse check)."
+            )
+        else:
+            additions.append(
+                "Artifacts: none — no artifact id was named in the answer (Eclipse check)."
+            )
+    if outcome is not None and not outcome["complete"]:
+        remaining = [item for item in outcome["missing"] if item != "a named artifact"]
+        if remaining:
+            additions.append("Eclipse check: still missing " + ", ".join(remaining) + ".")
+    if not additions:
+        return body
+    return body.rstrip() + "\n\n" + "\n".join(additions)
+
+
 async def apply_quant_context(
     request: Any,
     allowed: Any,
@@ -764,5 +893,7 @@ __all__ = [
     "apply_quant_surface",
     "classify_quant_intent",
     "evaluate_quant_outcome",
+    "finalize_quant_text",
+    "is_deep_quant_turn",
     "quant_intent_block",
 ]

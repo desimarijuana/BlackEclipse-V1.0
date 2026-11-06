@@ -11152,3 +11152,57 @@ contract and now carries each config field's bounds (`maxLength`, `enum`,
 `min`/`max`, `integer`), so `test_graph_registry_parity.py` fails if the editor
 and the runtime disagree about what a valid value is. Peer review of a node
 change is a question of add-vs-break before it is a question of code.
+
+## ADR-H345 - Quant work is a chat-native protocol, not a UI mode
+
+**Decision.** A quantitative turn is identified by the deterministic
+`quant_intent` classifier and receives a per-run protocol appended to
+`runtime_context`. The protocol may narrow the bound tool surface (trade
+precedence first, remove-only), require `model_catalog` before a build, require
+exactly one final `Artifacts: …` / `Artifacts: none — …` line, and state the gold
+basis (spot `XAUUSD` vs `GC=F` futures). There is no separate quant screen,
+workspace panel or catalog page; the catalog is a read-only agent tool whose text
+result is summarized in chat.
+
+**Why.** The product is a chat agent. A separate UI would duplicate the same
+registries, drift from the runtime's tool/store truth, and split the operator's
+attention. The model already has the engines, the catalog and the response
+contract; the missing piece was a deterministic contract around the model, not a
+new surface. Keeping it in `runtime_context` also keeps the byte-stable prompt
+cache intact and makes the protocol observable as a `quant.plan` event.
+
+**Consequences.** New quant behavior lands in `quant_intent.py` (+ the eval gate
+and tests), not in a screen. The chat answer is the deliverable; a missing
+artifact line is corrected with an explicit `Eclipse check` note, never silently
+passed. The model catalog is the one reuse surface (`model_catalog`), and its
+empty state is an empty registry, not an unavailable capability. If a future
+operator wants a visual catalog, it must consume the same `build_catalog` read
+model rather than forking one.
+
+## ADR-H346 - A build belongs to the project it was created in
+
+**Decision.** A code build carries a project for its whole life. The run resolves
+its root from the per-chat binding (`workspaceRootId`, an APPROVED trusted-root
+id) or the selected root; `worktree.allocate/release/diff` cut from, and clean up
+in, THAT root; the disposable workspace records it
+(`CodeWorkspace.checkoutRoot`, additive and old-row-safe); promotion
+preview/apply/rollback target the recorded root and refuse a project that has
+moved instead of redirecting; a writing chat turn writes `session.created` and
+`task.created`, so it is a first-class build; land checks come from the project's
+own manifests (with `.black-eclipse/land.json` winning); generated capabilities
+draft under `<project>/.black-eclipse/` and the dynamic registry is refreshed for
+the run's root.
+
+**Why.** The runtime used `default_root()` (the globally selected folder) at
+three different moments: allocation, promotion and cleanup. Binding a chat to
+project B and then switching the selection to A could review and land a diff in
+A. A single-user app may only have one "selected" root, but "selected" is a UI
+convenience, not an identity.
+
+**Consequences.** No request body carries a project path; callers name a task or
+an approved root id and the runtime resolves it (`_task_checkout_root`,
+`trusted_root_path`). A build whose project disappeared is a refusal, not a
+fallback. The size ratchet, the per-project scorecard and the preview all key off
+the same recorded root, so "this project" means the same thing everywhere. New
+project-scoped state must be recorded on that row rather than inferred from the
+current selection.

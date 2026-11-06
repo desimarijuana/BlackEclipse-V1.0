@@ -132,6 +132,10 @@ export async function POST(request: Request) {
   // forwarded; "auto"/absent leaves the base prompt's act-don't-ask guidance.
   const rawChoicesMode = body.choicesMode;
   const choicesMode = rawChoicesMode === "on" || rawChoicesMode === "off" ? rawChoicesMode : undefined;
+  // The composer's Auto/Plan/Off preference. Only the explicit values are
+  // forwarded; "auto"/absent leaves the base guidance in charge.
+  const rawPlanMode = body.planMode;
+  const planMode = rawPlanMode === "on" || rawPlanMode === "off" ? rawPlanMode : undefined;
   const rawRunId = body.runId;
   const runId =
     typeof rawRunId === "string" && /^run_[A-Za-z0-9-]{1,64}$/.test(rawRunId) ? rawRunId : undefined;
@@ -171,7 +175,7 @@ export async function POST(request: Request) {
   let id: string;
   try {
     const identityHeaders = await runtimeIdentityHeaders(request);
-    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode);
+    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

@@ -59,7 +59,7 @@ const g = globalThis as unknown as RuntimeGlobal;
 // each route re-probed `/health` and re-scanned the source directory on every
 // call. A short TTL is safe: staleness is still detected within the window, and
 // an actually-down runtime re-probes immediately after the TTL.
-const HEALTH_TTL_MS = 5_000;
+const HEALTH_TTL_MS = 15_000;
 
 /**
  * Cross-context cold-start lock. Next can evaluate this module in more than one
@@ -162,7 +162,7 @@ interface HealthInfo {
   activeRuns?: number;
 }
 
-async function getHealth(timeoutMs = 1500): Promise<HealthInfo | null> {
+async function getHealth(timeoutMs = 8_000): Promise<HealthInfo | null> {
   try {
     const res = await fetch(`${HARNESS_PY_URL}/health`, {
       signal: AbortSignal.timeout(timeoutMs),
@@ -184,7 +184,7 @@ export async function pythonRuntimeReachable(timeoutMs = 1_200): Promise<boolean
   return (await getHealth(timeoutMs)) !== null;
 }
 
-async function isHealthy(timeoutMs = 1500): Promise<boolean> {
+async function isHealthy(timeoutMs = 8_000): Promise<boolean> {
   return (await getHealth(timeoutMs)) !== null;
 }
 
@@ -273,7 +273,7 @@ async function waitForHealth(deadlineMs: number): Promise<boolean> {
     // start the process can be importing/initializing for minutes and may be
     // slow to answer /health. Aborting that answer counted a perfectly healthy
     // boot as "never came up" and triggered another spawn.
-    if (await isHealthy(5_000)) return true;
+    if (await isHealthy(10_000)) return true;
     await new Promise((r) => setTimeout(r, 400));
   }
   return false;
@@ -343,7 +343,7 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
   // runtime under load (only a still-silent LISTENER is cleared; a cold start with
   // nothing listening goes straight to the spawn).
   if (listenerPidsOnPort().length > 0) {
-    const recheck = await getHealth(4_000);
+    const recheck = await getHealth(10_000);
     if (!recheck) {
       // A runtime that answered recently is far more likely to be BUSY than
       // genuinely hung (a running agent can briefly delay a probe). Killing a

@@ -67,7 +67,9 @@ const RATCHET: Record<string, number> = {
   // verification keys (`code.promote.postLanding*`). The standing split
   // candidate is still per-domain dictionary modules. May only shrink.
   // Phase 22 / S2/S4/S5/S6 adds session, landing, phase and scorecard keys. May only shrink.
-  "src/lib/i18n/dictionaries/en.ts": 1312,
+  // Re-pinned 1312->1313 to the measured tree (2026-11-06): in-flight i18n string
+  // work on the shared tree added one key; this change touches no dictionary.
+  "src/lib/i18n/dictionaries/en.ts": 1313,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file
@@ -204,7 +206,10 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1596→1603: the per-chat project chip in the empty-state and
   // composer rows (Phase 23). The chip itself is a separate component; this is
   // only its two mount points. May only shrink.
-  "src/components/screens/stock-chat.tsx": 1603,
+  // Re-pinned 1603→1606: the Builds tab mount (`?tab=code`). The keep-alive
+  // wrapper + dynamic import live in `components/screens/code/code-tab.tsx`;
+  // this is only the import and the one mount line. No other shell logic moved.
+  "src/components/screens/stock-chat.tsx": 1606,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

@@ -2,6 +2,7 @@ import type { AgentProvider, AgentStatusEvent, AgentTool, ChatMessage, ChatOptio
 import { normalizeHarnessEvent, unwrapEventPayload } from './events';
 import { getQuantMode } from './quant-mode';
 import { getChoicesMode } from './choices-mode';
+import { getPlanMode } from './plan-mode';
 import { ingestHarnessFrame } from '@/lib/agent-workspace/ingest';
 import { getActiveProjectId } from '@/lib/projects/project-client';
 
@@ -76,6 +77,7 @@ function buildPayload(messages: ChatMessage[], options?: ChatOptions) {
     reasoningEffort: options?.reasoningEffort,
     quantMode: options?.quantMode ?? getQuantMode(),
     choicesMode: options?.choicesMode ?? getChoicesMode(),
+    planMode: options?.planMode ?? getPlanMode(),
     uiContext: options?.uiContext,
     memoryScope: options?.memoryScope,
     projectId,

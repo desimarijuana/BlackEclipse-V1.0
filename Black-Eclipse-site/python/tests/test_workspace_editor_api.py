@@ -111,6 +111,21 @@ def test_mkdir_creates_a_folder(editor_app):
     assert (root / "new" / "pkg").is_dir()
 
 
+def test_browse_mkdir_creates_a_folder_in_the_browsed_directory(editor_app, tmp_path):
+    client, _root = editor_app
+    parent = tmp_path / "pick"
+    parent.mkdir()
+    resp = client.post("/workspace/browse/mkdir", json={"path": str(parent), "name": "new project"})
+    assert resp.status_code == 200
+    assert (parent / "new project").is_dir()
+
+
+def test_browse_mkdir_refuses_a_path_name(editor_app, tmp_path):
+    client, _root = editor_app
+    resp = client.post("/workspace/browse/mkdir", json={"path": str(tmp_path), "name": "../escape"})
+    assert resp.status_code == 400
+
+
 def test_delete_removes_a_file(editor_app):
     client, root = editor_app
     (root / "gone.txt").write_text("x", encoding="utf-8")

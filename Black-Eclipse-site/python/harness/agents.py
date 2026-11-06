@@ -380,6 +380,9 @@ ECLIPSE_AGENT = AgentConfig(
         # walk-forward, Monte-Carlo, sensitivity and robustness â€” over the same
         # verified datasets.
         *QUANT_TOOLS,
+        # The unified model/research catalog: read what strategies, experiments,
+        # ML models/datasets, features and factors already exist before rebuilding.
+        "model_catalog",
     *PROJECT_TOOLS,
     *GALLERY_TOOLS,
         # The pine-script tools ride in through `*QUANT_TOOLS` (which now splats

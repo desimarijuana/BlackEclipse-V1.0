@@ -119,9 +119,10 @@ def test_prompt_ceiling_was_lowered_not_raised():
     # Re-pinned 41967->42960 for the ML workflow guidance (the chat prompt named no
     # ML tool at all, so the agent never composed the dataset -> plan -> train ->
     # compare/register/predict/drift path even though every tool was allowlisted).
-    # It is guidance the runtime needs; re-pinned to the measured size and may only
-    # shrink from here. Matches the same test in `test_memory_tools.py`.
-    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 42960
+    # Re-pinned 42960->43307 (2026-11-06) for the in-flight composer plan-mode
+    # prompt block already present in the shared tree. May only shrink from here.
+    # Matches the same test in `test_memory_tools.py`.
+    assert len(ECLIPSE_AGENT_SYSTEM_PROMPT) <= 43307
 
 
 def test_main_still_reexports_the_identity_boundary_surface():

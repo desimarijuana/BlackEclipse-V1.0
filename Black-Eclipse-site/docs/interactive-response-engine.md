@@ -781,8 +781,9 @@ artifacts, provenance), the client maps it to the turn's `analysis` field, and
 `computed-result-panel.tsx` renders it under the assistant message with the
 always-visible "Worked out by Eclipse" label. The panel is never a citation: a
 computed number is not retrieved evidence. Both chat surfaces map the full turn
-(chat-dock and stock-chat), so the panel, the code-capability panel and the
-document panel appear everywhere.
+(chat-dock and stock-chat), so the panel and the document panel appear
+everywhere. The code-capability headline was removed from the transcript; the
+Code screen carries the code detail.
 
 The card is **dropped entirely** when there is nothing to show. A number with no
 provenance record is UNAVAILABLE at the runtime boundary (it is never rendered
@@ -812,9 +813,10 @@ Two cards that used to appear beside it are deliberately **not in the chat**:
   (`screens/code/check-results.tsx`), where a verification ledger belongs. In
   that panel the header never prints a check count when no check was recorded,
   and it opens by default on a recorded failure (an unsupported claim or a
-  non-zero check). The chat code headline (`chat-capability-panel.tsx`) keeps
-  only what Eclipse set out to do and the "put this change into your project"
-  action.
+  non-zero check). The chat code headline that used to sit under the answer (and
+  the "put this change into your project" action inside it) was removed from the
+  transcript; promotion stays on the Code task screen, the recovery console and
+  the RSL panel.
 - **The generated-capability card** (`capability-card.tsx`) lives in Capability
   Studio. A speculative `gap` / `needs_source` offer ("I can build that") is not
   evidence about the answer, so the transcript no longer renders the card at

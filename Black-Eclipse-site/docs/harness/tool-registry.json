@@ -1,7 +1,7 @@
 {
-  "digest": "eb0702fb21500293",
+  "digest": "168789875e3bcfa5",
   "manifestVersion": "1",
-  "toolCount": 1020,
+  "toolCount": 1021,
   "tools": [
     {
       "deprecated": false,
@@ -19570,6 +19570,49 @@
         "type": "object"
       },
       "name": "ml_verify_model",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List the models and research artifacts Eclipse already has, so you reuse before you rebuild: quant strategies, quant experiments, ML models and datasets, statistical features and factors. Read-only; an empty section means none is registered, not that the capability is unavailable.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "includeArchived": {
+            "description": "Include archived strategies/factors (default false).",
+            "type": "boolean"
+          },
+          "kind": {
+            "description": "Filter to one artifact family (default all).",
+            "enum": [
+              "all",
+              "strategy",
+              "experiment",
+              "ml_model",
+              "ml_dataset",
+              "feature",
+              "factor"
+            ],
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum entries returned (default 20).",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "description": "Optional case-insensitive id/name/status filter.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "model_catalog",
       "permission": "read",
       "replacement": null,
       "risk": "low",

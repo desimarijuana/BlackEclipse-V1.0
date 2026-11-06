@@ -37,12 +37,13 @@ def _gate(name: str, fn: Callable[[], None]) -> GateResult:
 
 def run_gates() -> list[GateResult]:
     """Run the Python-side gates plus the TS capability-matrix gate."""
-    from . import route_health, workflow, resume
+    from . import route_health, workflow, resume, quant_contract
 
     results = [
         _gate("route_health", route_health.run_gate),
         _gate("workflow", workflow.run_gate),
         _gate("resume", resume.run_gate),
+        _gate("quant_contract", quant_contract.run_gate),
     ]
     results.append(_run_capability_matrix_gate())
     return results

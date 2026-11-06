@@ -1,24 +1,36 @@
 "use client";
 
-// ── QuantModeControl — the composer's Auto / Quant / Off pill ────────────────
+// ── QuantModeControl — the "+" menu's Auto / Quant / Off submenu ──────────────
 //
-// A per-question presentation preference, not a capability grant. "On" opts the
-// turn into the quant protocol; "Off" suppresses it; "Auto" lets the runtime's
-// deterministic classifier decide. The server validates the value, and the
-// Python quant layer still grants nothing it did not already have.
+// A per-question presentation preference, not a capability grant. It lives in
+// the composer's "+" menu (not the toolbar) so it stays out of the way until
+// the user opts in. The choice is persisted, so once selected it applies to
+// every subsequent run until changed. "On" opts the turn into the quant
+// protocol; "Off" suppresses it; "Auto" lets the runtime's deterministic
+// classifier decide. The server validates the value, and the Python quant
+// layer still grants nothing it did not already have.
 
 import { useEffect, useState } from "react";
 import { FlaskConical } from "@/lib/icons";
-import { cn } from "@/lib/utils";
+import {
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   getQuantMode,
-  nextQuantMode,
-  quantModeLabel,
-  quantModeTitle,
   setQuantMode,
   subscribeQuantMode,
   type QuantMode,
 } from "@/lib/agent/quant-mode";
+
+/** Short badge shown on the submenu trigger so the active choice is visible. */
+function badge(mode: QuantMode): string {
+  return mode === "on" ? "On" : mode === "off" ? "Off" : "Auto";
+}
 
 export function QuantModeControl({ disabled = false }: { disabled?: boolean }) {
   const [mode, setMode] = useState<QuantMode>("auto");
@@ -28,30 +40,27 @@ export function QuantModeControl({ disabled = false }: { disabled?: boolean }) {
     return subscribeQuantMode(setMode);
   }, []);
 
-  const on = mode === "on";
   return (
-    <button
-      type="button"
-      suppressHydrationWarning
-      disabled={disabled}
-      title={quantModeTitle(mode)}
-      aria-label={`Quant mode: ${mode}`}
-      aria-pressed={on}
-      onClick={() => setQuantMode(nextQuantMode(mode))}
-      className={cn(
-        "inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 h-7 rounded-full border text-xs font-medium whitespace-nowrap transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-default",
-        on
-          ? "bg-primary/15 border-primary/40 text-primary"
-          : mode === "off"
-            ? "bg-accent/25 border-border/40 text-muted-foreground"
-            : "bg-accent/25 border-border/25 text-muted-foreground hover:text-foreground hover:border-border/40",
-      )}
-    >
-      <FlaskConical size={12} className="shrink-0" />
-      <span className="hidden min-[420px]:inline">{quantModeLabel(mode)}</span>
-      <span className="min-[420px]:hidden" aria-hidden>
-        {on ? "Q" : mode === "off" ? "Q–" : "Q"}
-      </span>
-    </button>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger disabled={disabled} title="Quant mode">
+        <FlaskConical size={15} className="shrink-0" />
+        <span>Quant mode</span>
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+          {badge(mode)}
+        </span>
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent className="w-52">
+        <DropdownMenuLabel>Quant protocol</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={mode}
+          onValueChange={(value) => setQuantMode(value as QuantMode)}
+          disabled={disabled}
+        >
+          <DropdownMenuRadioItem value="auto">Auto — classifier decides</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="on">On — every run</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="off">Off — never add it</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }

@@ -32,6 +32,15 @@ def install_quant_layer(service: Any) -> None:
         service.quant_store = QuantStore(service.store)
         service.dataset_store = DatasetStore(service.store)
         register_quant_tools(service.registry)
+        # The unified catalog spans quant/ML/stats/factors. It is registered
+        # here but resolves the other stores lazily at call time, so boot order
+        # cannot hide an artifact family.
+        try:
+            from ..model_catalog import register_model_catalog_tool  # noqa: PLC0415
+
+            register_model_catalog_tool(service.registry)
+        except Exception:  # noqa: BLE001 - the catalog must not block quant boot
+            log.debug("model catalog unavailable", exc_info=True)
     except Exception:  # noqa: BLE001 - quant engine must never block boot
         service.quant_store = None
         service.dataset_store = None

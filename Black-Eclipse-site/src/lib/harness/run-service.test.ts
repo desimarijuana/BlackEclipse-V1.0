@@ -264,6 +264,21 @@ describe("startRun", () => {
     expect(runViaRuntime.mock.calls[0][0].input.context?.choicesMode).toBeUndefined();
   });
 
+  it("forwards the composer's plan mode through chatWithAgent", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_pm", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent(
+      "plan a launch", [], [], undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, "on",
+    );
+    expect(runViaRuntime.mock.calls[0][0].input.context.planMode).toBe("on");
+  });
+
+  it("omits planMode when the composer is on Auto", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_pa", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent("plan a launch");
+    expect(runViaRuntime.mock.calls[0][0].input.context?.planMode).toBeUndefined();
+  });
+
   it("overrides only the model when the composer picked one", async () => {
     runViaRuntime.mockResolvedValue({ runId: "run_m", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
     await startRun({ input: { query: "x" }, model: "gpt-4.1" });

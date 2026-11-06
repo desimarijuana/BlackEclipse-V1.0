@@ -152,7 +152,7 @@ export function ProjectChip({ chatId, compact = false }: { chatId?: string; comp
         <div
           role="menu"
           aria-label="Project folder"
-          className="glass-card-strong absolute bottom-full left-0 z-50 mb-2 w-[320px] overflow-hidden rounded-xl border border-border/40 p-1.5 text-[12px] shadow-xl"
+          className="glass-card-strong absolute bottom-full left-0 z-[150] mb-2 w-[320px] overflow-hidden rounded-xl border border-border/40 p-1.5 text-[12px] shadow-xl"
         >
           <div className="px-2 pb-1 pt-1.5">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">

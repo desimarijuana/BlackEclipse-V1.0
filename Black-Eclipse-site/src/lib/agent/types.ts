@@ -76,6 +76,13 @@ export interface ChatOptions {
    */
   choicesMode?: import('./choices-mode').ChoicesMode;
   /**
+   * The composer's plan-mode preference for THIS turn. "on" tells the model to
+   * lay out a concrete plan and wait for approval before starting the work,
+   * "off" suppresses that nudge, "auto" (default) lets the base guidance decide.
+   * Presentation guidance only, never a capability grant or a hard block.
+   */
+  planMode?: import('./plan-mode').PlanMode;
+  /**
    * The UI page the user is currently focused on (Pages / UI Builder), forwarded
    * into the run's context so `ui_get_current_page` can resolve "my widgets".
    */

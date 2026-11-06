@@ -131,3 +131,26 @@ def test_browse_never_recurses(tmp_path):
     names = {e["name"] for e in result["entries"]}
     assert "a" in names
     assert "deep" not in names  # children only, never grandchildren
+
+
+def test_create_folder_makes_one_leaf(tmp_path):
+    result = roots.create_folder(str(tmp_path), "my project")
+    assert (tmp_path / "my project").is_dir()
+    assert Path(result["path"]) == Path(os.path.realpath(str(tmp_path / "my project")))
+    assert result["name"] == "my project"
+    assert Path(result["parent"]) == Path(os.path.realpath(str(tmp_path)))
+
+
+def test_create_folder_refuses_a_path_or_a_missing_parent(tmp_path):
+    for name in ("a/b", "a\\b", ".", "..", ""):
+        with pytest.raises(ValueError):
+            roots.create_folder(str(tmp_path), name)
+    with pytest.raises(ValueError):
+        roots.create_folder(None, "x")  # the drive list has no writable location
+    with pytest.raises(ValueError):
+        roots.create_folder(str(tmp_path / "missing"), "x")
+
+
+def test_create_folder_is_idempotent_for_an_existing_folder(tmp_path):
+    (tmp_path / "exists").mkdir()
+    assert roots.create_folder(str(tmp_path), "exists")["name"] == "exists"

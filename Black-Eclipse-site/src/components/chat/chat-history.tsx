@@ -19,7 +19,6 @@ import { ImageGalleryPanel } from './image-gallery';
 import { VideoPanel } from './video-panel';
 import { DocumentPanel } from './document-panel';
 import { MemoryActionPanel } from './memory-action-panel';
-import { ChatCapabilityPanel } from './chat-capability-panel';
 import { ComputedResultPanel } from './computed-result-panel';
 
 import { AcquisitionPanel } from './acquisition-panel';
@@ -387,12 +386,11 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                 </div>
               )}
 
-              {msg.role === 'assistant' && ((msg.activities && msg.activities.length > 0) || Boolean(msg.autonomy) || Boolean(msg.codeVerification) || Boolean(msg.capability)) && (
+              {msg.role === 'assistant' && msg.activities && msg.activities.length > 0 && (
                 <ActivityFeed
-                  activities={msg.activities ?? []}
+                  activities={msg.activities}
                   status={msg.status}
                   compact={compact}
-                  capability={{ autonomy: msg.autonomy, verification: msg.codeVerification, capability: msg.capability }}
                 />
               )}
 
@@ -466,11 +464,6 @@ export function ChatHistory({ messages, compact = false, onEditMessage, onResend
                       <AssistantContent content={msg.content} compact={compact} streaming={working} onFollowup={onFollowup} />
                     </ResponseRuntimeProvider>
                   )}
-                  <ChatCapabilityPanel
-                    autonomy={msg.autonomy}
-                    runId={msg.runId}
-                    compact={compact}
-                  />
                   {(msg.analysis || msg.research) && (
                     <div className="mt-2 flex w-full flex-col gap-2">
                       {msg.analysis ? (

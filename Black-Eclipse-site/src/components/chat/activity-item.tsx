@@ -16,18 +16,11 @@ import { AlertCircle, Brain, Check, ChevronRight, Globe, Loader2, Scissors, Sear
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import type { ActivityItem } from '@/lib/agent/response-model';
-import type { ChatCapability } from '@/lib/harness/chat-capability-view';
-import { ChatCapabilityPanel } from './chat-capability-panel';
 
 export interface ActivityItemRowProps {
   item: ActivityItem;
   /** Tighter type/spacing for the floating dock. */
   compact?: boolean;
-  /**
-   * Phase 14: the turn's code capability, rendered once for the anchor row of a
-   * coding turn. Absent for ordinary turns (nothing renders).
-   */
-  capability?: ChatCapability;
   /** The step the agent is on right now — gently foregrounded while it runs. */
   latest?: boolean;
 }
@@ -52,7 +45,7 @@ function CategoryIcon({ item, className }: { item: ActivityItem; className?: str
   return <Wrench size={12} className={className} />;
 }
 
-export function ActivityItemRow({ item, compact = false, capability, latest = false }: ActivityItemRowProps) {
+export function ActivityItemRow({ item, compact = false, latest = false }: ActivityItemRowProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const failed = item.status === 'failed';
@@ -158,16 +151,6 @@ export function ActivityItemRow({ item, compact = false, capability, latest = fa
             </div>
           )}
         </dl>
-      )}
-
-      {/* Phase 14: the chat capability panel, rendered once beneath the anchor
-          activity row of a coding turn. It names what Eclipse set out to do; the
-          verification ledger lives on the Code screen, not in the chat. */}
-      {capability && (
-        <ChatCapabilityPanel
-          autonomy={capability.autonomy}
-          compact={compact}
-        />
       )}
     </div>
   );

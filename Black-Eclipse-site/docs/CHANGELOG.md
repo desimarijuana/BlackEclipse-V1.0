@@ -1,5 +1,228 @@
 # Change Log
 
+## 2026-11-06
+- **test(harness): first real chat quant eval passes.** Ran “forecast gold for
+  tomorrow” through the live configured model (Ollama / deepseek-v4.1-flash) and
+  graded the actual answer + 23 tool executions with `quant_chat_eval`:
+  **passed**, with an explicit spot-XAUUSD vs GC=F basis, a GARCH distribution
+  (no point forecast), walk-forward validation, costs, and an artifact line
+  (`art_…`). The artifact regex now recognises `art_`/`artifact_` ids too.
+  Docs updated: `docs/CHANGELOG.md`.
+- **feat(capabilities): a generated capability belongs to its project (P4).**
+  The draft root was already the run's project (`draft_root(root)` →
+  `<project>/.black-eclipse/capabilities`), but the process-wide dynamic recipe
+  registry was only refreshed on build/activate with whatever root that call
+  used — so a recipe built in project B could be reported active while
+  `analysis_run` could not execute it from B, and A's recipes could linger while
+  working in B. `capability_request` now refreshes the registry for the run's
+  root before assessing, so discovery and execution agree and capabilities are
+  isolated per project. Test: a built recipe is listed in
+  `project_b/.black-eclipse`, absent from `project_a`, a `gap` again in A, and
+  callable again in B without rebuilding. Docs updated: `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(harness): close the chat quant loop.** Deep quant turns now get a
+  32-step / 10-minute budget floor. The final answer is post-checked by
+  `finalize_quant_text`: if the model omitted the required artifact line, Eclipse
+  appends `Artifacts: <ids>` (or `Artifacts: none — …`) and names any still-missing
+  validation, OOS or cost evidence as an explicit `Eclipse check`, never silently
+  passing. The protocol also requires the gold basis (spot `XAUUSD` vs `GC=F`
+  futures). New offline gate `eval_gates/quant_contract.py` locks the contract
+  into `npm run test:evals`; new `quant_chat_eval.py` grades real chat outputs
+  from JSONL (`python -m harness.quant_chat_eval`) and `test_quant_chat_eval.py`
+  covers it. `graph.py` re-pinned 2461→2469. ADR-H345 records that quant work is
+  chat-native, not a UI mode. Docs updated: `docs/harness/decisions.md`,
+  `docs/CHANGELOG.md`.
+- **feat(builds): chat builds are durable, and the scorecard is per project (P3).**
+  A writing chat turn now records a `session.created` boundary
+  (`code/session.py::record_chat_build`, called from the same
+  `AgenticService.run`/`run_background` seam as the budget floor), pre-creating
+  the run row when needed so the FK-bound checkpoint can be written. Chat builds
+  therefore appear in the scorecard and are resumable through the existing run
+  path. It also writes the same `task.created` boundary a Code task has, so a
+  chat build now lists in **Builds** (diff, checks, preview, undo), not only in
+  the transcript; `code/tasks.py` lists any run with that boundary and
+  `TaskStore.view` returns None for a run that never built. `build_scorecard` no
+  longer requires `agentId == "code-agent"`: a build is any run with a session and
+  a code workspace row, and the row's `checkoutRoot` attributes it to a project.
+  `GET /code/scorecard` takes `taskId`/`rootId`
+  (resolved server-side, never a raw path) and the Builds tab gained a
+  **This project / All builds** toggle. Tests: 3 new `test_build_session.py`
+  cases (records once, planning is not a build, the chat build is listed) and a
+  per-project scorecard case.
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md`, `docs/CHANGELOG.md`.
+- **feat(builds): run the project and look at it (P2).** New
+  `python/harness/code/preview.py` starts a project's dev command on the
+  EXISTING execution layer (`ServiceManager` + the terminal process manager) and
+  reports the URL it actually finds: it watches the process tree for the first
+  listening port that answers HTTP, so a running-but-silent process is `not
+  ready` with logs, never a fake URL. Command precedence is
+  `.black-eclipse/preview.json` > `package.json` `dev`/`start`/`preview`/`serve` >
+  a `Makefile` target. Routes `POST /code/preview/start`, `POST
+  /code/preview/stop`, `GET /code/preview`, `GET /code/preview/logs` (the project
+  is resolved server-side from the task's workspace or an approved root; no
+  `cwd` in a body), proxied by `src/app/api/code/preview/route.ts`. The Builds
+  tab gains `preview-panel.tsx` (Run / Check again / Open / Stop / logs) with
+  `code.preview.*` copy in `dictionaries/builds.ts`. A preview runs the project
+  ON DISK — an unlanded change is not included, and the panel says so. Tests:
+  `python/tests/test_preview.py` (9), +1 wiring assertion. Docs updated:
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(harness): chat deliverable contract + catalog-first reuse.** The quant
+  protocol now requires exactly one final `Artifacts: <ids>` or
+  `Artifacts: none — <missing>` line on every standard/deep turn, and a
+  `model_catalog` check BEFORE a build with reuse of a fitting artifact instead of
+  a duplicate. An ambiguous model family (DCF vs ML vs strategy vs risk) gets ONE
+  `clarify` question with those options. Reuse/catalog asks ("reuse the model from
+  last week", "what models do we have", "list my strategies") are now classified
+  as standard quant turns instead of concept/lookup non-turns. New deterministic
+  chat fixtures `python/tests/test_quant_chat_contract.py` (6) and benchmark cases
+  cover the contract. No separate UI: chat is the only delivery surface. Docs
+  updated: `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+- **feat(builds): the Builds tab names its project, and land checks fit it (P1).**
+  New `components/screens/code/project-bar.tsx` shows the project new builds
+  belong to and switches it through the ONE trusted-roots registry + shared
+  `FolderPicker`; `task-list.tsx` passes `workspaceRootId` on both create paths,
+  so a build no longer relies on an invisible global selection. New
+  `dictionaries/builds.ts` holds the `code.project.*` copy (en.ts is ratcheted).
+  `code/land.py` now detects a user project's checks — `package.json` scripts,
+  `Cargo.toml`, `go.mod`, a declared pytest, a `Makefile` `test:` target — with
+  precedence `land.json` > harness defaults (Eclipse's repo only) > detected >
+  none-with-a-warning; an unrecognised project gets no checks rather than
+  Eclipse's. Tests: `project-bar.test.ts`, an extended
+  `code-screen-mounted.test.ts`, 4 new `test_land.py` cases. Harness budget
+  re-pinned to the measured tree. Docs updated: `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(harness): chat-native reuse of the model catalog.** The Eclipse Agent
+  prompt now tells the model to call `model_catalog` before building a duplicate,
+  reuse or extend an existing artifact where it fits, and name the created
+  artifact's id in the answer. This is intentionally chat-native: the catalog is
+  a read-only agent tool whose text result is summarized inline; there is no
+  separate catalog screen or workspace panel. The deep quant protocol already
+  carries the same instruction. Docs updated: `docs/CHANGELOG.md`.
+- **fix(workspace): the folder picker can find and create folders.** The chat
+  project chip's "Open folder…" (and the Editor's folder picker) now has a path
+  bar that accepts a typed/pasted absolute path, a **Drives** button back to the
+  filesystem roots, and a **+ New folder** action that enters the folder it just
+  created. Browse + create are **Node-native** (`src/lib/workspace/browse-server.ts`
+  + the `/api/workspace/browse[/mkdir]` routes) so a Python runtime restart can
+  no longer freeze the picker; approving a folder as a ROOT still goes through the
+  runtime's trusted-root store. When the page is on `localhost`, the picker calls
+  the same server on `127.0.0.1` (a separate browser connection pool) with a
+  narrow loopback CORS grant, fixing the dev keep-alive wedge that hung the second
+  request. Browse/create time out honestly and offer **Retry**. The runtime health
+  probe budget is raised (1.5s→8s, TTL 5s→15s) so a healthy-but-busy runtime is
+  not mistaken for dead and restarted. Tests: `browse-server.test.ts` (5),
+  `test_code_roots.py` (+3), `test_workspace_editor_api.py` (+2), `tsc` clean,
+  full vitest green (474 files / 4408). Docs updated: `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **fix(workspace): the folder dialog sits above the app, is accessible, and can
+  open the Windows picker.** `FolderPicker` is now portaled to `<body>` at
+  `z-[200]` (it was `z-[70]` inline, so the sidebar/menus covered it), with a
+  `role="dialog"` labelled title, initial focus on the path field, Escape to
+  close, a Tab focus trap and focus restore. Redesigned header/toolbar/list/
+  footer, folder rows with icons, explicit loading/empty/error states, and
+  `aria-live` status. On Windows a **Windows…** button calls the new
+  `POST /api/workspace/pick-folder` (`src/lib/workspace/native-picker.ts`),
+  which opens the real OS "Select Folder" dialog via a topmost
+  `FolderBrowserDialog`; the chosen path is loaded into the in-app picker for
+  confirmation. Docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **fix(code): a build belongs to ONE project (P0).** Worktrees were always cut
+  from the globally *selected* trusted root, and `build_preview` resolved its
+  target the same way at promote time — so a build bound to project B could be
+  reviewed against, and land into, project A after a selection change.
+  `worktree.allocate/release/diff` now take the run's resolved root;
+  `CodeWorkspace` records `checkoutRoot` (additive column, legacy rows derive it
+  from the scratch path); `build_preview` and the rollback route read it back and
+  refuse a project that has moved instead of redirecting; `CreateTaskRequest`
+  accepts `workspaceRootId` and the front door forwards it. Cancel/discard now
+  release in the task's own project. Tests: new `test_project_binding.py` (5)
+  proves the diff cannot land in the selected project and that a vanished project
+  is refused; promotion/selfhost/maintenance/land/session suites still pass.
+  Docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **refactor(self-build): the chat build-budget seam moved to the run funnel.**
+  The `standard`-budget floor now lives in `AgenticService.run` /
+  `run_background` (`apply_chat_build_budget`) instead of `main.start_run`, so
+  every entry point gets it and `main.py` stays under its hard ceiling (1199).
+  No behavioural change for `POST /runs`; the earlier entry's `start_run` wording
+  is superseded. Docs updated: `docs/CHANGELOG.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md`, `docs/NAVIGATION.md`.
+- **feat(harness): unified model/research catalog (Phase 3).** New
+  `python/harness/model_catalog.py` registers a read-only `model_catalog` tool
+  that aggregates the app's own registries — quant strategies + experiments, ML
+  models + datasets, statistical features and factors — with `kind`/`query`/`limit`
+  filters and an honest empty-registry note. It never writes and never invents an
+  entry; the stores are resolved lazily, so boot order cannot hide a family.
+  Registered from `quant/bootstrap.py`, added to the Eclipse Agent allowlist and
+  the quant surface, and the deep protocol now says to check the catalog before
+  building and confirm the id after creating. Tests: `test_model_catalog.py` (5),
+  plus the quant-tools/registry-parity/tool-contract/size suites. Size budget
+  re-pinned. Docs updated: `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+- **chore(chat): drop the code-capability headline, de-clutter the learning line,
+  fix the composer's right-edge overflow.** Removed `ChatCapabilityPanel` from the
+  transcript (the "I'll look at the project…" card with its `details` toggle) and
+  deleted the component + its source-text test; the "Put this change into my
+  project" control it carried stays on the Code task screen, recovery console and
+  RSL panel via `PromoteChange`. Gave the memory/learning outcome line vertical
+  breathing room (`py-1.5`, `gap-y-1`, `leading-relaxed`). Composer toolbar no
+  longer overflows at ~850px: dropped `shrink-0` from the controls group, added
+  `min-w-0` and made the model label truncate inside a shrinking trigger. Tests:
+  `tsc` clean, full vitest green (472 files / 4399). Docs updated:
+  `docs/NAVIGATION.md`, `docs/interactive-response-engine.md`,
+  `docs/CHANGELOG.md`.
+- **feat(chat): Plan mode — plan first, then wait for approval.** Added the third
+  per-turn preference beside Quant and Choices, inside the composer's "+" menu:
+  `src/lib/agent/plan-mode.ts` (Auto/On/Off, persisted), `plan-mode-control.tsx`
+  (submenu + active badge), and `planMode` threaded through `ChatOptions`,
+  `buildChatPayload`, both chat routes and `run-service` into
+  `input.context.planMode`. `python/harness/plan_mode.py` appends a `<plan_mode>`
+  block to `runtime_context` only for `"on"`: work out goal/assumptions/steps,
+  record them with the existing `create_plan`/`create_task` tools when present
+  (otherwise write the plan in the reply), present it, then stop and wait for
+  approval before `run_plan`/effectful work. Guidance only — no hard block, no
+  capability grant; `off`/`auto` add nothing. Tests: `plan-mode.test.ts` (5),
+  `run-service` (+2), chat-route (+1), Python `test_plan_mode.py` (5); `tsc`
+  clean; targeted suites green. Size guard: `graph.py` re-pinned 2457→2461 for
+  the one import + one call seam. Docs updated: `docs/harness/architecture.md`,
+  `docs/CHANGELOG.md`.
+- **feat(chat): move the Quant and Choices modes into the composer's "+" menu.**
+  The two always-visible Auto/On/Off pills crowded the toolbar (and collapsed to
+  cryptic `Q`/`C` glyphs on narrow screens). They are now two submenus —
+  **Quant mode** and **Choices mode** — under the composer's "+" menu, each with
+  Auto / On / Off radio items and a small badge showing the active choice.
+  Default stays `auto` (nothing is sent); picking On or Off persists in
+  localStorage and therefore applies to every later run until changed. The
+  preference plumbing, server validation and Python behaviour are untouched.
+  Tests: `tsc --noEmit` clean, full vitest suite green (4393), targeted
+  `test_choices_mode.py` + `test_quant_intent.py` green (54). Docs updated:
+  `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+- **fix(self-build): the Builder surface is reachable, and a chat build gets a
+  build budget.** `CodeScreen` was exported but never imported, so the Code
+  screen, land checks, per-file diffs and scorecard strip had no UI. Added the
+  `code` tab to `AppTab` + `ALL_TABS`, mounted it through a keep-alive wrapper
+  (`components/screens/code/code-tab.tsx`, so `stock-chat.tsx` grows by one
+  import + one line and its ratchet moves 1603→1606), and registered the palette
+  page **Builds** (`page-code`, launcher row) with a `code` icon. Also fixed the
+  24-step wall that cut the acceptance run off mid-change: `start_run` now
+  applies the `standard` session budget (80 steps / 45 min, additive,
+  hard-capped) when the turn's autonomy may write, via
+  `code/session.py::budget_for_autonomy`; planning turns keep the chat budget.
+  Harness size budget re-pinned to the measured tree (total, `.`, `code`). New
+  guard `code-screen-mounted.test.ts` fails if the surface is ever exported but
+  not mounted again. Tests: `test_build_session.py` (2 new), `app-tabs`,
+  `registry-sync`, `size-budget` green. Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md`, `docs/CHANGELOG.md`.
+- **fix(harness): a code-build task is never a quant turn.** The full suite
+  caught a real regression: the team task "write alpha.py and beta.py" matched
+  the bare `alpha` model object, so the quant surface narrowed away
+  `eval_fs_write`/`eval_run` and the modules were never written. The classifier
+  now has a code-task guard (`alpha.py`, `model.py`, `print(...)`, `def `,
+  `import `) that returns `none` unless a genuine quant term (backtest, quant,
+  forecast, portfolio, volatility, drawdown, Monte Carlo, optimization, a named
+  model) is present; bare `alpha` is no longer a model object. Regression cases
+  added to `test_quant_intent.py` and the 56-case benchmark; the team comparison
+  and code-eval suites pass again. Size budget re-pinned. Docs updated:
+  `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+
 ## 2026-11-05
 - **feat(chat): composer "Choices" mode — ask with selectable options up front.**
   New `src/lib/agent/choices-mode.ts` + `src/components/chat/choices-mode-control.tsx`
@@ -2485,234 +2708,3 @@ This file keeps a rolling window of the **most recent 7 dated sections** (the ac
 
 > Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
 
-## 2026-10-30
-- **fix(graph): production hardening for schedules + a stable perf guard.** A
-  schedule linked to a `trigger.schedule` node is now paused (with a visible
-  reason) on the next tick if that node no longer exists in the persisted
-  workflow, so deleting a trigger cannot leave an orphaned schedule firing the
-  graph. Added coverage for the deleted-node and still-present-node paths. The
-  observability span-overhead perf test now measures the **median of five warmed
-  batches** instead of one run, so a scheduling hiccup under load cannot fail a
-  guard that still requires < 1 ms per span.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): schedule details directly on the Schedule node.** The
-  `trigger.schedule` card now shows an Active/Paused dot, a human schedule
-  summary (`Weekdays at 09:00 · Asia/Karachi`), the next fire in the schedule's
-  timezone, and the last error when a fire fails; a node with no linked schedule
-  says so. The canvas loads schedules for the open workflow, refreshes after any
-  schedule mutation (a small `eclipse:schedules-changed` event) and once a minute
-  as the tick advances `nextRunAt`. The Schedule tab remains the editor.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **fix(graph): black in-node input wells + double-click for details.** Inline
-  text/number/select/JSON widgets use the original black field fill again
-  (`bg-background/60`) while keeping the compact 28px rows and borders. A single
-  click on a node now only selects it, so clicking into a widget never opens the
-  right inspector; double-click opens the inspector as the shortcuts panel
-  already documented. Widgets stop double-click propagation, so editing a value
-  cannot accidentally open the panel.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **style(graph): compact two-column node controls.** Inline parameters are now
-  Blender-style rows — small label on the left, widget on the right — instead of
-  stacked labels, which had made the cards tall and cramped. JSON parameters use
-  a single-line value box on the card (the inspector keeps the full editor), and
-  node width is 264 px so labels and dropdowns fit. No doc change — visual
-  refinement of the in-node controls.
-- **style(ui): filled Test glyph, lock for the broker, broom for “Tidy up”, and
-  a calmer Add-node control.** The node hover Test button uses Phosphor's filled
-  Play glyph (still a neutral solid-grey button). The sidebar broker launcher now
-  uses the shared Lock icon so it matches the other sidebar icons instead of a
-  brand mark. The graph canvas “Tidy up layout” action (toolbar and context menu)
-  uses the Phosphor Broom icon. The canvas **Add node** affordance is now a
-  frosted control with a neutral plus tile, the label and a `Tab` key hint —
-  no green pill — and the empty-state “Add first step” uses the same treatment.
-  No doc change — visual identity only.
-- **style(graph): neutral solid-grey Test button.** The node hover toolbar's
-  Test play button now uses the solid `muted` surface with a neutral foreground
-  hover instead of green; the result dots keep their semantic colours.
-  No doc change — visual tweak.
-- **feat(graph): Blender/ComfyUI-style controls inside every node + one-click
-  node Test.** Parameters are edited directly on the node: two priority fields
-  always visible, a “+N more parameters” toggle expands the rest in place
-  (Show less collapses). Number fields are drag-to-scrub widgets (Shift fine,
-  Ctrl/Cmd coarse, click to type), selects are dropdowns, booleans are
-  checkboxes, text is an input and JSON is a compact textarea. Every control
-  dispatches the same `update_node_config` patch as the inspector; clicking the
-  node still opens the full advanced inspector. `ConfigFieldDef.quick` chooses
-  the two priority slots (logic.condition now surfaces compareTo,
-  agent.research surfaces agent). The hover toolbar's play button — next to
-  Duplicate — runs the node; the result renders inside the node body with
-  running/succeeded/failed, duration, error and an expandable output preview.
-  Side-effecting nodes show a lock and require an authorized run. Test state is
-  ephemeral and nothing is persisted. Registry-driven, so it covers every node
-  type without per-node UI code.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **fix(graph): schedule triggers now have real time controls and cannot
-  double-fire.** `trigger.schedule` is zero-config; its cron/timezone/enabled
-  state is a `WorkflowSchedule` linked by a new `nodeId` column (Prisma db push),
-  edited in the node inspector's **Schedule** tab: repeat presets, a time picker,
-  weekday chips, IANA timezone select, catch-up policy, version pin, next-three-
-  fires preview, Run now, pause and delete. The 60 s ticker now starts early in
-  the boot pipeline, holds a process-level overlap lock, and **claims each due
-  fire atomically** (compare-and-set on `nextRunAt`) so two ticks/processes
-  cannot start the same run; missed fires keep the skip/coalesce policy and a
-  later tick reconciles `lastStatus` from the run instead of leaving it at
-  `started`. Zone names are validated with a clear error. Schedules still run in
-  the read-only test envelope (the UI says so) and only while the server is up.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): zero-config manual trigger + per-node Test panel.** `trigger.manual`
-  now has no config fields, like n8n: `Start` is the one-off run input (Execution
-  dock or webhook body) or null; stored defaults belong in `data.value` /
-  `data.set_variables`. Legacy `seed`/`payload` keys in already-saved graphs are
-  still honoured at runtime but are no longer declared or shown, and the starter
-  templates were moved onto visible data-node defaults. The inspector gained a
-  **Test** tab that executes a single node through the new
-  `POST /api/graph-runs/node-test` → Python `POST /graphs/nodes/test` surface:
-  explicit per-port inputs, re-validated config, the node's hard timeout, and a
-  safe envelope that refuses network/write/trading/model nodes (403). Tests cover
-  the zero-config trigger, node tests, input validation and the safe envelope.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): n8n-style manual trigger — payload, run input and webhook body.**
-  `trigger.manual` now has a `payload` (any JSON) plus `payloadType`
-  (`auto`/`string`/`number`/`boolean`/`object`/`array`) in addition to the legacy
-  `seed`; the executor resolves Start as run input → payload → seed → null, so
-  existing graphs are unchanged. The runs route and the webhook-style trigger
-  route now accept a bounded (64 KiB) `runInput` (webhook: the request body) and
-  forward it to the Python runtime, which already supported it. The Execution
-  dock gained a **Run input** JSON editor (one run only, never persisted), and the
-  inspector shows Payload/Payload type with help text. Registry parity kept in
-  both languages; `config_fields` gained an `any` kind for JSON values.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **fix(ui): provider logos replace the sparkle in the model picker.** The
-  composer's model selector and the Provider submenu now show the actual
-  provider's brand mark (OpenAI, Anthropic, Gemini, Mistral, DeepSeek, Groq,
-  Ollama, LM Studio, xAI, OpenRouter, Perplexity, Together, Fireworks, OpenCode,
-  or the Eclipse mark) instead of the generic sparkle; unknown/custom providers
-  get a neutral CPU glyph. Marks are vendored under `public/providers/` and
-  rendered as a `currentColor` mask so they work in both themes and never call
-  a CDN. The Manage-models dialog header shows the provider's mark too.
-  No doc change — visual identity only.
-- **feat(voice): dictation — speak prompts into the composer.** The dead mic in
-  both composers is now a real voice-input control: Whisper through an
-  OpenAI-compatible `/audio/transcriptions` endpoint (OpenAI, Groq, or a keyless
-  local whisper.cpp server), with browser SpeechRecognition as the zero-config
-  fallback. Audio is bounded, validated, transcribed once and discarded — never
-  stored or logged — and the transcript is inserted at the caret without
-  replacing typed text. Settings › Voice gained engine/language/vocabulary/max
-  length/provider config plus an honest readiness report. A new Settings › Voice
-  provider readiness route (`/api/voice/config`), transcription front door
-  (`/api/voice/transcribe`), Python `/voice/transcribe` runtime route, and the
-  optional `TRANSCRIBE_API_KEY` vault entry keep the key server-side.
-  Docs updated: `docs/voice.md`, `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
-- **feat(graph): n8n-style node parameter editing.** A single click now opens the
-  inspector (drag still moves the node). The Parameters tab shows the node
-  description/docs, friendly labels, one-line help, required markers, and an
-  “Advanced: edit config as JSON” editor for any field the form does not expose.
-  The Settings tab gained saved node **Notes** (`update_node_notes`; notes are
-  copied on duplicate/paste and never executed). Added shared help text and
-  required-field metadata in `config-fields.ts`.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **test(graph): verified `trading.broker_order` on a real MT5 demo fill.** A
-  graph `trigger → data.value(intent) → trading.broker_order → result` submitted
-  a 0.01 lot EURUSD buy (SL 1.11000, TP 1.12500) under a one-order demo mandate:
-  ticket `11183814415` filled at 1.11676, then closed/verified at 1.11677
-  (`positions=0`). A first attempt without a stop was correctly refused by the
-  connection's 0.5% risk-per-trade policy, proving the preflight gate. The
-  configured connection is a demo account, so the live two-key path still needs
-  an armed live connection to be exercised.
-  no doc change — verification run; no contract changed.
-
-- **feat(graph): MT5 live execution under a workflow-pinned mandate.** Phase 6
-  adds LIVE broker nodes: `trading.broker_order` (armed live connection + live
-  mandate; a mandate replaces the per-order typed phrase), read nodes
-  `broker_account` / `broker_quote` / `broker_bars`, and risk-reducing
-  `broker_close` / `broker_modify` / `broker_cancel` (no arm/approval/mandate).
-  Live mandates pin `workflowId@version`, are capped at a 24 h TTL and require
-  the connection arm before creation; `RunGrants`/`RunRequest`/the front door
-  carry `allowLiveTrading`, the compiler refuses paper-only nodes in live mode
-  and requires pinned `connectionId`/`mandateId`, and the execution context now
-  carries the workflow id for the mandate check. The editor gained a broker
-  connection/mandate picker and the Settings mandate form supports live + a
-  workflow pin. Tests: live mandate/submit, pinned workflow mismatch, compiler
-  live grant. Docs updated: `docs/trading.md`, `docs/graph-studio.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): scoped external file writes.** Added `file.write` (Phase 5):
-  a named operator-configured scope (`HARNESS_GRAPH_WRITE_ROOTS`, default
-  `workspace` → `.black-eclipse/workspace`), relative paths only, `..`/absolute/
-  symlink escapes refused, 8 MB cap, atomic replacement or append. A test run
-  never writes; an operator run is granted only the exact scopes it confirms
-  (`allowedWriteScopes`, carried through the front door to `RunGrants`). The
-  authorization dialog lists the scopes; the editor marks file writes as an
-  effect. Tests: node confinement/caps, compiler envelope, TS authorization.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): bounded loop nodes.** Added `flow.for_each`, `flow.repeat` and
-  `flow.while`: a pinned body workflow run under a hard `maxIterations`/`count`
-  and optional `maxDurationMs` cap. The compiler still refuses graph cycles; a
-  loop is an orchestrated node. Each iteration is a durable child run
-  (`<parent>:<node>:i<N>`) and doubles as its checkpoint — a resumed parent
-  reuses a succeeded iteration. `flow.while` evaluates the safe formula language
-  over `value`/`index`/`iterations`; `flow.for_each` can continue on a failed
-  item and records the error in `results`. The editor treats loop bodies like
-  subworkflows (pinned workflow picker) and the front-door bundle walks them.
-  Tests: compile/execute/cap/reuse and parity.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): resumable agent runs.** Durable graph jobs now persist the
-  front-door callback URL and re-resolve model credentials on resume through the
-  operator-gated `POST /api/graph-runs/{id}/credentials` route — the key is held
-  in worker memory only, never in the job payload. The agent adapter re-enters
-  the same agent-plane run when a durable checkpoint exists
-  (`agent_run_identity`), so a crashed turn continues instead of replaying; a
-  run without a checkpoint restarts under a fresh id (model calls have no world
-  effect). Added credential-resolution and identity tests. Docs updated:
-  `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): dry-run agent nodes in a test run.** Added the `model` side
-  effect (tokens, not a world effect), separate from `network`. Agent nodes are
-  now `model`, so a test/dry run may execute them; the front door resolves model
-  credentials for any graph with `agent.run`, and the runtime narrows the agent's
-  declared allowlist DOWN to `DRY_RUN_TOOLS` (read-only finance, local evidence,
-  response helpers) — web, browser, MCP, plugins, code and broker tools are
-  removed. Operator runs keep the preset's surface. Added `requiresModel` /
-  `modelNodes` to run authorization and the dialog, plus dry-run surface tests.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): operator-authored agent presets from Settings.** New Settings ›
-  Agents CRUD for a custom agent preset (prompt, max steps, explicit tool
-  allowlist, MCP/plugin expansion). Presets live on `agent-memory.db` in
-  `AgentPreset` + immutable `AgentPresetVersion`; every edit appends a version
-  and an agent node pins `agent@version`. Tool names are validated against the
-  live registry and a write/external tool requires the explicit “Allow effectful
-  tools” acknowledgement. The Next front door is a thin proxy; the runtime owns
-  resolution. Agent nodes gained `agentVersion` and the inspector gained a
-  built-in/custom picker; the manifest was regenerated.
-  Docs updated: `docs/graph-studio.md`, `docs/harness/decisions.md`
-  (ADR-H342), `docs/CHANGELOG.md`.
-- **fix(docs): rotate-changelog archives the oldest sections, not the newest.**
-  The script read the newest-first file backwards (`marks[length - KEEP]`) and
-  sliced the archive block with a dead identity check, so `--write` moved the
-  newest section out and dropped the older ones. It now keeps the first 7
-  newest sections and archives the contiguous oldest tail; 2026-10-23 moved to
-  `docs/changelog/2026-10.md`.
-  Docs updated: `docs/CHANGELOG.md`, `docs/changelog/2026-10.md`.
-- **fix(graph): record the repro + root cause for failing agent nodes.** A
-  trigger → `agent.research` → result graph run as an operator run returns a
-  complete answer from the agent plane but the node is marked failed with
-  `agent run completed: <output>`; downstream nodes are skipped. Cause: the
-  bootstrap adapter accepts only `succeeded` while the run plane's terminal
-  success status is `completed` (`RunStatus` in `python/harness/schemas.py`).
-  Also found adjacent defects: run history is keyed by `ir.id` while the API
-  lists by the JDDS row id, and subworkflow bundles fail the same identity
-  equality check. Analysis only, no code changed in this pass.
-  no doc change — investigation for a fix plan; `docs/graph-studio.md` will be
-  updated with the fix, not the audit.
-- **fix(graph): make agent nodes and run history work.** Extracted the agent
-  result projection into `agent_nodes.agent_result_payload`, which now accepts
-  the run plane's `completed` terminal status as success (and `failed`/
-  `cancelled` report their own message, not the transcript). Run dispatch now
-  aligns the IR id to the persisted JDDS workflow id (and bundled subworkflow
-  IRs to their pinned row ids), so `/api/workflows/[id]/runs` and nested runs
-  share one identity. `agent.research.query` / `agent.plan.objective` are
-  optional ports backed by a compile-time "wire or config objective" rule, and
-  the canvas "From wire" state maps a config field to its real port. The editor
-  Start action now opens the authorization dialog for graphs with network /
-  trading / write effects instead of firing a test run that must be refused.
-  Added agent adapter, config-only objective and every-node-executable tests;
-  regenerated `registry.manifest.json`.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
