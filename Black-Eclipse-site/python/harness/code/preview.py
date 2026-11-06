@@ -191,10 +191,16 @@ class PreviewManager:
             self._sleep(POLL_INTERVAL_S)
         return "", 0
 
-    def status(self, key: str) -> dict[str, Any]:
+    def status(self, key: str, root: Path | str | None = None) -> dict[str, Any]:
         record = self._by_key.get(key)
         if not record:
-            return {"status": "idle", "taskKey": key}
+            # Idle still names what WOULD run, so the surface can show the exact
+            # command before the user clicks Run.
+            plan = plan_preview(root) if root is not None else None
+            return {
+                "status": "idle", "taskKey": key,
+                **({"plan": plan.to_dict()} if plan is not None else {}),
+            }
         process = None
         terminal = self._terminal()
         if terminal is not None and record.get("processId"):

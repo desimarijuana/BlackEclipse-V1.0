@@ -16,6 +16,7 @@ export const builds = {
   'code.preview.title': 'See it running',
   'code.preview.hint': 'Runs the project as it is on disk. A change you have not landed yet is not included.',
   'code.preview.run': 'Run the project',
+  'code.preview.willRun': 'Runs {command}',
   'code.preview.starting': 'Starting…',
   'code.preview.checkAgain': 'Check again',
   'code.preview.open': 'Open',

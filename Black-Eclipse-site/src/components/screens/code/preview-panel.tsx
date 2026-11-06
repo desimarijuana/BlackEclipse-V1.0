@@ -86,6 +86,8 @@ export function PreviewPanel({ taskId, rootId }: PreviewPanelProps) {
 
   const running = Boolean(preview?.running);
   const ready = Boolean(preview?.ready && preview?.url);
+  const plan = (preview?.plan ?? null) as { command?: string; source?: string } | null;
+  const noCommand = preview?.status === 'idle' && plan?.source === 'none';
 
   return (
     <section className="glass-card-subtle rounded-xl border border-border/40 p-2.5">
@@ -109,7 +111,7 @@ export function PreviewPanel({ taskId, rootId }: PreviewPanelProps) {
             <button
               type="button"
               onClick={() => void start()}
-              disabled={busy != null}
+              disabled={busy != null || noCommand}
               className="glass-button inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] text-foreground disabled:opacity-50"
             >
               {busy === 'start' ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
@@ -144,6 +146,16 @@ export function PreviewPanel({ taskId, rootId }: PreviewPanelProps) {
         <p className="mt-1.5 rounded-lg border border-amber-500/25 bg-amber-500/5 px-2 py-1 text-[10.5px] text-amber-300/90">
           {error}
         </p>
+      ) : null}
+
+      {!running && plan?.command ? (
+        <p className="mt-1.5 text-[10.5px] text-muted-foreground/70">
+          {t('code.preview.willRun', { command: plan.command })}
+        </p>
+      ) : null}
+
+      {noCommand ? (
+        <p className="mt-1.5 text-[10.5px] text-amber-300/90">{t('code.preview.refused')}</p>
       ) : null}
 
       {ready && preview?.url ? (

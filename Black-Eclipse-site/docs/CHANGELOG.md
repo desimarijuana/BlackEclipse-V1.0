@@ -1,6 +1,12 @@
 # Change Log
 
 ## 2026-11-06
+- **feat(builds): the preview names its command before it runs.** The idle
+  preview status now carries the discovered plan, so the Builds run panel shows
+  "Runs npm run dev" (or "no way to run this project") and disables Run when
+  there is no command — what will execute is visible before the click, not after
+  it. Tests: 2 new `test_preview.py` cases (idle names the command; no command).
+  Docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
 - **test(harness): first real chat quant eval passes.** Ran “forecast gold for
   tomorrow” through the live configured model (Ollama / deepseek-v4.1-flash) and
   graded the actual answer + 23 tool executions with `quant_chat_eval`:

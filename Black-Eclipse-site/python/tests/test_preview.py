@@ -125,6 +125,21 @@ def test_a_crashed_process_is_not_ready(tmp_path, monkeypatch):
     assert manager.status("task_3")["running"] is False
 
 
+def test_idle_status_names_the_command_before_it_runs(tmp_path, monkeypatch):
+    _pkg(tmp_path, {"dev": "next dev"})
+    manager = _manager(_Execution(_Terminal([])), monkeypatch)
+    status = manager.status("task_idle", root=tmp_path)
+    assert status["status"] == "idle"
+    assert status["plan"]["command"] == "npm run dev"
+    assert status["plan"]["source"] == "detected"
+
+
+def test_idle_status_without_a_command_says_so(tmp_path, monkeypatch):
+    manager = _manager(_Execution(_Terminal([])), monkeypatch)
+    status = manager.status("task_none", root=tmp_path)
+    assert status["plan"]["source"] == "none"
+
+
 def test_no_command_is_an_honest_refusal(tmp_path, monkeypatch):
     manager = _manager(_Execution(_Terminal([])), monkeypatch)
     result = manager.start("task_4", tmp_path)

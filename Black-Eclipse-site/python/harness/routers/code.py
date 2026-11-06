@@ -560,7 +560,14 @@ def get_preview(
     _: bool = Depends(require_operator),
 ) -> dict[str, Any]:
     key = _preview_key(taskId, rootId)
-    return {"success": True, "preview": _preview_manager().status(key)}
+    root: Optional[Path] = None
+    try:
+        root = _preview_root(taskId, rootId)
+    except HTTPException:
+        # A status read is still useful when the project cannot be resolved: it
+        # reports idle without inventing a plan.
+        root = None
+    return {"success": True, "preview": _preview_manager().status(key, root=root)}
 
 
 @router.post("/code/preview/stop")
