@@ -29,10 +29,12 @@ export function PreviewPanel({ taskId, rootId }: PreviewPanelProps) {
   const [busy, setBusy] = useState<'start' | 'stop' | 'logs' | null>(null);
   const [logs, setLogs] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<'checkout' | 'change'>('checkout');
 
-  const target: PreviewTarget = taskId
-    ? { taskId }
-    : rootId ? { rootId } : {};
+  const target: PreviewTarget = {
+    ...(taskId ? { taskId } : rootId ? { rootId } : {}),
+    mode,
+  };
 
   const load = useCallback(async () => {
     try {
@@ -55,6 +57,11 @@ export function PreviewPanel({ taskId, rootId }: PreviewPanelProps) {
     setLogs(null);
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const loaded = preview?.mode;
+    if (loaded === 'checkout' || loaded === 'change') setMode(loaded);
+  }, [preview?.mode]);
 
   const start = async () => {
     setBusy('start');
@@ -98,6 +105,23 @@ export function PreviewPanel({ taskId, rootId }: PreviewPanelProps) {
     }
   };
 
+  const switchMode = async (next: 'checkout' | 'change') => {
+    if (next === mode) return;
+    setMode(next);
+    setError(null);
+    if (!preview?.running) return;
+    setBusy('start');
+    try {
+      const result = await startCodePreview({ ...target, mode: next });
+      setPreview(result);
+      if (result.status !== 'ok') setError(result.reason || t('code.preview.failed'));
+    } catch {
+      setError(t('code.preview.failed'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const toggleLogs = async () => {
     if (logs !== null) { setLogs(null); return; }
     setBusy('logs');
@@ -123,6 +147,24 @@ export function PreviewPanel({ taskId, rootId }: PreviewPanelProps) {
           <p className="text-[10.5px] text-muted-foreground/70">{t('code.preview.hint')}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          {taskId ? (
+            <div className="flex items-center gap-1 rounded-lg border border-border/40 p-0.5 text-[10px]">
+              {(['checkout', 'change'] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => void switchMode(value)}
+                  disabled={busy != null}
+                  className={cn(
+                    'rounded px-1.5 py-0.5 transition-colors',
+                    mode === value ? 'bg-white/10 text-foreground' : 'text-muted-foreground',
+                  )}
+                >
+                  {t(value === 'checkout' ? 'code.preview.mode.checkout' : 'code.preview.mode.change')}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {running ? (
             <>
               <button

@@ -1,6 +1,19 @@
 # Change Log
 
 ## 2026-11-06
+- **feat(builds): run the prepared change, and let a project protect its own paths.**
+  Preview gained `mode=change`: it runs the task's WORKTREE, with the checkout's
+  `node_modules` / `.venv` linked read-only (NTFS junction on Windows, symlink
+  elsewhere) and removed on stop — so you can look at an unlanded change without
+  installing dependencies twice. Switching mode stops the previous server; a
+  missing worktree or a failed dependency link is refused (`PREVIEW_CHANGE_GONE` /
+  `PREVIEW_DEPS_UNAVAILABLE`), never silently fallen back. Separately, a project
+  may ship `.black-eclipse/policy.json` with `denyPaths` (prefix / glob / exact):
+  it is **narrow-only**, enforced in `code/patch.py` before any write, ignores
+  absolute and `..` entries, and a broken file protects nothing. Tests: 5
+  `test_project_policy.py`, 3 new `test_preview.py` (worktree + links + cleanup,
+  missing change, mode switch stops the old server). Docs updated:
+  `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
 - **feat(builds): open a project with a brief, not a guess (P5).** A new
   `code/onboarding.py::project_brief` answers, before the first build: the stack
   (`package.json` / pyproject / Cargo / go / Make), the git branch and uncommitted

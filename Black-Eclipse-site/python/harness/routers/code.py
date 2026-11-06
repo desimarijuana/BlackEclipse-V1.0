@@ -517,6 +517,23 @@ class PreviewBody(BaseModel):
 
     taskId: Optional[str] = Field(default=None, max_length=200)  # noqa: N815
     rootId: Optional[str] = Field(default=None, max_length=200)  # noqa: N815
+    # "checkout" (the project on disk) or "change" (this task's prepared change).
+    mode: Optional[str] = Field(default=None, max_length=16)
+
+
+def _task_workspace(task_id: str) -> Optional[tuple[Path, Optional[Path]]]:
+    """A task's prepared-change folder and the project it was cut from."""
+    try:
+        rows = service.code_store.list_workspaces(run_id=task_id, limit=1)
+    except Exception:  # noqa: BLE001 - an unreadable row is "no change"
+        return None
+    if not rows:
+        return None
+    worktree = Path(str((rows[0] or {}).get("root") or ""))
+    if not worktree.is_dir():
+        return None
+    checkout = str((rows[0] or {}).get("checkoutRoot") or "").strip()
+    return worktree, (Path(checkout) if checkout else None)
 
 
 def _preview_manager() -> Any:
@@ -560,9 +577,21 @@ def _preview_root(task_id: Optional[str], root_id: Optional[str]) -> Path:
 def start_preview(body: PreviewBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
     key = _preview_key(body.taskId, body.rootId)
     root = _preview_root(body.taskId, body.rootId)
+    mode = str(body.mode or "checkout").strip().lower()
+    run_root: Optional[Path] = None
+    deps_from: Optional[Path] = None
+    if mode == "change":
+        if not body.taskId:
+            raise HTTPException(status_code=400, detail="PREVIEW_CHANGE_NEEDS_TASK")
+        workspace = _task_workspace(body.taskId)
+        if workspace is None:
+            raise HTTPException(status_code=404, detail="PREVIEW_CHANGE_GONE")
+        run_root, deps_from = workspace
     # A refusal ("no command for this project") is a product state, not an HTTP
     # error: return it with the plan so the surface can say what is missing.
-    data = _preview_manager().start(key, root)
+    data = _preview_manager().start(
+        key, root, mode=mode, run_root=run_root, deps_from=deps_from,
+    )
     if data.get("status") == "unavailable":
         raise HTTPException(status_code=503, detail=data)
     return {"success": data.get("status") == "ok", "preview": data}

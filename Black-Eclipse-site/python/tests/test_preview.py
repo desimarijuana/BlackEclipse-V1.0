@@ -140,6 +140,71 @@ def test_idle_status_without_a_command_says_so(tmp_path, monkeypatch):
     assert status["plan"]["source"] == "none"
 
 
+def _clock():
+    tick = [0.0]
+
+    def now():
+        tick[0] += 1.0
+        return tick[0]
+
+    return now
+
+
+def test_change_mode_runs_the_worktree_with_linked_deps(tmp_path, monkeypatch):
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    _pkg(worktree, {"dev": "next dev"})
+    checkout = tmp_path / "co"
+    (checkout / "node_modules").mkdir(parents=True)
+
+    execution = _Execution(_Terminal([3000]))
+    linked: list[tuple[str, str]] = []
+    unlinked: list[str] = []
+    manager = pv.PreviewManager(
+        execution, sleep=lambda _s: None, clock=_clock(),
+        link=lambda target, source: linked.append((str(target), str(source))) or True,
+        unlink=lambda path: unlinked.append(str(path)),
+    )
+    monkeypatch.setattr(pv, "_http_ok", lambda _url, timeout_s=2.0: True)
+
+    result = manager.start("task_x", checkout, mode="change", run_root=worktree, deps_from=checkout)
+    assert result["status"] == "ok"
+    assert result["mode"] == "change"
+    assert result["ready"] is True
+    assert execution.started[0]["cwd"] == str(worktree)
+    assert linked and linked[0][0].endswith("node_modules")
+
+    manager.stop("task_x")
+    assert unlinked
+
+
+def test_change_mode_without_a_prepared_change_is_refused(tmp_path, monkeypatch):
+    _pkg(tmp_path, {"dev": "next dev"})
+    manager = _manager(_Execution(_Terminal([3000])), monkeypatch)
+    result = manager.start("task_y", tmp_path, mode="change", run_root=None)
+    assert result["status"] == "refused"
+    assert result["code"] == "PREVIEW_CHANGE_GONE"
+
+
+def test_switching_mode_stops_the_previous_server(tmp_path, monkeypatch):
+    _pkg(tmp_path, {"dev": "next dev"})
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    _pkg(worktree, {"dev": "next dev"})
+    execution = _Execution(_Terminal([3000]))
+    manager = pv.PreviewManager(
+        execution, sleep=lambda _s: None, clock=_clock(),
+        link=lambda _t, _s: True, unlink=lambda _p: None,
+    )
+    monkeypatch.setattr(pv, "_http_ok", lambda _url, timeout_s=2.0: True)
+
+    assert manager.start("task_z", tmp_path)["mode"] == "checkout"
+    assert manager.start(
+        "task_z", tmp_path, mode="change", run_root=worktree, deps_from=tmp_path,
+    )["mode"] == "change"
+    assert execution.stopped == ["svc_1"]
+
+
 def test_no_command_is_an_honest_refusal(tmp_path, monkeypatch):
     manager = _manager(_Execution(_Terminal([])), monkeypatch)
     result = manager.start("task_4", tmp_path)

@@ -35,6 +35,8 @@ export const builds = {
   'code.scorecard.scope.all': 'All builds',
   'code.task.continue': 'Continue in chat',
   'code.preview.restart': 'Restart',
+  'code.preview.mode.checkout': 'On disk',
+  'code.preview.mode.change': 'Prepared change',
 
   // The project brief shown before the first build.
   'code.project.prepare': 'Prepare',

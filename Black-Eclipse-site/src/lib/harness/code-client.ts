@@ -82,6 +82,8 @@ export interface CodePreview {
   ready?: boolean;
   running?: boolean;
   source?: string;
+  mode?: string;
+  deps?: string[];
   processState?: string;
   logs?: string;
   plan?: Record<string, unknown>;
@@ -92,7 +94,10 @@ export interface ProjectTarget {
   rootId?: string;
 }
 
-export type PreviewTarget = ProjectTarget;
+export interface PreviewTarget extends ProjectTarget {
+  /** "checkout" (on disk) or "change" (this task's prepared change). */
+  mode?: "checkout" | "change";
+}
 
 export interface ProjectBrief {
   available: boolean;

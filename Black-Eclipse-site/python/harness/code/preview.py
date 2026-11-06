@@ -19,6 +19,8 @@ Two rules:
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,6 +29,11 @@ from typing import Any, Optional
 MAX_LOG_TAIL = 400
 DEFAULT_READY_TIMEOUT_S = 45.0
 POLL_INTERVAL_S = 0.5
+
+#: Directories a prepared change inherits from its checkout. A worktree has no
+#: installed dependencies, and a dev server cannot start without them; linking is
+#: read-only from the worktree's point of view and is removed on stop.
+DEP_LINKS: tuple[str, ...] = ("node_modules", ".venv")
 
 #: Script names tried in order, first match wins.
 DEV_SCRIPTS: tuple[str, ...] = ("dev", "start", "preview", "serve")
@@ -106,38 +113,127 @@ def _http_ok(url: str, *, timeout_s: float = 2.0) -> bool:
     return bool(HealthChecker().http(url, timeout_s=timeout_s).get("ok"))
 
 
+def _default_link(target: Path, source: Path) -> bool:
+    """Link one dependency directory from the checkout into the worktree.
+
+    Windows uses a junction (`mklink /J`, no admin needed); POSIX uses a
+    directory symlink. Both are removed on stop, so the checkout is never
+    modified and the worktree keeps no copy of `node_modules`.
+    """
+    if target.exists():
+        return False
+    try:
+        if os.name == "nt":
+            completed = subprocess.run(
+                f'cmd /c mklink /J "{target}" "{source}"',
+                shell=False, capture_output=True, timeout=30,
+            )
+            return completed.returncode == 0
+        os.symlink(str(source), str(target), target_is_directory=True)
+        return True
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _default_unlink(path: Path) -> None:
+    """Remove a link (never its target)."""
+    try:
+        if path.is_symlink():
+            path.unlink()
+        else:
+            os.rmdir(path)  # a junction is removed with rmdir, not recursed
+    except OSError:
+        pass
+
+
 class PreviewManager:
     """One running preview per task (or per project), over the execution layer."""
 
-    def __init__(self, execution: Any, *, sleep: Any = time.sleep, clock: Any = time.monotonic) -> None:
+    def __init__(
+        self, execution: Any, *, sleep: Any = time.sleep, clock: Any = time.monotonic,
+        link: Any = None, unlink: Any = None,
+    ) -> None:
         self._execution = execution
         self._sleep = sleep
         self._clock = clock
+        self._link = link or _default_link
+        self._unlink = unlink or _default_unlink
         self._by_key: dict[str, dict[str, Any]] = {}
 
     def _terminal(self) -> Any:
         return getattr(self._execution, "terminal", None)
 
+    def _link_deps(self, run_root: Path, deps_from: Path | str | None) -> Optional[list[str]]:
+        """Link installed deps into a worktree; None when a link fails."""
+        if deps_from is None:
+            return []
+        created: list[str] = []
+        for name in DEP_LINKS:
+            source = Path(deps_from) / name
+            if not source.is_dir():
+                continue
+            target = run_root / name
+            if target.exists():
+                continue
+            if not self._link(target, source):
+                self._drop_links(created)
+                return None
+            created.append(str(target))
+        return created
+
+    def _drop_links(self, links: list[str]) -> None:
+        for item in links:
+            self._unlink(Path(item))
+
     def get(self, key: str) -> Optional[dict[str, Any]]:
         return self._by_key.get(key)
 
     def start(
-        self, key: str, root: Path | str, *, timeout_s: float = DEFAULT_READY_TIMEOUT_S,
+        self, key: str, root: Path | str, *, mode: str = "checkout",
+        run_root: Path | str | None = None, deps_from: Path | str | None = None,
+        timeout_s: float = DEFAULT_READY_TIMEOUT_S,
     ) -> dict[str, Any]:
-        """Start the project and watch for a listening port. Never invents one."""
+        """Start the project and watch for a listening port. Never invents one.
+
+        ``mode="change"`` runs the PREPARED change: the worktree, with the
+        checkout's installed dependencies linked in read-only. ``root`` remains
+        the project a checkout preview runs; ``run_root`` is the folder actually
+        started.
+        """
+        mode = "change" if str(mode or "").strip().lower() == "change" else "checkout"
         running = self._by_key.get(key)
         if running and running.get("running"):
-            if not running.get("url"):
-                # It is still starting: re-check for a listening port, briefly.
-                url, port = self._wait_for_port(
-                    str(running.get("processId") or ""), timeout_s=min(timeout_s, 10.0),
-                )
-                if url:
-                    running.update(url=url, port=port, ready=True)
-            return {"status": "ok", **running, "reused": True}
+            if str(running.get("mode") or "checkout") != mode:
+                self.stop(key)  # one preview per task; switch, do not stack
+            else:
+                if not running.get("url"):
+                    # It is still starting: re-check for a listening port, briefly.
+                    url, port = self._wait_for_port(
+                        str(running.get("processId") or ""), timeout_s=min(timeout_s, 10.0),
+                    )
+                    if url:
+                        running.update(url=url, port=port, ready=True)
+                return {"status": "ok", **running, "reused": True}
+
+        links: list[str] = []
+        if mode == "change":
+            if run_root is None or not Path(run_root).is_dir():
+                return {
+                    "status": "refused", "code": "PREVIEW_CHANGE_GONE",
+                    "reason": "The prepared change is no longer available.",
+                }
+            root = Path(run_root)
+            linked = self._link_deps(root, deps_from)
+            if linked is None:
+                return {
+                    "status": "refused", "code": "PREVIEW_DEPS_UNAVAILABLE",
+                    "reason": "The prepared change has no installed dependencies to run with.",
+                }
+            links = linked
 
         plan = plan_preview(root)
         if plan.source == "none" or not plan.command:
+            self._drop_links(links)
             return {
                 "status": "refused", "code": "PREVIEW_NO_COMMAND",
                 "reason": "I couldn't find a way to run this project. Add .black-eclipse/preview.json with a command.",
@@ -145,6 +241,7 @@ class PreviewManager:
             }
         terminal = self._terminal()
         if terminal is None:
+            self._drop_links(links)
             return {"status": "unavailable", "code": "RUNTIME_UNAVAILABLE",
                     "reason": "the terminal isn't available right now", "plan": plan.to_dict()}
 
@@ -153,6 +250,7 @@ class PreviewManager:
             wait_ready=False, workspace_id=key, run_id=key,
         )
         if started.get("status") != "ok":
+            self._drop_links(links)
             return {
                 "status": "failed", "code": started.get("code") or "PREVIEW_START_FAILED",
                 "reason": started.get("reason") or "the project did not start",
@@ -167,7 +265,7 @@ class PreviewManager:
             "taskKey": key, "serviceId": service_id, "processId": process_id,
             "command": plan.command, "label": plan.label, "root": str(root),
             "url": url, "port": port, "ready": bool(url),
-            "running": True, "source": plan.source,
+            "running": True, "source": plan.source, "mode": mode, "deps": links,
         }
         self._by_key[key] = record
         return {"status": "ok", **record}
@@ -220,6 +318,8 @@ class PreviewManager:
         service_id = str(record.get("serviceId") or "")
         if service_id:
             self._execution.stop_service(service_id)
+        self._drop_links(list(record.get("deps") or []))
+        record["deps"] = []
         record["running"] = False
         record["ready"] = False
         return {"status": "ok", **record, "stopped": True}
