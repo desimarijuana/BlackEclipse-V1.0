@@ -124,6 +124,14 @@ export async function POST(request: Request) {
   const model = typeof body.model === "string" ? body.model.trim() : "";
   const rawEffort = body.reasoningEffort;
   const reasoningEffort = isReasoningLevel(rawEffort) ? rawEffort : undefined;
+  // The composer's Auto/Quant/Off preference. Only the explicit values are
+  // forwarded; "auto"/absent leaves the runtime's classifier in charge.
+  const rawQuantMode = body.quantMode;
+  const quantMode = rawQuantMode === "on" || rawQuantMode === "off" ? rawQuantMode : undefined;
+  // The composer's Auto/Choices/Off preference. Only the explicit values are
+  // forwarded; "auto"/absent leaves the base prompt's act-don't-ask guidance.
+  const rawChoicesMode = body.choicesMode;
+  const choicesMode = rawChoicesMode === "on" || rawChoicesMode === "off" ? rawChoicesMode : undefined;
   const rawRunId = body.runId;
   const runId =
     typeof rawRunId === "string" && /^run_[A-Za-z0-9-]{1,64}$/.test(rawRunId) ? rawRunId : undefined;
@@ -163,7 +171,7 @@ export async function POST(request: Request) {
   let id: string;
   try {
     const identityHeaders = await runtimeIdentityHeaders(request);
-    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId);
+    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

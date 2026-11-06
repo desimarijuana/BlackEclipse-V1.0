@@ -1,6 +1,63 @@
 # Change Log
 
 ## 2026-11-05
+- **feat(chat): composer "Choices" mode — ask with selectable options up front.**
+  New `src/lib/agent/choices-mode.ts` + `src/components/chat/choices-mode-control.tsx`
+  put an Auto/Choices/Off pill beside Quant in the composer; the value flows as
+  `ChatOptions.choicesMode` through both chat routes and `run-service` into
+  `input.context.choicesMode`. On the runtime side, `python/harness/choices_mode.py`
+  appends a short `runtime_context` block ONLY for `"on"` (and only when `clarify`
+  is on the run's surface), telling the model to call `clarify` once with 2–4
+  concrete options before an ambiguous turn; the existing question card already
+  renders those as clickable buttons and resumes the run in place. `off`/`auto`
+  add nothing, so the base prompt's act-don't-ask guidance stands — this is
+  presentation guidance, never a capability grant. The block is wired in
+  `graph.py` next to the trading/quant context. Tests: TS `choices-mode` (5),
+  `run-service` (2 new), chat-route (1 new), Python `test_choices_mode.py` (6);
+  `graph.py` size ratchet re-pinned 2452→2457. Docs updated:
+  `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+- **feat(harness): quant tool surface + derived quant outcome (Phase 2).**
+  `apply_quant_surface` narrows a `standard`/`deep` turn to the data, compute,
+  portfolio/broker-read, synthesis and artifact tools (engine names imported
+  from `QUANT_TOOLS`/`STATS_TOOLS`/`FACTOR_TOOLS`/`ML_TOOLS`/`RESEARCH_DATA_TOOLS`),
+  with trade precedence first and a remove-only guarantee; lookups and tiny
+  surfaces are untouched. `apply_intent_surfaces` replaces the trade-only call in
+  `graph.py` and still keeps `graph.py` at its size ratchet. `evaluate_quant_outcome`
+  derives a read-only completeness record (artifact names, missing computation,
+  validation, OOS and cost evidence) and `run_outcome.build_outcome_envelope`
+  exposes it as `quant` on `GET /runs/{id}/outcome`. Tests: surface narrowing,
+  trade precedence, never-widen, light/standard/deep outcome cases and the
+  envelope integration (`test_quant_intent.py`, `test_quant_outcome.py`,
+  existing run-outcome/surface suites). Size budget re-pinned. Docs updated:
+  `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+- **feat(harness): quant-intent benchmark + composer Auto/Quant/Off toggle.** New
+  `python/harness/quant_intent_benchmark.py` (`quant-intent-v1`, 53 labelled cases)
+  measures tier + kind accuracy and separately counts false-positive non-quant
+  turns and trade-precedence violations; runnable with
+  `python -m harness.quant_intent_benchmark`. New
+  `src/lib/agent/quant-mode.ts` + `src/components/chat/quant-mode-control.tsx`
+  put an Auto/Quant/Off pill in the composer; `ChatOptions.quantMode` flows through
+  both chat routes and `run-service` as `input.context.quantMode` (`on`/`off`
+  forwarded, `auto` omitted). The Python classifier already honours it. Tests:
+  `test_quant_intent_benchmark.py` (2), `test_quant_intent.py` (38), the TS
+  `quant-mode` suite (4), `run-service` and the chat route. Size budget re-pinned
+  for the benchmark. Docs updated: `docs/harness/architecture.md`,
+  `docs/CHANGELOG.md`.
+- **feat(harness): deterministic quant protocol (Phase 1, observe-only).** New
+  `python/harness/quant_intent.py` classifies a turn as `light` / `standard` /
+  `deep` quantitative work (forecast, strategy, model, factor, financial model,
+  risk) and renders a per-run protocol into `runtime_context`: frame → data →
+  compute → validate → artifact → caveat, with a model-synthesis ladder and model
+  contract at `deep`. Plain quotes, news, filings and concept explanations stay
+  `none`; a trade/close/modify turn returns `none` so `trading_intent.py` keeps
+  execution. The classifier is wired in `graph.py` next to the trading directive,
+  emits a `quant.plan` event, and grants nothing (no surface narrowing yet). The
+  presentation planner learns quant vocabulary. Auto/Quant/Off is read from
+  `input.context.quantMode`; the composer toggle is a later slice. Tests:
+  `python/tests/test_quant_intent.py` (38 passed) plus the existing response-mode
+  and trading-intent suites (93 passed). `graph.py` stays at its size ratchet;
+  the new module's ~579 lines are a deliberate size-budget re-pin.
+  Docs updated: `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
 - **feat(code): per-file review and review notes (Phase 22 / S5 slice 2).** The
   promotion preview now accepts `include`: `promotion.filter_preview` keeps only
   the files the reviewer ticked and RECOMPUTES the digest over that set, so the

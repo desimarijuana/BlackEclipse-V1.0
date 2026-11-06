@@ -81,6 +81,24 @@ describe("POST /api/harness/chat — honest failure", () => {
     expect(chatWithAgent).not.toHaveBeenCalled();
   });
 
+  it("forwards an explicit quant mode and drops auto", async () => {
+    chatWithAgent.mockResolvedValue({ status: "completed", output: "ok", runId: "run_q" });
+    await POST(post({ query: "forecast gold for tomorrow", quantMode: "on" }));
+    expect(chatWithAgent.mock.calls[0][12]).toBe("on");
+
+    await POST(post({ query: "what is gold trading at", quantMode: "auto" }));
+    expect(chatWithAgent.mock.calls[1][12]).toBeUndefined();
+  });
+
+  it("forwards an explicit choices mode and drops auto", async () => {
+    chatWithAgent.mockResolvedValue({ status: "completed", output: "ok", runId: "run_c" });
+    await POST(post({ query: "analyse apple", choicesMode: "on" }));
+    expect(chatWithAgent.mock.calls[0][13]).toBe("on");
+
+    await POST(post({ query: "analyse apple", choicesMode: "auto" }));
+    expect(chatWithAgent.mock.calls[1][13]).toBeUndefined();
+  });
+
   it("returns 502 when the run itself failed (never a fabricated success)", async () => {
     chatWithAgent.mockResolvedValueOnce({
       status: "failed", error: "upstream provider error", runId: "run_x",

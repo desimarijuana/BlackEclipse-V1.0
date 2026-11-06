@@ -234,6 +234,36 @@ describe("startRun", () => {
     expect(runViaRuntime.mock.calls[0][0].input.context.reasoning).toBe("medium");
   });
 
+  it("forwards the composer's quant mode through chatWithAgent", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_qm", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent(
+      "forecast gold for tomorrow", [], [], undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, "on",
+    );
+    expect(runViaRuntime.mock.calls[0][0].input.context.quantMode).toBe("on");
+  });
+
+  it("omits quantMode when the composer is on Auto", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_qa", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent("forecast gold for tomorrow");
+    expect(runViaRuntime.mock.calls[0][0].input.context?.quantMode).toBeUndefined();
+  });
+
+  it("forwards the composer's choices mode through chatWithAgent", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_cm", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent(
+      "analyse apple", [], [], undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, "on",
+    );
+    expect(runViaRuntime.mock.calls[0][0].input.context.choicesMode).toBe("on");
+  });
+
+  it("omits choicesMode when the composer is on Auto", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_ca", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent("analyse apple");
+    expect(runViaRuntime.mock.calls[0][0].input.context?.choicesMode).toBeUndefined();
+  });
+
   it("overrides only the model when the composer picked one", async () => {
     runViaRuntime.mockResolvedValue({ runId: "run_m", status: "completed", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
     await startRun({ input: { query: "x" }, model: "gpt-4.1" });

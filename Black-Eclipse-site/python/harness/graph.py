@@ -1346,11 +1346,11 @@ async def execute_run(
         if surface_resolution.allowed is not None
         else None
     )
-    # A trade turn gets the trade surface, not the agent's ~700 tools. The
-    # narrowing can only remove; a run without an effect tool is untouched.
+    # Trade surface first; a quantitative turn then gets the data/compute surface.
     if allowed:
-        allowed, surface_resolution = apply_trade_surface(
-            request.input.query, allowed, surface_resolution
+        from .quant_intent import apply_intent_surfaces  # noqa: PLC0415
+        allowed, surface_resolution = apply_intent_surfaces(
+            request, allowed, surface_resolution
         )
     # Settings → Persona: a bounded user overlay appended to the authoritative
     # prompt for the ordinary chat agent. It is style/emphasis only — the tool
@@ -1461,6 +1461,13 @@ async def execute_run(
         trading_intent = trading_intent_block(request.input.query)
         if trading_intent:
             runtime_context = f"{runtime_context}\n\n{trading_intent}"
+    from .quant_intent import apply_quant_context  # noqa: PLC0415 - quant protocol
+    runtime_context = await apply_quant_context(request, allowed, runtime_context, emitter)
+    # The composer's "Choices" preference: `on` tells the model to ask one
+    # question with selectable options before it starts an ambiguous turn. It only
+    # adds guidance (the `clarify` tool stays read-only, and this grants nothing).
+    from .choices_mode import apply_choices_context  # noqa: PLC0415 - choices mode
+    runtime_context = apply_choices_context(request, allowed, runtime_context)
     # The project this run is scoped to (its members and instruments). Per-run
     # and cache-key-excluded, exactly like the date and the UI focus.
     project_brief = _project_brief_block(getattr(request, "projectId", None),
@@ -2297,7 +2304,6 @@ async def _retry_with_tighter_budget(
     retried_state = await invoke(kept_messages, tighter_dropped_block)
     return retried_state, tighter_budget
 
-
 # History bounding + dropped-context extraction live in `history.py` (size
 # ratchet) and are re-exported here so existing callers/tests are unchanged.
 from .history import (  # noqa: E402,F401
@@ -2446,6 +2452,5 @@ def _capability_of(run: dict[str, Any]) -> Optional[dict[str, Any]]:
     from .code.capability import capability_from_verification  # noqa: PLC0415
 
     return capability_from_verification(run.get("codeVerification"))
-
 
 __all__ = ["build_graph", "execute_run"]

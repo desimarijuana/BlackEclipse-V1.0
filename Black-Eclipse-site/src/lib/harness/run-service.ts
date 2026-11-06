@@ -81,6 +81,8 @@ export async function chatWithAgent(
   memoryScope?: "conversation",
   projectId?: string,
   workspaceRootId?: string,
+  quantMode?: "on" | "off",
+  choicesMode?: "on" | "off",
 ): Promise<{
   output: string;
   runId: string;
@@ -122,6 +124,12 @@ export async function chatWithAgent(
   const context = {
     ...(uiContext && typeof uiContext === "object" ? { ui: uiContext } : {}),
     ...(appControl ? { appControl: true } : {}),
+    // A per-turn preference only; the runtime classifier still decides whether
+    // the turn is quantitative, and the protocol grants nothing.
+    ...(quantMode ? { quantMode } : {}),
+    // The composer's Auto/Choices/Off preference. "on" asks the runtime to nudge
+    // the model toward one options question before an ambiguous turn; guidance only.
+    ...(choicesMode ? { choicesMode } : {}),
   };
   const result = await startRun({
     input: {
@@ -260,6 +268,8 @@ export async function startChatRun(
   memoryScope?: "conversation",
   projectId?: string,
   workspaceRootId?: string,
+  quantMode?: "on" | "off",
+  choicesMode?: "on" | "off",
 ): Promise<string> {
   // A leading `/command` (e.g. `/eclipsesdk`) is a DETERMINISTIC profile switch:
   // parse it, strip it, and force the command's profile — do NOT ask the
@@ -273,13 +283,21 @@ export async function startChatRun(
     : parsedCommand
       ? parsedCommand.query
       : query;
+  const chatContext = {
+    // Presentation-only UI focus (which page the user is on). The runtime
+    // surfaces it as a per-run prompt note so "my widgets" resolves to a page.
+    ...(uiContext && typeof uiContext === "object" ? { ui: uiContext } : {}),
+    // The composer's Auto/Quant/Off preference for this turn. Guidance only.
+    ...(quantMode ? { quantMode } : {}),
+    // The composer's Auto/Choices/Off preference for this turn. "on" nudges the
+    // model toward one options question before an ambiguous turn. Guidance only.
+    ...(choicesMode ? { choicesMode } : {}),
+  };
   const input = assertRunInput({
     query: effectiveQuery,
     history,
     documents: documents.length ? documents : undefined,
-    // Presentation-only UI focus (which page the user is on). The runtime
-    // surfaces it as a per-run prompt note so "my widgets" resolves to a page.
-    ...(uiContext && typeof uiContext === "object" ? { context: { ui: uiContext } } : {}),
+    ...(Object.keys(chatContext).length ? { context: chatContext } : {}),
   });
   const agent = await getAgentPreset("eclipse-agent");
   const cfg = await getLLMConfig();

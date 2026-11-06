@@ -78,6 +78,13 @@ _SIMULATION_TERMS = (
     "walk-forward", "walkforward", "walk forward", "optimize", "optimise",
     "optimization", "optimisation", "stress test", "stress-test", "sensitivity",
     "projection", "if i change", "if we change", "if you change",
+    # Quant research: model construction, validation and prediction are
+    # parameter-driven computations, not prose answers.
+    "quant", "quantitative", "quant model", "trading model", "alpha model",
+    "factor model", "statistical model", "predictive model", "forecast",
+    "forecasting", "predict", "prediction", "out-of-sample", "out of sample",
+    "robustness", "parameter sweep", "feature engineering", "cross-validation",
+    "cross validation", "regime", "cointegration",
 )
 
 # Data to be seen: charts, comparisons, distributions, market metrics.
@@ -87,6 +94,10 @@ _VISUALIZATION_TERMS = (
     "distribution", "drawdown", "equity curve", "time series", "timeseries",
     "trend", "trends", "visualize", "visualise", "breakdown", "ranking",
     "leaderboard", "allocation", "exposure", "performance",
+    # Quant research views: factor/quantile/rolling outputs are data to see.
+    "alpha decay", "factor exposure", "factor returns", "quantile",
+    "rolling volatility", "rolling correlation", "risk contribution",
+    "feature importance", "confusion matrix",
 )
 
 # Teaching and explanation. Deliberately about EXPLAINING, not about generic

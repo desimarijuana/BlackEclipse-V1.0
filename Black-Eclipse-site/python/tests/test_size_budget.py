@@ -164,7 +164,10 @@ RATCHET_PY: dict[str, int] = {
     # actionable provider-failure message). May only shrink from here.
     # Phase 22 / S2 adds the additive session budget resolution
     # (`requested_budget`) and its hard caps. May only shrink from here.
-    "graph.py": 2452,
+    # Re-pinned 2452->2457 for the composer's Choices mode: one import and one
+    # call seam appending `choices_mode` to `runtime_context` (the block itself
+    # lives in `choices_mode.py`). May only shrink from here.
+    "graph.py": 2457,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.

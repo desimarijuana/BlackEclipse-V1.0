@@ -27,6 +27,8 @@ import {
 import type { ChatModelState } from '@/lib/agent/use-chat-model';
 import type { ReasoningEffortState } from '@/lib/agent/use-reasoning-effort';
 import { EffortControl } from './effort-control';
+import { QuantModeControl } from './quant-mode-control';
+import { ChoicesModeControl } from './choices-mode-control';
 import { TradeApprovalBanner } from './trade-approval-banner';
 import {
   commandArgHint,
@@ -687,6 +689,8 @@ export function ChatInput({
                 disabled={busy}
               />
             )}
+            <QuantModeControl disabled={busy} />
+            <ChoicesModeControl disabled={busy} />
             <VoiceInputButton
               onTranscript={insertVoiceText}
               onStart={captureVoiceSelection}

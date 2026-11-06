@@ -103,6 +103,14 @@ export async function POST(request: Request) {
     // the runtime falls back to the saved default / task profile.
     const rawEffort = (body as Record<string, unknown>).reasoningEffort;
     const reasoningEffort = isReasoningLevel(rawEffort) ? rawEffort : undefined;
+    // The composer's Auto/Quant/Off preference. Only the two explicit values are
+    // forwarded; "auto"/absent leaves the runtime's classifier in charge.
+    const rawQuantMode = (body as Record<string, unknown>).quantMode;
+    const quantMode = rawQuantMode === "on" || rawQuantMode === "off" ? rawQuantMode : undefined;
+    // The composer's Auto/Choices/Off preference. Only the explicit values are
+    // forwarded; "auto"/absent leaves the base prompt's act-don't-ask guidance.
+    const rawChoicesMode = (body as Record<string, unknown>).choicesMode;
+    const choicesMode = rawChoicesMode === "on" || rawChoicesMode === "off" ? rawChoicesMode : undefined;
     // Client-supplied run id so cancellation is possible mid-run; ignored when
     // absent, in which case the server mints one.
     const rawRunId = (body as Record<string, unknown>).runId;
@@ -142,7 +150,7 @@ export async function POST(request: Request) {
       : undefined;
 
     const identityHeaders = await runtimeIdentityHeaders(request);
-    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId);
+    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode);
     if (result.status === "failed") {
       return NextResponse.json(
         { success: false, error: result.error, runId: result.runId },

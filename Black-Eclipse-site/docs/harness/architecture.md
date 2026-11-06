@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-11-02
+last-verified: 2026-11-05
 ---
 
 # Harness Architecture
@@ -95,6 +95,9 @@ rows are badged in the list and Today chips. `POST /evolution/drift/candidate` t
 | `memory_providers/` | the M8 external-memory-provider layer: `protocol.py` (`MemoryProvider` contract + typed request/response, external `provenance`/`verified=false` defaults), `native.py`, `mcp.py` (read-only-first, L2 write-gated, no automatic writes), `registry.py`, `routing.py` (native-first + external fencing, never promotes), `diagnostics.py` |
 | `eclipse_memory/profiles.py` | the M4 named-profile registry (`ProfileRegistry`) + directory projection under `.black-eclipse/profiles/<id>/`; metadata only, READ-ONLY inheritance, no memory content |
 | `graph.py` | the LangGraph `StateGraph` execution loop |
+| `quant_intent.py` | **quant protocol**: the deterministic, model-free classifier (`classify_quant_intent`) that separates genuine quantitative work (`light` / `standard` / `deep`) from plain quotes, news, filings and concept explanations; `quant_intent_block` renders the per-run protocol into `runtime_context` (frame → data → compute → validate → artifact → caveat, plus the model-synthesis ladder and model contract at `deep`). `quant.plan` is emitted for observability; the block grants nothing and never widens the tool surface. A trade/close/modify turn returns `none`, so `trading_intent.py` keeps execution. `apply_quant_surface` narrows a `standard`/`deep` turn to the data/compute/artifact tool set (trade precedence first, remove-only), and `evaluate_quant_outcome` derives the completeness record (tier/kind, named artifacts, missing deliverables) from the plan, tool executions and final text. The composer's Auto/Quant/Off preference reaches the classifier as `input.context.quantMode` |
+| `quant_intent_benchmark.py` | the labelled quant-intent benchmark (`quant-intent-v1`, 53 cases): positive asks, anti-cases, explicit framing, trade precedence and mode overrides. Measures tier + kind accuracy and separately counts false-positive non-quant turns and trade-precedence violations; run with `python -m harness.quant_intent_benchmark` |
+| `choices_mode.py` | the composer's Auto/Choices/Off preference: `apply_choices_context` appends a per-run `runtime_context` block ONLY when `input.context.choicesMode == "on"` (and `clarify` is on the run's surface), nudging the model to ask ONE question with 2–4 concrete options before an ambiguous turn. Presentation guidance, never a grant; `off`/`auto` add nothing |
 | `replan.py` | **Phase 11**: bounded replanning — the trigger (`should_replan`), the bound (`ReplanBudget`), the deterministic directive (`build_replan_instruction`) and the optional model-authored plan (`model_replan`). The `replan` node rides the SAME graph; flag-gated `HARNESS_REPLAN_ENABLED`, default OFF (ADR-H122) |
 | `history.py` | history bounding (`_bounded_history`/`_history_messages`) + the inert dropped-context block, extracted from `graph.py` (size ratchet) and re-exported there |
 | `checkpoint_io.py` | checkpoint (de)serialization (`serialize_messages`/`restore_messages`/`checkpoint_payload_of`), extracted from `graph.py` (size ratchet) and re-exported there |
@@ -792,8 +795,11 @@ by the `ui_classify_request` tool, the first verdict wins because it is the
 routing), the **resolved surface and allowlist** (the `prompt.plan` event
 carries the agent, the tool count, the first 40 names and a digest of the
 whole list), the **refusal code** (the run's terminal error code, else a
-refusal-shaped event) and the **capability gap** (the `ui.capability_gap` event
-plus the recovery incident ids the run recorded). It is a DERIVED, read-only
+refusal-shaped event), the **capability gap** (the `ui.capability_gap` event
+plus the recovery incident ids the run recorded) and the **quant outcome** (when
+a `quant.plan` event exists: tier/kind, named artifacts, tool calls and the
+missing deliverables, derived by `quant_intent.evaluate_quant_outcome`). It is a
+DERIVED, read-only
 record — `GET /runs/{id}/outcome` — and a fact that was never recorded is
 `null`, never guessed. The module owns its own `RunOutcome` table (the
 `run_lineage.py` pattern) so the ratcheted `persistence.py` does not grow.
@@ -1467,6 +1473,18 @@ and never invents an answer: it returns `answered: false`, and the model must
 proceed with a stated assumption. The wait is bounded by the tool's own 115s
 ceiling (below the registry's 120s cap), and `run_watchdog.py` treats
 `clarification.requested` as a legitimate user-decision wait.
+
+**Composer "Choices" mode.** The operator can make that question proactive
+rather than incidental: `src/lib/agent/choices-mode.ts` +
+`src/components/chat/choices-mode-control.tsx` put an Auto/Choices/Off pill beside
+Quant in the composer. The value flows as `input.context.choicesMode` through
+both chat routes and `run-service`. `python/harness/choices_mode.py` appends a
+short block to `runtime_context` ONLY for `"on"` (and only when `clarify` is on
+this run's surface), telling the model to call `clarify` once with 2–4 concrete
+options before starting a turn whose scope, horizon, entity, output format or
+next step is genuinely open. `"off"` and `"auto"` add nothing, so the base
+prompt's act-don't-ask guidance stands. It is presentation guidance only: the
+tool stays read-only, one question per turn, and it never authorizes an effect.
 
 **Standing grants — "always allow" (ADR-H144).** Repeatedly re-asking for the same
 program is stopped by a separate, revocable permission, NOT by making an approval
