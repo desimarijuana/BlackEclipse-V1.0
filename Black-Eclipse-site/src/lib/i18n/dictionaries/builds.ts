@@ -7,6 +7,7 @@ export const builds = {
   'code.project.switch': 'Change',
   'code.project.defaultName': 'Eclipse repo',
   'code.project.defaultOption': 'Use the built-in repo',
+  'code.project.remove': 'Remove from Eclipse',
   'code.project.openFolder': 'Open folder…',
   'code.project.useFolder': 'Build here',
   'code.project.none': 'No folders approved yet.',

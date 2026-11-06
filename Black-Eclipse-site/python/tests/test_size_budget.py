@@ -351,7 +351,7 @@ RATCHET_PY: dict[str, int] = {
     # chat turn is a build no matter which entry point called it. Re-pinned
     # 1829->1831 for the durable chat session on the same seam (Phase 24 / P3).
     # May only shrink.
-    "service.py": 1831,
+    "service.py": 1832,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

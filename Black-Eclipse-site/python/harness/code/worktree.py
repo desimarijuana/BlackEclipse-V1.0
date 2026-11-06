@@ -140,6 +140,11 @@ def scratch_root(repo_root: Path) -> Path:
     resolve the root internally and never accept it from a caller.
     """
     path = Path(repo_root) / SCRATCH_RELPATH
+    # A user's repo has no `.black-eclipse` ignore rule; make the state directory
+    # self-ignoring so a build never leaves untracked files in their git status.
+    from .project_state import ensure_state_dir  # noqa: PLC0415
+
+    ensure_state_dir(repo_root)
     path.mkdir(parents=True, exist_ok=True)
     if os.name == "posix":
         try:

@@ -76,6 +76,10 @@ export function LandChecks({ taskId, onVerified }: { taskId: string; onVerified?
         </div>
       </div>
 
+      {plan?.warnings?.length ? (
+        <p className="mt-1.5 text-[10.5px] text-amber-300/90">{plan.warnings.join(' · ')}</p>
+      ) : null}
+
       {error && <div className="mt-2 text-red-300">{t('code.land.loadFailed')}</div>}
 
       {plan && plan.checks.length === 0 && (

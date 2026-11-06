@@ -1,4 +1,4 @@
-"""Agentic service — the runtime the TS API delegates to.
+﻿"""Agentic service â€” the runtime the TS API delegates to.
 
 Holds the process-wide store, tool registry (with native finance tools) and
 event bus, and exposes start/status/events/cancel over the request contracts.
@@ -70,12 +70,12 @@ class AgenticService:
         # retrieval tools are the provider-agnostic path the agent should prefer.
         register_finance_tools(self.registry)
         register_retrieval_tools(self.registry)
-        # World-state events (Investor Eye) — the same JDdS feed the UI renders,
+        # World-state events (Investor Eye) â€” the same JDdS feed the UI renders,
         # exposed read-only on the SAME registry.
         from .world_tools import register_world_tools  # noqa: PLC0415
 
         register_world_tools(self.registry)
-        # The memory/skill tools the system prompt promises — on the SAME
+        # The memory/skill tools the system prompt promises â€” on the SAME
         # registry, so validation/permission/timeout machinery is shared.
         register_memory_tools(self.registry)
         # Bounded read-only GET over the app's OWN loopback API (QA Round 1). The
@@ -114,7 +114,7 @@ class AgenticService:
         # The Evidence-Driven Web Research Engine: search/extract/verify tools on
         # the SAME registry. The engine reuses the existing retrieval layer, the TS
         # web transport (via the bridge), the browser runtime, the SSRF guard and
-        # the ONE agent-memory connection for its EvidenceStore — it adds no second
+        # the ONE agent-memory connection for its EvidenceStore â€” it adds no second
         # provider, browser, memory or agent loop.
         try:
             from .research.web_store import EvidenceStore  # noqa: PLC0415
@@ -130,7 +130,7 @@ class AgenticService:
             log.warning("web research engine unavailable", exc_info=True)
         # The scraper lane: collect data the vault does not have, by running a
         # generated program whose only way out is the host-mediated page fetch.
-        # It reuses the SAME bridge transport and the analysis sandbox — it adds
+        # It reuses the SAME bridge transport and the analysis sandbox â€” it adds
         # no second network path.
         try:
             from .scraper.tools import register_scraper_tools  # noqa: PLC0415
@@ -147,8 +147,8 @@ class AgenticService:
         from .market.bootstrap import install_market_layer  # noqa: PLC0415
 
         install_market_layer(self)
-        # The Portfolio Accounting Engine: transaction ledger → tax lots →
-        # positions → valuation/P&L/exposure/allocation/risk/rebalancing. Boot
+        # The Portfolio Accounting Engine: transaction ledger â†’ tax lots â†’
+        # positions â†’ valuation/P&L/exposure/allocation/risk/rebalancing. Boot
         # wiring lives in `portfolio/bootstrap.py`; it reuses the ONE market
         # gateway (prices/FX) and the ONE agent-memory connection, and registers
         # its tools on the SAME registry (read + effect-authorized mutations).
@@ -170,7 +170,7 @@ class AgenticService:
         from .advisory.bootstrap import install_advisory_layer  # noqa: PLC0415
 
         install_advisory_layer(self)
-        # The Quant Engine: strategy specs → event-driven backtests → metrics →
+        # The Quant Engine: strategy specs â†’ event-driven backtests â†’ metrics â†’
         # experiments. Boot wiring lives in `quant/bootstrap.py`; it reuses the
         # ONE agent-memory connection (strategies + experiment metadata) and the
         # ONE market gateway (historical bars), and registers its tools on the
@@ -212,7 +212,7 @@ class AgenticService:
         # of agent-memory.db) so there is exactly one skill registry.
         self.memory = EclipseMemoryService()
         self.memory_store = self.memory.store
-        self.skill_store = self.memory_store  # same object — one persistence path
+        self.skill_store = self.memory_store  # same object â€” one persistence path
         # Learning-research layer: a durable curriculum + progress store on the
         # SAME eclipse-memory connection, plus the education tools on the SAME
         # registry. A failure only leaves `self.learning_store` None, so it never
@@ -327,7 +327,7 @@ class AgenticService:
         # Trusted workspace roots (folder picker): the persisted allowlist of
         # directories a person approved. The SELECTED root is what
         # `workspace.default_root()` resolves to, after the env override and
-        # before the built-in repo root — so zero-config is unchanged and a
+        # before the built-in repo root â€” so zero-config is unchanged and a
         # chosen folder takes effect on the next run without a restart.
         from .code.roots import TrustedRootStore  # noqa: PLC0415
         from .code.workspace import set_trusted_root_lookup, set_trusted_root_provider  # noqa: PLC0415
@@ -379,7 +379,7 @@ class AgenticService:
         # store bound to the same agent-memory connection (binary lives on the
         # gitignored filesystem tier; only metadata is relational). Its tools
         # register on the SAME registry and route every model call through the
-        # existing model runtime — native-first, with an auxiliary vision-model
+        # existing model runtime â€” native-first, with an auxiliary vision-model
         # fallback. A failure to construct only means the tools report honest
         # capability states, so it never blocks boot.
         try:
@@ -472,7 +472,7 @@ class AgenticService:
         except Exception:  # noqa: BLE001
             self.tenant_stores = None
         # Channel Gateway: connect external messaging surfaces (Telegram, Discord,
-        # Email, Slack, …) so a user can see and drive Eclipse remotely. Boot wiring
+        # Email, Slack, â€¦) so a user can see and drive Eclipse remotely. Boot wiring
         # lives in `channels/bootstrap.py`; it reuses the ONE agent-memory
         # connection, the ONE tool registry (for the operator `/do` bridge), the
         # Security Gateway (secrets + audit + effect authorization) and the ONE
@@ -491,7 +491,7 @@ class AgenticService:
         self.learning_review = LearningReviewQueue(self.memory, self.store)
 
         # Memory providers (M8): the native provider plus a candidate provider per
-        # configured MCP server. Discovery is not activation — the router only
+        # configured MCP server. Discovery is not activation â€” the router only
         # reaches an external provider when policy enables it AND the caller
         # explicitly allows it AND the server is connected.
         from .memory_providers import build_memory_router
@@ -500,7 +500,7 @@ class AgenticService:
 
         # Model Runtime (provider-agnostic model layer): route usage/health into
         # this service's own store so model requests are persisted in
-        # agent-memory.db — never in the financial JDdS vault.
+        # agent-memory.db â€” never in the financial JDdS vault.
         try:
             from .model_runtime.store import ModelRuntimeStore
 
@@ -527,7 +527,7 @@ class AgenticService:
         from .artifacts.bootstrap import install_artifact_layer  # noqa: PLC0415
 
         install_artifact_layer(self)
-        # User personas (Settings → Persona): a bounded, append-only overlay on
+        # User personas (Settings â†’ Persona): a bounded, append-only overlay on
         # the built-in prompt, stored on the same connection. Independent of the
         # graph layer; a failure only leaves personas unavailable.
         from .personas import install_persona_store  # noqa: PLC0415
@@ -576,7 +576,7 @@ class AgenticService:
         install_plugin_layer(self)
         # Bot / Automation tools: the chat agent manages the SAME bots the Bots
         # workspace shows. Thin wrappers over `self.automation_service()` on the
-        # ONE tool registry — never a second scheduler. A failure never blocks boot.
+        # ONE tool registry â€” never a second scheduler. A failure never blocks boot.
         try:
             from .automation.tools import register_automation_tools, set_automation_service  # noqa: PLC0415
 
@@ -633,7 +633,7 @@ class AgenticService:
         """Best-effort CIUE startup. Deliberately does NOT index at boot.
 
         Indexing the whole repository at boot would run on every process start and
-        every test client — expensive and unnecessary. The index is built LAZILY and
+        every test client â€” expensive and unnecessary. The index is built LAZILY and
         incrementally: the first `code_*` query refreshes the index on a worker
         thread (`manager._ensure_fresh`), and the per-workspace watcher keeps it
         current afterwards. Language servers also start lazily on first use. A
@@ -759,7 +759,7 @@ class AgenticService:
         """Reconcile persisted terminal state on boot (never blocks startup).
 
         The registry/manager were built in `__init__`; this only reconciles the
-        rows left from a previous process — a dead pid is marked EXITED, a live
+        rows left from a previous process â€” a dead pid is marked EXITED, a live
         one UNKNOWN (owned but unmanaged), every session is closed. It NEVER
         fabricates a running process and never raises.
         """
@@ -793,7 +793,7 @@ class AgenticService:
 
         The resolver uses the SAME authenticated, read-only bridge the MCP secret
         path uses, so a browser credential is resolved through Eclipse's existing
-        encrypted vault tier — never a plaintext store invented here. A failure is
+        encrypted vault tier â€” never a plaintext store invented here. A failure is
         a diagnostic, never a boot blocker.
         """
         manager = getattr(self, "browser", None)
@@ -828,7 +828,7 @@ class AgenticService:
     def start_computer(self) -> dict[str, Any]:
         """Start the Computer Use driver and the idle sweeper (never blocks boot).
 
-        A failure is a diagnostic, never a boot blocker — exactly like the browser.
+        A failure is a diagnostic, never a boot blocker â€” exactly like the browser.
         The vision router is built best-effort from the resolved model settings so
         a configured multimodal model is available without extra wiring.
         """
@@ -879,7 +879,7 @@ class AgenticService:
                 local=UnavailableVision("no local vision model is configured"),
                 cloud=LocalModelVision(settings=settings, local=False),
             )
-        except Exception:  # noqa: BLE001 - no model ⇒ honest unavailable vision
+        except Exception:  # noqa: BLE001 - no model â‡’ honest unavailable vision
             return VisionRouter(local=UnavailableVision())
 
     async def start_computer_sweeper(self) -> None:
@@ -1040,7 +1040,7 @@ class AgenticService:
         Currently the retention sweep (due AUTOMATIC memories become inert) plus
         the deterministically-computed skill maintenance pass (report-only by
         default; it can only age enabled, unpinned, unused skills and never
-        deletes). Both are idempotent, best-effort, and NEVER raise — a failure
+        deletes). Both are idempotent, best-effort, and NEVER raise â€” a failure
         must not stop the application or agent runtime from starting. There is no
         new daemon or thread; this reuses the existing FastAPI lifespan hook.
         """
@@ -1079,7 +1079,7 @@ class AgenticService:
         except Exception:  # noqa: BLE001 - drafting must never block boot
             log.warning("candidate auto-draft failed", exc_info=True)
             result["candidateDrafts"] = {"ok": False, "error": "draft failed"}
-        # Creation → deterministic evaluation is automatic; enabling is not.
+        # Creation â†’ deterministic evaluation is automatic; enabling is not.
         try:
             from .skills.draft import evaluate_drafted_skills  # noqa: PLC0415
 
@@ -1153,7 +1153,7 @@ class AgenticService:
         # it failed with a durable run.failed event so a watching client sees a
         # terminal state instead of waiting forever. Guarded so a duplicate
         # process that is about to fail its port bind does NOT reconcile (and
-        # orphan) the runs a live runtime is executing — see `run_recovery`.
+        # orphan) the runs a live runtime is executing â€” see `run_recovery`.
         try:
             from .run_recovery import reconcile_orphaned_runs  # noqa: PLC0415
 
@@ -1316,7 +1316,7 @@ class AgenticService:
         """Run ONE retrieval for the research flow through the shared layer/cache.
 
         Reuses the process-wide retrieval cache and the durable store, exactly
-        like the agent tools do — research is not a parallel retrieval system.
+        like the agent tools do â€” research is not a parallel retrieval system.
         """
         from .retrieval import FinancialRetrievalLayer
 
@@ -1328,7 +1328,7 @@ class AgenticService:
     async def run(self, request: RunRequest) -> RunResult:
         # Phase 22 / S2: a writing chat turn is a build (budget floor, hard-capped).
         apply_chat_build_budget(request)
-        record_chat_build(self.store, request, agent_id=str(getattr(request, "agentId", "") or "eclipse-agent"))
+        record_chat_build(self.store, request, agent_id=str(getattr(request, "agentId", "") or ""))
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
         # Bind the process-wide market gateway to THIS run's bridge so market tools
         # reach providers through the same per-run transport as every other tool.
@@ -1644,7 +1644,7 @@ class AgenticService:
         return executor.revoke(action_id)
 
     async def start_jobs(self) -> None:
-        """Deprecated alias — jobs are now automations (ADR-H114). Starts the engine."""
+        """Deprecated alias â€” jobs are now automations (ADR-H114). Starts the engine."""
         await self.start_automation()
 
     async def stop_jobs(self) -> None:
@@ -1755,7 +1755,7 @@ class AgenticService:
 
     async def run_background(self, request: RunRequest) -> None:
         apply_chat_build_budget(request)
-        record_chat_build(self.store, request, agent_id=str(getattr(request, "agentId", "") or "eclipse-agent"))
+        record_chat_build(self.store, request, agent_id=str(getattr(request, "agentId", "") or ""))
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
         market_gateway = getattr(self, "market_gateway", None)
         if market_gateway is not None:
@@ -1824,8 +1824,9 @@ class AgenticService:
 
     def close(self) -> None:
         self.store.close()
-        # `skill_store` IS `memory_store` — one connection, closed once.
+        # `skill_store` IS `memory_store` â€” one connection, closed once.
         self.memory.close()
 
 
 __all__ = ["AgenticService", "HarnessError"]
+

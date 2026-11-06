@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from harness.code import project_policy
+from harness.code import project_policy, project_state
 from harness.code.patch import PatchError, PatchOp, apply
 from harness.code.policy import WorkspaceBinding
 from harness.code.workspace import ResolvedWorkspace
@@ -51,6 +51,17 @@ def test_a_broken_policy_protects_nothing(tmp_path):
     project_policy.reset_cache()
     assert project_policy.load_patterns(tmp_path) == ()
     assert not project_policy.is_denied(tmp_path, "src/app.py")
+
+
+def test_the_state_directory_makes_itself_git_invisible(tmp_path):
+    """A user's repo has no `.black-eclipse` rule; the directory supplies one."""
+    base = project_state.ensure_state_dir(tmp_path)
+    assert base is not None
+    ignore = base / ".gitignore"
+    assert ignore.is_file()
+    assert ignore.read_text(encoding="utf-8").strip() == "*"
+    # Idempotent: a second call does not rewrite or fail.
+    assert project_state.ensure_state_dir(tmp_path) == base
 
 
 def test_a_patch_cannot_write_a_project_protected_path(tmp_path):

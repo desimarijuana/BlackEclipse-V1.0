@@ -104,7 +104,7 @@ def apply_chat_build_budget(request: Any) -> None:
         apply_budget(request, budget)
 
 
-def record_chat_build(store: Any, request: Any, *, agent_id: str = "eclipse-agent") -> bool:
+def record_chat_build(store: Any, request: Any, *, agent_id: Optional[str] = None) -> bool:
     """Make a writing chat turn a DURABLE build (Phase 24 / P3).
 
     A chat build is a run, and the scorecard's own definition of a build is "a run
@@ -119,6 +119,10 @@ def record_chat_build(store: Any, request: Any, *, agent_id: str = "eclipse-agen
     run_id = str(getattr(request, "runId", "") or "")
     if budget is None or not run_id:
         return False
+    if not agent_id:
+        from ..agents import DEFAULT_AGENT_ID  # noqa: PLC0415
+
+        agent_id = DEFAULT_AGENT_ID
     sessions = SessionStore(store)
     if sessions.latest(run_id) is not None:
         return True

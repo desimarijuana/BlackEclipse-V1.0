@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from .. import project_policy
 from ..workspace import ResolvedWorkspace, WorkspaceDenial, confine, is_binary
 from . import errors as err
 
@@ -59,12 +60,17 @@ def workspace_info(ws: ResolvedWorkspace) -> WorkspaceInfo:
     return WorkspaceInfo(id=ws.id, root=str(ws.root), strategy=ws.strategy, base_revision=ws.base_revision)
 
 
-def resolve(ws: ResolvedWorkspace, rel_path: str, *, for_write: bool = False) -> Path:
+def resolve(
+    ws: ResolvedWorkspace, rel_path: str, *, for_write: bool = False,
+    for_change: bool = False,
+) -> Path:
     """Resolve a model-supplied path inside the workspace.
 
     `for_write=True` permits a target whose parent exists but whose own path does
     not (a new file), while still refusing traversal, an escape, a symlink/junction
     escape, a protected path and an ignored path. Anything else raises `FsError`.
+    `for_change=True` marks a DESTRUCTIVE source (delete/move) so a project's own
+    deny list applies there too.
     """
     text = str(rel_path or "").strip()
     if not text:
@@ -74,9 +80,16 @@ def resolve(ws: ResolvedWorkspace, rel_path: str, *, for_write: bool = False) ->
     if len(text) > MAX_PATH_CHARS:
         raise err.FsError(err.TOO_LARGE, "That path is too long.", path=text[:80])
     try:
-        return confine(ws, text, for_write=for_write)
+        target = confine(ws, text, for_write=for_write)
     except WorkspaceDenial as denial:
         raise _map_denial(denial) from denial
+    if (for_write or for_change) and project_policy.is_denied(ws.root, relative(ws, target)):
+        raise err.FsError(
+            err.PROTECTED_PATH,
+            "This project protects that path, so I can't change it.",
+            path=relative(ws, target),
+        )
+    return target
 
 
 def relative(ws: ResolvedWorkspace, path: Path) -> str:

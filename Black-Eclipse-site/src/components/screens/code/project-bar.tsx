@@ -9,10 +9,10 @@
 // The client only ever sends an approved root ID; the runtime resolves it.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Folder, FolderOpen } from '@/lib/icons';
+import { Check, ChevronDown, Folder, FolderOpen, Trash2 } from '@/lib/icons';
 import { useT } from '@/lib/i18n/use-t';
 import { cn } from '@/lib/utils';
-import { listTrustedRoots, selectTrustedRoot, type TrustedRoot } from '@/lib/harness/code-browser';
+import { listTrustedRoots, revokeTrustedRoot, selectTrustedRoot, type TrustedRoot } from '@/lib/harness/code-browser';
 import { FolderPicker } from '@/components/workspace/folder-picker';
 
 /** The short name of a project folder (or the neutral default). */
@@ -79,6 +79,19 @@ export function ProjectBar({ onChange }: ProjectBarProps) {
       setBusy(false);
     }
   }, [load, onChange]);
+
+  const remove = useCallback(async (rootId: string) => {
+    setBusy(true);
+    try {
+      await revokeTrustedRoot(rootId);
+      setOpen(false);
+      await load();
+    } catch {
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }, [load]);
 
   const current = roots.find((root) => root.selected) ?? null;
   const label = folderLabel(current?.path, current?.label, t('code.project.defaultName'));
@@ -165,6 +178,17 @@ export function ProjectBar({ onChange }: ProjectBarProps) {
               >
                 <Folder size={14} className="shrink-0" />
                 {t('code.project.defaultOption')}
+              </button>
+            ) : null}
+            {current ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void remove(current.id)}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-rose-300/90 transition-colors hover:bg-white/5 disabled:opacity-50"
+              >
+                <Trash2 size={14} className="shrink-0" />
+                {t('code.project.remove')}
               </button>
             ) : null}
           </div>

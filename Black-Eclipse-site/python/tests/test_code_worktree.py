@@ -30,7 +30,9 @@ def _write(path: Path, text: str) -> None:
 def _hash_tree(root: Path) -> dict[str, str]:
     out: dict[str, str] = {}
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d != ".git"]
+        # `.git` is the repository's own metadata; `.black-eclipse` is Eclipse's
+        # scratch (self-ignored), never part of the operator's project content.
+        dirnames[:] = [d for d in dirnames if d not in (".git", ".black-eclipse")]
         for name in filenames:
             full = Path(dirpath) / name
             rel = full.relative_to(root).as_posix()

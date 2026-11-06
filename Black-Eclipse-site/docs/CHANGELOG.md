@@ -1,6 +1,19 @@
 # Change Log
 
 ## 2026-11-06
+- **fix(builds): readiness pass — git hygiene, full policy coverage, clean task list.**
+  A user's repo has no `.black-eclipse` ignore rule, so the first build left
+  untracked state in their `git status`; the directory now writes a self-ignoring
+  `.gitignore` (`*`) when it is created (builds and capability drafts).
+  `policy.json` now also covers `write_file`/`create_file`/`delete`/`move` via
+  `code/fs/resolver.py` (`for_change`), not just `patch.apply`; deleting a folder
+  checks every child. The task list reads all workspaces once (no N+1) and hides a
+  finished turn that never touched a file (no phantom builds). `record_chat_build`
+  uses `DEFAULT_AGENT_ID` instead of a literal. UI: land-check warnings are
+  surfaced, and a project can be removed from Eclipse in the project bar. New
+  user guide `docs/developing-a-project.md`. Tests: state-dir self-ignore, fs
+  policy refusal, project attribution/filter. Docs updated:
+  `docs/developing-a-project.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 - **feat(builds): run the prepared change, and let a project protect its own paths.**
   Preview gained `mode=change`: it runs the task's WORKTREE, with the checkout's
   `node_modules` / `.venv` linked read-only (NTFS junction on Windows, symlink
