@@ -16,7 +16,10 @@ from harness.code.session import (
     SessionError,
     SessionStore,
     apply_budget,
+    apply_chat_build_budget,
+    budget_for_autonomy,
     derive_phase,
+    record_chat_build,
     resolve_budget,
 )
 from harness.code.tasks import TaskStore
@@ -79,6 +82,69 @@ def test_apply_budget_sets_a_floor_and_never_lowers():
     apply_budget(higher, resolve_budget("small"))
     assert higher.maxSteps == 999
     assert higher.runTimeoutMs == 99_999_999
+
+
+def test_a_writing_chat_turn_records_a_durable_session(tmp_path):
+    store = AgentMemoryStore(str(tmp_path / "chat-memory.db"))
+    try:
+        request = RunRequest(
+            runId="chat_1", input={"query": "add a settings toggle"},
+            modelSettings={"provider": "p", "model": "m"},
+            callbackBaseUrl="http://localhost:3000", autonomy="edit_verify",
+        )
+        assert record_chat_build(store, request) is True
+        view = SessionStore(store).view("chat_1")
+        assert view["goal"] == "add a settings toggle"
+        assert view["budget"]["profile"] == "standard"
+        # It is a BUILD: it shows up in the Builds list, not only in the transcript.
+        assert "chat_1" in [task["id"] for task in TaskStore(store).list(limit=10)]
+
+        # Re-entering the funnel must not add a second boundary.
+        assert record_chat_build(store, request) is True
+        kinds = [c.get("kind") for c in RunLineage(store).list_checkpoints("chat_1")]
+        assert kinds.count("session.created") == 1
+    finally:
+        store.close()
+
+
+def test_a_planning_turn_is_not_a_build(tmp_path):
+    store = AgentMemoryStore(str(tmp_path / "plan-memory.db"))
+    try:
+        request = RunRequest(
+            runId="chat_2", input={"query": "how would you do this?"},
+            modelSettings={"provider": "p", "model": "m"},
+            callbackBaseUrl="http://localhost:3000", autonomy="plan_only",
+        )
+        assert record_chat_build(store, request) is False
+        assert RunLineage(store).list_checkpoints("chat_2") == []
+    finally:
+        store.close()
+
+
+def test_budget_for_autonomy_is_conservative():
+    # A writing autonomy is a build and buys the standard profile.
+    assert budget_for_autonomy("edit_verify").profile == "standard"
+    assert budget_for_autonomy("approve_external").profile == "standard"
+    # Planning, empty and unknown stay on the ordinary chat budget.
+    assert budget_for_autonomy("plan_only") is None
+    assert budget_for_autonomy("") is None
+    assert budget_for_autonomy(None) is None
+    assert budget_for_autonomy("full") is None
+
+
+def test_a_chat_build_turn_is_raised_above_the_chat_cap():
+    # The observed failure: a self-build ran out at 24 steps mid-acceptance.
+    request = RunRequest(
+        runId="r", input={"query": "x"},
+        modelSettings={"provider": "p", "model": "m"},
+        callbackBaseUrl="http://localhost:3000", autonomy="edit_verify",
+    )
+    budget = budget_for_autonomy(request.autonomy)
+    assert budget is not None
+    apply_budget(request, budget)
+    steps, timeout_s = requested_budget(24, 600.0, request)
+    assert steps == BUDGET_LADDER["standard"].max_steps
+    assert timeout_s == BUDGET_LADDER["standard"].run_timeout_s
 
 
 def test_the_graph_budget_is_clamped_to_the_hard_caps():

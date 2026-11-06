@@ -66,6 +66,12 @@ class CodeWorkspaceStore:
         ws_cols = {r["name"] for r in self._db.execute("PRAGMA table_info(CodeWorkspace)").fetchall()}
         if "scopeId" not in ws_cols:
             self._db.execute("ALTER TABLE CodeWorkspace ADD COLUMN scopeId TEXT")
+        # Phase 23 (additive, old-row-safe): the PROJECT this build was cut from.
+        # Promotion must land back into THIS folder, never "whatever root is
+        # selected now". Null = a row written before the column existed; readers
+        # fall back to the resolved default for those.
+        if "checkoutRoot" not in ws_cols:
+            self._db.execute("ALTER TABLE CodeWorkspace ADD COLUMN checkoutRoot TEXT")
         self._db.execute(
             "CREATE INDEX IF NOT EXISTS idx_code_workspace_created ON CodeWorkspace(createdAt)"
         )
@@ -112,6 +118,7 @@ class CodeWorkspaceStore:
         file_count: int = 0,
         created_at: Optional[str] = None,
         scope_id: Optional[str] = None,
+        checkout_root: Optional[str] = None,
     ) -> dict[str, Any]:
         record = {
             "id": workspace_id,
@@ -124,16 +131,18 @@ class CodeWorkspaceStore:
             "runId": run_id,
             "fileCount": int(file_count),
             "scopeId": scope_id,
+            "checkoutRoot": checkout_root,
         }
         self._db.execute(
             """INSERT OR REPLACE INTO CodeWorkspace
                (id, root, baseRevision, strategy, createdAt, releasedAt, diffDigest, runId,
-                fileCount, scopeId)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                fileCount, scopeId, checkoutRoot)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 record["id"], record["root"], record["baseRevision"], record["strategy"],
                 record["createdAt"], record["releasedAt"], record["diffDigest"],
                 record["runId"], record["fileCount"], record["scopeId"],
+                record["checkoutRoot"],
             ),
         )
         self._db.commit()

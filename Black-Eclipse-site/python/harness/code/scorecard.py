@@ -21,6 +21,7 @@ No new store: this reads the ONE run lineage.
 
 from __future__ import annotations
 
+import os
 import statistics
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -57,17 +58,32 @@ def _median(values: list[float]) -> Any:
     return round(statistics.median(values), 1) if values else UNKNOWN
 
 
+def _same_path(left: str, right: str) -> bool:
+    try:
+        return os.path.normcase(os.path.realpath(left)) == os.path.normcase(os.path.realpath(right))
+    except (OSError, ValueError):
+        return left == right
+
+
 def build_scorecard(
     store: Any, *, window_days: int = 30, limit: int = 200,
-    now: Optional[datetime] = None,
+    now: Optional[datetime] = None, project_root: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Derive the scorecard. Never raises on a malformed row; names the holes."""
+    """Derive the scorecard. Never raises on a malformed row; names the holes.
+
+    A build is any run that left a code workspace and a ``session.created``
+    checkpoint — a Code task or a chat build. ``project_root`` narrows it to one
+    project (the checkout recorded when the workspace was allocated), so "how is
+    Eclipse doing on THIS repo" is a different question from "across everything".
+    """
+    from ..code.store import CodeWorkspaceStore  # noqa: PLC0415
     from ..run_lineage import RunLineage  # noqa: PLC0415
 
     days = max(1, min(int(window_days), 365))
     current = now or datetime.now(timezone.utc)
     cutoff = current - timedelta(days=days)
     lineage = RunLineage(store)
+    code_store = CodeWorkspaceStore(store)
 
     builds = 0
     checked = 0
@@ -81,13 +97,26 @@ def build_scorecard(
     by_model: dict[str, dict[str, Any]] = {}
 
     for run in store.list_runs(limit=max(1, min(int(limit), 200))):
-        if str(run.get("agentId") or "") != "code-agent":
-            continue
         created = _parse_iso(run.get("createdAt"))
         if created is not None and created < cutoff:
             continue
+        run_id = str(run.get("id") or "")
+        # A code run always left a workspace row; a finance/chat turn did not.
+        # The row also names the PROJECT, which is what the filter needs.
+        try:
+            workspaces = code_store.list_workspaces(run_id=run_id, limit=1)
+        except Exception:  # noqa: BLE001 - a store hiccup is "no attribution"
+            workspaces = []
+        if not workspaces:
+            # A legacy code run (its agent id) still counts globally; a chat turn
+            # with no workspace at all is not code work and is skipped.
+            if str(run.get("agentId") or "") != "code-agent":
+                continue
+        project = str((workspaces[0] or {}).get("checkoutRoot") or "") if workspaces else ""
+        if project_root and not _same_path(project, str(project_root)):
+            continue
         runs += 1
-        checkpoints = lineage.list_checkpoints(run["id"])
+        checkpoints = lineage.list_checkpoints(run_id)
         kinds = [str(item.get("kind") or "") for item in checkpoints]
         if SESSION_CREATED not in kinds:
             continue
@@ -149,6 +178,7 @@ def build_scorecard(
     return {
         "windowDays": days,
         "checkedAt": current.isoformat(),
+        "projectRoot": str(project_root) if project_root else None,
         "metrics": metrics,
         "byModel": sorted(by_model.values(), key=lambda item: item["builds"], reverse=True),
         "unmeasured": ["costUsd", "humanEditsAfterLanding"],

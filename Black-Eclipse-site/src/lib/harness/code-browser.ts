@@ -6,11 +6,11 @@
 // component — importing the server client pulls `child_process` into the browser
 // bundle and the page fails to compile.
 
-import type { Autonomy, BudgetProfile, CodeApproval, CodePlan, CodeScorecard, CodeSession, CodeTask, CodeTaskDiff, LandCheck, LandCheckResult, LandPlan, LandResult, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord } from './code-client';
+import type { Autonomy, BudgetProfile, CodeApproval, CodePlan, CodePreview, CodeScorecard, CodeSession, CodeTask, CodeTaskDiff, LandCheck, LandCheckResult, LandPlan, LandResult, ProjectTarget, PreviewTarget, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord } from './code-client';
 
 // Re-export the wire types so a component imports everything from ONE client-safe
 // module (a type-only re-export is erased at compile time — no server code ships).
-export type { Autonomy, BudgetProfile, CodeApproval, CodePlan, CodeScorecard, CodeSession, CodeTask, CodeTaskDiff, LandCheck, LandCheckResult, LandPlan, LandResult, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord };
+export type { Autonomy, BudgetProfile, CodeApproval, CodePlan, CodePreview, CodeScorecard, CodeSession, CodeTask, CodeTaskDiff, LandCheck, LandCheckResult, LandPlan, LandResult, ProjectTarget, PreviewTarget, TaskStatus, CreateTaskInput, PromotionFile, PromotionPreview, PromotionLanding, PostLandingRecord };
 
 async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(path, {
@@ -20,6 +20,18 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const body = (await res.json().catch(() => ({}))) as T & { error?: string; detail?: string };
   if (!res.ok) throw new Error(body.error ?? body.detail ?? `request failed (${res.status})`);
   return body;
+}
+
+/**
+ * The loopback base for the workspace picker. A page served from `localhost`
+ * uses `127.0.0.1` (a separate connection pool) so a wedged localhost keep-alive
+ * socket cannot freeze folder browsing. Other hosts use same-origin paths.
+ */
+function workspaceBase(): string {
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return `http://127.0.0.1:${window.location.port || '3000'}`;
+  }
+  return '';
 }
 
 export async function listCodeTasks(): Promise<CodeTask[]> {
@@ -56,10 +68,50 @@ export async function verifyLanding(
   });
 }
 
-/** Phase 22 / S6: the self-build scorecard. */
-export async function getCodeScorecard(days = 30): Promise<CodeScorecard> {
-  const body = await api<{ scorecard: CodeScorecard }>(`/api/code/scorecard?days=${days}`);
+/** Phase 22 / S6: the self-build scorecard, optionally for ONE project. */
+export async function getCodeScorecard(days = 30, target: ProjectTarget = {}): Promise<CodeScorecard> {
+  const query = new URLSearchParams({ days: String(days) });
+  if (target.taskId) query.set('taskId', target.taskId);
+  if (target.rootId) query.set('rootId', target.rootId);
+  const body = await api<{ scorecard: CodeScorecard }>(`/api/code/scorecard?${query.toString()}`);
   return body.scorecard;
+}
+
+// ── Running the user's project (Phase 24 / P2) ───────────────────────────────
+
+function previewQuery(target: PreviewTarget): string {
+  const query = new URLSearchParams();
+  if (target.taskId) query.set('taskId', target.taskId);
+  if (target.rootId) query.set('rootId', target.rootId);
+  return query.toString();
+}
+
+export async function getCodePreview(target: PreviewTarget = {}): Promise<CodePreview> {
+  const body = await api<{ preview: CodePreview }>(`/api/code/preview?${previewQuery(target)}`);
+  return body.preview;
+}
+
+export async function startCodePreview(target: PreviewTarget = {}): Promise<CodePreview> {
+  const body = await api<{ preview: CodePreview }>('/api/code/preview', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'start', ...target }),
+  });
+  return body.preview;
+}
+
+export async function stopCodePreview(target: PreviewTarget = {}): Promise<CodePreview> {
+  const body = await api<{ preview: CodePreview }>('/api/code/preview', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'stop', ...target }),
+  });
+  return body.preview;
+}
+
+export async function getCodePreviewLogs(target: PreviewTarget = {}, tail = 200): Promise<string> {
+  const body = await api<{ logs: string }>(
+    `/api/code/preview?logs=1&tail=${tail}&${previewQuery(target)}`,
+  );
+  return body.logs ?? '';
 }
 
 export async function createCodeTask(input: CreateTaskInput): Promise<CodeTask> {
@@ -181,16 +233,44 @@ export type { BrowseEntry, BrowseResult, EditorEntry, EditorFileResult, EditorTr
 
 export async function browseFolders(path?: string): Promise<BrowseResult> {
   const q = path ? `?path=${encodeURIComponent(path)}` : '';
-  return api<BrowseResult>(`/api/workspace/browse${q}`);
+  // In dev the page is on `localhost`; use the loopback origin so a wedged
+  // localhost keep-alive socket cannot freeze the picker.
+  return api<BrowseResult>(`${workspaceBase()}/api/workspace/browse${q}`, {
+    signal: AbortSignal.timeout(30_000),
+  });
+}
+
+/** Create one folder inside the directory the picker is showing. */
+export async function createBrowsedFolder(
+  path: string, name: string,
+): Promise<{ path: string; name: string; parent: string }> {
+  return api<{ path: string; name: string; parent: string }>(`${workspaceBase()}/api/workspace/browse/mkdir`, {
+    method: 'POST',
+    body: JSON.stringify({ path, name }),
+    signal: AbortSignal.timeout(20_000),
+  });
+}
+
+/**
+ * Open the real Windows "Select Folder" dialog on the machine running the app.
+ * Returns the chosen absolute path, or null when the person cancels. The call
+ * blocks while the OS dialog is open, so it gets a generous timeout.
+ */
+export async function pickFolderNative(): Promise<string | null> {
+  const body = await api<{ path?: string | null; cancelled?: boolean }>(
+    `${workspaceBase()}/api/workspace/pick-folder`,
+    { method: 'POST', signal: AbortSignal.timeout(310_000) },
+  );
+  return body.path ?? null;
 }
 
 export async function listTrustedRoots(): Promise<TrustedRoot[]> {
-  const body = await api<{ roots: TrustedRoot[] }>('/api/workspace/roots');
+  const body = await api<{ roots: TrustedRoot[] }>(`${workspaceBase()}/api/workspace/roots`);
   return body.roots ?? [];
 }
 
 export async function approveTrustedRoot(path: string, label?: string): Promise<TrustedRoot> {
-  const body = await api<{ root: TrustedRoot }>('/api/workspace/roots', {
+  const body = await api<{ root: TrustedRoot }>(`${workspaceBase()}/api/workspace/roots`, {
     method: 'POST',
     body: JSON.stringify({ path, label }),
   });
@@ -198,7 +278,7 @@ export async function approveTrustedRoot(path: string, label?: string): Promise<
 }
 
 export async function selectTrustedRoot(rootId: string | null): Promise<TrustedRoot | null> {
-  const body = await api<{ selected: TrustedRoot | null }>('/api/workspace/roots/select', {
+  const body = await api<{ selected: TrustedRoot | null }>(`${workspaceBase()}/api/workspace/roots/select`, {
     method: 'POST',
     body: JSON.stringify({ rootId }),
   });
@@ -206,7 +286,7 @@ export async function selectTrustedRoot(rootId: string | null): Promise<TrustedR
 }
 
 export async function revokeTrustedRoot(rootId: string): Promise<void> {
-  await api(`/api/workspace/roots/${encodeURIComponent(rootId)}`, { method: 'DELETE' });
+  await api(`${workspaceBase()}/api/workspace/roots/${encodeURIComponent(rootId)}`, { method: 'DELETE' });
 }
 
 export async function listWorkspaceFiles(path = '.'): Promise<EditorTreeResult> {

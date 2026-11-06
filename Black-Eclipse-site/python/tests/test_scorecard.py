@@ -1,7 +1,8 @@
 """The self-build scorecard (Phase 22 / S6).
 
 The tests pin the two rules that matter: a missing dimension is `UNKNOWN`, never
-`0`, and only code-agent runs with a `session.created` boundary count as builds.
+`0`, and a build is a run with a `session.created` boundary (a Code task or a
+chat build). `project_root` narrows the card to one project.
 """
 
 from __future__ import annotations
@@ -26,6 +27,28 @@ def _run(store, run_id="r1", *, agent="code-agent", steps=3, tokens=100, created
         store._db.commit()
     store.update_run(run_id, modelSteps=steps, totalTokens=tokens, provider="p", model="m")
     return RunLineage(store)
+
+
+def test_a_chat_build_counts_and_the_project_filter_narrows_it(tmp_path):
+    from harness.code.store import CodeWorkspaceStore
+
+    store = _store(tmp_path)
+    try:
+        for run_id, folder in (("chat_a", "a"), ("chat_b", "b")):
+            lineage = _run(store, run_id, agent="eclipse-agent")
+            lineage.save_checkpoint(run_id, "session.created", {"goal": run_id})
+            (tmp_path / folder).mkdir(exist_ok=True)
+            CodeWorkspaceStore(store).save_workspace(
+                f"ws_{folder}", str(tmp_path / folder / ".black-eclipse" / "code-workspaces" / f"ws_{folder}"),
+                "HEAD", "worktree", run_id=run_id, checkout_root=str(tmp_path / folder),
+            )
+
+        assert build_scorecard(store)["metrics"]["builds"] == 2
+        scoped = build_scorecard(store, project_root=str(tmp_path / "a"))
+        assert scoped["metrics"]["builds"] == 1
+        assert scoped["projectRoot"] == str(tmp_path / "a")
+    finally:
+        store.close()
 
 
 def test_an_empty_store_reports_unknown_not_zero(tmp_path):

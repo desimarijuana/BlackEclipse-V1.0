@@ -40,15 +40,21 @@ export interface TaskListProps {
   onSelect?: (id: string) => void;
   /** Called after a "Build this" starts so the container can refresh. */
   onChanged?: () => void;
+  /** The approved project new builds name; null/absent = the runtime default. */
+  workspaceRootId?: string | null;
 }
 
 type RowState = { busy: 'build' | 'schedule' | null; note: string | null; error: boolean };
 
-export function TaskList({ tasks, selectedId, onSelect, onChanged }: TaskListProps) {
+export function TaskList({ tasks, selectedId, onSelect, onChanged, workspaceRootId }: TaskListProps) {
   const t = useT();
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [draft, setDraft] = useState('');
   const [starting, setStarting] = useState(false);
+
+  // Name the project explicitly when one is chosen; otherwise the runtime binds
+  // its own server-resolved default (the historical behaviour).
+  const project = workspaceRootId ? { workspaceRootId } : {};
 
   const setRow = (id: string, next: RowState) =>
     setRows((prev) => ({ ...prev, [id]: next }));
@@ -58,7 +64,7 @@ export function TaskList({ tasks, selectedId, onSelect, onChanged }: TaskListPro
     try {
       // The existing contract: the route resolves the model settings + binds the
       // runtime's own code root server-side.
-      await createCodeTask({ query: task.query || t('code.task.title'), autonomy: 'edit_verify', modelSettings: {} });
+      await createCodeTask({ query: task.query || t('code.task.title'), autonomy: 'edit_verify', modelSettings: {}, ...project });
       setRow(task.id, { busy: null, note: t('code.chat.buildStarted'), error: false });
       onChanged?.();
     } catch {
@@ -101,7 +107,7 @@ export function TaskList({ tasks, selectedId, onSelect, onChanged }: TaskListPro
     if (!query || starting) return;
     setStarting(true);
     try {
-      await createCodeTask({ query, autonomy: 'edit_verify', modelSettings: {} });
+      await createCodeTask({ query, autonomy: 'edit_verify', modelSettings: {}, ...project });
       setDraft('');
       onChanged?.();
     } catch {

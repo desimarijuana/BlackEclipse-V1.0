@@ -131,6 +131,10 @@ class TaskStore:
         created = next(
             (c for c in reversed(checkpoints) if c.get("kind") == TASK_CREATED), None,
         )
+        # A task exists only when it has the `task.created` boundary. A plain chat
+        # run that never built anything has no task view (it is not a build).
+        if created is None:
+            return None
         created_payload = (created or {}).get("payload") or {}
         plan = next(
             (c for c in reversed(checkpoints) if c.get("kind") == PLAN_ACCEPTED), None,
@@ -162,11 +166,8 @@ class TaskStore:
         limit = max(1, min(int(limit), 200))
         views: list[dict[str, Any]] = []
         for run in self._store.list_runs(limit=200):
-            agent_id = run.get("agentId") or ""
-            if agent_id != "code-agent":
-                continue
-            # Phase 11: the scope FILTER reads the existing `userId` column. It
-            # narrows what is returned; it never authorizes anything.
+            # Any run with a `task.created` boundary is a build task: a Code task
+            # or a writing chat build. `view` is None for a run that never built.
             if scope_id is not None and run.get("userId") != scope_id:
                 continue
             view = self.view(run["id"])

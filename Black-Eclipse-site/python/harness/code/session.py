@@ -53,6 +53,11 @@ BUDGET_LADDER: dict[str, SessionBudget] = {
 
 DEFAULT_PROFILE = "standard"
 
+#: A chat turn that may write is a build, not small talk: it buys the standard
+#: profile instead of the 24-step chat budget. Planning keeps the chat budget.
+CHAT_BUILD_PROFILE = "standard"
+BUILD_AUTONOMIES: tuple[str, ...] = ("edit_verify", "approve_external")
+
 #: Absolute caps. A session profile can never exceed these, and a direct caller
 #: cannot either - the graph clamps to them.
 HARD_MAX_STEPS = 240
@@ -78,6 +83,76 @@ def resolve_budget(profile: Optional[str]) -> SessionBudget:
             f"Unknown budget profile {profile!r}. Use one of: {', '.join(BUDGET_LADDER)}.",
         )
     return budget
+
+
+def budget_for_autonomy(autonomy: Optional[str]) -> Optional[SessionBudget]:
+    """The build budget a writing autonomy earns; None keeps the chat budget.
+
+    Pure and conservative: the caller still goes through ``apply_budget``
+    (additive) and the graph's hard caps. `plan_only`, an empty autonomy and an
+    unknown string all keep the ordinary chat budget.
+    """
+    if (autonomy or "").strip().lower() in BUILD_AUTONOMIES:
+        return BUDGET_LADDER[CHAT_BUILD_PROFILE]
+    return None
+
+
+def apply_chat_build_budget(request: Any) -> None:
+    """Give a writing chat turn the build budget floor. No-op otherwise."""
+    budget = budget_for_autonomy(getattr(request, "autonomy", None))
+    if budget is not None:
+        apply_budget(request, budget)
+
+
+def record_chat_build(store: Any, request: Any, *, agent_id: str = "eclipse-agent") -> bool:
+    """Make a writing chat turn a DURABLE build (Phase 24 / P3).
+
+    A chat build is a run, and the scorecard's own definition of a build is "a run
+    with a `session.created` checkpoint". Code tasks already write one; a chat
+    build did not, so it could not be resumed and never appeared in the scorecard.
+
+    The checkpoint has a FOREIGN KEY on the run row, so the row is created first
+    when it does not exist yet (`execute_run` re-uses a pre-created row). An
+    existing session is left alone — the Code task path owns its own.
+    """
+    budget = budget_for_autonomy(getattr(request, "autonomy", None))
+    run_id = str(getattr(request, "runId", "") or "")
+    if budget is None or not run_id:
+        return False
+    sessions = SessionStore(store)
+    if sessions.latest(run_id) is not None:
+        return True
+    try:
+        store.create_run(
+            run_id, agent_id, request.input.model_dump(), request.userId,
+            request.modelSettings.provider, request.modelSettings.model,
+            session_id=getattr(request, "sessionId", None),
+            profile_id=getattr(request, "profileId", None),
+            project_id=getattr(request, "projectId", None),
+        )
+    except Exception:  # noqa: BLE001 - an existing row is re-used by execute_run
+        pass
+    try:
+        sessions.record(
+            run_id,
+            goal=str(getattr(getattr(request, "input", None), "query", "") or ""),
+            budget=budget,
+            workspace_id=getattr(request, "workspaceId", None),
+        )
+    except Exception:  # noqa: BLE001 - a missing session must never fail the run
+        return False
+    # A chat build is a BUILD: give it the same `task.created` boundary a Code
+    # task has, so it appears in Builds (diff, checks, preview, undo) instead of
+    # existing only as a chat transcript.
+    try:
+        TaskStore(store).record_created(
+            run_id,
+            workspace_id=getattr(request, "workspaceId", None),
+            autonomy=str(getattr(request, "autonomy", "") or "edit_verify"),
+        )
+    except Exception:  # noqa: BLE001 - the session is already durable
+        pass
+    return True
 
 
 def apply_budget(request: Any, budget: SessionBudget) -> None:
@@ -219,7 +294,9 @@ def derive_phase(
 
 
 __all__ = [
+    "BUILD_AUTONOMIES",
     "BUDGET_LADDER",
+    "CHAT_BUILD_PROFILE",
     "DEFAULT_PROFILE",
     "HARD_MAX_STEPS",
     "HARD_RUN_TIMEOUT_S",
@@ -228,6 +305,9 @@ __all__ = [
     "SessionError",
     "SessionStore",
     "apply_budget",
+    "apply_chat_build_budget",
+    "budget_for_autonomy",
     "derive_phase",
+    "record_chat_build",
     "resolve_budget",
 ]

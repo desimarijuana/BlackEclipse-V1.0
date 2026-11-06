@@ -73,6 +73,7 @@ class CodeWorkspace:
     file_count: int = 0
     released_at: Optional[str] = None
     diff_digest: Optional[str] = None    # set by diff(), sha256 of the unified diff
+    checkout_root: Optional[Path] = None  # the PROJECT this build was cut from
 
 
 class WorkspaceError(Exception):
@@ -104,6 +105,32 @@ def _current_root() -> Path:
             "there is no project root available for a change to be prepared in",
         )
     return root
+
+
+def _resolve_allocate_root(root: Optional[Path]) -> Path:
+    """The checkout an `allocate` call may cut from.
+
+    The run's resolved root when given (an approved folder the runtime bound),
+    else the global default. A scratch folder is never a checkout, so a bad
+    binding cannot nest a workspace inside another workspace.
+    """
+    if root is None:
+        return _current_root()
+    try:
+        candidate = Path(os.path.realpath(str(root)))
+    except (OSError, ValueError) as exc:
+        raise WorkspaceError("WORKSPACE_ROOT_UNAVAILABLE", "the run's project folder is not a usable path") from exc
+    if not candidate.is_dir():
+        raise WorkspaceError(
+            "WORKSPACE_ROOT_UNAVAILABLE",
+            "the run's project folder is no longer available",
+        )
+    if SCRATCH_RELPATH.replace("\\", "/") in str(candidate).replace("\\", "/"):
+        raise WorkspaceError(
+            "WORKSPACE_ROOT_UNAVAILABLE",
+            "a prepared-change folder cannot also be the project root",
+        )
+    return candidate
 
 
 def scratch_root(repo_root: Path) -> Path:
@@ -224,7 +251,9 @@ def _read_manifest(sidecar: Path) -> dict[str, str]:
         return {}
 
 
-def allocate(base_revision: str = "HEAD", *, direct: bool = False) -> CodeWorkspace:
+def allocate(
+    base_revision: str = "HEAD", *, direct: bool = False, root: Optional[Path] = None,
+) -> CodeWorkspace:
     """Create a disposable workspace. Deterministic, bounded, honest about strategy.
 
     With ``direct=True`` the workspace IS the resolved root itself (strategy
@@ -233,17 +262,23 @@ def allocate(base_revision: str = "HEAD", *, direct: bool = False) -> CodeWorksp
     mode is opt-in per run and only ever binds a root the runtime already
     resolved and a person already approved.
 
+    ``root`` is the root a RUN resolved (`graph._run_workspace` / the Phase 23
+    per-chat binding). It is still never a request-body value: the model cannot
+    call this function, and the path comes from `resolve_workspace`, which only
+    returns an approved root. Omitted, it falls back to the globally selected
+    default exactly as before.
+
     Otherwise the order of attempts, all inside the scratch root:
       1. `git worktree add --detach <dir> <base>` with cwd=root, no shell.
       2. On failure OR when git is unavailable: a bounded snapshot copy of the
          tree. An honest refusal (`SNAPSHOT_TOO_LARGE`) past the caps — never a
          partial copy silently used as if complete.
 
-    The root is resolved INTERNALLY (`workspace.default_root()`); it is never an
-    argument, so no caller can name the operator's checkout. Tests point the
-    resolver at a temp repo with `BLACK_ECLIPSE_CODE_ROOT`.
+    The root is the RUN's resolved root when the caller has one (see ``root``),
+    otherwise the internally resolved default; a request body can never name it.
+    Tests point the resolver at a temp repo with `BLACK_ECLIPSE_CODE_ROOT`.
     """
-    repo_root = _current_root()
+    repo_root = _resolve_allocate_root(root)
     if direct:
         base = _valid_revision(base_revision) if _REVISION_RE.match(str(base_revision or "HEAD")) else "HEAD"
         return CodeWorkspace(
@@ -253,6 +288,7 @@ def allocate(base_revision: str = "HEAD", *, direct: bool = False) -> CodeWorksp
             base_revision=_git_head(repo_root) if _git_available(repo_root) else "direct",
             created_at=_now_iso(),
             file_count=0,
+            checkout_root=repo_root,
         )
     base = _valid_revision(base_revision)
     scratch = scratch_root(repo_root)
@@ -268,6 +304,7 @@ def allocate(base_revision: str = "HEAD", *, direct: bool = False) -> CodeWorksp
                 return CodeWorkspace(
                     id=workspace_id, root=dest, strategy="worktree",
                     base_revision=base, created_at=created_at, file_count=file_count,
+                    checkout_root=repo_root,
                 )
         except (OSError, subprocess.SubprocessError):
             pass
@@ -280,6 +317,7 @@ def allocate(base_revision: str = "HEAD", *, direct: bool = False) -> CodeWorksp
         return CodeWorkspace(
             id=workspace_id, root=dest, strategy="snapshot",
             base_revision=digest[:40], created_at=created_at, file_count=file_count,
+            checkout_root=repo_root,
         )
     except WorkspaceError:
         shutil.rmtree(dest, ignore_errors=True)
@@ -300,7 +338,7 @@ def _workspace_dir(repo_root: Path, workspace_id: str) -> Path:
     return candidate
 
 
-def release(workspace_id: str) -> dict[str, Any]:
+def release(workspace_id: str, *, root: Optional[Path] = None) -> dict[str, Any]:
     """Remove a workspace. Idempotent. Refuses to delete anything outside scratch.
 
     `realpath(workspace_root)` must be under `realpath(scratch_root)`, else
@@ -308,8 +346,11 @@ def release(workspace_id: str) -> dict[str, Any]:
     "disposable" safe rather than hopeful. A git worktree is deregistered with
     `git worktree remove --force`, then removed with `shutil.rmtree` if it still
     exists. An already-released workspace returns `{"alreadyReleased": True}`.
+
+    ``root`` is the project the workspace was cut from (recorded on its row), so a
+    task that belongs to a non-selected project is still cleaned up there.
     """
-    repo_root = _current_root()
+    repo_root = _resolve_allocate_root(root)
     if str(workspace_id).startswith("cw_direct_"):
         # A direct workspace IS the user's real folder. Never delete it.
         return {"released": True, "alreadyReleased": True, "workspaceId": workspace_id,
@@ -353,7 +394,10 @@ def _count_hunks(unified: str) -> tuple[int, int]:
     return additions, deletions
 
 
-def diff(workspace_id: str, base: Optional[str] = None, *, strategy: str = "worktree") -> dict[str, Any]:
+def diff(
+    workspace_id: str, base: Optional[str] = None, *, strategy: str = "worktree",
+    root: Optional[Path] = None,
+) -> dict[str, Any]:
     """The unified diff plus added/modified/deleted lists.
 
     For a "worktree" workspace the unified diff comes from
@@ -361,8 +405,11 @@ def diff(workspace_id: str, base: Optional[str] = None, *, strategy: str = "work
     from the workspace record, not from the model). For a "snapshot" workspace
     there is no git object database, so a synthesized diff is produced and the
     result still says `strategy: "snapshot"` — no caller can mistake it for git.
+
+    ``root`` is the project the workspace was cut from; it locates the scratch
+    folder when the build belongs to a project other than the selected one.
     """
-    repo_root = _current_root()
+    repo_root = _resolve_allocate_root(root)
     # A direct workspace IS the resolved real root, not a scratch subfolder.
     target = repo_root if strategy == "direct" else _workspace_dir(repo_root, workspace_id)
     if not target.exists():

@@ -47,6 +47,7 @@ const ALL_TABS: Record<AppTab, true> = {
   tables: true,
   overview: true,
   bots: true,
+  code: true,
 };
 
 export const APP_TABS = Object.keys(ALL_TABS) as readonly AppTab[];

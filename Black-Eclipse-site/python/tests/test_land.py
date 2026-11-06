@@ -59,9 +59,43 @@ def test_an_invalid_override_falls_back_with_a_warning(tmp_path):
     override.mkdir()
     (override / "land.json").write_text("{not json", encoding="utf-8")
     plan = land.plan_land_checks(["src/app/page.tsx"], root=tmp_path)
-    assert plan.source == "defaults"
+    assert plan.source == "none"
     assert plan.warnings
-    assert "build" in [c.id for c in plan.checks]
+    assert plan.checks == ()
+
+
+def test_a_node_project_gets_its_own_checks(tmp_path):
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": {
+        "typecheck": "tsc --noEmit", "test": "vitest run", "build": "next build",
+    }}), encoding="utf-8")
+    plan = land.plan_land_checks(["src/app/page.tsx"], root=tmp_path)
+    assert plan.source == "detected"
+    assert [c.id for c in plan.checks] == ["typecheck", "tests", "build"]
+    assert plan.checks[0].argv == ("npm", "run", "typecheck")
+    assert plan.checks[1].argv == ("npm", "test")
+
+
+def test_an_unrecognised_project_runs_nothing_and_says_so(tmp_path):
+    plan = land.plan_land_checks(["main.py"], root=tmp_path)
+    assert plan.source == "none"
+    assert plan.checks == ()
+    assert any("land.json" in warning for warning in plan.warnings)
+
+
+def test_the_harness_repo_keeps_its_full_pipeline(tmp_path):
+    (tmp_path / "python" / "harness").mkdir(parents=True)
+    (tmp_path / "python" / "harness" / "main.py").write_text("", encoding="utf-8")
+    plan = land.plan_land_checks(["python/harness/graph.py"], root=tmp_path)
+    assert plan.source == "defaults"
+    assert "secrets" in [c.id for c in plan.checks]
+
+
+def test_a_python_project_that_declares_pytest_gets_tests(tmp_path):
+    (tmp_path / "requirements.txt").write_text("pytest>=8\n", encoding="utf-8")
+    plan = land.plan_land_checks(["app.py"], root=tmp_path)
+    assert plan.source == "detected"
+    assert [c.id for c in plan.checks] == ["tests"]
+    assert plan.checks[0].argv == ("python", "-m", "pytest", "-q")
 
 
 def test_a_failed_required_check_stops_the_pipeline():

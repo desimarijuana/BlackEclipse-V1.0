@@ -31,6 +31,7 @@ export async function POST(request: Request) {
       query?: string;
       autonomy?: string;
       workspaceId?: string;
+      workspaceRootId?: string;
       modelSettings?: Record<string, unknown>;
       callbackBaseUrl?: string;
       callbackToken?: string;
@@ -63,6 +64,7 @@ export async function POST(request: Request) {
       query: body.query.trim(),
       autonomy,
       workspaceId: body.workspaceId,
+      workspaceRootId: body.workspaceRootId,
       modelSettings,
       // The runtime requires a callback base URL + token to reach the front door
       // (data bridge, approvals). The browser has no vault access, so the front

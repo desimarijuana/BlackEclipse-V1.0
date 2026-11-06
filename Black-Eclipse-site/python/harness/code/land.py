@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -64,7 +65,7 @@ class LandCheck:
 class LandPlan:
     changed: tuple[str, ...]
     checks: tuple[LandCheck, ...]
-    source: str  # "defaults" | "project"
+    source: str  # "defaults" | "project" | "detected" | "none"
     warnings: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -180,14 +181,106 @@ def _load_overrides(root: Optional[Path]) -> tuple[Optional[list[LandCheck]], li
     return parsed, []
 
 
+def _declares_pytest(root: Path) -> bool:
+    """True when the project itself declares pytest (or ships a conftest)."""
+    if (root / "conftest.py").is_file():
+        return True
+    for name in ("pyproject.toml", "requirements.txt", "requirements-dev.txt", "setup.cfg", "Pipfile"):
+        path = root / name
+        if not path.is_file():
+            continue
+        try:
+            if "pytest" in path.read_text(encoding="utf-8", errors="replace").lower():
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def _is_harness_repo(root: Path) -> bool:
+    """The repo Eclipse itself runs from keeps its own full landing pipeline."""
+    return (root / "python" / "harness" / "main.py").is_file()
+
+
+def _detect_checks(root: Path) -> tuple[list[LandCheck], list[str]]:
+    """The project's own checks, discovered from its manifests. Pure, bounded.
+
+    Fixed argv only (no shell string, no interpolation), deduplicated by id, and
+    never invented for a stack that is not present. An unrecognised project gets
+    NO checks and a warning — running Eclipse's checks in someone else's repo
+    would be worse than saying nothing.
+    """
+    checks: list[LandCheck] = []
+    warnings: list[str] = []
+    seen: set[str] = set()
+
+    def add(check_id: str, label: str, argv: tuple[str, ...], timeout_s: int = 900) -> None:
+        if check_id in seen or len(checks) >= MAX_CHECKS:
+            return
+        seen.add(check_id)
+        checks.append(LandCheck(check_id, label, "command", argv, timeout_s=timeout_s))
+
+    package = root / "package.json"
+    if package.is_file():
+        scripts: dict[str, Any] = {}
+        try:
+            raw = json.loads(package.read_text(encoding="utf-8-sig"))
+            if isinstance(raw, dict) and isinstance(raw.get("scripts"), dict):
+                scripts = raw["scripts"]
+        except (OSError, ValueError) as exc:
+            warnings.append(f"package.json ignored: {exc}")
+        if "typecheck" in scripts:
+            add("typecheck", "Typecheck", ("npm", "run", "typecheck"))
+        elif (root / "tsconfig.json").is_file():
+            add("typecheck", "Typecheck", ("npx", "tsc", "--noEmit"), 600)
+        if "test" in scripts:
+            add("tests", "Tests", ("npm", "test"), 1_800)
+        if "build" in scripts:
+            add("build", "Build", ("npm", "run", "build"), 1_200)
+
+    if (root / "Cargo.toml").is_file():
+        add("tests", "Tests", ("cargo", "test", "--quiet"), 1_800)
+    if (root / "go.mod").is_file():
+        add("tests", "Tests", ("go", "test", "./..."), 1_800)
+    if _declares_pytest(root):
+        add("tests", "Tests", ("python", "-m", "pytest", "-q"), 1_800)
+
+    makefile = root / "Makefile"
+    if makefile.is_file():
+        try:
+            text = makefile.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+        if re.search(r"(?m)^test\s*:", text):
+            add("tests", "Tests", ("make", "test"), 1_800)
+
+    if (root / "docs" / "CHANGELOG.md").is_file():
+        checks.append(LandCheck("docs", "Change log entry", "docs"))
+
+    return checks, warnings
+
+
 def plan_land_checks(files: list[str] | tuple[str, ...], root: Optional[Path] = None) -> LandPlan:
-    """The ordered checks for a set of changed files. Pure."""
+    """The ordered checks for a set of changed files. Pure.
+
+    Precedence: an explicit `.black-eclipse/land.json` wins; the harness repo
+    keeps its own pipeline; any other project gets checks discovered from its
+    manifests; a project Eclipse cannot recognise gets none (with a warning).
+    """
     changed = tuple(_norm(path) for path in files if str(path or "").strip())
     frontend = any(path.startswith("src/") for path in changed)
     overrides, warnings = _load_overrides(root)
     if overrides is not None:
         checks = [check for check in overrides if check.when != "frontend" or frontend]
         return LandPlan(changed, tuple(checks), "project", tuple(warnings))
+    if root is not None and not _is_harness_repo(Path(root)):
+        detected, detected_warnings = _detect_checks(Path(root))
+        if detected:
+            return LandPlan(changed, tuple(detected), "detected", tuple(warnings + detected_warnings))
+        return LandPlan(
+            changed, (), "none",
+            tuple(warnings + ["No checks found for this project; add .black-eclipse/land.json."]),
+        )
     return LandPlan(changed, tuple(_default_checks(frontend=frontend)), "defaults", tuple(warnings))
 
 

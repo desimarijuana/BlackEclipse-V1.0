@@ -116,6 +116,29 @@ def _recent_workspace(code_store: Any, run_id: str) -> Optional[dict[str, Any]]:
     return live[0] if live else None
 
 
+def _checkout_of_workspace(worktree_root: str) -> Optional[Path]:
+    """The checkout a scratch workspace was cut from, derived from its path.
+
+    A disposable workspace always lives at
+    ``<checkout>/<SCRATCH_RELPATH>/<id>``. Used only for rows written before the
+    checkout column existed; a path that does not match the layout returns None
+    so the caller can fall back instead of guessing.
+    """
+    if not worktree_root:
+        return None
+    try:
+        probe = Path(worktree_root).parent  # skip the workspace id segment
+        for part in reversed(Path(worktree_mod.SCRATCH_RELPATH).parts):
+            if probe.name != part:
+                return None
+            probe = probe.parent
+    except (OSError, ValueError):
+        return None
+    if not probe.name:
+        return None
+    return probe
+
+
 def build_preview(
     run_id: str, *, code_store: Any, checkout_root: Optional[Path] = None,
 ) -> dict[str, Any]:
@@ -144,13 +167,32 @@ def build_preview(
             "PROMOTION_NO_CHANGE",
             "The prepared change from this task is no longer available.",
         )
-    checkout = Path(checkout_root) if checkout_root is not None else default_root()
+    # The PROJECT this build was cut from. An explicit argument wins (tests and
+    # callers that already resolved it); otherwise the root recorded when the
+    # workspace was allocated; only a legacy row with no root falls back to the
+    # currently selected default. Never "whatever is selected now" when the build
+    # names its own project — that is how a diff lands in the wrong repository.
+    recorded_checkout = str(row.get("checkoutRoot") or "").strip()
+    if checkout_root is not None:
+        checkout = Path(checkout_root)
+    elif recorded_checkout:
+        checkout = Path(recorded_checkout)
+    else:
+        # A row from before the column existed: the scratch path itself names the
+        # checkout (<checkout>/.black-eclipse/code-workspaces/<id>). That is still
+        # better than the selected root; only an unreadable path falls back.
+        checkout = _checkout_of_workspace(str(row.get("root") or "")) or default_root()
     if checkout is None:
         raise PromotionError("PROMOTION_UNAVAILABLE", "There's no project folder to put the change into.")
     checkout = Path(checkout)
+    if not checkout.is_dir():
+        raise PromotionError(
+            "PROMOTION_UNAVAILABLE",
+            "The project this build belongs to is no longer at its recorded folder.",
+        )
     base = str(row.get("baseRevision") or "HEAD") or "HEAD"
 
-    diff = worktree_mod.diff(ws_id, base, strategy=strategy)
+    diff = worktree_mod.diff(ws_id, base, strategy=strategy, root=checkout)
     specs: list[tuple[str, str]] = []
     specs += [(p, "create") for p in (diff.get("added") or [])]
     specs += [(p, "overwrite") for p in (diff.get("modified") or [])]

@@ -570,7 +570,11 @@ def _ensure_code_workspace(ctx: ToolContext) -> tuple[CodeWorkspace, Any, Resolv
     # workspace still allocates. Never invent a sha — HEAD is the honest default.
     if not re.fullmatch(worktree_mod.BASE_REVISION_PATTERN, str(base)):
         base = "HEAD"
-    cw = worktree_mod.allocate(base_revision=base, direct=bool(getattr(ctx, "direct", False)))
+    cw = worktree_mod.allocate(
+        base_revision=base,
+        direct=bool(getattr(ctx, "direct", False)),
+        root=getattr(getattr(ctx, "workspace", None), "root", None),
+    )
     binding = policy.WorkspaceBinding(
         id=cw.id, root=cw.root, base_revision=cw.base_revision, strategy=cw.strategy,
     )
@@ -590,6 +594,7 @@ def _ensure_code_workspace(ctx: ToolContext) -> tuple[CodeWorkspace, Any, Resolv
             store.save_workspace(
                 cw.id, str(cw.root), cw.base_revision, cw.strategy,
                 run_id=getattr(ctx, "run_id", None), file_count=cw.file_count,
+                checkout_root=str(cw.checkout_root) if cw.checkout_root else None,
             )
         except Exception:  # noqa: BLE001 - a record failure must not block a write
             pass

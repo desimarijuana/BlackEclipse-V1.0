@@ -17,6 +17,7 @@ import { navigation } from './navigation';
 import { capabilityStudio } from './capability-studio';
 import { capabilityCard } from './capability-card';
 import { evolution } from './evolution';
+import { builds } from './builds';
 
 export const en = {
   // Bots (autonomous, scheduled agents)
@@ -77,7 +78,6 @@ export const en = {
   'bots.state.paused': 'Paused',
   'bots.state.disabled': 'Disabled',
   'bots.state.archived': 'Archived',
-
   // Bot workspace
   'bots.search': 'Search bots',
   'bots.createBot': 'Create bot',
@@ -1309,4 +1309,5 @@ export const en = {
   ...capabilityStudio,
   ...capabilityCard,
   ...evolution,
+  ...builds,
 } as const;

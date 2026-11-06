@@ -39,6 +39,7 @@ import {
   Database,
   Wrench,
   ListChecks,
+  Code,
   type LucideIcon,
 } from '@/lib/icons';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -88,6 +89,7 @@ const NAME_ICON: Record<string, LucideIcon> = {
   pages: FileText,
   tasks: ListChecks,
   'ui-builder': Blocks,
+  code: Code,
 };
 
 function nameIcon(name?: string): LucideIcon {

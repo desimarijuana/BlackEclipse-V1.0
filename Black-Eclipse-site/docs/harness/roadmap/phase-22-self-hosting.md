@@ -1,10 +1,10 @@
 ---
 title: "Phase 22 - Self-Hosting: using Eclipse to build Eclipse"
-status: Active (S1-S6 shipped; S5 slice 2 shipped; Builder tab deliberately not duplicated)
+status: Active (S1-S6 shipped; S5 slice 2 shipped; Builder surface mounted as the `code` tab)
 phase: 22
 depends_on: [5, 10, 14, 15, 17, 19, 20]
 unlocks: []
-last-verified: 2026-11-05
+last-verified: 2026-11-06
 ---
 
 # Phase 22 - Self-Hosting: using Eclipse to build Eclipse
@@ -34,7 +34,7 @@ below is read out of the source or measured, not recalled.
 | S3a Builder/target boundary | **Shipped 2026-11-05** | `selfhost.LandingPlan` + `plan_landing` (runtime -> `restart_builder`, front end -> `build_frontend`, authority -> `maintenance`), tests in `test_maintenance.py` |
 | S3b Maintenance mode | **Shipped 2026-11-05** | `python/harness/code/maintenance.py` (offline plan/run with injected effects, authority-only rule, dirty-tree refusal, verify-before-restart, rollback on any failure), `npm run self:maintenance` (`scripts/self-maintenance.js`), tests `test_maintenance.py` |
 | S4 Land pipeline | **Shipped 2026-11-05** | `python/harness/code/land.py` (ordered checks, project override, docs obligation, stop-on-first-required-failure), `GET/POST /code/tasks/{id}/land[/verify]`, `land.verified` checkpoint, Code-screen `LandChecks` panel, tests `test_land.py`. Checks run against the on-disk project AFTER apply (the disposable copy has no installed deps); hard pre-land gating moves to S5. |
-| S5 Builder surface | **Shipped 2026-11-05** | Slice 1: derived phase + next action, session `land` record, pre-land gate, per-file collapsible diffs. Slice 2: per-file accept/reject (`promotion.filter_preview` recomputes the digest; the preview/apply routes take `include`), review notes with an optional file:line that open a new chat turn (`navigateTo({tab:"chat", params:{prompt}})`). The Code screen IS the Builder surface; a second tab would duplicate it. |
+| S5 Builder surface | **Shipped 2026-11-05; mounted 2026-11-06** | Slice 1: derived phase + next action, session `land` record, pre-land gate, per-file collapsible diffs. Slice 2: per-file accept/reject (`promotion.filter_preview` recomputes the digest; the preview/apply routes take `include`), review notes with an optional file:line that open a new chat turn (`navigateTo({tab:"chat", params:{prompt}})`). The Code screen IS the Builder surface; it is reachable at `?tab=code` and from the palette's **Builds** page (`AppTab 'code'`, mounted in `stock-chat.tsx`). Before 2026-11-06 the component was exported but never mounted, so no user could reach it. |
 | S6 Model roles + scorecard | **Shipped 2026-11-05** | `scorecard.py` (builds, first-pass, landed, rollbacks, steps/tokens/time-to-first-change, `byModel`; `UNKNOWN` where unmeasured), landing markers, `GET /code/scorecard`, Code-screen strip, the optional `codingModel` used by code turns + Code tasks, Settings field, and the acceptance eval `python/harness/code/selfbuild_eval.py` (6 fixtures; commands off by default; human grade `UNKNOWN`). Tests `test_scorecard.py`, `test_selfbuild_eval.py`. |
 
 ## 0. How the reference harness does it (and what is actually transferable)
@@ -115,6 +115,15 @@ There are checkpoints, resume and compaction, but there is no object that says
 
 **Consequence.** The user learns to split work into chunks the harness can
 survive, which is exactly the tax that sends them back to OpenCode.
+
+**Closed for chat builds 2026-11-06.** `AgenticService.run` / `run_background`
+now apply the `standard` session budget (`budget_for_autonomy`) when the turn's
+autonomy may write (`edit_verify` / `approve_external`), so a `/eclipsesdk` build
+gets 80 steps / 45 minutes through the same additive `apply_budget` path and hard
+caps as `POST /code/tasks`. Planning turns keep the 24-step chat budget. A chat
+build now also records a `session.created` boundary (`record_chat_build`), so it
+is counted by the scorecard and can be resumed through the existing run-resume
+path; the Builds UI's resume button remains Code-task-only.
 
 ### D3. The builder and the target are the same process
 

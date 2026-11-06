@@ -49,6 +49,8 @@ export interface CreateTaskInput {
   query: string;
   autonomy: Autonomy;
   workspaceId?: string;
+  /** Phase 23: the approved project root this build belongs to (per-chat id). */
+  workspaceRootId?: string;
   modelSettings: Record<string, unknown>;
   callbackBaseUrl?: string;
   callbackToken?: string;
@@ -61,6 +63,72 @@ export interface CreateTaskInput {
 }
 
 export type BudgetProfile = "small" | "standard" | "deep";
+
+// ── Running the user's project (Phase 24 / P2) ───────────────────────────────
+export interface CodePreview {
+  status: "idle" | "ok" | "refused" | "unavailable" | "failed";
+  code?: string;
+  reason?: string;
+  taskKey?: string;
+  serviceId?: string;
+  processId?: string;
+  command?: string;
+  label?: string;
+  root?: string;
+  url?: string;
+  port?: number;
+  ready?: boolean;
+  running?: boolean;
+  source?: string;
+  processState?: string;
+  logs?: string;
+  plan?: Record<string, unknown>;
+}
+
+export interface ProjectTarget {
+  taskId?: string;
+  rootId?: string;
+}
+
+export type PreviewTarget = ProjectTarget;
+
+export async function getCodePreview(target: PreviewTarget = {}): Promise<CodePreview> {
+  const query = new URLSearchParams();
+  if (target.taskId) query.set("taskId", target.taskId);
+  if (target.rootId) query.set("rootId", target.rootId);
+  const body = await request<{ preview: CodePreview }>(`/code/preview?${query.toString()}`, {
+    method: "GET",
+  });
+  return body.preview;
+}
+
+export async function startCodePreview(target: PreviewTarget = {}): Promise<CodePreview> {
+  const body = await request<{ preview: CodePreview }>("/code/preview/start", {
+    method: "POST",
+    body: JSON.stringify(target),
+    // Starting a dev server waits for a listening port (bounded server-side).
+    timeoutMs: 90_000,
+  });
+  return body.preview;
+}
+
+export async function stopCodePreview(target: PreviewTarget = {}): Promise<CodePreview> {
+  const body = await request<{ preview: CodePreview }>("/code/preview/stop", {
+    method: "POST",
+    body: JSON.stringify(target),
+  });
+  return body.preview;
+}
+
+export async function getCodePreviewLogs(target: PreviewTarget = {}, tail = 200): Promise<string> {
+  const query = new URLSearchParams({ tail: String(tail) });
+  if (target.taskId) query.set("taskId", target.taskId);
+  if (target.rootId) query.set("rootId", target.rootId);
+  const body = await request<{ preview: CodePreview }>(`/code/preview/logs?${query.toString()}`, {
+    method: "GET",
+  });
+  return body.preview.logs ?? "";
+}
 
 export interface LandCheck {
   id: string;
@@ -128,8 +196,13 @@ export interface CodeScorecard {
 }
 
 /** Phase 22 / S6: the honest self-build scorecard. */
-export async function getCodeScorecard(days = 30): Promise<CodeScorecard> {
-  return request(`/code/scorecard?days=${encodeURIComponent(String(days))}`, { method: "GET" });
+export async function getCodeScorecard(
+  days = 30, target: ProjectTarget = {},
+): Promise<CodeScorecard> {
+  const query = new URLSearchParams({ days: String(days) });
+  if (target.taskId) query.set("taskId", target.taskId);
+  if (target.rootId) query.set("rootId", target.rootId);
+  return request(`/code/scorecard?${query.toString()}`, { method: "GET" });
 }
 
 /** Phase 22 / S4: the ordered checks a change must pass. Read-only. */
@@ -525,6 +598,17 @@ export async function browseFolders(path?: string): Promise<BrowseResult> {
 export async function listTrustedRoots(): Promise<TrustedRoot[]> {
   const body = await request<{ roots: TrustedRoot[] }>("/workspace/roots", { method: "GET" });
   return body.roots ?? [];
+}
+
+/** Create one folder inside the directory the picker is showing. */
+export async function createBrowsedFolder(
+  path: string, name: string,
+): Promise<{ path: string; name: string; parent: string }> {
+  const body = await request<{ success: boolean; path: string; name: string; parent: string }>(
+    "/workspace/browse/mkdir",
+    { method: "POST", body: JSON.stringify({ path, name }), timeoutMs: 20_000 },
+  );
+  return body;
 }
 
 export async function approveTrustedRoot(path: string, label?: string): Promise<TrustedRoot> {

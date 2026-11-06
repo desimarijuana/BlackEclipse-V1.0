@@ -15,6 +15,7 @@ from typing import Any, Optional
 
 from .bridge import HttpDataBridge as _HttpDataBridge
 from .code.tools import register_code_tools
+from .code.session import apply_chat_build_budget, record_chat_build
 from .eclipse_memory import EclipseMemoryService
 from .events import EventBus
 from .finance_tools import register_finance_tools
@@ -1325,6 +1326,9 @@ class AgenticService:
         return await layer.retrieve(request)
 
     async def run(self, request: RunRequest) -> RunResult:
+        # Phase 22 / S2: a writing chat turn is a build (budget floor, hard-capped).
+        apply_chat_build_budget(request)
+        record_chat_build(self.store, request, agent_id=str(getattr(request, "agentId", "") or "eclipse-agent"))
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
         # Bind the process-wide market gateway to THIS run's bridge so market tools
         # reach providers through the same per-run transport as every other tool.
@@ -1750,6 +1754,8 @@ class AgenticService:
         )
 
     async def run_background(self, request: RunRequest) -> None:
+        apply_chat_build_budget(request)
+        record_chat_build(self.store, request, agent_id=str(getattr(request, "agentId", "") or "eclipse-agent"))
         bridge = _HttpDataBridge(request.callbackBaseUrl, request.callbackToken)
         market_gateway = getattr(self, "market_gateway", None)
         if market_gateway is not None:
