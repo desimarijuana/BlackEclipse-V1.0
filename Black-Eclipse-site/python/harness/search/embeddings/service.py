@@ -77,6 +77,11 @@ class EmbeddingService:
         self._circuit_open = False
         self._circuit_reason = ""
         self._circuit_opened_at = 0.0
+        # Where the current resolution came from: explicit (operator/UI),
+        # env (HARNESS_SEARCH_EMBEDDING_*), run (the chat provider's settings),
+        # or none. Surfaced so the UI can explain *why* semantic search is off.
+        self._source = "none"
+        self._last_settings: Any = None
         self.last_stats: dict[str, Any] = {}
 
     # ── resolution ──────────────────────────────────────────────────────────
@@ -88,6 +93,16 @@ class EmbeddingService:
         existing provider instance (and its connection pool).
         """
         overrides = overrides or {}
+        if settings is not None:
+            self._last_settings = settings
+        if overrides.get("embedding_provider"):
+            self._source = "explicit"
+        elif self.config.embedding_provider:
+            self._source = "env"
+        elif self._provider_from_settings(settings):
+            self._source = "run"
+        else:
+            self._source = "none"
         provider_id = (
             overrides.get("embedding_provider")
             or self.config.embedding_provider
@@ -232,6 +247,135 @@ class EmbeddingService:
         if not self._provider:
             return ""
         return self._provider_model
+
+    # ── status / setup ──────────────────────────────────────────────────────
+
+    def _state(self) -> str:
+        if self.available:
+            if self._missing_credentials():
+                return "missing_credentials"
+            return "active"
+        if self._circuit_open:
+            return "unreachable"
+        reason = self._reason.lower()
+        if self._source == "none":
+            return "no_provider"
+        if "does not support embeddings" in reason or "no embedding model declared" in reason:
+            return "unsupported_provider"
+        if "no embedding model" in reason:
+            return "missing_model"
+        return "unavailable"
+
+    def _hint(self, state: str, provider: str) -> str:
+        if state == "active":
+            return "Semantic + hybrid retrieval are live."
+        if state == "missing_credentials":
+            return (
+                f"{provider or 'This provider'} needs an API key before it can embed. "
+                "Add the key in Settings, pick another model below, or use local Ollama."
+            )
+        if state == "unreachable":
+            return (
+                "The provider rejected every request. Check the API key, base URL and "
+                "that the embedding model is available, then test again."
+            )
+        if state == "unsupported_provider":
+            return (
+                f"'{provider or 'your chat provider'}' does not offer an embedding model. "
+                "Pick one of the models below — they run alongside your chat model and "
+                "only index text you search."
+            )
+        if state == "missing_model":
+            return "Choose an embedding model below, or set HARNESS_SEARCH_EMBEDDING_MODEL."
+        if state == "no_provider":
+            return (
+                "No embedding provider is configured, so search is keyword-only. "
+                "Pick a model below (local Ollama needs no API key) or set "
+                "HARNESS_SEARCH_EMBEDDING_PROVIDER."
+            )
+        return self._reason or "Embeddings are unavailable."
+
+    def _credentials_ready(self, provider_id: str, settings: Any) -> bool:
+        try:
+            api_key, _ = self._credentials(provider_id, settings)
+        except Exception:  # noqa: BLE001 - status must never crash
+            return False
+        return bool(api_key)
+
+    def _missing_credentials(self) -> bool:
+        """True when a hosted provider is selected but no key can be resolved.
+
+        Construction succeeds without a key (the check is an HTTP call away), so
+        without this a keyless OpenAI setup would advertise "live" and then fail
+        on the first embed.
+        """
+        if self._provider is None:
+            return False
+        try:
+            api_key, _ = self._credentials(self.provider_id, self._last_settings)
+        except Exception:  # noqa: BLE001
+            return False
+        return not api_key
+
+    def _suggestions(self, limit: int = 4) -> list[dict[str, Any]]:
+        """Declared embedding models the operator can switch to right now.
+
+        One representative model per provider, ordered by how likely it is to
+        work without extra setup: already-configured first, then credentialed
+        providers, then local (keyless) servers, then the rest.
+        """
+        seen: set[str] = set()
+        rows: list[dict[str, Any]] = []
+        for info in self.registry.list_models(active_only=True):
+            if info.provider in seen:
+                continue
+            seen.add(info.provider)
+            ready = self._credentials_ready(info.provider, self._last_settings)
+            local = info.provider in ("ollama", "lmstudio", "local")
+            rows.append(
+                {
+                    "provider": info.provider,
+                    "model": info.model,
+                    "dimensions": int(info.dimensions or 0),
+                    "label": f"{info.provider}/{info.model}",
+                    "credentialsReady": ready,
+                    "local": local,
+                }
+            )
+
+        def _rank(row: dict[str, Any]) -> tuple[int, str]:
+            if row["provider"] == self.provider_id and self.available:
+                return (0, row["provider"])
+            if row["credentialsReady"] and not row["local"]:
+                return (1, row["provider"])
+            if row["local"]:
+                return (2, row["provider"])
+            return (3, row["provider"])
+
+        rows.sort(key=_rank)
+        return rows[:limit]
+
+    def resolution(self) -> dict[str, Any]:
+        """A structured, honest explanation of the embedding state.
+
+        The UI renders this instead of a bare "unavailable": every off state
+        carries a reason, a next step, and concrete models to switch to.
+        """
+        state = self._state()
+        provider = self.provider_id or self.config.embedding_provider or ""
+        hint = self._hint(state, provider)
+        return {
+            "state": state,
+            "source": self._source,
+            "available": state == "active",
+            "reason": self.reason or ("" if state == "active" else hint),
+            "hint": hint,
+            "provider": provider,
+            "model": self.model_id or self.config.embedding_model or "",
+            "dimensions": int(self.dimensions or 0),
+            "distanceMetric": self.distance_metric,
+            "suggestions": [] if state == "active" else self._suggestions(),
+        }
 
     # ── embedding ───────────────────────────────────────────────────────────
 

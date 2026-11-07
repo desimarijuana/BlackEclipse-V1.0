@@ -287,6 +287,21 @@ class SearchIndexStore:
         row = self._db.execute("SELECT value FROM SearchMeta WHERE key='schema_version'").fetchone()
         return int(row["value"]) if row else 0
 
+    # ── Small key/value metadata ────────────────────────────────────────────
+    # Used for the operator's persisted embedding choice. Stored as JSON so a
+    # dict round-trips without a second table; `schema_version` remains the only
+    # plain-string key.
+
+    def get_meta(self, key: str, default: Any = None) -> Any:
+        row = self._db.execute("SELECT value FROM SearchMeta WHERE key = ?", (key,)).fetchone()
+        return _loads(row["value"], default) if row else default
+
+    def set_meta(self, key: str, value: Any) -> None:
+        with self._write_lock, self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO SearchMeta (key, value) VALUES (?, ?)", (key, _json(value))
+            )
+
     # ── Documents ───────────────────────────────────────────────────────────
 
     def upsert_document(self, doc: DocumentRecord, *, state: str = IndexState.PENDING.value) -> None:

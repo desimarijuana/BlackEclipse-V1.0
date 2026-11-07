@@ -66,13 +66,134 @@ class SearchService:
         self.embedder = EmbeddingService(self.config, cache=self.cache, on_event=self._emit)
         self.context_assembler = ContextAssembler(self.config)
         self._configured_settings: Any = None
+        # The operator's explicit embedding choice (set from Search Intelligence)
+        # outlives a process restart. It is stored in the search DB, not in the
+        # chat model settings, because it is a retrieval concern.
+        self._saved_embedding_config: dict[str, Any] = {}
+        try:
+            saved = self.store.get_meta("embedding_config", {})
+            if isinstance(saved, dict):
+                self._saved_embedding_config = saved
+        except Exception:  # noqa: BLE001 - a corrupt meta row must not block boot
+            self._saved_embedding_config = {}
 
     # ── configuration ───────────────────────────────────────────────────────
 
     def configure(self, settings: Any = None, overrides: Optional[dict[str, Any]] = None) -> None:
-        """Re-resolve the embedding provider (per run, from its credentials)."""
+        """Re-resolve the embedding provider (per run, from its credentials).
+
+        Precedence: explicit call overrides > the operator's saved choice >
+        the run's model settings. The saved choice is what makes "use this
+        embedding model" survive a restart.
+        """
         self._configured_settings = settings or self._configured_settings
-        self.embedder.configure(self._configured_settings, overrides)
+        merged: dict[str, Any] = dict(self._saved_embedding_config)
+        if overrides:
+            merged.update(overrides)
+        self.embedder.configure(self._configured_settings, merged or None)
+
+    def embedding_status(self) -> dict[str, Any]:
+        return {
+            "resolution": self.embedder.resolution(),
+            "savedConfig": dict(self._saved_embedding_config),
+        }
+
+    def apply_embedding_config(
+        self,
+        *,
+        provider: str,
+        model: str = "",
+        dimensions: int = 0,
+        version: str = "",
+        persist: bool = True,
+    ) -> dict[str, Any]:
+        """Switch the embedding provider/model and persist the choice.
+
+        Switching vector space does NOT reuse old vectors: search uses the
+        active model key, so the caller must schedule a rebuild (the HTTP
+        route does) or semantic results would come back empty until re-index.
+        """
+        provider = (provider or "").strip()
+        if not provider:
+            return self.clear_embedding_config()
+        cfg: dict[str, Any] = {"embedding_provider": provider}
+        if model:
+            cfg["embedding_model"] = model.strip()
+        if dimensions:
+            cfg["embedding_dimensions"] = int(dimensions)
+        if version:
+            cfg["embedding_version"] = version.strip()
+        previous = self.embedder.model_key()
+        self._saved_embedding_config = cfg
+        if persist:
+            try:
+                self.store.set_meta("embedding_config", cfg)
+            except Exception:  # noqa: BLE001 - live config still applies if the write fails
+                pass
+        self.configure()
+        status = self.embedding_status()
+        status["vectorSpaceChanged"] = bool(previous) and previous != self.embedder.model_key()
+        self._emit(
+            "search.embedding.configured",
+            {"detail": {**cfg, "available": self.embedder.available, "reason": self.embedder.reason}},
+        )
+        return status
+
+    def clear_embedding_config(self) -> dict[str, Any]:
+        self._saved_embedding_config = {}
+        try:
+            self.store.set_meta("embedding_config", {})
+        except Exception:  # noqa: BLE001
+            pass
+        self.configure()
+        self._emit("search.embedding.cleared", {"detail": {}})
+        return self.embedding_status()
+
+    async def test_embedding(self) -> dict[str, Any]:
+        """One real embedding round-trip so the operator can verify setup."""
+        if not self.embedder.available:
+            return {"ok": False, "reason": self.embedder.reason, **self.embedding_status()}
+        started = time.monotonic()
+        try:
+            outcome = await self.embedder.embed_texts(
+                ["BlackEclipse embedding probe: revenue guidance and duration risk."],
+                bypass_cache=True,
+            )
+            vector = outcome.vectors[0] if outcome.vectors else None
+            return {
+                "ok": vector is not None,
+                "reason": "" if vector is not None else "provider returned no vector",
+                "dimensions": len(vector) if vector else 0,
+                "elapsedMs": round((time.monotonic() - started) * 1000.0, 2),
+                **self.embedding_status(),
+            }
+        except Exception as exc:  # noqa: BLE001 - a failed probe is a result, not a crash
+            return {
+                "ok": False,
+                "reason": str(exc),
+                "elapsedMs": round((time.monotonic() - started) * 1000.0, 2),
+                **self.embedding_status(),
+            }
+
+    def schedule_vector_rebuild(self, *, namespaces: Optional[list[str]] = None) -> Any:
+        """Background re-embed of every document after a vector-space switch."""
+        import asyncio
+
+        if not self.embedder.available:
+            return None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+
+        async def _run() -> None:
+            try:
+                summary = await self.bulk_index(namespaces=namespaces, force=True)
+                self._emit("search.index.rebuild", {"detail": summary})
+            except Exception as exc:  # noqa: BLE001 - never break the request
+                self._emit("search.index.rebuild_failed", {"detail": {"error": str(exc)}})
+
+        return loop.create_task(_run())
 
     def _boot_settings(self) -> Any:
         """The process default model settings, read from the environment the front
@@ -308,22 +429,31 @@ class SearchService:
 
     # ── indexing ────────────────────────────────────────────────────────────
 
-    async def index_documents(self, documents: list[DocumentRecord]) -> list[IndexResult]:
+    async def index_documents(self, documents: list[DocumentRecord], *, force: bool = False) -> list[IndexResult]:
         results: list[IndexResult] = []
         for doc in documents:
-            results.append(await index_document(self.store, self.embedder, doc, config=self.config))
+            results.append(
+                await index_document(
+                    self.store, self.embedder, doc, config=self.config, force=force,
+                    skip_dedup=force,
+                )
+            )
         return results
 
     async def bulk_index(
-        self, *, namespaces: Optional[list[str]] = None
+        self, *, namespaces: Optional[list[str]] = None, force: bool = False
     ) -> dict[str, Any]:
-        """Collect documents from existing stores and index them (idempotent)."""
+        """Collect documents from existing stores and index them (idempotent).
+
+        ``force=True`` re-embeds even unchanged documents — required after a
+        switch to a different embedding model, whose vector space is new.
+        """
         connection = self._memory_connection()
         if connection is None:
             return {"indexed": 0, "documents": 0, "error": "no agent-memory connection attached"}
         documents = collect_documents(connection, namespaces=namespaces)
         started = time.monotonic()
-        results = await self.index_documents(documents)
+        results = await self.index_documents(documents, force=force)
         indexed = sum(1 for r in results if r.state in (IndexState.INDEXED.value, IndexState.STALE.value))
         unchanged = sum(1 for r in results if r.unchanged)
         summary = {
@@ -466,7 +596,7 @@ class SearchService:
         failures = sum(1 for e in events if e["kind"] == "search.embedding.failed")
         return {
             "embedding": {
-                "available": self.embedder.available,
+                "available": self.embedder.resolution()["available"],
                 "reason": self.embedder.reason,
                 "provider": self.embedder.provider_id,
                 "model": self.embedder.model_id,
@@ -475,6 +605,8 @@ class SearchService:
                 "distanceMetric": self.embedder.distance_metric,
                 "cache": self.cache.stats(),
                 "lastStats": self.embedder.last_stats,
+                "resolution": self.embedder.resolution(),
+                "savedConfig": dict(self._saved_embedding_config),
             },
             "index": store_stats,
             "search": {

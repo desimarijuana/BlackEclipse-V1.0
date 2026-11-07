@@ -1,7 +1,7 @@
 ---
 title: Unified Retrieval / Search Intelligence Layer
 status: Current
-last-verified: 2026-10-14
+last-verified: 2026-11-06
 ---
 
 # Unified Retrieval / Search Intelligence Layer
@@ -86,6 +86,30 @@ corrupt the vector space.
 **No provider configured ⇒ semantic search is unavailable and reports it**;
 hybrid and semantic requests degrade to keyword/FTS with a `fallback` flag. The
 layer never fabricates a vector.
+
+### Where the provider comes from, and how the user turns it on
+
+Resolution precedence: an explicit operator choice (below) → `HARNESS_SEARCH_*`
+env → the run's `ModelSettings` provider. If the chat provider itself declares an
+embedding model (`openai`, `google`, `cohere`, `voyage`, `ollama`, `lmstudio`,
+`local`), semantic search turns on automatically — no second key. A chat-only
+provider (`anthropic`, `deepseek`, …) is reported as `unsupported_provider`; the
+layer does **not** silently send indexed text to a different hosted provider, so
+privacy is never traded for recall.
+
+`EmbeddingService.resolution()` returns a structured, honest explanation:
+`state` (`active | no_provider | unsupported_provider | missing_model |
+missing_credentials | unreachable`), `source` (`explicit | env | run | none`),
+`reason`, a plain-language `hint`, and `suggestions` — one representative model
+per declared provider, ordered by how likely it is to work (credentialed first,
+then keyless local).
+This is what the Search Intelligence screen renders instead of a bare
+"unavailable".
+
+The operator's choice is **persisted in the search DB** (`SearchMeta.embedding_config`),
+so it survives a runtime restart, and switching model schedules a background
+re-embed: an existing vector belongs to its old model key and is never reused in
+the new vector space.
 
 ## Indexing
 
@@ -196,6 +220,13 @@ measured failure.
 - **Configuration.** `HARNESS_SEARCH_EMBEDDING_PROVIDER` /
   `_MODEL` / `_DIMENSIONS` (or the provider's own key env var, or the run's
   `ModelSettings`). With none set the layer is honestly keyword-only.
+- **Setup from the UI (no restart).** `GET /search/stats` and `/search/models`
+  expose `resolution`; `POST /search/embedding/apply`
+  (`{provider, model, dimensions, reindex}`) activates a model, persists it, and
+  schedules a forced re-index (required for a new vector space);
+  `POST /search/embedding/test` performs one real embedding round-trip;
+  `POST /search/embedding/clear` reverts to automatic resolution. All are
+  operator-gated and proxied through `/api/harness/search/*`.
 - **Live verification (opt-in).** `python -m harness.search.live_smoke`
   (or `BLACK_ECLIPSE_SEARCH_LIVE=1` + `pytest python/tests/test_search_live.py`)
   contacts a real provider and asserts embeddings are non-degenerate and score a

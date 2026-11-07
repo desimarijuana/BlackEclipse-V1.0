@@ -1,6 +1,20 @@
 # Change Log
 
 ## 2026-11-06
+- **feat(search): semantic retrieval is now switchable and honest.** The vector
+  layer already existed but shipped dormant: with no provider it silently stayed
+  keyword-only, so a user could not tell what was on or turn it on. Added a
+  structured `EmbeddingService.resolution()` (`state`/`source`/`hint`/
+  `suggestions`) exposed via `/search/stats` and `/search/models`;
+  `POST /search/embedding/{apply,test,clear}` to pick a model live, verify one
+  real round-trip, and revert; and persistence of the operator's choice in
+  `SearchMeta.embedding_config` so it survives a runtime restart. Switching
+  vector space now schedules a forced re-index (`bulk_index(force=True)`,
+  dedup skipped) because old vectors are keyed to the previous model. The Search
+  Intelligence screen renders an actionable setup card instead of a passive
+  "keyword-only" pill. No silent provider substitution: a chat-only provider is
+  reported as unsupported, never swapped for a hosted embedding provider.
+  Docs updated: `docs/harness/search-retrieval.md`, `docs/CHANGELOG.md`.
 - **fix(builds): four defects found by the live run.** (1) `GET /code/tasks/{id}/diff`
   read `workspaceId` from the `task.created` payload — a SCOPE LABEL, null for an
   unscoped task — so the diff 404'd for every such build even though the worktree

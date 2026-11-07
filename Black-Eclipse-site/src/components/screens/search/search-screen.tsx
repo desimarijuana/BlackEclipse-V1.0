@@ -11,7 +11,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Search as SearchIcon, RefreshCw, Database, AlertTriangle } from '@/lib/icons';
 import {
+  applySearchEmbedding,
   bulkIndexSearch,
+  clearSearchEmbedding,
   debugSearch,
   deleteSearchDocument,
   fetchSearchEvents,
@@ -19,8 +21,11 @@ import {
   listSearchDocuments,
   reindexSearchDocument,
   runSearch,
+  testSearchEmbedding,
 } from '@/lib/harness/search-client';
 import type {
+  EmbeddingResolution,
+  EmbeddingSuggestion,
   SearchAdminStats,
   SearchDocumentRow,
   SearchEventRow,
@@ -67,6 +72,84 @@ function HitCard({ hit, rank }: { hit: SearchHit; rank: number }) {
   );
 }
 
+function EmbeddingSetupCard({
+  resolution,
+  savedConfig,
+  busy,
+  notice,
+  onApply,
+  onTest,
+  onClear,
+}: {
+  resolution: EmbeddingResolution;
+  savedConfig: Record<string, unknown>;
+  busy: boolean;
+  notice: string | null;
+  onApply: (suggestion: EmbeddingSuggestion) => void;
+  onTest: () => void;
+  onClear: () => void;
+}) {
+  const active = resolution.available;
+  const hasSaved = Object.keys(savedConfig ?? {}).length > 0;
+  return (
+    <div className="glass-card rounded-xl p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Database className={cn('h-4 w-4', active ? 'text-emerald-400' : 'text-amber-400')} />
+        <h2 className="text-sm font-medium">
+          Semantic retrieval {active ? 'is live' : 'is off'}
+        </h2>
+        <span
+          className={cn(
+            'rounded-md px-1.5 py-0.5 text-[10px] uppercase tracking-wide',
+            active ? 'bg-emerald-500/15 text-emerald-400' : 'bg-amber-500/15 text-amber-400',
+          )}
+        >
+          {active ? 'vector + keyword' : 'keyword only'}
+        </span>
+        {active && (
+          <span className="text-[11px] text-foreground/50">
+            {resolution.provider}/{resolution.model}
+            {resolution.dimensions ? ` · ${resolution.dimensions}d` : ''}
+          </span>
+        )}
+      </div>
+      <p className="mt-1.5 max-w-3xl text-xs text-foreground/65">{resolution.hint}</p>
+      {!active && resolution.reason && (
+        <p className="mt-1 font-mono text-[10px] text-foreground/40">{resolution.reason}</p>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {!active &&
+          resolution.suggestions.map((s) => (
+            <button
+              key={s.label}
+              className="glass-button rounded-md px-2.5 py-1.5 text-xs"
+              onClick={() => onApply(s)}
+              disabled={busy}
+              title={s.local ? 'Runs locally — the server must be running' : undefined}
+            >
+              Use {s.label}
+              {s.local && <span className="ml-1 text-[9px] uppercase text-foreground/45">local</span>}
+              {!s.local && !s.credentialsReady && (
+                <span className="ml-1 text-[9px] uppercase text-foreground/45">key needed</span>
+              )}
+            </button>
+          ))}
+        <button className="glass-button rounded-md px-2.5 py-1.5 text-xs" onClick={onTest} disabled={busy || !active}>
+          Test embedding
+        </button>
+        {hasSaved && (
+          <button className="glass-button rounded-md px-2.5 py-1.5 text-xs" onClick={onClear} disabled={busy}>
+            Reset to automatic
+          </button>
+        )}
+      </div>
+
+      {notice && <div className="mt-2 text-xs text-foreground/70">{notice}</div>}
+    </div>
+  );
+}
+
 export function SearchScreen() {
   const [stats, setStats] = useState<SearchAdminStats | null>(null);
   const [documents, setDocuments] = useState<SearchDocumentRow[]>([]);
@@ -82,6 +165,7 @@ export function SearchScreen() {
   const [trace, setTrace] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [embeddingNotice, setEmbeddingNotice] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -100,6 +184,74 @@ export function SearchScreen() {
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  const onApplyEmbedding = useCallback(
+    async (suggestion: EmbeddingSuggestion) => {
+      setBusy(true);
+      setEmbeddingNotice(null);
+      try {
+        const res = await applySearchEmbedding({
+          provider: suggestion.provider,
+          model: suggestion.model,
+          dimensions: suggestion.dimensions,
+          reindex: true,
+        });
+        if (res.resolution.available) {
+          setEmbeddingNotice(
+            res.reindexScheduled
+              ? `Switched to ${suggestion.label}. Re-embedding the index in the background.`
+              : `Switched to ${suggestion.label}.`,
+          );
+        } else {
+          setEmbeddingNotice(
+            `Could not activate ${suggestion.label}: ${res.resolution.reason || res.resolution.hint}`,
+          );
+        }
+        await refresh();
+      } catch (err) {
+        setEmbeddingNotice(String(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refresh],
+  );
+
+  const onTestEmbedding = useCallback(async () => {
+    setBusy(true);
+    setEmbeddingNotice(null);
+    try {
+      const res = await testSearchEmbedding();
+      if (res.ok) {
+        setEmbeddingNotice(`Embedding OK — ${res.dimensions}d in ${res.elapsedMs ?? 0} ms.`);
+      } else {
+        setEmbeddingNotice(`Embedding failed: ${res.reason || 'unknown error'}`);
+      }
+      await refresh();
+    } catch (err) {
+      setEmbeddingNotice(String(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [refresh]);
+
+  const onClearEmbedding = useCallback(async () => {
+    setBusy(true);
+    setEmbeddingNotice(null);
+    try {
+      const res = await clearSearchEmbedding();
+      setEmbeddingNotice(
+        res.resolution.available
+          ? `Reverted to automatic (${res.resolution.provider}/${res.resolution.model}).`
+          : 'Reverted to automatic resolution.',
+      );
+      await refresh();
+    } catch (err) {
+      setEmbeddingNotice(String(err));
+    } finally {
+      setBusy(false);
+    }
   }, [refresh]);
 
   const buildBody = useCallback((): SearchQueryBody => {
@@ -202,6 +354,18 @@ export function SearchScreen() {
         <div className="glass-card flex items-center gap-2 rounded-lg p-3 text-sm text-red-400">
           <AlertTriangle className="h-4 w-4" /> {error}
         </div>
+      )}
+
+      {embedding?.resolution && (
+        <EmbeddingSetupCard
+          resolution={embedding.resolution}
+          savedConfig={embedding.savedConfig ?? {}}
+          busy={busy}
+          notice={embeddingNotice}
+          onApply={onApplyEmbedding}
+          onTest={onTestEmbedding}
+          onClear={onClearEmbedding}
+        />
       )}
 
       {/* Query */}
