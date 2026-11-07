@@ -83,6 +83,28 @@ export function contentFromResponse(
   return { id: opts.id ?? `resp-${response.responseId ?? 'view'}`, kind: 'markdown', title, markdown, editable: false };
 }
 
+function embeddedResponseFrom(text: string): { value: Record<string, unknown>; prose: string } | null {
+  // A model sometimes emits the envelope as a plain ```json fence instead of
+  // the `eclipse-response` info string. Detect that shape so Canvas renders the
+  // structured blocks (and can edit them per block) rather than raw JSON.
+  const fence = /```[^\n]*\n([\s\S]*?)```/g;
+  let match: RegExpExecArray | null;
+  while ((match = fence.exec(text)) !== null) {
+    const source = match[1].trim();
+    if (!source.startsWith('{')) continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(source);
+    } catch {
+      continue;
+    }
+    if (!value || typeof value !== 'object' || !Array.isArray((value as { blocks?: unknown }).blocks)) continue;
+    const prose = (text.slice(0, match.index) + text.slice(match.index + match[0].length)).trim();
+    return { value: value as Record<string, unknown>, prose };
+  }
+  return null;
+}
+
 /**
  * Derive canvas content from an assistant message's raw content: an
  * `eclipse-response` fence becomes a report/code/markdown view, plain markdown
@@ -100,6 +122,14 @@ export function contentFromMessage(
     if (parsed) return contentFromResponse(parsed, { title: opts.title, id });
   }
   const markdown = text.replace(/\r\n?/g, '\n').trim();
+  const embedded = embeddedResponseFrom(markdown);
+  if (embedded) {
+    const blocks = embedded.value.blocks as unknown[];
+    const value = embedded.prose
+      ? { ...embedded.value, blocks: [{ type: 'markdown', markdown: embedded.prose }, ...blocks] }
+      : embedded.value;
+    return contentFromResponse(parseResponsePayload(value), { title: opts.title, id });
+  }
   const code = singleCodeFence(markdown);
   if (code) return { id, kind: 'code', title: opts.title ?? 'Eclipse response', code, editable: false };
   return { id, kind: 'markdown', title: opts.title ?? 'Eclipse response', markdown, editable: false };

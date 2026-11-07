@@ -16,14 +16,13 @@ import { useIsMobile } from '@/hooks/use-media-query';
 import { EmptyState } from '@/components/chat/empty-state';
 import { PageHeader } from '@/components/layout/page-header';
 import { ChatHistory } from '@/components/chat/chat-history';
-import { CanvasPageBanner } from '@/components/screens/canvas/canvas-banner';
+import { contentFromMessage } from '@/lib/canvas/content';
 import { ChatInput } from '@/components/chat/chat-input';
 import { ApprovalCard } from '@/components/chat/approval-card';
 import { ClarificationCard } from '@/components/chat/clarification-card';
 import { SessionBar } from '@/components/chat/session-bar';
 import { ProjectChip } from '@/components/chat/project-chip';
-import { CheckpointBar } from '@/components/chat/checkpoint-bar';
-import { NotebookButton, NotebookProvider } from '@/components/chat/notebook-provider';
+import { NotebookProvider } from '@/components/chat/notebook-provider';
 import { ChatWordmark } from '@/components/chat/chat-wordmark';
 import { useSession, mergeAttachmentChips } from '@/lib/chat/use-session';
 import { buildUserTurn } from '@/lib/chat/paste';
@@ -214,14 +213,12 @@ function StockChatContent() {
   const canvasOpen = canvasInlineOpen || Boolean(pendingCanvasArtifactId) || Boolean(canvasView);
   const openMessageInCanvas = useCallback((msg: { id: string; content?: string; response?: { title?: string } }) => {
     if (!msg.content) return;
-    // The canvas content builder imports the response contract (Zod). Load it
-    // only when the operator actually opens a message in the canvas.
-    void import('@/lib/canvas/content').then(({ contentFromMessage }) => {
-      const content = contentFromMessage(msg.content!, { id: msg.id, title: msg.response?.title });
-      useCommandStore.getState().openCanvasContent(content, {
-        messageId: msg.id,
-        title: content.title || 'Canvas',
-      });
+    // Synchronous: the content builder is already in the chat bundle, so the
+    // message body leaves the transcript the instant the button is pressed.
+    const content = contentFromMessage(msg.content, { id: msg.id, title: msg.response?.title });
+    useCommandStore.getState().openCanvasContent(content, {
+      messageId: msg.id,
+      title: content.title || 'Canvas',
     });
   }, []);
   const [query, setQuery] = useState('');
@@ -1196,7 +1193,6 @@ function StockChatContent() {
               )}
                 style={{ fontFamily: 'var(--chat-font, var(--font-sans))' }}
               >
-                {!focusMode && (canvasView || pendingCanvasArtifactId) && <CanvasPageBanner />}
                 {messages.length === 0 ? (
                   <div className="flex-1 flex w-full flex-col items-center min-h-0">
                     <EmptyState
@@ -1219,7 +1215,6 @@ function StockChatContent() {
                         <SessionBar session={sessionController} />
                         <ProjectChip chatId={activeConversationId ?? undefined} />
                       </div>
-                      <NotebookButton />
                     </div>
                   </div>
                 ) : (
@@ -1288,20 +1283,6 @@ function StockChatContent() {
                           <SessionBar session={sessionController} />
                           <ProjectChip chatId={activeConversationId ?? undefined} compact />
                         </div>
-                        <NotebookButton />
-                        <CheckpointBar
-                          chatId={activeConversationId}
-                          messages={messages}
-                          onRestore={(restored) => {
-                            setMessages(restored);
-                            if (activeConversationId) {
-                              const updated = conversationsRef.current.map((c) =>
-                                c.id === activeConversationId ? { ...c, messages: restored } : c
-                              );
-                              saveConversations(updated);
-                            }
-                          }}
-                        />
                       </div>
                     </div>
                   </div>

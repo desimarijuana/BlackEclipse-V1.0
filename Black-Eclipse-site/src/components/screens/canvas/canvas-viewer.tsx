@@ -43,7 +43,7 @@ export function CanvasViewer({ content, onFollowup }: CanvasViewerProps) {
   if (content.kind === 'report' && content.response) {
     return (
       <div className="mx-auto w-full max-w-[860px]">
-        <ResponseView response={content.response} onFollowup={onFollowup} />
+        <ResponseView response={content.response} onFollowup={onFollowup} showActions={false} />
       </div>
     );
   }

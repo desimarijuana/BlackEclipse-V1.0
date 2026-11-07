@@ -435,7 +435,7 @@ export function ChatInput({
 
   return (
     <div className="w-full">
-      <TradeApprovalBanner />
+      <TradeApprovalBanner onCancel={onCancel} />
       {attachments && attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5" aria-label="Attached documents">
           {attachments.map((file) => (

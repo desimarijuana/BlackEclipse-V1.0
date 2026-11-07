@@ -12,7 +12,7 @@
 // generic card could never authorize that payload, so this surface mirrors the
 // trade contract instead of pretending the two are the same.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, ShieldAlert, ShieldCheck, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import {
@@ -34,7 +34,7 @@ function volumeText(volume?: number): string {
   return String(Number(volume));
 }
 
-export function TradeApprovalBanner() {
+export function TradeApprovalBanner({ onCancel }: { onCancel?: () => void } = {}) {
   const [approvals, setApprovals] = useState<TradeApproval[]>([]);
   const [connections, setConnections] = useState<BrokerConnection[]>([]);
   const [phrases, setPhrases] = useState<Record<string, string>>({});
@@ -42,6 +42,9 @@ export function TradeApprovalBanner() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<{ id: string; message: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // A denied approval is removed immediately and kept out of the poll while the
+  // decision round-trips, so it can never flash back into the composer.
+  const dismissed = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -49,7 +52,11 @@ export function TradeApprovalBanner() {
         listTradeApprovals(undefined, 20),
         listBrokerConnections().catch(() => [] as BrokerConnection[]),
       ]);
-      setApprovals(nextApprovals.filter((a) => LIVE_ORDER_STATUSES.has(a.status)));
+      setApprovals(
+        nextApprovals.filter(
+          (a) => LIVE_ORDER_STATUSES.has(a.status) && !dismissed.current.has(a.id),
+        ),
+      );
       setConnections(nextConnections);
     } catch {
       // The trading runtime may be down; the composer must keep working.
@@ -138,12 +145,24 @@ export function TradeApprovalBanner() {
   };
 
   const deny = async (approval: TradeApproval) => {
+    // Deny is optimistic: the card leaves at once, the turn is cancelled, and
+    // the decision is confirmed with the runtime. If the decision fails the card
+    // comes back with the honest error.
     setBusy(approval.id);
     setError(null);
+    setNotice(null);
+    dismissed.current.add(approval.id);
+    setApprovals((current) => current.filter((item) => item.id !== approval.id));
+    setPhrases((current) => ({ ...current, [approval.id]: '' }));
+    setRequired((current) => ({ ...current, [approval.id]: '' }));
+    onCancel?.();
     try {
       await decideTradeApproval(approval.id, false);
-      setApprovals((current) => current.filter((item) => item.id !== approval.id));
     } catch (err) {
+      dismissed.current.delete(approval.id);
+      setApprovals((current) =>
+        current.some((item) => item.id === approval.id) ? current : [...current, approval],
+      );
       setError({
         id: approval.id,
         message: err instanceof Error ? err.message : 'the approval could not be denied',

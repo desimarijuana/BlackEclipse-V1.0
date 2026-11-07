@@ -1,6 +1,35 @@
 # Change Log
 
 ## 2026-11-06
+- **feat(chat/canvas): opening Canvas MOVES the response out of the transcript.**
+  Clicking **Open in Canvas** replaces that message's body on the chat page with
+  one compact banner (title, `Edit`, `Show in chat`); the content renders only in
+  the Canvas dock, and closing Canvas restores the body. The command store records
+  `canvasSource` (`{ messageId, title }`), both entry points record it, and the
+  content builder runs synchronously so the body leaves on the first click.
+  `Edit` saves the snapshot to an artifact. The dock is a full-screen sheet on
+  phones. Docs updated: `docs/canvas.md`, `docs/CHANGELOG.md`.
+- **feat(canvas): per-block editing, ChatGPT-style.** A response envelope emitted
+  in a plain ```json fence is recognized as a report (prose outside the fence
+  becomes a leading markdown block), so Canvas renders structured blocks instead
+  of raw JSON. The visual artifact editor is one compact, scrollable panel with
+  **Preview** (default), **Blocks** (one row per element, each with `Edit` /
+  `Delete`, plus `Add block`) and **Source JSON** tabs; the Canvas header is a
+  single slim row (title, save status, `…` menu, close) and the chat action chips
+  are hidden inside Canvas. Docs updated: `docs/canvas.md`, `docs/CHANGELOG.md`.
+- **chore(chat): remove the Canvas AI-panel dock, the Notebook button and the
+  checkpoint icons.** The inline Canvas uses the full pane for the document (the
+  collapsed AI-panel aside and its full-width toggle are gone; the full Canvas
+  screen keeps the AI panel). The Notebook action and the two checkpoint icons
+  were removed from the composer footer and the floating dock. The checkpoint and
+  notebook APIs/components remain for other surfaces. Docs updated:
+  `docs/canvas.md`, `docs/CHANGELOG.md`.
+- **fix(trading): Deny on the trade-approval card removes it at once and stops
+  the turn.** The card was only removed after the decide round-trip, so a slow
+  request left it on screen and the 6s poll could bring it back. Deny is now
+  optimistic: the card leaves immediately, the id is suppressed from polling, and
+  `onCancel` stops the in-flight run. If the decision genuinely fails, the card
+  returns with the error. No doc change — a behaviour fix with no contract change.
 - **feat(search): semantic retrieval is now switchable and honest.** The vector
   layer already existed but shipped dormant: with no provider it silently stayed
   keyword-only, so a user could not tell what was on or turn it on. Added a

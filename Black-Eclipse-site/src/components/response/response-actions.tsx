@@ -23,6 +23,7 @@ import { contentFromResponse } from '@/lib/canvas/content';
 import { toMarkdownProjection } from '@/lib/response/projection';
 import { TtsButton } from '@/components/chat/tts-button';
 import { useCommandStore } from '@/lib/search/store';
+import { useResponseRuntime } from './figure-context';
 
 export interface ResponseActionsProps {
   response: ParsedResponse;
@@ -38,6 +39,7 @@ function responseName(response: ParsedResponse): string {
 }
 
 export function ResponseActions({ response }: ResponseActionsProps) {
+  const { stateKey } = useResponseRuntime();
   const [save, setSave] = useState<SaveState>('idle');
   const [savedId, setSavedId] = useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -104,7 +106,13 @@ export function ResponseActions({ response }: ResponseActionsProps) {
       <button
         type="button"
         className={btn}
-        onClick={() => useCommandStore.getState().openCanvasContent(contentFromResponse(response))}
+        onClick={() => {
+          const content = contentFromResponse(response);
+          useCommandStore.getState().openCanvasContent(
+            content,
+            stateKey ? { messageId: stateKey, title: content.title || 'Canvas' } : undefined,
+          );
+        }}
         title="Open in Canvas — read this at full width"
       >
         <SquarePen size={11} /> Open in Canvas

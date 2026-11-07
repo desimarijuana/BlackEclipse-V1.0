@@ -4,7 +4,7 @@
 // Assembles the three regions from props only. Holds no data logic, so every
 // state (empty, loading, error, loaded) is renderable and testable in isolation.
 
-import { AlertTriangle, Loader2, Redo2, SquareCode, X } from '@/lib/icons';
+import { AlertTriangle, Loader2, Redo2, SquareCode } from '@/lib/icons';
 import type { CanvasKind } from '@/lib/harness/canvas-client';
 import { CanvasAiPanel, type CanvasAiPanelProps } from './canvas-ai-panel';
 import { CanvasCenter, type CanvasCenterProps } from './canvas-center';
@@ -75,7 +75,7 @@ export function CanvasWorkspace({
   ) : artifactError ? (
     <ArtifactError error={artifactError} onRetry={onRetryArtifact} />
   ) : center ? (
-    <CanvasCenter {...center} />
+    <CanvasCenter {...center} inline={inline} onClose={onClose} />
   ) : (
     <EmptyState onCreate={onCreate} />
   );
@@ -83,28 +83,8 @@ export function CanvasWorkspace({
   if (inline) {
     return (
       <section className="glass-card flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl">
-        <header className="flex shrink-0 items-center gap-2 border-b border-border/15 px-3 py-2">
-          <SquareCode className="h-4 w-4 text-primary" />
-          <span className="text-sm font-semibold text-foreground">{center?.snapshot.name ?? 'Canvas'}</span>
-          {center ? (
-            <span className="truncate text-[11px] text-muted-foreground/60">
-              v{center.snapshot.version}
-              {center.dirty ? ' · unsaved' : ''}
-            </span>
-          ) : null}
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close Canvas"
-            title="Close Canvas"
-            className="ml-auto flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <X size={15} />
-          </button>
-        </header>
         <div className="flex min-h-0 flex-1 flex-col gap-3 p-2.5">
           {body}
-          {center && !fullWidth ? <CanvasAiPanel {...ai} /> : null}
         </div>
       </section>
     );

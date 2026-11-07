@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { useCommandStore } from '@/lib/search/store';
 import type { CanvasContent } from '@/lib/canvas/content';
-import { CanvasInlineNotice, CanvasPageBanner } from './canvas-banner';
+import { CanvasInlineNotice } from './canvas-banner';
 
 function content(editable = false): CanvasContent {
   return {
@@ -39,27 +39,7 @@ describe('Canvas store source', () => {
   });
 });
 
-describe('Canvas page banner', () => {
-  it('names the open source and offers Edit + Show in chat for a snapshot', () => {
-    const html = renderToStaticMarkup(
-      <CanvasPageBanner title="Eclipse response" canEdit onClose={() => {}} />,
-    );
-    expect(html).toContain('Canvas');
-    expect(html).toContain('Eclipse response');
-    expect(html).toContain('Edit');
-    expect(html).toContain('Show in chat');
-  });
-
-  it('drops Edit once the surface is already editable', () => {
-    const html = renderToStaticMarkup(
-      <CanvasPageBanner title="Eclipse response" canEdit={false} onClose={() => {}} />,
-    );
-    expect(html).not.toContain('>Edit<');
-    expect(html).toContain('Show in chat');
-  });
-});
-
-describe('Canvas inline notice', () => {
+describe('Canvas inline banner', () => {
   it('says the response is open in Canvas and can restore it', () => {
     const html = renderToStaticMarkup(
       <CanvasInlineNotice title="Eclipse response" canEdit onClose={() => {}} />,
@@ -67,5 +47,17 @@ describe('Canvas inline notice', () => {
     expect(html).toContain('This response is open in');
     expect(html).toContain('Eclipse response');
     expect(html).toContain('Show in chat');
+  });
+
+  it('offers Edit for a snapshot but not for an already-editable surface', () => {
+    const snapshot = renderToStaticMarkup(
+      <CanvasInlineNotice title="Eclipse response" canEdit onClose={() => {}} />,
+    );
+    expect(snapshot).toContain('Edit');
+
+    const editable = renderToStaticMarkup(
+      <CanvasInlineNotice title="Eclipse response" canEdit={false} onClose={() => {}} />,
+    );
+    expect(editable).not.toContain('>Edit<');
   });
 });

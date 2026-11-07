@@ -209,7 +209,9 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1603→1606: the Builds tab mount (`?tab=code`). The keep-alive
   // wrapper + dynamic import live in `components/screens/code/code-tab.tsx`;
   // this is only the import and the one mount line. No other shell logic moved.
-  "src/components/screens/stock-chat.tsx": 1606,
+  // Re-pinned 1606→1609 for the Canvas move wiring: the synchronous
+  // `contentFromMessage` import and the `canvasMessageId` prop. May only shrink.
+  "src/components/screens/stock-chat.tsx": 1609,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard
