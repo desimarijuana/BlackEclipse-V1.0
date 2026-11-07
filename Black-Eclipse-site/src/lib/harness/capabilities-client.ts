@@ -114,15 +114,10 @@ function mutation(path: string, body: Record<string, unknown> = {}): Promise<Cap
   });
 }
 
-export async function listCapabilities(
-  status?: CapabilityStatus, rootId?: string,
-): Promise<CapabilityListResult> {
-  const query = new URLSearchParams();
-  if (status) query.set('status', status);
-  if (rootId) query.set('rootId', rootId);
-  const suffix = query.toString() ? `?${query.toString()}` : '';
+export async function listCapabilities(status?: CapabilityStatus): Promise<CapabilityListResult> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
   const body = await api<{ capabilities?: CapabilityRecord[]; count?: number }>(
-    `/api/capabilities${suffix}`,
+    `/api/capabilities${query}`,
   );
   return { capabilities: body.capabilities ?? [], count: body.count ?? 0 };
 }

@@ -145,19 +145,50 @@ def _valid_operator_token(request: Request) -> bool:
     return False
 
 
-def multi_tenant_required() -> bool:
-    """Whether tenant identity is mandatory.
+def _flag(value: Optional[str]) -> Optional[bool]:
+    """An explicit boolean env value, or None when unset/unrecognised."""
+    if value is None:
+        return None
+    v = value.strip().lower()
+    if v in ("1", "true", "yes", "on", "required", "enable", "enabled"):
+        return True
+    if v in ("0", "false", "no", "off", "none", "disabled"):
+        return False
+    return None
 
-    Explicit `HARNESS_MULTI_TENANT`; otherwise auto-on when the front door
-    requires auth (public bind / production), mirroring `src/lib/auth/config.ts`.
+
+def front_door_requires_auth() -> bool:
+    """The Next.js front door's auth posture (mirrors `src/lib/auth/config.ts`).
+
+    ONE resolver for both the tenant requirement below and the `/health`
+    identity boundary (`deps._front_door_auth`), so the two can never disagree —
+    the precedence is the documented table in `docs/harness/authentication.md`:
+    explicit `HARNESS_AUTH`, else auto-on for a non-loopback bind or a
+    production build, else off (zero-config local).
     """
-    explicit = os.environ.get("HARNESS_MULTI_TENANT")
+    explicit = _flag(os.environ.get("HARNESS_AUTH"))
     if explicit is not None:
-        return explicit.strip().lower() in ("1", "true", "yes", "on", "enabled")
+        return explicit
     host = (os.environ.get("HOST") or "").strip().lower()
     public_bind = bool(host) and host not in _LOOPBACK_HOSTS
     production = (os.environ.get("NODE_ENV") or "").strip().lower() == "production"
     return public_bind or production
+
+
+def multi_tenant_required() -> bool:
+    """Whether tenant identity is mandatory.
+
+    Explicit `HARNESS_MULTI_TENANT` wins. Otherwise this FOLLOWS the front door:
+    tenancy is required exactly when the front door requires a signed-in user.
+    `NODE_ENV=production` alone must not turn it on, because the documented
+    single-user local mode is `NODE_ENV=production` + `HARNESS_AUTH=off`; treating
+    that as multi-tenant denied every write and execution with an isolation
+    violation while the app claimed to be a single-operator install.
+    """
+    explicit = _flag(os.environ.get("HARNESS_MULTI_TENANT"))
+    if explicit is not None:
+        return explicit
+    return front_door_requires_auth()
 
 
 def resolve_identity(request: Request) -> Identity:
@@ -220,6 +251,7 @@ __all__ = [
     "IDENTITY_HEADER",
     "Identity",
     "auth_secret",
+    "front_door_requires_auth",
     "multi_tenant_required",
     "require_identity",
     "require_tenant",

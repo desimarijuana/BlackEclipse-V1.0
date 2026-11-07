@@ -108,6 +108,23 @@ def test_finalize_names_an_artifact_that_was_mentioned_in_prose() -> None:
     assert "Artifacts: exp_abcd1234 (Eclipse check)." in text
 
 
+def test_finalize_adds_the_line_on_a_light_turn_that_produced_an_artifact() -> None:
+    text = finalize_quant_text(
+        "compute the 1-day 95% VaR of a 60/40 portfolio", None,
+        [_message("analysis_run")],
+        "VaR 1.06%. Report: art_abcdef1234.",
+    )
+    assert "Artifacts: art_abcdef1234 (Eclipse check)." in text
+
+
+def test_finalize_leaves_a_light_metric_without_an_artifact_alone() -> None:
+    text = finalize_quant_text(
+        "compute the 1-day 95% VaR of a 60/40 portfolio", None,
+        [_message("analysis_run")], "VaR 1.06%.",
+    )
+    assert text == "VaR 1.06%."
+
+
 def test_finalize_is_a_no_op_on_a_complete_answer_or_a_lookup() -> None:
     complete = (
         "Median 4025. Artifacts: none — no artifact id was named.\n\n"

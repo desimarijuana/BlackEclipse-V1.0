@@ -1,11 +1,11 @@
 {
-  "_comment": "The harness size budget (Round 3 / W7, ADR-H288). The TOTAL is the binding constraint; the per-module ratchet lives in python/tests/test_size_budget.py. Raising a ceiling is allowed but must be a deliberate edit to this file - the point is that growth cannot happen silently. Re-pinned on 2026-11-05 to the measured tree after Phase 22 / S1 (project memory), S2 (build sessions), S3 (maintenance), S4 (land pipeline) and S6 (the self-build scorecard + landing markers). Re-pinned again the same day for the deterministic quant protocol (`python/harness/quant_intent.py`, a new capability; graph.py itself stayed at its ratchet). Re-pinned again for the composer's Choices mode (`python/harness/choices_mode.py`, a new prompt-block module + the graph.py seam). Re-pinned on 2026-11-06 to the measured tree after the Builds tab (`code/session.py::budget_for_autonomy` + the `AgenticService.run`/`run_background` seam); the same measurement includes the in-flight quant-intent guard and composer plan-mode work already present in the tree, so re-check this file when those land. The unified model catalog (`python/harness/model_catalog.py`) is included. These ceilings are the measured values, not padding; the ratchet resumes from here.",
-  "totalLines": 461928,
+  "_comment": "The harness size budget (Round 3 / W7, ADR-H288). The TOTAL is the binding constraint; the per-module ratchet lives in python/tests/test_size_budget.py. Raising a ceiling is allowed but must be a deliberate edit to this file - the point is that growth cannot happen silently. Re-pinned on 2026-11-05 to the measured tree after Phase 22 / S1 (project memory), S2 (build sessions), S3 (maintenance), S4 (land pipeline) and S6 (the self-build scorecard + landing markers). Re-pinned again the same day for the deterministic quant protocol (`python/harness/quant_intent.py`, a new capability; graph.py itself stayed at its ratchet). Re-pinned again for the composer's Choices mode (`python/harness/choices_mode.py`, a new prompt-block module + the graph.py seam). Re-pinned on 2026-11-06 to the measured tree after the Builds tab (`code/session.py::budget_for_autonomy` + the `AgenticService.run`/`run_background` seam); the same measurement includes the in-flight quant-intent guard and composer plan-mode work already present in the tree, so re-check this file when those land. The unified model catalog (`python/harness/model_catalog.py`) is included. These ceilings are the measured values, not padding; the ratchet resumes from here. Re-pinned 2026-11-06 for the acceptance batch: vision privacy inheritance + bounded chain, the one-shot chat 202 handoff, and the five failing-check fixes (shell_run import, plural class, package_test output, BOM'd verify.json, repair status order). Per-file ratchets unchanged.",
+  "totalLines": 462291,
   "directories": {
     ".": 30616,
     "quant": 19665,
-    "code": 21228,
-    "routers": 21010,
+    "code": 21197,
+    "routers": 20979,
     "research": 16053,
     "eclipse_memory": 12685,
     "execution/application": 11177,

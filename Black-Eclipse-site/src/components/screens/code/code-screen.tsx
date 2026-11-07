@@ -32,7 +32,6 @@ import {
 } from '@/lib/harness/code-browser';
 import { ScorecardStrip } from './scorecard-strip';
 import { ProjectBar } from './project-bar';
-import { ProjectBriefCard } from './project-brief';
 import { PreviewPanel } from './preview-panel';
 import { TaskList } from './task-list';
 import { TaskDetail } from './task-detail';
@@ -73,8 +72,7 @@ export function CodeScreen() {
   const refresh = useCallback(async () => {
     try {
       const [nextTasks, nextApprovals] = await Promise.all([
-        listCodeTasks(projectRootId ? { rootId: projectRootId } : undefined),
-        listCodeApprovals(),
+        listCodeTasks(), listCodeApprovals(),
       ]);
       setTasks(nextTasks);
       setApprovals(nextApprovals);
@@ -82,7 +80,7 @@ export function CodeScreen() {
     } catch {
       setError(t('code.task.loadFailed'));
     }
-  }, [t, projectRootId]);
+  }, [t]);
 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => { void refreshScorecard(); }, [refreshScorecard]);
@@ -166,8 +164,6 @@ export function CodeScreen() {
       <ScorecardStrip card={scorecard} />
 
       <ProjectBar onChange={setProjectRootId} />
-
-      <ProjectBriefCard taskId={selectedId} rootId={projectRootId} />
 
       <PreviewPanel taskId={selectedId} rootId={projectRootId} />
 

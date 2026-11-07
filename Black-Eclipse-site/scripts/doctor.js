@@ -407,8 +407,9 @@ if (py) {
     containerRuntime && spawnSync(containerRuntime, ["--version"], { stdio: "ignore", windowsHide: true }).status === 0;
   console.log(
     containerUsable
-      ? `[setup] container backend: available (${containerRuntime})`
-      : "[setup] container backend: not available (jobs that need one will decline)"
+      ? `[setup] container backend: available (${containerRuntime}) for jobs; agent commands still run as host processes`
+      : "[setup] sandbox: no container backend — agent commands run as host processes (process-tree limits only). " +
+        "Set BLACK_ECLIPSE_SANDBOX_REQUIRED=1 to refuse them instead; install Docker for a real boundary."
   );
 
   const remoteUrl = process.env.HARNESS_SANDBOX_REMOTE_URL || null;
@@ -471,12 +472,15 @@ if (py) {
   const authSecret = process.env.HARNESS_AUTH_SECRET;
   const secretOk = Boolean(authSecret) && authSecret !== "change-me-to-a-random-secret" && authSecret.length >= 16;
   if (!authRequired) {
-    console.log("[setup] auth: off (single-user local; set HARNESS_AUTH=required to enforce a login)");
+    console.log(
+      "[setup] auth: off (single-user local; run `npm run auth:setup` before exposing this beyond loopback)",
+    );
   } else if (secretOk) {
-    console.log("[setup] auth: required and configured");  } else {
+    console.log("[setup] auth: required and configured");
+  } else {
     console.warn(
       "[setup] auth: REQUIRED but HARNESS_AUTH_SECRET is not set; requests will fail closed (503).\n" +
-      "        Set a random secret (>= 16 chars), e.g. `HARNESS_AUTH_SECRET=$(openssl rand -hex 32)`,\n" +
+      "        Run `npm run auth:setup` to generate one and set HARNESS_AUTH=required,\n" +
       "        or set HARNESS_AUTH=off to run accountless on a trusted local-only machine."
     );
   }

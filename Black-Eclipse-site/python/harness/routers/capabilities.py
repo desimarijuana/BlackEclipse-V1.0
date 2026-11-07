@@ -51,24 +51,10 @@ def _usage(store: CapabilityStore, capability_id: str, version: str) -> dict[str
 @router.get("/capabilities")
 def list_capabilities(
     status: Optional[str] = Query(default=None),
-    rootId: Optional[str] = Query(default=None),  # noqa: N803
     limit: int = Query(default=200, ge=1, le=500),
 ) -> dict[str, Any]:
-    """Generated capabilities. `rootId` narrows to one project (+ global ones).
-
-    A project-scoped list is a FILTER, never authorization: activation still goes
-    through the builder's own rules.
-    """
     store = _store()
     records = store.records(status=status, limit=limit)
-    if rootId:
-        from ..capabilities.registry import resolve_directory  # noqa: PLC0415
-        from ..code.workspace import trusted_root_path  # noqa: PLC0415
-
-        root = trusted_root_path(rootId)
-        if root is None:
-            raise HTTPException(status_code=400, detail="UNKNOWN_PROJECT")
-        records = [record for record in records if resolve_directory(record, root) is not None]
     for record in records:
         record["usage"] = _usage(
             store,

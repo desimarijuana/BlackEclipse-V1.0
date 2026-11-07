@@ -835,14 +835,18 @@ def finalize_quant_text(
     """
     body = str(text or "")
     intent = classify_quant_intent(query, history)
-    if intent.tier not in ("standard", "deep") or not body.strip():
+    if intent.tier not in ("light", "standard", "deep") or not body.strip():
         return body
     outcome = evaluate_quant_outcome(
         intent.to_dict(), _tool_names_from_messages(messages), body,
     )
+    artifacts = outcome["artifacts"] if outcome else []
+    # A light computed metric has no required artifact, but if the answer did
+    # produce one (or names one), the same chat line applies.
+    if intent.tier == "light" and not artifacts and "artifact" not in body.lower():
+        return body
     additions: list[str] = []
     if "artifacts:" not in body.lower():
-        artifacts = outcome["artifacts"] if outcome else []
         if artifacts:
             additions.append(
                 "Artifacts: " + ", ".join(artifacts) + " (Eclipse check)."

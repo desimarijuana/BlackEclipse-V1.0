@@ -229,19 +229,52 @@ function harnessSourceMtimeMs(): number {
   }
 }
 
+/**
+ * PIDs LISTENING on `port`, parsed from `netstat -ano` output. Pure.
+ *
+ * The LOCAL address column is matched exactly (`127.0.0.1:8766`,
+ * `[::]:8766`, `0.0.0.0:8766`) — matching the bare `:8766` substring also
+ * matched a listener on `:18766` and a line whose FOREIGN address was
+ * `:8766`, which could get an unrelated process killed.
+ */
+export function parseListenerPids(netstat: string, port: number): string[] {
+  const pids = new Set<string>();
+  for (const raw of netstat.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line.includes("LISTENING")) continue;
+    const parts = line.split(/\s+/);
+    if (parts.length < 4) continue;
+    const local = parts[1] ?? "";
+    const pid = parts[parts.length - 1];
+    if (!local.endsWith(`:${port}`)) continue;
+    // `[::1]:8766` / `[::]:8766` / `127.0.0.1:8766` — the port must be the
+    // whole last segment, never a suffix of a longer number.
+    const portPart = local.slice(local.lastIndexOf(":") + 1);
+    if (portPart !== String(port)) continue;
+    if (pid && /^\d+$/.test(pid) && pid !== "0") pids.add(pid);
+  }
+  return [...pids];
+}
+
+/** Does this `/health` payload identify OUR detector service? Pure. */
+export function isHarnessHealth(health: HealthInfo | null): boolean {
+  if (!health) return false;
+  if (health.service) return health.service === "eclipse-harness";
+  // Older runtimes reported `{ok:true}` without a service name.
+  return typeof health.ok === "boolean";
+}
+
+/** Did a uvicorn stderr line report "the port is already taken"? Pure. */
+export function isBindConflict(text: string): boolean {
+  return /10048|address already in use|only one usage of each socket address/i.test(text);
+}
+
 /** PIDs currently LISTENING on the runtime port (empty when none / unavailable). */
 function listenerPidsOnPort(): string[] {
   try {
     if (process.platform === "win32") {
       const out = execSync("netstat -ano", { encoding: "utf8", windowsHide: true });
-      const pids = new Set<string>();
-      for (const line of out.split("\n")) {
-        if (line.includes(`:${HARNESS_PY_PORT}`) && line.includes("LISTENING")) {
-          const pid = line.trim().split(/\s+/).pop();
-          if (pid && pid !== "0") pids.add(pid);
-        }
-      }
-      return [...pids];
+      return parseListenerPids(out, HARNESS_PY_PORT);
     }
     const out = execSync(`lsof -t -i:${HARNESS_PY_PORT}`, { encoding: "utf8" }).trim();
     return out ? out.split("\n") : [];
@@ -344,7 +377,15 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
   // nothing listening goes straight to the spawn).
   if (listenerPidsOnPort().length > 0) {
     const recheck = await getHealth(10_000);
-    if (!recheck) {
+    if (recheck) {
+      // The first probe missed but the port answered on the second: that is a
+      // runtime that is UP (slow, or busy booting), not a zombie. ADOPT it.
+      // It used to fall through to the spawn below, booting a second uvicorn
+      // that died with `WinError 10048` — and the app was left reporting
+      // "runtime unavailable" for the rest of the session. Measured 2026-11-06.
+      return true;
+    }
+    {
       // A runtime that answered recently is far more likely to be BUSY than
       // genuinely hung (a running agent can briefly delay a probe). Killing a
       // busy runtime orphans its runs, so require that we have NOT seen it
@@ -360,10 +401,9 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
         // mark the very runs this busy runtime is executing as RUN_ORPHANED. A
         // busy runtime is up; let a later probe (past the grace window) re-check.
         return true;
-      } else {
-        killListenerOnPort();
-        await new Promise((r) => setTimeout(r, 300));
       }
+      killListenerOnPort();
+      await new Promise((r) => setTimeout(r, 300));
     }
   }
 
@@ -431,24 +471,48 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
       { cwd: projectRoot, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, env: { ...process.env, ...extraEnv, PYTHONPATH: appDir } }
     );
     g.__harnessPyProc = proc;
+    let bindConflict = false;
+    const exited = new Promise<number | null>((resolve) => proc.once("exit", (code) => resolve(code)));
 
     proc.stdout?.on("data", (d) => process.stdout.write(`[harness-py] ${d}`));
-    proc.stderr?.on("data", (d) => process.stderr.write(`[harness-py] ${d}`));
+    proc.stderr?.on("data", (d) => {
+      const text = d.toString();
+      if (isBindConflict(text)) bindConflict = true;
+      process.stderr.write(`[harness-py] ${text}`);
+    });
     proc.on("exit", (code) => {
       if (code !== 0 && code !== null) console.error(`[harness-py] exited with code ${code}`);
       g.__harnessPyProc = undefined;
       g.__harnessPyStart = undefined;
     });
 
-    const ready = await waitForHealth(resolveStartTimeoutMs(process.env.HARNESS_PY_START_TIMEOUT_MS));
-    if (!ready) {
+    const timeoutMs = resolveStartTimeoutMs(process.env.HARNESS_PY_START_TIMEOUT_MS);
+    const ready = await Promise.race([
+      waitForHealth(timeoutMs),
+      // A spawn that dies (bad interpreter, taken port) must not make boot wait
+      // the whole cold-start budget before reporting the failure.
+      exited.then(() => false),
+    ]);
+    if (ready) return true;
+
+    if (bindConflict) {
+      // Another runtime already owns the port. Adopt it when it answers, rather
+      // than leaving the app in a permanent "runtime unavailable" state.
+      if (await waitForHealth(10_000)) {
+        console.warn(
+          `[harness] runtime port ${HARNESS_PY_PORT} was already owned by a live runtime — using it`
+        );
+        return true;
+      }
       console.error(
-        `[harness] Python runtime did not become healthy within ${resolveStartTimeoutMs(process.env.HARNESS_PY_START_TIMEOUT_MS)}ms`
+        `[harness] runtime port ${HARNESS_PY_PORT} is held by a process that is not answering /health. ` +
+          `Stop it (or set HARNESS_PY_PORT) and restart.`
       );
-      killTrackedRuntime();
-      return false;
+    } else {
+      console.error(`[harness] Python runtime did not become healthy within ${timeoutMs}ms`);
     }
-    return true;
+    killTrackedRuntime();
+    return false;
   })();
 
   try {

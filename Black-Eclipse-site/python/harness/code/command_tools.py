@@ -148,7 +148,13 @@ async def command_run(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]
         _record_command(ctx, command_class=model.command_class, argv=[], cwd=str(resolved.root),
                         exit_code=None, duration_ms=0, output="", total_chars=0,
                         backend="unavailable", decision={"allowed": False, "code": exc.code})
-        return _command_refusal(exc.code, exc.reason, command_class=model.command_class)
+        # The model must learn the exact vocabulary, not just "not allowed": it
+        # asked for `unit_tests` and then gave up on the check path entirely.
+        recovery = (
+            "Valid checks: " + ", ".join(policy.COMMAND_CLASSES) + "."
+            if exc.code == "COMMAND_NOT_ALLOWLISTED" else ""
+        )
+        return _command_refusal(exc.code, exc.reason, command_class=model.command_class, recovery=recovery)
 
     # Policy: the class's effect verb must be granted by the profile. The actor
     # is bound to the CODE WORKSPACE id, not the read-only request workspace id.

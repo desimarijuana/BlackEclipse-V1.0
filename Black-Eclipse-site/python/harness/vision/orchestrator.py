@@ -258,13 +258,55 @@ async def _dispatch(
     )
 
 
-async def _try_candidates(plan: RoutingPlan, telemetry: tel.VisionTelemetry, factory: Any) -> VisionResult:
+def bounded_attempts(attempts: list[Any], cfg: Any) -> list[Any]:
+    """A BOUNDED fallback chain: at most N attempts, at most M per provider.
+
+    Pure and testable. A dead vendor must cost one timeout, not a walk through
+    every configured provider (measured 2026-11-06: 12 calls — five local models,
+    then LM Studio, then OpenRouter — before one answered). The primary attempt
+    is always kept: bounding must never make a usable plan unusable.
+    """
+    max_attempts = max(1, int(getattr(cfg, "max_attempts", 4) or 4))
+    per_provider = max(1, int(getattr(cfg, "max_per_provider", 2) or 2))
+    out: list[Any] = []
+    seen_per: dict[str, int] = {}
+    for settings in attempts:
+        provider = str(getattr(settings, "provider", None) or "")
+        if seen_per.get(provider, 0) >= per_provider:
+            continue
+        if len(out) >= max_attempts:
+            break
+        seen_per[provider] = seen_per.get(provider, 0) + 1
+        out.append(settings)
+    return out
+
+
+async def _try_candidates(plan: RoutingPlan, telemetry: tel.VisionTelemetry, factory: Any, *,
+                          cfg: Any = None) -> VisionResult:
     """Try the plan's primary settings, then each permitted fallback candidate."""
-    attempts = [plan.settings] + [c.settings for c in plan.candidates]
+    if cfg is None:
+        from .config import vision_config  # noqa: PLC0415
+
+        cfg = vision_config()
+    all_attempts = [plan.settings] + [c.settings for c in plan.candidates]
+    attempts = bounded_attempts(all_attempts, cfg)
+    if len(attempts) < len(all_attempts):
+        telemetry.emit(tel.EVENT_ROUTE_CAPPED, {
+            "candidates": len(all_attempts), "attempts": len(attempts),
+            "maxAttempts": int(getattr(cfg, "max_attempts", 4) or 4),
+            "maxPerProvider": int(getattr(cfg, "max_per_provider", 2) or 2),
+        })
     last_error: Optional[VisionError] = None
     for index, settings in enumerate(attempts):
         try:
             result = await factory(settings)
+            # Name the model that actually looked, on every success (the answer
+            # and the receipt must be able to say "local" vs "sent to X").
+            result.provenance = {
+                **result.provenance,
+                "provider": getattr(settings, "provider", None),
+                "model": getattr(settings, "model", None),
+            }
             if index > 0:
                 result.provenance = {**result.provenance, "fallback": True, "fallbackAttempt": index}
                 telemetry.emit(tel.EVENT_PROVIDER_CALL, {
@@ -527,4 +569,5 @@ def build_asset_store(store: Any, *, cfg: Optional[VisionConfig] = None) -> Visi
 
 __all__ = [
     "VisionContext", "orchestrate", "build_asset_store", "_result_from_cache",
+    "bounded_attempts",
 ]

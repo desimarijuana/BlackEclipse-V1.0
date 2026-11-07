@@ -86,6 +86,28 @@ Eclipse may do. Absolute and `..` entries are ignored.
 - **Not a sandbox.** Discovered checks and the run command are commands declared
   by the project; they run as you. Read them before you run them.
 
+## Proving the check loop
+
+Pin the checks a change must not break:
+
+```json
+// <project>/.black-eclipse/verify.json
+{"checks": ["unit_test"]}
+```
+
+`unit_test`, `python_test`, `typecheck`, `lint`, `build`, `format_check` and
+`git_read` are the valid classes (a plural like `unit_tests` is accepted). After
+a file change, Eclipse runs the pinned class once through the same allowlisted
+path a manual check uses. A failure is handed back to the agent as **data**, and
+the answer is annotated if the check never passes — a passing check is never
+reported as "exhausted".
+
+To prove the loop yourself, break one assertion and ask Eclipse to fix it. You
+should see `code.repair.attempt` with the failing class and output digest, then
+`code.repair.passed`; the final blob's `repair.status` is `REPAIR_PASSED`. If the
+check cannot run at all (profile or sandbox refusal), the status is
+`REPAIR_REFUSED`, not a pass.
+
 ## Troubleshooting
 
 | Symptom | Cause |

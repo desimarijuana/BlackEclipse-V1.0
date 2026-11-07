@@ -21,6 +21,7 @@ from . import shell as shell_mod
 from . import terminal as terminal_mod
 from .tools import _ensure_code_workspace, _present, emit_code_event
 from .command_tools import _command_refusal, _record_command
+from .events import redact_output
 from .worktree import WorkspaceError
 
 APPROVAL_KIND = "shell_command"

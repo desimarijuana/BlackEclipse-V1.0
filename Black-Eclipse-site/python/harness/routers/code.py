@@ -263,23 +263,9 @@ async def create_task(body: CreateTaskRequest, _: bool = Depends(require_operato
 def list_tasks(
     status: Optional[str] = None, limit: int = 50,
     scopeId: Optional[str] = None,  # noqa: N803 - the wire name
-    rootId: Optional[str] = None,  # noqa: N803
 ) -> dict[str, Any]:
-    """List code tasks. `scopeId` and `rootId` are FILTERS, never authorization."""
-    from ..code.workspace import trusted_root_path  # noqa: PLC0415
-
-    project_root: Optional[str] = None
-    if rootId:
-        root = trusted_root_path(rootId)
-        if root is None:
-            raise HTTPException(status_code=400, detail="UNKNOWN_PROJECT")
-        project_root = str(root)
-    return {
-        "success": True,
-        "tasks": _tasks().list(
-            limit=limit, status=status, scope_id=scopeId, project_root=project_root,
-        ),
-    }
+    """List code tasks. `scopeId` is a caller-supplied FILTER, never authorization."""
+    return {"success": True, "tasks": _tasks().list(limit=limit, status=status, scope_id=scopeId)}
 
 
 @router.get("/code/scorecard")
@@ -473,20 +459,14 @@ def task_checks(task_id: str) -> dict[str, Any]:
 @router.get("/code/tasks/{task_id}/diff")
 def task_diff(task_id: str) -> dict[str, Any]:
     """The worktree diff for a task's disposable copy, when one is bound."""
-    row = _task_workspace_row(task_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="No change was prepared for this task")
+    created = _tasks().latest_created(task_id)
+    workspace_id = ((created or {}).get("payload") or {}).get("workspaceId")
+    if not workspace_id:
+        raise HTTPException(status_code=404, detail="No workspace bound to this task")
     try:
         from ..code import worktree  # noqa: PLC0415
 
-        checkout = str(row.get("checkoutRoot") or "").strip()
-        diff = worktree.diff(
-            str(row.get("id") or ""),
-            str(row.get("baseRevision") or "HEAD") or "HEAD",
-            strategy=str(row.get("strategy") or "worktree"),
-            root=(Path(checkout) if checkout else None),
-        )
-        return {"success": True, "diff": diff}
+        return {"success": True, "diff": worktree.diff(workspace_id)}
     except Exception as exc:  # noqa: BLE001 - a diff failure is an honest 400
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -523,36 +503,6 @@ class PreviewBody(BaseModel):
 
     taskId: Optional[str] = Field(default=None, max_length=200)  # noqa: N815
     rootId: Optional[str] = Field(default=None, max_length=200)  # noqa: N815
-    # "checkout" (the project on disk) or "change" (this task's prepared change).
-    mode: Optional[str] = Field(default=None, max_length=16)
-
-
-def _task_workspace_row(task_id: str) -> Optional[dict[str, Any]]:
-    """The task's recorded disposable workspace row (or None).
-
-    The `workspaceId` on `task.created` is a SCOPE LABEL, not the code workspace;
-    the authoritative row is `CodeWorkspace`, keyed by the run id.
-    """
-    try:
-        rows = service.code_store.list_workspaces(run_id=task_id, limit=1)
-    except Exception:  # noqa: BLE001 - an unreadable row means "no change"
-        return None
-    return rows[0] if rows else None
-
-
-def _task_workspace(task_id: str) -> Optional[tuple[Path, Optional[Path]]]:
-    """A task's prepared-change folder and the project it was cut from."""
-    try:
-        rows = service.code_store.list_workspaces(run_id=task_id, limit=1)
-    except Exception:  # noqa: BLE001 - an unreadable row is "no change"
-        return None
-    if not rows:
-        return None
-    worktree = Path(str((rows[0] or {}).get("root") or ""))
-    if not worktree.is_dir():
-        return None
-    checkout = str((rows[0] or {}).get("checkoutRoot") or "").strip()
-    return worktree, (Path(checkout) if checkout else None)
 
 
 def _preview_manager() -> Any:
@@ -596,21 +546,9 @@ def _preview_root(task_id: Optional[str], root_id: Optional[str]) -> Path:
 def start_preview(body: PreviewBody, _: bool = Depends(require_operator)) -> dict[str, Any]:
     key = _preview_key(body.taskId, body.rootId)
     root = _preview_root(body.taskId, body.rootId)
-    mode = str(body.mode or "checkout").strip().lower()
-    run_root: Optional[Path] = None
-    deps_from: Optional[Path] = None
-    if mode == "change":
-        if not body.taskId:
-            raise HTTPException(status_code=400, detail="PREVIEW_CHANGE_NEEDS_TASK")
-        workspace = _task_workspace(body.taskId)
-        if workspace is None:
-            raise HTTPException(status_code=404, detail="PREVIEW_CHANGE_GONE")
-        run_root, deps_from = workspace
     # A refusal ("no command for this project") is a product state, not an HTTP
     # error: return it with the plan so the surface can say what is missing.
-    data = _preview_manager().start(
-        key, root, mode=mode, run_root=run_root, deps_from=deps_from,
-    )
+    data = _preview_manager().start(key, root)
     if data.get("status") == "unavailable":
         raise HTTPException(status_code=503, detail=data)
     return {"success": data.get("status") == "ok", "preview": data}
@@ -709,8 +647,8 @@ def request_task_action(
         raise HTTPException(status_code=400, detail=f"unknown action {body.action!r}")
     if service.approvals is None:
         raise HTTPException(status_code=503, detail="approvals unavailable")
-    row = _task_workspace_row(task_id)
-    workspace_id = str((row or {}).get("id") or "")
+    created = _tasks().latest_created(task_id)
+    workspace_id = ((created or {}).get("payload") or {}).get("workspaceId")
     if not workspace_id:
         raise HTTPException(status_code=400, detail="no workspace bound to this task")
     request = CodeActionRequest(

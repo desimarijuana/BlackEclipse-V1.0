@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from typing import Any, Optional
 
 from ..persistence import now_iso
@@ -44,14 +43,6 @@ def _bounded_list(values: Any, limit: int = 50) -> list[str]:
     if not isinstance(values, (list, tuple)):
         return []
     return [str(v) for v in values][:limit]
-
-
-def _same_path(left: str, right: str) -> bool:
-    """Two folder paths name the same project (Windows-safe)."""
-    try:
-        return os.path.normcase(os.path.realpath(left)) == os.path.normcase(os.path.realpath(right))
-    except (OSError, ValueError):
-        return left == right
 
 
 def plan_digest(steps: list[dict[str, Any]]) -> str:
@@ -131,44 +122,8 @@ class TaskStore:
                 return checkpoint
         return None
 
-    def _project_map(self) -> dict[str, str]:
-        """runId -> recorded checkout, from ONE workspace read (no N+1)."""
-        code_store = self._workspaces()
-        try:
-            rows = code_store.list_workspaces(limit=2_000)
-        except Exception:  # noqa: BLE001 - attribution is best-effort
-            return {}
-        out: dict[str, str] = {}
-        for row in rows:
-            run_id = str((row or {}).get("runId") or "")
-            if run_id and run_id not in out:
-                out[run_id] = str((row or {}).get("checkoutRoot") or "")
-        return out
-
-    def _workspaces(self) -> Any:
-        if getattr(self, "_code_store", None) is None:
-            from .store import CodeWorkspaceStore  # noqa: PLC0415
-
-            self._code_store = CodeWorkspaceStore(self._store)
-        return self._code_store
-
-    def _project_root(self, run_id: str) -> str:
-        """The checkout this build belongs to, from its workspace row (or "")."""
-        code_store = self._workspaces()
-        try:
-            rows = code_store.list_workspaces(run_id=run_id, limit=1)
-        except Exception:  # noqa: BLE001 - attribution is best-effort
-            return ""
-        return str((rows[0] or {}).get("checkoutRoot") or "") if rows else ""
-
-    def view(
-        self, run_id: str, *, project_root: Optional[str] = None,
-    ) -> Optional[dict[str, Any]]:
-        """The task view for one run id, or None when no such run exists.
-
-        ``project_root`` lets a list pass the project it already loaded (avoiding
-        one workspace query per task); None means "look it up".
-        """
+    def view(self, run_id: str) -> Optional[dict[str, Any]]:
+        """The task view for one run id, or None when no such run exists."""
         run = self._store.get_run(run_id)
         if run is None:
             return None
@@ -191,7 +146,6 @@ class TaskStore:
             "status": _task_status(run, checkpoints),
             "autonomy": created_payload.get("autonomy") or DEFAULT_AUTONOMY,
             "workspaceId": created_payload.get("workspaceId"),
-            "projectRoot": project_root if project_root is not None else self._project_root(run_id),
             "query": (run.get("input") or {}).get("query", ""),
             "plan": (plan or {}).get("payload"),
             "verification": verification,
@@ -202,31 +156,22 @@ class TaskStore:
 
     def list(
         self, *, limit: int = 50, status: Optional[str] = None,
-        scope_id: Optional[str] = None, project_root: Optional[str] = None,
+        scope_id: Optional[str] = None,
     ) -> list[dict[str, Any]]:
-        """Code tasks, optionally narrowed by a scope label or one project.
+        """Code tasks, optionally narrowed by a caller-supplied scope label.
 
-        The label maps to `HarnessRun.userId`; `project_root` maps to the
-        workspace row's recorded checkout. Both narrow what is returned and
-        NEVER authorize a mutation.
+        The label maps to `HarnessRun.userId` (the same filter the older routes
+        use). It narrows what is returned and NEVER authorizes a mutation.
         """
         limit = max(1, min(int(limit), 200))
         views: list[dict[str, Any]] = []
-        projects = self._project_map()
         for run in self._store.list_runs(limit=200):
             # Any run with a `task.created` boundary is a build task: a Code task
             # or a writing chat build. `view` is None for a run that never built.
             if scope_id is not None and run.get("userId") != scope_id:
                 continue
-            known = projects.get(str(run.get("id") or ""), "")
-            view = self.view(run["id"], project_root=known)
+            view = self.view(run["id"])
             if view is None:
-                continue
-            # A finished turn that never touched a file (no workspace) is not a
-            # build; an in-progress one still shows so the user can watch it.
-            if not known and view["status"] in ("completed", "failed", "cancelled", "discarded"):
-                continue
-            if project_root and not _same_path(str(view.get("projectRoot") or ""), project_root):
                 continue
             if status and view["status"] != status:
                 continue

@@ -18,7 +18,6 @@ import {
   type CapabilityRecord,
   type CapabilityStatus,
 } from '@/lib/harness/capabilities-client';
-import { listTrustedRoots } from '@/lib/harness/code-browser';
 
 const STATUS_KEY: Record<CapabilityStatus, TranslationKey> = {
   draft: 'capabilityCard.status.gap',
@@ -99,18 +98,12 @@ export function GeneratedCapabilitiesSection() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [projectRootId, setProjectRootId] = useState('');
-  const [roots, setRoots] = useState<{ id: string; path: string; label: string | null }[]>([]);
-
-  useEffect(() => {
-    void listTrustedRoots().then(setRoots).catch(() => {});
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [result, builtinResult] = await Promise.all([
-        listCapabilities(undefined, projectRootId || undefined),
+        listCapabilities(),
         listBuiltins().catch(() => null),
       ]);
       setRecords(result.capabilities);
@@ -121,7 +114,7 @@ export function GeneratedCapabilitiesSection() {
     } finally {
       setLoading(false);
     }
-  }, [projectRootId]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -197,24 +190,9 @@ export function GeneratedCapabilitiesSection() {
           <h2 className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             <Sparkles size={12} /> {t('studio.section.generated')}
           </h2>
-          <div className="flex items-center gap-1.5">
-            <select
-              value={projectRootId}
-              onChange={(event) => setProjectRootId(event.target.value)}
-              aria-label={t('studio.generated.projectFilter')}
-              className="glass-button rounded-md px-2 py-1 text-[11px] text-foreground"
-            >
-              <option value="">{t('studio.generated.allProjects')}</option>
-              {roots.map((root) => (
-                <option key={root.id} value={root.id}>
-                  {root.label || root.path.replace(/\\/g, '/').split('/').filter(Boolean).pop()}
-                </option>
-              ))}
-            </select>
-            <button type="button" onClick={() => void load()} aria-label={t('studio.retry')} className="rounded-md p-1 text-muted-foreground hover:text-foreground">
+          <button type="button" onClick={() => void load()} aria-label={t('studio.retry')} className="rounded-md p-1 text-muted-foreground hover:text-foreground">
             <RefreshCw size={12} />
           </button>
-          </div>
         </div>
 
         {rows.length === 0 ? (

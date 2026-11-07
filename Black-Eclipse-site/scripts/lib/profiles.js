@@ -73,13 +73,17 @@ function profileFor(mode) {
 function childEnv(profile) {
   const base = { ...process.env };
   delete base.BE_CANONICAL_HOST;
+  // An operator who sets a harness address in the environment means it: that is
+  // the documented override, and it is the only way to move the runtime off a
+  // port something else already owns. `.env` is read by Next, not by this
+  // launcher, so this cannot leak a profile's default into the other profile.
   return {
     ...base,
     ...withoutEmpty({
       PORT: profile.appPort,
-      HARNESS_PY_URL: `http://127.0.0.1:${profile.harnessPort}`,
-      HARNESS_PY_HOST: "127.0.0.1",
-      HARNESS_PY_PORT: profile.harnessPort,
+      HARNESS_PY_URL: process.env.HARNESS_PY_URL || `http://127.0.0.1:${profile.harnessPort}`,
+      HARNESS_PY_HOST: process.env.HARNESS_PY_HOST || "127.0.0.1",
+      HARNESS_PY_PORT: process.env.HARNESS_PY_PORT || profile.harnessPort,
       HARNESS_CALLBACK_URL: `http://127.0.0.1:${profile.appPort}`,
       NEXT_DIST_DIR: profile.distDir,
       BE_PROFILE: profile.id,

@@ -287,3 +287,51 @@ def test_status_reports_unavailable_without_git(tmp_path):
     result = _run(_call(registry, "workspace_status", {}, _ctx(ws)))
     assert result.ok
     assert result.data["status"] == "unavailable"
+
+# ── workspace_diff resolves the BOUND project, not the app's own repo ────────
+def _git(cwd: Path, *args: str) -> None:
+    import subprocess
+
+    subprocess.run(
+        ["git", "-c", "user.email=t@example.com", "-c", "user.name=Test", *args],
+        cwd=str(cwd), check=True, capture_output=True,
+    )
+
+
+def test_workspace_diff_reads_the_bound_project_not_the_app_repo(tmp_path):
+    """A direct (chat-bound) workspace lives in the user's folder.
+
+    `worktree.diff` defaults its root to the app's own repo when no root is
+    given, so a project-bound diff used to report the Eclipse tree's dirty
+    files instead of the project's change (seen live: "17 files changed …
+    a/Black-Eclipse-site/…" for a two-file edit in the project).
+    """
+    from types import SimpleNamespace
+
+    project = tmp_path / "other-project"
+    project.mkdir()
+    (project / "app.js").write_text("module.exports = 1;\n", encoding="utf-8")
+    _git(project, "init")
+    _git(project, "add", "-A")
+    _git(project, "commit", "-m", "init")
+    (project / "app.js").write_text("module.exports = 2;\n", encoding="utf-8")
+
+    ws_id = "cw_other"
+    real = Path(os.path.realpath(project))
+    binding = policy.WorkspaceBinding(id=ws_id, root=real, base_revision="HEAD", strategy="direct")
+    resolved = ResolvedWorkspace(
+        id=ws_id, root=real, base_revision="HEAD", strategy="direct", binding=binding,
+    )
+    cw = SimpleNamespace(id=ws_id, root=real, strategy="direct", base_revision="HEAD")
+    ctx = _ctx(resolved)
+    ctx._code_workspace = (cw, binding, resolved, None)
+
+    result = _run(_registry().execute(
+        "workspace_diff", "call_diff", {"includeUnified": True}, ctx,
+        allowed={"workspace_diff"},
+    ))
+    assert result.ok
+    assert result.data["filesChanged"] == 1
+    assert "app.js" in result.text
+    # Never the harness repo's own working tree.
+    assert "Black-Eclipse-site" not in result.text

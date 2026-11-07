@@ -51,6 +51,17 @@ def test_build_report_dispatches_pdf_and_docx():
     assert build_report("docx", title="R", blocks=BLOCKS).startswith(b"PK")
 
 
+@pytest.mark.parametrize("block", [
+    {"type": "table", "rows": [["A", "B"], [1, 2]]},
+    {"type": "table", "headers": ["A", "B"], "rows": [{"A": 1, "B": 2}]},
+    {"type": "table", "headers": ["A", "B"], "rows": [[1]]},
+    {"type": "table", "headers": ["A", "B"], "rows": []},
+])
+def test_pdf_table_accepts_model_authored_shapes(block):
+    data = build_pdf([block], title="Table shapes")
+    assert data.startswith(b"%PDF-")
+
+
 def test_eclipse_report_registers_a_pdf_artifact(ctx):
     registry, context, _service = ctx
     text, data = _run(registry, context, "eclipse_report", {

@@ -1275,17 +1275,17 @@ async def execute_run(
             raise RuntimeError(
                 f"run {request.runId!r} already exists in status {prior_status!r}"
             )
-        # Record lineage AFTER the row exists (the columns are owned by the
-        # lineage module, not the ratcheted core store).
+        # Record lineage AFTER the row exists (columns owned by the lineage module).
         lineage.set_run_parent(request.runId, request.parentRunId, request.workflowId)
         await emitter.emit("run.created", {"agentId": agent.id})
         store.update_run(request.runId, status="running", startedAt=started)
-        await emitter.emit("run.started", {"maxSteps": chat_step_budget(agent, request), "provider": request.modelSettings.provider})
+        # The effective budget: a session profile may raise `request.maxSteps`.
+        await emitter.emit("run.started", {"maxSteps": int(getattr(request, "maxSteps", 0) or 0)
+                                           or chat_step_budget(agent, request),
+                                           "provider": request.modelSettings.provider})
 
-    # Phase 4: an unambiguous supported financial comparison is routed through the
-    # deterministic evidence gate BEFORE the ordinary agent graph, so it does not
-    # also run a financial tool loop (no duplicate retrieval, no contradictory
-    # answer). Anything unsupported/uncertain returns None and falls through.
+    # Phase 4: an unambiguous supported financial comparison runs the evidence gate
+    # BEFORE the agent graph (no duplicate tool loop); uncertain inputs fall through.
     research = None
     if resume_from is None:
         # A resumed run was already past classification (it has checkpoints), so

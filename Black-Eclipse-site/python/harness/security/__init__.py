@@ -21,6 +21,7 @@ from .gateway import SecurityGateway
 from .identity import (
     ANONYMOUS,
     Identity,
+    front_door_requires_auth,
     multi_tenant_required,
     require_identity,
     require_tenant,
@@ -131,6 +132,7 @@ __all__ = [
     "default_tenant_root",
     "effect_tool_names",
     "get_sandbox",
+    "front_door_requires_auth",
     "multi_tenant_required",
     "normalize_tenant",
     "require_identity",

@@ -5,8 +5,8 @@
 // claims a URL the runtime did not confirm: "Running, but nothing is listening
 // yet" is a real state, and the logs are one click away.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ExternalLink, Loader2, Play, RefreshCw, Square, Terminal } from '@/lib/icons';
+import { useCallback, useEffect, useState } from 'react';
+import { ExternalLink, Loader2, Play, Square, Terminal } from '@/lib/icons';
 import { useT } from '@/lib/i18n/use-t';
 import { cn } from '@/lib/utils';
 import {
@@ -29,12 +29,10 @@ export function PreviewPanel({ taskId, rootId }: PreviewPanelProps) {
   const [busy, setBusy] = useState<'start' | 'stop' | 'logs' | null>(null);
   const [logs, setLogs] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<'checkout' | 'change'>('checkout');
 
-  const target: PreviewTarget = {
-    ...(taskId ? { taskId } : rootId ? { rootId } : {}),
-    mode,
-  };
+  const target: PreviewTarget = taskId
+    ? { taskId }
+    : rootId ? { rootId } : {};
 
   const load = useCallback(async () => {
     try {
@@ -45,23 +43,7 @@ export function PreviewPanel({ taskId, rootId }: PreviewPanelProps) {
     }
   }, [taskId, rootId]);
 
-  const prevTarget = useRef<PreviewTarget | null>(null);
-  useEffect(() => {
-    const previous = prevTarget.current;
-    prevTarget.current = target;
-    // Switching project stops the previous project's server: a preview is a
-    // resource of the project that started it, not of the tab.
-    if (previous && (previous.taskId !== target.taskId || previous.rootId !== target.rootId)) {
-      void stopCodePreview(previous).catch(() => {});
-    }
-    setLogs(null);
-    void load();
-  }, [load]);
-
-  useEffect(() => {
-    const loaded = preview?.mode;
-    if (loaded === 'checkout' || loaded === 'change') setMode(loaded);
-  }, [preview?.mode]);
+  useEffect(() => { setLogs(null); void load(); }, [load]);
 
   const start = async () => {
     setBusy('start');
@@ -83,38 +65,6 @@ export function PreviewPanel({ taskId, rootId }: PreviewPanelProps) {
     setBusy('stop');
     try {
       setPreview(await stopCodePreview(target));
-    } catch {
-      setError(t('code.preview.failed'));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const restart = async () => {
-    setBusy('start');
-    setError(null);
-    try {
-      await stopCodePreview(target);
-      const next = await startCodePreview(target);
-      setPreview(next);
-      if (next.status !== 'ok') setError(next.reason || t('code.preview.failed'));
-    } catch {
-      setError(t('code.preview.failed'));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const switchMode = async (next: 'checkout' | 'change') => {
-    if (next === mode) return;
-    setMode(next);
-    setError(null);
-    if (!preview?.running) return;
-    setBusy('start');
-    try {
-      const result = await startCodePreview({ ...target, mode: next });
-      setPreview(result);
-      if (result.status !== 'ok') setError(result.reason || t('code.preview.failed'));
     } catch {
       setError(t('code.preview.failed'));
     } finally {
@@ -147,45 +97,16 @@ export function PreviewPanel({ taskId, rootId }: PreviewPanelProps) {
           <p className="text-[10.5px] text-muted-foreground/70">{t('code.preview.hint')}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {taskId ? (
-            <div className="flex items-center gap-1 rounded-lg border border-border/40 p-0.5 text-[10px]">
-              {(['checkout', 'change'] as const).map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => void switchMode(value)}
-                  disabled={busy != null}
-                  className={cn(
-                    'rounded px-1.5 py-0.5 transition-colors',
-                    mode === value ? 'bg-white/10 text-foreground' : 'text-muted-foreground',
-                  )}
-                >
-                  {t(value === 'checkout' ? 'code.preview.mode.checkout' : 'code.preview.mode.change')}
-                </button>
-              ))}
-            </div>
-          ) : null}
           {running ? (
-            <>
-              <button
-                type="button"
-                onClick={() => void restart()}
-                disabled={busy != null}
-                className="glass-button inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] text-muted-foreground disabled:opacity-50"
-              >
-                <RefreshCw size={11} />
-                {t('code.preview.restart')}
-              </button>
-              <button
-                type="button"
-                onClick={() => void stop()}
-                disabled={busy != null}
-                className="glass-button inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] text-foreground disabled:opacity-50"
-              >
-                <Square size={11} />
-                {t('code.preview.stop')}
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={() => void stop()}
+              disabled={busy != null}
+              className="glass-button inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] text-foreground disabled:opacity-50"
+            >
+              <Square size={11} />
+              {t('code.preview.stop')}
+            </button>
           ) : (
             <button
               type="button"

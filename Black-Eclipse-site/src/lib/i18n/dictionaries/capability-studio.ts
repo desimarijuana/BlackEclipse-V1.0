@@ -14,8 +14,6 @@ export const capabilityStudio = {
   'studio.section.skills': 'Skills',
   'studio.section.integrations': 'Integrations',
   'studio.section.generated': 'Generated',
-  'studio.generated.projectFilter': 'Filter by project',
-  'studio.generated.allProjects': 'All projects',
   'studio.loading': 'Loading...',
   'studio.loadFailed': "Couldn't load {what} â€” {reason}",
   'studio.retry': 'Retry',

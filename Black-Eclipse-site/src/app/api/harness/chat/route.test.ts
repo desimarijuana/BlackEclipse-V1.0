@@ -118,4 +118,33 @@ describe("POST /api/harness/chat — honest failure", () => {
     expect(body.success).toBe(false);
     expect(body.content).toBeUndefined();
   });
+
+  it("hands back a run id instead of dying at the one-shot deadline", async () => {
+    const previous = process.env.HARNESS_CHAT_SOFT_DEADLINE_MS;
+    process.env.HARNESS_CHAT_SOFT_DEADLINE_MS = "5";
+    // A writable turn outlives the one-shot endpoint; the runtime keeps working.
+    chatWithAgent.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () => resolve({ status: "completed", output: "late answer", runId: "run_late" }),
+            50,
+          );
+        }),
+    );
+    try {
+      const res = await POST(post({ query: "build me a small site" }));
+      expect(res.status).toBe(202);
+      const body = await res.json();
+      expect(body.status).toBe("running");
+      expect(body.runId).toMatch(/^run_/);
+      expect(body.streamUrl).toContain(body.runId);
+      expect(body.content).toMatch(/still working/i);
+      // The SAME id went to the runtime, so the caller can follow it.
+      expect(chatWithAgent.mock.calls[0][3]).toBe(body.runId);
+    } finally {
+      if (previous === undefined) delete process.env.HARNESS_CHAT_SOFT_DEADLINE_MS;
+      else process.env.HARNESS_CHAT_SOFT_DEADLINE_MS = previous;
+    }
+  });
 });

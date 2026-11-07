@@ -1,35 +1,79 @@
 # Change Log
 
 ## 2026-11-06
-- **feat(chat/canvas): opening Canvas MOVES the response out of the transcript.**
-  Clicking **Open in Canvas** replaces that message's body on the chat page with
-  one compact banner (title, `Edit`, `Show in chat`); the content renders only in
-  the Canvas dock, and closing Canvas restores the body. The command store records
-  `canvasSource` (`{ messageId, title }`), both entry points record it, and the
-  content builder runs synchronously so the body leaves on the first click.
-  `Edit` saves the snapshot to an artifact. The dock is a full-screen sheet on
-  phones. Docs updated: `docs/canvas.md`, `docs/CHANGELOG.md`.
-- **feat(canvas): per-block editing, ChatGPT-style.** A response envelope emitted
-  in a plain ```json fence is recognized as a report (prose outside the fence
-  becomes a leading markdown block), so Canvas renders structured blocks instead
-  of raw JSON. The visual artifact editor is one compact, scrollable panel with
-  **Preview** (default), **Blocks** (one row per element, each with `Edit` /
-  `Delete`, plus `Add block`) and **Source JSON** tabs; the Canvas header is a
-  single slim row (title, save status, `…` menu, close) and the chat action chips
-  are hidden inside Canvas. Docs updated: `docs/canvas.md`, `docs/CHANGELOG.md`.
-- **chore(chat): remove the Canvas AI-panel dock, the Notebook button and the
-  checkpoint icons.** The inline Canvas uses the full pane for the document (the
-  collapsed AI-panel aside and its full-width toggle are gone; the full Canvas
-  screen keeps the AI panel). The Notebook action and the two checkpoint icons
-  were removed from the composer footer and the floating dock. The checkpoint and
-  notebook APIs/components remain for other surfaces. Docs updated:
-  `docs/canvas.md`, `docs/CHANGELOG.md`.
+- **fix(runtime): a runtime already on the harness port is adopted, not raced.**
+  `ensurePythonRuntime()` probed `/health`, and when a listener existed it probed
+  again — but a SUCCESSFUL second probe fell through to the spawn anyway, booting
+  a rival uvicorn that died with `WinError 10048`; the front door then reported
+  "runtime unavailable" for the rest of the session (observed live: a second
+  `npm run start` while a healthy runtime held 8766). It now adopts that runtime.
+  A child that dies from a port conflict is detected from its stderr and the live
+  runtime is adopted; a spawn that exits no longer makes boot wait the whole
+  cold-start budget; listener PIDs are parsed from the exact local-address column
+  (so `:18766` / a foreign `:8766` cannot match). `HARNESS_PY_URL` /
+  `HARNESS_PY_PORT` / `HARNESS_PY_HOST` now actually override the profile default
+  in the launcher, and `kill-port` clears the port that will be used. Tests:
+  `src/lib/harness/python-runtime.test.ts` (11). Docs:
+  `docs/harness/architecture.md`.
+- **fix(build,reports): production build and model-authored PDF tables.** The
+  build failed on stale imports from in-flight build-screen work: restored
+  `getProjectBrief`/`prepareProjectIndex` on the server client, added their
+  browser-client versions, restored `GET /code/project`, removed the stale
+  preview `mode` field, and added the missing `code.project.*` copy. Separately,
+  the PDF report renderer raised `REPORT_RENDER_FAILED: list index out of range`
+  for a table without headers, dict-shaped rows, or empty rows; `_table` now
+  derives headers, accepts list-of-objects rows and skips an empty table.
+  Verified: `npm run build` passes; `test_reports.py` (9), code task/tool/root
+  (40) and code API/UI Vitest (13) pass. Docs updated: `docs/CHANGELOG.md`.
+- **fix(vision): one privacy story and a bounded fallback chain.** Vision had its
+  own default (`HARNESS_VISION_PRIVACY=cloud_allowed`) that ignored the app-wide
+  `ECLIPSE_PRIVACY`; with local models configured, a screenshot still walked five
+  local models, LM Studio and OpenRouter (12 provider calls) before one answered.
+  The mode now inherits `ECLIPSE_PRIVACY=local-models` as `local_only`, caps the
+  chain (`HARNESS_VISION_MAX_ATTEMPTS`=4, `…_MAX_PER_PROVIDER`=2), emits
+  `vision.route.capped`, and records the provider/model that actually looked.
+  Tests: `test_vision_privacy_chain.py` (8). Docs: `docs/harness/vision.md`.
+- **fix(chat-api): the one-shot endpoint hands back a run instead of dying at
+  180 s.** `POST /api/harness/chat` awaited the whole run under
+  `maxDuration = 180`, while a writable turn is budgeted 80 steps / 2,700 s, so a
+  real build was killed with `PROVIDER_TIMEOUT` and no run id. It now stops
+  waiting at 150 s (`HARNESS_CHAT_SOFT_DEADLINE_MS`) and returns `202
+  {status:"running", runId, streamUrl}`, with the same id given to the runtime;
+  the run continues. Test: `src/app/api/harness/chat/route.test.ts`. Docs:
+  `docs/CHANGELOG.md`.
+- **feat(auth): `npm run auth:setup`.** One supported edit that sets
+  `HARNESS_AUTH=required` and generates a 32-byte `HARNESS_AUTH_SECRET`, refusing
+  to rotate an existing secret and never printing it (`--dry-run`, `--file`).
+  The doctor line now points at it. Docs: `docs/harness/authentication.md`.
+- **fix(code): five defects found by the LIVE failing-check acceptance run.**
+  (1) `shell_run` crashed with `name 'redact_output' is not defined` — the import
+  was missing, so the whole real-shell surface was dead. (2) `resolve_class`
+  rejected the obvious plural (`unit_tests`) and the refusal never named the
+  valid vocabulary, so the agent abandoned the pinned-check path and shelled out;
+  it now accepts the plural and lists the classes. (3) `package_test` refused with
+  "exit 1" and DROPPED the failing output; the refusal text now carries it.
+  (4) a `.black-eclipse/verify.json` written with a BOM silently pinned NO checks
+  (read with `utf-8-sig` now), so the verify-and-repair node never ran. (5) a
+  PASSED check was reported `REPAIR_EXHAUSTED` — and the answer annotated "still
+  failing" — when a later command spent the last check-run slot; status is now
+  fact-first and a spent budget after a pass is a no-op. Verified live twice
+  (fail → repair → pass, no false note). Tests: `test_code_check_path.py` (4),
+  `test_graph_repair_node.py` (+2). Docs: `docs/developing-a-project.md` (how to
+  pin and prove the loop).
+- **docs(security): say what actually runs.** `terminal_run`/`shell_run` use the
+  LOCAL tier (process-tree bounds, no filesystem/network isolation); Docker is a
+  selectable backend, not the executor. `BLACK_ECLIPSE_SANDBOX_REQUIRED=1` refuses
+  every execution it cannot isolate (`SANDBOX_UNAVAILABLE`). The boot line now
+  says this instead of implying a container. Docs: `docs/harness/security.md`.
 - **fix(trading): Deny on the trade-approval card removes it at once and stops
-  the turn.** The card was only removed after the decide round-trip, so a slow
-  request left it on screen and the 6s poll could bring it back. Deny is now
-  optimistic: the card leaves immediately, the id is suppressed from polling, and
-  `onCancel` stops the in-flight run. If the decision genuinely fails, the card
-  returns with the error. No doc change — a behaviour fix with no contract change.
+  the turn.** The card was only removed *after* the decide round-trip, so a slow
+  request left it on screen, and the 6s poll could bring it back. Deny is now
+  optimistic: the card leaves immediately, the approval id is suppressed from
+  polling, and `onCancel` stops the in-flight run (the order is never sent). If
+  the decision genuinely fails, the card returns with the error. Verified live:
+  card gone in 58ms, `POST /trading/approvals/{id}/decide` 200, still gone after
+  the next poll. Tests: `tsc` clean, full suite 476 files / 4,417. No doc change
+  — a behaviour fix with no contract change.
 - **feat(search): semantic retrieval is now switchable and honest.** The vector
   layer already existed but shipped dormant: with no provider it silently stayed
   keyword-only, so a user could not tell what was on or turn it on. Added a
@@ -44,74 +88,6 @@
   "keyword-only" pill. No silent provider substitution: a chat-only provider is
   reported as unsupported, never swapped for a hosted embedding provider.
   Docs updated: `docs/harness/search-retrieval.md`, `docs/CHANGELOG.md`.
-- **fix(builds): four defects found by the live run.** (1) `GET /code/tasks/{id}/diff`
-  read `workspaceId` from the `task.created` payload — a SCOPE LABEL, null for an
-  unscoped task — so the diff 404'd for every such build even though the worktree
-  was correct; it now reads the recorded `CodeWorkspace` row (and the external
-  action route does the same). (2) The front-door `/api/code/preview` proxy built
-  its target from `taskId`/`rootId` only, dropping `mode`, so the UI could never
-  run the prepared change; `mode` is forwarded. (3) `capability_request` returned
-  "ready to build" without the request id in the model-facing text, so the model
-  invented ids and `capability_build` refused `REQUEST_NOT_FOUND`; the text now
-  names the request and the exact next call. (4) The front-door rollback route read
-  `runId` from the body while its client sends it in the query, so a rollback
-  could not resolve the project or write the `land.rolled_back` marker (the
-  scorecard showed zero rollbacks); it now accepts both. Tests: affected suites
-  (80 passed). Docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
-- **fix(builds): readiness pass — git hygiene, full policy coverage, clean task list.**
-  A user's repo has no `.black-eclipse` ignore rule, so the first build left
-  untracked state in their `git status`; the directory now writes a self-ignoring
-  `.gitignore` (`*`) when it is created (builds and capability drafts).
-  `policy.json` now also covers `write_file`/`create_file`/`delete`/`move` via
-  `code/fs/resolver.py` (`for_change`), not just `patch.apply`; deleting a folder
-  checks every child. The task list reads all workspaces once (no N+1) and hides a
-  finished turn that never touched a file (no phantom builds). `record_chat_build`
-  uses `DEFAULT_AGENT_ID` instead of a literal. UI: land-check warnings are
-  surfaced, and a project can be removed from Eclipse in the project bar. New
-  user guide `docs/developing-a-project.md`. Tests: state-dir self-ignore, fs
-  policy refusal, project attribution/filter. Docs updated:
-  `docs/developing-a-project.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **feat(builds): run the prepared change, and let a project protect its own paths.**
-  Preview gained `mode=change`: it runs the task's WORKTREE, with the checkout's
-  `node_modules` / `.venv` linked read-only (NTFS junction on Windows, symlink
-  elsewhere) and removed on stop — so you can look at an unlanded change without
-  installing dependencies twice. Switching mode stops the previous server; a
-  missing worktree or a failed dependency link is refused (`PREVIEW_CHANGE_GONE` /
-  `PREVIEW_DEPS_UNAVAILABLE`), never silently fallen back. Separately, a project
-  may ship `.black-eclipse/policy.json` with `denyPaths` (prefix / glob / exact):
-  it is **narrow-only**, enforced in `code/patch.py` before any write, ignores
-  absolute and `..` entries, and a broken file protects nothing. Tests: 5
-  `test_project_policy.py`, 3 new `test_preview.py` (worktree + links + cleanup,
-  missing change, mode switch stops the old server). Docs updated:
-  `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
-- **feat(builds): open a project with a brief, not a guess (P5).** A new
-  `code/onboarding.py::project_brief` answers, before the first build: the stack
-  (`package.json` / pyproject / Cargo / go / Make), the git branch and uncommitted
-  count, the command that would run, the checks a change must pass (and where
-  they came from), and whether the project ships its own rules. `GET /code/project`
-  (server-resolved like the preview) backs a compact card in Builds; its
-  **Prepare** action indexes the project (`POST /code/intel/index`), so symbol
-  search and repo context are ready. A preview's dev server is already torn down
-  by `stop_terminal()` on runtime shutdown; no second teardown was added. Tests: 4
-  `test_project_brief.py` cases. Docs updated: `docs/CHANGELOG.md`,
-  `docs/NAVIGATION.md`.
-- **feat(builds): project scope is visible everywhere (polish).** A task view now
-  names the project each build belongs to (`projectRoot`, read from the recorded
-  workspace row), `GET /code/tasks` takes `rootId` to list one project, and the
-  Builds list shows the folder and follows the project bar. The task detail gains
-  **Continue in chat** (the next turn for a durable build), the preview gains
-  **Restart** and stops the previous project's server when the project changes,
-  and the Capability Studio can filter generated capabilities by project
-  (`GET /capabilities?rootId=`, resolved server-side). Tests: a task's project is
-  attributed and filterable (`test_code_tasks.py`), and the existing capability
-  API/tools suites still pass. Docs updated: `docs/CHANGELOG.md`,
-  `docs/NAVIGATION.md`.
-- **feat(builds): the preview names its command before it runs.** The idle
-  preview status now carries the discovered plan, so the Builds run panel shows
-  "Runs npm run dev" (or "no way to run this project") and disables Run when
-  there is no command — what will execute is visible before the click, not after
-  it. Tests: 2 new `test_preview.py` cases (idle names the command; no command).
-  Docs updated: `docs/CHANGELOG.md`, `docs/NAVIGATION.md`.
 - **test(harness): first real chat quant eval passes.** Ran “forecast gold for
   tomorrow” through the live configured model (Ollama / deepseek-v4.1-flash) and
   graded the actual answer + 23 tool executions with `quant_chat_eval`:

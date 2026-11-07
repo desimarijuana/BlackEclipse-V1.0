@@ -154,7 +154,35 @@ export async function POST(request: Request) {
       : undefined;
 
     const identityHeaders = await runtimeIdentityHeaders(request);
-    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode);
+    // One-shot chat is bounded by the front door's `maxDuration` (180 s), but a
+    // writable turn is budgeted far longer (80 steps / 2,700 s). Rather than be
+    // killed mid-run with no handle, stop WAITING before that ceiling and hand
+    // the caller a run id + stream URL; the runtime keeps working.
+    const effectiveRunId = runId ?? newRunId();
+    const softDeadlineMs = Number(process.env.HARNESS_CHAT_SOFT_DEADLINE_MS || 150_000);
+    const running = { status: "running" as const };
+    const result = await Promise.race([
+      chatWithAgent(query, history, documents, effectiveRunId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode),
+      new Promise<typeof running>((resolve) => {
+        const timer = setTimeout(() => resolve(running), Math.max(1, softDeadlineMs));
+        // Never keep the process alive for a deadline we stopped waiting on.
+        (timer as unknown as { unref?: () => void }).unref?.();
+      }),
+    ]);
+    if (result.status === "running") {
+      return NextResponse.json(
+        {
+          success: true,
+          status: "running",
+          runId: effectiveRunId,
+          streamUrl: `/api/harness/runs/${effectiveRunId}/stream`,
+          content:
+            "This run is still working and has outlived the one-shot chat endpoint. " +
+            `It continues in the background — follow run ${effectiveRunId} to see the result.`,
+        },
+        { status: 202 },
+      );
+    }
     if (result.status === "failed") {
       return NextResponse.json(
         { success: false, error: result.error, runId: result.runId },

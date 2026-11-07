@@ -836,10 +836,8 @@ def _auto_verify(root: Path) -> Optional[dict[str, Any]]:
 async def _diff(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     model = WorkspaceDiffInput(**_present(args))
     if getattr(ctx, "workspace", None) is None:
-        return (
-            "REFUSED (WORKSPACE_UNBOUND): there is no project folder to compare.",
-            {"status": "refused", "code": "WORKSPACE_UNBOUND"},
-        )
+        return ("REFUSED (WORKSPACE_UNBOUND): there is no project folder to compare.",
+                {"status": "refused", "code": "WORKSPACE_UNBOUND"})
     existing = getattr(ctx, "_code_workspace", None)
     if existing is None:
         # Nothing has been written yet this run — a diff is honestly empty.
@@ -851,7 +849,9 @@ async def _diff(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         )
     cw = existing[0]
     try:
-        result = worktree_mod.diff(cw.id, model.base, strategy=cw.strategy)
+        # Rooted at the cut-from project: else the diff reports the harness repo.
+        result = worktree_mod.diff(cw.id, model.base, strategy=cw.strategy,
+                                   root=getattr(getattr(ctx, "workspace", None), "root", None))
     except WorkspaceError as exc:
         return _patch_refusal(cw.id, exc.code, exc.reason)
     store = getattr(ctx, "code_store", None)

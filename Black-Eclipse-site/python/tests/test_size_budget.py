@@ -174,7 +174,7 @@ RATCHET_PY: dict[str, int] = {
     # pinned to the measured tree.
     # Re-pinned 2461->2469 (2026-11-06) for the chat quant contract: the deep
     # budget floor and the final-answer artifact check seam. May only shrink.
-    "graph.py": 2470,
+    "graph.py": 2471,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.

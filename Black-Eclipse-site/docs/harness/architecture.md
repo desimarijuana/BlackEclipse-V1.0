@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-11-05
+last-verified: 2026-11-06
 ---
 
 # Harness Architecture
@@ -1127,6 +1127,23 @@ lifespan exit (the pool reconnects lazily if the runtime restarts).
   `python/harness/*.py`. If the process predates the code, it is ours and it is
   killed and respawned — otherwise every harness edit would silently keep
   serving old code until the port was cleared by hand.
+- **A runtime already on the port is ADOPTED, never raced.** When a listener
+  exists, a second `/health` probe decides: healthy means "use it" (the child
+  may simply have been slow to answer the first probe during a cold start). Only
+  a silent listener is cleared, and only after the busy-grace window. The
+  supervisor used to fall through to a spawn when that second probe *succeeded*,
+  booting a rival uvicorn that died with `WinError 10048` — the front door then
+  reported "runtime unavailable" for the rest of the session (measured
+  2026-11-06). A child that dies because the port is taken is now detected from
+  its stderr and the live runtime is adopted. Listener PIDs are parsed from the
+  exact local-address column of `netstat`, so `:18766` or a foreign `:8766` can
+  never be mistaken for the runtime.
+
+  The runtime address is an operator override that actually takes effect:
+  `HARNESS_PY_URL` / `HARNESS_PY_PORT` / `HARNESS_PY_HOST` in the environment win
+  over the profile default, and `prestart`/`predev` clear the port that will
+  actually be used. That is the supported way to move the runtime off a port
+  something else owns.
 
 ## Extension points
 

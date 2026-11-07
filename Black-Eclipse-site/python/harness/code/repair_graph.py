@@ -96,7 +96,9 @@ def read_pinned_checks(root: Optional[Path]) -> PinnedChecks:
         return PinnedChecks()
     config = Path(root) / CHECKS_FILE
     try:
-        payload = json.loads(config.read_text(encoding="utf-8"))
+        # `utf-8-sig`: a BOM written by an editor/`Set-Content -Encoding utf8`
+        # must not silently disable the project's pinned checks.
+        payload = json.loads(config.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return PinnedChecks()
     if not isinstance(payload, dict):
@@ -159,10 +161,14 @@ class RepairLoop:
             return "REPAIR_REFUSED"
         if self.check_runs == 0:
             return "REPAIR_NOT_RUN"
-        if self.stopped_reason:
-            return "REPAIR_EXHAUSTED"
+        # The FACT first: a passing last check is a passing check. A run that
+        # passes and then spends its remaining check-run budget on an unrelated
+        # command must not be reported as "exhausted" (observed live: the answer
+        # claimed the tests were "still failing" after they had passed).
         if self.last_passed:
             return "REPAIR_PASSED"
+        if self.stopped_reason:
+            return "REPAIR_EXHAUSTED"
         # A failure was shown to the model and the run ended before the budget
         # was spent: the check was still failing when the answer was written.
         return "REPAIR_FAILED"
@@ -347,6 +353,10 @@ async def repair_turn(
             pass
 
     if loop.check_runs >= loop.budget.check_run_limit:
+        if loop.last_passed:
+            # Already verified this run: another call is a no-op, not an
+            # exhaustion. (The checks pass; the budget is simply spent.)
+            return None, None
         loop.stopped_reason = "check_runs"
         await _emit("code.repair.exhausted", loop.to_dict())
         return loop.to_dict(), None

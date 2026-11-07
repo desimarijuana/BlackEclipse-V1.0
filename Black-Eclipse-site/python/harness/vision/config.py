@@ -92,6 +92,21 @@ def _config_file_overrides() -> dict[str, Any]:
     return block if isinstance(block, dict) else payload
 
 
+def _app_privacy_default() -> str:
+    """The app-wide privacy switch (`ECLIPSE_PRIVACY`) as a vision mode.
+
+    Vision used to have its OWN default (`cloud_allowed`) that ignored the
+    app-wide switch, so `ECLIPSE_PRIVACY=local-models` still sent screenshots to
+    a cloud vendor. There is one privacy story: local-models means local-only,
+    everywhere. `HARNESS_VISION_PRIVACY` (or `vision.json`) may still be set
+    explicitly, but it can never be looser than the app-wide switch below.
+    """
+    raw = (os.environ.get("ECLIPSE_PRIVACY") or "").strip().lower()
+    if raw in ("local-models", "local_models", "local", "local-only", "local_only"):
+        return "local_only"
+    return "cloud_allowed"
+
+
 @dataclass
 class VisionConfig:
     """The resolved `vision:` configuration for this process."""
@@ -106,6 +121,10 @@ class VisionConfig:
     # Routing / privacy.
     privacy_mode: str = "cloud_allowed"     # cloud_allowed|cloud_preferred|local_preferred|local_only
     allow_cloud_for_sensitive: bool = False
+    # A bounded fallback chain. A dead vendor must cost one timeout, not a walk
+    # through every configured provider (measured: 12 calls before one answered).
+    max_attempts: int = 4
+    max_per_provider: int = 2
     # Image limits (lowered only, never above the hard ceiling).
     max_image_bytes: int = 16 * 1024 * 1024
     max_pixels: int = 40_000_000
@@ -190,8 +209,17 @@ def load_vision_config() -> VisionConfig:
             os.environ.get("HARNESS_VISION_FALLBACK") or overrides.get("fallback_priority", [])
         ),
         privacy_mode=_choice(
-            os.environ.get("HARNESS_VISION_PRIVACY") or nested("privacy", "mode", "cloud_allowed"),
-            PRIVACY_MODES, "cloud_allowed",
+            os.environ.get("HARNESS_VISION_PRIVACY")
+            or nested("privacy", "mode", _app_privacy_default()),
+            PRIVACY_MODES, _app_privacy_default(),
+        ),
+        max_attempts=_int(
+            os.environ.get("HARNESS_VISION_MAX_ATTEMPTS"), int(nested("limits", "max_attempts", 4)),
+            low=1, high=12,
+        ),
+        max_per_provider=_int(
+            os.environ.get("HARNESS_VISION_MAX_PER_PROVIDER"), int(nested("limits", "max_per_provider", 2)),
+            low=1, high=6,
         ),
         allow_cloud_for_sensitive=_truthy(
             os.environ.get("HARNESS_VISION_ALLOW_CLOUD_SENSITIVE"),

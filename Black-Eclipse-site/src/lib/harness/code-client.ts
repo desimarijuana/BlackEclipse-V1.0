@@ -26,8 +26,6 @@ export interface CodeTask {
   status: TaskStatus;
   autonomy: Autonomy;
   workspaceId: string | null;
-  /** The project checkout this build belongs to ("" when unattributed). */
-  projectRoot?: string;
   query: string;
   plan: CodePlan | null;
   verification: CodeVerification | null;
@@ -82,8 +80,6 @@ export interface CodePreview {
   ready?: boolean;
   running?: boolean;
   source?: string;
-  mode?: string;
-  deps?: string[];
   processState?: string;
   logs?: string;
   plan?: Record<string, unknown>;
@@ -94,11 +90,9 @@ export interface ProjectTarget {
   rootId?: string;
 }
 
-export interface PreviewTarget extends ProjectTarget {
-  /** "checkout" (on disk) or "change" (this task's prepared change). */
-  mode?: "checkout" | "change";
-}
+export type PreviewTarget = ProjectTarget;
 
+/** The onboarding project brief shown before the first build. */
 export interface ProjectBrief {
   available: boolean;
   reason?: string;
@@ -314,9 +308,8 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
   return body as T;
 }
 
-export async function listCodeTasks(target: ProjectTarget = {}): Promise<CodeTask[]> {
-  const query = target.rootId ? `?rootId=${encodeURIComponent(target.rootId)}` : "";
-  const body = await request<{ tasks: CodeTask[] }>(`/code/tasks${query}`, { method: "GET" });
+export async function listCodeTasks(): Promise<CodeTask[]> {
+  const body = await request<{ tasks: CodeTask[] }>("/code/tasks", { method: "GET" });
   return body.tasks ?? [];
 }
 

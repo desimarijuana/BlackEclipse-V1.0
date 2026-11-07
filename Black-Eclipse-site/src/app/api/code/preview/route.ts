@@ -49,7 +49,6 @@ export async function POST(request: Request) {
   const target: PreviewTarget = {
     ...(body.taskId ? { taskId: body.taskId } : {}),
     ...(body.rootId ? { rootId: body.rootId } : {}),
-    ...(body.mode ? { mode: body.mode } : {}),
   };
   try {
     const preview =

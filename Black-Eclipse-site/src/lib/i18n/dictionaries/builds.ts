@@ -7,11 +7,24 @@ export const builds = {
   'code.project.switch': 'Change',
   'code.project.defaultName': 'Eclipse repo',
   'code.project.defaultOption': 'Use the built-in repo',
-  'code.project.remove': 'Remove from Eclipse',
   'code.project.openFolder': 'Open folder…',
   'code.project.useFolder': 'Build here',
   'code.project.none': 'No folders approved yet.',
   'code.project.failed': 'I could not read your approved folders just now.',
+  'code.project.remove': 'Remove from list',
+
+  // The pre-build project brief (P5).
+  'code.project.preparing': 'Preparing…',
+  'code.project.prepared': 'Prepared',
+  'code.project.prepare': 'Prepare project',
+  'code.project.dirty': '{count} changed',
+  'code.project.rulesOn': 'Project rules loaded',
+  'code.project.noRun': 'No run command found',
+  'code.project.checksLabel': 'Checks',
+  'code.project.checks.detected': 'detected',
+  'code.project.checks.project': 'project',
+  'code.project.checks.defaults': 'Eclipse defaults',
+  'code.project.checks.none': 'none',
 
   // Run and preview (P2).
   'code.preview.title': 'See it running',
@@ -34,21 +47,4 @@ export const builds = {
   // Which builds the scorecard counts.
   'code.scorecard.scope.project': 'This project',
   'code.scorecard.scope.all': 'All builds',
-  'code.task.continue': 'Continue in chat',
-  'code.preview.restart': 'Restart',
-  'code.preview.mode.checkout': 'On disk',
-  'code.preview.mode.change': 'Prepared change',
-
-  // The project brief shown before the first build.
-  'code.project.prepare': 'Prepare',
-  'code.project.preparing': 'Preparing…',
-  'code.project.prepared': 'Ready',
-  'code.project.rulesOn': 'Uses its own rules file',
-  'code.project.checksLabel': 'Checks',
-  'code.project.noRun': 'No run command found',
-  'code.project.dirty': '{count} uncommitted',
-  'code.project.checks.detected': 'found here',
-  'code.project.checks.project': 'from its land.json',
-  'code.project.checks.defaults': 'Eclipse defaults',
-  'code.project.checks.none': 'none found',
 } as const;
