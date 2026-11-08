@@ -17,6 +17,7 @@
 // catalog (declared + discovered) so it reads WHICH model is active.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useT } from "@/lib/i18n/use-t";
 import {
   Activity,
   Brain,
@@ -173,6 +174,7 @@ function ActiveSetup({
   updateLlm: (patch: Partial<LLMConfig>, debounce?: number) => void;
   modelCatalog: ModelCatalog;
 }) {
+  const t = useT();
   const [testing, setTesting] = useState(false);
   const [test, setTest] = useState<{ ok: boolean; message: string; latencyMs?: number } | null>(null);
 
@@ -278,6 +280,21 @@ function ActiveSetup({
         value={llm.reasoningEffort ?? null}
         onChange={(v) => updateLlm({ reasoningEffort: v }, 0)}
       />
+
+      <div className="flex flex-col gap-1.5">
+        <Label className="text-xs text-muted-foreground font-medium">
+          {t('settings.ai.codingModel')}
+        </Label>
+        <Input
+          value={llm.codingModel ?? ""}
+          onChange={(e) => updateLlm({ codingModel: e.target.value.trim() || null })}
+          placeholder={t('settings.ai.codingModelPlaceholder')}
+          className="font-mono !border-white/12"
+        />
+        <p className="text-[10px] text-muted-foreground">
+          {t('settings.ai.codingModelHint')}
+        </p>
+      </div>
 
       {isLocalBaseUrl(llm.baseUrl) ? (
         <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">

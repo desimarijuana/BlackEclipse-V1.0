@@ -9,12 +9,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const body = (await request.json().catch(() => ({}))) as {
     approvalId?: string;
     previewDigest?: string;
+    include?: string[];
   };
   if (!body.approvalId || !body.previewDigest) {
     return NextResponse.json({ error: "approvalId and previewDigest are required" }, { status: 400 });
   }
   try {
-    const promotion = await applyPromotion(id, body.approvalId, body.previewDigest);
+    const promotion = await applyPromotion(id, body.approvalId, body.previewDigest, body.include ?? []);
     return NextResponse.json({ success: true, promotion });
   } catch (err) {
     const unavailable = err instanceof HarnessRuntimeUnavailable;

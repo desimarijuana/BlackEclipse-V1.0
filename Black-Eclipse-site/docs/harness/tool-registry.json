@@ -1,7 +1,7 @@
 {
-  "digest": "c50c646a38850804",
+  "digest": "71b927c5fe1d83e7",
   "manifestVersion": "1",
-  "toolCount": 1019,
+  "toolCount": 1024,
   "tools": [
     {
       "deprecated": false,
@@ -9190,6 +9190,98 @@
       "permission": "read",
       "replacement": null,
       "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Ask one or more TYPED decision questions about a state (choice/score/noul) and get typed answers with probabilities and confidence. Use for bounded judgments (route, classify, score, does-this-support-that), not for writing prose. Returns 'unavailable' rather than guessing.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "min_confidence": {
+            "type": "number"
+          },
+          "min_probability": {
+            "type": "number"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "description": "Optional provider name (e.g. rules, typesafe).",
+            "type": "string"
+          },
+          "questions": {
+            "description": "Map of stable question id -> question. Each question is {type: choice|score|noul, instructions, criteria?}. choice criteria is {option: description}; score criteria is an ordered list of level descriptions.",
+            "type": "object"
+          },
+          "state": {
+            "type": [
+              "string",
+              "object"
+            ]
+          },
+          "timeout_ms": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "state",
+          "questions"
+        ],
+        "type": "object"
+      },
+      "name": "decision_ask",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "List the typed decision requests this agent has recorded, with their status and any appended outcome.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "owner_id": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "answered",
+              "review",
+              "unavailable"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "decision_list",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Summarise recorded decisions and outcomes: counts by status, provider and outcome, plus accuracy over evaluated records.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "owner_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "decision_scorecard",
+      "permission": "read",
+      "replacement": null,
+      "risk": "none",
       "version": "1.0.0"
     },
     {
@@ -19577,6 +19669,49 @@
     },
     {
       "deprecated": false,
+      "description": "List the models and research artifacts Eclipse already has, so you reuse before you rebuild: quant strategies, quant experiments, ML models and datasets, statistical features and factors. Read-only; an empty section means none is registered, not that the capability is unavailable.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "includeArchived": {
+            "description": "Include archived strategies/factors (default false).",
+            "type": "boolean"
+          },
+          "kind": {
+            "description": "Filter to one artifact family (default all).",
+            "enum": [
+              "all",
+              "strategy",
+              "experiment",
+              "ml_model",
+              "ml_dataset",
+              "feature",
+              "factor"
+            ],
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum entries returned (default 20).",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "query": {
+            "description": "Optional case-insensitive id/name/status filter.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "model_catalog",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
       "description": "Move a file or folder inside the project.",
       "effect": "write",
       "inputSchema": {
@@ -21948,6 +22083,26 @@
         "type": "object"
       },
       "name": "project_next",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Read the project's own rules (AGENTS.md, .eclipse/instructions.md, CLAUDE.md, and the top-level map in docs/NAVIGATION.md). Use this when you need the house checks, the documentation obligation or the layout. Read-only; bounded; rules are context, not permission.",
+      "effect": null,
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "refresh": {
+            "description": "Re-read the files instead of using this run's memo.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "name": "project_rules",
       "permission": "read",
       "replacement": null,
       "risk": "low",

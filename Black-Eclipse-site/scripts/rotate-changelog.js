@@ -62,10 +62,15 @@ function main() {
     const merged = existing
       ? `${existing}\n\n${block}\n`
       : `# ${month}\n\n${block}\n`;
+    // Keep the target's line ending. On Windows the archives are CRLF; a bare
+    // `\n` tail would make the file MIXED, which `gitignore-guard` fails on
+    // (measured 2026-11-07: rotating 2026-10-31 produced 20,628 CRLF + 205 LF).
+    const useCrlf = existing ? existing.includes("\r\n") : text.includes("\r\n");
+    const payload = useCrlf ? merged.replace(/\r\n/g, "\n").replace(/\n/g, "\r\n") : merged;
     console.log(`  ${month}: ${sections.length} section(s)${write ? " -> archived" : " (dry run)"}`);
     if (write) {
       fs.mkdirSync(ARCHIVE_DIR, { recursive: true });
-      fs.writeFileSync(target, merged, "utf8");
+      fs.writeFileSync(target, payload, "utf8");
     }
   }
   if (write) {

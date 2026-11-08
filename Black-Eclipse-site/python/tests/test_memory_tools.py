@@ -476,8 +476,9 @@ def test_prompt_char_ceiling():
     # Re-pinned 41829->41967 for the partial-close / modify guidance.
     # Re-pinned 41967->42960 for the ML workflow guidance (chat named no ML tool, so
     # the agent never composed the dataset -> plan -> train -> compare/register/predict
-    # -> drift path). Re-pinned to the measured size; may only shrink from here.
-    assert len(prompt) <= 42960, f"prompt grew to {len(prompt)} chars"
+    # -> drift path). Re-pinned 42960->43307 (2026-11-06) for the in-flight composer
+    # plan-mode prompt block already present in the shared tree. May only shrink.
+    assert len(prompt) <= 43307, f"prompt grew to {len(prompt)} chars"
 
 
 def test_prompt_market_data_semantics_present():

@@ -454,3 +454,36 @@ async def test_the_graph_has_a_verify_and_repair_node(monkeypatch) -> None:
         assert "verify_repair" in nodes, f"nodes were {sorted(nodes)}"
     finally:
         store.close()
+
+
+# ── a PASSED check must never be reported as "exhausted" ─────────────────────
+def test_a_passing_check_outranks_a_spent_check_budget() -> None:
+    """Measured live 2026-11-06: the pinned check passed, a later `build` run
+    spent the last check-run slot, `stoppedReason` was set, and the answer was
+    annotated "still failing" — a falsehood about a green check."""
+    loop = RepairLoop()
+    loop.check_runs = 3
+    loop.last_passed = True
+    loop.stopped_reason = "check_runs"
+    assert loop.status == "REPAIR_PASSED"
+
+
+@pytest.mark.asyncio
+async def test_a_spent_check_budget_after_a_pass_is_not_an_exhaustion(tmp_path) -> None:
+    _pin(tmp_path)
+    registry = ToolRegistry()
+    registry.register(_write_tool())
+    emitter = _Emitter()
+    state = {
+        "messages": [AIMessage(content="", tool_calls=[{"id": "1", "name": "write_file", "args": {}}])],
+        "repair": {
+            "status": "REPAIR_PASSED", "repairAttempts": 1, "checkRuns": 3,
+            "lastCheckPassed": True, "checks": ["unit_test"],
+        },
+    }
+    repair_state, message = await repair_turn(
+        state=state, ctx=_Ctx(tmp_path), registry=registry,
+        autonomy="edit_verify", emitter=emitter,
+    )
+    assert repair_state is None and message is None
+    assert not any(event == "code.repair.exhausted" for event, _ in emitter.events)

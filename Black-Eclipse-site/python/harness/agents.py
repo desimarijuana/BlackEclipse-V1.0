@@ -54,6 +54,7 @@ from .ledger.tools import LEDGER_TOOLS
 # The Advisory Ledger tools (`advisory_*`). Registered by `advisory/bootstrap.py`;
 # imported as the ONE canonical list so the allowlist cannot drift.
 from .advisory.tools import ADVISORY_TOOLS
+from .decisions.tools import DECISION_TOOLS
 # The money-guardrail tools (`finance_guardrail_*`, read-only). Registered by
 # `finance_guardrails/bootstrap.py` on the SAME registry; imported as the ONE
 # canonical list so the allowlist cannot drift.
@@ -380,6 +381,9 @@ ECLIPSE_AGENT = AgentConfig(
         # walk-forward, Monte-Carlo, sensitivity and robustness â€” over the same
         # verified datasets.
         *QUANT_TOOLS,
+        # The unified model/research catalog: read what strategies, experiments,
+        # ML models/datasets, features and factors already exist before rebuilding.
+        "model_catalog",
     *PROJECT_TOOLS,
     *GALLERY_TOOLS,
         # The pine-script tools ride in through `*QUANT_TOOLS` (which now splats
@@ -413,6 +417,10 @@ ECLIPSE_AGENT = AgentConfig(
         # Advisory Ledger: recall past recommendations and their outcomes
         # (read-only; the ledger is written by the runtime, not a model call).
         *ADVISORY_TOOLS,
+        # Typed decisions: ask bounded choice/score/yes-no questions and get
+        # calibrated answers, then recall the audit record. Read-only; an answer
+        # is never an authorization.
+        *DECISION_TOOLS,
         # Money guardrails: read the active caps/state and ask what would happen
         # to a hypothetical intent. Read-only by construction — the agent can
         # never change the limits, declare impairment, or clear crisis/panic.
@@ -726,7 +734,7 @@ BOOKKEEPER = AgentConfig(
 CODE_AGENT_TOOLS = [
     # Read / navigate (Phase 1)
     "workspace_status", "workspace_list",
-    "workspace_read", "workspace_docs",
+    "workspace_read", "workspace_docs", "project_rules",
     # Change (Phase 2) â€” effectful; removed at plan_only
     "workspace_diff", "workspace_revert",
     # File-system subsystem (Phase FS) â€” read/inspect first, then minimal edits.
@@ -921,7 +929,7 @@ CODE_AGENT = AgentConfig(
 # `code_deploy` stay on the Code Tasks surface where the approval panel lives.
 CHAT_CODE_TOOLS: tuple[str, ...] = (
     "workspace_status", "workspace_list",
-    "workspace_read", "workspace_docs",
+    "workspace_read", "workspace_docs", "project_rules",
     "workspace_diff", "workspace_revert",
     "command_run", "terminal_run", "shell_run", "shell_spawn",
     "process_output", "process_kill", "process_list",

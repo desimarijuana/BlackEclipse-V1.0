@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import {
-  BaseEdge, EdgeLabelRenderer, getStraightPath, type EdgeProps,
+  BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps,
 } from '@xyflow/react';
 import { Plus, Trash2 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
@@ -21,22 +21,29 @@ export interface EclipseEdgeData extends Record<string, unknown> {
 }
 
 export function EclipseEdge({
-  id, sourceX, sourceY, targetX, targetY,
+  id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition,
   style, markerEnd, selected, data,
 }: EdgeProps) {
   const [hovered, setHovered] = useState(false);
-  const [edgePath, labelX, labelY] = getStraightPath({
-    sourceX, sourceY, targetX, targetY,
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition, curvature: 0.28,
   });
   const edgeData = data as EclipseEdgeData | undefined;
   const runState = edgeData?.runState;
   const active = hovered || selected;
   const accent = edgeData?.accent ?? 'var(--primary)';
+  // Idle wires are neutral; the theme accent is reserved for an active run (and
+  // the status colours for success/failure). This keeps the canvas quiet when
+  // nothing is executing.
   const stroke = runState === 'failed'
     ? 'rgba(251,113,133,0.9)'
     : runState === 'succeeded'
       ? 'rgba(52,211,153,0.85)'
-      : accent;
+      : runState === 'running'
+        ? accent
+        : active
+          ? 'rgba(212,212,216,0.85)'
+          : 'rgba(161,161,170,0.55)';
   // Per-edge gradient so the wire fades in from the source and brightens
   // toward the target, the way the reference connections read.
   const gradientId = `eclipse-edge-grad-${id.replace(/[^a-zA-Z0-9_-]/g, '_')}`;

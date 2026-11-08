@@ -213,6 +213,30 @@ def _gap_block(events: list[Any]) -> Optional[dict[str, Any]]:
     return gap
 
 
+def _quant_block(
+    rows: list[Any],
+    run: Optional[dict[str, Any]],
+    tool_executions: Optional[list[Any]],
+) -> Optional[dict[str, Any]]:
+    """The derived quant-completeness record, or None when the turn was not quant."""
+    plan: Optional[dict[str, Any]] = None
+    for event in rows:
+        if isinstance(event, dict) and event.get("type") == "quant.plan":
+            plan = _event_data(event)
+            break
+    if not plan:
+        return None
+    from .quant_intent import evaluate_quant_outcome  # noqa: PLC0415
+
+    names = [
+        str(row.get("name") or "") if isinstance(row, dict) else ""
+        for row in (tool_executions or [])
+    ]
+    return evaluate_quant_outcome(
+        plan, names, str((run or {}).get("output") or "")
+    )
+
+
 def build_outcome_envelope(
     *,
     run_id: str,
@@ -234,6 +258,7 @@ def build_outcome_envelope(
         "surface": _surface_block(run, rows),
         "refusalCode": _refusal_code(run, rows),
         "capabilityGap": _gap_block(rows),
+        "quant": _quant_block(rows, run, tool_executions),
         "toolCalls": len(list(tool_executions or [])),
         "note": (
             "Derived from the run's canonical records. A fact that was never "

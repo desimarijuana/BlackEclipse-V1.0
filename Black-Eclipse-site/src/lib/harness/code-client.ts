@@ -49,11 +49,229 @@ export interface CreateTaskInput {
   query: string;
   autonomy: Autonomy;
   workspaceId?: string;
+  /** Phase 23: the approved project root this build belongs to (per-chat id). */
+  workspaceRootId?: string;
   modelSettings: Record<string, unknown>;
   callbackBaseUrl?: string;
   callbackToken?: string;
   /** Edit the selected real folder directly instead of a disposable copy. */
   direct?: boolean;
+  /** Phase 22 / S2: the build session's budget profile (default "standard"). */
+  budgetProfile?: BudgetProfile;
+  /** What "done" means, in the caller's words; recorded with the session. */
+  acceptance?: string[];
+}
+
+export type BudgetProfile = "small" | "standard" | "deep";
+
+// ── Running the user's project (Phase 24 / P2) ───────────────────────────────
+export interface CodePreview {
+  status: "idle" | "ok" | "refused" | "unavailable" | "failed";
+  code?: string;
+  reason?: string;
+  taskKey?: string;
+  serviceId?: string;
+  processId?: string;
+  command?: string;
+  label?: string;
+  root?: string;
+  url?: string;
+  port?: number;
+  ready?: boolean;
+  running?: boolean;
+  source?: string;
+  processState?: string;
+  logs?: string;
+  plan?: Record<string, unknown>;
+}
+
+export interface ProjectTarget {
+  taskId?: string;
+  rootId?: string;
+}
+
+export type PreviewTarget = ProjectTarget;
+
+/** The onboarding project brief shown before the first build. */
+export interface ProjectBrief {
+  available: boolean;
+  reason?: string;
+  name?: string;
+  path?: string;
+  stack?: string[];
+  git?: { available: boolean; branch: string | null; dirty: number };
+  run?: { command: string; source: string };
+  checks?: Array<{ id: string; label: string }>;
+  checksSource?: string;
+  warnings?: string[];
+  hasRules?: boolean;
+  isHarnessRepo?: boolean;
+}
+
+export async function getProjectBrief(target: ProjectTarget = {}): Promise<ProjectBrief> {
+  const query = new URLSearchParams();
+  if (target.taskId) query.set("taskId", target.taskId);
+  if (target.rootId) query.set("rootId", target.rootId);
+  const body = await request<{ project: ProjectBrief }>(`/code/project?${query.toString()}`, {
+    method: "GET",
+  });
+  return body.project;
+}
+
+/** Index the selected project so symbol search and repo context are ready. */
+export async function prepareProjectIndex(): Promise<Record<string, unknown>> {
+  return request("/code/intel/index", { method: "POST", timeoutMs: 300_000 });
+}
+
+export async function getCodePreview(target: PreviewTarget = {}): Promise<CodePreview> {
+  const query = new URLSearchParams();
+  if (target.taskId) query.set("taskId", target.taskId);
+  if (target.rootId) query.set("rootId", target.rootId);
+  const body = await request<{ preview: CodePreview }>(`/code/preview?${query.toString()}`, {
+    method: "GET",
+  });
+  return body.preview;
+}
+
+export async function startCodePreview(target: PreviewTarget = {}): Promise<CodePreview> {
+  const body = await request<{ preview: CodePreview }>("/code/preview/start", {
+    method: "POST",
+    body: JSON.stringify(target),
+    // Starting a dev server waits for a listening port (bounded server-side).
+    timeoutMs: 90_000,
+  });
+  return body.preview;
+}
+
+export async function stopCodePreview(target: PreviewTarget = {}): Promise<CodePreview> {
+  const body = await request<{ preview: CodePreview }>("/code/preview/stop", {
+    method: "POST",
+    body: JSON.stringify(target),
+  });
+  return body.preview;
+}
+
+export async function getCodePreviewLogs(target: PreviewTarget = {}, tail = 200): Promise<string> {
+  const query = new URLSearchParams({ tail: String(tail) });
+  if (target.taskId) query.set("taskId", target.taskId);
+  if (target.rootId) query.set("rootId", target.rootId);
+  const body = await request<{ preview: CodePreview }>(`/code/preview/logs?${query.toString()}`, {
+    method: "GET",
+  });
+  return body.preview.logs ?? "";
+}
+
+export interface LandCheck {
+  id: string;
+  label: string;
+  kind: string;
+  argv: string[];
+  required: boolean;
+  timeoutSeconds: number;
+  when: string;
+}
+
+export interface LandPlan {
+  changed: string[];
+  checks: LandCheck[];
+  source: string;
+  warnings: string[];
+}
+
+export interface LandCheckResult {
+  id: string;
+  label: string;
+  status: "passed" | "failed" | "error" | "skipped";
+  exitCode: number | null;
+  outputDigest: string;
+  outputTail: string;
+  required: boolean;
+  durationMs: number;
+}
+
+export interface LandResult {
+  ok: boolean;
+  failed: string | null;
+  results: LandCheckResult[];
+}
+
+export interface CodeScorecard {
+  windowDays: number;
+  checkedAt: string;
+  metrics: {
+    runs: number;
+    builds: number;
+    checked: number;
+    firstPassChecks: number;
+    landed: number;
+    rolledBack: number;
+    successRate: number | "UNKNOWN";
+    rollbackRate: number | "UNKNOWN";
+    firstPassRate: number | "UNKNOWN";
+    averageSteps: number | "UNKNOWN";
+    totalTokens: number | "UNKNOWN";
+    medianTimeToFirstChangeSeconds: number | "UNKNOWN";
+    costUsd: "UNKNOWN";
+    humanEditsAfterLanding: "UNKNOWN";
+  };
+  byModel?: Array<{
+    provider: string;
+    model: string;
+    builds: number;
+    checked: number;
+    firstPassChecks: number;
+    landed: number;
+    rolledBack: number;
+  }>;
+  unmeasured: string[];
+}
+
+/** Phase 22 / S6: the honest self-build scorecard. */
+export async function getCodeScorecard(
+  days = 30, target: ProjectTarget = {},
+): Promise<CodeScorecard> {
+  const query = new URLSearchParams({ days: String(days) });
+  if (target.taskId) query.set("taskId", target.taskId);
+  if (target.rootId) query.set("rootId", target.rootId);
+  return request(`/code/scorecard?${query.toString()}`, { method: "GET" });
+}
+
+/** Phase 22 / S4: the ordered checks a change must pass. Read-only. */
+export async function getLandPlan(id: string): Promise<LandPlan> {
+  const body = await request<{ plan: LandPlan }>(
+    `/code/tasks/${encodeURIComponent(id)}/land`,
+    { method: "GET" },
+  );
+  return body.plan;
+}
+
+/** Run the landing checks. `full` includes the long test suite. */
+export async function verifyLanding(
+  id: string, full = false,
+): Promise<{ result: LandResult; previewDigest: string | null; checkpointId: string }> {
+  return request(
+    `/code/tasks/${encodeURIComponent(id)}/land/verify?full=${full ? "1" : "0"}`,
+    { method: "POST", timeoutMs: 2_000_000 },
+  );
+}
+
+export interface CodeSession {
+  id: string;
+  goal: string;
+  acceptance: string[];
+  budget: { profile?: string; maxSteps?: number; runTimeoutSeconds?: number };
+  workspaceId: string | null;
+  status: string;
+  phase: string;
+  nextAction: string;
+  land: { ok: boolean; full: boolean; failed: string | null; at: string | null } | null;
+  progress: {
+    boundaries: number;
+    lastBoundary: string | null;
+    checkpoints: number;
+    createdAt: string | null;
+  };
+  resume: { resumable: boolean; code: string | null; checkpointId: string | null };
 }
 
 async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
@@ -98,6 +316,26 @@ export async function listCodeTasks(): Promise<CodeTask[]> {
 export async function getCodeTask(id: string): Promise<CodeTask> {
   const body = await request<{ task: CodeTask }>(`/code/tasks/${encodeURIComponent(id)}`, { method: "GET" });
   return body.task;
+}
+
+/** Phase 22 / S2: the durable session lens for a code task (goal, budget, resume). */
+export async function getCodeSession(id: string): Promise<CodeSession | null> {
+  const body = await request<{ session: CodeSession | null }>(
+    `/code/tasks/${encodeURIComponent(id)}`,
+    { method: "GET" },
+  );
+  return body.session ?? null;
+}
+
+/** One runtime read for both halves, so the front door does not call twice. */
+export async function getCodeTaskWithSession(
+  id: string,
+): Promise<{ task: CodeTask; session: CodeSession | null }> {
+  const body = await request<{ task: CodeTask; session: CodeSession | null }>(
+    `/code/tasks/${encodeURIComponent(id)}`,
+    { method: "GET" },
+  );
+  return { task: body.task, session: body.session ?? null };
 }
 
 export async function createCodeTask(input: CreateTaskInput): Promise<CodeTask> {
@@ -195,10 +433,11 @@ export interface PromotionLanding {
 
 /** Preview exactly what a task's change would put into the real project. */
 export async function previewPromotion(
-  taskId: string,
+  taskId: string, include: string[] = [],
 ): Promise<{ preview: PromotionPreview; approval: PromotionApproval | null; landing?: PromotionLanding }> {
   return request(`/code/tasks/${encodeURIComponent(taskId)}/promote/preview`, {
     method: "POST",
+    body: JSON.stringify({ include }),
     timeoutMs: 60_000,
   });
 }
@@ -208,12 +447,13 @@ export async function applyPromotion(
   taskId: string,
   approvalId: string,
   previewDigest: string,
+  include: string[] = [],
 ): Promise<{ ok: boolean; filesChanged: number; previewDigest: string; rollbackId?: string | null; landing?: PromotionLanding }> {
   const body = await request<{ promotion: { ok: boolean; filesChanged: number; previewDigest: string; rollbackId?: string | null }; landing?: PromotionLanding }>(
     `/code/tasks/${encodeURIComponent(taskId)}/promote`,
     {
       method: "POST",
-      body: JSON.stringify({ approvalId, previewDigest }),
+      body: JSON.stringify({ approvalId, previewDigest, include }),
       timeoutMs: 120_000,
     },
   );
@@ -263,10 +503,11 @@ export async function postLandingProbe(
 
 /** Put a previously-promoted change back — the exact original contents. */
 export async function rollbackPromotion(
-  rollbackId: string,
+  rollbackId: string, runId?: string,
 ): Promise<{ ok: boolean; rollbackId: string; restored: string[]; filesChanged: number }> {
+  const query = runId ? `?runId=${encodeURIComponent(runId)}` : "";
   const body = await request<{ rollback: { ok: boolean; rollbackId: string; restored: string[]; filesChanged: number } }>(
-    `/code/promotions/${encodeURIComponent(rollbackId)}/rollback`,
+    `/code/promotions/${encodeURIComponent(rollbackId)}/rollback${query}`,
     { method: "POST", timeoutMs: 120_000 },
   );
   return body.rollback;
@@ -388,6 +629,17 @@ export async function browseFolders(path?: string): Promise<BrowseResult> {
 export async function listTrustedRoots(): Promise<TrustedRoot[]> {
   const body = await request<{ roots: TrustedRoot[] }>("/workspace/roots", { method: "GET" });
   return body.roots ?? [];
+}
+
+/** Create one folder inside the directory the picker is showing. */
+export async function createBrowsedFolder(
+  path: string, name: string,
+): Promise<{ path: string; name: string; parent: string }> {
+  const body = await request<{ success: boolean; path: string; name: string; parent: string }>(
+    "/workspace/browse/mkdir",
+    { method: "POST", body: JSON.stringify({ path, name }), timeoutMs: 20_000 },
+  );
+  return body;
 }
 
 export async function approveTrustedRoot(path: string, label?: string): Promise<TrustedRoot> {

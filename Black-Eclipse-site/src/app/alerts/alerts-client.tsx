@@ -6,7 +6,7 @@ import { useListNavigation } from "@/hooks/use-list-navigation";
 import { useActiveInterval } from "@/hooks/use-active-interval";
 import {
   Bell, Plus, Save, Trash2, Pencil, FlaskConical, X,
-  CircleDot, History, Check, Zap, PencilLine, Inbox,
+  CircleDot, History, Check, Zap, PencilLine, Inbox, Search,
 } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,10 +80,54 @@ interface EventRow {
   firedAt: string;
 }
 
-interface NoticeRow {
-  msg: string;
-  firedAt: string;
-  test?: boolean;
+/** One row from the unified archive (`GET /api/alerts/history`). */
+interface HistoryRow {
+  id: string;
+  tab: string;
+  kind: string;
+  title: string;
+  body: string;
+  at: string;
+  read: boolean;
+  legacy?: boolean;
+}
+
+type HistoryScope = "all" | "news" | "price" | "task" | "approval" | "agent" | "bot";
+type HistoryRange = "24h" | "7d" | "30d" | "all";
+
+const HISTORY_SCOPES: Array<{ value: HistoryScope; label: string }> = [
+  { value: "all", label: "All sources" },
+  { value: "news", label: "News alerts" },
+  { value: "price", label: "Price alerts" },
+  { value: "task", label: "Tasks" },
+  { value: "approval", label: "Approvals" },
+  { value: "agent", label: "Agent" },
+  { value: "bot", label: "Bots" },
+];
+
+const HISTORY_RANGES: Array<{ value: HistoryRange; label: string }> = [
+  { value: "24h", label: "Last 24h" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+  { value: "all", label: "All time" },
+];
+
+const HISTORY_KIND_STYLE: Record<string, string> = {
+  alert: "text-amber-300 bg-amber-400/10 border-amber-400/30",
+  task: "text-sky-300 bg-sky-400/10 border-sky-400/30",
+  approval: "text-rose-300 bg-rose-400/10 border-rose-400/30",
+  agent: "text-violet-300 bg-violet-400/10 border-violet-400/30",
+  bot: "text-emerald-300 bg-emerald-400/10 border-emerald-400/30",
+};
+
+/** Map the UI scope onto the API's kind/tab filters. */
+function historyQueryString(scope: HistoryScope, range: HistoryRange, q: string): string {
+  const p = new URLSearchParams({ range, limit: "100" });
+  if (q) p.set("q", q);
+  if (scope === "news") p.set("tab", "news");
+  else if (scope === "price") p.set("tab", "alerts");
+  else if (scope !== "all") p.set("kind", scope);
+  return p.toString();
 }
 
 // Quote indicators come from the live snapshot; OHLC + SMA/EMA/RSI are computed
@@ -115,9 +159,17 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
   const [view, setView] = useState<View>("watches");
   const [alerts, setAlerts] = useState<AlertRow[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
-  const [notices, setNotices] = useState<NoticeRow[]>([]);
   const [editing, setEditing] = useState<AlertRow | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Unified archive: every notification kind, not just price-alert fires.
+  const [history, setHistory] = useState<HistoryRow[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyScope, setHistoryScope] = useState<HistoryScope>("all");
+  const [historyRange, setHistoryRange] = useState<HistoryRange>("all");
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyQueryDraft, setHistoryQueryDraft] = useState("");
 
   // Global search: 'alerts.watches' | 'alerts.create' | 'alerts.history'.
   useSubroute('alerts', (req) => {
@@ -134,7 +186,6 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
       if (!res.ok) return;
       const data = await res.json();
       setEvents(data.events || []);
-      setNotices(data.notices || []);
       // /api/alerts/live returns status-only rows (no symbols/market/etc.).
       // Patch existing rows in place; never let partial rows create entries,
       // otherwise WatchTable crashes on a.symbols before loadAll resolves.
@@ -155,29 +206,56 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
     } catch {}
   }, []);
 
-  // Track the newest fired event id so a genuinely new alert can sound once
-  // (never on every 5s poll). Seeded on first load so existing history is mute.
-  const lastEventIdRef = useRef<string | null>(null);
-  const eventSeededRef = useRef(false);
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const qs = historyQueryString(historyScope, historyRange, historyQuery);
+      const res = await fetch(`/api/alerts/history?${qs}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setHistory(Array.isArray(data.alerts) ? data.alerts : []);
+      setHistoryTotal(typeof data.total === "number" ? data.total : 0);
+    } catch {
+      /* history is non-critical — keep the last good list */
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyScope, historyRange, historyQuery]);
 
   useEffect(() => {
     loadAll();
     loadLive();
   }, [loadAll, loadLive]);
+  useEffect(() => { void loadHistory(); }, [loadHistory]);
   useActiveInterval(active, () => void loadLive(), 5000);
+  useActiveInterval(active, () => void loadHistory(), 15000);
 
+  // Play the alert cue once for a genuinely NEW archive row. Filter changes and
+  // the first load are silent; the global provider already cues live raises, and
+  // the cue's 400ms throttle collapses the overlap.
+  const historyFilterKey = `${historyScope}|${historyRange}|${historyQuery}`;
+  const historyFilterKeyRef = useRef("");
+  const resetHistoryBaselineRef = useRef(true);
+  const lastHistoryAtRef = useRef(0);
   useEffect(() => {
-    const newest = events[0]?.id ?? null;
-    if (!eventSeededRef.current) {
-      eventSeededRef.current = true;
-      lastEventIdRef.current = newest;
+    if (historyFilterKeyRef.current !== historyFilterKey) {
+      // Wait for the fetch for the new filter to land before taking a baseline.
+      historyFilterKeyRef.current = historyFilterKey;
+      resetHistoryBaselineRef.current = true;
       return;
     }
-    if (newest && newest !== lastEventIdRef.current) {
-      lastEventIdRef.current = newest;
-      sound.notification();
+    const newestRow = history[0];
+    const newest = newestRow ? Date.parse(newestRow.at) : 0;
+    if (resetHistoryBaselineRef.current) {
+      resetHistoryBaselineRef.current = false;
+      lastHistoryAtRef.current = newest;
+      return;
     }
-  }, [events]);
+    if (newest > lastHistoryAtRef.current) {
+      lastHistoryAtRef.current = newest;
+      if (newestRow?.kind === "alert") sound.notification();
+    }
+  }, [history, historyFilterKey]);
 
   // Re-list whenever a watch is created elsewhere (e.g. the command palette's
   // `alert SYMBOL`). The Alerts tab is keep-alive (display:none), so switching
@@ -243,7 +321,7 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
   const listRef = useRef<HTMLDivElement>(null);
   const startCreating = () => { setEditing(null); setView("create"); };
   const watchIds = useMemo(() => alerts.map((a) => a.id), [alerts]);
-  const historyIds = useMemo(() => events.map((e) => e.id), [events]);
+  const historyIds = useMemo(() => history.map((h) => h.id), [history]);
   const watchesNav = useListNavigation({
     ids: view === "watches" ? watchIds : [],
     rootRef: listRef,
@@ -260,13 +338,13 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
     enabled: view === "history",
     shortcutPrefix: "alerts.history",
     onOpen: (id) => {
-      const event = events.find((e) => e.id === id);
-      if (event) notify(`${event.symbol} · ${event.detail}`);
+      const entry = history.find((h) => h.id === id);
+      if (entry) notify(`${entry.title} · ${entry.body}`);
     },
   });
   usePageShortcuts(rootRef, [
     { id: "alerts.new", label: "Create alert", keys: "Shift+N", run: startCreating, enabled: view !== "create" },
-    { id: "alerts.refresh", label: "Refresh alerts", keys: "R", run: () => { void loadAll(); void loadLive(); }, enabled: view !== "create" },
+    { id: "alerts.refresh", label: "Refresh alerts", keys: "R", run: () => { void loadAll(); void loadLive(); void loadHistory(); }, enabled: view !== "create" },
   ]);
 
   const liveCount = alerts.filter((a) => a.active).length;
@@ -279,7 +357,7 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
       <PageHeader
         icon={Bell}
         title="Price & Condition Alerts"
-        description="Watch prices, volumes and indicators — get notified on Telegram, Discord, ntfy or any webhook when conditions fire."
+        description="Watch prices, volumes and indicators — get notified on Telegram, Discord, ntfy or any webhook when conditions fire. Every alert is archived in History."
         size="lg"
         className="border-border/40 pb-6"
         actions={
@@ -296,8 +374,8 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: "Live Watches", value: liveCount, sub: `${alerts.length} total`, icon: Zap },
-          { label: "Fired (24h)", value: firedToday, sub: `${events.length} in history`, icon: History },
-          { label: "In-App Notices", value: notices.length, sub: "latest 100", icon: Inbox },
+          { label: "Fired (24h)", value: firedToday, sub: `${events.length} price events`, icon: History },
+          { label: "Archived Alerts", value: historyTotal, sub: "searchable history", icon: Inbox },
           {
             label: "Watch Health",
             value: alerts.filter((a) => a.status === "error").length === 0 ? "OK" : "Issues",
@@ -326,8 +404,8 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
             id: "history",
             label: "Alert History",
             icon: History,
-            badge: events.length > 0 ? (
-              <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/60 border border-border/30 text-muted-foreground uppercase tracking-wider">{events.length}</span>
+            badge: historyTotal > 0 ? (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/60 border border-border/30 text-muted-foreground uppercase tracking-wider">{historyTotal}</span>
             ) : undefined,
           },
         ]}
@@ -370,8 +448,17 @@ export function AlertsClient({ active = true }: { active?: boolean }) {
       )}
       {view === "history" && (
         <HistoryTable
-          events={events}
-          notices={notices}
+          rows={history}
+          total={historyTotal}
+          loading={historyLoading}
+          scope={historyScope}
+          onScopeChange={setHistoryScope}
+          range={historyRange}
+          onRangeChange={setHistoryRange}
+          queryDraft={historyQueryDraft}
+          onQueryDraftChange={setHistoryQueryDraft}
+          onSearch={() => setHistoryQuery(historyQueryDraft.trim())}
+          onClear={() => { setHistoryQueryDraft(""); setHistoryQuery(""); }}
           tableRef={listRef}
           rowAttributes={historyNav.rowAttributes}
           isSelected={historyNav.isSelected}
@@ -466,59 +553,119 @@ function WatchTable({ alerts, onEdit, onTest, onToggle, onDelete, tableRef, rowA
 
 // ─── History table ──────────────────────────────────────────────────────
 
-function HistoryTable({ events, notices, tableRef, rowAttributes, isSelected }: {
-  events: EventRow[];
-  notices: NoticeRow[];
+function HistoryTable({
+  rows, total, loading, scope, onScopeChange, range, onRangeChange,
+  queryDraft, onQueryDraftChange, onSearch, onClear,
+  tableRef, rowAttributes, isSelected,
+}: {
+  rows: HistoryRow[];
+  total: number;
+  loading: boolean;
+  scope: HistoryScope;
+  onScopeChange: (v: HistoryScope) => void;
+  range: HistoryRange;
+  onRangeChange: (v: HistoryRange) => void;
+  queryDraft: string;
+  onQueryDraftChange: (v: string) => void;
+  onSearch: () => void;
+  onClear: () => void;
   tableRef: React.RefObject<HTMLDivElement | null>;
   rowAttributes: (id: string) => { 'data-list-id': string };
   isSelected: (id: string) => boolean;
 }) {
   return (
-    <div className="space-y-6">
-      {notices.length > 0 && (
-        <div className={cn(PANEL, "p-5")}>
-          <h3 className="text-md font-serif font-semibold flex items-center gap-2 mb-3">
-            <Inbox className="w-4 h-4 text-primary" /> Latest In-App Notices
-          </h3>
-          <div className="space-y-2">
-            {notices.slice(0, 5).map((n, i) => (
-              <div key={i} className={cn(TILE, "px-4 py-2.5 flex items-center justify-between gap-3 text-xs")}>
-                <span className={cn(n.test && "text-primary")}>{n.msg}</span>
-                <span className="text-[10px] text-muted-foreground whitespace-nowrap">{new Date(n.firedAt).toLocaleTimeString()}</span>
-              </div>
-            ))}
-          </div>
+    <div className="space-y-4">
+      {/* Filter bar — server-side search + scope + time range. */}
+      <form
+        className={cn(PANEL, "p-4 flex flex-col lg:flex-row lg:items-center gap-3")}
+        onSubmit={(e) => { e.preventDefault(); onSearch(); }}
+      >
+        <div className="relative flex-1 min-w-0">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={queryDraft}
+            onChange={(e) => onQueryDraftChange(e.target.value)}
+            placeholder="Search alerts by title, symbol or detail…"
+            className="h-9 w-full rounded-lg bg-accent/30 border border-border/30 pl-9 pr-8 text-[12px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary/60"
+          />
+          {queryDraft && (
+            <button
+              type="button"
+              onClick={onClear}
+              aria-label="Clear search"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
-      )}
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={scope}
+            onChange={(e) => onScopeChange(e.target.value as HistoryScope)}
+            className="h-9 rounded-lg bg-accent/30 border border-border/30 px-3 text-[12px] font-mono text-foreground cursor-pointer focus:outline-none focus:border-primary/60"
+          >
+            {HISTORY_SCOPES.map((s) => (
+              <option key={s.value} value={s.value} className="bg-background text-foreground">{s.label}</option>
+            ))}
+          </select>
+          <select
+            value={range}
+            onChange={(e) => onRangeChange(e.target.value as HistoryRange)}
+            className="h-9 rounded-lg bg-accent/30 border border-border/30 px-3 text-[12px] font-mono text-foreground cursor-pointer focus:outline-none focus:border-primary/60"
+          >
+            {HISTORY_RANGES.map((r) => (
+              <option key={r.value} value={r.value} className="bg-background text-foreground">{r.label}</option>
+            ))}
+          </select>
+          <Button type="submit" size="sm" className="h-9 rounded-lg px-4 cursor-pointer">Search</Button>
+        </div>
+      </form>
+
+      <div className="flex items-center justify-between px-1 font-mono text-[11px] text-muted-foreground">
+        <span>
+          <span className="text-foreground font-bold">{total}</span> archived alert{total === 1 ? "" : "s"}
+          {loading ? " · refreshing…" : ""}
+        </span>
+        <span className="text-[10px] uppercase tracking-wider">stored in JDDS · all sources</span>
+      </div>
 
       <div ref={tableRef} className={cn(PANEL, "overflow-x-auto")}>
-        <div className="px-5 py-3.5 border-b border-border/20">
-          <h3 className="text-md font-serif font-semibold flex items-center gap-2">
-            <History className="w-4 h-4 text-primary" /> Alert History
-            <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/60 border border-border/30 text-muted-foreground uppercase tracking-wider">recent 50</span>
-          </h3>
-        </div>
-        {events.length === 0 ? (
-          <p className="px-5 py-8 text-center text-xs text-muted-foreground">No fired alerts yet — they land here (and in your channels) the moment a watch triggers.</p>
+        {rows.length === 0 ? (
+          <p className="px-5 py-10 text-center text-xs text-muted-foreground">
+            {loading
+              ? "Loading alert history…"
+              : "No alerts match these filters yet. Fired alerts and app notifications land here automatically."}
+          </p>
         ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground border-b border-border/20">
                 <th className="px-5 py-3 font-bold">Time</th>
-                <th className="px-5 py-3 font-bold">Symbol</th>
+                <th className="px-5 py-3 font-bold">Type</th>
+                <th className="px-5 py-3 font-bold">Alert</th>
                 <th className="px-5 py-3 font-bold">Detail</th>
               </tr>
             </thead>
             <tbody>
-              {events.map((e) => (
+              {rows.map((r) => (
                 <tr
-                  key={e.id}
-                  {...rowAttributes(e.id)}
-                  className={cn("border-b border-border/10 last:border-0 hover:bg-accent/10 transition-colors", isSelected(e.id) && "bg-primary/10 ring-1 ring-inset ring-primary/40")}
+                  key={r.id}
+                  {...rowAttributes(r.id)}
+                  className={cn(
+                    "border-b border-border/10 last:border-0 hover:bg-accent/10 transition-colors align-top",
+                    isSelected(r.id) && "bg-primary/10 ring-1 ring-inset ring-primary/40",
+                  )}
                 >
-                  <td className="px-5 py-2.5 text-xs text-muted-foreground whitespace-nowrap">{new Date(e.firedAt).toLocaleString()}</td>
-                  <td className="px-5 py-2.5 font-mono text-xs">{e.symbol}</td>
-                  <td className="px-5 py-2.5 text-xs">{e.detail}</td>
+                  <td className="px-5 py-2.5 text-[11px] text-muted-foreground whitespace-nowrap">{new Date(r.at).toLocaleString()}</td>
+                  <td className="px-5 py-2.5 whitespace-nowrap">
+                    <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider", HISTORY_KIND_STYLE[r.kind] ?? HISTORY_KIND_STYLE.alert)}>
+                      {r.kind}
+                    </span>
+                    <span className="ml-1.5 text-[9px] font-mono text-muted-foreground/70">{r.tab}</span>
+                  </td>
+                  <td className="px-5 py-2.5 text-xs font-semibold text-foreground max-w-[300px]">{r.title}</td>
+                  <td className="px-5 py-2.5 text-xs text-muted-foreground">{r.body}</td>
                 </tr>
               ))}
             </tbody>

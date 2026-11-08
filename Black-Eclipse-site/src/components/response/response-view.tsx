@@ -291,9 +291,11 @@ export interface ResponseViewProps {
   className?: string;
   /** Called when a controls block submits — re-enters the chat's agent loop. */
   onFollowup?: (prompt: string) => void;
+  /** Hide the export/save action chips (Canvas has its own header actions). */
+  showActions?: boolean;
 }
 
-export function ResponseView({ response, compact = false, className, onFollowup }: ResponseViewProps) {
+export function ResponseView({ response, compact = false, className, onFollowup, showActions = true }: ResponseViewProps) {
   // Figure resolution + envelope-state persistence come from the surrounding chat
   // (built from the turn's own data). Without one, a `$ref` figure renders
   // UNAVAILABLE (never the raw reference) and edits are not persisted.
@@ -384,9 +386,12 @@ export function ResponseView({ response, compact = false, className, onFollowup 
   return (
     <InputsStateProvider value={inputsState}>
       <section className={cn('w-full', className)} aria-label="Structured response">
-        <div className="flex flex-wrap items-start justify-between gap-2">
+        {/* Breathing room around the export/action row: it used to sit flush
+            against the content above and below, which read as one crowded
+            block. */}
+        <div className="mb-3 mt-1 flex flex-wrap items-start justify-between gap-x-2 gap-y-1.5">
           <ResponseHeader response={finalizedResolved} />
-          <ResponseActions response={finalizedResolved} />
+          {showActions ? <ResponseActions response={finalizedResolved} /> : null}
         </div>
         <div>{renderBlocks(finalizedResolved.blocks)}</div>
       </section>

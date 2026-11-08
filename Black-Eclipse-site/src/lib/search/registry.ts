@@ -108,6 +108,7 @@ export const LAUNCHER_ORDER = [
   'page-memory',
   'page-artifacts',
   'page-tables',
+  'page-code',
   'page-bots',
 ] as const;
 
@@ -235,6 +236,7 @@ registerPage({ id: 'page-artifacts', kind: 'page', title: 'Artifacts', aliases: 
 registerPage({ id: 'page-tables', kind: 'page', title: 'Tables', aliases: ['tables', 'data tables', 'table editor'], keywords: ['tables', 'table', 'data', 'rows'], icon: 'tables', tab: 'tables' });
 // Shell-reachable screens outside the sidebar (ChatBot tools land here).
 registerPage({ id: 'page-tasks', kind: 'page', title: 'Tasks', aliases: ['tasks', 'task list', 'agent tasks', 'todo'], keywords: ['tasks', 'task', 'todo', 'plan', 'checklist'], icon: 'tasks', tab: 'tasks' });
+registerPage({ id: 'page-code', kind: 'page', title: 'Builds', aliases: ['builds', 'code tasks', 'eclipse builds', 'builder', 'changes eclipse made', 'self-build'], keywords: ['builds', 'code', 'self-build', 'builder', 'diff', 'land', 'checks', 'rollback', 'approval', 'scorecard'], icon: 'code', tab: 'code', rankBoost: 1.05 });
 registerPage({ id: 'page-pages', kind: 'page', title: 'Saved Pages', aliases: ['saved pages', 'pages', 'my pages', 'blueprints', 'custom pages'], keywords: ['pages', 'blueprint', 'saved', 'custom', 'page'], icon: 'pages', tab: 'pages' });
 registerPage({ id: 'page-ui-builder', kind: 'page', title: 'UI Builder', aliases: ['ui builder', 'capability studio', 'component builder'], keywords: ['ui', 'builder', 'capability', 'components', 'studio'], icon: 'ui-builder', tab: 'ui-builder' });
 

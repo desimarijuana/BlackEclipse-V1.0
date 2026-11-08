@@ -236,6 +236,7 @@ def _fixture_promotion_landing() -> dict[str, bool]:
                 code_store.save_workspace(
                     workspace.id, str(workspace.root), workspace.base_revision,
                     workspace.strategy, run_id="run_promo", file_count=1,
+                    checkout_root=str(workspace.checkout_root) if workspace.checkout_root else None,
                 )
                 preview = promotion_mod.build_preview(
                     "run_promo", code_store=code_store, checkout_root=checkout,

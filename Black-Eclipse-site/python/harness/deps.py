@@ -135,22 +135,18 @@ def _front_door_auth() -> dict[str, Any]:
     resolver so the two cannot disagree.
     """
     import os
+    from .security.identity import front_door_requires_auth
 
     explicit = _truthy_flag(os.environ.get("HARNESS_AUTH"))
-    bind_host = (os.environ.get("HOST") or "").strip().lower()
-    public_bind = bool(bind_host) and bind_host not in _LOOPBACK_HOSTS
-    production = (os.environ.get("NODE_ENV") or "").strip().lower() == "production"
     secret = os.environ.get("HARNESS_AUTH_SECRET")
     secret_configured = bool(secret) and secret != _OPERATOR_SECRET_PLACEHOLDER and len(secret) >= 16
+    # ONE decision, shared with the tenant requirement (`multi_tenant_required`)
+    # so the boot log and the enforcement can never disagree.
+    required = front_door_requires_auth()
     if explicit is not None:
-        required = explicit
         source = "explicit-on" if explicit else "explicit-off"
-    elif public_bind or production:
-        required = True
-        source = "auto-public"
     else:
-        required = False
-        source = "auto-local"
+        source = "auto-public" if required else "auto-local"
     return {
         "required": required,
         "source": source,

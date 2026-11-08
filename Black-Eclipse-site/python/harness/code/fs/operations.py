@@ -1,4 +1,4 @@
-"""Basic filesystem operations — list, read, write, create, delete, move, copy,
+﻿"""Basic filesystem operations â€” list, read, write, create, delete, move, copy,
 rename, mkdir, rmdir.
 
 Every operation:
@@ -10,7 +10,7 @@ Every operation:
   5. re-checks staleness when `expected_hash` is supplied (optimistic concurrency);
   6. returns a structured record with the diff where useful.
 
-Nothing here calls `realpath` — `resolver` and `workspace` own that.
+Nothing here calls `realpath` â€” `resolver` and `workspace` own that.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .. import policy
+from .. import project_policy
 from . import encoding as enc
 from . import errors as err
 from . import metadata as meta
@@ -34,7 +35,7 @@ MAX_READ_LINES = 2_000
 MAX_DEPTH = 12
 
 
-# ── helpers ────────────────────────────────────────────────────────────────
+# â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _current_hash(path: Path) -> Optional[str]:
@@ -89,7 +90,7 @@ def _entry(path: Path, ws: Any, *, include_sizes: bool) -> dict[str, Any]:
     return entry
 
 
-# ── list_directory ─────────────────────────────────────────────────────────
+# â”€â”€ list_directory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def list_directory(
@@ -182,7 +183,7 @@ def list_directory(
     }
 
 
-# ── read_file ──────────────────────────────────────────────────────────────
+# â”€â”€ read_file â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def read_file(
@@ -229,7 +230,7 @@ def read_file(
     }
 
 
-# ── write_file / create_file ────────────────────────────────────────────────
+# â”€â”€ write_file / create_file â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _apply_write(
@@ -338,7 +339,7 @@ def create_file(
     return result
 
 
-# ── delete_file / delete_directory ─────────────────────────────────────────
+# â”€â”€ delete_file / delete_directory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def delete_file(
@@ -349,7 +350,7 @@ def delete_file(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     ctx.require("delete", path)
-    target = res.resolve(ctx.ws, path)
+    target = res.resolve(ctx.ws, path, for_change=True)
     rel = res.relative(ctx.ws, target)
     if target.is_dir():
         raise err.FsError(err.NOT_A_FILE, "Use delete_directory for a folder.", path=rel)
@@ -380,7 +381,7 @@ def delete_directory(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     ctx.require("delete", path)
-    target = res.resolve(ctx.ws, path)
+    target = res.resolve(ctx.ws, path, for_change=True)
     rel = res.relative(ctx.ws, target)
     if not target.exists():
         raise err.FsError(err.PATH_NOT_FOUND, "That folder isn't there.", path=rel)
@@ -397,7 +398,11 @@ def delete_directory(
             details={"entries": len(children)},
         )
     # Every path under the folder must be allowed before anything is removed.
-    protected = [res.relative(ctx.ws, p) for p in target.rglob("*") if policy.is_protected(res.relative(ctx.ws, p))]
+    protected = [
+        res.relative(ctx.ws, p) for p in target.rglob("*")
+        if policy.is_protected(res.relative(ctx.ws, p))
+        or project_policy.is_denied(ctx.ws.root, res.relative(ctx.ws, p))
+    ]
     if protected:
         raise err.FsError(
             err.PERMISSION_DENIED,
@@ -421,7 +426,7 @@ def delete_directory(
     return {"status": "ok", "path": rel, "deleted": True, "entries": len(children), "recursive": recursive}
 
 
-# ── create_directory ────────────────────────────────────────────────────────
+# â”€â”€ create_directory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def create_directory(
@@ -452,7 +457,7 @@ def create_directory(
     return {"status": "ok", "path": rel, "created": True}
 
 
-# ── move_file / rename_file / copy_file ────────────────────────────────────
+# â”€â”€ move_file / rename_file / copy_file â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 def _guard_destination(ctx: FsContext, source: Path, destination: Path, *, overwrite: bool) -> str:
@@ -486,7 +491,7 @@ def move_file(
 ) -> dict[str, Any]:
     ctx.require("move", source)
     ctx.require("move", destination)
-    src = res.resolve(ctx.ws, source)
+    src = res.resolve(ctx.ws, source, for_change=True)
     if not src.exists():
         raise err.FsError(err.PATH_NOT_FOUND, "The source isn't there.", path=source)
     _check_hash(src, expected_hash, ctx.ws)
@@ -606,3 +611,4 @@ __all__ = [
     "rename_file",
     "write_file",
 ]
+

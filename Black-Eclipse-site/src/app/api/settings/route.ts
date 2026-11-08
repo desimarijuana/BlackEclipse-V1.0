@@ -69,6 +69,8 @@ function maskLLMConfig(llm: Awaited<ReturnType<typeof getLLMConfig>>) {
     reasoningEffort: llm.reasoningEffort,
     // The model-routing preference is not a secret either; round-trip it.
     routingPolicy: llm.routingPolicy,
+    // Phase 22 / S6: the optional coding model, same provider/key.
+    codingModel: llm.codingModel,
   };
 }
 

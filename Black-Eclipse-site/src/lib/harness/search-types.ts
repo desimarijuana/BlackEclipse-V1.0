@@ -111,6 +111,35 @@ export interface SearchDocumentRow {
   metadata: Record<string, unknown>;
 }
 
+export interface EmbeddingSuggestion {
+  provider: string;
+  model: string;
+  dimensions: number;
+  label: string;
+  credentialsReady: boolean;
+  local: boolean;
+}
+
+export interface EmbeddingResolution {
+  state:
+    | 'active'
+    | 'no_provider'
+    | 'unsupported_provider'
+    | 'missing_model'
+    | 'missing_credentials'
+    | 'unreachable'
+    | 'unavailable';
+  source: 'explicit' | 'env' | 'run' | 'none';
+  available: boolean;
+  reason: string;
+  hint: string;
+  provider: string;
+  model: string;
+  dimensions: number;
+  distanceMetric: string;
+  suggestions: EmbeddingSuggestion[];
+}
+
 export interface SearchAdminStats {
   available?: boolean;
   embedding: {
@@ -123,6 +152,8 @@ export interface SearchAdminStats {
     distanceMetric: string;
     cache: { entries: number; hits: number; misses: number };
     lastStats: Record<string, number>;
+    resolution: EmbeddingResolution;
+    savedConfig: Record<string, unknown>;
   };
   index: {
     path: string;

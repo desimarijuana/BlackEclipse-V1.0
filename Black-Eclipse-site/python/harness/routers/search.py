@@ -83,6 +83,16 @@ class IndexBody(BaseModel):
     namespaces: Optional[list[str]] = None
 
 
+class EmbeddingConfigBody(BaseModel):
+    """Operator choice of embedding provider/model (persisted in the search DB)."""
+
+    provider: str = ""
+    model: str = ""
+    dimensions: int = 0
+    version: str = ""
+    reindex: bool = True
+
+
 class IngestBody(BaseModel):
     text: str = Field(min_length=1, max_length=2_000_000)
     title: str = ""
@@ -128,9 +138,44 @@ async def search_models(_: bool = Depends(require_operator)) -> dict[str, Any]:
             "available": search.embedder.available,
             "reason": search.embedder.reason,
         },
+        "resolution": search.embedder.resolution(),
         "registry": [m.to_dict() for m in search.embedder.registry.list_models()],
         "indexedVectorModels": search.store.vector_models(),
     }
+
+
+@router.post("/search/embedding/apply")
+async def search_embedding_apply(
+    body: EmbeddingConfigBody, _: bool = Depends(require_operator)
+) -> dict[str, Any]:
+    """Activate an embedding model live and persist it across restarts.
+
+    Switching vector space schedules a background rebuild so semantic search
+    is not left empty: old vectors belong to the previous model key.
+    """
+    search = _svc()
+    status = search.apply_embedding_config(
+        provider=body.provider,
+        model=body.model,
+        dimensions=body.dimensions,
+        version=body.version,
+    )
+    rebuild = bool(body.reindex and status["resolution"]["available"])
+    if rebuild:
+        search.schedule_vector_rebuild()
+    return {"success": True, **status, "reindexScheduled": rebuild}
+
+
+@router.post("/search/embedding/clear")
+async def search_embedding_clear(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    search = _svc()
+    return {"success": True, **search.clear_embedding_config()}
+
+
+@router.post("/search/embedding/test")
+async def search_embedding_test(_: bool = Depends(require_operator)) -> dict[str, Any]:
+    search = _svc()
+    return {"success": True, **await search.test_embedding()}
 
 
 @router.post("/search")

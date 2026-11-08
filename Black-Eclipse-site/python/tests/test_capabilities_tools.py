@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from harness.analysis_tools import analysis_run
+from harness.capabilities.registry import is_generated_recipe
 from harness.capabilities.tools import (
     capability_build,
     capability_remove,
@@ -76,6 +77,48 @@ def test_a_drawdown_request_is_satisfied_by_an_existing_recipe(tmp_path: Path):
         ))
         assert data["status"] == "satisfied"
         assert data["assessment"]["resolvedBy"] == "drawdown_profile"
+    finally:
+        memory.close()
+
+
+def test_a_capability_is_callable_in_its_project_and_not_in_another(tmp_path: Path):
+    if not _has_runner():
+        pytest.skip("sandbox/interpreter unavailable")
+    memory = AgentMemoryStore(str(tmp_path / "agent-memory.db"))
+    try:
+        project_b = tmp_path / "project_b"
+        project_a = tmp_path / "project_a"
+        project_b.mkdir()
+        project_a.mkdir()
+        ctx_b = _ctx(project_b, memory)
+        ctx_a = _ctx(project_a, memory)
+
+        # Build the recipe in project B.
+        _text, requested = asyncio.run(capability_request(_need(), ctx_b))
+        assert requested["status"] == "gap"
+        _text, built = asyncio.run(capability_build({
+            "requestId": requested["requestId"],
+            "implementation": _IMPLEMENTATION,
+            "test": _TEST,
+            "sampleInputs": {"prices": [100, 90, 80]},
+        }, ctx_b))
+        assert built["status"] == "active"
+        assert is_generated_recipe("ulcer_index") is True
+
+        # It lives in B's .black-eclipse, not the app repo.
+        assert (project_b / ".black-eclipse" / "capabilities" / "ulcer_index").is_dir()
+        assert not (project_a / ".black-eclipse" / "capabilities" / "ulcer_index").exists()
+
+        # In project A the same request is a gap again, and B's recipe is not
+        # callable: the executable registry follows the run's project.
+        _text, requested_a = asyncio.run(capability_request(_need(), ctx_a))
+        assert requested_a["status"] == "gap"
+        assert is_generated_recipe("ulcer_index") is False
+
+        # Back in B it is callable again without rebuilding.
+        _text, requested_b = asyncio.run(capability_request(_need(), ctx_b))
+        assert requested_b["status"] == "satisfied"
+        assert is_generated_recipe("ulcer_index") is True
     finally:
         memory.close()
 

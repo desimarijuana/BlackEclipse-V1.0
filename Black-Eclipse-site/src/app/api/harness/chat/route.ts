@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { guardExpensiveMutation } from "@/lib/api-guard";
 import { chatWithAgent, HarnessError, HarnessRuntimeUnavailable, toHarnessErrorJson, MAX_QUERY_LENGTH } from "@/lib/harness";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
-import { loadContextDocuments, writeSessionFile } from "@/lib/chat/session-store";
+import { loadContextDocuments, readSessionWorkspaceRootId, writeSessionFile } from "@/lib/chat/session-store";
 import { isReasoningLevel } from "@/lib/agent/reasoning";
 import { parseCommandInvocation } from "@/lib/harness/command-parser";
 import { executeCommandFromText, isRoutedCommand } from "@/lib/harness/command-router";
@@ -85,6 +85,12 @@ export async function POST(request: Request) {
     const chatId = typeof (body as Record<string, unknown>).chatId === "string"
       ? ((body as Record<string, unknown>).chatId as string)
       : "";
+    // Phase 23: this conversation's approved project folder. Read SERVER-SIDE
+    // (the browser never supplies it), so a chat is bound to a folder the user
+    // chose in the picker. An absent binding keeps the existing default.
+    const workspaceRootId = chatId
+      ? await readSessionWorkspaceRootId(chatId).catch(() => undefined)
+      : undefined;
     // Bot chats and group-member turns opt into private per-conversation memory.
     const memoryScope = (body as Record<string, unknown>).memoryScope === "conversation"
       ? ("conversation" as const)
@@ -97,6 +103,18 @@ export async function POST(request: Request) {
     // the runtime falls back to the saved default / task profile.
     const rawEffort = (body as Record<string, unknown>).reasoningEffort;
     const reasoningEffort = isReasoningLevel(rawEffort) ? rawEffort : undefined;
+    // The composer's Auto/Quant/Off preference. Only the two explicit values are
+    // forwarded; "auto"/absent leaves the runtime's classifier in charge.
+    const rawQuantMode = (body as Record<string, unknown>).quantMode;
+    const quantMode = rawQuantMode === "on" || rawQuantMode === "off" ? rawQuantMode : undefined;
+    // The composer's Auto/Choices/Off preference. Only the explicit values are
+    // forwarded; "auto"/absent leaves the base prompt's act-don't-ask guidance.
+    const rawChoicesMode = (body as Record<string, unknown>).choicesMode;
+    const choicesMode = rawChoicesMode === "on" || rawChoicesMode === "off" ? rawChoicesMode : undefined;
+    // The composer's Auto/Plan/Off preference. Only the explicit values are
+    // forwarded; "auto"/absent leaves the base guidance in charge.
+    const rawPlanMode = (body as Record<string, unknown>).planMode;
+    const planMode = rawPlanMode === "on" || rawPlanMode === "off" ? rawPlanMode : undefined;
     // Client-supplied run id so cancellation is possible mid-run; ignored when
     // absent, in which case the server mints one.
     const rawRunId = (body as Record<string, unknown>).runId;
@@ -136,7 +154,35 @@ export async function POST(request: Request) {
       : undefined;
 
     const identityHeaders = await runtimeIdentityHeaders(request);
-    const result = await chatWithAgent(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId);
+    // One-shot chat is bounded by the front door's `maxDuration` (180 s), but a
+    // writable turn is budgeted far longer (80 steps / 2,700 s). Rather than be
+    // killed mid-run with no handle, stop WAITING before that ceiling and hand
+    // the caller a run id + stream URL; the runtime keeps working.
+    const effectiveRunId = runId ?? newRunId();
+    const softDeadlineMs = Number(process.env.HARNESS_CHAT_SOFT_DEADLINE_MS || 150_000);
+    const running = { status: "running" as const };
+    const result = await Promise.race([
+      chatWithAgent(query, history, documents, effectiveRunId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode),
+      new Promise<typeof running>((resolve) => {
+        const timer = setTimeout(() => resolve(running), Math.max(1, softDeadlineMs));
+        // Never keep the process alive for a deadline we stopped waiting on.
+        (timer as unknown as { unref?: () => void }).unref?.();
+      }),
+    ]);
+    if (result.status === "running") {
+      return NextResponse.json(
+        {
+          success: true,
+          status: "running",
+          runId: effectiveRunId,
+          streamUrl: `/api/harness/runs/${effectiveRunId}/stream`,
+          content:
+            "This run is still working and has outlived the one-shot chat endpoint. " +
+            `It continues in the background — follow run ${effectiveRunId} to see the result.`,
+        },
+        { status: 202 },
+      );
+    }
     if (result.status === "failed") {
       return NextResponse.json(
         { success: false, error: result.error, runId: result.runId },

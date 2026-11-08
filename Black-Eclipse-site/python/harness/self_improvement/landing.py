@@ -144,6 +144,7 @@ def prepare(
         service.code_store.save_workspace(
             cw.id, str(cw.root), cw.base_revision, cw.strategy,
             run_id=run_id, file_count=cw.file_count,
+            checkout_root=str(cw.checkout_root) if cw.checkout_root else None,
         )
 
     preview = promotion.build_preview(run_id, code_store=service.code_store)

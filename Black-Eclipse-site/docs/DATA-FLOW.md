@@ -180,6 +180,12 @@ category, event keywords and the user's watchlist/holdings. It returns the
 scores the page it returns and accepts `sort=importance` + `minImportance`;
 `/api/news/alerts` returns the strongest recent stories plus upcoming
 high-impact releases (suppressed when the calendar is only the static fallback).
+The News tab ranks those stories into the main feed (`sort=importance`,
+most-critical first) instead of rendering a separate band; a root-mounted
+`src/lib/notifications/news-watcher.tsx` polls the same endpoint (first poll
+seeds the seen set without backfilling history, then announces new
+`critical`/`high` stories and imminent releases into the header ledger on the
+`news` tab).
 `/api/news/alerts/policy` stores the background push policy.
 
 After each ingest, `src/lib/news/alert-scan.ts` scores recent rows and pushes
@@ -311,6 +317,14 @@ The product rule stands: **never present stale or simulated data as live.**
   is only the placeholder fallback.
 - `/api/news/alerts/policy` → `{ policy }`; POST accepts a partial
   `NewsAlertPolicy`.
+- `/api/notifications` (POST) → `{ saved }`. Body `{ items: NotificationInput[] }`
+  (or a single object). Rows upsert into `AppNotification` by the producer's
+  stable id, so replays/backfills never duplicate. `kind` is one of
+  `alert|task|approval|agent|bot`; unknown kinds fall back to `alert`.
+- `/api/alerts/history` → `{ alerts, total, capped, range }`. Query: `q`
+  (title/body/symbol contains), `kind`, `tab`, `range` (`24h|7d|30d|all`),
+  `limit`, `offset`. The rows union `AppNotification` with the price engine's
+  `PriceAlertEvent` log (deduped by id) and are returned newest-first.
 - DataHub entry → `{ data, source: DataSource, updatedAt, error?, sourceId? }`
   where `DataSource` is
   `LIVE | CACHED | HISTORICAL | DEMO | ESTIMATED | CUSTOM | UNAVAILABLE`

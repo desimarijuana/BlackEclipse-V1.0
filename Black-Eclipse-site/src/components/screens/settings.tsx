@@ -85,6 +85,8 @@ interface LLMConfig {
    * control — an OpenAI-compatible endpoint without one is never force-fed it.
    */
   reasoningEffort?: "low" | "medium" | "high" | "very_high" | null;
+  /** Optional coding model, same provider/key as the chat model. */
+  codingModel?: string | null;
 }
 
 export type { LLMConfig };

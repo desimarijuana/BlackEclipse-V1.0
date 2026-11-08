@@ -42,4 +42,12 @@ describe('canvas content derivation', () => {
     expect(content.kind).toBe('report');
     expect(content.response?.title).toBe('Quarterly Review');
   });
+
+  it('recognizes an envelope emitted in a plain ```json fence (not raw JSON)', () => {
+    const content = contentFromMessage(`Here it is.\n\n\`\`\`json\n${ENVELOPE}\n\`\`\``);
+    expect(content.kind).toBe('report');
+    expect(content.response?.blocks.some((b) => b.type === 'chart')).toBe(true);
+    // The prose outside the fence is preserved as a leading markdown block.
+    expect(content.response?.blocks[0].type).toBe('markdown');
+  });
 });

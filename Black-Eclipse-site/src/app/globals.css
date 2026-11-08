@@ -1220,31 +1220,15 @@ html:not(.dark) .glass-drawer {
   box-shadow:    var(--glass-shadow, 0 24px 70px rgba(0, 0, 0, 0.60)),    inset 0 1px 0 rgba(255, 255, 255, 0.60),    inset -1px 0 0 rgba(0, 0, 0, 0.06);
 }
 /* React Flow node surface â€” a deliberate node material rather than page glass.
- * Nodes live inside the transformed canvas viewport, where `backdrop-filter`
- * cannot sample the page (the transform is a backdrop root). This layers a
- * translucent gradient, an inset top highlight and a soft lift so the card
- * still reads as premium frosted glass over the dot grid. */
+ * Nodes live inside the transformed canvas viewport. The surface is deliberately
+ * SOLID: React Flow's transform is a backdrop root, so a translucent/blurred
+ * node would either let the grid show through or read flat. The graphite fill,
+ * hairline edge and inset top highlight carry the depth instead. */
 .node-card {
-  /* React Flow's viewport carries a CSS transform, which makes it a backdrop
-   * root: a `backdrop-filter` on a node can only sample that subtree, so the
-   * page/grid behind the canvas was never blurred and showed straight through a
-   * translucent tint. Nodes are therefore FULLY OPAQUE; the family look comes
-   * from the inset highlight + soft shadow, not a blur that cannot render in
-   * this stacking context. Do not reintroduce alpha here. */
-  background:
-    linear-gradient(180deg, #232329, #141418);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.30),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    inset -1px 0 0 rgba(255, 255, 255, 0.06);
+  background: #0e0e0e;
 }
 html:not(.dark) .node-card {
-  background:
-    linear-gradient(180deg, #ffffff, #f5f5f8);
-  box-shadow:
-    0 8px 30px rgba(0, 0, 0, 0.10),
-    inset 0 1px 0 rgba(255, 255, 255, 0.70),
-    inset -1px 0 0 rgba(0, 0, 0, 0.08);
+  background: #ffffff;
 }
 /* Graph panels: the inspector rail and the run console share the node material
  * so they read as part of the same surface family instead of a flat page cut.
@@ -1267,13 +1251,18 @@ html:not(.dark) .graph-panel {
     inset 0 1px 0 rgba(255, 255, 255, 0.70),
     inset -1px 0 0 rgba(0, 0, 0, 0.05);
 }
-/* Node frame: a thin black bezel with an inset top highlight and a soft outer
- * shadow. No glow/aurora lives on the node itself. */
+/* Node frame: no border — a soft lift and a faint inset top highlight keep the
+ * solid fill readable against the canvas. No glow/aurora lives on the node. */
 .graph-node {
-  border: 2px solid #000;
+  border: 0;
   box-shadow:
-    0 12px 30px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 16px 40px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+html:not(.dark) .graph-node {
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 .graph-node.node-selected {
   outline: 2px solid color-mix(in srgb, var(--node-accent, #94a3b8) 70%, transparent);

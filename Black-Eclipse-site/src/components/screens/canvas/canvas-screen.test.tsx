@@ -74,7 +74,7 @@ function workspace(overrides: Partial<CanvasWorkspaceProps>): CanvasWorkspacePro
 }
 
 const ENVELOPE = JSON.stringify({
-  blocks: [{ type: 'markdown', markdown: 'CANVAS_LOADED_CONTENT' }],
+  blocks: [{ type: 'markdown', markdown: 'CANVAS LOADED CONTENT' }],
 });
 
 const visualSnapshot: CanvasSnapshot = {
@@ -110,14 +110,14 @@ describe('CanvasWorkspace loaded artifact', () => {
     expect(html).toContain('My Envelope');
     expect(html).toContain('Visual report');
     // The canonical content is present in the editor (the visual editor's source textarea).
-    expect(html).toContain('CANVAS_LOADED_CONTENT');
+    expect(html).toContain('CANVAS LOADED CONTENT');
   });
 
   it('previews a valid envelope through the response renderer', () => {
     const html = renderToStaticMarkup(
       <CanvasWorkspace {...workspace({ center: centerProps(visualSnapshot, visualSnapshot.content) })} />,
     );
-    expect(html).toContain('CANVAS_LOADED_CONTENT');
+    expect(html).toContain('CANVAS LOADED CONTENT');
     expect(html).not.toContain('invalid JSON');
   });
 });

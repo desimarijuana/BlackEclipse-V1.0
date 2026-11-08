@@ -285,6 +285,13 @@ def resolve_class(name: str, *, operator_flags: Optional[dict[str, bool]] = None
     from . import policy  # noqa: PLC0415
 
     command_class = COMMAND_CLASSES.get(str(name))
+    if command_class is None:
+        # Accept the obvious plural (`unit_tests` -> `unit_test`). Models ask for
+        # "unit_tests" constantly; refusing it with a generic sentence made them
+        # abandon the pinned-check path and shell out instead.
+        text = str(name).strip().lower()
+        if text.endswith("s") and text[:-1] in COMMAND_CLASSES:
+            command_class = COMMAND_CLASSES[text[:-1]]
     if command_class is None or command_class.name not in policy.COMMAND_CLASSES:
         raise CommandUnavailable("COMMAND_NOT_ALLOWLISTED", f"unknown command class {name!r}")
     if command_class.name in OPERATOR_GATED_CLASSES:

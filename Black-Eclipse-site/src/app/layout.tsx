@@ -11,6 +11,7 @@ import { AlertNotificationProvider } from "@/components/layout/alert-notificatio
 import { TaskCompletionWatcher } from "@/lib/notifications/task-watcher";
 import { BotsRunWatcher } from "@/lib/notifications/bots-run-watcher";
 import { ChannelActivityWatcher } from "@/lib/notifications/channel-watcher";
+import { NewsAlertWatcher } from "@/lib/notifications/news-watcher";
 import { BrowserTabIndicator } from "@/lib/notifications/tab-indicator";
 import { DesktopSession } from "@/components/layout/desktop-session";
 import { SoundProvider } from "@/lib/sounds";
@@ -62,6 +63,7 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
         <TaskCompletionWatcher />
         <BotsRunWatcher />
         <ChannelActivityWatcher />
+        <NewsAlertWatcher />
         <BrowserTabIndicator />
         <DesktopSession />
       </body>

@@ -30,8 +30,14 @@ function shortDigest(digest: string | null | undefined): string {
 
 export function CodeVerificationPanel({ verification, compact = false }: CodeVerificationPanelProps) {
   const t = useT();
-  const [open, setOpen] = useState(false);
   const data = coerceCodeVerification(verification);
+  // A failure is the one time this card MUST show its data immediately: a
+  // collapsed card would hide the very thing the user needs to see.
+  const failed = Boolean(data && (
+    data.records.some((record) => record.exitCode !== 0)
+    || data.claims.some((claim) => !claim.supported)
+  ));
+  const [open, setOpen] = useState(failed);
   if (!data) return null;
 
   const passedRecords = data.records.filter((r) => r.exitCode === 0);
@@ -73,9 +79,14 @@ export function CodeVerificationPanel({ verification, compact = false }: CodeVer
           ? <ShieldAlert size={13} className="shrink-0 text-amber-500" />
           : <ShieldCheck size={13} className="shrink-0 text-emerald-500" />}
         <span className="min-w-0 flex-1 font-medium text-foreground">{t('code.proof.title')}</span>
-        <span className="shrink-0 text-muted-foreground/70">
-          {t('code.proof.checks', { count: data.records.length })}
-        </span>
+        {/* A "0 check(s)" count claims a check that never happened. Only count
+            when a check was actually recorded; otherwise the header shows no
+            number at all and the body explains what (if anything) is there. */}
+        {data.records.length > 0 ? (
+          <span className="shrink-0 text-muted-foreground/70">
+            {t('code.proof.checks', { count: data.records.length })}
+          </span>
+        ) : null}
         <ChevronRight size={12} className={cn('shrink-0 text-muted-foreground/40 transition-transform', open && 'rotate-90')} />
       </button>
 

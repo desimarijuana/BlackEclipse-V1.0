@@ -96,6 +96,18 @@ describe('block rendering', () => {
     expect(out).toContain('text-rose-400/90');
   });
 
+  it('keeps a right-aligned header label flush with its values', () => {
+    const out = html(
+      <DataTableBlock
+        columns={[{ key: 'b', label: 'Weight', align: 'right' }]}
+        rows={[{ b: 40 }, { b: 25 }]}
+      />,
+    );
+    // The sort icon is in the flow, so the header row reverses to keep the
+    // label's right edge aligned with the numbers.
+    expect(out).toContain('flex-row-reverse');
+  });
+
   it('renders inline Markdown in table cells and headers (bold is never literal)', () => {
     const out = html(
       <DataTableBlock

@@ -31,7 +31,7 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from . import patch as patch_mod
 from . import policy
@@ -116,6 +116,29 @@ def _recent_workspace(code_store: Any, run_id: str) -> Optional[dict[str, Any]]:
     return live[0] if live else None
 
 
+def _checkout_of_workspace(worktree_root: str) -> Optional[Path]:
+    """The checkout a scratch workspace was cut from, derived from its path.
+
+    A disposable workspace always lives at
+    ``<checkout>/<SCRATCH_RELPATH>/<id>``. Used only for rows written before the
+    checkout column existed; a path that does not match the layout returns None
+    so the caller can fall back instead of guessing.
+    """
+    if not worktree_root:
+        return None
+    try:
+        probe = Path(worktree_root).parent  # skip the workspace id segment
+        for part in reversed(Path(worktree_mod.SCRATCH_RELPATH).parts):
+            if probe.name != part:
+                return None
+            probe = probe.parent
+    except (OSError, ValueError):
+        return None
+    if not probe.name:
+        return None
+    return probe
+
+
 def build_preview(
     run_id: str, *, code_store: Any, checkout_root: Optional[Path] = None,
 ) -> dict[str, Any]:
@@ -144,13 +167,32 @@ def build_preview(
             "PROMOTION_NO_CHANGE",
             "The prepared change from this task is no longer available.",
         )
-    checkout = Path(checkout_root) if checkout_root is not None else default_root()
+    # The PROJECT this build was cut from. An explicit argument wins (tests and
+    # callers that already resolved it); otherwise the root recorded when the
+    # workspace was allocated; only a legacy row with no root falls back to the
+    # currently selected default. Never "whatever is selected now" when the build
+    # names its own project — that is how a diff lands in the wrong repository.
+    recorded_checkout = str(row.get("checkoutRoot") or "").strip()
+    if checkout_root is not None:
+        checkout = Path(checkout_root)
+    elif recorded_checkout:
+        checkout = Path(recorded_checkout)
+    else:
+        # A row from before the column existed: the scratch path itself names the
+        # checkout (<checkout>/.black-eclipse/code-workspaces/<id>). That is still
+        # better than the selected root; only an unreadable path falls back.
+        checkout = _checkout_of_workspace(str(row.get("root") or "")) or default_root()
     if checkout is None:
         raise PromotionError("PROMOTION_UNAVAILABLE", "There's no project folder to put the change into.")
     checkout = Path(checkout)
+    if not checkout.is_dir():
+        raise PromotionError(
+            "PROMOTION_UNAVAILABLE",
+            "The project this build belongs to is no longer at its recorded folder.",
+        )
     base = str(row.get("baseRevision") or "HEAD") or "HEAD"
 
-    diff = worktree_mod.diff(ws_id, base, strategy=strategy)
+    diff = worktree_mod.diff(ws_id, base, strategy=strategy, root=checkout)
     specs: list[tuple[str, str]] = []
     specs += [(p, "create") for p in (diff.get("added") or [])]
     specs += [(p, "overwrite") for p in (diff.get("modified") or [])]
@@ -234,7 +276,7 @@ def build_preview(
 
 _BASE_CODES = {"PATCH_BASE_MISMATCH", "PATCH_FILE_EXISTS", "PATCH_FILE_MISSING"}
 _SCOPE_CODES = {
-    "PATCH_PROTECTED_PATH", "PATCH_OUTSIDE_SCOPE",
+    "PATCH_PROTECTED_PATH", "PATCH_OUTSIDE_SCOPE", "PATCH_PROJECT_DENIED",
     "PATCH_PATH_TRAVERSAL", "PATCH_PATH_ABSOLUTE", "PATCH_PATH_SYMLINK",
 }
 
@@ -247,6 +289,44 @@ def _map_patch_error(code: str, reason: str) -> PromotionError:
     if code == "PATCH_TOO_LARGE":
         return PromotionError("PROMOTION_TOO_LARGE", reason or "This change is too large.")
     return PromotionError("PROMOTION_FAILED", reason or code or "The change couldn't be put into your project.")
+
+
+def filter_preview(
+    preview: dict[str, Any], include: Iterable[str],
+) -> dict[str, Any]:
+    """Narrow a preview to the files the reviewer kept. Pure.
+
+    The digest is recomputed over the KEPT set, so the approval is bound to
+    exactly what will be written. An empty `include` means "keep everything";
+    an include that keeps nothing is refused rather than silently landing an
+    empty change.
+    """
+    keep = {
+        str(path).replace("\\", "/").lstrip("./")
+        for path in include if str(path or "").strip()
+    }
+    if not keep:
+        return preview
+    files = [
+        item for item in (preview.get("files") or [])
+        if str(item.get("path") or "") in keep
+    ]
+    if not files:
+        raise PromotionError(
+            "PROMOTION_NO_FILES",
+            "None of the selected files are part of this change.",
+        )
+    files.sort(key=lambda item: str(item.get("path")))
+    return {
+        **preview,
+        "files": files,
+        "filesChanged": len(files),
+        "added": sum(1 for item in files if item.get("op") == "create"),
+        "modified": sum(1 for item in files if item.get("op") == "overwrite"),
+        "deleted": sum(1 for item in files if item.get("op") == "delete"),
+        "previewDigest": promotion_digest(files),
+        "filtered": True,
+    }
 
 
 def apply_promotion(preview: dict[str, Any]) -> dict[str, Any]:

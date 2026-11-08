@@ -5,17 +5,16 @@ import { Calculator, ChevronDown, ChevronRight } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n/use-t';
 import { ArtifactView, entryFor, useRunArtifactIndex } from './artifact-view';
-import {
-  coerceComputedResult,
-  provenanceStatusKey,
-  renderComputedValue,
-} from '@/lib/harness/analysis-types';
+import { coerceComputedResult, provenanceStatusKey } from '@/lib/harness/analysis-types';
 
 // ─── Phase 8 computed-result panel ──────────────────────────────────────────
 // Shows a result that Eclipse WORKED OUT, clearly distinct from retrieved data:
 // an always-visible "Worked out by Eclipse" label plus the method line, and a
 // "how did you get this" affordance behind which the inputs and method live. A
-// computed number without a provenance record renders UNAVAILABLE, never bare.
+// result with nothing to show — in particular one with no provenance record
+// (UNAVAILABLE) — renders NOTHING at all: an empty card is not a result. The
+// fail-closed refusal still exists at the runtime boundary; the chat simply does
+// not render a shell for it.
 //
 // Phase 15/18: the artifacts this run produced render through `ArtifactView`
 // (an image inline via the Artifact Center route, everything else a download),
@@ -70,7 +69,6 @@ export function ComputedResultPanel({
   if (!data) return null;
 
   const statusKey = provenanceStatusKey(data.provenance);
-  const status = renderComputedValue(data.outputs, data.provenance).status;
   const method = humanMethodLine(data.provenance?.detail);
   const rows = Object.entries(data.outputs)
     .filter(([key]) => !key.startsWith('_'))
@@ -79,6 +77,12 @@ export function ComputedResultPanel({
   const figureArtifact = figure?.artifact
     ? data.artifacts.find((a) => a.name === figure.artifact) ?? null
     : null;
+
+  // No provenance means the number has no traceable origin (UNAVAILABLE). With
+  // no rows, artifact, figure or recipe there is nothing to show either way, so
+  // the card is dropped rather than rendered as an empty shell.
+  const hasContent = rows.length > 0 || data.artifacts.length > 0 || Boolean(figure) || Boolean(data.recipe);
+  if (!data.provenance || !hasContent) return null;
 
   const preview = rows
     .slice(0, 2)
@@ -169,9 +173,6 @@ export function ComputedResultPanel({
             </div>
           ) : null}
 
-          {status === 'unavailable' ? (
-            <p className="text-amber-500/90">{t('analysis.unavailable')}</p>
-          ) : null}
           {data.provenance ? (
             <p className="text-[9px] text-muted-foreground/60">{t('analysis.notASource')}</p>
           ) : null}

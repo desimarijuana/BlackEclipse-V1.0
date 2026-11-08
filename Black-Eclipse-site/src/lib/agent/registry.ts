@@ -1,5 +1,8 @@
 import type { AgentProvider, AgentStatusEvent, AgentTool, ChatMessage, ChatOptions } from './types';
 import { normalizeHarnessEvent, unwrapEventPayload } from './events';
+import { getQuantMode } from './quant-mode';
+import { getChoicesMode } from './choices-mode';
+import { getPlanMode } from './plan-mode';
 import { ingestHarnessFrame } from '@/lib/agent-workspace/ingest';
 import { getActiveProjectId } from '@/lib/projects/project-client';
 
@@ -65,7 +68,20 @@ function buildPayload(messages: ChatMessage[], options?: ChatOptions) {
   // The project this turn is scoped to (a local preference, not a grant). The
   // runtime resolves it and puts the project's members in front of the model.
   const projectId = getActiveProjectId() ?? undefined;
-  return { query, history, chatId: options?.chatId, runId, model: options?.model, reasoningEffort: options?.reasoningEffort, uiContext: options?.uiContext, memoryScope: options?.memoryScope, projectId };
+  return {
+    query,
+    history,
+    chatId: options?.chatId,
+    runId,
+    model: options?.model,
+    reasoningEffort: options?.reasoningEffort,
+    quantMode: options?.quantMode ?? getQuantMode(),
+    choicesMode: options?.choicesMode ?? getChoicesMode(),
+    planMode: options?.planMode ?? getPlanMode(),
+    uiContext: options?.uiContext,
+    memoryScope: options?.memoryScope,
+    projectId,
+  };
 }
 
 /**

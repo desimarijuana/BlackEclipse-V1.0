@@ -773,7 +773,13 @@ tab (count, `9+` cap) and an aggregate badge on the Terminal/Agentic/Bots menu
 switcher for tabs the active menu hides; opening a tab (the sidebar is the
 shell's visible-tab signal) marks that tab's entries read, and an entry raised
 for the visible tab is recorded read on arrival — it is already in front of the
-operator. The header adds the **in-app notification bar**:
+operator. The ledger is also mirrored to the durable `AppNotification` table
+(`POST /api/notifications`, idempotent on the producer id; the local ledger is
+backfilled once on hydrate). Alerts › **History** reads the union of that archive
+and the price engine's `PriceAlertEvent` log through `GET /api/alerts/history`
+(search + kind/tab + 24h/7d/30d/all filters), so every alert ever received stays
+findable even after the in-memory ring rolls over or site data is cleared. The
+header adds the **in-app notification bar**:
 `src/components/layout/notification-center.tsx` renders a bell with the unread
 count and a frosted panel listing the full ledger, filterable by kind (alerts,
 tasks, approvals, agent, bots). Selecting an entry marks its tab read and
@@ -809,6 +815,18 @@ history and a toast. A finished chat reply raised while the operator is on
 another tab is announced the same way from `use-agent-run.ts` (ChatBot tab,
 `taskdone` cue);
 while the ChatBot is visible the surfaces keep their soft `message` cue.
+
+**High-alert news** is a root producer too: `news-watcher.tsx` polls
+`GET /api/news/alerts` every two minutes (watchlist symbols sharpen the rank),
+seeds the seen set on the first poll without notifying, then raises a
+`news`-tab `alert` for each newly seen `critical`/`high` story and each
+high-impact release inside a 90-minute horizon. It deliberately does NOT
+backfill the current set into the ledger, so historical news cannot crowd out
+price-alert/task/agent entries (the other watchers seed the same way). The News
+tab itself no longer renders a separate High Alert band — the same stories are
+ranked into the main feed with `sort=importance`, most-critical first. The
+header panel always shows every kind filter (count 0 included) so all producer
+lanes are discoverable.
 
 ## The two workspace systems (read this twice)
 
@@ -2221,6 +2239,7 @@ for the existing chat/research surfaces.
 |---|---|---|
 | Agents, tools, model providers, LangGraph loop, events | `python/harness/` (**built**) | FastAPI + LangChain + LangGraph. The runtime owns execution; TS never runs an agent loop. |
 | Model selection / the provider-agnostic Model Runtime | `python/harness/model_runtime/` (**built**) | `Agent → ModelRuntime → ModelRouter → ProviderAdapter → Provider`. Routing, fallback, retry, health/circuit breaker, rate limits, usage/cost/latency/budget, capabilities, aliases, structured output, decision tracing. `build_chat_model` is the adapter's construction primitive; no agent names a provider. ADR-H123. |
+| Typed decisions (System One-shaped) | `python/harness/decisions/` (**built**) | Ask `choice`/`score`/`noul` questions about a `state`; get typed answers with probabilities/confidence. Separate from the chat runtime (no messages/tools/streaming). A provider registry (rules built; TypeSafe/LLM planned), a fail-closed confidence policy (`answered`/`review`/`unavailable`), and an immutable audit record on `agent-memory.db`. A decision is never an authorization or a verified fact. See `docs/decision-models.md`, ADR-070. |
 | Run persistence + agent memory/skills | `python/harness/persistence.py` + `python/harness/eclipse_memory/` (**built**) | Two separate SQLite stores: `agent-memory.db` (runs, events, tool executions, retrieval/receipt records) and `eclipse-memory.db` (durable memory + the skill lifecycle). Neither is JDdS. See `harness/decisions.md` ADR-H5 and ADR-026. |
 | Personal Memory (facts, transcript search, learned preferences) | `python/harness/eclipse_memory/` + `python/harness/session_index.py` (**built**) | One control store (`eclipse-memory.db`) and one write gate. Learned preferences are inferred only from repeated style/format behaviour across distinct runs, staged as inert `MemorySuggestion` rows with evidence in `structuredData`, and written as user-scoped `preference` memories only when accepted. See `docs/harness/personal-memory.md`. |
 | Front door (validation, vault resolution, proxy) | `src/lib/harness/` (**built**) | `run-service.ts` resolves agent + LLM config; `python-client.ts`/`python-runtime.ts` proxy and spawn the service. |

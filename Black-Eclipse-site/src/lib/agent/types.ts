@@ -63,6 +63,26 @@ export interface ChatOptions {
    */
   reasoningEffort?: import('./reasoning').ReasoningLevel;
   /**
+   * The composer's quant-mode preference for THIS turn. "on" opts the turn into
+   * the quant protocol, "off" suppresses it, "auto" (default) lets the runtime's
+   * deterministic classifier decide. It is guidance, never a capability grant.
+   */
+  quantMode?: import('./quant-mode').QuantMode;
+  /**
+   * The composer's choices-mode preference for THIS turn. "on" nudges the model
+   * to ask one question with clickable options before starting an ambiguous
+   * turn, "off" suppresses that nudge, "auto" (default) lets the base prompt
+   * decide. Presentation guidance only, never a capability grant.
+   */
+  choicesMode?: import('./choices-mode').ChoicesMode;
+  /**
+   * The composer's plan-mode preference for THIS turn. "on" tells the model to
+   * lay out a concrete plan and wait for approval before starting the work,
+   * "off" suppresses that nudge, "auto" (default) lets the base guidance decide.
+   * Presentation guidance only, never a capability grant or a hard block.
+   */
+  planMode?: import('./plan-mode').PlanMode;
+  /**
    * The UI page the user is currently focused on (Pages / UI Builder), forwarded
    * into the run's context so `ui_get_current_page` can resolve "my widgets".
    */

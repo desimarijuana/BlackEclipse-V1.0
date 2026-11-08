@@ -27,6 +27,9 @@ import {
 import type { ChatModelState } from '@/lib/agent/use-chat-model';
 import type { ReasoningEffortState } from '@/lib/agent/use-reasoning-effort';
 import { EffortControl } from './effort-control';
+import { QuantModeControl } from './quant-mode-control';
+import { ChoicesModeControl } from './choices-mode-control';
+import { PlanModeControl } from './plan-mode-control';
 import { TradeApprovalBanner } from './trade-approval-banner';
 import {
   commandArgHint,
@@ -432,7 +435,7 @@ export function ChatInput({
 
   return (
     <div className="w-full">
-      <TradeApprovalBanner />
+      <TradeApprovalBanner onCancel={onCancel} />
       {attachments && attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5" aria-label="Attached documents">
           {attachments.map((file) => (
@@ -633,7 +636,7 @@ export function ChatInput({
           className="chat-composer-scroll w-full bg-transparent border-0 outline-none resize-none overflow-x-hidden overflow-y-hidden placeholder:text-muted-foreground text-foreground px-2 sm:px-2.5 pt-2 pb-1 text-sm leading-relaxed min-w-0 focus:outline-none focus:ring-0"
         />
         
-        <div className="flex items-end justify-between gap-2 px-0.5">
+        <div className="flex min-w-0 items-end justify-between gap-2 px-0.5">
           <DropdownMenu>
             <DropdownMenuTrigger
               disabled={attaching}
@@ -664,9 +667,15 @@ export function ChatInput({
                 <span aria-hidden className="flex h-[15px] w-[15px] shrink-0 items-center justify-center font-mono text-sm">@</span>
                 <span>Mention</span>
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {/* Per-turn preferences. Auto is the default and sends nothing;
+                  picking On makes the choice stick for every later run. */}
+              <QuantModeControl disabled={busy} />
+              <ChoicesModeControl disabled={busy} />
+              <PlanModeControl disabled={busy} />
             </DropdownMenuContent>
           </DropdownMenu>
-          <div className="flex flex-wrap items-center justify-end gap-1 sm:gap-2 shrink-0">
+          <div className="flex min-w-0 items-center justify-end gap-1 sm:gap-2">
             {modelState ? (
               <ModelSelector state={modelState} />
             ) : showProvider ? (
@@ -773,10 +782,10 @@ export function ModelSelector({ state }: { state: ChatModelState }) {
     <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
       <DropdownMenuTrigger
         title={`Model: ${state.displayModel || "default"} · provider ${state.providerLabel}`}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 h-7 max-w-none sm:max-w-[180px] sm:px-3 rounded-full bg-accent/25 border border-border/25 text-muted-foreground hover:text-foreground hover:border-border/40 text-xs font-medium whitespace-nowrap transition-colors cursor-pointer"
+        className="inline-flex min-w-0 items-center gap-1.5 px-2.5 py-1 h-7 max-w-none sm:max-w-[180px] sm:px-3 rounded-full bg-accent/25 border border-border/25 text-muted-foreground hover:text-foreground hover:border-border/40 text-xs font-medium whitespace-nowrap transition-colors cursor-pointer"
       >
         <ProviderLogo provider={logoProvider} size={13} className="text-primary" />
-        <span className="hidden truncate font-mono sm:inline">{label}</span>
+        <span className="hidden min-w-0 truncate font-mono sm:inline">{label}</span>
         <ChevronDown size={13} className="shrink-0 opacity-70" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72 max-w-[calc(100vw-1.5rem)]">

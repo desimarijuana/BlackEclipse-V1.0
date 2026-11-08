@@ -45,6 +45,39 @@ def _optional_pct(value: Any) -> float | None:
     return number if number > 0 else None
 
 
+def _apply_learned_policy(
+    config: dict[str, Any], raw: Any,
+) -> tuple[dict[str, Any], list[str], list[str]]:
+    """Tighten this gate's limits with a learned playbook envelope.
+
+    Only limits this STATELESS gate can actually enforce are applied. The rest
+    are named in `notEnforced` so a user is never told a limit is live when it
+    is not. The merge is tighten-only by construction: `requireStop` can only
+    turn on and the risk cap can only shrink.
+    """
+    limits = raw.get("limits") if isinstance(raw, dict) and isinstance(raw.get("limits"), dict) else raw
+    if not isinstance(limits, dict) or not limits:
+        return config, [], []
+    merged = dict(config)
+    enforced: list[str] = []
+    not_enforced: list[str] = []
+    if bool(limits.get("requireStop")):
+        merged["requireStop"] = True
+        enforced.append("requireStop")
+    learned_risk = float(limits.get("riskPerTradePct") or 0)
+    if learned_risk > 0:
+        own_risk = float(config.get("maxRiskPerTradePct") or 0)
+        merged["maxRiskPerTradePct"] = min([value for value in (own_risk, learned_risk) if value > 0])
+        enforced.append("riskPerTradePct → maxRiskPerTradePct")
+    for name in (
+        "maxTradesPerDay", "maxConsecutiveLosses", "maxDailyLossR", "minPlannedRR",
+        "symbolBlocklist", "sessionAllowlist", "suspendedStrategies",
+    ):
+        if limits.get(name):
+            not_enforced.append(name)
+    return merged, enforced, not_enforced
+
+
 def _risk_rules(config: dict[str, Any]) -> RiskRules:
     positions = int(config.get("maxOpenPositions", 0) or 0)
     return RiskRules(
@@ -93,6 +126,9 @@ def exec_risk_check(context: NodeExecContext) -> dict[str, Any]:
     intent = order_intent(context)
     price = order_price(context, intent)
     config = context.config
+    config, policy_enforced, policy_not_enforced = _apply_learned_policy(
+        config, context.inputs.get("policy"),
+    )
     account = _account_payload(context.inputs.get("account"))
     positions_wired = context.inputs.get("positions") is not None
     positions = _position_rows(context.inputs.get("positions"))
@@ -155,6 +191,12 @@ def exec_risk_check(context: NodeExecContext) -> dict[str, Any]:
     adjusted = dict(intent)
     adjusted["quantity"] = decision.quantity if decision.allowed else 0.0
     adjusted["price"] = price
+    if policy_enforced or policy_not_enforced:
+        state["playbook"] = {
+            "source": "input",
+            "enforced": policy_enforced,
+            "notEnforced": policy_not_enforced,
+        }
     equity_source = state["equity"]["source"]
     context.emit(
         f"risk {intent['side']} {intent['symbol']}: "
@@ -453,6 +495,9 @@ def build_trading_nodes() -> list[NodeDef]:
                 PortDef(id="grossExposure", name="Gross exposure", type=PortType.NUMBER, optional=True),
                 PortDef(id="openPositions", name="Open positions", type=PortType.NUMBER, optional=True),
                 PortDef(id="dailyPnl", name="Daily P&L", type=PortType.NUMBER, optional=True),
+                # The learned playbook envelope (from `trade.playbook`). Optional:
+                # without it the gate behaves exactly as before.
+                PortDef(id="policy", name="Playbook", type=PortType.OBJECT, optional=True),
             ),
             outputs=(
                 PortDef(id="intent", name="Order intent", type=PortType.ORDER_INTENT),

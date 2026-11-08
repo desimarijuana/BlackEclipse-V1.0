@@ -9,7 +9,7 @@ import {
 } from "@/lib/harness";
 import { HARNESS_PY_URL } from "@/lib/harness/python-runtime";
 import { runtimeIdentityHeaders } from "@/lib/harness/runtime-identity";
-import { loadContextDocuments, writeSessionFile } from "@/lib/chat/session-store";
+import { loadContextDocuments, readSessionWorkspaceRootId, writeSessionFile } from "@/lib/chat/session-store";
 import { isReasoningLevel } from "@/lib/agent/reasoning";
 import { parseCommandInvocation } from "@/lib/harness/command-parser";
 import { executeCommandFromText, isRoutedCommand } from "@/lib/harness/command-router";
@@ -113,12 +113,29 @@ export async function POST(request: Request) {
     : [];
 
   const chatId = typeof body.chatId === "string" ? body.chatId : "";
+  // Phase 23: this conversation's approved project folder, read SERVER-SIDE so
+  // the browser cannot point a run at an arbitrary directory.
+  const workspaceRootId = chatId
+    ? await readSessionWorkspaceRootId(chatId).catch(() => undefined)
+    : undefined;
   // Bot chats and group-member turns opt into private per-conversation memory.
   // Only the one known value is honoured; anything else is ignored.
   const memoryScope = body.memoryScope === "conversation" ? ("conversation" as const) : undefined;
   const model = typeof body.model === "string" ? body.model.trim() : "";
   const rawEffort = body.reasoningEffort;
   const reasoningEffort = isReasoningLevel(rawEffort) ? rawEffort : undefined;
+  // The composer's Auto/Quant/Off preference. Only the explicit values are
+  // forwarded; "auto"/absent leaves the runtime's classifier in charge.
+  const rawQuantMode = body.quantMode;
+  const quantMode = rawQuantMode === "on" || rawQuantMode === "off" ? rawQuantMode : undefined;
+  // The composer's Auto/Choices/Off preference. Only the explicit values are
+  // forwarded; "auto"/absent leaves the base prompt's act-don't-ask guidance.
+  const rawChoicesMode = body.choicesMode;
+  const choicesMode = rawChoicesMode === "on" || rawChoicesMode === "off" ? rawChoicesMode : undefined;
+  // The composer's Auto/Plan/Off preference. Only the explicit values are
+  // forwarded; "auto"/absent leaves the base guidance in charge.
+  const rawPlanMode = body.planMode;
+  const planMode = rawPlanMode === "on" || rawPlanMode === "off" ? rawPlanMode : undefined;
   const rawRunId = body.runId;
   const runId =
     typeof rawRunId === "string" && /^run_[A-Za-z0-9-]{1,64}$/.test(rawRunId) ? rawRunId : undefined;
@@ -158,7 +175,7 @@ export async function POST(request: Request) {
   let id: string;
   try {
     const identityHeaders = await runtimeIdentityHeaders(request);
-    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId);
+    id = await startChatRun(query, history, documents, runId, chatId || undefined, model || undefined, reasoningEffort, identityHeaders, uiContext, memoryScope, projectId, workspaceRootId, quantMode, choicesMode, planMode);
   } catch (err) {
     const error = toHarnessErrorJson(err);
     const status =

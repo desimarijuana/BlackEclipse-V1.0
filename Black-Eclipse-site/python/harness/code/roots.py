@@ -226,6 +226,37 @@ def browse(path: Optional[str]) -> dict[str, Any]:
             "truncated": truncated, "reason": None}
 
 
+def create_folder(parent: Optional[str], name: str) -> dict[str, Any]:
+    """Create ONE folder directly under `parent` for the picker.
+
+    A deliberate operator act (the route is operator-gated). `name` is a single
+    leaf, never a path: separators, `.` and `..` are refused, so the picker can
+    make a folder in the directory it is showing and nothing above it. An empty
+    `parent` means the drive list, which has no writable location.
+    """
+    leaf = str(name or "").strip()
+    if not leaf or leaf in (".", "..") or "/" in leaf or "\\" in leaf:
+        raise ValueError("Enter a folder name without a path.")
+    if len(leaf) > 128:
+        raise ValueError("That folder name is too long.")
+    if not parent:
+        raise ValueError("Choose a drive or folder first.")
+    try:
+        base = Path(os.path.realpath(str(parent)))
+    except (OSError, ValueError) as exc:
+        raise ValueError("That location could not be opened.") from exc
+    if not base.is_dir():
+        raise ValueError("That location is not a folder.")
+    target = base / leaf
+    try:
+        target.mkdir(parents=False, exist_ok=True)
+    except OSError as exc:
+        raise ValueError(f"That folder could not be created: {exc}") from exc
+    if not target.is_dir():
+        raise ValueError("A file with that name already exists.")
+    return {"path": str(target), "name": target.name, "parent": str(base)}
+
+
 def _parent_of(path: Path) -> Optional[str]:
     parent = path.parent
     if str(parent) == str(path):
@@ -249,5 +280,6 @@ __all__ = [
     "TrustedRoot",
     "TrustedRootStore",
     "browse",
+    "create_folder",
     "root_id",
 ]

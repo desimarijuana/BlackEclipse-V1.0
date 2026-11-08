@@ -71,6 +71,12 @@ def install_graph_layer(service: Any) -> bool:
             set_preset_store,
         )
         from .video_nodes import set_video_runner  # noqa: PLC0415
+        from .trade_learning_nodes import (  # noqa: PLC0415
+            set_journal_loader,
+            set_trade_learning_service,
+        )
+        from ..trade_learning.service import TradeLearningService  # noqa: PLC0415
+        from ..trade_learning.store import TradeLearningStore  # noqa: PLC0415
         from ..research.web_store import EvidenceStore  # noqa: PLC0415
 
         def _agent_runner(context, config, objective):
@@ -599,6 +605,31 @@ def install_graph_layer(service: Any) -> bool:
 
         set_bot_resolver(_bot_resolver)
         set_paper_store(PaperAccountStore(service.store))
+
+        # Trade learning: findings + playbook versions on the SAME agent-memory
+        # connection. The journal itself stays in JDDS and is read through the
+        # authenticated, read-only bridge — never written from here.
+        # Isolated: a learning-store failure must not take the graph runtime down.
+        try:
+            learning_store = TradeLearningStore(service.store)
+            learning_service = TradeLearningService(learning_store, service.store)
+            set_trade_learning_service(learning_service)
+            service.trade_learning = learning_service
+
+            def _journal_loader(context, params):
+                import asyncio  # noqa: PLC0415
+
+                bridge_getter = getattr(service, "server_bridge", None)
+                if not callable(bridge_getter):
+                    raise ValueError("the journal data bridge is unavailable")
+                return asyncio.run(bridge_getter().fetch("journal_trades", params))
+
+            set_journal_loader(_journal_loader)
+        except Exception:  # noqa: BLE001 - optional capability, never a boot blocker
+            log.warning("trade learning unavailable", exc_info=True)
+            service.trade_learning = None
+            set_trade_learning_service(None)
+            set_journal_loader(None)
 
         def _video_runner(context, symbols, title, mode):
             """Build a recap storyboard and run the EXISTING video pipeline."""

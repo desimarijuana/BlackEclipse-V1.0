@@ -95,4 +95,81 @@ describe('graph assistant store', () => {
     expect(assistant().pending).toBeNull();
     expect(editor().ir?.nodes.some((node) => node.id === 'n_filter')).toBe(false);
   });
+
+  it('routes pause and resume to the live run endpoints', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    useGraphAssistant.setState({ runId: 'assist_test', status: 'running' });
+
+    await assistant().pause();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/graphs/assist/runs/assist_test/pause',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(assistant().status).toBe('paused');
+
+    await assistant().resume();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/graphs/assist/runs/assist_test/resume',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(assistant().status).toBe('running');
+  });
+
+  it('records the approval decision before applying the proposal', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const result = proposal({
+      approval: {
+        id: 'appr_1',
+        kind: 'graph_edit',
+        status: 'pending',
+        title: 'Apply this change?',
+        summary: 'Apply one change.',
+        effect: 'write',
+        risk: 'low',
+        grantPattern: 'graph_edit:w1',
+      },
+    });
+    useGraphAssistant.setState({
+      pending: result as never,
+      pendingDocumentId: editor().ir?.id ?? null,
+      autoApply: false,
+    });
+
+    await assistant().decidePending(true, false);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/harness/mcp/approvals/appr_1/decide',
+      expect.objectContaining({ method: 'POST' }),
+    );
+    expect(editor().ir?.nodes.some((node) => node.id === 'n_filter')).toBe(true);
+  });
+
+  it('folds streamed text deltas into one assistant message', async () => {
+    const events = [
+      { type: 'run', runId: 'assist_stream' },
+      { type: 'text_delta', text: 'Hel' },
+      { type: 'text_delta', text: 'lo' },
+      {
+        type: 'result',
+        result: {
+          ...proposal({ summary: 'Hello', answer: 'Hello', ops: [], mode: 'ask' }),
+        },
+      },
+    ];
+    const text = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(text, {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })));
+
+    await assistant().send('Say hello', 'ask');
+
+    const last = assistant().messages.at(-1);
+    expect(last?.role).toBe('assistant');
+    expect(last?.content).toBe('Hello');
+    expect(last?.streaming).toBe(false);
+    expect(assistant().messages.filter((message) => message.role === 'assistant')).toHaveLength(1);
+  });
 });

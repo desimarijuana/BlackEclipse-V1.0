@@ -570,7 +570,11 @@ def _ensure_code_workspace(ctx: ToolContext) -> tuple[CodeWorkspace, Any, Resolv
     # workspace still allocates. Never invent a sha — HEAD is the honest default.
     if not re.fullmatch(worktree_mod.BASE_REVISION_PATTERN, str(base)):
         base = "HEAD"
-    cw = worktree_mod.allocate(base_revision=base, direct=bool(getattr(ctx, "direct", False)))
+    cw = worktree_mod.allocate(
+        base_revision=base,
+        direct=bool(getattr(ctx, "direct", False)),
+        root=getattr(getattr(ctx, "workspace", None), "root", None),
+    )
     binding = policy.WorkspaceBinding(
         id=cw.id, root=cw.root, base_revision=cw.base_revision, strategy=cw.strategy,
     )
@@ -590,6 +594,7 @@ def _ensure_code_workspace(ctx: ToolContext) -> tuple[CodeWorkspace, Any, Resolv
             store.save_workspace(
                 cw.id, str(cw.root), cw.base_revision, cw.strategy,
                 run_id=getattr(ctx, "run_id", None), file_count=cw.file_count,
+                checkout_root=str(cw.checkout_root) if cw.checkout_root else None,
             )
         except Exception:  # noqa: BLE001 - a record failure must not block a write
             pass
@@ -831,10 +836,8 @@ def _auto_verify(root: Path) -> Optional[dict[str, Any]]:
 async def _diff(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     model = WorkspaceDiffInput(**_present(args))
     if getattr(ctx, "workspace", None) is None:
-        return (
-            "REFUSED (WORKSPACE_UNBOUND): there is no project folder to compare.",
-            {"status": "refused", "code": "WORKSPACE_UNBOUND"},
-        )
+        return ("REFUSED (WORKSPACE_UNBOUND): there is no project folder to compare.",
+                {"status": "refused", "code": "WORKSPACE_UNBOUND"})
     existing = getattr(ctx, "_code_workspace", None)
     if existing is None:
         # Nothing has been written yet this run — a diff is honestly empty.
@@ -846,7 +849,9 @@ async def _diff(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
         )
     cw = existing[0]
     try:
-        result = worktree_mod.diff(cw.id, model.base, strategy=cw.strategy)
+        # Rooted at the cut-from project: else the diff reports the harness repo.
+        result = worktree_mod.diff(cw.id, model.base, strategy=cw.strategy,
+                                   root=getattr(getattr(ctx, "workspace", None), "root", None))
     except WorkspaceError as exc:
         return _patch_refusal(cw.id, exc.code, exc.reason)
     store = getattr(ctx, "code_store", None)
@@ -1049,10 +1054,13 @@ def register_code_tools(registry: ToolRegistry) -> list[str]:
     # The fs subsystem's tools are registered first; handlers build a service lazily.
     from .edit_tools import register_edit_tools  # noqa: PLC0415
     from .fs_tools import register_fs_tools  # noqa: PLC0415
+    from .project_memory import register_project_memory_tools  # noqa: PLC0415
 
     fs_names = register_fs_tools(registry)
     # Round 3 / W3 (ADR-H282): the ONE text-edit tool.
     register_edit_tools(registry)
+    # Phase 22 / S1: the project's own rules, read-only.
+    register_project_memory_tools(registry)
 
     _INPUT_SCHEMAS["terminal_run"] = terminal_schema()
     from .shell_tools import (  # noqa: PLC0415

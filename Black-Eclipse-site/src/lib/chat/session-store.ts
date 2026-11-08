@@ -234,6 +234,71 @@ export async function deleteSessionFile(chatId: string, kind: SessionFileKind, n
  * MARKED (`truncated` + `originalChars`) so the runtime states the limit in the
  * turn instead of answering from only the first part.
  */
+// ── Per-chat project folder (Phase 23) ─────────────────────────────────────────
+//
+// Each conversation can be bound to ONE approved workspace root. The binding is
+// an ID, never a path: the run route forwards the id and the Python runtime
+// resolves it against TrustedRoot, so the browser cannot point a run at an
+// arbitrary directory. Stored beside the transcript so it survives a restart.
+
+const PROJECT_FILE = "project.json";
+
+export interface SessionProject {
+  chatId: string;
+  workspaceRootId: string | null;
+  workspacePath: string | null;
+  updatedAt: number;
+}
+
+function projectPath(chatId: string): string {
+  return path.join(sessionDir(chatId), PROJECT_FILE);
+}
+
+export async function readSessionProject(chatId: string): Promise<SessionProject | null> {
+  // Validate OUTSIDE the try: a malformed id is a caller error, not "no binding".
+  assertChatId(chatId);
+  try {
+    const raw = await fs.readFile(projectPath(chatId), "utf8");
+    const parsed = JSON.parse(raw) as Partial<SessionProject> | null;
+    if (!parsed || typeof parsed !== "object") return null;
+    const workspaceRootId = typeof parsed.workspaceRootId === "string" && parsed.workspaceRootId
+      ? parsed.workspaceRootId
+      : null;
+    const workspacePath = typeof parsed.workspacePath === "string" && parsed.workspacePath
+      ? parsed.workspacePath
+      : null;
+    return {
+      chatId,
+      workspaceRootId,
+      workspacePath,
+      updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function writeSessionProject(
+  chatId: string,
+  project: { workspaceRootId: string | null; workspacePath: string | null },
+): Promise<SessionProject> {
+  await ensureSessionDirs(chatId);
+  const stored: SessionProject = {
+    chatId,
+    workspaceRootId: project.workspaceRootId ?? null,
+    workspacePath: project.workspacePath ?? null,
+    updatedAt: Date.now(),
+  };
+  await fs.writeFile(projectPath(chatId), JSON.stringify(stored), "utf8");
+  return stored;
+}
+
+/** The run-facing read: only the id, or undefined when no project is bound. */
+export async function readSessionWorkspaceRootId(chatId: string): Promise<string | undefined> {
+  const project = await readSessionProject(chatId);
+  return project?.workspaceRootId ?? undefined;
+}
+
 // ── Conversation transcripts (server-side durability) ────────────────────────
 //
 // The transcript used to live ONLY in browser localStorage (keyed by origin), so

@@ -18,6 +18,14 @@ export interface RecentQuery {
   ts: number;
 }
 
+/** What opened the Canvas, so the chat can show a banner and restore the body. */
+export interface CanvasSource {
+  /** The assistant message whose response is open in Canvas. */
+  messageId?: string;
+  /** Human title shown in the banner / collapsed notice. */
+  title: string;
+}
+
 /** A pinned (favorite) search entity, stored by stable entity id. */
 export interface PinnedEntity {
   id: string;
@@ -131,6 +139,8 @@ interface CommandStore {
   canvasInlineOpen: boolean;
   /** The content currently shown in the Canvas dock (viewer), if any. */
   canvasView: import('@/lib/canvas/content').CanvasContent | null;
+  /** The message/artifact that opened Canvas (drives the chat banner). */
+  canvasSource: CanvasSource | null;
   /**
    * Sub-view request, scoped to a tab: `{ tab, subroute, focus? }`. Consumed by
    * the target screen's `useSubroute` hook. A channel (not a single slot) so a
@@ -173,9 +183,12 @@ interface CommandStore {
   consumeMarket: () => string | null;
   consumeCanvasArtifactId: () => string | null;
   /** Open the inline chat Canvas pane, optionally on a specific artifact. */
-  openCanvas: (artifactId?: string | null) => void;
+  openCanvas: (artifactId?: string | null, source?: CanvasSource | null) => void;
   /** Open the Canvas dock on derived response content (viewer mode). */
-  openCanvasContent: (content: import('@/lib/canvas/content').CanvasContent) => void;
+  openCanvasContent: (
+    content: import('@/lib/canvas/content').CanvasContent,
+    source?: CanvasSource | null,
+  ) => void;
   /** Close the inline chat Canvas pane. */
   closeCanvas: () => void;
   /** Publish a sub-view request for a tab (shell calls this from `apply`). */
@@ -214,6 +227,7 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
   pendingCanvasArtifactId: null,
   canvasInlineOpen: false,
   canvasView: null,
+  canvasSource: null,
   pendingSubroute: null,
   subrouteSeq: 0,
 
@@ -315,14 +329,29 @@ export const useCommandStore = create<CommandStore>((set, get) => ({
     return id;
   },
 
-  openCanvas: (artifactId) =>
-    set({ canvasInlineOpen: true, canvasView: null, pendingCanvasArtifactId: artifactId ?? null }),
+  openCanvas: (artifactId, source) =>
+    set({
+      canvasInlineOpen: true,
+      canvasView: null,
+      pendingCanvasArtifactId: artifactId ?? null,
+      canvasSource: source ?? null,
+    }),
 
-  openCanvasContent: (content) =>
-    set({ canvasInlineOpen: true, canvasView: content, pendingCanvasArtifactId: null }),
+  openCanvasContent: (content, source) =>
+    set({
+      canvasInlineOpen: true,
+      canvasView: content,
+      pendingCanvasArtifactId: null,
+      canvasSource: source ?? null,
+    }),
 
   closeCanvas: () =>
-    set({ canvasInlineOpen: false, canvasView: null, pendingCanvasArtifactId: null }),
+    set({
+      canvasInlineOpen: false,
+      canvasView: null,
+      pendingCanvasArtifactId: null,
+      canvasSource: null,
+    }),
 
   requestSubroute: (tab, subroute, focus) =>
     set((s) => ({

@@ -1,7 +1,7 @@
 ---
 title: Security — one decision path for every privileged operation
 status: Current
-last-verified: 2026-10-28
+last-verified: 2026-11-06
 ---
 
 # Security
@@ -190,10 +190,23 @@ Permission Engine decides *whether*; the sandbox decides *where/how*). The
 - **`DockerSandbox`** — a real container boundary: `--network none|bridge`,
   read-only rootfs, non-root user, `--cap-drop ALL`, `no-new-privileges`,
   memory/pids/cpu limits, explicit read-only mounts, and secret env.
-- **`LocalSandbox`** — process isolation over the existing `code/sandbox.py`
+- **`LocalSandbox`** - process isolation over the existing `code/sandbox.py`
   primitive (Windows Job Object / POSIX process groups) with an allowlist-only
   environment. It reports `filesystemIsolation: false` / `networkIsolation: false`
-  honestly — it is not a container.
+  honestly - it is not a container.
+
+**What actually runs today.** `terminal_run`, `shell_run` and the package /
+build handlers use the LOCAL tier: the command runs as a host process with a
+bounded lifetime, a killable process tree, an allowlisted environment and a
+cwd confined to the project — but no filesystem or network boundary. The
+`DockerSandbox` is a selectable BACKEND, not the executor, so installing Docker
+alone does not make agent commands containerised; the doctor line says so.
+
+For a deployment that must not run on the host, set
+`BLACK_ECLIPSE_SANDBOX_REQUIRED=1`: the security gateway then refuses every
+`code.execute` / `shell.execute` call it cannot isolate, with
+`SANDBOX_UNAVAILABLE` (fail closed) instead of running it. This is the honest
+setting until a container-backed executor is wired into the command tools.
 - **`UnavailableSandbox`** — fails every operation closed.
 
 `select_sandbox()` prefers Docker, then Local, then Unavailable — it never returns

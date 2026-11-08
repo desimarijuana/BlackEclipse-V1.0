@@ -101,12 +101,36 @@ def _repo_root() -> Optional[str]:
 # can only ever return a path already approved in `TrustedRoot` (the provider is
 # wired to the store's `selected()`), so a chosen folder is still an approved one.
 _TRUSTED_ROOT_PROVIDER: Optional[Any] = None
+# Resolve an APPROVED root id to its current path. Registered by the service so
+# a per-chat binding can pick one of several approved folders without making it
+# the global selection. It can only return a row that exists in TrustedRoot.
+_TRUSTED_ROOT_LOOKUP: Optional[Any] = None
 
 
 def set_trusted_root_provider(provider: Optional[Any]) -> None:
     """Register the callable returning the currently selected trusted root path."""
     global _TRUSTED_ROOT_PROVIDER
     _TRUSTED_ROOT_PROVIDER = provider
+
+
+def set_trusted_root_lookup(provider: Optional[Any]) -> None:
+    """Register the callable mapping an approved root id → path (or None)."""
+    global _TRUSTED_ROOT_LOOKUP
+    _TRUSTED_ROOT_LOOKUP = provider
+
+
+def trusted_root_path(root_id: Optional[str]) -> Optional[Path]:
+    """The path of an APPROVED root id, or None. Never raises."""
+    if not root_id or _TRUSTED_ROOT_LOOKUP is None:
+        return None
+    try:
+        found = _TRUSTED_ROOT_LOOKUP(str(root_id))
+    except Exception:  # noqa: BLE001 - a broken provider must not bind a run
+        return None
+    if not found:
+        return None
+    candidate = Path(str(found))
+    return Path(os.path.realpath(candidate)) if candidate.is_dir() else None
 
 
 def trusted_root_selected() -> bool:
@@ -177,16 +201,28 @@ def _binding_for(root: Path, base_revision: str, strategy: str) -> WorkspaceBind
     )
 
 
-def resolve_workspace(request_workspace: Any = None) -> Optional[ResolvedWorkspace]:
+def resolve_workspace(
+    request_workspace: Any = None,
+    root_id: Optional[str] = None,
+) -> Optional[ResolvedWorkspace]:
     """Resolve and confirm the workspace for a run.
 
-    Phase 1 binds only the SERVER-RESOLVED root. An optional
-    `request.workspace` is a NARROWING/confirmation, never a widening: when
-    present, its `root` must realpath to exactly the server-resolved root,
-    otherwise the run gets no workspace at all. A caller-supplied path can
-    therefore never point the tools at a different directory.
+    Phase 1 binds only the SERVER-RESOLVED root. Phase 23 lets a run name an
+    APPROVED root ID (a per-chat project): the service's lookup maps it to the
+    real path, so a caller still never supplies a path and the model can never
+    widen the workspace. An id that is unknown or revoked yields NO workspace
+    (the refusal is honest) — it never silently falls back to another folder.
+
+    An optional `request.workspace` remains a NARROWING/confirmation: its `root`
+    must realpath to exactly the resolved root, otherwise the run gets no
+    workspace at all.
     """
-    root = default_root()
+    if root_id:
+        root = trusted_root_path(root_id)
+        if root is None:
+            return None
+    else:
+        root = default_root()
     if root is None:
         return None
     requested_root = getattr(request_workspace, "root", None)

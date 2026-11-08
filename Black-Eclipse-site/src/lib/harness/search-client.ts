@@ -2,6 +2,7 @@
 // operator routes. No state, no store.
 
 import type {
+  EmbeddingResolution,
   SearchAdminStats,
   SearchDocumentRow,
   SearchEventRow,
@@ -68,4 +69,33 @@ export async function bulkIndexSearch(namespaces?: string[]): Promise<{ success:
 
 export async function reindexSearchDocument(documentId: string, reembed = false): Promise<{ success: boolean; result: Record<string, unknown> }> {
   return postJson(`reindex/${encodeURIComponent(documentId)}?reembed=${reembed}`, {});
+}
+
+export interface EmbeddingStatusResponse {
+  success: boolean;
+  resolution: EmbeddingResolution;
+  savedConfig: Record<string, unknown>;
+  reindexScheduled?: boolean;
+  vectorSpaceChanged?: boolean;
+  ok?: boolean;
+  reason?: string;
+  dimensions?: number;
+  elapsedMs?: number;
+}
+
+export function applySearchEmbedding(body: {
+  provider: string;
+  model?: string;
+  dimensions?: number;
+  reindex?: boolean;
+}): Promise<EmbeddingStatusResponse> {
+  return postJson("embedding/apply", body);
+}
+
+export function clearSearchEmbedding(): Promise<EmbeddingStatusResponse> {
+  return postJson("embedding/clear", {});
+}
+
+export function testSearchEmbedding(): Promise<EmbeddingStatusResponse> {
+  return postJson("embedding/test", {});
 }

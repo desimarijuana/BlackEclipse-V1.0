@@ -1,7 +1,7 @@
 ---
 title: Vision / Multimodal Subsystem
 status: Current
-last-verified: 2026-10-07
+last-verified: 2026-11-06
 ---
 
 # Vision / Multimodal Subsystem
@@ -59,6 +59,21 @@ local_only`. A sensitive frame under a local-only policy is never sent to a
 cloud provider; if no local model exists the request is refused
 (`PRIVACY_REFUSED`), never silently uploaded. `vision/config.py` also supports a
 `fallback_priority` list and an explicit auxiliary `vision_model`.
+
+**One privacy story.** With `HARNESS_VISION_PRIVACY` (or `vision.json`) unset,
+the mode INHERITS the app-wide switch: `ECLIPSE_PRIVACY=local-models` means
+`local_only` for vision too. Before this, vision defaulted to `cloud_allowed`
+regardless, so a screenshot could leave the machine while the app reported
+local-only. A vision-specific setting may be stricter than the app switch; the
+app switch is the floor.
+
+**The fallback chain is bounded.** `max_attempts` (default 4) and
+`max_per_provider` (default 2) cap how many candidates one call may try; a dead
+vendor costs one timeout, not a walk through every configured provider
+(measured 2026-11-06: 12 calls — five local models, LM Studio, then OpenRouter —
+before one answered). A capped chain emits `vision.route.capped`. Every success
+records `provider`/`model` in `provenance`, so the answer can say whether the
+frame was read locally or sent to a named provider.
 
 ## Deterministic-first
 

@@ -16,12 +16,13 @@ import { useIsMobile } from '@/hooks/use-media-query';
 import { EmptyState } from '@/components/chat/empty-state';
 import { PageHeader } from '@/components/layout/page-header';
 import { ChatHistory } from '@/components/chat/chat-history';
+import { contentFromMessage } from '@/lib/canvas/content';
 import { ChatInput } from '@/components/chat/chat-input';
 import { ApprovalCard } from '@/components/chat/approval-card';
 import { ClarificationCard } from '@/components/chat/clarification-card';
 import { SessionBar } from '@/components/chat/session-bar';
-import { CheckpointBar } from '@/components/chat/checkpoint-bar';
-import { NotebookButton, NotebookProvider } from '@/components/chat/notebook-provider';
+import { ProjectChip } from '@/components/chat/project-chip';
+import { NotebookProvider } from '@/components/chat/notebook-provider';
 import { ChatWordmark } from '@/components/chat/chat-wordmark';
 import { useSession, mergeAttachmentChips } from '@/lib/chat/use-session';
 import { buildUserTurn } from '@/lib/chat/paste';
@@ -129,6 +130,7 @@ const PagesScreen = dynamic(
   { ssr: false, loading: () => <ScreenSkeleton /> }
 );
 import { SdkTab } from '@/components/screens/sdk/sdk-tab';
+import { CodeTab } from '@/components/screens/code/code-tab';
 const BacktestScreen = dynamic(
   () => import('@/components/screens/backtest/backtest-screen').then((m) => m.BacktestScreen),
   { ssr: false, loading: () => <ScreenSkeleton /> }
@@ -207,15 +209,16 @@ function StockChatContent() {
   const pendingCanvasArtifactId = useCommandStore((s) => s.pendingCanvasArtifactId);
   const canvasInlineOpen = useCommandStore((s) => s.canvasInlineOpen);
   const canvasView = useCommandStore((s) => s.canvasView);
+  const canvasSource = useCommandStore((s) => s.canvasSource);
   const canvasOpen = canvasInlineOpen || Boolean(pendingCanvasArtifactId) || Boolean(canvasView);
   const openMessageInCanvas = useCallback((msg: { id: string; content?: string; response?: { title?: string } }) => {
     if (!msg.content) return;
-    // The canvas content builder imports the response contract (Zod). Load it
-    // only when the operator actually opens a message in the canvas.
-    void import('@/lib/canvas/content').then(({ contentFromMessage }) => {
-      useCommandStore.getState().openCanvasContent(
-        contentFromMessage(msg.content!, { id: msg.id, title: msg.response?.title }),
-      );
+    // Synchronous: the content builder is already in the chat bundle, so the
+    // message body leaves the transcript the instant the button is pressed.
+    const content = contentFromMessage(msg.content, { id: msg.id, title: msg.response?.title });
+    useCommandStore.getState().openCanvasContent(content, {
+      messageId: msg.id,
+      title: content.title || 'Canvas',
     });
   }, []);
   const [query, setQuery] = useState('');
@@ -1207,7 +1210,12 @@ function StockChatContent() {
                       effortState={reasoningEffort}
                       mentionTargets={mentionTargets}
                     />
-                    <div className="flex w-full items-center justify-between gap-2 px-4 md:px-6"><SessionBar session={sessionController} /><NotebookButton /></div>
+                    <div className="flex w-full items-center justify-between gap-2 px-4 md:px-6">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <SessionBar session={sessionController} />
+                        <ProjectChip chatId={activeConversationId ?? undefined} />
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <div
@@ -1224,6 +1232,7 @@ function StockChatContent() {
   onFeedback={handleFeedback}
   onFollowup={handleFollowup}
   onOpenCanvas={openMessageInCanvas}
+  canvasMessageId={focusMode ? null : canvasSource?.messageId ?? null}
   scrollRef={chatScrollRef}
   bottomInset={132} />
                     <div className={cn(
@@ -1270,23 +1279,10 @@ function StockChatContent() {
                       )}
                       <AttachmentPreview preview={sessionController.preview} onClose={sessionController.closePreview} />
                       <div className="mt-1.5 flex items-center gap-2">
-                        <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
                           <SessionBar session={sessionController} />
+                          <ProjectChip chatId={activeConversationId ?? undefined} compact />
                         </div>
-                        <NotebookButton />
-                        <CheckpointBar
-                          chatId={activeConversationId}
-                          messages={messages}
-                          onRestore={(restored) => {
-                            setMessages(restored);
-                            if (activeConversationId) {
-                              const updated = conversationsRef.current.map((c) =>
-                                c.id === activeConversationId ? { ...c, messages: restored } : c
-                              );
-                              saveConversations(updated);
-                            }
-                          }}
-                        />
                       </div>
                     </div>
                   </div>
@@ -1410,6 +1406,8 @@ function StockChatContent() {
               </div>
             </div>
           )}
+
+          {visited.has('code') && <CodeTab active={activeTab === 'code'} />}
 
           {visited.has('bots') && (
             <div className={cn('w-full h-full', activeTab === 'bots' ? '' : 'hidden')}>

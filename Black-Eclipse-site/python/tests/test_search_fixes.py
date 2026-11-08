@@ -138,3 +138,28 @@ async def test_boot_warm_index_populates_and_is_incremental():
 
     second = await service.warm_index()
     assert second["unchanged"] >= 1  # idempotent keyword-only warm-up
+
+
+@pytest.mark.asyncio
+async def test_embedding_choice_is_persisted_and_reloaded():
+    """An operator's embedding choice survives a process restart.
+
+    The Python runtime is process-wide and restarts often; a choice made in the
+    Search Intelligence screen must not silently revert to keyword-only.
+    """
+    import os
+
+    from harness.search import SearchConfig, SearchService
+
+    service, directory = make_service(rerank_enabled=False)
+    status = service.apply_embedding_config(provider="ollama", model="nomic-embed-text")
+    assert status["resolution"]["available"] is True
+    assert status["resolution"]["provider"] == "ollama"
+
+    reloaded = SearchService(SearchConfig(db_path=os.path.join(directory, "search.db")))
+    reloaded.configure(None)
+    assert reloaded.embedder.provider_id == "ollama"
+    assert reloaded.embedder.model_id == "nomic-embed-text"
+
+    cleared = reloaded.clear_embedding_config()
+    assert cleared["savedConfig"] == {}

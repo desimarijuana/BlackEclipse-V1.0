@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from . import policy
+from . import project_policy
 from .workspace import ResolvedWorkspace, WorkspaceDenial, confine
 
 ALLOWED_OPS = frozenset({"create", "replace", "delete", "move", "overwrite"})
@@ -295,6 +296,8 @@ def _plan_one(ws: ResolvedWorkspace, binding: Any, actor: Any, op: PatchOp, scop
     rel = target.relative_to(ws.root).as_posix()
     if _forbidden(rel):
         raise PatchError("PATCH_PROTECTED_PATH", f"{rel!r} is protected")
+    if project_policy.is_denied(ws.root, rel):
+        raise PatchError("PATCH_PROJECT_DENIED", f"{rel!r} is protected by this project's policy")
     if not _in_scope(rel, scope):
         raise PatchError("PATCH_OUTSIDE_SCOPE", f"{rel!r} is outside the declared scope")
     _decide(binding, rel, actor)

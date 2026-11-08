@@ -9,9 +9,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { FileJson, FileText, Loader2, SquareCode, SquarePen, X } from '@/lib/icons';
-import type { CanvasContentKind } from '@/lib/canvas/content';
-import { createCanvasArtifact } from '@/lib/harness/canvas-client';
-import { responseToJson } from '@/lib/response/export';
+import type { CanvasContent, CanvasContentKind } from '@/lib/canvas/content';
+import { makeCanvasEditable } from '@/lib/canvas/save-to-edit';
 import { useCommandStore } from '@/lib/search/store';
 import { CanvasViewer } from './canvas-viewer';
 
@@ -31,24 +30,75 @@ function loadWidth(): number {
 }
 
 function KindIcon({ kind }: { kind: CanvasContentKind }) {
-  if (kind === 'code') return <SquareCode className="h-4 w-4" />;
-  if (kind === 'report') return <FileJson className="h-4 w-4" />;
-  return <FileText className="h-4 w-4" />;
+  if (kind === 'code') return <SquareCode className="h-5 w-5" />;
+  if (kind === 'report') return <FileJson className="h-5 w-5" />;
+  // A prose answer opened in Canvas is a WRITING surface — the icon reads as a
+  // pen, not a generic file.
+  if (kind === 'markdown') return <SquarePen className="h-5 w-5" />;
+  return <FileText className="h-5 w-5" />;
 }
 
-const KIND_LABEL: Record<CanvasContentKind, string> = {
-  markdown: 'Document',
+const SURFACE_LABEL: Record<CanvasContentKind, string> = {
+  markdown: 'Writing',
   code: 'Code',
   report: 'Report',
   url: 'Web page',
   image: 'Image',
 };
 
+/** The dock header: one rounded surface card (public for a pure render test). */
+export function CanvasHeaderCard({
+  content,
+  saving = false,
+  onSaveToEdit,
+  onClose,
+}: {
+  content: CanvasContent | null;
+  saving?: boolean;
+  onSaveToEdit?: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <header className="shrink-0 p-2.5 pb-0">
+      <div
+        className="flex items-center gap-3 rounded-2xl border border-border/40 bg-card px-3 py-2.5 dark:bg-[#141414]"
+        title={content?.title ?? 'Canvas'}
+      >
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-black/40 text-primary ring-1 ring-inset ring-white/[0.06] dark:bg-[#0b0b0c]">
+          {content ? <KindIcon kind={content.kind} /> : <SquarePen className="h-5 w-5" />}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-tight text-foreground">
+          {content ? SURFACE_LABEL[content.kind] : 'Canvas'}
+        </span>
+        {content && !content.editable && onSaveToEdit ? (
+          <button
+            type="button"
+            onClick={onSaveToEdit}
+            disabled={saving}
+            className="shrink-0 rounded-full border border-border/40 px-2.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+            title="Save this view as an editable canvas artifact"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save to edit'}
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close Canvas"
+          title="Close Canvas"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <X size={15} />
+        </button>
+      </div>
+    </header>
+  );
+}
+
 export function CanvasDock() {
   const content = useCommandStore((s) => s.canvasView);
   const artifactId = useCommandStore((s) => s.pendingCanvasArtifactId);
   const close = useCommandStore((s) => s.closeCanvas);
-  const openCanvas = useCommandStore((s) => s.openCanvas);
 
   const [width, setWidth] = useState(loadWidth);
   const [saving, setSaving] = useState(false);
@@ -85,30 +135,21 @@ export function CanvasDock() {
     setSaving(true);
     setSaveError(null);
     try {
-      const kind = content.kind === 'code' ? 'code' : content.kind === 'report' ? 'visual' : 'document';
-      const text = content.kind === 'code'
-        ? content.code?.text ?? ''
-        : content.kind === 'report' && content.response
-          ? responseToJson(content.response)
-          : content.markdown ?? '';
-      const snap = await createCanvasArtifact({
-        name: content.title,
-        kind,
-        language: content.kind === 'code' ? content.code?.language : undefined,
-        content: text,
-      });
-      openCanvas(snap.artifactId);
+      await makeCanvasEditable();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Could not save this to Canvas');
     } finally {
       setSaving(false);
     }
-  }, [content, openCanvas]);
+  }, [content]);
 
   // Artifact-backed: the editor owns its own card + header.
   if (artifactId) {
     return (
-      <div className="hidden h-full shrink-0 md:flex" style={{ width }}>
+      <div
+        className="fixed inset-0 z-[150] flex h-full w-full flex-col bg-background md:static md:z-auto md:w-auto md:shrink-0"
+        style={typeof window !== 'undefined' && window.innerWidth >= 768 ? { width } : undefined}
+      >
         <CanvasScreen inline initialArtifactId={artifactId} onClose={close} />
       </div>
     );
@@ -116,8 +157,8 @@ export function CanvasDock() {
 
   return (
     <aside
-      className="relative flex h-full w-full shrink-0 flex-col md:w-auto"
-      style={{ width: typeof window !== 'undefined' && window.innerWidth >= 768 ? width : undefined }}
+      className="fixed inset-0 z-[150] flex h-full w-full flex-col bg-background md:static md:z-auto md:h-full md:w-auto"
+      style={typeof window !== 'undefined' && window.innerWidth >= 768 ? { width } : undefined}
       aria-label="Eclipse Canvas"
     >
       {/* Drag handle — lets the user resize the reading surface. */}
@@ -128,37 +169,12 @@ export function CanvasDock() {
         className="absolute inset-y-0 left-0 z-10 hidden w-1.5 -translate-x-1/2 cursor-col-resize bg-transparent transition-colors hover:bg-primary/30 md:block"
       />
       <section className="glass-card flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl">
-        <header className="flex shrink-0 items-center gap-2 border-b border-border/15 px-3 py-2">
-          {content ? <span className="text-primary"><KindIcon kind={content.kind} /></span> : <SquarePen className="h-4 w-4 text-primary" />}
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-            {content?.title ?? 'Canvas'}
-          </span>
-          {content ? (
-            <span className="shrink-0 rounded-full bg-accent/30 px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
-              {KIND_LABEL[content.kind]}
-            </span>
-          ) : null}
-          {content && !content.editable ? (
-            <button
-              type="button"
-              onClick={() => void saveToEdit()}
-              disabled={saving}
-              className="shrink-0 rounded-full border border-border/40 px-2.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
-              title="Save this view as an editable canvas artifact"
-            >
-              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save to edit'}
-            </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={close}
-            aria-label="Close Canvas"
-            title="Close Canvas"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <X size={15} />
-          </button>
-        </header>
+        <CanvasHeaderCard
+          content={content}
+          saving={saving}
+          onSaveToEdit={() => void saveToEdit()}
+          onClose={close}
+        />
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
           {saveError ? <p className="mb-3 text-xs text-rose-300">{saveError}</p> : null}

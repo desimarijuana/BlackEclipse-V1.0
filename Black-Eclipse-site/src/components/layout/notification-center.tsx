@@ -203,18 +203,19 @@ export function NotificationCenter() {
             </div>
           </div>
 
-          {/* Kind filters — only kinds that actually have items are offered. */}
+          {/* Kind filters — always offered, so every producer's lane is
+              discoverable even before its first event (count 0). */}
           <div className="flex flex-wrap items-center gap-1 border-b border-border/20 px-3 py-2">
             <FilterChip
               active={filter === 'all'}
               label={`All${items.length ? ` (${items.length})` : ''}`}
               onClick={() => setFilter('all')}
             />
-            {FILTER_ORDER.filter((kind) => (counts[kind] ?? 0) > 0).map((kind) => (
+            {FILTER_ORDER.map((kind) => (
               <FilterChip
                 key={kind}
                 active={filter === kind}
-                label={`${KIND_META[kind].plural} (${counts[kind]})`}
+                label={`${KIND_META[kind].plural} (${counts[kind] ?? 0})`}
                 onClick={() => setFilter(kind)}
               />
             ))}

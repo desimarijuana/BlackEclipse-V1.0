@@ -109,6 +109,37 @@ def test_require_identity_loopback_is_operator_in_local_mode():
     assert resp.json()["method"] == "operator"
 
 
+# ── the tenant requirement FOLLOWS the front door (one authority) ────────────
+def test_multi_tenant_follows_explicit_auth_off_in_production(monkeypatch):
+    """`NODE_ENV=production` + `HARNESS_AUTH=off` is the documented single-user
+    local mode: tenancy must be OFF, or every write/execute is denied as an
+    isolation violation while the app claims to be a single-operator install."""
+    from harness.security.identity import front_door_requires_auth, multi_tenant_required
+
+    monkeypatch.setenv("NODE_ENV", "production")
+    monkeypatch.setenv("HARNESS_AUTH", "off")
+    monkeypatch.delenv("HOST", raising=False)
+    assert front_door_requires_auth() is False
+    assert multi_tenant_required() is False
+
+
+def test_multi_tenant_is_on_when_the_front_door_requires_auth(monkeypatch):
+    from harness.security.identity import multi_tenant_required
+
+    monkeypatch.setenv("NODE_ENV", "production")
+    monkeypatch.delenv("HARNESS_AUTH", raising=False)
+    monkeypatch.delenv("HOST", raising=False)
+    assert multi_tenant_required() is True
+
+
+def test_explicit_multi_tenant_wins_over_auth_off(monkeypatch):
+    from harness.security.identity import multi_tenant_required
+
+    monkeypatch.setenv("HARNESS_AUTH", "off")
+    monkeypatch.setenv("HARNESS_MULTI_TENANT", "1")
+    assert multi_tenant_required() is True
+
+
 # ── tenant isolation in the security plane ───────────────────────────────────
 def _gateway(**kw):
     from harness.persistence import AgentMemoryStore

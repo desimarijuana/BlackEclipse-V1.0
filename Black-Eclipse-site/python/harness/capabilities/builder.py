@@ -209,6 +209,9 @@ def build(
     base = Path(root) if root is not None else _default_root()
     if base is None:
         return _failure("refused", "there is no workspace to build the capability in", code="WORKSPACE_UNAVAILABLE")
+    from ..code.project_state import ensure_state_dir  # noqa: PLC0415
+
+    ensure_state_dir(base)
 
     source = request.implementation or ""
     if not source.strip():

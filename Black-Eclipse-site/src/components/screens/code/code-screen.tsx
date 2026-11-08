@@ -17,15 +17,22 @@ import {
   cancelCodeTask,
   decideCodeApproval,
   discardCodeTask,
+  getCodeScorecard,
+  getCodeSession,
   getCodeTask,
   getCodeTaskDiff,
   listCodeApprovals,
   listCodeTasks,
   resumeCodeTask,
   type CodeApproval,
+  type CodeScorecard,
+  type CodeSession,
   type CodeTask,
   type CodeTaskDiff,
 } from '@/lib/harness/code-browser';
+import { ScorecardStrip } from './scorecard-strip';
+import { ProjectBar } from './project-bar';
+import { PreviewPanel } from './preview-panel';
 import { TaskList } from './task-list';
 import { TaskDetail } from './task-detail';
 import { CodeApprovals } from './code-approvals';
@@ -37,11 +44,15 @@ export function CodeScreen() {
   const t = useT();
   const [tasks, setTasks] = useState<CodeTask[]>([]);
   const [approvals, setApprovals] = useState<CodeApproval[]>([]);
+  const [scorecard, setScorecard] = useState<CodeScorecard | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<CodeTask | null>(null);
+  const [session, setSession] = useState<CodeSession | null>(null);
   const [diff, setDiff] = useState<CodeTaskDiff | null>(null);
   const [view, setView] = useState<CodeView>('tasks');
   const [error, setError] = useState<string | null>(null);
+  const [projectRootId, setProjectRootId] = useState<string | null>(null);
+  const [scope, setScope] = useState<'project' | 'all'>('project');
 
   // A `code.approvals` palette request brings the "waiting for you" panel forward;
   // `code.tasks` returns to the list. Both panels stay mounted either way.
@@ -49,9 +60,20 @@ export function CodeScreen() {
     setView(req.subroute.split('.')[1] === 'approvals' ? 'approvals' : 'tasks');
   });
 
+  const refreshScorecard = useCallback(async () => {
+    try {
+      const target = scope === 'project' && projectRootId ? { rootId: projectRootId } : {};
+      setScorecard(await getCodeScorecard(30, target));
+    } catch {
+      // Keep the last card rather than blanking a measured number.
+    }
+  }, [scope, projectRootId]);
+
   const refresh = useCallback(async () => {
     try {
-      const [nextTasks, nextApprovals] = await Promise.all([listCodeTasks(), listCodeApprovals()]);
+      const [nextTasks, nextApprovals] = await Promise.all([
+        listCodeTasks(), listCodeApprovals(),
+      ]);
       setTasks(nextTasks);
       setApprovals(nextApprovals);
       setError(null);
@@ -61,24 +83,31 @@ export function CodeScreen() {
   }, [t]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { void refreshScorecard(); }, [refreshScorecard]);
 
   // Load the selected task's detail + its change (the diff is optional: a task
   // with no bound work area simply has none).
   useEffect(() => {
-    if (!selectedId) { setDetail(null); setDiff(null); return; }
+    if (!selectedId) { setDetail(null); setDiff(null); setSession(null); return; }
     let alive = true;
     void (async () => {
       try {
-        const [task, change] = await Promise.all([getCodeTask(selectedId), getCodeTaskDiff(selectedId)]);
-        if (alive) { setDetail(task); setDiff(change); }
+        const [task, change, nextSession] = await Promise.all([
+          getCodeTask(selectedId), getCodeTaskDiff(selectedId), getCodeSession(selectedId),
+        ]);
+        if (alive) { setDetail(task); setDiff(change); setSession(nextSession); }
       } catch {
-        if (alive) { setDetail(null); setDiff(null); }
+        if (alive) { setDetail(null); setDiff(null); setSession(null); }
       }
     })();
     return () => { alive = false; };
   }, [selectedId, tasks]);
 
-  const after = useCallback(async () => { await refresh(); }, [refresh]);
+  const after = useCallback(async () => { await refresh(); await refreshScorecard(); }, [refresh, refreshScorecard]);
+  const refreshSession = useCallback(() => {
+    if (!selectedId) return;
+    void getCodeSession(selectedId).then(setSession).catch(() => {});
+  }, [selectedId]);
 
   return (
     <div className="space-y-3 p-4">
@@ -113,6 +142,31 @@ export function CodeScreen() {
         </div>
       </header>
 
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setScope('project')}
+          className={cn('glass-card-subtle rounded-lg px-2.5 py-1 text-[10.5px] transition-colors',
+            scope === 'project' ? 'border border-primary/50 text-foreground' : 'text-muted-foreground')}
+        >
+          {t('code.scorecard.scope.project')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setScope('all')}
+          className={cn('glass-card-subtle rounded-lg px-2.5 py-1 text-[10.5px] transition-colors',
+            scope === 'all' ? 'border border-primary/50 text-foreground' : 'text-muted-foreground')}
+        >
+          {t('code.scorecard.scope.all')}
+        </button>
+      </div>
+
+      <ScorecardStrip card={scorecard} />
+
+      <ProjectBar onChange={setProjectRootId} />
+
+      <PreviewPanel taskId={selectedId} rootId={projectRootId} />
+
       {error && (
         <div className="glass-card-subtle rounded-xl border border-red-500/30 p-2.5 text-[12px] text-red-300">
           {error}
@@ -120,10 +174,11 @@ export function CodeScreen() {
       )}
 
       <div className={cn('grid gap-3 lg:grid-cols-2', view !== 'tasks' && 'hidden')}>
-        <TaskList tasks={tasks} selectedId={selectedId} onSelect={setSelectedId} onChanged={after} />
+        <TaskList tasks={tasks} selectedId={selectedId} onSelect={setSelectedId} onChanged={after} workspaceRootId={projectRootId} />
         {detail ? (
           <TaskDetail
             task={detail}
+            session={session}
             diffFiles={diff ? [...diff.added, ...diff.modified, ...diff.deleted] : []}
             diffUnified={diff?.unified}
             diffDigest={diff?.digest ?? null}
@@ -135,6 +190,7 @@ export function CodeScreen() {
             onResume={() => { void resumeCodeTask(detail.id).then(after); }}
             onCancel={() => { void cancelCodeTask(detail.id).then(after); }}
             onDiscard={() => { void discardCodeTask(detail.id).then(() => { setSelectedId(null); return after(); }); }}
+            onChecked={refreshSession}
           />
         ) : (
           <div className="glass-card-subtle rounded-xl p-3 text-[12px] text-muted-foreground">

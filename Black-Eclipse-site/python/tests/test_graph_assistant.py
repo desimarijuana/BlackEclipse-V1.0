@@ -320,6 +320,49 @@ def test_assistant_runs_inspects_and_fixes(monkeypatch):
     assert "fixed" in result["answer"].lower()
 
 
+class _ApprovingStore:
+    def __init__(self) -> None:
+        self.requests = 0
+
+    def request_kind(self, **kwargs):
+        self.requests += 1
+        return {
+            "id": f"appr_{self.requests}",
+            "status": "pending",
+            "kind": kwargs.get("kind"),
+            "effect": kwargs.get("effect"),
+            "risk": kwargs.get("risk"),
+            "actionSummary": kwargs.get("action_summary"),
+            "grantPattern": kwargs.get("grant_pattern"),
+        }
+
+    async def wait_for_decision(self, _approval_id, timeout_s=900.0):
+        return {"status": "approved"}
+
+
+def test_assistant_run_tool_is_approval_gated(monkeypatch):
+    runtime = _FixRunRuntime()
+    monkeypatch.setattr("harness.model_runtime.get_runtime", lambda: runtime)
+    approvals = _ApprovingStore()
+
+    async def runner(_ir):
+        return {"ok": True, "status": "succeeded", "failed": [], "nodes": [], "output": {"value": 1}}
+
+    result = asyncio.run(assist_graph(
+        "Run it",
+        ir_payload=_ir().model_dump(by_alias=True),
+        model_settings={"provider": "scripted", "model": "scripted"},
+        registry=REGISTRY,
+        mode="edit",
+        runner=runner,
+        approvals=approvals,
+        require_approval=True,
+    ))
+
+    assert result["ok"] is True
+    assert approvals.requests >= 1
+
+
 def test_assistant_run_tool_is_bounded(monkeypatch):
     session = GraphAssistantSession(_ir(), REGISTRY, runner=None)
     missing = asyncio.run(session.run_workflow())

@@ -48,10 +48,9 @@ import { uploadSessionFile } from '@/lib/chat/session-client';
 import { SESSION_LIMITS } from '@/lib/chat/session-types';
 import type { Message } from '@/types/chat';
 import { ChatHistory } from './chat-history';
-import { NotebookButton, NotebookProvider } from './notebook-provider';
+import { NotebookProvider } from './notebook-provider';
 import { ModelSelector } from './chat-input';
 import { EffortControl } from './effort-control';
-import { CheckpointBar } from './checkpoint-bar';
 import { ApprovalCard } from './approval-card';
 import { ClarificationCard } from './clarification-card';
 
@@ -630,12 +629,6 @@ export function ChatDock({
                 <Bot size={12} />
               </span>
               <p className="min-w-0 flex-1 truncate font-serif text-sm font-semibold text-foreground">{title}</p>
-              <NotebookButton />
-              <CheckpointBar
-                chatId={sessionIdRef.current}
-                messages={messages}
-                onRestore={(restored) => append(restored)}
-              />
               <button
                 type="button"
                 onClick={newChat}

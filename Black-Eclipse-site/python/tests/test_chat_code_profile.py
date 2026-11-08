@@ -20,6 +20,8 @@ EXPECTED = (
     'workspace_list',
     'workspace_read',
     'workspace_docs',
+    # Phase 22 / S1: the project's own rules (read-only, context only).
+    'project_rules',
     'workspace_diff',
     'workspace_revert',
     'command_run',

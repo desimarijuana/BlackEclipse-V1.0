@@ -204,3 +204,37 @@ def test_configure_does_not_rearm_an_open_circuit_within_cooldown(tmp_path, monk
     with pytest.raises(Exception):
         asyncio.run(service.embed_texts(["b"]))
     assert len(calls) == asked
+
+
+def test_resolution_explains_off_state_and_offers_models(tmp_path, monkeypatch):
+    """An off state must be actionable, not a bare 'unavailable'."""
+    from harness.search.config import SearchConfig
+
+    for key in (
+        "HARNESS_SEARCH_EMBEDDING_PROVIDER",
+        "HARNESS_SEARCH_EMBEDDING_MODEL",
+        "OPENAI_API_KEY",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    service = EmbeddingService(SearchConfig(db_path=str(tmp_path / "s.db")))
+    service.configure(None)
+    resolution = service.resolution()
+    assert resolution["state"] == "no_provider"
+    assert resolution["available"] is False
+    assert resolution["hint"]
+    assert resolution["suggestions"], "must suggest at least the local provider"
+    assert any(s["local"] for s in resolution["suggestions"])
+
+
+def test_resolution_flags_provider_without_embeddings(tmp_path):
+    """A chat-only provider (e.g. Anthropic) names the problem and the fix."""
+    from types import SimpleNamespace
+
+    from harness.search.config import SearchConfig
+
+    service = EmbeddingService(SearchConfig(db_path=str(tmp_path / "s.db")))
+    service.configure(SimpleNamespace(provider="anthropic", api_key="k", base_url=None))
+    resolution = service.resolution()
+    assert resolution["state"] == "unsupported_provider"
+    assert "does not offer an embedding model" in resolution["hint"]
+    assert resolution["suggestions"]

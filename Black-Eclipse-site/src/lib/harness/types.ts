@@ -594,4 +594,7 @@ export type DataCapability =
   // from `data-bridge.ts`'s default branch via `data-bridge-extensions.ts`,
   // because data-bridge.ts is at its size ratchet.
   | "sec_filing_list"
-  | "custom_dataset_records";
+  | "custom_dataset_records"
+  // The journal read used by the trade-learning graph nodes. Read-only and
+  // owner-scoped; dispatched from `data-bridge-extensions.ts`.
+  | "journal_trades";

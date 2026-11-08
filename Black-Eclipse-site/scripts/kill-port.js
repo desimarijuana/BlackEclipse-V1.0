@@ -56,7 +56,22 @@ let killedProcess = killPort(profile.appPort, 'Next.js');
 //    port; a fresh runtime then fails to bind (`WinError 10048`) and its boot
 //    reconciliation would orphan the runs the survivor is executing. Dev and
 //    production use different harness ports, so neither clears the other's.
-const pyPort = profile.harnessPort;
+const pyPort = (() => {
+  // The URL is what the server binds (python-runtime derives host/port from it),
+  // so it wins over the discrete port variable.
+  const raw = process.env.HARNESS_PY_URL;
+  if (raw) {
+    try {
+      const url = new URL(raw);
+      const fromUrl = Number(url.port);
+      if (fromUrl > 0) return fromUrl;
+    } catch {
+      /* fall through to the explicit port / profile default */
+    }
+  }
+  const explicit = Number(process.env.HARNESS_PY_PORT);
+  return explicit > 0 ? explicit : profile.harnessPort;
+})();
 if (pyPort !== profile.appPort) {
   console.log(`Checking if Python runtime port ${pyPort} is in use...`);
   killedProcess = killPort(pyPort, 'Python runtime') || killedProcess;

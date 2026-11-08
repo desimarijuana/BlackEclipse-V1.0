@@ -1,7 +1,7 @@
 ---
 title: Authentication & multi-user mode
 status: Current
-last-verified: 2026-10-13
+last-verified: 2026-11-06
 ---
 
 # Authentication & multi-user mode
@@ -67,6 +67,13 @@ is on, and passes the caller's label through unchanged when it is off (so local
 behaviour is identical to before). When auth is **off**, `userId`/`scopeId` remain
 self-asserted scope *filter* labels — a correctness boundary, not a trust boundary.
 
+The runtime's tenant requirement is the SAME decision, not a second one: it calls
+`security/identity.py:front_door_requires_auth()` (the Python mirror of
+`config.ts`), so `HARNESS_AUTH=off` means single-tenant even under
+`NODE_ENV=production`, and the `/health` posture and the enforcement can never
+disagree. Setting `NODE_ENV=production` alone must never turn tenancy on — that
+combination is exactly the documented `npm run start` local mode.
+
 ## Endpoints
 
 | Route | Purpose |
@@ -115,6 +122,13 @@ notice, not a warning — that is a legitimate single-operator deployment
   user `scope`; it is a real boundary only when auth is on.
 
 ## Configuration
+
+Turn it on with the supported one-line setup (it never rotates a live secret):
+
+```bash
+npm run auth:setup            # HARNESS_AUTH=required + a generated secret
+npm run auth:setup -- --dry-run
+```
 
 | Env var | Meaning |
 |---|---|

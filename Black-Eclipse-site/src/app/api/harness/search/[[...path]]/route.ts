@@ -10,7 +10,17 @@ export const dynamic = "force-dynamic";
 // SAME SearchService the agent tools use). The Python routes are operator-gated;
 // this proxy injects the runtime operator token, so no secret crosses the wire.
 const ALLOWED_GET = new Set(["health", "stats", "models", "documents", "events"]);
-const ALLOWED_POST = new Set(["", "debug", "index", "index/process", "ingest", "find-similar"]);
+const ALLOWED_POST = new Set([
+  "",
+  "debug",
+  "index",
+  "index/process",
+  "ingest",
+  "find-similar",
+  "embedding/apply",
+  "embedding/clear",
+  "embedding/test",
+]);
 
 function isAllowed(method: string, target: string): boolean {
   if (method === "GET") {

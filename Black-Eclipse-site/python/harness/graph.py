@@ -217,6 +217,32 @@ def chat_step_budget(agent: AgentConfig, request: Any) -> int:
     return max(1, min(CHAT_MAX_STEPS_CEILING, base))
 
 
+# Phase 22 / S2: a build session may buy more than the chat ceiling, but only up
+# to these hard caps. The caps belong to the runtime; a caller cannot raise them.
+HARD_MAX_STEPS = 240
+HARD_RUN_TIMEOUT_S = 10_800.0
+
+
+def requested_budget(
+    max_steps: int, run_timeout_s: float, request: Any,
+) -> tuple[int, float]:
+    """Apply a session's additive budget, clamped to the hard caps.
+
+    Absent fields leave the run's existing budget untouched. A value can only
+    RAISE the budget: a session is a floor on the work, never a way to shrink a
+    run that already has more. Pure, so the policy is testable without a graph.
+    """
+    steps = getattr(request, "maxSteps", None)
+    if steps:
+        max_steps = max(max_steps, min(int(steps), HARD_MAX_STEPS))
+    timeout_ms = getattr(request, "runTimeoutMs", None)
+    if timeout_ms:
+        run_timeout_s = max(
+            run_timeout_s, min(float(timeout_ms) / 1000.0, HARD_RUN_TIMEOUT_S),
+        )
+    return max_steps, run_timeout_s
+
+
 def _task_profile_of(request: RunRequest, agent: AgentConfig) -> str:
     """The task profile the ModelRouter scores against for this run (spec Â§14)."""
     from .model_runtime.integration import task_profile_of
@@ -313,6 +339,18 @@ def _project_brief_block(project_id: Optional[str], project_store: Optional[Any]
     return brief
 
 
+def _run_workspace(request: Any) -> Any:
+    """Resolve this run's workspace, honouring a per-chat approved root id.
+
+    Called without the second argument when the run has no per-chat binding, so
+    the historical one-argument seam (and tests that patch it) stays intact.
+    """
+    root_id = getattr(request, "workspaceRootId", None)
+    if root_id:
+        return resolve_workspace(request.workspace, root_id)
+    return resolve_workspace(request.workspace)
+
+
 def _resolve_direct(request: Any) -> bool:
     """Whether a run edits the real folder or a disposable copy.
 
@@ -323,8 +361,14 @@ def _resolve_direct(request: Any) -> bool:
     explicit = getattr(request, "direct", None)
     if explicit is not None:
         return bool(explicit)
-    from .code.workspace import trusted_root_selected  # noqa: PLC0415
+    from .code.workspace import trusted_root_path, trusted_root_selected  # noqa: PLC0415
 
+    # A per-chat approved folder is a user act, exactly like the global
+    # selection: edit it directly. Without a per-run id, fall back to the
+    # globally selected trusted root (the built-in repo root stays isolated).
+    root_id = getattr(request, "workspaceRootId", None)
+    if root_id:
+        return trusted_root_path(root_id) is not None
     return trusted_root_selected()
 
 
@@ -390,6 +434,9 @@ def build_graph(
     advisory_sink: Optional[Any] = None,
     # The Advisory Ledger service, so `advisory_*` tools reach the ONE ledger.
     advisory_service: Optional[Any] = None,
+    # The typed-decision service, so `decision_*` tools reach the ONE provider
+    # registry + audit store (and never guess when a provider is unavailable).
+    decision_service: Optional[Any] = None,
     market: Optional[Any] = None,
     # The Portfolio Accounting Engine service, so the `portfolio_*` tools reach
     # the ONE ledger/valuation service (reusing the per-run market gateway).
@@ -436,6 +483,13 @@ def build_graph(
     run_timeout_s = (agent.runTimeoutMs or 120_000) / 1000
     if request.autonomy in ("edit_verify", "approve_external"):
         max_steps = max(max_steps, 24); run_timeout_s = max(run_timeout_s, 600.0)
+    # Phase 22 / S2: a build session's budget, clamped to the hard caps.
+    max_steps, run_timeout_s = requested_budget(max_steps, run_timeout_s, request)
+    # A deep quant cycle (catalog -> data -> build -> validate -> robustness ->
+    # artifact) needs more than the ordinary chat navigation budget.
+    from .quant_intent import is_deep_quant_turn  # noqa: PLC0415
+    if is_deep_quant_turn(request.input.query, getattr(request.input, "history", None)):
+        max_steps = max(max_steps, 32); run_timeout_s = max(run_timeout_s, 600.0)
     # A hard total tool-call budget. A skill manifest declares
     # `limits.maxToolCalls`; this ENFORCES it in the loop (a skill cannot exceed
     # its declared budget by prompting or by looping). None = unbounded (chat).
@@ -518,7 +572,7 @@ def build_graph(
         mcp_manager=mcp_manager,
         # The read-only workspace binding for this run (Phase 1). Absent â‡’ no
         # code capability (the default-actor rule).
-        workspace=resolve_workspace(request.workspace),
+        workspace=_run_workspace(request),
         # Phase 2: the run's autonomy profile and the code-workspace store.
         autonomy=request.autonomy,
         code_store=code_store,
@@ -573,6 +627,9 @@ def build_graph(
         advisory_sink=advisory_sink,
         # The Advisory Ledger service, so `advisory_*` tools reach the ONE ledger.
         advisory_service=advisory_service,
+        # The typed-decision service, so `decision_*` tools reach the ONE
+        # provider registry + audit store.
+        decision_service=decision_service,
         # The Market Data Layer: gateway (routing + quality), durable snapshot/
         # instrument store and stream manager, as one bundle. Shared process-wide.
         market_gateway=getattr(market, "gateway", None),
@@ -762,7 +819,11 @@ def build_graph(
         usage_state = {"prompt_tokens": total_prompt, "completion_tokens": total_completion}
 
         if not tool_calls:
-            final_text = _text(response)
+            from .quant_intent import finalize_quant_text  # noqa: PLC0415
+            final_text = finalize_quant_text(
+                request.input.query, getattr(request.input, "history", None),
+                state["messages"], _text(response),
+            )
             # A forced final turn that produced no text is not an answer. Report
             # the honest failure rather than a blank "completed".
             if finalizing and not final_text.strip():
@@ -1141,6 +1202,7 @@ async def execute_run(
     portfolio: Optional[Any] = None,
     ledger: Optional[Any] = None,
     advisory: Optional[Any] = None,
+    decision: Optional[Any] = None,
     quant: Optional[Any] = None,
     project_store: Optional[Any] = None,
     search: Optional[Any] = None,
@@ -1220,17 +1282,17 @@ async def execute_run(
             raise RuntimeError(
                 f"run {request.runId!r} already exists in status {prior_status!r}"
             )
-        # Record lineage AFTER the row exists (the columns are owned by the
-        # lineage module, not the ratcheted core store).
+        # Record lineage AFTER the row exists (columns owned by the lineage module).
         lineage.set_run_parent(request.runId, request.parentRunId, request.workflowId)
         await emitter.emit("run.created", {"agentId": agent.id})
         store.update_run(request.runId, status="running", startedAt=started)
-        await emitter.emit("run.started", {"maxSteps": chat_step_budget(agent, request), "provider": request.modelSettings.provider})
+        # The effective budget: a session profile may raise `request.maxSteps`.
+        await emitter.emit("run.started", {"maxSteps": int(getattr(request, "maxSteps", 0) or 0)
+                                           or chat_step_budget(agent, request),
+                                           "provider": request.modelSettings.provider})
 
-    # Phase 4: an unambiguous supported financial comparison is routed through the
-    # deterministic evidence gate BEFORE the ordinary agent graph, so it does not
-    # also run a financial tool loop (no duplicate retrieval, no contradictory
-    # answer). Anything unsupported/uncertain returns None and falls through.
+    # Phase 4: an unambiguous supported financial comparison runs the evidence gate
+    # BEFORE the agent graph (no duplicate tool loop); uncertain inputs fall through.
     research = None
     if resume_from is None:
         # A resumed run was already past classification (it has checkpoints), so
@@ -1300,11 +1362,11 @@ async def execute_run(
         if surface_resolution.allowed is not None
         else None
     )
-    # A trade turn gets the trade surface, not the agent's ~700 tools. The
-    # narrowing can only remove; a run without an effect tool is untouched.
+    # Trade surface first; a quantitative turn then gets the data/compute surface.
     if allowed:
-        allowed, surface_resolution = apply_trade_surface(
-            request.input.query, allowed, surface_resolution
+        from .quant_intent import apply_intent_surfaces  # noqa: PLC0415
+        allowed, surface_resolution = apply_intent_surfaces(
+            request, allowed, surface_resolution
         )
     # Settings → Persona: a bounded user overlay appended to the authoritative
     # prompt for the ordinary chat agent. It is style/emphasis only — the tool
@@ -1415,6 +1477,17 @@ async def execute_run(
         trading_intent = trading_intent_block(request.input.query)
         if trading_intent:
             runtime_context = f"{runtime_context}\n\n{trading_intent}"
+    from .quant_intent import apply_quant_context  # noqa: PLC0415 - quant protocol
+    runtime_context = await apply_quant_context(request, allowed, runtime_context, emitter)
+    # The composer's "Choices" preference: `on` tells the model to ask one
+    # question with selectable options before it starts an ambiguous turn. It only
+    # adds guidance (the `clarify` tool stays read-only, and this grants nothing).
+    from .choices_mode import apply_choices_context  # noqa: PLC0415 - choices mode
+    runtime_context = apply_choices_context(request, allowed, runtime_context)
+    # The composer's "Plan" preference: `on` tells the model to lay out a plan and
+    # wait for approval before starting the work. Guidance only; it grants nothing.
+    from .plan_mode import apply_plan_context  # noqa: PLC0415 - plan mode
+    runtime_context = apply_plan_context(request, allowed, runtime_context)
     # The project this run is scoped to (its members and instruments). Per-run
     # and cache-key-excluded, exactly like the date and the UI focus.
     project_brief = _project_brief_block(getattr(request, "projectId", None),
@@ -1426,7 +1499,7 @@ async def execute_run(
     # guess a path to find out what exists. Its digest is the cache key's
     # witness that the project shape has not changed.
     repo_map_block, repo_map_digest = await _repo_map_context(
-        request, workspace=resolve_workspace(request.workspace),
+        request, workspace=_run_workspace(request),
         code_intel_runtime=code_intel_runtime, emitter=emitter,
     )
     if repo_map_block:
@@ -1585,6 +1658,7 @@ async def execute_run(
             portfolio=portfolio,
             ledger=ledger,
             advisory_service=advisory,
+            decision_service=decision,
             quant=quant,
             project_store=project_store,
             search=search,
@@ -2251,7 +2325,6 @@ async def _retry_with_tighter_budget(
     retried_state = await invoke(kept_messages, tighter_dropped_block)
     return retried_state, tighter_budget
 
-
 # History bounding + dropped-context extraction live in `history.py` (size
 # ratchet) and are re-exported here so existing callers/tests are unchanged.
 from .history import (  # noqa: E402,F401
@@ -2400,6 +2473,5 @@ def _capability_of(run: dict[str, Any]) -> Optional[dict[str, Any]]:
     from .code.capability import capability_from_verification  # noqa: PLC0415
 
     return capability_from_verification(run.get("codeVerification"))
-
 
 __all__ = ["build_graph", "execute_run"]

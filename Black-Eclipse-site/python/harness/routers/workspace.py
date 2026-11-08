@@ -42,6 +42,11 @@ class MkdirRequest(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
 
 
+class MkdirBrowseRequest(BaseModel):
+    path: str = Field(min_length=1, max_length=4096)
+    name: str = Field(min_length=1, max_length=128)
+
+
 def _editor_root():
     """The active workspace root for the human editor, or raise 400."""
     from ..code.workspace import default_root  # noqa: PLC0415
@@ -77,6 +82,19 @@ def browse_folders(
     from ..code.roots import browse  # noqa: PLC0415
 
     return {"success": True, **browse(path)}
+
+
+@router.post("/workspace/browse/mkdir")
+def create_browsed_folder(
+    body: MkdirBrowseRequest, _: bool = Depends(require_operator),
+) -> dict[str, Any]:
+    """Create a folder in the directory the picker is showing (operator act)."""
+    from ..code.roots import create_folder  # noqa: PLC0415
+
+    try:
+        return {"success": True, **create_folder(body.path, body.name)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/workspace/roots")

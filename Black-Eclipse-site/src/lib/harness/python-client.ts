@@ -49,6 +49,12 @@ export interface RunRequestPayload {
   conversationId?: string;
   /** Phase 1 (optional): bind this run to a read-only workspace. */
   workspace?: { root: string; baseRevision?: string };
+  /**
+   * Phase 23 (optional): the APPROVED workspace root chosen for this chat
+   * session. An id, never a path — the runtime resolves it against TrustedRoot
+   * and refuses an unknown/revoked id.
+   */
+  workspaceRootId?: string;
   /** Phase 14 (optional): the code profile for this run, when the turn is a
    * coding request. Only `plan_only` | `edit_verify` are ever sent from chat. */
   autonomy?: "plan_only" | "edit_verify";

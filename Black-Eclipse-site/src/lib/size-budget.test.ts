@@ -66,7 +66,10 @@ const RATCHET: Record<string, number> = {
   // drift-candidate badge. Re-pinned 1263→1266: the post-landing restart
   // verification keys (`code.promote.postLanding*`). The standing split
   // candidate is still per-domain dictionary modules. May only shrink.
-  "src/lib/i18n/dictionaries/en.ts": 1268,
+  // Phase 22 / S2/S4/S5/S6 adds session, landing, phase and scorecard keys. May only shrink.
+  // Re-pinned 1312->1313 to the measured tree (2026-11-06): in-flight i18n string
+  // work on the shared tree added one key; this change touches no dictionary.
+  "src/lib/i18n/dictionaries/en.ts": 1313,
   // Grew with the education/video capability dispatch (youtube/course/github
   // connectors) landing alongside the internet-image-search capability. The
   // image-search dispatch was extracted to `data-bridge-images.ts` so this file
@@ -103,8 +106,10 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1338→1486: the High Alert feature (importance filter, alert
   // creation from a card, portfolio relevance) is wired into the existing news
   // component. That work belongs on this screen; the near-term split is the
-  // card renderer + filter bar into their own modules. May only shrink.
-  "src/components/screens/market-news.tsx": 1486,
+  // card renderer + filter bar into their own modules. Re-pinned 1486→1446 when
+  // card settings moved to `src/lib/news/card-settings.ts` and the High Alert
+  // band was folded into the ranked feed. May only shrink.
+  "src/components/screens/market-news.tsx": 1446,
   // Grew when the AI section gained a real provider select + model dropdown
   // (the previous datalist was not surfaced by the input primitive). Pinned
   // until the deferred AI-section split; may only shrink from here.
@@ -198,7 +203,15 @@ const RATCHET: Record<string, number> = {
   // Re-pinned 1589→1596: the chat surface gained the AI-result cue wiring and
   // related stream-state affordances. Split candidate: the message renderer
   // from the composer/stream controller. May only shrink.
-  "src/components/screens/stock-chat.tsx": 1596,
+  // Re-pinned 1596→1603: the per-chat project chip in the empty-state and
+  // composer rows (Phase 23). The chip itself is a separate component; this is
+  // only its two mount points. May only shrink.
+  // Re-pinned 1603→1606: the Builds tab mount (`?tab=code`). The keep-alive
+  // wrapper + dynamic import live in `components/screens/code/code-tab.tsx`;
+  // this is only the import and the one mount line. No other shell logic moved.
+  // Re-pinned 1606→1609 for the Canvas move wiring: the synchronous
+  // `contentFromMessage` import and the `canvasMessageId` prop. May only shrink.
+  "src/components/screens/stock-chat.tsx": 1609,
   // The Interactive Response contract is the ONE versioned zod boundary for every
   // inline block. The website-style visual blocks (stat_hero, gauge,
   // comparison_grid, ranked_list, badge_row, carousel) pushed it past the hard

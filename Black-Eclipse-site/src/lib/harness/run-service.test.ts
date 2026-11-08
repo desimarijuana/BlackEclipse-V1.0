@@ -65,6 +65,32 @@ describe("startRun", () => {
     expect(payload.runId).toMatch(/^run_/);
   });
 
+  it("forwards a per-chat workspace root id (an id, never a path)", async () => {
+    runViaRuntime.mockResolvedValue({
+      runId: "run_1",
+      status: "completed",
+      output: "ok",
+      modelSteps: 1,
+      toolCalls: 0,
+      toolErrors: 0,
+    });
+    await startRun({ input: { query: "fix this project" }, workspaceRootId: "root_abc" });
+    const [payload] = runViaRuntime.mock.calls[0];
+    expect(payload.workspaceRootId).toBe("root_abc");
+    // No caller-supplied path is ever sent; the runtime resolves the id.
+    expect(payload.workspace).toBeUndefined();
+  });
+
+  it("forwards the session project root id on the streaming chat path", async () => {
+    await startChatRun(
+      "fix this project", [], [], undefined, "chat_1",
+      undefined, undefined, undefined, undefined, undefined, undefined, "root_abc",
+    );
+    const [payload] = startRunBackground.mock.calls[0];
+    expect(payload.workspaceRootId).toBe("root_abc");
+    expect(payload.workspace).toBeUndefined();
+  });
+
   it("passes an explicit agent id through", async () => {
     listAgentsFromRuntime.mockResolvedValue({
       agents: [
@@ -206,6 +232,51 @@ describe("startRun", () => {
     runViaRuntime.mockResolvedValue({ runId: "run_c", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
     await chatWithAgent("analyze", [], [], undefined, undefined, undefined, "medium");
     expect(runViaRuntime.mock.calls[0][0].input.context.reasoning).toBe("medium");
+  });
+
+  it("forwards the composer's quant mode through chatWithAgent", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_qm", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent(
+      "forecast gold for tomorrow", [], [], undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, "on",
+    );
+    expect(runViaRuntime.mock.calls[0][0].input.context.quantMode).toBe("on");
+  });
+
+  it("omits quantMode when the composer is on Auto", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_qa", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent("forecast gold for tomorrow");
+    expect(runViaRuntime.mock.calls[0][0].input.context?.quantMode).toBeUndefined();
+  });
+
+  it("forwards the composer's choices mode through chatWithAgent", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_cm", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent(
+      "analyse apple", [], [], undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, "on",
+    );
+    expect(runViaRuntime.mock.calls[0][0].input.context.choicesMode).toBe("on");
+  });
+
+  it("omits choicesMode when the composer is on Auto", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_ca", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent("analyse apple");
+    expect(runViaRuntime.mock.calls[0][0].input.context?.choicesMode).toBeUndefined();
+  });
+
+  it("forwards the composer's plan mode through chatWithAgent", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_pm", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent(
+      "plan a launch", [], [], undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, "on",
+    );
+    expect(runViaRuntime.mock.calls[0][0].input.context.planMode).toBe("on");
+  });
+
+  it("omits planMode when the composer is on Auto", async () => {
+    runViaRuntime.mockResolvedValue({ runId: "run_pa", status: "completed", output: "ok", modelSteps: 1, toolCalls: 0, toolErrors: 0 });
+    await chatWithAgent("plan a launch");
+    expect(runViaRuntime.mock.calls[0][0].input.context?.planMode).toBeUndefined();
   });
 
   it("overrides only the model when the composer picked one", async () => {

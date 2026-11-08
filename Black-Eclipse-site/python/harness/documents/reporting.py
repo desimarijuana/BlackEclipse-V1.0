@@ -152,23 +152,44 @@ def build_pdf(
             _text(text, size=size, weight="bold", width=70, gap=0.012)
 
         def _table(headers: Sequence[Any], rows: Sequence[Any]) -> None:
-            columns = len(headers) or (
-                len(rows[0]) if rows and isinstance(rows[0], (list, tuple)) else 0
-            )
-            if columns <= 0:
+            raw = [row for row in list(rows)[:40] if row is not None]
+            if not raw:
                 return
-            data: list[list[str]] = []
-            for row in list(rows)[:40]:
-                values = list(row) if isinstance(row, (list, tuple)) else [row]
-                data.append([
-                    _as_text(values[i] if i < len(values) else "")[:_MAX_CELL_CHARS]
-                    for i in range(columns)
-                ])
-            height = min(0.55, 0.035 * (len(data) + 1) + 0.02)
+            # Accept both the documented list-of-lists shape and the common
+            # model-authored list-of-objects shape. A missing `headers` list is
+            # derived, never passed to matplotlib empty (which raises a bare
+            # "list index out of range").
+            if isinstance(raw[0], dict):
+                labels = [str(key) for key in raw[0].keys()]
+                width = len(labels)
+                values = [
+                    [_as_text(row.get(label))[:_MAX_CELL_CHARS] for label in labels]
+                    for row in raw
+                ]
+            else:
+                width = max(
+                    len(row) for row in raw
+                    if isinstance(row, (list, tuple))
+                ) if any(isinstance(row, (list, tuple)) for row in raw) else 1
+                labels = [
+                    _as_text(header)[:_MAX_CELL_CHARS] for header in list(headers)[:width]
+                ]
+                if len(labels) < width:
+                    labels.extend(f"Column {i + 1}" for i in range(len(labels), width))
+                values = []
+                for row in raw:
+                    cells = list(row) if isinstance(row, (list, tuple)) else [row]
+                    values.append([
+                        _as_text(cells[i] if i < len(cells) else "")[:_MAX_CELL_CHARS]
+                        for i in range(width)
+                    ])
+            if not values or not labels:
+                return
+            height = min(0.55, 0.035 * (len(values) + 1) + 0.02)
             _space(height + 0.03)
             table = axes.table(
-                cellText=data,
-                colLabels=[_as_text(header)[:_MAX_CELL_CHARS] for header in list(headers)[:columns]],
+                cellText=values,
+                colLabels=labels,
                 loc="upper left",
                 bbox=[_MARGIN_LEFT, cursor["y"] - height, _MARGIN_RIGHT - _MARGIN_LEFT, height],
                 cellLoc="left",

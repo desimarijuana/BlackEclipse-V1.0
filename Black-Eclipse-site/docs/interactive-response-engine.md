@@ -779,18 +779,51 @@ A result Eclipse *worked out* (`analysis_run`) does not travel through the
 carrying the SAME bounded blob it persists (`AnalysisResult.to_blob()` — outputs,
 artifacts, provenance), the client maps it to the turn's `analysis` field, and
 `computed-result-panel.tsx` renders it under the assistant message with the
-always-visible "Worked out by Eclipse" label. A value without a provenance
-record renders UNAVAILABLE, never bare, and the panel is never a citation: a
+always-visible "Worked out by Eclipse" label. The panel is never a citation: a
 computed number is not retrieved evidence. Both chat surfaces map the full turn
-(chat-dock and stock-chat), so the panel, the code-capability panel and the
-document panel appear everywhere.
+(chat-dock and stock-chat), so the panel and the document panel appear
+everywhere. The code-capability headline was removed from the transcript; the
+Code screen carries the code detail.
+
+The card is **dropped entirely** when there is nothing to show. A number with no
+provenance record is UNAVAILABLE at the runtime boundary (it is never rendered
+bare); the chat does not print an empty "this number has no record…" shell for
+it. Likewise a result with no outputs, artifact, figure or recipe renders
+nothing rather than a "Nothing came back from that." card. A real computed
+result — provenance plus data — still renders normally.
 
 The card's second line is a METHOD a person can read. A provenance detail that
 is really a debug dump of the runtime's Python object (`type <class 'dict'> ·
 keys [...]`) is dropped rather than shown — it describes the object, not the
-calculation — and a "Proof it works" panel with no recorded check, claim,
-artifact, review or repair renders nothing at all, because a "0 check(s)" card
-claims a check that never happened.
+calculation.
+
+### Only Sources stays under an answer
+
+The chat transcript shows **one** provenance block under an answer:
+`research-evidence-panel.tsx` ("Sources consulted"). It stays **collapsed** by
+default so it reads as attached metadata; opening it reveals the numbered
+**Sources** list first — that is the question the block exists to answer.
+Calculations, limitations and run detail follow inside the same open body; the
+always-visible header still carries the status summary and limitation count. A
+run with no citation stays collapsed too.
+
+Two cards that used to appear beside it are deliberately **not in the chat**:
+
+- **"Proof it works"** (`code-verification-panel.tsx`) lives on the Code screen
+  (`screens/code/check-results.tsx`), where a verification ledger belongs. In
+  that panel the header never prints a check count when no check was recorded,
+  and it opens by default on a recorded failure (an unsupported claim or a
+  non-zero check). The chat code headline that used to sit under the answer (and
+  the "put this change into your project" action inside it) was removed from the
+  transcript; promotion stays on the Code task screen, the recovery console and
+  the RSL panel.
+- **The generated-capability card** (`capability-card.tsx`) lives in Capability
+  Studio. A speculative `gap` / `needs_source` offer ("I can build that") is not
+  evidence about the answer, so the transcript no longer renders the card at
+  all — building a reusable capability remains an explicit studio flow.
+
+The underlying provenance, fail-closed rendering and verification ledger are
+unchanged; this is a transcript-presentation rule, not a relaxation.
 
 Diagnostics are split by **severity**: only `error` diagnostics raise the amber
 panel; a warning-only answer renders quietly (an empty-but-valid envelope says so
@@ -857,7 +890,13 @@ drawn as a translucent area around the series — presentation weight, never a
 probability. `data_table` alignment is derived in
 `table-presentation.ts` (an explicit `align` wins; a column whose values are
 ≥80% numeric right-aligns; raw numbers get locale formatting with at most 4
-fraction digits, numeric strings are left untouched). `response-chart.tsx` adds
+fraction digits, numeric strings are left untouched). Alignment is **per
+column and shared by the header and every body cell** — the plain-Markdown table
+path in `markdown.tsx` computes the same column alignment instead of flipping
+each numeric cell individually, so a header never sits opposite its values. In
+`data-table-block.tsx` the sort icon is always in the flow; on a right-aligned
+column the header row reverses so the label's right edge stays flush with the
+numbers. `response-chart.tsx` adds
 a **focus overlay** (Maximize control, Escape/backdrop/Close to dismiss,
 `role="dialog"`); the picture is the same artifact, shown larger.
 

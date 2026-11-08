@@ -36,11 +36,36 @@ overlay) and is resizable.
 - **Entry points**: `Open in Canvas` on a chat response (`response-actions.tsx`)
   and on any assistant message (`chat-history.tsx`) opens the viewer; the Artifact
   Center's `Edit in Canvas` opens the editable artifact. Ephemeral views offer
-  **Save to edit**, which registers an artifact and switches to the editor.
+  **Save to edit** / **Edit**, which registers an artifact and switches to the
+  editor.
+- **Move, not copy.** Opening a response in Canvas replaces that message's body on
+  the chat page with one compact banner ("This response is open in Canvas · …")
+  plus `Edit` and `Show in chat`; the content itself renders only in the dock.
+  `canvasSource` (`{ messageId, title }`) in the command store records what was
+  moved, and closing Canvas restores the body. Both the message action and the
+  inline response action record the source, so every entry point behaves the same.
+  On phones the dock becomes a full-screen sheet.
+- **Dock header** (`canvas-dock.tsx`): the inline chat dock opens as one rounded
+  surface card — a rounded icon tile plus the surface label (`Writing` for a
+  prose answer, otherwise `Code` / `Report` / `Web page` / `Image`) — with
+  Save to edit and Close at its right edge. The actual document title is the
+  card's tooltip.
 - **No manual chooser.** There are no "New Document/Code/Visual" buttons; creation
   is chat-driven, and an empty dock is a ready state that points at the entry
   points.
 - **Ephemeral by default**, editable once saved (per the P1 decision).
+- **Per-block editing (visual envelope).** Once an `eclipse-response` envelope is
+  saved to an artifact, the visual editor is one compact, scrollable panel with
+  three tabs: **Blocks** (default when editing — one row per callout/chart/table/
+  markdown element, each with `Edit` / `Delete`, plus `Add block`), **Source JSON**
+  (the whole envelope) and **Preview** (the rendered result, the default view
+  when opening). The Canvas header is a single slim row — title (rename), save
+  status, `…` (save/undo/redo/versions/export/full-width/delete) and close — and
+  the chat-only export/action chips are hidden in Canvas. Editing a block changes
+  only that element; the rest of the envelope is preserved. A plain
+  ```` ```json ```` fence whose value is an `{ blocks: [...] }` envelope is
+  recognized as a report too, so Canvas renders the structured blocks instead of
+  raw JSON.
 
 ## The one invariant
 
@@ -170,14 +195,15 @@ splits the chat column and a right-hand `CanvasPane` whenever
 `useCommandStore.canvasInlineOpen` (or `pendingCanvasArtifactId`) is set, and a
 close button dismisses the pane. `CanvasScreen({ initialArtifactId?, isOperator?,
 inline? })` is the data container; in `inline` mode `CanvasWorkspace` **skips the
-rail** and wraps the center + AI panel in a glass card with a header and close.
+rail and the AI panel** and wraps the center in a single glass card with a slim
+header and close.
 
-- **Center** — the editor for the kind, a toolbar (rename/archive, version
-  history + restore, export: download / copy / print), debounced autosave,
+- **Center** — the editor for the kind, a slim header (rename, save status, `…`
+  menu with save/undo/redo/versions/export/delete), debounced autosave,
   Ctrl/Cmd+S, and the `409` conflict UI.
-- **AI panel** — mode selector, optional selection, a propose → **diff** →
-  accept flow, collapsed by default in the inline pane. Nothing is reported
-  saved until the server returns the saved version.
+- **AI panel** — only on the full Canvas screen (mode selector, optional
+  selection, a propose → **diff** → accept flow). The inline chat pane no longer
+  renders it, so the document gets the whole pane.
 
 `CanvasWorkspace` still contains a **rail** (list, search, create
 document/code/report and file **import** — client-side read; over the size limit

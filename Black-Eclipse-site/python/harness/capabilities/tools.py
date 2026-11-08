@@ -12,6 +12,7 @@ from . import builder
 from .adapter import author_adapter
 from .external import propose_external
 from .request import CapabilityRequest, assess, classify, slug_for
+from .registry import refresh_generated_recipes
 from .resume import resume_original_task
 from .store import CapabilityStore
 
@@ -187,6 +188,11 @@ async def capability_request(args: dict[str, Any], ctx: ToolContext) -> tuple[st
     except Exception as exc:
         return _refusal("INPUT_INVALID", f"the capability request is not valid: {exc}")
     store = _store(ctx)
+    # The dynamic recipe registry is process-wide, but a capability belongs to
+    # the PROJECT it was built in. Refresh it for THIS run's root before we
+    # assess, so discovery and what `analysis_run` can actually execute agree
+    # (project B's recipe is not callable from project A).
+    refresh_generated_recipes(store, _root(ctx))
     if not request.resume_task_id:
         request.resume_task_id = str(getattr(ctx, "task_id", "") or "")
     assessment = assess(
@@ -256,7 +262,10 @@ async def capability_request(args: dict[str, Any], ctx: ToolContext) -> tuple[st
         "I can't do that yet — but I can build it.\n"
         f"Need: {request.need}\n"
         f"Surface: {assessment.surface}\n"
-        f"Status: ready to build ({missing})",
+        f"Status: ready to build ({missing})\n"
+        f"Request: {request.request_id}\n"
+        f'Next: call capability_build with requestId="{request.request_id}" plus the '
+        "implementation and a test. Do not invent a request id.",
         data,
     )
 

@@ -272,7 +272,7 @@ model PriceAlert {
   updatedAt   DateTime  @updatedAt
 }
 
-// History — one row per fired alert. NOT cascade-deleted with the watch.
+// History - one row per fired alert. NOT cascade-deleted with the watch.
 model PriceAlertEvent {
   id      String   @id @default(cuid())
   alertId String
@@ -282,6 +282,27 @@ model PriceAlertEvent {
 
   @@index([alertId])
   @@index([firedAt])
+}
+
+// Durable archive of the app-wide notification ledger (the header bell).
+// Every raised notification — price/news alerts, tasks, approvals, agent runs,
+// bots — is written here with the producer's stable dedupe key as `id`, so the
+// Alerts › History tab can search and filter everything ever received, and a
+// re-raise never duplicates a row. PriceAlertEvent remains the price-alert
+// engine's fire log; the history endpoint unions the two for legacy rows.
+model AppNotification {
+  id        String   @id
+  tab       String
+  kind      String   @default("alert") // alert | task | approval | agent | bot
+  title     String
+  body      String   @default("")
+  at        DateTime @default(now())
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([at])
+  @@index([kind])
+  @@index([tab])
 }
 
 // Candle cache for indicator conditions (SMA/EMA/RSI crossovers).

@@ -1,5 +1,723 @@
 # Change Log
 
+## 2026-11-08
+- **docs(release): add the production-readiness roadmap.** New
+  `docs/PRODUCTION-READINESS.md` records the measured 2026-11-08 baseline
+  (typecheck, tests, secrets, ADRs and size are green; `npx eslint .` has 3
+  errors; the live agent gate still fails at `task_success 0.8520 < 0.9`; the
+  preflight passes only as advisory and the container path is unverified),
+  names the six blockers (R1-R6), defines
+  twelve re-runnable exit criteria (C1-C12), and sequences the work as P0 tree +
+  lint + merge, P1 clean build + secrets + container, P2 production-posture
+  proof (journey, backup/restore, failure drill), P3 the live-gate decision
+  (improve to 0.9 or an ADR with a recorded accepted floor), P4 release
+  engineering (check:all on `main`, release note, tag, deploy/rollback), and P5
+  operations. It deliberately separates engineering blockers from the external
+  inputs (provider key, Docker host, second reviewer, CODEOWNERS team, counsel)
+  so a finished code phase is never reported as a finished release. NAVIGATION
+  gets a trigger row. Docs:
+  `docs/PRODUCTION-READINESS.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **chore(changelog): rotate the active window.** Adding today's section took
+  `CHANGELOG.md` to 8 dated sections, over the committed 7-section window the
+  `changelog-guard` test enforces. `node scripts/rotate-changelog.js --write`
+  moved `2026-11-01` into `docs/changelog/2026-11.md` (a move, never a prune),
+  preserving the archive's line endings. no doc change — rotation is tooling,
+  the policy is unchanged.
+- **fix(lint): clear the three gate-blocking errors.** `folder-picker.tsx`
+  renamed the `useWindows` callback to `openWindows` (it is a `useCallback`
+  named like a hook, so `react-hooks/rules-of-hooks` failed the gate);
+  `desktop-launcher.test.ts` replaced its two `any`s with a typed
+  `LauncherTheme` shape. `npx eslint .` now exits 0 (0 errors, 118 warnings).
+  Verified: `npx tsc --noEmit`, the two affected Vitest files (19 tests) and
+  `python/tests/test_decisions.py` (28). no doc change — lint-only.
+
+## 2026-11-07
+- **feat(decisions): typed decision models (System One-shaped) as a first-class
+  layer.** New `python/harness/decisions/` asks closed `choice` / `score` /
+  `noul` questions about a `state` and returns typed answers with probabilities
+  and confidence — deliberately NOT a chat provider (no messages/tools/
+  streaming). Ships the deterministic rule provider (fully offline), a
+  fail-closed `DecisionPolicy` (`answered` / `review` / `unavailable`), a
+  privacy-gated provider registry, and an immutable `DecisionRecord` /
+  `DecisionOutcome` audit on `agent-memory.db`. Read-only tools
+  `decision_ask`/`decision_list`/`decision_scorecard` are wired through
+  `AgenticService` → `execute_run` → `ToolContext.decision_service` and the
+  Eclipse agent allowlist. A partial/mistyped answer, a provider error or no
+  provider is `unavailable`, never a guess. TypeSafe/Jev and LLM adapters are
+  additive next; no remote provider is installed implicitly. Docs:
+  `docs/decision-models.md`, `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`,
+  `docs/DECISIONS.md`, ADR-070, `docs/CHANGELOG.md`.
+- **docs(legal): add the Legal, Compliance & Risk Management Blueprint.** New
+  `docs/legal/LEGAL-COMPLIANCE-BLUEPRINT.md` covers the entity/IP structure,
+  US/UK/EU/Pakistan regulatory characterisation, AI and financial disclaimers,
+  automated-trading responsibility and existing broker controls (arming,
+  per-order approval, typed phrase, risk limits, kill switch, bounded mandates,
+  reconciliation, audit), privacy/security, MIT vs Apache/AGPL and DCO vs CLA,
+  the capability/consent matrix, the document register, incident/dispute
+  handling, and a costed 90-day roadmap. `docs/legal/README.md` is the document
+  register and status board. The core position: Eclipse is self-directed
+  research and order-entry software; the user owns the decision and the account,
+  and no disclaimer is treated as immunity. NAVIGATION gets a legal trigger row.
+  Docs: `docs/legal/LEGAL-COMPLIANCE-BLUEPRINT.md`,
+  `docs/legal/README.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **fix(changelog): rotation keeps the archive's line endings.** `2026-10-31`
+  pushed `CHANGELOG.md` to 8 dated sections, so the active window was rotated
+  into `docs/changelog/2026-10.md` with `npm run rotate:changelog`. The script
+  appended an LF block to a CRLF archive, producing a file with mixed endings
+  and failing `gitignore-guard`'s "no tracked text file mixes CRLF and bare LF"
+  contract (measured: 20,628 CRLF + 205 LF). It now normalizes the merged block
+  to the target's dominant ending. no doc change — tooling fix, policy unchanged.
+
+## 2026-11-06
+- **fix(runtime): a runtime already on the harness port is adopted, not raced.**
+  `ensurePythonRuntime()` probed `/health`, and when a listener existed it probed
+  again — but a SUCCESSFUL second probe fell through to the spawn anyway, booting
+  a rival uvicorn that died with `WinError 10048`; the front door then reported
+  "runtime unavailable" for the rest of the session (observed live: a second
+  `npm run start` while a healthy runtime held 8766). It now adopts that runtime.
+  A child that dies from a port conflict is detected from its stderr and the live
+  runtime is adopted; a spawn that exits no longer makes boot wait the whole
+  cold-start budget; listener PIDs are parsed from the exact local-address column
+  (so `:18766` / a foreign `:8766` cannot match). `HARNESS_PY_URL` /
+  `HARNESS_PY_PORT` / `HARNESS_PY_HOST` now actually override the profile default
+  in the launcher, and `kill-port` clears the port that will be used. Tests:
+  `src/lib/harness/python-runtime.test.ts` (11). Docs:
+  `docs/harness/architecture.md`.
+- **fix(build,reports): production build and model-authored PDF tables.** The
+  build failed on stale imports from in-flight build-screen work: restored
+  `getProjectBrief`/`prepareProjectIndex` on the server client, added their
+  browser-client versions, restored `GET /code/project`, removed the stale
+  preview `mode` field, and added the missing `code.project.*` copy. Separately,
+  the PDF report renderer raised `REPORT_RENDER_FAILED: list index out of range`
+  for a table without headers, dict-shaped rows, or empty rows; `_table` now
+  derives headers, accepts list-of-objects rows and skips an empty table.
+  Verified: `npm run build` passes; `test_reports.py` (9), code task/tool/root
+  (40) and code API/UI Vitest (13) pass. Docs updated: `docs/CHANGELOG.md`.
+- **fix(vision): one privacy story and a bounded fallback chain.** Vision had its
+  own default (`HARNESS_VISION_PRIVACY=cloud_allowed`) that ignored the app-wide
+  `ECLIPSE_PRIVACY`; with local models configured, a screenshot still walked five
+  local models, LM Studio and OpenRouter (12 provider calls) before one answered.
+  The mode now inherits `ECLIPSE_PRIVACY=local-models` as `local_only`, caps the
+  chain (`HARNESS_VISION_MAX_ATTEMPTS`=4, `…_MAX_PER_PROVIDER`=2), emits
+  `vision.route.capped`, and records the provider/model that actually looked.
+  Tests: `test_vision_privacy_chain.py` (8). Docs: `docs/harness/vision.md`.
+- **fix(chat-api): the one-shot endpoint hands back a run instead of dying at
+  180 s.** `POST /api/harness/chat` awaited the whole run under
+  `maxDuration = 180`, while a writable turn is budgeted 80 steps / 2,700 s, so a
+  real build was killed with `PROVIDER_TIMEOUT` and no run id. It now stops
+  waiting at 150 s (`HARNESS_CHAT_SOFT_DEADLINE_MS`) and returns `202
+  {status:"running", runId, streamUrl}`, with the same id given to the runtime;
+  the run continues. Test: `src/app/api/harness/chat/route.test.ts`. Docs:
+  `docs/CHANGELOG.md`.
+- **feat(auth): `npm run auth:setup`.** One supported edit that sets
+  `HARNESS_AUTH=required` and generates a 32-byte `HARNESS_AUTH_SECRET`, refusing
+  to rotate an existing secret and never printing it (`--dry-run`, `--file`).
+  The doctor line now points at it. Docs: `docs/harness/authentication.md`.
+- **fix(code): five defects found by the LIVE failing-check acceptance run.**
+  (1) `shell_run` crashed with `name 'redact_output' is not defined` — the import
+  was missing, so the whole real-shell surface was dead. (2) `resolve_class`
+  rejected the obvious plural (`unit_tests`) and the refusal never named the
+  valid vocabulary, so the agent abandoned the pinned-check path and shelled out;
+  it now accepts the plural and lists the classes. (3) `package_test` refused with
+  "exit 1" and DROPPED the failing output; the refusal text now carries it.
+  (4) a `.black-eclipse/verify.json` written with a BOM silently pinned NO checks
+  (read with `utf-8-sig` now), so the verify-and-repair node never ran. (5) a
+  PASSED check was reported `REPAIR_EXHAUSTED` — and the answer annotated "still
+  failing" — when a later command spent the last check-run slot; status is now
+  fact-first and a spent budget after a pass is a no-op. Verified live twice
+  (fail → repair → pass, no false note). Tests: `test_code_check_path.py` (4),
+  `test_graph_repair_node.py` (+2). Docs: `docs/developing-a-project.md` (how to
+  pin and prove the loop).
+- **docs(security): say what actually runs.** `terminal_run`/`shell_run` use the
+  LOCAL tier (process-tree bounds, no filesystem/network isolation); Docker is a
+  selectable backend, not the executor. `BLACK_ECLIPSE_SANDBOX_REQUIRED=1` refuses
+  every execution it cannot isolate (`SANDBOX_UNAVAILABLE`). The boot line now
+  says this instead of implying a container. Docs: `docs/harness/security.md`.
+- **fix(trading): Deny on the trade-approval card removes it at once and stops
+  the turn.** The card was only removed *after* the decide round-trip, so a slow
+  request left it on screen, and the 6s poll could bring it back. Deny is now
+  optimistic: the card leaves immediately, the approval id is suppressed from
+  polling, and `onCancel` stops the in-flight run (the order is never sent). If
+  the decision genuinely fails, the card returns with the error. Verified live:
+  card gone in 58ms, `POST /trading/approvals/{id}/decide` 200, still gone after
+  the next poll. Tests: `tsc` clean, full suite 476 files / 4,417. No doc change
+  — a behaviour fix with no contract change.
+- **feat(search): semantic retrieval is now switchable and honest.** The vector
+  layer already existed but shipped dormant: with no provider it silently stayed
+  keyword-only, so a user could not tell what was on or turn it on. Added a
+  structured `EmbeddingService.resolution()` (`state`/`source`/`hint`/
+  `suggestions`) exposed via `/search/stats` and `/search/models`;
+  `POST /search/embedding/{apply,test,clear}` to pick a model live, verify one
+  real round-trip, and revert; and persistence of the operator's choice in
+  `SearchMeta.embedding_config` so it survives a runtime restart. Switching
+  vector space now schedules a forced re-index (`bulk_index(force=True)`,
+  dedup skipped) because old vectors are keyed to the previous model. The Search
+  Intelligence screen renders an actionable setup card instead of a passive
+  "keyword-only" pill. No silent provider substitution: a chat-only provider is
+  reported as unsupported, never swapped for a hosted embedding provider.
+  Docs updated: `docs/harness/search-retrieval.md`, `docs/CHANGELOG.md`.
+- **test(harness): first real chat quant eval passes.** Ran “forecast gold for
+  tomorrow” through the live configured model (Ollama / deepseek-v4.1-flash) and
+  graded the actual answer + 23 tool executions with `quant_chat_eval`:
+  **passed**, with an explicit spot-XAUUSD vs GC=F basis, a GARCH distribution
+  (no point forecast), walk-forward validation, costs, and an artifact line
+  (`art_…`). The artifact regex now recognises `art_`/`artifact_` ids too.
+  Docs updated: `docs/CHANGELOG.md`.
+- **feat(capabilities): a generated capability belongs to its project (P4).**
+  The draft root was already the run's project (`draft_root(root)` →
+  `<project>/.black-eclipse/capabilities`), but the process-wide dynamic recipe
+  registry was only refreshed on build/activate with whatever root that call
+  used — so a recipe built in project B could be reported active while
+  `analysis_run` could not execute it from B, and A's recipes could linger while
+  working in B. `capability_request` now refreshes the registry for the run's
+  root before assessing, so discovery and execution agree and capabilities are
+  isolated per project. Test: a built recipe is listed in
+  `project_b/.black-eclipse`, absent from `project_a`, a `gap` again in A, and
+  callable again in B without rebuilding. Docs updated: `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(harness): close the chat quant loop.** Deep quant turns now get a
+  32-step / 10-minute budget floor. The final answer is post-checked by
+  `finalize_quant_text`: if the model omitted the required artifact line, Eclipse
+  appends `Artifacts: <ids>` (or `Artifacts: none — …`) and names any still-missing
+  validation, OOS or cost evidence as an explicit `Eclipse check`, never silently
+  passing. The protocol also requires the gold basis (spot `XAUUSD` vs `GC=F`
+  futures). New offline gate `eval_gates/quant_contract.py` locks the contract
+  into `npm run test:evals`; new `quant_chat_eval.py` grades real chat outputs
+  from JSONL (`python -m harness.quant_chat_eval`) and `test_quant_chat_eval.py`
+  covers it. `graph.py` re-pinned 2461→2469. ADR-H345 records that quant work is
+  chat-native, not a UI mode. Docs updated: `docs/harness/decisions.md`,
+  `docs/CHANGELOG.md`.
+- **feat(builds): chat builds are durable, and the scorecard is per project (P3).**
+  A writing chat turn now records a `session.created` boundary
+  (`code/session.py::record_chat_build`, called from the same
+  `AgenticService.run`/`run_background` seam as the budget floor), pre-creating
+  the run row when needed so the FK-bound checkpoint can be written. Chat builds
+  therefore appear in the scorecard and are resumable through the existing run
+  path. It also writes the same `task.created` boundary a Code task has, so a
+  chat build now lists in **Builds** (diff, checks, preview, undo), not only in
+  the transcript; `code/tasks.py` lists any run with that boundary and
+  `TaskStore.view` returns None for a run that never built. `build_scorecard` no
+  longer requires `agentId == "code-agent"`: a build is any run with a session and
+  a code workspace row, and the row's `checkoutRoot` attributes it to a project.
+  `GET /code/scorecard` takes `taskId`/`rootId`
+  (resolved server-side, never a raw path) and the Builds tab gained a
+  **This project / All builds** toggle. Tests: 3 new `test_build_session.py`
+  cases (records once, planning is not a build, the chat build is listed) and a
+  per-project scorecard case.
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md`, `docs/CHANGELOG.md`.
+- **feat(builds): run the project and look at it (P2).** New
+  `python/harness/code/preview.py` starts a project's dev command on the
+  EXISTING execution layer (`ServiceManager` + the terminal process manager) and
+  reports the URL it actually finds: it watches the process tree for the first
+  listening port that answers HTTP, so a running-but-silent process is `not
+  ready` with logs, never a fake URL. Command precedence is
+  `.black-eclipse/preview.json` > `package.json` `dev`/`start`/`preview`/`serve` >
+  a `Makefile` target. Routes `POST /code/preview/start`, `POST
+  /code/preview/stop`, `GET /code/preview`, `GET /code/preview/logs` (the project
+  is resolved server-side from the task's workspace or an approved root; no
+  `cwd` in a body), proxied by `src/app/api/code/preview/route.ts`. The Builds
+  tab gains `preview-panel.tsx` (Run / Check again / Open / Stop / logs) with
+  `code.preview.*` copy in `dictionaries/builds.ts`. A preview runs the project
+  ON DISK — an unlanded change is not included, and the panel says so. Tests:
+  `python/tests/test_preview.py` (9), +1 wiring assertion. Docs updated:
+  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **feat(harness): chat deliverable contract + catalog-first reuse.** The quant
+  protocol now requires exactly one final `Artifacts: <ids>` or
+  `Artifacts: none — <missing>` line on every standard/deep turn, and a
+  `model_catalog` check BEFORE a build with reuse of a fitting artifact instead of
+  a duplicate. An ambiguous model family (DCF vs ML vs strategy vs risk) gets ONE
+  `clarify` question with those options. Reuse/catalog asks ("reuse the model from
+  last week", "what models do we have", "list my strategies") are now classified
+  as standard quant turns instead of concept/lookup non-turns. New deterministic
+  chat fixtures `python/tests/test_quant_chat_contract.py` (6) and benchmark cases
+  cover the contract. No separate UI: chat is the only delivery surface. Docs
+  updated: `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+- **feat(builds): the Builds tab names its project, and land checks fit it (P1).**
+  New `components/screens/code/project-bar.tsx` shows the project new builds
+  belong to and switches it through the ONE trusted-roots registry + shared
+  `FolderPicker`; `task-list.tsx` passes `workspaceRootId` on both create paths,
+  so a build no longer relies on an invisible global selection. New
+  `dictionaries/builds.ts` holds the `code.project.*` copy (en.ts is ratcheted).
+  `code/land.py` now detects a user project's checks — `package.json` scripts,
+  `Cargo.toml`, `go.mod`, a declared pytest, a `Makefile` `test:` target — with
+  precedence `land.json` > harness defaults (Eclipse's repo only) > detected >
+  none-with-a-warning; an unrecognised project gets no checks rather than
+  Eclipse's. Tests: `project-bar.test.ts`, an extended
+  `code-screen-mounted.test.ts`, 4 new `test_land.py` cases. Harness budget
+  re-pinned to the measured tree. Docs updated: `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **feat(harness): chat-native reuse of the model catalog.** The Eclipse Agent
+  prompt now tells the model to call `model_catalog` before building a duplicate,
+  reuse or extend an existing artifact where it fits, and name the created
+  artifact's id in the answer. This is intentionally chat-native: the catalog is
+  a read-only agent tool whose text result is summarized inline; there is no
+  separate catalog screen or workspace panel. The deep quant protocol already
+  carries the same instruction. Docs updated: `docs/CHANGELOG.md`.
+- **fix(workspace): the folder picker can find and create folders.** The chat
+  project chip's "Open folder…" (and the Editor's folder picker) now has a path
+  bar that accepts a typed/pasted absolute path, a **Drives** button back to the
+  filesystem roots, and a **+ New folder** action that enters the folder it just
+  created. Browse + create are **Node-native** (`src/lib/workspace/browse-server.ts`
+  + the `/api/workspace/browse[/mkdir]` routes) so a Python runtime restart can
+  no longer freeze the picker; approving a folder as a ROOT still goes through the
+  runtime's trusted-root store. When the page is on `localhost`, the picker calls
+  the same server on `127.0.0.1` (a separate browser connection pool) with a
+  narrow loopback CORS grant, fixing the dev keep-alive wedge that hung the second
+  request. Browse/create time out honestly and offer **Retry**. The runtime health
+  probe budget is raised (1.5s→8s, TTL 5s→15s) so a healthy-but-busy runtime is
+  not mistaken for dead and restarted. Tests: `browse-server.test.ts` (5),
+  `test_code_roots.py` (+3), `test_workspace_editor_api.py` (+2), `tsc` clean,
+  full vitest green (474 files / 4408). Docs updated: `docs/NAVIGATION.md`,
+  `docs/CHANGELOG.md`.
+- **fix(workspace): the folder dialog sits above the app, is accessible, and can
+  open the Windows picker.** `FolderPicker` is now portaled to `<body>` at
+  `z-[200]` (it was `z-[70]` inline, so the sidebar/menus covered it), with a
+  `role="dialog"` labelled title, initial focus on the path field, Escape to
+  close, a Tab focus trap and focus restore. Redesigned header/toolbar/list/
+  footer, folder rows with icons, explicit loading/empty/error states, and
+  `aria-live` status. On Windows a **Windows…** button calls the new
+  `POST /api/workspace/pick-folder` (`src/lib/workspace/native-picker.ts`),
+  which opens the real OS "Select Folder" dialog via a topmost
+  `FolderBrowserDialog`; the chosen path is loaded into the in-app picker for
+  confirmation. Docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **fix(code): a build belongs to ONE project (P0).** Worktrees were always cut
+  from the globally *selected* trusted root, and `build_preview` resolved its
+  target the same way at promote time — so a build bound to project B could be
+  reviewed against, and land into, project A after a selection change.
+  `worktree.allocate/release/diff` now take the run's resolved root;
+  `CodeWorkspace` records `checkoutRoot` (additive column, legacy rows derive it
+  from the scratch path); `build_preview` and the rollback route read it back and
+  refuse a project that has moved instead of redirecting; `CreateTaskRequest`
+  accepts `workspaceRootId` and the front door forwards it. Cancel/discard now
+  release in the task's own project. Tests: new `test_project_binding.py` (5)
+  proves the diff cannot land in the selected project and that a vanished project
+  is refused; promotion/selfhost/maintenance/land/session suites still pass.
+  Docs updated: `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
+- **refactor(self-build): the chat build-budget seam moved to the run funnel.**
+  The `standard`-budget floor now lives in `AgenticService.run` /
+  `run_background` (`apply_chat_build_budget`) instead of `main.start_run`, so
+  every entry point gets it and `main.py` stays under its hard ceiling (1199).
+  No behavioural change for `POST /runs`; the earlier entry's `start_run` wording
+  is superseded. Docs updated: `docs/CHANGELOG.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md`, `docs/NAVIGATION.md`.
+- **feat(harness): unified model/research catalog (Phase 3).** New
+  `python/harness/model_catalog.py` registers a read-only `model_catalog` tool
+  that aggregates the app's own registries — quant strategies + experiments, ML
+  models + datasets, statistical features and factors — with `kind`/`query`/`limit`
+  filters and an honest empty-registry note. It never writes and never invents an
+  entry; the stores are resolved lazily, so boot order cannot hide a family.
+  Registered from `quant/bootstrap.py`, added to the Eclipse Agent allowlist and
+  the quant surface, and the deep protocol now says to check the catalog before
+  building and confirm the id after creating. Tests: `test_model_catalog.py` (5),
+  plus the quant-tools/registry-parity/tool-contract/size suites. Size budget
+  re-pinned. Docs updated: `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+- **chore(chat): drop the code-capability headline, de-clutter the learning line,
+  fix the composer's right-edge overflow.** Removed `ChatCapabilityPanel` from the
+  transcript (the "I'll look at the project…" card with its `details` toggle) and
+  deleted the component + its source-text test; the "Put this change into my
+  project" control it carried stays on the Code task screen, recovery console and
+  RSL panel via `PromoteChange`. Gave the memory/learning outcome line vertical
+  breathing room (`py-1.5`, `gap-y-1`, `leading-relaxed`). Composer toolbar no
+  longer overflows at ~850px: dropped `shrink-0` from the controls group, added
+  `min-w-0` and made the model label truncate inside a shrinking trigger. Tests:
+  `tsc` clean, full vitest green (472 files / 4399). Docs updated:
+  `docs/NAVIGATION.md`, `docs/interactive-response-engine.md`,
+  `docs/CHANGELOG.md`.
+- **feat(chat): Plan mode — plan first, then wait for approval.** Added the third
+  per-turn preference beside Quant and Choices, inside the composer's "+" menu:
+  `src/lib/agent/plan-mode.ts` (Auto/On/Off, persisted), `plan-mode-control.tsx`
+  (submenu + active badge), and `planMode` threaded through `ChatOptions`,
+  `buildChatPayload`, both chat routes and `run-service` into
+  `input.context.planMode`. `python/harness/plan_mode.py` appends a `<plan_mode>`
+  block to `runtime_context` only for `"on"`: work out goal/assumptions/steps,
+  record them with the existing `create_plan`/`create_task` tools when present
+  (otherwise write the plan in the reply), present it, then stop and wait for
+  approval before `run_plan`/effectful work. Guidance only — no hard block, no
+  capability grant; `off`/`auto` add nothing. Tests: `plan-mode.test.ts` (5),
+  `run-service` (+2), chat-route (+1), Python `test_plan_mode.py` (5); `tsc`
+  clean; targeted suites green. Size guard: `graph.py` re-pinned 2457→2461 for
+  the one import + one call seam. Docs updated: `docs/harness/architecture.md`,
+  `docs/CHANGELOG.md`.
+- **feat(chat): move the Quant and Choices modes into the composer's "+" menu.**
+  The two always-visible Auto/On/Off pills crowded the toolbar (and collapsed to
+  cryptic `Q`/`C` glyphs on narrow screens). They are now two submenus —
+  **Quant mode** and **Choices mode** — under the composer's "+" menu, each with
+  Auto / On / Off radio items and a small badge showing the active choice.
+  Default stays `auto` (nothing is sent); picking On or Off persists in
+  localStorage and therefore applies to every later run until changed. The
+  preference plumbing, server validation and Python behaviour are untouched.
+  Tests: `tsc --noEmit` clean, full vitest suite green (4393), targeted
+  `test_choices_mode.py` + `test_quant_intent.py` green (54). Docs updated:
+  `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+- **fix(self-build): the Builder surface is reachable, and a chat build gets a
+  build budget.** `CodeScreen` was exported but never imported, so the Code
+  screen, land checks, per-file diffs and scorecard strip had no UI. Added the
+  `code` tab to `AppTab` + `ALL_TABS`, mounted it through a keep-alive wrapper
+  (`components/screens/code/code-tab.tsx`, so `stock-chat.tsx` grows by one
+  import + one line and its ratchet moves 1603→1606), and registered the palette
+  page **Builds** (`page-code`, launcher row) with a `code` icon. Also fixed the
+  24-step wall that cut the acceptance run off mid-change: `start_run` now
+  applies the `standard` session budget (80 steps / 45 min, additive,
+  hard-capped) when the turn's autonomy may write, via
+  `code/session.py::budget_for_autonomy`; planning turns keep the chat budget.
+  Harness size budget re-pinned to the measured tree (total, `.`, `code`). New
+  guard `code-screen-mounted.test.ts` fails if the surface is ever exported but
+  not mounted again. Tests: `test_build_session.py` (2 new), `app-tabs`,
+  `registry-sync`, `size-budget` green. Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md`, `docs/CHANGELOG.md`.
+- **fix(harness): a code-build task is never a quant turn.** The full suite
+  caught a real regression: the team task "write alpha.py and beta.py" matched
+  the bare `alpha` model object, so the quant surface narrowed away
+  `eval_fs_write`/`eval_run` and the modules were never written. The classifier
+  now has a code-task guard (`alpha.py`, `model.py`, `print(...)`, `def `,
+  `import `) that returns `none` unless a genuine quant term (backtest, quant,
+  forecast, portfolio, volatility, drawdown, Monte Carlo, optimization, a named
+  model) is present; bare `alpha` is no longer a model object. Regression cases
+  added to `test_quant_intent.py` and the 56-case benchmark; the team comparison
+  and code-eval suites pass again. Size budget re-pinned. Docs updated:
+  `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+
+## 2026-11-05
+- **feat(chat): composer "Choices" mode — ask with selectable options up front.**
+  New `src/lib/agent/choices-mode.ts` + `src/components/chat/choices-mode-control.tsx`
+  put an Auto/Choices/Off pill beside Quant in the composer; the value flows as
+  `ChatOptions.choicesMode` through both chat routes and `run-service` into
+  `input.context.choicesMode`. On the runtime side, `python/harness/choices_mode.py`
+  appends a short `runtime_context` block ONLY for `"on"` (and only when `clarify`
+  is on the run's surface), telling the model to call `clarify` once with 2–4
+  concrete options before an ambiguous turn; the existing question card already
+  renders those as clickable buttons and resumes the run in place. `off`/`auto`
+  add nothing, so the base prompt's act-don't-ask guidance stands — this is
+  presentation guidance, never a capability grant. The block is wired in
+  `graph.py` next to the trading/quant context. Tests: TS `choices-mode` (5),
+  `run-service` (2 new), chat-route (1 new), Python `test_choices_mode.py` (6);
+  `graph.py` size ratchet re-pinned 2452→2457. Docs updated:
+  `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+- **feat(harness): quant tool surface + derived quant outcome (Phase 2).**
+  `apply_quant_surface` narrows a `standard`/`deep` turn to the data, compute,
+  portfolio/broker-read, synthesis and artifact tools (engine names imported
+  from `QUANT_TOOLS`/`STATS_TOOLS`/`FACTOR_TOOLS`/`ML_TOOLS`/`RESEARCH_DATA_TOOLS`),
+  with trade precedence first and a remove-only guarantee; lookups and tiny
+  surfaces are untouched. `apply_intent_surfaces` replaces the trade-only call in
+  `graph.py` and still keeps `graph.py` at its size ratchet. `evaluate_quant_outcome`
+  derives a read-only completeness record (artifact names, missing computation,
+  validation, OOS and cost evidence) and `run_outcome.build_outcome_envelope`
+  exposes it as `quant` on `GET /runs/{id}/outcome`. Tests: surface narrowing,
+  trade precedence, never-widen, light/standard/deep outcome cases and the
+  envelope integration (`test_quant_intent.py`, `test_quant_outcome.py`,
+  existing run-outcome/surface suites). Size budget re-pinned. Docs updated:
+  `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+- **feat(harness): quant-intent benchmark + composer Auto/Quant/Off toggle.** New
+  `python/harness/quant_intent_benchmark.py` (`quant-intent-v1`, 53 labelled cases)
+  measures tier + kind accuracy and separately counts false-positive non-quant
+  turns and trade-precedence violations; runnable with
+  `python -m harness.quant_intent_benchmark`. New
+  `src/lib/agent/quant-mode.ts` + `src/components/chat/quant-mode-control.tsx`
+  put an Auto/Quant/Off pill in the composer; `ChatOptions.quantMode` flows through
+  both chat routes and `run-service` as `input.context.quantMode` (`on`/`off`
+  forwarded, `auto` omitted). The Python classifier already honours it. Tests:
+  `test_quant_intent_benchmark.py` (2), `test_quant_intent.py` (38), the TS
+  `quant-mode` suite (4), `run-service` and the chat route. Size budget re-pinned
+  for the benchmark. Docs updated: `docs/harness/architecture.md`,
+  `docs/CHANGELOG.md`.
+- **feat(harness): deterministic quant protocol (Phase 1, observe-only).** New
+  `python/harness/quant_intent.py` classifies a turn as `light` / `standard` /
+  `deep` quantitative work (forecast, strategy, model, factor, financial model,
+  risk) and renders a per-run protocol into `runtime_context`: frame → data →
+  compute → validate → artifact → caveat, with a model-synthesis ladder and model
+  contract at `deep`. Plain quotes, news, filings and concept explanations stay
+  `none`; a trade/close/modify turn returns `none` so `trading_intent.py` keeps
+  execution. The classifier is wired in `graph.py` next to the trading directive,
+  emits a `quant.plan` event, and grants nothing (no surface narrowing yet). The
+  presentation planner learns quant vocabulary. Auto/Quant/Off is read from
+  `input.context.quantMode`; the composer toggle is a later slice. Tests:
+  `python/tests/test_quant_intent.py` (38 passed) plus the existing response-mode
+  and trading-intent suites (93 passed). `graph.py` stays at its size ratchet;
+  the new module's ~579 lines are a deliberate size-budget re-pin.
+  Docs updated: `docs/harness/architecture.md`, `docs/CHANGELOG.md`.
+- **feat(code): per-file review and review notes (Phase 22 / S5 slice 2).** The
+  promotion preview now accepts `include`: `promotion.filter_preview` keeps only
+  the files the reviewer ticked and RECOMPUTES the digest over that set, so the
+  single-use approval is bound to exactly what will be written. The preview and
+  apply routes take the same `include`, and the promote card renders a checkbox
+  per file (re-previewing on every toggle; at least one file stays selected).
+  A new "Request changes" panel records an optional `file:line` and a note, then
+  opens a new chat turn with `/eclipsesdk <goal>` plus the notes through the
+  shell's `navigateTo` prompt param. Honest limits: per-HUNK accept is not
+  supported (file granularity only), and the note starts a NEW chat turn in a
+  new working copy rather than editing the same one in place. Tests
+  `python/tests/test_promotion_filter.py` (4 passed). Size budget re-pinned
+  (total, `code`, `routers`; `en.ts` 1305 -> 1312).
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S5 slice 2),
+  `docs/harness/roadmap/README.md`.
+- **feat(chat): per-chat project folder (Phase 23).** Each conversation can now be
+  bound to one APPROVED workspace root, OpenCode-style, instead of the whole app
+  sharing the single global selection. A **project chip** beside the session bar
+  shows the current folder and opens a picker (approved folders + "Open folder…" +
+  "Use Eclipse repo"). The binding is stored per chat as
+  `.black-eclipse/sessions/<chatId>/project.json`, and the run routes forward an
+  approved **root id** (never a path) as `RunRequest.workspaceRootId`; the runtime
+  resolves it through `TrustedRootStore` and binds that run's workspace. An
+  unknown/revoked id yields NO workspace (honest refusal), never a silent
+  fallback; `direct` mode follows the per-run folder exactly like the global
+  selection. New: `src/components/chat/project-chip.tsx`,
+  `src/components/workspace/folder-picker.tsx` (extracted from the editor),
+  `src/app/api/chat/session/project/route.ts`, `project.json` helpers in
+  `src/lib/chat/session-store.ts`, `set_trusted_root_lookup` in
+  `python/harness/code/workspace.py`. Tests: `python/tests/test_workspace_per_chat.py`,
+  `src/lib/chat/session-project.test.ts`, plus run-service cases. Docs updated:
+  `docs/NAVIGATION.md`.
+- **feat(code): the self-build acceptance eval (Phase 22 / S6, final slice).** New
+  `python/harness/code/selfbuild_eval.py`: six acceptance fixtures, one per
+  shipped self-build capability (project memory, build session, maintenance door,
+  land pipeline, Builder surface, scorecard). Each fixture names the exact files
+  and contract strings that must exist after a candidate change, so it grades a
+  worktree deterministically. Commands are OFF by default (a release run passes
+  `--commands`) and a skipped command is reported as skipped, never a pass. The
+  human diff grade is `UNKNOWN` - the eval never invents a quality number. The
+  repository passes 6/6 today as a regression check. Tests
+  `python/tests/test_selfbuild_eval.py` (4 passed). Size budget re-pinned to the
+  measured tree (total, `code`). This completes S6; S5 slice 2 (per-hunk review,
+  line comments, dedicated Builder tab) remains.
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S6),
+  `docs/harness/roadmap/README.md`.
+- **feat(models): a coding model for build runs (Phase 22 / S6, slice 2).** The
+  LLM config gains an optional `codingModel` (same provider/key/URL): chat turns
+  the deterministic classifier recognises as code, forced `/eclipsesdk` turns,
+  and Code tasks now resolve that model; every other turn keeps the chat model.
+  The Settings > AI surface gains a "Coding model (optional)" field, and the
+  value round-trips through the settings API. The self-build scorecard also
+  breaks results down by `provider/model` (`byModel`). `planner`/`editor`/
+  `reviewer` multi-role routing is folded into this one build model on purpose:
+  one run still uses one model, and no second router was added. Tests
+  `python/tests/test_scorecard.py` (4 passed), `tsc` clean. Size budget re-pinned
+  (total, `code`; `en.ts` 1302 -> 1305). Repo eval remains.
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S6),
+  `docs/harness/roadmap/README.md`.
+- **feat(code): the self-build scorecard (Phase 22 / S6, slice 1).** New
+  `python/harness/code/scorecard.py` derives the honest numbers from the ONE run
+  lineage: builds (`session.created`), checks run, first-pass checks, landed
+  (`land.promoted`), rolled back (`land.rolled_back`), average steps, tokens and
+  median time-to-first-change. A dimension with no data is `UNKNOWN`, never `0`;
+  cost and human edits are named as unmeasured. `promote_apply` now records
+  `land.promoted`, and rollback records `land.rolled_back` when the caller names
+  the run (the chat and Code rollback paths pass it). `GET /code/scorecard`
+  exposes it; the Code screen shows a compact strip. Tests
+  `python/tests/test_scorecard.py` (4 passed). Size budget re-pinned to the
+  measured tree (total, `code`, `routers`; `en.ts` 1297 -> 1302).
+  Model roles (`planner`/`editor`/`reviewer`) and the repo eval remain.
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S6 slice 1),
+  `docs/harness/roadmap/README.md`.
+- **feat(code): the Builder surface, slice 1 (Phase 22 / S5).** The Code screen
+  now derives ONE honest state from recorded facts (`session.derive_phase`:
+  planning / editing / checking / ready / blocked / stopped) plus the single next
+  action, and exposes the latest `land.verified` result on the session view. The
+  landing gate is real in the Code screen: `PromoteChange` is disabled until a
+  FULL check pass, with a plain-language hint. The diff viewer splits a unified
+  diff into per-file, collapsible sections (`src/lib/code/diff-sections.ts`), so a
+  multi-file change is reviewable file by file. Tests: `test_build_session.py`
+  (11 passed), `diff-sections.test.ts`. Size budget re-pinned to the measured
+  tree (total, `code`; `en.ts` 1285 -> 1297).
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S5 slice 1),
+  `docs/harness/roadmap/README.md`.
+- **feat(code): the landing pipeline (Phase 22 / S4).** New
+  `python/harness/code/land.py`: an ordered, data-driven check plan (typecheck,
+  tests, size, secret scan, the change-log obligation, and a build when
+  `src/**` changed), with `.black-eclipse/land.json` as a project override and
+  the exit code as the judge. A check that cannot run is an `error`, never a
+  pass; the first required failure stops the pipeline and the rest are reported
+  as `skipped`. `GET /code/tasks/{id}/land` is the read-only plan;
+  `POST /code/tasks/{id}/land/verify` runs it (`full=false` skips the long suite)
+  and records a `land.verified` checkpoint. The checks run against the project on
+  disk (the disposable copy has no installed dependencies), so the Code-screen
+  `LandChecks` panel sits after the change is applied and offers quick/full runs
+  with per-check output, plus the `code.land.*` i18n keys. Tests
+  `python/tests/test_land.py` (8 passed). Size
+  budget re-pinned to the measured tree (total, `code`, `routers`; `en.ts`
+  1272 -> 1285).
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S4 shipped),
+  `docs/harness/roadmap/README.md`.
+- **feat(code): the self-build boundary and offline maintenance mode (Phase 22 / S3).**
+  `selfhost.plan_landing` turns the existing classifier into ordered steps:
+  `python/harness/**` restarts only the builder, `src/**` builds only the target,
+  and an authority file exits through maintenance - never a live hot-swap. New
+  `python/harness/code/maintenance.py` is the one authority door: it refuses a
+  non-authority change, refuses a dirty tree unless explicitly allowed, stops the
+  builder, applies, runs the gate, restarts, health-checks, and rolls back on any
+  failure after the apply. Every side effect is injected, so the order is tested
+  without a live process. `npm run self:maintenance -- plan|execute` is the thin
+  operator runner (`scripts/self-maintenance.js`), and `plan` is read-only. Tests
+  `python/tests/test_maintenance.py` (11 passed). Size budget re-pinned to the
+  measured tree (total, `code`; no ratcheted-file growth).
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S3 shipped),
+  `docs/harness/roadmap/README.md`.
+- **feat(code): durable build sessions with a budget ladder (Phase 22 / S2).**
+  New `python/harness/code/session.py`: a session is a lens over the existing
+  run lineage, not a second store. It records the goal, the acceptance list and
+  the budget as one `session.created` checkpoint, and derives progress/resume
+  from the checkpoints the task lifecycle already writes. The budget is a
+  profile NAME (`small` 24 steps / 10 min, `standard` 80 / 45 min, `deep` 240 /
+  3 h), never a raw number from the caller. `RunRequest` gains additive
+  `maxSteps` / `runTimeoutMs`; `graph.requested_budget` applies them as a floor
+  and clamps to the runtime's hard caps, so a deep session can run long without
+  widening the autonomy floor or the tool surface. `POST /code/tasks` accepts
+  `budgetProfile` + `acceptance` and returns the session block; `GET
+  /code/tasks/{id}` carries it too. The front door validates the profile and the
+  `/code` command gains `--budget`. The Code task detail now shows the session
+  (goal, budget, acceptance, finished state) through `getCodeSession` and
+  `TaskDetail`, with four `code.session.*` i18n keys. Tests
+  `python/tests/test_build_session.py` (9 passed). Size budget re-pinned to the
+  measured tree (`.`, `code`, `routers`, total; `graph.py` 2406 -> 2434;
+  `en.ts` 1268 -> 1272).
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S2 shipped).
+- **feat(code): load the project's own rules into a code turn (Phase 22 / S1).**
+  New `python/harness/code/project_memory.py`: a bounded, deterministic loader for
+  `AGENTS.md`, `.eclipse/instructions.md`, `CLAUDE.md` and the top-level map in
+  `docs/NAVIGATION.md`. It walks from the workspace root to the git root (so this
+  app finds the repository's `AGENTS.md` one level above `Black-Eclipse-site/`),
+  redacts secret-shaped spans, truncates at a line boundary, and memoises by
+  `(path, mtime, size)`. The rendered block is injected into the first code turn
+  by `graph_context._repo_map_context`, and a new read-only `project_rules` tool
+  lets the agent re-read it on demand. The rules are **context, never
+  permission** - no rule can change the allowlist or the autonomy floor.
+  `CHAT_CODE_TOOLS` and `CODE_AGENT_TOOLS` gain the tool; the task code-agent
+  prompt says so. The chat prompt is unchanged - the injected block already
+  carries the "context, never permission" rule - so the ECLIPSE prompt-size
+  ratchet and the read-only navigator prompt both stay put. The published tool
+  registry is regenerated (`docs/harness/tool-registry.json`, 1020 tools). Tests
+  `python/tests/test_project_memory.py` (12 pass, 1 symlink skip), plus the
+  updated exact-surface pin in `python/tests/test_chat_code_profile.py`. The harness size budget is re-pinned
+  to the measured tree (`scripts/size-budget.json`; the `code/tools.py` ratchet
+  moves 1268 -> 1270) because `python/harness/code` was at its ceiling.
+  Docs updated: `docs/NAVIGATION.md`,
+  `docs/harness/roadmap/phase-22-self-hosting.md` (S1 shipped),
+  `docs/harness/roadmap/README.md`, `docs/harness/tool-registry.json`;
+  `docs/CHANGELOG.md`.
+- **docs(harness): add the Phase 22 self-hosting plan.** The gap analysis for
+  using Eclipse to build Eclipse, grounded in the merged tree: no project-rule
+  loader (nothing reads `AGENTS.md` under `python/harness/`), a 24-step / 600s
+  chat code budget, the builder and target sharing one process, authority files
+  refused live with no maintenance path, landing that does not run the repo gate,
+  all-or-nothing review, no coding model policy, no self-build metrics, and a
+  finance-first default surface. Six workstreams in three waves, each with a
+  contract, file list, UX and acceptance gates. S1 (project memory) shipped
+  2026-11-05; the other five are not started.
+  Docs updated: `docs/harness/roadmap/phase-22-self-hosting.md`,
+  `docs/harness/roadmap/README.md`.
+- **fix(chat): quiet the evidence cards under an answer.** Three changes to the
+  metadata area, all presentation-only (the runtime's provenance and fail-closed
+  rules are untouched). (1) The "Proof it works" card no longer prints a
+  `0 check(s)` header when no check was recorded, and it opens by default when a
+  check failed or a claim is unsupported, so the evidence is visible instead of
+  hidden behind a click. (2) A speculative capability offer (`gap` /
+  `needs_source`, the "Build it" card) no longer renders in the transcript; a
+  card describing a real capability — including an unverified one — still does.
+  (3) "Sources consulted" now opens on the numbered source list by default, with
+  calculations/limitations/run detail nested after it. Covered by
+  `code-verification-panel.test.tsx`, `research-evidence-panel.test.tsx` and
+  `capability-types.test.ts`. Docs updated: `docs/interactive-response-engine.md`.
+- **fix(chat): only Sources stays under an answer (follow-up).** User direction:
+  remove the other evidence cards entirely. The chat transcript no longer renders
+  the "Proof it works" ledger (it remains on the Code screen) or the generated
+  capability card (it remains in Capability Studio); the code headline keeps only
+  the intent line and the promote-change action. `research-evidence-panel.tsx` is
+  now the only provenance block under a normal answer, and it opens on Sources by
+  default. No runtime/provenance logic changed — presentation only. Tests updated:
+  `chat-capability-panel.test.ts` now asserts both cards are absent from the
+  transcript. Docs updated: `docs/interactive-response-engine.md`.
+- **fix(chat): drop the empty computed-result card.** A result with no
+  provenance record (the "This number has no record of where it came from…"
+  UNAVAILABLE state) or with nothing to show (no outputs, artifact, figure or
+  recipe) no longer renders a card at all; the fail-closed refusal still happens
+  at the runtime boundary. A computed result with provenance and data is
+  unchanged. Covered by new empty-state cases in
+  `computed-result-panel.test.ts`. Docs updated: `docs/interactive-response-engine.md`.
+- **fix(chat): keep the Sources panel collapsed and align table columns.** Two
+  follow-ups from the browser review. (1) "Sources consulted" no longer opens by
+  default; the header summary stays visible and the body (Sources first) is
+  behind the toggle. (2) Tables now use ONE alignment per column shared by the
+  header and every body cell — the Markdown path previously right-aligned each
+  numeric cell individually, leaving the header on the opposite side and mixed
+  columns flipping; `data-table-block.tsx` also reverses the header row on a
+  right-aligned column so the always-present sort icon does not push the label
+  away from the numbers. Covered by new `markdown-table.test.tsx`, an updated
+  `research-evidence-panel.test.tsx`, and a header-alignment case in
+  `render.test.tsx`. Docs updated: `docs/interactive-response-engine.md`,
+  `docs/chat-ui-audit.md`.
+- **style(chat): give the response action row room to breathe.** The export row
+  (JSON / Read aloud / MD / PDF / Save / Open in Canvas) sat flush against the
+  header above and the content below. It now has a little top margin and a
+  clear bottom gap, with wrap row-gap, so it reads as its own strip.
+  Presentation-only; no doc change beyond this note.
+- **style(canvas): the inline Canvas dock opens as one surface card.** Replaced
+  the thin `Eclipse response · REPORT · Save to edit` toolbar with the rounded
+  card from the review: a rounded icon tile plus a surface label (`Writing` for a
+  prose answer, otherwise `Code` / `Report` / `Web page` / `Image`), with Save to
+  edit and Close on the right and the document title as the card tooltip.
+  Presentation-only. Docs updated: `docs/canvas.md`.
+- **style(graph-studio): simplify canvas nodes to a borderless solid surface.**
+  The node card now uses a solid `#0E0E0E` fill with no outer border and a soft
+  lift instead of the heavy 2px black bezel and translucent gradient. The header
+  gets roomier top/bottom padding so the icon no longer crowds the card edge,
+  and the icon sits in a solid neutral rounded tile (`#1A1A1C` dark / `#F2F2F4`
+  light). Ports, inline fields, run/test states and hover actions are unchanged.
+  Presentation-only; no contract change.
+- **fix(graph-studio): tidy layout respects node heights; wires are curved and neutral.**
+  `autoLayout` now accepts the nodes' measured React Flow heights and stacks each
+  layer by the real card height (240px fallback when unmeasured), with a 96px
+  column gap — so "Tidy up" no longer piles tall nodes on top of each other. The
+  canvas measures on tidy and passes the map through the store. Wires switched
+  from straight to bezier paths, and idle/selected wires render neutral (brighter
+  on hover) with the theme accent reserved for a running workflow; success and
+  failure keep their status colors. Added `layout.test.ts`. No doc change —
+  interaction/presentation fix only.
+- **fix(news): high-level stories join the feed and notify the header.** The News
+  tab no longer opens with a separate High Alert band. Those stories are ranked
+  into the main feed with `sort=importance` (default, one-time migration for a
+  saved `newest` preference) so the first rows are the most critical, and the
+  existing cards carry the CRITICAL/HIGH ALERT/BREAKING badges. Added the pure
+  `src/lib/notifications/news-diff.ts` + root-mounted
+  `src/lib/notifications/news-watcher.tsx`, which polls `/api/news/alerts`, seeds
+  the current set silently, then raises a `news`-tab ledger entry (header bell +
+  sidebar badge + toast/cue) for each newly seen critical/high story and each
+  high-impact release within 90 minutes. Removed the now-unused
+  `news-high-alerts.tsx`; the card preferences moved to
+  `src/lib/news/card-settings.ts` to keep the screen inside the size budget
+  (re-pinned 1486→1446). Tests: `news-diff.test.ts`. Docs updated:
+  `docs/ARCHITECTURE.md`, `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
+- **fix(notifications): the header ledger is not a news backfill.** The news
+  watcher was seeding the current high-alert set into the ledger on load, which
+  made the header look like a news-only feed and pushed the operator's
+  price-alert/task/agent entries down (or out of the 100-item ring over time).
+  The first poll now only seeds the seen set — no ledger write — so news behaves
+  exactly like the task/bot/price watchers: it records events that happen after
+  the app opens. The notification panel also always renders every kind filter
+  (Alerts/Tasks/Approvals/Agent/Bots, count 0 included) so each producer lane is
+  discoverable. Tests updated: `news-diff.test.ts`. Docs updated:
+  `docs/ARCHITECTURE.md`, `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
+- **feat(alerts): durable alert archive + a filterable History tab.** Every
+  notification raised in the app is now mirrored from the header ledger into a
+  new `AppNotification` table through `POST /api/notifications` (idempotent on
+  the producer's stable id; the local ledger backfills once on hydrate). New
+  `GET /api/alerts/history` unions that archive with the price engine's
+  `PriceAlertEvent` log (deduped by id, newest-first) and supports `q`,
+  `kind`, `tab` and `24h/7d/30d/all` ranges. Alerts › History now shows all
+  sources (news/price/tasks/approvals/agent/bots) with a search box, source and
+  range filters, and plays the alert cue once when a genuinely new archived row
+  arrives. `prisma/schema.prisma` gains `AppNotification` (additive; `db push`
+  applies it, so `jdds.db` is not committed). Tests:
+  `api/alerts/history/route.test.ts`, `api/notifications/route.test.ts`. Docs
+  updated: `docs/ARCHITECTURE.md`, `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
+
 ## 2026-11-04
 - **chore(ops): re-pin the harness size budget to the measured merged tree.** The
   branch's `check:size` gate was already red before today's merge: the trading
@@ -11,6 +729,70 @@
   the per-module ratchet resumes from these numbers. Also merges
   `feat/graph-quant-packs` into `main` so today's work is on the default branch.
   Docs updated: `docs/CHANGELOG.md`.
+- **test(trade-learning): pin the unbound-bridge precondition.** The full Python
+  suite runs after a test that boots the service and binds the real journal
+  loader, so the "no bridge" node test saw a live connection attempt instead of
+  its own precondition. The test now clears the loader first. Test-only change.
+  No doc change beyond this note.
+- **fix(docs): normalize CRLF after appending ADR-069.** The ADR text was
+  appended with bare LF into two CRLF files (`docs/DECISIONS.md`,
+  `skills/ARCHITECT.md`), which the line-ending guard rejects. Both files are
+  pure CRLF again; content unchanged. No doc change beyond this note.
+- **feat(graph-studio): the trade learning loop ships as six nodes.** `trade.journal`
+  (read-only, owner-scoped `journal_trades` bridge over JDDS), `trade.review`
+  (pure deterministic detectors that cite the field: no stop, risk over limit,
+  stop widened, target reduced, early exit, held past stop, overtraded, revenge,
+  no plan, checklist violation, off-session, off-symbol, duplicate entry,
+  unreviewed), `trade.learn` (findings + the ONE `LearningRecurrence` ledger
+  keyed by trade id + inert RSL candidate), `trade.improve` (seeded recursive
+  climb; variants mutate from measured states, acceptance is holdout-only),
+  `trade.commit` (operator-only append of a playbook version) and
+  `trade.playbook` (read). The runtime refuses any playbook transition that
+  widens risk (`NOT_A_TIGHTENING` / `OUT_OF_BOUNDS`); the loop has no broker path
+  and never edits code. New domain `python/harness/trade_learning/`, nodes
+  `python/harness/graph_runtime/trade_learning_nodes.py` +
+  `src/lib/graph-studio/registry-learning.ts`, manifest regenerated, `learning`
+  node category, `journal_trades` capability, tests
+  `python/tests/test_trade_learning.py` + `test_graph_trade_learning_nodes.py`.
+  The `Trade learning loop` starter template wires the whole chain with
+  conservative operator bounds. Docs: new
+  `docs/graph-studio-trade-learning-nodes-plan.md`, `docs/graph-studio.md`,
+  `docs/NAVIGATION.md`, ADR-069.
+- **docs(graph-studio): plan for a trade learning loop (mistake → lesson →
+  recurrence → bounded remediation).** Audits the existing mistake store,
+  recurrence ledger, lesson contract and Tier-B self-modification, then designs a
+  five-node `learning` pack (`trade.journal` / `trade.review` / `trade.learn` /
+  `trade.playbook` / `trade.remediate`), a deterministic trade-mistake taxonomy,
+  a scoped recurrence key reusing `LearningRecurrence`, a read-only `journal_trades`
+  JDDS bridge capability, and an append-only tighten-only playbook envelope that
+  the risk gate enforces. No behaviour change — plan only. Docs: new
+  `docs/graph-studio-trade-learning-nodes-plan.md`.
+- **feat(graph-studio): the workflow assistant is a real sidebar chat with
+  pause/resume and approvals.** The editor's right rail is now a vertical
+  tab strip (Assistant / Node / Issues / History / Health) with a resizable,
+  persisted width (`be_graph_rail_v1`) — a layout column, never a modal. The
+  assistant turn carries a `runId`, streams text token-by-token through the
+  model runtime, renders through the shared `AssistantContent`/Markdown path,
+  and Pause / Resume / Stop call new
+  `/api/graphs/assist/runs/{id}/pause|resume|cancel` routes backed by
+  `graph_runtime/assistant_runs.py` (cooperative gates between model rounds and
+  tool calls; disconnect cancels; a dropped stream recovers the persisted
+  result). The transcript moved to a per-workflow `localStorage` thread list
+  with a restored pending proposal. With Auto-apply off, a validated edit
+  becomes a single-use `graph_edit` approval in the existing `ApprovalStore`;
+  `ask_user` becomes a real clarification card. Docs updated:
+  `docs/graph-studio.md`, `docs/NAVIGATION.md`.
+- **fix(desktop): the shortcut no longer leaves a duplicate tab open.** The
+  launcher handed the progress page off to the app with `location.replace(...)`
+  and then re-opened the browser 20 s later whenever the app tab had not
+  beaconed yet — on a slow first hydrate that is *always*, so each launch ended
+  with two app tabs. The progress page now sends a one-shot `POST /handoff`
+  beacon immediately before it navigates, and the launcher's "no beacon yet"
+  retry is skipped once that handoff is recorded. The retry still fires when
+  the page never ran its redirect (JS disabled, or the tab was closed). Files:
+  `scripts/lib/desktop-splash.js`, `scripts/start-desktop.js`, test
+  `src/lib/desktop-launcher.test.ts`. Docs updated: `docs/CHANGELOG.md` (bug
+  fix — no architecture/contract change).
 - **fix(tests): the full suite is green again.** Three real failures surfaced in
   the full run. (1) Per-model ML predict tools (`ml_model_*_predict`) were
   appended to the shared `ECLIPSE_AGENT` allowlist when a model was registered,
@@ -1172,1501 +1954,3 @@
   Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
   `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
 
-## 2026-11-01
-- **chore(ops): re-pin the harness size budget to the measured tree.** Reconciles
-  `scripts/size-budget.json` with the tree at the quant node-pack commit
-  (423,998 total; `python/harness/.` 27,905, `code` 18,312, `routers` 18,927,
-  `eclipse_memory` 12,626, `skills` 10,241, `evaluation` 12,048). This is a
-  deliberate checkpoint, not an allowance: the growth is the market-read nodes,
-  signed webhooks + `integration.http` 1.1.0, broker/trading nodes + paper risk
-  gate, the kit ratio calculator and the bot-skill plan — `graph_runtime/` has
-  no per-directory ceiling, so the quant packs are not what pushed it over. The
-  comment in the budget file says so, and the ratchet resumes from these
-  numbers. `npm run check:size` is green again on the committed tree.
-  Docs updated: `docs/CHANGELOG.md`.
-- **test(graph): end-to-end coverage for the quant pack.** Added
-  `python/tests/test_graph_quant_e2e.py`: one graph wires
-  `finance.market_data` into every quant node added in this work (backtest,
-  grade, regime, resample, robustness, benchmark, trade_analysis,
-  multiple_testing, edge_report, position_size, options_strategy, costs) and is
-  driven through the real `/graphs/runs` HTTP surface — compile, capability
-  authorization, layered execution, run rows and output validation included.
-  The bar provider is installed through the runtime's own
-  `set_series_provider` seam, so nothing is fabricated and no network is used.
-  It also pins two behaviours the unit suites could not show: a quant node
-  failure is reported on that node's run row (not swallowed), and a checkpoint
-  larger than the preview bound is stored as `{_truncated, preview}` rather than
-  dropped. 3 cases, ~11s. Docs updated: `docs/graph-studio.md`,
-  `docs/CHANGELOG.md`.
-- **ops: the harness size budget remains red and is NOT caused by the quant
-  work.** `npm run check:size` reports 6 budgeted directories over their
-  ceilings (`python/harness/.`, `code`, `routers`, `eclipse_memory`, `skills`,
-  `evaluation`) and the total ~38.7k lines over. Those directories hold the
-  parallel trading/broker and skill work, not `graph_runtime/` (which has no
-  per-directory budget). Raising those ceilings is a deliberate decision that
-  belongs to whoever owns that growth; this changelog records the state so it
-  cannot be mistaken for a quant regression. no doc change — operational note.
-- **chore(repo): close the remaining gates and ship the trading surface.**
-  `trading.session_filter` gained `sessionsJson`: an explicit calendar
-  (`[{"day":0,"from":"09:00","to":"17:00"}]`, day 0 = Monday, server time) used
-  when the terminal reports no sessions, so session filtering works on brokers
-  whose MT5 build does not expose them. Precedence is broker sessions →
-  configured calendar → UTC window, and `basis` reports which was used; a
-  malformed calendar is a data error naming the shape required. Size gates: the
-  quant presentation moved to `config-fields-quant.ts` (config-fields.ts 1250 →
-  1040), and the three ratchets grown by the concurrent stream (`graph.py`,
-  runtime `service.py`, `eclipse_memory/service.py`) carry PROVISIONAL headroom
-  with a note to tighten once that stream lands. Tests: 3 session-calendar cases.
-  Docs updated: `docs/trading.md`, `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **chore(trade): production hardening — routes, guard lifetime, test-run writes
-  and a demo smoke runner.** Added the two missing REST routes
-  (`GET …/symbols/{symbol}` and `POST …/orders/{ticket}/modify`) and their front-door
-  allowlist entries. Idempotency claims are now **released when the order
-  definitely never reached the broker** (`REFUSED`/`CONFIRMATION_REQUIRED`/
-  `COOLING_OFF`), while `REJECTED`/`UNKNOWN` keep the claim so an ambiguous send is
-  never repeated; guard rows older than 90 days are pruned when the store is
-  wired. `trading.reconcile` and a `syncFirst` drift check are refused in a test
-  run (a test run writes nothing). New `python/scripts/trade_demo_smoke.py` probes
-  a demo terminal, reads account/positions/orders/symbol facts and — opt-in —
-  re-prices one working order and asserts the read-back; it refuses a non-demo
-  connection. Tests: 5 new lifecycle cases (refusal releases the slot, ambiguity
-  keeps it, test-run refusals, guard prune) and 3 route-allowlist cases. Docs
-  updated: `docs/trading.md`, `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(trade): broker sessions (best-effort), symbol-aware partial closes and a
-  pre-check sync.** `symbol_info` now reads the broker's TRADE sessions into
-  `sessionDeals` (day 0 = Monday, `HH:MM`, server time). MetaTrader's Python API
-  does not reliably expose them — the functions are missing or return nothing in
-  several builds (reported to MetaQuotes) — so the read is defensive, skips a
-  boundary that is not a clock value, and reports `sessionsAvailable: false` with
-  the reason instead of inventing a calendar. `trading.session_filter` now PREFERS
-  broker sessions, evaluated in server time from the quote's own server clock (or
-  an explicit `serverOffsetMinutes`), and falls back to its UTC window when the
-  terminal reports none; a new `basis` output says which calendar was used.
-  `trading.partial_close` reads the symbol's own `volumeStep`/`volumeMin` through
-  `symbol_info` when no quote is wired, and refuses a close below the symbol
-  minimum. `trading.drift_check` gained `syncFirst`, which refreshes the mirror
-  through the normal sync path before comparing (the broker stays authoritative;
-  remaining drift is still only reported). Refactor: session parsing and the MT5
-  wire tables live in `trade/adapters/mt5_contract.py`, keeping `mt5.py` (1239
-  lines) inside its pinned size budget. Tests: 6 session cases (broker calendar,
-  server offset, midnight-adjacent session, node using the quote clock, UTC
-  fallback), 2 partial-close symbol-facts cases, 2 drift pre-sync cases and a
-  simulated-terminal session read (MT5 Monday=1 → our 0). Docs updated:
-  `docs/trading.md`, `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(trade): working-order modify, static symbol facts, and a smaller
-  trading-node core.** Added `trading.broker_modify_order` (change a WORKING
-  order's price/SL/TP, carrying its own type/time/expiration across the modify and
-  reading it back as `verified`; risk-reducing, no arm/approval/mandate) and
-  `trading.broker_symbol` (static symbol facts — trade mode, contract size, volume
-  min/max/step, stops/freeze levels, filling mask — with no tick, so it answers
-  when the market is closed). `trading.session_filter` now also accepts
-  `symbolInfo`, so a trade-mode check needs no quote. Adapter contract gained
-  `modify_order` (TradingAdapter) and `symbol_info` (BrokerAdapter, read-only
-  default raises `SYMBOL_INFO_NOT_SUPPORTED`); MT5 implements both, and the
-  service exposes `modify_order`/`symbol_info` (`trade/symbols.py` keeps the
-  service under its size ceiling). **Session calendars are deliberately not
-  implemented**: the adapter does not expose the terminal's session table, and
-  deriving one from local time would be a guess — the code and docs say so.
-  Refactor: paper executors moved to `graph_runtime/trading_paper_nodes.py`, with
-  shared intent parsing in `trading_common.py` and the store/guard in
-  `trading_store.py`; `trading_nodes.py` drops from 980 to 605 lines and
-  `set_paper_store` stays re-exported. The MT5 wire tables and pure record
-  builders moved to `trade/adapters/mt5_contract.py` (imported back, so every
-  call site and test import is unchanged), keeping `mt5.py` inside its pinned
-  size budget; the simulator gained `TRADE_ACTION_MODIFY` + `orders_get(ticket=)`
-  and four simulated adapter cases (re-price verified, ignored modify unverified,
-  missing order named, symbol facts with no tick). Service-level coverage lives
-  in `test_broker_symbol_and_modify.py` (6: honest unavailable, mode gate,
-  unsupported path, field passthrough). Docs updated:
-  `docs/trading.md`, `docs/graph-studio.md`, `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): order lifecycle, drift reporting, paper valuation and a
-  double-send guard.** New nodes: `trading.await_fill` (poll the ledger to a
-  terminal state or deadline; `timedOut` is an outcome), `trading.reconcile` (the
-  same sync path as the route; never changes broker state), `trading.drift_check`
-  (in-flight ledger orders with no broker match, untracked broker positions,
-  mirror age — reports, never repairs) and `trading.paper_valuation`
-  (mark-to-market to supplied prices; unpriced symbols listed, never zeroed).
-  `trading.broker_order` and `trading.paper_order` gained
-  `dedupe: none|key|day` + `idempotencyKey` and a `skipped` output; the claim is
-  written to the new `GraphTradingGuard` table on `agent-memory.db` BEFORE the
-  send, so a scheduled run that fires twice sends once. They live in
-  `graph_runtime/trading_lifecycle_nodes.py` (+ the paper guard in
-  `paper_store.py`), aggregated by `build_trading_nodes`; contracts mirrored in
-  `registry-trading.ts` / `config-fields.ts`; manifest regenerated. Tests:
-  `python/tests/test_graph_trading_lifecycle.py` (20: await filled/timeout/
-  terminal/missing, sync success/failure, drift clean/unmatched/untracked/stale/
-  never-synced/unreadable, valuation priced/unpriced/single-symbol, dedupe
-  day/key/no-key/none for paper and once-only for broker orders). Docs updated:
-  `docs/trading.md`, `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): trading-system primitives — sizing, brackets, guards and position
-  management.** Pure nodes (no broker): `trading.size_by_risk` (equity risk budget
-  ÷ stop distance × contract size → volume, floored to the symbol step and capped
-  at its maximum; refuses rather than bumping below-minimum sizes),
-  `trading.bracket` (ATR × multiple or explicit stop distance → direction-aware
-  SL/TP with reward:risk), `trading.spread_guard` (missing spread is never treated
-  as tight) and `trading.session_filter` (broker `tradeMode` from a wired quote +
-  explicit UTC window/weekdays; documented as our clock filter, not the broker's
-  calendar). Risk-reducing management nodes (arm/approval/mandate-free, like
-  close/modify): `trading.break_even` (R measured from the position's own stop),
-  `trading.trail_stop` (tightens only, never widens) and `trading.partial_close`
-  (fraction/volume, floored to the symbol step from a wired quote). They live in
-  `graph_runtime/trading_calc_nodes.py` and `trading_ops_nodes.py`, aggregated by
-  `build_trading_nodes` so `nodes.py` gains no import; contracts mirrored in
-  `registry-trading.ts` / `config-fields.ts`; manifest regenerated. Tests:
-  `python/tests/test_graph_trading_primitives.py` (38: sizing math, step flooring,
-  min/max, bracket direction, guards, session windows incl. midnight wrap and
-  trade modes, break-even trigger/already/no-stop, trail direction and min step,
-  partial-close flooring). Docs updated: `docs/trading.md`,
-  `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): read nodes, an intent builder and a no-side-effect order preview.**
-  Added `trading.broker_orders`, `trading.broker_fills` and `trading.order_ledger`
-  (broker working orders, reconciled deals, Eclipse's own submitted-order rows),
-  `trading.paper_account` (durable PAPER cash/positions/realized PnL, positions
-  also emitted as rows) and `trading.order_intent` (validated
-  symbol/side/quantity/type/price/SL/TP/TIF; a pending order without a price is an
-  error). `trading.order_preview` answers "would this be allowed?" through
-  `order_check` + policy + guardrails + optional mandate scope, and
-  `trading.broker_order` gained `dryRun` to use it. Approval creation is now
-  optional in `BrokerService.preview_order` (`record_approval=False`), so a graph
-  dry run leaves no approval cards. `broker_positions`/`risk_check.positions` are
-  now `array` ports, so position rows wire into the gate and an account envelope
-  is refused at compile time. Contracts mirrored in `registry-trading.ts` /
-  `config-fields.ts`; manifest regenerated. The preview body moved to
-  `trade/preview.py` (a delegate in `service.py`) to stay under the module size
-  ceiling. Tests: 30 broker-node cases (preview
-  never creates an approval, mandate verify is non-consuming, dry run sends
-  nothing, port-type wiring) and 3 paper-account cases. Docs updated:
-  `docs/trading.md`, `docs/graph-studio.md`, `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): trading nodes gate on live state and report honest outcomes.**
-  `trading.risk_check` now accepts `account`/`positions` plus numeric overrides
-  and derives equity and open-position count from the broker/paper account
-  before falling back to config; a new `state` output names the source of every
-  figure. It also runs in `research`/`backtest` mode (it is pure), so a backtest
-  can gate entries with the same limits. `trading.broker_order` honors an
-  optional `decision` input (a rejected risk check stops the order before the
-  broker) and returns `ok`/`reason`; `BrokerOrder` gained `runId`/`nodeId` so a
-  graph order is traceable from the ledger (additive columns, migrated in
-  `trade/store.py`). Added `trading.broker_positions`; every broker read/exit now
-  returns `ok`/`reason`, `trading.broker_bars` also returns the deterministic
-  ATR(14)/20-bar range/contract size, and `trading.broker_close` can close a whole
-  symbol. Contracts mirrored in `registry-trading.ts` / `config-fields.ts`;
-  manifest regenerated. Tests: `test_graph_broker_nodes.py`,
-  `test_graph_registry_parity.py` (cross-language port parity) and 7 new
-  `risk_check` cases. Docs updated: `docs/trading.md`, `docs/graph-studio.md`,
-  `docs/ARCHITECTURE.md`, `docs/harness/security.md`, `docs/CHANGELOG.md`.
-- **ux(graph): readable market-node summaries, direct OHLCV metrics and starter
-  templates.** (1) Every gateway read node now emits a compact `summary` object
-  (symbol/provider/as-of plus the key figures for that capability — spread,
-  funding rate, liquidation totals, …) next to the full record and provenance,
-  so the node card and Output tab are readable without opening raw JSON.
-  (2) `quant.risk_metrics` and `quant.drawdown` accept OHLCV bars directly:
-  closes are used as price levels, the detected source wins over `inputKind`,
-  and the metrics report `source` — so `finance.history → quant.risk_metrics`
-  no longer needs an intermediate indicator node. (3) Added the `Risk snapshot`,
-  `Derivatives monitor` and `FX + bond yield` starter templates, and clarified
-  the FX pair-vs-base/quote inspector help. Contracts mirror in
-  `registry-market.ts` / `market_read_nodes.py` / `quant_metrics_nodes.py`;
-  manifest regenerated. Docs updated: `docs/graph-studio.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): instrument nodes — options payoffs and continuous futures.**
-  `quant.options_strategy` (`graph_runtime/quant_instruments_nodes.py` →
-  `quant/options.py` `analyze_option_strategy`) takes a leg list
-  (`type/strike/quantity/premium`, optional `multiplier`/`iv`) and returns the
-  expiry payoff curve, net premium, break-evens, max profit/loss and
-  boundedness. An unbounded tail stays `null` with `bounded: false`; net Greeks
-  appear only when a valuation spot AND a time-to-expiry are wired; the payoff
-  range is configured or derived from the strikes/spot and `spotRangeSource`
-  records which. `quant.futures_continuous` (`quant/futures.py`
-  `splice_continuous`) splices ordered contracts at `rollDatesJson` with
-  none/difference/ratio adjustment and emits an OHLCV series marked
-  `proxy: true` with the engine's note (a continuous series is a backtest proxy,
-  not a deliverable contract). Both mirrored in `registry-quant-advanced.ts`,
-  presented in `config-fields.ts`, exemplified in `node-examples.ts`, manifest
-  regenerated. Tests: `python/tests/test_graph_quant_instrument_nodes.py` (10:
-  spread payoff/break-even/boundedness, naked-call unboundedness, Greeks wiring,
-  derived range, half-configured range, engine leg errors, splice at roll,
-  unadjusted splice, bad roll schedule, empty contracts).
-  Also re-synced `docs/graph-studio.md` with the concurrent change that made
-  `quant.risk_metrics`/`quant.drawdown` accept OHLCV or raw number lists (their
-  `ANY` input ports were already in both registries; only the sentence was
-  stale). Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): quant tier-3 nodes — portfolio backtest, explicit costs, Edge
-  Report.** `quant.portfolio_backtest` (`graph_runtime/quant_portfolio_nodes.py`)
-  adapts the `{symbol: OHLCV}` map into one `MarketDataset` and drives the
-  existing `run_portfolio_backtest` (shared book/cash, per-strategy symbol
-  bindings). Default is one preset strategy per symbol; `strategiesJson`
-  supplies explicit `StrategySpec`s that must declare `universe.symbols`. The
-  engine's own double-claimed-symbol check and a missing-symbol check are the
-  explicit failures. `quant.costs` (`quant/costs.py` `simulate_costs`) computes
-  one cost family over an order list with the execution block as
-  `executionJson`; a model missing its input contributes zero and emits a
-  warning instead of inventing a cost. `quant.edge_report`
-  (`quant/edge_report.py` `build_edge_report`) renders the Markdown report,
-  bounded chart specs and verdict from a backtest artifact, naming absent
-  figures rather than drawing empty ones. Refactor: `series_map` is now public
-  and takes a node label so the shared `{symbol: rows}` adapter reports the
-  node that actually rejected the payload. New TS contract file
-  `registry-quant-advanced.ts` (`QUANT_ADVANCED_DEFINITIONS`), presentation in
-  `config-fields.ts` (the portfolio block drops the single-series `symbol` and
-  `strategyJson` labels), examples, manifest regenerated. Tests:
-  `python/tests/test_graph_quant_portfolio_nodes.py` (6: preset basket,
-  determinism, explicit specs, absent symbol, double claim, bad JSON) and five
-  new cases in `test_graph_quant_validation_nodes.py` (commission total,
-  frictionless zero with its warning, bad order/execution, report + charts +
-  verdict, missing artifact). Docs updated: `docs/graph-studio.md`,
-  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **docs(graph): bot, skill and agent node plan.** Added
-  `docs/graph-studio-bot-skill-nodes-plan.md`: verified inventory of the three
-  agent nodes, the bot-as-tagged-Automation model, and the absence of any skill
-  reference in either node registry; six Tier-1 node contracts (`agent.bot`,
-  `skill.invoke`, `agent.classify`, `agent.extract`, `agent.summarize`,
-  `agent.critique`); the `agent.bot` / `skill.invoke` execution sequences
-  (including the real status mapping and the `NodeExecContext` operator/grant
-  prerequisite); three bot-selectable surfaces (real agent presets in the create
-  dialog, "Reuse a bot" in Bots mode, an `agent.bot` picker in the inspector);
-  Tier-2/Tier-3 candidates; rejected alternatives; and the work breakdown.
-  Docs updated: `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): quant structure nodes — align, regime labels, position size.**
-  Added three executable COMPUTE nodes in
-  `graph_runtime/quant_structure_nodes.py`, each an adapter over a tested
-  engine: `quant.align` (`quant/transform.py` `align_rows`: `{symbol: rows}` in,
-  shared timestamp axis + per-symbol series + missing counts out; `fill: none`
-  by default, `ffill`/`zero` only on explicit request and `imputed` records
-  it), `quant.regime` (`quant/regime.py` `classify_series`: trend × volatility
-  label, confidence and counts per bar, with `warmupBars` naming the leading
-  bars before the trend filter has a reading) and `quant.position_size`
-  (`quant/sizing.py` `compute_quantity` with the engine's own `PositionSizing`:
-  `percent_risk`/`atr`/Kelly take their stop, ATR and trade statistics as
-  wired/config inputs and a missing one fails by name instead of returning
-  zero). New TS contract file `registry-quant-structure.ts`
-  (`QUANT_STRUCTURE_DEFINITIONS`), presentation in `config-fields.ts`, examples
-  in `node-examples.ts`, manifest regenerated (`npm run graph:manifest`).
-  Tests: `python/tests/test_graph_quant_structure_nodes.py` (13 cases: inner
-  join, null-vs-imputed gaps, single-payload refusal, warm-up trend bars,
-  classifier config rejection, percent-equity/percent-risk/ATR sizing, lot
-  rounding, venue minimum, and the named missing-input failures).
-  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): quant validation pack phase 2 — robustness, trade analysis,
-  overfitting check.** Added `quant.robustness` (`quant/robustness.py`:
-  one-at-a-time parameter sweep from `paramSpaceJson` or the preset's default
-  space, cost-multiplier curve, trade concentration, chronological regime
-  splits → deterministic `robust` / `fragile` / `insufficient_evidence` verdict
-  plus conclusions that name their measurement), `quant.trade_analysis`
-  (`quant/trade_log.py`: regime/trend/volatility context per entry, per-regime
-  P&L, concentration and coverage; unmatched trades are counted and reported
-  `unclassified`), and `quant.multiple_testing`
-  (`quant/multiple_testing.py`: Deflated Sharpe from the selected return series
-  plus trial Sharpes wired from `quant.optimize` or `trialSharpesJson`, and PBO
-  via CSCV over `returnsMatrixJson`; trial Sharpes are de-annualized with
-  `periodsPerYear` because deflation is defined on per-period Sharpes). When
-  neither statistic is computable the node fails and names what is missing.
-  Also exposed the shared `prepare_quant` / `param_space_from_config` /
-  `STRATEGY_FIELDS` seams from `quant_nodes.py` so a validation run adapts the
-  OHLCV payload and strategy config exactly like the research nodes do, instead
-  of keeping a second copy. Mirrored in `registry-market.ts`, presented in
-  `config-fields.ts`, exemplified in `node-examples.ts`, manifest regenerated,
-  and the **Backtest and grade** starter template now also wires robustness
-  conclusions beside the verdict. Tests: `python/tests/test_graph_quant_validation_nodes.py` grew to 24 cases
-  (verdict determinism, insufficient-evidence, bad multiplier lists, entry
-  classification vs unclassified, DSR trial count/source, PBO from a matrix,
-  fallback Sharpes, and the explicit "nothing wired" failure).
-  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): quant validation nodes — edge verdict, benchmark, resample.**
-  Added three executable COMPUTE nodes in
-  `graph_runtime/quant_validation_nodes.py`, each a thin adapter over an engine
-  that already existed but was unreachable from a graph: `quant.grade`
-  (`quant/verdict.py` `grade_edge` → A–F verdict, components, flags, and an
-  explicit `assumptions.notGradedOn` for axes it could not judge),
-  `quant.benchmark` (`quant/benchmark.py` → alpha/beta/correlation/tracking
-  error/IR against a benchmark OHLCV series, reading the equity curve from a
-  backtest result; `< 3` aligned returns is `available: false` with the reason)
-  and `quant.resample` (`quant/transform.py` → deterministic OHLCV aggregation
-  to a wider interval, partial buckets marked, finer targets refused). Mirrored
-  in `src/lib/graph-studio/registry-market.ts` (`QUANT_VALIDATION_DEFINITIONS`),
-  presented in `config-fields.ts`, exemplified in `node-examples.ts`, and
-  regenerated into `registry.manifest.json` (`npm run graph:manifest` — this
-  also brought the manifest back in sync with the pending market-read, webhook
-  and integration contracts already in the working tree). Added the
-  **Backtest and grade** starter template (`templates.ts`) so the pack is
-  discoverable from the gallery. Tests:
-  `python/tests/test_graph_quant_validation_nodes.py` (14 cases: components,
-  redistributed weights, critical-flag capping, equity-curve flags, missing
-  evidence failures, benchmark unavailability, bucket aggregation/partial
-  marking, finer-target refusal). Docs updated: `docs/graph-studio.md`,
-  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **demo(graph): integration nodes live in Overview.** Added two starter
-  templates — **Webhook to HTTP** (signed inbound webhook → `integration.http@1.1.0`
-  → response/status) and **Signed webhook** (`integration.webhook_send`) — and
-  `scripts/seed-integration-demo.mts`, which idempotently creates both demo
-  workflows, creates/arms the inbound `WorkflowWebhook` with network access, and
-  writes a gitignored signed-request helper to
-  `.black-eclipse/demo/webhook-demo.ps1` (the secret is never printed). Verified
-  end-to-end in the running app: the signed delivery started a run that fetched
-  `https://postman-echo.com/get?demo=eclipse` (`200`, `ok: true`), and the signed
-  outbound demo's run echoed `x-eclipse-signature`/`x-eclipse-timestamp` from
-  postman-echo. Seed data lives in the local (gitignored) `jdds.db`; the
-  templates and seed script are source.
-  Docs updated: `docs/graph-studio-integration-nodes-plan.md`,
-  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **feat(graph): complete the gateway read surface + pure risk/return metrics.**
-  Added 15 executable READ nodes in `graph_runtime/market_read_nodes.py`
-  (`finance.instrument|orderbook|trades|volume|market_cap|fx_rate|
-  options_chain|bond|funding_rate|open_interest|supply|tvl|onchain|
-  liquidations|long_short_ratio`). Each reuses the EXISTING `MarketDataGateway`
-  through the same helper as `finance.quote`, returns a `provenance` object
-  built from the record's own `meta` (provider/freshness/quality/as-of/
-  retrieval time), and turns a gateway rejection into an explicit node failure
-  instead of a zero or a synthetic book. Added 4 pure COMPUTE nodes in
-  `graph_runtime/quant_metrics_nodes.py` (`quant.risk_metrics`, `quant.drawdown`,
-  `quant.correlation`, `quant.beta`): deterministic math over an INDICATOR
-  series, with undefined ratios reported as `null` plus a note, never `0`.
-  Both packs are mirrored in `src/lib/graph-studio/registry-market.ts`, get
-  inspector presentation in `config-fields.ts`, and were added to
-  `registry.manifest.json` (`npm run graph:manifest`). Tests:
-  `python/tests/test_graph_market_read_nodes.py` (registry/executability,
-  dispatch, provenance, honest failures, test-run execution) and
-  `python/tests/test_graph_quant_metrics_nodes.py` (hand-computed metrics,
-  drawdown/correlation/beta, graph wiring). Docs updated:
-  `docs/graph-studio.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **feat(graph): HTTP 1.1.0, signed inbound/outbound webhooks, and the redirect
-  SSRF fix.** Implemented the integration plan's P0 (plus the P1 webhook/test
-  items). (1) New `graph_runtime/http_client.py`: manual redirects with an SSRF
-  re-check on **every** hop, hop cap, HTTPS→HTTP refusal, redacted logs, query
-  merge, body modes, response-type/cap (`error|truncate`), retries with
-  `Retry-After`, and credential-env resolution. (2) `integration.http@1.1.0`
-  (query, body modes, retries, `headers`/`ok`/`contentType`/`durationMs`/
-  `truncated`); `1.0.0` stays registered and keeps its exact output shape.
-  (3) `integration.webhook_send@1.0.0` signs
-  `X-Eclipse-Signature/Timestamp/Delivery`. (4) `trigger.webhook@1.0.0` is
-  zero-config; a new `WorkflowWebhook` + receipt model (Prisma, applied with
-  `db push`) owns the endpoint, encrypted secret, method filter, response mode
-  and arm state. (5) Public `POST|GET /api/webhooks/[slug]` (middleware-exempt):
-  HMAC/timestamp replay window or token, 64 KiB cap, per-endpoint rate limit,
-  delivery-idempotency receipt, safe mode = test run, armed mode = pinned
-  version + content hash + confirmed network grant; write/trading refused.
-  (6) `triggerContext` plumbing (run-server → Python service → executor) and the
-  webhook node's `start/headers/query/method/receivedAt/meta` outputs.
-  (7) Inspector **Webhook** tab + card summary (create/copy/rotate/pause/arm,
-  last delivery), and an explicit **Test with network** confirmation for HTTP
-  nodes (runtime refuses unless `allowNetwork`). Verified with
-  `webhook-crypto.test.ts`, the HTTP operator suite (redirect/retry/truncate/
-  SSRF cases), registry manifest parity, and a direct store arm/rotate check.
-  Docs updated: `docs/graph-studio.md`,
-  `docs/graph-studio-integration-nodes-plan.md`, `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`, plus app ADR-057 in `skills/ARCHITECT.md` (mirrored into
-  `docs/DECISIONS.md`). Schema: `prisma/schema.prisma` (`WorkflowWebhook`,
-  `WorkflowWebhookReceipt`) applied with `npx prisma db push`; `jdds.db` is not
-  committed.
-- **docs(graph): integration / HTTP / webhook node improvement plan.** Added
-  `docs/graph-studio-integration-nodes-plan.md`: a verified audit of the
-  integration category (only `integration.http@1.0.0`; no `trigger.webhook`
-  despite the stale "three triggers" note; webhooks cannot act because every
-  run is a test run) and an implementation-ready plan. It covers the
-  redirect-based SSRF gap in `_exec_http`, an additive `integration.http@1.1.0`
-  contract (query/body modes/retries/response headers/ok/duration), a signed
-  inbound `trigger.webhook` with a `WorkflowWebhook` model and public
-  `/api/webhooks/[slug]` endpoint, an "armed" pinned-version authority model
-  (safe by default), safe-mode vs armed-mode semantics, the test matrix, the
-  ticket breakdown, and the decisions needed. No code changed.
-  Docs updated: `docs/graph-studio-integration-nodes-plan.md`,
-  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **feat(graph): first-run tour + a labelled node diagram; U4 deferred.** Closes
-  the legibility plan. (1) New `graph-onboarding.tsx`: a three-card tour
-  (a node is one step · connectors are labelled, round = value / square = branch ·
-  Start workflow is a safe TEST run), shown once per browser from
-  `localStorage`, dismissible, never blocking the canvas; the same content stays
-  in the `?` panel. (2) `docs/graph-studio.md` "Reading a node" now carries a
-  labelled node diagram. (3) **U4 (variadic ports) is deferred by decision**: the
-  card and the inspector already hide over-declared ports, so the remaining work
-  would add manifest v2 + validator/executor/canvas surface for no user-visible
-  gain; the plan records the trigger to revisit (> 8 switch cases or > 3 merge
-  inputs).
-  Docs updated: `docs/graph-studio.md`, `docs/graph-studio-node-ux-plan.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): inserting a node explains the port, and every logic node has a
-  worked example.** Two more legibility items. (1) The add-a-step panel now
-  states the insertion point — `After If / else · If true — a branch (run
-  control). Only nodes with a Run control input can follow it.` / `After Filter ·
-  Items (array). The new node must accept that type.` / both sides when inserting
-  on an edge — and its empty state explains the rule instead of "no node can be
-  wired here". (2) New `node-examples.ts` (presentation only, never in the
-  manifest) backs an **Example** block in the inspector's Settings tab with one
-  concrete input → output line for every `logic.*`/`flow.*` node plus the core
-  data/transform/finance nodes; a test asserts the logic pack is fully covered
-  and that no example names an unregistered type.
-  Docs updated: `docs/graph-studio.md`, `docs/graph-studio-node-ux-plan.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): auto-save + fully opaque nodes.** (1) Node cards are now
-  **fully opaque** (`#232329 → #141418`, light mode `#fff → #f5f5f8`): React
-  Flow's transformed viewport is a backdrop root, so the previous near-opaque
-  tint still let the grid/edges show faintly. No alpha remains. (2) The editor
-  gained an **Auto-save** toggle (on by default, persisted per browser) and a
-  2 s idle debounce: after the last edit the graph is persisted automatically,
-  with `Saving…/Saved` in the header. The decision is the pure
-  `shouldAutoSave()` policy — it never writes an invalid graph, never overlaps a
-  save, keeps manual Save working, and additionally skips a save whose content
-  hash equals the persisted one, so opening the editor cannot manufacture an
-  empty version. Verified in the production build: opening created no version,
-  a mode change auto-saved v4, reverting auto-saved v5.
-  Covered by `autosave.test.ts` (6 cases). Typecheck + vitest green.
-  Docs updated: `.opencode/skills/black-eclipse-ui/SKILL.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): a node now says what it needs and what it did nothing with.**
-  U2/U3 of the legibility plan. (1) A required input that is neither wired nor
-  given a node literal puts an **amber ring** on the card plus a `Connect: Items`
-  line, and names itself in the warning tooltip — the card's version of the
-  validator's `missing_required_input`. (2) A node with more than one control
-  output that fires a branch into nothing now logs `branch If true fired but
-  nothing is connected to it — the run continues with no effect`
-  (`executor._report_dead_branch`); single-`done` nodes stay quiet. (3) The
-  inspector header shows the node's one-line description; the palette shows
-  `N in · M out` and a `branch` marker. (4) The canvas `?` panel opens with a
-  three-line **Reading a node** legend (round = value, square = branch, amber ring
-  = needs a connection). Plan progress updated in
-  `docs/graph-studio-node-ux-plan.md`.
-  Docs updated: `docs/graph-studio.md`, `docs/graph-studio-node-ux-plan.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): ports are labelled, so a branch is readable at a glance.**
-  The reported pain was that If / else showed three identical dots and Switch
-  showed ten. (1) Every port now carries a visible label beside its handle (right
-  of outputs, left of inputs, on a chip so an edge cannot hide it); single-port
-  nodes keep just the dot. (2) Control ports are **square**, data ports **round**,
-  in the card and in the inspector, so a branch handle can never be mistaken for a
-  value handle. (3) Branch outputs come first and are named as sentences:
-  `True`/`False` → **If true**/**If false**, `Default` → **No match**,
-  `Matched` → **Any match**, gate `In 2/3` → **Run 2/3**, stop's value input →
-  **Output** (handles keep their ids, so saved graphs are untouched; both
-  registries + the manifest were updated). (4) The inspector's Settings tab now
-  lists the SAME visible ports as the card via `node-ports.ts`, so a Switch no
-  longer lists eight unused cases; its `Case index` data output only shows when
-  wired. (5) The card subtitle is the node's one-line description instead of its
-  category. (6) New validation warning `switch_double_branch` when "Any match"
-  and a specific case are both wired (both would run). Plan:
-  `docs/graph-studio-node-ux-plan.md`.
-  Docs updated: `docs/graph-studio.md` ("Reading a node"),
-  `docs/graph-studio-node-ux-plan.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **feat(graph): a working loop demo, created in the app (`npm run graph:loop`).**
-  Adds `scripts/graph-loop-demo.mts`, which builds two IR documents with the real
-  editor registry, validates them, and (without `--dry`) creates them in JDDS as
-  **`Loop body — 7% growth step`** (trigger → `x * 1.07` → result) and
-  **`Compounding planner (loops)`** — a parent exercising all three loop shapes
-  against that pinned body: `flow.repeat` (12-year horizon, then an if/else on
-  the target), `flow.while` (until the balance clears 2 000) and `flow.for_each`
-  (three principals projected one year each). `npm run demo:loop` then runs the
-  pair through the real runtime via `python/examples/loop_demo.py` +
-  `scripts/demo-loop.js` and asserts every branch outcome (12 iterations,
-  2 252.19 target met, 11 while-iterations, ordered for-each results), exiting
-  non-zero on regression. Writing it surfaced a genuine wiring rule: a transform
-  chained after a gate must take the gate's `done` on its `in` control port, or
-  it runs on dataflow alone with a null input when the branch is skipped.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **fix(graph): a Switch shows the cases you configured, not ten anonymous
-  handles.** The node declared `case1…case8` for an eight-way branch, so every
-  Switch card drew ten output handles (plus ten stacked `+` buttons) whatever the
-  operator typed, and the per-case outputs were unlabelled — a 3-case switch
-  looked broken and could not be adjusted. `node-ports.ts` now derives the
-  *presentation* from the node's `cases` (handle ids unchanged, so edges,
-  validation and the runtime are untouched): one output per configured case,
-  labelled with its value, plus `default`/`matched`/`caseIndex`; a wired case
-  handle stays visible when its case is removed so no edge is orphaned. Handle
-  spacing compresses as the fan grows and the per-port `+` shortcut is withdrawn
-  above four outputs, where the buttons overlapped and hit-tested the wrong
-  branch. The field is relabelled **Cases (one output each)** with help that
-  explains the mapping. Validation gained `invalid_switch_cases` (error) for
-  non-JSON case text and `switch_case_not_configured` (warning) for a branch
-  pointing at a case that no longer exists.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **fix(graph): graph nodes are opaque — the canvas can no longer show through.**
-  React Flow's viewport carries a CSS `transform`, which makes it a backdrop
-  root: a node's `backdrop-filter` could only sample that subtree, so the
-  0.58-alpha `.node-card` tint let the grid, edges and neighbouring nodes bleed
-  through the card. Node cards are now a near-opaque graphite gradient
-  (alpha 0.97/0.98, light mode matched) keeping the inset highlight and soft
-  shadow; the blur was removed rather than left reporting a filter that cannot
-  render there. Verified in the production build: computed
-  `background-image` is the opaque gradient and `backdrop-filter` is `none`.
-  The UI skill gained hard rule 6 (“canvas nodes cannot frost”) so this is not
-  reverted later. CSS only.
-  Docs updated: `.opencode/skills/black-eclipse-ui/SKILL.md`,
-  `docs/CHANGELOG.md`.
-- **refactor(graph): split the formula language and the template renderer out of
-  `nodes.py`.** `nodes.py` reached 1597 lines, over the 1200-line hard ceiling
-  enforced by `test_size_budget.py`. The safe formula language (tokenizer,
-  parser, function table, `evaluate_formula`) moved to `graph_runtime/formula.py`
-  and the bounded template renderer (paths, format specs, `{{#each}}` blocks,
-  output budget) moved to `graph_runtime/template.py`; `nodes.py` (1080 lines)
-  re-exports `evaluate_formula`, `FormulaError` and `render_template`, so every
-  existing import site is unchanged. Behaviour is identical: the graph suite
-  (408), `test_stats_formula.py` and the size-budget test pass.
-  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-- **feat(graph): switch routing, gate joins, dedupe modes, loop state.** Closes
-  the remaining logic-pack defects from the plan. (1) `logic.switch` fires the
-  matching `case1`…`case8` control output in addition to `matched` (first match
-  wins, >8 still fires `matched`), so a 3-way branch is one node. (2) `flow.gate`
-  gained `in2`/`in3` and `require: any|all`; `all` is a join whose unmet case is
-  reported as a skipped node (`skipped_by_node`) via a new generic `_skip`
-  result key, not a scheduler special-case. (3) `logic.deduplicate` gained
-  `keep: first|last` and `caseInsensitive`. (4) `flow.while` conditions can read
-  the body's numeric and boolean fields (`done != 1`), fixing the state that
-  silently projected to `0`; the legacy `value` projection is unchanged. (5)
-  `RunStopRequest` now validates the `_stop` payload instead of being dead code.
-  Additive: no node version changed, no config removed. New
-  `test_graph_logic_pack.py` covers all four. Verified: manifest regenerated,
-  Python graph suite 359 passed, vitest 141, `tsc --noEmit`.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): Wave 0 of the logic-node plan — the pack can no longer lie.**
-  (1) `logic.stop` gained an optional `value` input so it can carry the run
-  output (`status` was already honoured by the preceding stop fix). (2)
-  `logic.wait` polls cancellation every 100 ms and reports the time actually
-  waited, instead of blocking a worker for up to 30 s. (3) `logic.map`/`filter`/
-  `reduce` no longer bind a missing row field as `0.0` — a silent zero made
-  `filter` drop every row of a text field; the field now fails honestly. (4)
-  `logic.aggregate` returns `null` for an empty input on every op except `count`
-  (its `value` port is declared `nullable`) instead of a fabricated `0`. (5)
-  `logic.merge` gained `first_present` (legacy `first` shares it): a branch is
-  present unless it is null or empty, so an empty `A` no longer shadows a
-  populated `B`, while `0`/`false` stay real values. (6) every logic node emits
-  one summary line per run. (7) a skipped node names the control wire that did not
-  fire. (8) new `test_graph_node_config_usage.py` asserts every declared config
-  field of the `logic.*`/`flow.*` pack is read by its executor — the test that
-  would have caught the original `logic.stop` defect. `NodeExecContext` gained
-  defaulted `control_fired` and `should_cancel` for the gate-join and
-  cancellation work that follows. Manifest regenerated. Verified: `tsc --noEmit`,
-  vitest (141), the graph Python suite (376) and `demo:transform`.
-  Docs updated: `docs/graph-studio.md`, `docs/graph-studio-logic-nodes-plan.md`,
-  `docs/CHANGELOG.md`.
-- **fix(graph): logic/flow control surface + a silent Stop bug.** (1) *Stop
-  ignored its own `status`.* Choosing `failed` still produced a SUCCEEDED run.
-  The node now returns a `_stop` request the executor reads: the node succeeds
-  (so `stops_run` skips the rest), and the run finishes FAILED with the
-  configured message; `succeeded` keeps the previous behaviour. (2) *Control
-  ports are consistent.* `logic.condition` and `logic.switch` gained the optional
-  control `in` (their exclusive `true`/`false` and `matched`/`default` outputs
-  stay); `logic.merge`, `flow.gate`, `logic.wait`, `flow.subworkflow` and
-  `flow.for_each`/`repeat`/`while` gained `done` (loops and subworkflow fire it
-  from the orchestrator), and merge/gate/wait also chain now. (3) *Switch cases*
-  accept a JSON array (`["a,b","c"]`) when a case contains a comma. (4)
-  `flow.repeat`/`flow.while` gained `continueOnError`, which the loop runner
-  already honoured for `flow.for_each`. (5) Deferred `wait` now fires `done` on
-  resume instead of dropping it. (6) Merge's `strategy` renders as a select
-  instead of free text. Additive: no node version changed.
-  Covered by `test_graph_executor.py`, `test_graph_registry_parity.py` and
-  `config-fields.test.ts`. Docs updated: `docs/graph-studio.md`,
-  `docs/CHANGELOG.md`.
-- **docs(graph): the logic-node plan is now implementation-ready.**
-  Rewrote `docs/graph-studio-logic-nodes-plan.md` as a spec-grade plan: 8
-  documented defects (added `flow.while`'s numeric-only state), per-node target
-  contracts (ports, config fields with bounds, semantics, errors, compat, tests),
-  nine cross-cutting enablers (execution-context additions, rows config editor,
-  shared condition module, typed expression language, variadic ports, error
-  routing, inline bodies, body validation), a ticket-level work breakdown with
-  effort and dependencies, versioning/`strictValues` rules, a per-node test
-  matrix, a definition of done, risks and six open decisions. No source change.
-  Docs updated: `docs/graph-studio-logic-nodes-plan.md`, `docs/CHANGELOG.md`.
-- **docs(graph): plan for improving the logic / control-flow node pack.**
-  Adds `docs/graph-studio-logic-nodes-plan.md`: an audit of the 15 logic nodes
-  read from the code (7 concrete defects — `logic.stop` ignoring `status`, the
-  silent-zero coercion in map/filter/reduce and aggregate, non-cancel-aware
-  `logic.wait`, `logic.switch` routing every case to one output, `logic.merge`
-  preferring an empty `a`), the shared contract chain, and a 4-wave plan
-  (correctness → additive expressiveness → typed expression language + variadic
-  ports + inline bodies → performance) with explicit compat/versioning rules and
-  a test plan. Registered in `docs/NAVIGATION.md`.
-  Docs updated: `docs/graph-studio-logic-nodes-plan.md`, `docs/NAVIGATION.md`,
-  `docs/CHANGELOG.md`.
-- **chore(next): honour the file-tracing exclude on production builds.**
-  `next.config.ts` declared `outputFileTracing: { excludes: … }`, which Next 15
-  does not recognise (build printed "Unrecognized key(s)"), so the
-  `.black-eclipse/**` workspace copies were never excluded from the trace and
-  the EPERM the comment describes could return. Replaced with the supported
-  `outputFileTracingExcludes`. Verified by a production `next build` with no
-  config warning.
-  no doc change — build configuration only; `docs/QUICKSTART.md` already
-  describes `npm run build && npm start`.
-- **feat(bots): the bot brain picker shows real agent presets.** The New bot
-  dialog rendered a hardcoded `BOT_AGENTS` array, so a preset authored in
-  Settings › Agents was invisible (and the seven `institution-*` seats in that
-  array could not resolve as a standalone `run_agent`). The option list is now
-  built from the live runtime: `src/lib/agent-presets/choices.ts` (pure:
-  built-ins first, user presets by name, archived kept and flagged, an unknown
-  saved id appended and labelled) + `use-agent-choices.ts` (loader with a
-  built-in fallback). `create-bot-dialog.tsx` renders it grouped and rejects an
-  unknown agent before save; `validateDraft` takes an optional known-id list.
-  **Runtime fix:** `graph.resolve_agent` now falls back to `AgentPresetStore`
-  through the new `agent_presets.agent_config_from_preset`, the same projection
-  `graph_runtime/bootstrap._agent_runner` uses — a bot's scheduled `run_agent`
-  enters there, so without it a custom preset worked in chat and failed on its
-  schedule. Tests: `src/lib/agent-presets/choices.test.ts` (6 cases),
-  `python/tests/test_agent_presets.py` + `test_graph.py` (preset projection,
-  preset resolution, unknown-agent failure).
-  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
-  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
-
-- **feat(graph): `skill.invoke` — installed skills run as a node.** One generic
-  node, not one per skill (skills are runtime data; the registry is a static
-  contract with a manifest + Python mirror). TS contract
-  `src/lib/graph-studio/registry-skills.ts` (`SKILL_DEFINITIONS`, category
-  `skills`, so the library has a "Skills" group), presentation in
-  `config-fields.ts`, `NodeCategory` + the three category maps updated, manifest
-  regenerated. Runtime `python/harness/graph_runtime/skill_nodes.py` is a thin
-  adapter: `bootstrap._skill_runner` calls the EXISTING
-  `AgenticService.run_skill` → `execute_skill`, so permissions, version
-  resolution and the tool check are the same ones chat uses. Status is the
-  contract — only `completed` yields `output`/`result`/`evidence`; `blocked` /
-  `denied` / `failed` / `cancelled` / `unavailable` fail the node with the
-  runtime's code and message, and a failed skill's partial transcript is never
-  surfaced. `inputJson` and the optional `input` port merge per key (wire wins).
-  `NodeExecContext` gained `operator` (filled as `not testRun` by the executor),
-  so an operator-authored permission set is honoured; a test run refuses by name
-  any skill whose declared tools are not all in `DRY_RUN_TOOLS`. The inspector
-  picks from the live skill list (`skills-browser.listSkills`) with status, tools
-  and description. Tests: `python/tests/test_graph_skill_node.py` (18 cases:
-  completed projection, pinned version, wire-vs-config merge, missing skill,
-  unbound runtime, bad payloads, five non-completed statuses, test-run compile,
-  operator default).
-  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
-  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
-
-- **feat(bots): `agent.bot` node + "Start from" an existing bot.** A saved bot
-  can now be a step in a graph: `agent.bot` (`registry-agents.ts`,
-  `graph_runtime/agent_nodes.py`) resolves the id at run time through
-  `set_bot_resolver` (bound in `bootstrap` to
-  `automation_store().get_automation`, the same `bot`/`monitor`/`mon_` rule the
-  workspace uses) and runs ONE bounded turn with the bot's own agent preset and
-  objective. It never registers a trigger or runs the bot's schedule; a
-  **workflow** bot is refused by name (`use flow.subworkflow`), a deleted bot
-  fails by name, and an optional `context` object is appended as bounded
-  labelled JSON data (never instructions). The bot's per-run model override is
-  ignored — the graph run's resolved settings win. Inspector: a live bot picker
-  (workflow bots shown disabled). B2: the New bot dialog gained a **Start from**
-  picker that copies an existing bot's brain/objective/schedule/face into a NEW
-  bot; the original is untouched and a copied schedule is created `draft`
-  (paused), so two copies never fire at the same minute. Manifest regenerated.
-  Tests: 8 new cases in `python/tests/test_graph_agent_node.py` (own agent,
-  objective fallback, bounded context, workflow refusal, unknown bot, non-bot
-  automation, missing id/store, unbound runtime).
-  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
-  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
-
-- **feat(graph): four structured agent nodes — classify, extract, summarize,
-  critique.** Each is ONE bounded model call with a strict response schema, not
-  an agent turn: `python/harness/graph_runtime/agent_structured.py` holds the
-  prompts + JSON schemas + `normalize_labels`/`validate_extraction`;
-  `agent_structured_nodes.py` holds the four contracts and executors, with the
-  model bound at boot through `set_structured_runner` (so tests substitute a
-  fake and the module imports no runtime). TS contracts in
-  `registry-agents.ts`, presentation in `config-fields.ts`, manifest
-  regenerated. The NODE owns the contract: a label outside the declared set, a
-  verdict outside supported/weak/contradicted, a confidence/score outside 0..1
-  or an empty summary fails the node instead of being coerced; an extraction
-  that does not match the schema (type/required/properties/items) returns
-  `valid: false` and logs the issues rather than pretending. Deliberate
-  deviations from the plan: no `agent`/`maxSteps` config (there is no preset or
-  tool loop to bound — these never bind a tool), `agent.critique.score` is
-  nullable (the model may omit it), and `agent.summarize.text` is `any` so it
-  takes an array/object as well as a string. Tests:
-  `python/tests/test_graph_structured_nodes.py` (20 cases).
-  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
-  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
-
-- **feat(graph): utility + memory nodes — assert, fallback, extract, recall,
-  remember.** Five nodes: three deterministic primitives
-  (`logic.assert`: fails the node with a named message unless truthy/falsy/
-  present; `logic.fallback`: first PRESENT of three inputs + which port;
-  `data.extract`: dotted path with list indexes, `found: false` or a named
-  failure — never an invented value) in `utility_nodes.py`, and two adapters over
-  the ONE Eclipse memory service (`memory.recall` → `retrieve`, returning the
-  same bounded `context` block an agent gets; `memory.remember` → `write_memory`,
-  so dedupe/conflict/retention stay the service's) in `memory_nodes.py`. Runners
-  are bound at boot (`set_memory_recall_runner` / `set_memory_remember_runner`).
-  `memory.remember` declares `memory.write` + `local_write` and refuses a test
-  run (compile-time capability envelope, plus an executor guard). TS contracts in
-  the new `registry-utility.ts` (+ `MEMORY_TYPES`, asserted against the store by
-  test), presentation in `config-fields.ts`, examples for the two new logic nodes,
-  manifest regenerated. Tests: `python/tests/test_graph_utility_nodes.py` (20
-  cases incl. the MEMORY_TYPES drift guard); parity green.
-  Deliberately NOT shipped (recorded in the plan): `agent.team` (team runtime
-  seam), `output.notify` (delivery is automation-definition-scoped),
-  `output.chart` (artifact plane), `research.source_rank` (duplicates
-  conflicts/completeness and would invent a trust taxonomy).
-  Docs updated: `docs/graph-studio.md`, `docs/NAVIGATION.md`,
-  `docs/graph-studio-bot-skill-nodes-plan.md`, `docs/CHANGELOG.md`.
-
-## 2026-10-31
-- **fix(graph): the template output cap is enforced while rendering.** Nested
-  `{{#each}}` blocks multiply rows, and the 50 000-character cap was checked only
-  on the finished string — a 10 000 × 10 000 block could allocate gigabytes
-  before failing (the per-node timeout cannot kill the worker thread). The
-  renderer now spends a shared budget as it appends, so the same input fails in
-  ~10 ms instead of minutes. Regression test: `test_graph_template_formula.py::
-  test_nested_blocks_hit_the_output_cap_while_rendering`.
-  Docs updated: `docs/CHANGELOG.md`.
-- **feat(graph): runnable transform demo (`npm run demo:transform`).** Adds
-  `python/examples/transform_demo.py`, a self-checking walkthrough of the
-  template/formula/tabular nodes against the real runtime: 20 PASS/FAIL checks
-  over row blocks, formula guards, aliases, numeric sorting, composite joins,
-  aggregate statistics, dedupe identity and control-port gating, exiting
-  non-zero on any mismatch. `scripts/demo-transform.js` runs it with the same
-  interpreter the runtime uses; interpreter discovery moved to
-  `scripts/python-runner.js` so the demo and `test-python.js` cannot disagree
-  (also corrected that runner's slice example to `python/tests/...`).
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): table analytics, row-block templates, one identity rule.**
-  (1) `logic.aggregate` gained `median`, sample `stddev` and `percentile`
-  (linear interpolation, new `percentile` 0–100 field) on top of
-  sum/avg/min/max/count; it now coerces numeric strings instead of rejecting
-  them, and orders groups by value rather than `str(tuple(...))`, so a group key
-  of `"10"` no longer sorts before `"9"`. (2) `transform.template` renders
-  `{{#each a}}…{{/each}}` row blocks — row-scoped lookups, `{{this}}`,
-  `{{index}}`, five levels of nesting, 10 000 rows per block — plus `\{{` for a
-  literal brace. (3) `logic.deduplicate` now uses the shared `key_part` identity
-  from `values.py`, so `1`, `1.0` and `"1"` collapse exactly as `transform.join`
-  matches them. All additive: no node version changed, no config removed.
-  Covered by `test_graph_template_formula.py`, `test_graph_tables.py` and
-  `config-fields.test.ts`.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): node-contract guardrails + control coverage.** (1) *Parity now
-  covers bounds*: `registry.manifest.json` carries each config field's
-  `maxLength`/`enum`/`min`/`max`/`integer`, read from the zod schema (no
-  duplicated spec), and `test_graph_registry_parity.py` fails when the editor and
-  the runtime disagree about a valid value — 279 fields already matched, so the
-  new assertion is a ratchet, not a migration. (2) *Undeclared control outputs*
-  are refused by the executor: firing a `_control` name a node does not declare
-  used to route nowhere and look like a successful branch. (3) *Control ports*
-  extended to `logic.aggregate`, `logic.deduplicate`, `logic.map`,
-  `logic.filter`, `logic.reduce`, `data.dataset.save` and `data.dataset.load`
-  (optional `in` + `done`), completing the branchable set. (4) *Controls*:
-  `transform.sort_limit` gained `caseInsensitive`, and `transform.select`'s
-  `rename` is now a key/value row editor over the same JSON-string contract
-  (`jsonString` presentation flag), so no saved graph changes. (5) **ADR-H344**
-  records the additive-versioning rule this relied on. Additive only; no node
-  version changed. Covered by `test_graph_registry_parity.py`,
-  `test_graph_executor.py`, `test_graph_tables.py`, `config-fields.test.ts`.
-  Docs updated: `docs/graph-studio.md`, `docs/harness/decisions.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): transform nodes — correctness pass, richer controls, control
-  ports.** (1) *Bugs*: `transform.formula` rejected trailing whitespace and
-  parsed `-2 ** 2` as `4`; `transform.select` treated `a.b` as a literal column
-  name (dotted paths now resolve, with `alias=path`), and a `rename` collision
-  used to drop a column silently; `transform.sort_limit` sorted numeric strings
-  lexicographically and put nulls first on `desc`; `transform.join` matched `1`
-  and `1.0` differently and silently kept only the first of several right rows
-  per key. (2) *Capabilities*: template dotted paths, number/date formats,
-  `{{a?}}` and a hard error for a null required value; formula `if`/`div`/`nz`/
-  `clamp`/`sign`/`log10`, half-up `round`, and series-payload inputs; multi-key
-  sort with `offset`; join composite keys, right/full/anti, `onDuplicate`,
-  `caseInsensitive`, `suffix` and null-filled outer rows. Shared path/identity
-  rules moved to the new `graph_runtime/values.py`. (3) *Controls*: the panel now
-  exposes sort-key, join-mode, missing-field and duplicate policies with help
-  text instead of bare text boxes. (4) *Control ports*: each transform node
-  gained an optional control `in` and a `done` output, so If/else, Switch and
-  Gate can own them; the single-node tester reports `firedControls` instead of
-  leaking `_control` into outputs. Additive only — unwired control inputs keep
-  running on dataflow. Covered by `test_graph_template_formula.py`,
-  `test_graph_tables.py`, `test_graph_executor.py` and `config-fields.test.ts`.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **style(graph): graphite panel surfaces for the inspector rail and run console.**
-  The node inspector (`aside`) and the expanded run console now use a shared
-  `.graph-panel` material — translucent graphite gradient, 20px blur, inset top
-  highlight — so they read as part of the node surface family instead of a flat
-  `bg-background/40` cut. Light mode gets a soft white version. No behaviour
-  change.
-  no doc change — presentational surface only; behaviour is unchanged.
-- **fix(artifacts): discovery no longer skips artifacts with long paths.** The
-  idempotency key `discover:<path>:<checksum>` is capped at 200 chars by the
-  schema; a deep artifact path overflowed it, raised, and the file was silently
-  left out of the catalog. An over-long key is now hashed.
-  no doc change — internal repair path, contract unchanged.
-- **feat(graph): dataset picker + editable data-node fallbacks.** The four data
-  nodes are now usable without an upstream wire. `data.json.parse` gained a
-  **JSON text** field, `data.dataset.save` a **Payload (JSON)** field, and
-  `data.dataset.load` a **Saved datasets** picker (ref, name, type, rows, bytes)
-  backed by the new read-only `GET /graphs/datasets` route + `/api/graph-runs/
-  datasets` proxy, with a manual ref field kept. Resolution is
-  `wire → node literal → config`. The validator, compiler and executor share the
-  same fallback table so a config-only node compiles and runs; `data.set_variables`
-  keeps its key/value rows. Covered by `test_graph_datasets.py`,
-  `test_graph_input_literals.py` and `validation.test.ts`.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): port literals + richer node controls.** Two linked updates to
-  the Graph Studio node UX. (1) **IR v2**: `WorkflowNode.inputValues` (keyed by
-  port id) lets an unwired data input carry a literal, so a node is usable
-  without a producer. A wire wins; required inputs are satisfied by a wire OR a
-  literal; control ports never take literals. A v1→v2 migration adds an empty
-  map, the validator warns when a wired port's literal is ignored, and the
-  Python runtime mirrors the rule (`model.py`, `compiler.py`, `executor.py`:
-  `wire → literal → optional/null`). The inspector gained an **Inputs** section
-  with type-aware editors and the node **Test** tab prefills from literals.
-  (2) **Structured field kinds**: `textarea`, `keyvalue` (row editor for
-  `data.set_variables`), `code` (JSON validate/format), `combobox` (free text
-  with suggestions) and `slider`, implemented in `config-field.tsx` +
-  `key-value-editor.tsx` and wired through `config-fields.ts`. Constant/input,
-  Save dataset and Write file now have clearer controls and help text.
-  Covered by `validation.test.ts`, `patches.test.ts`, `ir.test.ts` and
-  `python/tests/test_graph_input_literals.py`.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **fix(charts): the allocation donut, trade replay and economics comparison
-  use the palette too.** The portfolio allocation donut had a fixed rainbow,
-  the trade-replay entry line and the economics comparison line were a fixed
-  sky blue — the last charts that ignored Settings › General › Charts.
-  no doc change — palette behaviour is documented in `docs/chart-engine.md`.
-- **fix(charts): strictly greyscale axes and grid.** The series palette was
-  neutral but the axis text, ticks and grid still used the slate blue-grey
-  `#94a3b8` / `rgba(148,163,184,…)`, so a "monochrome" chart still carried a blue
-  tint. Ink, muted text, ticks and grid are neutral greys now, in both the
-  Plotly figure and the matplotlib theme.
-  no doc change — `docs/chart-engine.md` already states the palette is neutral.
-- **fix(chat): the "Proof it works" card only appears when there is a proof.** A
-  run that recorded no check but did produce an artifact or a clean change
-  review still rendered the card — with a "0 check(s)" count that claimed a
-  check that never happened. The card now needs a recorded check, an unsupported
-  claim, a FAILED artifact check, a review finding or a repair, and the count is
-  hidden when there is nothing to count.
-  Docs updated: `docs/interactive-response-engine.md`.
-- **fix(chat): the metadata cards under an answer were noise.** "Proof it works"
-  no longer renders when nothing was checked (a `0 check(s)` card claimed a
-  check that never happened), and a computed result's method line drops debug
-  dumps such as `type <class 'dict'> · keys [...]` instead of printing them.
-  The evidence card's spacing was opened up (roomier header, source rows and
-  section gaps) so "Sources consulted" no longer reads as one cramped block.
-  Docs updated: `docs/interactive-response-engine.md`.
-- **feat(charts): neutral default palette + the user's own colours.** Charts
-  are greyscale by default (`#fafafa` → `#52525b`) because a hue should not
-  invent a meaning the numbers do not carry; candlesticks use a light/dark pair
-  and heatmaps a neutral ramp. The live Plotly figure now applies the palette
-  from Settings › General › Charts in the browser (`charts/apply-palette.ts`),
-  so a colour change repaints instantly (React, not a replot) and the new
-  **Save as PNG** button exports exactly what is on screen. Plotly's own dark
-  modebar pill is gone; the frosted zoom / reset / save toolbar replaces it.
-  Docs updated: `docs/chart-engine.md`.
-- **feat(graph): `Data pipeline` starter template.** Added a sixth starter graph
-  that places all six basic data/write nodes in one workflow — `data.value`
-  (twice: JSON text and output path), `data.json.parse`, `data.set_variables`,
-  `data.dataset.save`, `data.dataset.load`, `file.write` — wired
-  trigger → parse → variables → save → load → write → result. It is the clickable
-  counterpart to `python/tests/test_graph_data_nodes_wiring.py`. Because
-  `file.write` is a write effect, a test run refuses it by design; the template
-  is meant for an operator run that grants the `workspace` scope, and its
-  description says so. Covered by `validation.test.ts`.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **test(graph): wiring proof for the six basic data/write nodes.** Added
-  `python/tests/test_graph_data_nodes_wiring.py`, which places `data.value`
-  (literal + wired override), `data.set_variables` (config wins over input),
-  `data.json.parse` (strict true/false), `data.dataset.save`/`load` (roundtrip,
-  missing ref, owner/TTL), and `file.write` (config vs wired path, append,
-  traversal refusal, denied scopes) each in a minimal workflow, then chains all
-  six in one operator run. This executes the real compiler + executor, not just
-  the executor functions, so a palette-visible node is also proven usable. No
-  doc change — test-only; the node contracts are already documented in
-  `docs/graph-studio.md`.
-- **fix(graph): a run's `runInput` never reached the trigger.** The Python
-  `/graphs/runs` body named the field `input`, while the front door sends
-  `runInput` (the same key the durable job payload uses), so every workflow-bot
-  turn and scheduled workflow run started with a null Start value and replied
-  with an empty result. `RunRequest.input` now accepts the `runInput` alias
-  (`input` still works for direct callers), covered by
-  `python/tests/test_graph_api.py::test_run_input_reaches_the_trigger`.
-  No doc change — `docs/graph-studio.md` already describes the contract.
-- **fix(bots): workflow bots show their workflow, not an agent id.** The bot
-  Overview and Capabilities sections display the linked workflow name (or id)
-  for an `execute_workflow` bot instead of the irrelevant default agent.
-  No doc change — the workflow-bot behaviour is already documented in
-  `docs/graph-studio.md`.
-- **feat(bots): use a saved workflow as the brain of a bot.** The New-bot dialog
-  gained a **Brain** choice (Agent / Workflow) and a saved-workflow picker. A
-  workflow bot answers chat turns by running its graph with
-  `runInput = { message, botId, context }` and replying with the terminal output
-  (string or pretty JSON). Scheduled workflow bots use the automation
-  `execute_workflow` action with `action.config.graphWorkflowId`; because the
-  Python runtime cannot read JDDS, the dispatcher starts the run through the
-  front door (`/api/workflows/{id}/runs`) and polls `/api/graph-runs/{id}` to a
-  terminal state. Both paths stay in the read-only TEST envelope. A workflow that
-  is a bot shows that bot's avatar in the Graph Studio header and a **Workflow**
-  badge in chat.
-- **fix(graph/ui): Ctrl+Tab add-node shortcut and calmer add-node affordances.**
-  The canvas add-node shortcut and its hint are now `Ctrl/Cmd+Tab` (plain Tab
-  did not fire reliably), and the small `+` on a node output is a larger neutral
-  frosted button instead of a tiny accent circle.
-  Docs updated: `docs/graph-studio.md`, `docs/harness/automation-engine.md`,
-  `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
-
-## Rotation policy
-
-This file keeps a rolling window of the **most recent 7 dated sections** (the active window). Older dated sections are **moved** - never deleted - into monthly archive files under `docs/changelog/YYYY-MM.md`. New entries are appended under the current date; the commit-msg hook checks this path. Rotation is by hand only when this file grows unwieldy; the archive link below points at where the older entries went.
-
-> Older entries are archived under `docs/changelog/` (monthly). The most recent 7 dated sections are kept here.
-
-## 2026-10-30
-- **fix(graph): production hardening for schedules + a stable perf guard.** A
-  schedule linked to a `trigger.schedule` node is now paused (with a visible
-  reason) on the next tick if that node no longer exists in the persisted
-  workflow, so deleting a trigger cannot leave an orphaned schedule firing the
-  graph. Added coverage for the deleted-node and still-present-node paths. The
-  observability span-overhead perf test now measures the **median of five warmed
-  batches** instead of one run, so a scheduling hiccup under load cannot fail a
-  guard that still requires < 1 ms per span.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): schedule details directly on the Schedule node.** The
-  `trigger.schedule` card now shows an Active/Paused dot, a human schedule
-  summary (`Weekdays at 09:00 · Asia/Karachi`), the next fire in the schedule's
-  timezone, and the last error when a fire fails; a node with no linked schedule
-  says so. The canvas loads schedules for the open workflow, refreshes after any
-  schedule mutation (a small `eclipse:schedules-changed` event) and once a minute
-  as the tick advances `nextRunAt`. The Schedule tab remains the editor.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **fix(graph): black in-node input wells + double-click for details.** Inline
-  text/number/select/JSON widgets use the original black field fill again
-  (`bg-background/60`) while keeping the compact 28px rows and borders. A single
-  click on a node now only selects it, so clicking into a widget never opens the
-  right inspector; double-click opens the inspector as the shortcuts panel
-  already documented. Widgets stop double-click propagation, so editing a value
-  cannot accidentally open the panel.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **style(graph): compact two-column node controls.** Inline parameters are now
-  Blender-style rows — small label on the left, widget on the right — instead of
-  stacked labels, which had made the cards tall and cramped. JSON parameters use
-  a single-line value box on the card (the inspector keeps the full editor), and
-  node width is 264 px so labels and dropdowns fit. No doc change — visual
-  refinement of the in-node controls.
-- **style(ui): filled Test glyph, lock for the broker, broom for “Tidy up”, and
-  a calmer Add-node control.** The node hover Test button uses Phosphor's filled
-  Play glyph (still a neutral solid-grey button). The sidebar broker launcher now
-  uses the shared Lock icon so it matches the other sidebar icons instead of a
-  brand mark. The graph canvas “Tidy up layout” action (toolbar and context menu)
-  uses the Phosphor Broom icon. The canvas **Add node** affordance is now a
-  frosted control with a neutral plus tile, the label and a `Tab` key hint —
-  no green pill — and the empty-state “Add first step” uses the same treatment.
-  No doc change — visual identity only.
-- **style(graph): neutral solid-grey Test button.** The node hover toolbar's
-  Test play button now uses the solid `muted` surface with a neutral foreground
-  hover instead of green; the result dots keep their semantic colours.
-  No doc change — visual tweak.
-- **feat(graph): Blender/ComfyUI-style controls inside every node + one-click
-  node Test.** Parameters are edited directly on the node: two priority fields
-  always visible, a “+N more parameters” toggle expands the rest in place
-  (Show less collapses). Number fields are drag-to-scrub widgets (Shift fine,
-  Ctrl/Cmd coarse, click to type), selects are dropdowns, booleans are
-  checkboxes, text is an input and JSON is a compact textarea. Every control
-  dispatches the same `update_node_config` patch as the inspector; clicking the
-  node still opens the full advanced inspector. `ConfigFieldDef.quick` chooses
-  the two priority slots (logic.condition now surfaces compareTo,
-  agent.research surfaces agent). The hover toolbar's play button — next to
-  Duplicate — runs the node; the result renders inside the node body with
-  running/succeeded/failed, duration, error and an expandable output preview.
-  Side-effecting nodes show a lock and require an authorized run. Test state is
-  ephemeral and nothing is persisted. Registry-driven, so it covers every node
-  type without per-node UI code.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **fix(graph): schedule triggers now have real time controls and cannot
-  double-fire.** `trigger.schedule` is zero-config; its cron/timezone/enabled
-  state is a `WorkflowSchedule` linked by a new `nodeId` column (Prisma db push),
-  edited in the node inspector's **Schedule** tab: repeat presets, a time picker,
-  weekday chips, IANA timezone select, catch-up policy, version pin, next-three-
-  fires preview, Run now, pause and delete. The 60 s ticker now starts early in
-  the boot pipeline, holds a process-level overlap lock, and **claims each due
-  fire atomically** (compare-and-set on `nextRunAt`) so two ticks/processes
-  cannot start the same run; missed fires keep the skip/coalesce policy and a
-  later tick reconciles `lastStatus` from the run instead of leaving it at
-  `started`. Zone names are validated with a clear error. Schedules still run in
-  the read-only test envelope (the UI says so) and only while the server is up.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): zero-config manual trigger + per-node Test panel.** `trigger.manual`
-  now has no config fields, like n8n: `Start` is the one-off run input (Execution
-  dock or webhook body) or null; stored defaults belong in `data.value` /
-  `data.set_variables`. Legacy `seed`/`payload` keys in already-saved graphs are
-  still honoured at runtime but are no longer declared or shown, and the starter
-  templates were moved onto visible data-node defaults. The inspector gained a
-  **Test** tab that executes a single node through the new
-  `POST /api/graph-runs/node-test` → Python `POST /graphs/nodes/test` surface:
-  explicit per-port inputs, re-validated config, the node's hard timeout, and a
-  safe envelope that refuses network/write/trading/model nodes (403). Tests cover
-  the zero-config trigger, node tests, input validation and the safe envelope.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): n8n-style manual trigger — payload, run input and webhook body.**
-  `trigger.manual` now has a `payload` (any JSON) plus `payloadType`
-  (`auto`/`string`/`number`/`boolean`/`object`/`array`) in addition to the legacy
-  `seed`; the executor resolves Start as run input → payload → seed → null, so
-  existing graphs are unchanged. The runs route and the webhook-style trigger
-  route now accept a bounded (64 KiB) `runInput` (webhook: the request body) and
-  forward it to the Python runtime, which already supported it. The Execution
-  dock gained a **Run input** JSON editor (one run only, never persisted), and the
-  inspector shows Payload/Payload type with help text. Registry parity kept in
-  both languages; `config_fields` gained an `any` kind for JSON values.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **fix(ui): provider logos replace the sparkle in the model picker.** The
-  composer's model selector and the Provider submenu now show the actual
-  provider's brand mark (OpenAI, Anthropic, Gemini, Mistral, DeepSeek, Groq,
-  Ollama, LM Studio, xAI, OpenRouter, Perplexity, Together, Fireworks, OpenCode,
-  or the Eclipse mark) instead of the generic sparkle; unknown/custom providers
-  get a neutral CPU glyph. Marks are vendored under `public/providers/` and
-  rendered as a `currentColor` mask so they work in both themes and never call
-  a CDN. The Manage-models dialog header shows the provider's mark too.
-  No doc change — visual identity only.
-- **feat(voice): dictation — speak prompts into the composer.** The dead mic in
-  both composers is now a real voice-input control: Whisper through an
-  OpenAI-compatible `/audio/transcriptions` endpoint (OpenAI, Groq, or a keyless
-  local whisper.cpp server), with browser SpeechRecognition as the zero-config
-  fallback. Audio is bounded, validated, transcribed once and discarded — never
-  stored or logged — and the transcript is inserted at the caret without
-  replacing typed text. Settings › Voice gained engine/language/vocabulary/max
-  length/provider config plus an honest readiness report. A new Settings › Voice
-  provider readiness route (`/api/voice/config`), transcription front door
-  (`/api/voice/transcribe`), Python `/voice/transcribe` runtime route, and the
-  optional `TRANSCRIBE_API_KEY` vault entry keep the key server-side.
-  Docs updated: `docs/voice.md`, `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.
-- **feat(graph): n8n-style node parameter editing.** A single click now opens the
-  inspector (drag still moves the node). The Parameters tab shows the node
-  description/docs, friendly labels, one-line help, required markers, and an
-  “Advanced: edit config as JSON” editor for any field the form does not expose.
-  The Settings tab gained saved node **Notes** (`update_node_notes`; notes are
-  copied on duplicate/paste and never executed). Added shared help text and
-  required-field metadata in `config-fields.ts`.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **test(graph): verified `trading.broker_order` on a real MT5 demo fill.** A
-  graph `trigger → data.value(intent) → trading.broker_order → result` submitted
-  a 0.01 lot EURUSD buy (SL 1.11000, TP 1.12500) under a one-order demo mandate:
-  ticket `11183814415` filled at 1.11676, then closed/verified at 1.11677
-  (`positions=0`). A first attempt without a stop was correctly refused by the
-  connection's 0.5% risk-per-trade policy, proving the preflight gate. The
-  configured connection is a demo account, so the live two-key path still needs
-  an armed live connection to be exercised.
-  no doc change — verification run; no contract changed.
-
-- **feat(graph): MT5 live execution under a workflow-pinned mandate.** Phase 6
-  adds LIVE broker nodes: `trading.broker_order` (armed live connection + live
-  mandate; a mandate replaces the per-order typed phrase), read nodes
-  `broker_account` / `broker_quote` / `broker_bars`, and risk-reducing
-  `broker_close` / `broker_modify` / `broker_cancel` (no arm/approval/mandate).
-  Live mandates pin `workflowId@version`, are capped at a 24 h TTL and require
-  the connection arm before creation; `RunGrants`/`RunRequest`/the front door
-  carry `allowLiveTrading`, the compiler refuses paper-only nodes in live mode
-  and requires pinned `connectionId`/`mandateId`, and the execution context now
-  carries the workflow id for the mandate check. The editor gained a broker
-  connection/mandate picker and the Settings mandate form supports live + a
-  workflow pin. Tests: live mandate/submit, pinned workflow mismatch, compiler
-  live grant. Docs updated: `docs/trading.md`, `docs/graph-studio.md`,
-  `docs/CHANGELOG.md`.
-- **feat(graph): scoped external file writes.** Added `file.write` (Phase 5):
-  a named operator-configured scope (`HARNESS_GRAPH_WRITE_ROOTS`, default
-  `workspace` → `.black-eclipse/workspace`), relative paths only, `..`/absolute/
-  symlink escapes refused, 8 MB cap, atomic replacement or append. A test run
-  never writes; an operator run is granted only the exact scopes it confirms
-  (`allowedWriteScopes`, carried through the front door to `RunGrants`). The
-  authorization dialog lists the scopes; the editor marks file writes as an
-  effect. Tests: node confinement/caps, compiler envelope, TS authorization.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): bounded loop nodes.** Added `flow.for_each`, `flow.repeat` and
-  `flow.while`: a pinned body workflow run under a hard `maxIterations`/`count`
-  and optional `maxDurationMs` cap. The compiler still refuses graph cycles; a
-  loop is an orchestrated node. Each iteration is a durable child run
-  (`<parent>:<node>:i<N>`) and doubles as its checkpoint — a resumed parent
-  reuses a succeeded iteration. `flow.while` evaluates the safe formula language
-  over `value`/`index`/`iterations`; `flow.for_each` can continue on a failed
-  item and records the error in `results`. The editor treats loop bodies like
-  subworkflows (pinned workflow picker) and the front-door bundle walks them.
-  Tests: compile/execute/cap/reuse and parity.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): resumable agent runs.** Durable graph jobs now persist the
-  front-door callback URL and re-resolve model credentials on resume through the
-  operator-gated `POST /api/graph-runs/{id}/credentials` route — the key is held
-  in worker memory only, never in the job payload. The agent adapter re-enters
-  the same agent-plane run when a durable checkpoint exists
-  (`agent_run_identity`), so a crashed turn continues instead of replaying; a
-  run without a checkpoint restarts under a fresh id (model calls have no world
-  effect). Added credential-resolution and identity tests. Docs updated:
-  `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): dry-run agent nodes in a test run.** Added the `model` side
-  effect (tokens, not a world effect), separate from `network`. Agent nodes are
-  now `model`, so a test/dry run may execute them; the front door resolves model
-  credentials for any graph with `agent.run`, and the runtime narrows the agent's
-  declared allowlist DOWN to `DRY_RUN_TOOLS` (read-only finance, local evidence,
-  response helpers) — web, browser, MCP, plugins, code and broker tools are
-  removed. Operator runs keep the preset's surface. Added `requiresModel` /
-  `modelNodes` to run authorization and the dialog, plus dry-run surface tests.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-- **feat(graph): operator-authored agent presets from Settings.** New Settings ›
-  Agents CRUD for a custom agent preset (prompt, max steps, explicit tool
-  allowlist, MCP/plugin expansion). Presets live on `agent-memory.db` in
-  `AgentPreset` + immutable `AgentPresetVersion`; every edit appends a version
-  and an agent node pins `agent@version`. Tool names are validated against the
-  live registry and a write/external tool requires the explicit “Allow effectful
-  tools” acknowledgement. The Next front door is a thin proxy; the runtime owns
-  resolution. Agent nodes gained `agentVersion` and the inspector gained a
-  built-in/custom picker; the manifest was regenerated.
-  Docs updated: `docs/graph-studio.md`, `docs/harness/decisions.md`
-  (ADR-H342), `docs/CHANGELOG.md`.
-- **fix(docs): rotate-changelog archives the oldest sections, not the newest.**
-  The script read the newest-first file backwards (`marks[length - KEEP]`) and
-  sliced the archive block with a dead identity check, so `--write` moved the
-  newest section out and dropped the older ones. It now keeps the first 7
-  newest sections and archives the contiguous oldest tail; 2026-10-23 moved to
-  `docs/changelog/2026-10.md`.
-  Docs updated: `docs/CHANGELOG.md`, `docs/changelog/2026-10.md`.
-- **fix(graph): record the repro + root cause for failing agent nodes.** A
-  trigger → `agent.research` → result graph run as an operator run returns a
-  complete answer from the agent plane but the node is marked failed with
-  `agent run completed: <output>`; downstream nodes are skipped. Cause: the
-  bootstrap adapter accepts only `succeeded` while the run plane's terminal
-  success status is `completed` (`RunStatus` in `python/harness/schemas.py`).
-  Also found adjacent defects: run history is keyed by `ir.id` while the API
-  lists by the JDDS row id, and subworkflow bundles fail the same identity
-  equality check. Analysis only, no code changed in this pass.
-  no doc change — investigation for a fix plan; `docs/graph-studio.md` will be
-  updated with the fix, not the audit.
-- **fix(graph): make agent nodes and run history work.** Extracted the agent
-  result projection into `agent_nodes.agent_result_payload`, which now accepts
-  the run plane's `completed` terminal status as success (and `failed`/
-  `cancelled` report their own message, not the transcript). Run dispatch now
-  aligns the IR id to the persisted JDDS workflow id (and bundled subworkflow
-  IRs to their pinned row ids), so `/api/workflows/[id]/runs` and nested runs
-  share one identity. `agent.research.query` / `agent.plan.objective` are
-  optional ports backed by a compile-time "wire or config objective" rule, and
-  the canvas "From wire" state maps a config field to its real port. The editor
-  Start action now opens the authorization dialog for graphs with network /
-  trading / write effects instead of firing a test run that must be refused.
-  Added agent adapter, config-only objective and every-node-executable tests;
-  regenerated `registry.manifest.json`.
-  Docs updated: `docs/graph-studio.md`, `docs/CHANGELOG.md`.
-
-## 2026-10-29
-- **feat(voice): read assistant replies aloud with browser-native TTS.** Added a
-  Speak/Stop control to the chat footer, structured-response header and bot
-  messages, plus a Settings › Voice pane (voice, rate, pitch, volume, opt-in
-  auto-speak). Uses the Web Speech API only — no dependency, key, server
-  round-trip or transcript upload; unavailable browsers hide the control and say
-  why. `src/lib/tts/text.ts` projects Markdown/structured replies to prose
-  (drops code/JSON, keeps link labels, reads tables as rows, strips citations)
-  and `speech.ts` chunks utterances and guards cancelled runs. Prefs persist in
-  `be_tts_v1`; auto-speak primes on mount so history never replays.
-  Docs updated: `docs/voice.md` (new), `docs/ARCHITECTURE.md`,
-  `docs/NAVIGATION.md`.
-- **feat(trading): reveal the MT5 terminal after a fill.** A successful
-  `filled`/`placed` order now focuses the running `terminal64.exe` (or starts the
-  connection's `terminalPath`) so the operator sees the position immediately.
-  Windows-only and best-effort; it cannot change the order result, is a no-op on
-  a container/remote bridge, and can be disabled per connection with
-  `openTerminalOnTrade: false`. Docs updated: `docs/trading.md`.
-- **ops(deploy): server-side auto-deploy (`scripts/deploy.sh`).** Production had
-  no update path beyond a manual pull + rebuild, so a pushed commit never reached
-  a running container. The script fetches `origin/main`, exits immediately when
-  the commit is unchanged, pulls `--ff-only`, rebuilds the compose image, and
-  waits for `/login`; a lock prevents overlapping builds and tracked local edits
-  make it refuse. `scripts/install-autodeploy.sh` writes and enables the timer in
-  one command. `.github/workflows/deploy.yml` gives an optional push-to-deploy
-  path (skips unless deploy secrets are set). Documented a 5-minute systemd timer
-  (and cron equivalent).
-  Docs updated: `docs/DEPLOYMENT.md` (new "Automatic updates" section).
-- **feat(trading): live exits are arm-free; live entries are one-click in chat.**
-  A live connection can now close/modify its own positions without an arm (the
-  account mode must still match), so an expired arm cannot trap live risk. A live
-  close-all is scoped to the connection's magic (the kill-switch boundary); explicit
-  tickets can include others. Added a
-  chat `TradeApprovalBanner`: `order_preview` leaves a single-use approval, the
-  banner shows the exact order, and the operator types the LIVE phrase and clicks
-  Confirm & send. The server list view now carries `connectionId`/`intent` so the
-  card submits without re-entry. Settings › Broker connection gained an edit/switch
-  mode control. Live mandates and Graph Studio live nodes remain out of scope.
-  Docs updated: `docs/trading.md`, `docs/DECISIONS.md`, `skills/ARCHITECT.md`
-  (ADR-056), `docs/harness/tool-registry.json`.
-- **fix(ui): frosted-glass dropdowns in the broker + quick-trade surfaces.** Replaced
-  the native `<select>` mode/side/type pickers in Settings › Broker connection, the
-  sidebar broker dialog, and the Quick Trade widget with the shared Base UI
-  `Select` (`glass-tooltip`). Native OS popups cannot be blurred; the portalled
-  select can. No contract change.
-  no doc change — visual-only component swap.
-- **feat(trading): read-only broker connectivity, attach-first MetaTrader 5.**
-  New `python/harness/trade/` package: a `BrokerAdapter` read contract, a kind
-  registry with honest dependency availability, a durable
-  `BrokerConnection`/`BrokerConnectionEvent` store on `agent-memory.db`, one
-  `BrokerService`, and read-only `broker_*` agent tools. The first adapter attaches
-  to a running, logged-in MT5 `terminal64.exe` over local IPC and reads account,
-  positions, working orders and quotes with named failure codes
-  (`PACKAGE_MISSING`, `TERMINAL_NOT_FOUND`, `NOT_LOGGED_IN`, `NO_IPC`, …). Config
-  validation refuses password/token-shaped keys at write time; no credential is
-  stored and the preferred path needs none. `/trading/*` routes are
-  operator-gated; `POST /trading/orders` is an honest 501 and there is no order
-  tool. Front door: `src/app/api/trading/[[...path]]/route.ts` + allowlist +
-  client. Tests: `python/tests/test_broker_layer.py`,
-  `src/lib/harness/trading-routes.test.ts`.
-  Docs updated: `docs/trading.md` (new), `docs/ARCHITECTURE.md` (portfolio layer),
-  `docs/NAVIGATION.md`, `docs/harness/decisions.md` (ADR-H331).
-- **feat(trading): demo order execution via preview → approval → submit.** P1
-  adds `TradePolicy` (margin/volume/spread/open-position/allowlist), a
-  `trade/authorizer.py` seam that evaluates the order as a `MoneyIntent` through
-  the finance guardrails, creates a single-use `trade_order` approval bound to the
-  exact `OrderIntent` digest, and consumes it atomically before `order_send`.
-  Demo is enforced twice (connection record + `account_info().trade_mode`); live is
-  refused with `LIVE_NOT_ENABLED`. MT5 gains `order_preview` (`order_check`),
-  `submit_order` and `cancel_order` with retcode mapping, volume/stop/filling
-  validation and a `BrokerOrder` ledger; an ambiguous send is `unknown` and never
-  retried. Routes: connection-scoped `orders/preview`, `orders/submit`,
-  `orders/{ticket}/cancel`, `orders/ledger`, plus trade approvals; the agent gets
-  `order_preview`/`order_ledger` only, never submit. Tests:
-  `python/tests/test_broker_orders.py`, `test_mt5_adapter.py`,
-  `src/lib/harness/trading-routes.test.ts`.
-  Docs updated: `docs/trading.md`, `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`,
-  `docs/harness/decisions.md` (ADR-H332).
-- **feat(trading): armed live execution and a magic-scoped kill switch.** P2 adds a
-  time-boxed per-connection arm (typed `ARM LIVE <login>`, 60 s–8 h) that requires a
-  real account, Algo Trading, a non-zero `magic`, and a positive `maxMargin`.
-  Every live order still runs through `trade/policy.py`, the money guardrails, and
-  the single-use `trade_order` approval, plus a mandatory per-order
-  `LIVE <SIDE> <volume> <symbol>` phrase. The arm is cleared by mode/config changes,
-  a failed probe, expiry, or the kill switch. `POST .../kill` cancels only working
-  orders carrying the connection's magic and disarms; it never closes positions.
-  `BrokerConnection` gains `armedUntil`/`armedAt`/`armedBy`; `TradingAdapter` gains
-  `cancel_all(magic)`; MT5 gains a magic-filtered cancel-all. Routes: arm/disarm/
-  kill. Tests: `test_broker_orders.py` (live arm, phrase, expiry, kill).
-  Docs updated: `docs/trading.md`, `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`,
-  `docs/harness/decisions.md` (ADR-H333).
-- **feat(graph): demo broker orders under bounded mandates.** P3 adds a
-  `TradingMandate` (demo-only; allowed symbols, per-order `maxMargin`, `maxOrders`,
-  60 s–7 d expiry; typed `MANDATE DEMO <label>`; atomic usage; immediate revoke) and
-  Graph Studio's `trading.broker_order` node. The node is paper-mode only and calls
-  the SAME `BrokerService.submit_order` path, so policy, money guardrails, the
-  demo/real account check and the no-retry rule still apply; the ledger records
-  `mandateId`. Live trading nodes stay refused by the compiler and front door, and
-  `create_mandate` refuses a live connection. Routes: mandate create/list/revoke.
-  Tests: `test_broker_orders.py` (mandate lifecycle + node),
-  `src/lib/graph-studio/run-authorization.test.ts`; `registry.manifest.json`
-  regenerated (`npm run graph:manifest`).
-  Docs updated: `docs/trading.md`, `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`,
-  `docs/graph-studio.md`, `docs/harness/decisions.md` (ADR-H334).
-- **feat(trading): durable fills/positions/order-state reconciliation.** P4 adds
-  `trade/reconcile.py`: `BrokerFill` (deduped by connection + deal ticket),
-  `BrokerPositionSnapshot` (atomic replace) and `BrokerSyncState` on
-  `agent-memory.db`. A sync reads broker positions/working orders/deal history,
-  updates in-flight ledger orders only from definitive history states, and records
-  `error`/`unavailable` on failure without deleting the last good data. The
-  background `ReconcilerLoop` is opt-in (`TRADING_RECONCILE_SECONDS`, default 0);
-  manual `POST .../sync` always works. MT5 gains `deals_since`/`order_status`;
-  routes for sync/reconciliation/fills; read-only `broker_reconciliation`/
-  `broker_fills` tools. Tests: `python/tests/test_broker_reconcile.py`.
-  Docs updated: `docs/trading.md`, `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`,
-  `docs/harness/decisions.md` (ADR-H335), `.env.example`.
-- **chore(trading): pin the MetaTrader 5 bridge for Windows x64.** `MetaTrader5`
-  is now in `python/requirements.txt` with a `win32` + `AMD64` marker, so the
-  runtime install keeps the bridge while Linux/macOS installs are unchanged. The
-  terminal remains a separate operator install. Verified an attach to a local demo
-  terminal (account/positions/quote reads + a reconciliation sync).
-  Docs updated: `docs/trading.md`.
-- **feat(settings): Trading › brokers panel.** Adds a Settings surface for
-  connecting a MetaTrader 5 terminal, probing it, showing the account (login,
-  balance/equity, margin, leverage, demo/real), sync/test/remove, and live
-  arm/disarm/kill controls. It never places an order; orders stay on the existing
-  operator routes, Graph Studio and the API. Wired into `settings.tsx` as the
-  `trading` section.
-  Docs updated: `docs/trading.md`, `docs/NAVIGATION.md`.
-- **feat(dashboard): live MT5 trading widgets.** The five `trading` widgets are no
-  longer `UNAVAILABLE` stubs. Quick Trade (preview → approve → submit, with the
-  guardrail phrase), Open Positions, Working Orders (cancel), Margin Usage and
-  Today P&L read the first saved broker connection and poll every 15 s. A missing
-  connection renders a Settings → Broker connection setup note; every empty/error state is
-  explicit and no number is fabricated. New `src/lib/dashboard/trading-widgets.tsx`,
-  registered in `registry.tsx`.
-  Docs updated: `docs/trading.md`, `docs/ARCHITECTURE.md`, `docs/NAVIGATION.md`.
-- **feat(shell): broker connection button next to Gateway/Graph.** Moves the
-  MT5 entry point into the sidebar's quick-launcher row (handshake icon, with a
-  status dot and an **MT5** badge in the popup) and keeps it in the collapsed
-  footer. The popup now uses the same
-  `rounded-2xl border border-white/10 glass-card-strong` recipe as the
-  Gateway/Graph dialogs, and reads the connection's stored account snapshot
-  immediately instead of blocking on a live read. No orders are placed from the
-  dialog. New `src/components/layout/sidebar-broker-dialog.tsx`; wired in
-  `sidebar.tsx`; `Handshake` added to the central icon set.
-  Docs updated: `docs/trading.md`.
-- **style(shell): widen the broker connection popup.** `sm:max-w-md` → `sm:max-w-lg`
-  (448 → 512 px) so the two-column connection form and account figures have room.
-  no doc change — presentation-only, no contract or setup change.
-- **style(settings): use the handshake for the Broker connection section.** The Settings rail
-  entry and the Broker connection panel header now use the same `Handshake` icon as the
-  sidebar broker button, instead of the MCP-looking plug.
-  no doc change — presentation-only.
-- **fix(trading): preview refusals are outcomes; MT5 sessions are serialized.** A
-  blocked preview now returns `allowed:false` + `error.code`
-  (`ALGO_TRADING_DISABLED`, `DEMO_ACCOUNT_REQUIRED`, `LIVE_NOT_ARMED`, …) instead of
-  raising, and the front door preserves the runtime status instead of mapping 403
-  to 502. The `order_preview` tool text names the code; `broker_account` includes
-  margin mode/flags; `broker_quote` includes digits, point, volume step/min/max and
-  stops level; `broker_positions` includes SL/TP. MT5 `initialize`/`shutdown` is
-  guarded by a process-wide lock so concurrent agent tool calls cannot collide.
-  Tests: `test_broker_orders.py` updated.
-  Docs updated: `docs/trading.md`.
-- **fix(reconciliation): server-time-safe deal window.** `history_deals_get`
-  expects server time; the local clock was 2h behind the demo server, so the newest
-  deal was outside the query window and a real fill produced `fillsAdded: 0`. Sync
-  now queries 7 days back with a 2-day future margin and relies on deal-ticket
-  dedupe; the cursor is advisory. Verified with a real demo fill (0.01 EURUSD,
-  ticket 11164486049): `fillsAdded: 1`, position and ledger reconciled.
-  Docs updated: `docs/trading.md`.
-- **feat(trading): `order_submit` may omit the mandate id when exactly one is active.**
-  The agent resolves the sole active demo mandate; with several active mandates it
-  must name one from `broker_mandates` (or the handler returns the available ids).
-  Docs updated: `docs/trading.md`.
-- **feat(trading): agent-driven demo execution under a mandate.** Adds
-  `order_submit` (the one effectful agent broker tool) and `broker_mandates`, plus
-  a Settings panel to create/revoke bounded demo mandates. `order_submit` is
-  admitted by an active mandate, not the generic approval card, and still runs the
-  SAME service path (demo account check, policy, money guardrails, symbol/margin
-  cap, order count). Live remains unreachable. Prompt guidance: keep analysis
-  brief, call `order_submit` directly. Verified end-to-end: Eclipse analyzed
-  EURUSD and filled **ticket 11164809214** (BUY 0.01, SL 1.11125, TP 1.12260)
-  under mandate `mnd_c82ba003d785`; two earlier demo tickets were also filled.
-  Tests: `test_broker_agent_trade.py`, updated broker tool test.
-  Docs updated: `docs/trading.md`, `docs/NAVIGATION.md`,
-  `docs/harness/decisions.md` (ADR-H336).
-- **fix(trading): subscribe an unlisted symbol on demand.** `XAUUSD` existed on
-  the demo but returned an all-zero tick until it was in Market Watch; the adapter
-  now calls `symbol_select` and retries the tick for up to ~2 s (a local
-  subscription, not an order). Verified live: XAUUSD bid 4010.87 / ask 4011.16,
-  spread 29 points, 0.01–100 lots. Docs updated: `docs/trading.md`.
-- **fix(trading): a plain "analyze gold and place a trade" prompt now executes.** Three
-  fixes for a user who never types a mandate id: (1) `order_submit` and its
-  authorizer resolve the one active mandate whose symbols cover the intent symbol
-  (the sole active mandate when it is the only one) and the only saved connection,
-  returning `MANDATE_REQUIRED` with the active ids only on real ambiguity;
-  (2) `graph.py` adds a per-run `# Trading request` block when the turn asks to
-  place/buy/sell an order — skip web/news/scrape, read the quote (plus at most one
-  bar source), call `order_submit` once, never ask for ids — while a refusal or a
-  question keeps the block out; (3) the mandate cap now sees the order's own margin
-  (`order_check().margin − account.margin`, floored at zero) instead of the
-  account total after the trade, which had refused a valid 0.01 XAUUSD lot at
-  113.74 vs a 100 cap when it only needed 40.00. Verified live with the bare prompt
-  “Analyze XAUUSD and place a small demo trade with a stop loss and take profit”:
-  4 model steps, one `order_submit`, ticket **11165187813** (XAUUSD BUY 0.01 @
-  4014.13, SL 3988.99, TP 4063.99) under mandate `mnd_c405bf889119`. Tests:
-  `test_trading_intent.py` (new), `test_broker_agent_trade.py`,
-  `test_mt5_adapter.py`. Docs updated: `docs/trading.md`.
-- **feat(trading): close a demo position (or every one) so a user can step out.**
-  Adds `TradingAdapter.close_position` (MT5 sends the exact opposite market deal,
-  position ticket as `position`, position magic, once, ambiguity reported not
-  retried), `BrokerService.close_position` / `close_positions`, routes
-  `POST .../positions/{ticket}/close` and `POST .../positions/close`, the agent tool
-  `position_close` (`ticket`, `tickets` or `all: true`), and Close / Close-all in the
-  Open Positions dashboard widget (both confirm first). Closing is risk-reducing, so
-  it needs no mandate and no approval and does not consume a mandate order; the
-  service refuses a live connection (`LIVE_NOT_ENABLED`) and a real account
-  (`DEMO_ACCOUNT_REQUIRED`). The per-run trading directive now has a
-  `# Close request` variant (`python/harness/trading_intent.py`, extracted from
-  `graph.py`) so “close my trade” never turns into research or a hedge. Tests:
-  `test_broker_orders.py` (close one/all/targeted/live-refused),
-  `test_broker_agent_trade.py` (no mandate, target required),
-  `test_trading_intent.py`, `trading-routes.test.ts`. Regenerated
-  `docs/harness/tool-registry.json` (981 tools) and the graph manifest; re-pinned
-  the `graph.py`/`service.py` and prompt-size ceilings to their measured values.
-  Docs updated: `docs/trading.md`, `docs/harness/decisions.md` (ADR-H337).
-- **fix(trading): a stale/missing connection id no longer hides a valid mandate.**
-  A remembered `connectionId` from another profile or database made the mandate
-  list for that id empty, so `order_submit` answered "no active mandate" on an
-  account that had one. Both the handler and the authorizer now drop an id that is
-  not a saved connection and resolve the single existing one (they still refuse
-  when several exist). Verified with the bare prompt “Analyze gold and place a
-  small demo trade with a stop loss and take profit”: one `order_submit`, ticket
-  **11165863645** (XAUUSD BUY 0.01 @ 4031.99, SL 4007.30, TP 4057.30). Tests:
-  `test_broker_agent_trade.py` (stale id resolves; unknown id with two connections
-  still refuses). Docs updated: `docs/trading.md`.
-- **feat(trading): broker-native bars and ATR for uncovered symbols.** Adds
-  `broker_bars` (and the `TradingAdapter.bars` / `BrokerService.bars` seam): MT5
-  `copy_rates_from_pos` on `M1…W1`, clamped to 500 bars, server time, with the
-  symbol's contract/tick size; a pure `trade/analysis.py` computes TR/ATR(14) and
-  the 20-bar range. This replaces the proxy-ETF workaround for XAUUSD, whose
-  history route returns `UNAVAILABLE`. Quote now also exposes `contractSize` and
-  `tickSize`, so "$ at risk" is exact. The per-run directive and the system prompt
-  prefer `broker_bars` for a broker symbol. Fixed the advisory gate's table-row
-  false positive (`| Take profit | … |` became a "sell" claim) and its indicator
-  acronyms (`ATR`, `SL`, `TP`, …). Verified live: XAUUSD H1 120 bars, contract
-  100, ATR(14) 14.82; the bare prompt filled ticket **11166047327** (BUY 0.01 @
-  4025.10, SL 4003.50 ≈ 1.46 ATR, TP 4055.00 ≈ 2.02 ATR) under mandate
-  `mnd_dc9477f30067`. Tests: `test_analysis.py` (new), `test_mt5_adapter.py`,
-  `test_advisory_gate.py`. Regenerated the graph manifest and tool registry (982
-  tools); re-pinned the prompt ceiling to its measured size.
-  Docs updated: `docs/trading.md`.
-- **feat(trading): partial close, SL/TP modify, and read-back verification.** Adds
-  `position_modify` (`TRADE_ACTION_SLTP`, 0 removes a level), a `volume` on
-  `position_close` for partial exits, close-by-`symbol`, and a `verified` flag on
-  every close/modify/market fill: the broker's stored position is read back and a
-  mismatch is reported (`verifyNote`), never assumed. The lifecycle moved to a new
-  `trade/positions.py` (the broker service was at its size ceiling) and keeps the
-  identical demo-only rule: no live connection (`LIVE_NOT_ENABLED`), no real account
-  (`DEMO_ACCOUNT_REQUIRED`), no mandate or approval for an exit. Adds routes
-  `.../positions/{ticket}/modify` and `volume` on close, the client calls, the
-  authorizer admission, and per-run `# Modify request` / partial-close guidance; the
-  positions text now includes the ticket. Verified live on ticket 11166047327: TP
-  moved to 4060.00, SL to 4010.00, both read back as stored. Tests:
-  `test_broker_orders.py` (partial, modify, live refusal, invalid stops),
-  `test_broker_agent_trade.py`, `test_trading_intent.py`, `trading-routes.test.ts`.
-  Ratcheted `trade/adapters/mt5.py` (bars + lifecycle in one wire bridge; split
-  candidate), regenerated registry (983 tools) and manifest, re-pinned the prompt
-  ceiling. Docs updated: `docs/trading.md`, `docs/harness/decisions.md` (ADR-H339).
-- **feat(trading): risk engine on the connection (per-trade risk, notional, 24 h
-  brake).** Adds `riskPerTradePct`, `maxDailyLossPct` and `maxSymbolNotional` to
-  the connection config (0 = off). Per-trade risk is `|entry − stop| × volume ×
-  contractSize` against a percentage of equity; with the cap set, an order without
-  a stop is refused. The daily brake sums the broker's realised deals over 24 h
-  and open P&L, blocks new entries and never blocks a close. A per-order symbol
-  notional cap and the existing spread/open-position caps round it out. Settings →
-  Broker connection gains a **Risk limits** editor. Verified live: at 0.02% a 0.01
-  XAUUSD order with a 100-point stop was refused (121.76 risk vs a 20.00 cap); at
-  0.5% with a 120-point spread cap the shape previews as allowed. Tests:
-  `test_trade_policy.py` (new), `test_broker_orders.py`. Docs updated:
-  `docs/trading.md`, `docs/harness/decisions.md` (ADR-H340).
-- **test(trading): a scripted MT5 terminal and wire-level chaos tests.** New
-  `python/tests/mt5_sim.py` implements the adapter's slice of the MetaTrader API
-  (account/symbols/ticks/positions/orders/`order_check`/`order_send`/deals/bars)
-  with knobs for a lost send reply, a disconnected terminal, a dropped bracket, a
-  partial fill and a modify the broker accepts but does not store. New
-  `test_mt5_simulated.py` proves: a fill is verified against the stored bracket; a
-  dropped stop is `verified:false` with a `verifyNote`; a lost reply raises and is
-  **not retried**; a disconnect is a named error; a partial close reports the
-  remaining volume; an ignored modify is unverified; bars normalize; deals read.
-  This closes the gap between request-builder unit tests and a live terminal.
-  no doc change — test-only (no contract or setup change).
-- **feat(chat): a trade turn binds the trade surface, not ~700 tools.** A run whose
-  prompt is a trade/close/modify request now narrows policy's allowlist to
-  `TRADE_SURFACE_TOOLS` (~18 broker/trade + response helpers). It runs after
-  surface resolution and can only remove; a run without an effect tool is
-  untouched. Measured live on a refused gold order: `allowedTools` 721 → **18**,
-  prompt tokens **47k** for 3 steps instead of ~228k, with exactly
-  `broker_quote` → `broker_bars` → `order_submit`. Tests:
-  `test_trading_intent.py`. Docs updated: `docs/trading.md`.
-- **feat(dashboard): modify/partial close and a Recent Trades card.** The Open
-  Positions widget now shows each ticket, an **SL/TP** action (prompts for the new
-  levels, calls `positions/{ticket}/modify`) and a **Close** action that accepts a
-  partial volume; an inline notice reports the verified result. A new
-  **Recent Trades** widget reads the ledger (`orders/ledger`) and lists the last
-  eight orders with ticket, fill and status. TypeScript clean; dashboard
-  registry/size tests pass. Docs updated: `docs/trading.md`.
-- **feat(trading): the sidebar broker popup becomes a full control center.** The
-  handshake popup now has a connection switcher and five tabs. **Overview** shows
-  every live `BrokerAccount` field (used/free margin, margin level, floating P/L,
-  leverage, margin mode, trade/algo flags), bridge health, connection timestamps
-  and a bid/ask quote lookup. **Positions** closes one or all positions;
-  **Orders** cancels a working ticket; **Activity** lists broker deals with an
-  `eclipse`/`manual` owner badge plus the Eclipse order ledger. **Settings**
-  edits label/mode/terminal path/magic/max-margin, carries the typed **arm**,
-  **disarm** and **kill switch** controls for live connections, and adds/removes
-  connections. All calls reuse `src/lib/harness/trading-client.ts`; no new
-  routes. Presentational panels split into
-  `src/components/layout/sidebar-broker-panels.tsx`. The popup still cannot place
-  an entry order, and mandates/approvals stay in Settings. Tests: `npm run test`
-  (425 files / 4094) + `npx tsc --noEmit` + broker Python tests (56) pass.
-  Docs updated: `docs/trading.md`.
-- **perf(settings): the Settings modal opens instantly.** Three changes remove the
-  cold-open wait. (1) The shell no longer blocks on a full skeleton: it paints the
-  real nav + section immediately with the last-known snapshot and shows a slim
-  "Loading settings…" line while `/api/settings` revalidates. (2) A new
-  dependency-free `src/lib/settings-cache.ts` persists the non-secret payload
-  (`hasApiKey` only, never a key) to localStorage, so even a fresh page load has
-  values before the request starts; `src/hooks/use-settings-prefetch.ts` fetches
-  them 2.5 s after first paint and warms the lazy Settings chunk on gear
-  hover/focus or after 12 s (skipped on metered connections). (3) `/api/markets`
-  now starts only after the settings read, so JDDS/Prisma work cannot queue
-  ahead of the critical path; the Market tab shows "Loading markets…" instead of
-  a false empty state. `stock-chat.tsx` stayed at its pinned size budget.
-  Docs: no doc change — internal performance/UX only (contracts unchanged).

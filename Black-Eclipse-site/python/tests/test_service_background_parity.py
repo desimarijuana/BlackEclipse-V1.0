@@ -130,6 +130,8 @@ def test_the_one_kwargs_builder_carries_every_subsystem_bundle() -> None:
             "ledger",
             # The Fiduciary Gate / Advisory Ledger bundle (ADR-H196).
             "advisory",
+            # Typed decisions (ADR-070): the ONE provider registry + audit store.
+            "decision",
             # The durable task manager, for activation-time checkpoint resume.
             "task_manager",
             # The project store (the workspace's own projects).

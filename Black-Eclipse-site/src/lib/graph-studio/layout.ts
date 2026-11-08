@@ -8,15 +8,25 @@
 import type { NodePosition, WorkflowIR } from './types';
 
 export interface LayoutOptions {
+  /** Horizontal gap between the right edge of one column and the next. */
   xGap?: number;
+  /** Vertical gap between stacked nodes. */
   yGap?: number;
   originX?: number;
   originY?: number;
+  /** Measured node heights (React Flow `measured.height`), keyed by node id.
+   *  The canvas passes these so a tall node never overlaps the next row. */
+  heights?: Record<string, number>;
 }
 
+/** The rendered node width (`w-[280px]` in eclipse-node.tsx). */
+const NODE_WIDTH = 280;
+/** Fallback height for a collapsed node when no measurement is available. */
+const DEFAULT_NODE_HEIGHT = 240;
+
 export function autoLayout(ir: WorkflowIR, options: LayoutOptions = {}): Record<string, NodePosition> {
-  const xGap = options.xGap ?? 300;
-  const yGap = options.yGap ?? 140;
+  const xGap = options.xGap ?? 96;
+  const yGap = options.yGap ?? 48;
   const originX = options.originX ?? 80;
   const originY = options.originY ?? 80;
 
@@ -65,9 +75,14 @@ export function autoLayout(ir: WorkflowIR, options: LayoutOptions = {}): Record<
   const positions: Record<string, NodePosition> = {};
   for (const [l, ids] of [...layers.entries()].sort((a, b) => a[0] - b[0])) {
     ids.sort();
-    ids.forEach((id, index) => {
-      positions[id] = { x: originX + l * xGap, y: originY + index * yGap };
-    });
+    let y = originY;
+    for (const id of ids) {
+      positions[id] = { x: originX + l * (NODE_WIDTH + xGap), y };
+      // Stack by the node's real height (plus the row gap) so a card with
+      // inline fields cannot overlap the one below it.
+      const height = options.heights?.[id];
+      y += Math.max(height ?? DEFAULT_NODE_HEIGHT, 120) + yGap;
+    }
   }
   return positions;
 }

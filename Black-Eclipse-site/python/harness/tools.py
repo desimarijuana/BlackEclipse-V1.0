@@ -355,6 +355,10 @@ class ToolContext:
     # The Advisory Ledger service. Set by the graph; `advisory_*` tools reach the
     # ONE ledger through it. None = the ledger tools report unavailable.
     advisory_service: Any = None
+    # The typed-decision service (System One-shaped judgments). Set by the graph;
+    # `decision_*` tools reach the ONE provider registry + audit store through it.
+    # None = the decision tools report unavailable (never a guessed answer).
+    decision_service: Any = None
     # The Portfolio Accounting Engine service (ledger + valuation). Set by the
     # graph from the service; None = the `portfolio_*` tools report unavailable.
     portfolio_service: Any = None

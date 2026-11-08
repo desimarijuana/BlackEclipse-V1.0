@@ -288,7 +288,23 @@ function Block({
     case 'hr':
       return <hr className="border-white/10 dark:border-white/5" />;
 
-    case 'table':
+    case 'table': {
+      // ONE alignment per column, shared by the header and every body cell.
+      // Aligning numeric cells individually made a mixed column flip between
+      // left and right and left the header on the opposite side — the
+      // "misaligned table" bug.
+      const columnAlign = block.align.map((explicit, ci) => {
+        if (explicit) return explicit;
+        let numeric = 0;
+        let populated = 0;
+        for (const row of block.rows) {
+          const text = inlineText(row[ci] ?? []);
+          if (!text.trim()) continue;
+          populated += 1;
+          if (isNumericText(text)) numeric += 1;
+        }
+        return populated > 0 && numeric / populated >= 0.8 ? 'right' : 'left';
+      });
       return (
         <div className="group/table my-1 w-full">
           <div className="w-full overflow-x-auto scrollbar-hide">
@@ -302,7 +318,7 @@ function Block({
                     <th
                       key={ci}
                       className="border-b border-white/15 bg-black/[0.03] px-3 pb-2 pt-3 text-[1.05em] font-semibold tracking-tight text-foreground dark:border-white/15 dark:bg-white/[0.04]"
-                      style={{ textAlign: block.align[ci] ?? undefined }}
+                      style={{ textAlign: columnAlign[ci] }}
                     >
                       {renderInline(cell)}
                     </th>
@@ -314,9 +330,7 @@ function Block({
                   <tr key={ri} className="border-b border-white/[0.06] last:border-0">
                     {row.map((cell, ci) => {
                       const text = inlineText(cell);
-                      // Right-align a column that is genuinely numeric, unless
-                      // the author set an explicit alignment.
-                      const numeric = block.align[ci] == null && isNumericText(text);
+                      const numeric = isNumericText(text);
                       const negative = numeric && isNegativeValue(text);
                       return (
                         <td
@@ -326,7 +340,7 @@ function Block({
                             negative ? 'text-rose-400/90' : 'text-foreground/80',
                             numeric && 'tabular-nums',
                           )}
-                          style={{ textAlign: block.align[ci] ?? (numeric ? 'right' : undefined) }}
+                          style={{ textAlign: columnAlign[ci] }}
                         >
                           {renderInline(cell)}
                         </td>
@@ -342,6 +356,7 @@ function Block({
           </div>
         </div>
       );
+    }
 
     case 'list': {
       const List = block.ordered ? 'ol' : 'ul';

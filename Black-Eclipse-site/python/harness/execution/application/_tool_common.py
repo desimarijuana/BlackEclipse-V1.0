@@ -71,7 +71,14 @@ _NO_WORKSPACE = ("WORKSPACE_UNBOUND", "there's no project open to run")
 
 
 def refusal(code: str, reason: str, **extra: Any) -> tuple[str, Any]:
-    return (f"REFUSED ({code}): {reason}", {"status": "refused", "code": code, "reason": reason, **extra})
+    text = f"REFUSED ({code}): {reason}"
+    # A failed script's OUTPUT is the diagnostic. Dropping it forced the agent to
+    # re-run the same command through `terminal_run` just to see why it failed
+    # (measured 2026-11-06: `package_test` refused with exit 1 and no output).
+    output = extra.get("output")
+    if isinstance(output, str) and output.strip():
+        text += "\n--- output (data) ---\n" + output.strip()[:4000]
+    return (text, {"status": "refused", "code": code, "reason": reason, **extra})
 
 
 def manager() -> Any:

@@ -16,8 +16,6 @@ import { AlertCircle, Check, ChevronRight, Loader2 } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import type { ActivityItem, ResponseStatus } from '@/lib/agent/response-model';
 import { ActivityItemRow } from './activity-item';
-import type { ChatCapability } from '@/lib/harness/chat-capability-view';
-import { ChatCapabilityPanel } from './chat-capability-panel';
 
 export interface ActivityFeedProps {
   activities: ActivityItem[];
@@ -30,11 +28,6 @@ export interface ActivityFeedProps {
    * ends. `false` keeps it collapsed unless the user opens it.
    */
   autoExpand?: boolean;
-  /**
-   * Phase 14: the turn's code capability, rendered beneath the FIRST activity
-   * row so a coding turn shows what Eclipse did exactly once.
-   */
-  capability?: ChatCapability;
 }
 
 /** Distinct sources/providers consulted, for the collapsed summary. */
@@ -43,7 +36,7 @@ function sourceCount(items: ActivityItem[]): number {
   return set.size;
 }
 
-export function ActivityFeed({ activities, status, compact = false, autoExpand = true, capability }: ActivityFeedProps) {
+export function ActivityFeed({ activities, status, compact = false, autoExpand = true }: ActivityFeedProps) {
   const [open, setOpen] = useState(true);
   const userToggled = useRef(false);
   const feedId = useId();
@@ -67,20 +60,9 @@ export function ActivityFeed({ activities, status, compact = false, autoExpand =
     if (working && activities.length > 0) setOpen(true);
   }, [working, activities.length, autoExpand]);
 
-  // Phase 14: a coding turn with no tool activity still shows its capability
-  // (what Eclipse set out to do), so the line is never silently lost.
-  if (activities.length === 0) {
-    if (!capability?.autonomy && !capability?.verification) return null;
-    return (
-      <div className={cn('w-full', compact ? 'mb-2' : 'mb-3')}>
-        <ChatCapabilityPanel
-          autonomy={capability?.autonomy}
-          verification={capability?.verification}
-          compact={compact}
-        />
-      </div>
-    );
-  }
+  // No tool activity means there is nothing to show; the capability card that
+  // used to fill this branch was removed from the transcript as noise.
+  if (activities.length === 0) return null;
 
   const toggle = () => {
     userToggled.current = true;
@@ -128,13 +110,12 @@ export function ActivityFeed({ activities, status, compact = false, autoExpand =
           id={feedId}
           className={cn(compact ? 'space-y-0.5' : 'space-y-1')}
         >
-          {activities.map((item, index) => (
+          {activities.map((item) => (
             <ActivityItemRow
               key={item.id}
               item={item}
               compact={compact}
               latest={working && latest?.id === item.id}
-              capability={index === 0 ? capability : undefined}
             />
           ))}
         </div>
