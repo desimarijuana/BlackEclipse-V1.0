@@ -279,7 +279,7 @@ below. Do not mark a phase done because the code side is finished.
 |---|---|---|---|
 | 2026-11-08 | Baseline | measured | gates above; live gate FAIL; tree dirty; eslint 3 errors |
 | 2026-11-08 | P0 | **done** | eslint 0 errors; `tsc --noEmit` pass; decisions+legal `cc5519ea`, roadmap `9785b485`, merged into `main` as `b48d3ba5`; `main` clean; `npm run check:all` → ALL GATES PASSED. Not pushed. |
-| | P1 | not started | |
+| 2026-11-08 | P1 | **in progress** | C3 clean build PASS (fresh `.next`, 255 s); C5 fail-closed verified and the `HARNESS_AUTH=required` preflight bug fixed (8 tests). Remaining: C4 container (no Docker on this host), real secrets + provider key (user input). |
 | | P2 | not started | |
 | | P3 | not started | |
 | | P4 | not started | |

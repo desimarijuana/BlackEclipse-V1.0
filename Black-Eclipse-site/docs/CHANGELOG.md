@@ -39,6 +39,17 @@
   secret scan, advisory preflight, ADR + size, Vitest + Python, eval gates,
   corpus). `main` is clean and not pushed. Docs updated:
   `docs/PRODUCTION-READINESS.md`, `docs/CHANGELOG.md`.
+- **fix(deploy): the security preflight accepts `HARNESS_AUTH=required`.**
+  `scripts/security-preflight.js` had its own `truthy()` that omitted `required`
+  — the documented production value, and the exact value `docker-compose.yml`
+  forces — so a correctly hardened deployment failed its own deploy gate with
+  "HARNESS_AUTH missing". It now mirrors `src/lib/auth/config.ts` exactly
+  (`required`/`enable`/`enabled` are on; `off`/`none`/`disabled` are off) and
+  returns `undefined` for anything else. Regression test
+  `src/lib/security-preflight.test.ts` (8 cases) covers both the accepted
+  vocabulary and the three fail-closed paths. Verified manually: a public
+  production posture with generated secrets passes; without them it exits 1.
+  Docs updated: `docs/PRODUCTION-READINESS.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-07
 - **feat(decisions): typed decision models (System One-shaped) as a first-class
