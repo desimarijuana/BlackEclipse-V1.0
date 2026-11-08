@@ -1,7 +1,7 @@
 ---
 title: Deployment — Production Container
 status: Current
-last-verified: 2026-11-04
+last-verified: 2026-11-08
 ---
 
 # Deployment — Production Container
@@ -52,6 +52,14 @@ Run the deploy-time checklist before starting (and in the deploy pipeline):
 
 ```sh
 npm run security:preflight
+```
+
+The script reads the **process environment**; it does not parse `.env` itself.
+To check a filled `.env` without exporting every key into your shell, run it
+with Node's env-file flag (Node >= 20.6):
+
+```sh
+node --env-file=.env scripts/security-preflight.js
 ```
 
 It **fails closed** when an exposed deployment is missing `HARNESS_AUTH_SECRET`

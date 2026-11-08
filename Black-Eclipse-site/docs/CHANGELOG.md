@@ -49,7 +49,10 @@
   `src/lib/security-preflight.test.ts` (8 cases) covers both the accepted
   vocabulary and the three fail-closed paths. Verified manually: a public
   production posture with generated secrets passes; without them it exits 1.
-  Docs updated: `docs/PRODUCTION-READINESS.md`, `docs/CHANGELOG.md`.
+  `docs/DEPLOYMENT.md` now states that the script reads the process environment
+  (not `.env`) and shows `node --env-file=.env scripts/security-preflight.js`
+  for checking a filled file without exporting it. Docs updated:
+  `docs/PRODUCTION-READINESS.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-07
 - **feat(decisions): typed decision models (System One-shaped) as a first-class
