@@ -54,6 +54,7 @@ from .ledger.tools import LEDGER_TOOLS
 # The Advisory Ledger tools (`advisory_*`). Registered by `advisory/bootstrap.py`;
 # imported as the ONE canonical list so the allowlist cannot drift.
 from .advisory.tools import ADVISORY_TOOLS
+from .decisions.tools import DECISION_TOOLS
 # The money-guardrail tools (`finance_guardrail_*`, read-only). Registered by
 # `finance_guardrails/bootstrap.py` on the SAME registry; imported as the ONE
 # canonical list so the allowlist cannot drift.
@@ -416,6 +417,10 @@ ECLIPSE_AGENT = AgentConfig(
         # Advisory Ledger: recall past recommendations and their outcomes
         # (read-only; the ledger is written by the runtime, not a model call).
         *ADVISORY_TOOLS,
+        # Typed decisions: ask bounded choice/score/yes-no questions and get
+        # calibrated answers, then recall the audit record. Read-only; an answer
+        # is never an authorization.
+        *DECISION_TOOLS,
         # Money guardrails: read the active caps/state and ask what would happen
         # to a hypothetical intent. Read-only by construction — the agent can
         # never change the limits, declare impairment, or clear crisis/panic.

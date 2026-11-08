@@ -174,7 +174,11 @@ RATCHET_PY: dict[str, int] = {
     # pinned to the measured tree.
     # Re-pinned 2461->2469 (2026-11-06) for the chat quant contract: the deep
     # budget floor and the final-answer artifact check seam. May only shrink.
-    "graph.py": 2471,
+    # Re-pinned 2469->2478 (2026-11-07) for the typed-decision seams: the
+    # `decision_service` parameter + ToolContext field and the `decision`
+    # pass-through on `execute_run`/`build_graph`. Split candidate remains the
+    # run-blob collector wiring. May only shrink.
+    "graph.py": 2478,
     # Grew with the approval-card pause path in `make_code_authorizer` (the code
     # write now blocks on a decision instead of refusing immediately). May only
     # shrink from here; the code-write pause is a split candidate.
@@ -351,7 +355,9 @@ RATCHET_PY: dict[str, int] = {
     # chat turn is a build no matter which entry point called it. Re-pinned
     # 1829->1831 for the durable chat session on the same seam (Phase 24 / P3).
     # May only shrink.
-    "service.py": 1832,
+    # Re-pinned 1831->1841 (2026-11-07) for the typed-decision layer install:
+    # one boot block + the `decision` entry in `_run_kwargs`. May only shrink.
+    "service.py": 1841,
     # The MT5 bridge grew past the hard ceiling with broker-native bars
     # (`copy_rates_from_pos`) and the position lifecycle (partial close, SLTP
     # verify). It is one wire protocol in one place; SPLIT CANDIDATE: reads vs

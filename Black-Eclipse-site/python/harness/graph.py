@@ -434,6 +434,9 @@ def build_graph(
     advisory_sink: Optional[Any] = None,
     # The Advisory Ledger service, so `advisory_*` tools reach the ONE ledger.
     advisory_service: Optional[Any] = None,
+    # The typed-decision service, so `decision_*` tools reach the ONE provider
+    # registry + audit store (and never guess when a provider is unavailable).
+    decision_service: Optional[Any] = None,
     market: Optional[Any] = None,
     # The Portfolio Accounting Engine service, so the `portfolio_*` tools reach
     # the ONE ledger/valuation service (reusing the per-run market gateway).
@@ -624,6 +627,9 @@ def build_graph(
         advisory_sink=advisory_sink,
         # The Advisory Ledger service, so `advisory_*` tools reach the ONE ledger.
         advisory_service=advisory_service,
+        # The typed-decision service, so `decision_*` tools reach the ONE
+        # provider registry + audit store.
+        decision_service=decision_service,
         # The Market Data Layer: gateway (routing + quality), durable snapshot/
         # instrument store and stream manager, as one bundle. Shared process-wide.
         market_gateway=getattr(market, "gateway", None),
@@ -1196,6 +1202,7 @@ async def execute_run(
     portfolio: Optional[Any] = None,
     ledger: Optional[Any] = None,
     advisory: Optional[Any] = None,
+    decision: Optional[Any] = None,
     quant: Optional[Any] = None,
     project_store: Optional[Any] = None,
     search: Optional[Any] = None,
@@ -1651,6 +1658,7 @@ async def execute_run(
             portfolio=portfolio,
             ledger=ledger,
             advisory_service=advisory,
+            decision_service=decision,
             quant=quant,
             project_store=project_store,
             search=search,

@@ -170,6 +170,14 @@ class AgenticService:
         from .advisory.bootstrap import install_advisory_layer  # noqa: PLC0415
 
         install_advisory_layer(self)
+        # Typed decisions (System One-shaped): a state plus choice/score/noul
+        # questions in, typed answers + calibrated confidence out. Boot wiring
+        # lives in `decisions/bootstrap.py`; it reuses the ONE agent-memory
+        # connection for the audit record and registers read-only tools on the
+        # SAME registry. No remote provider is installed implicitly.
+        from .decisions.bootstrap import install_decision_layer  # noqa: PLC0415
+
+        install_decision_layer(self)
         # The Quant Engine: strategy specs â†’ event-driven backtests â†’ metrics â†’
         # experiments. Boot wiring lives in `quant/bootstrap.py`; it reuses the
         # ONE agent-memory connection (strategies + experiment metadata) and the
@@ -1365,6 +1373,7 @@ class AgenticService:
             "portfolio": self._portfolio_bundle(),
             "ledger": self._ledger_bundle(),
             "advisory": getattr(self, "advisory", None),
+            "decision": getattr(self, "decision", None),
             "quant": self._quant_bundle(),
             "project_store": getattr(self, "project_store", None),
             "code_intel_runtime": getattr(self, "code_intel", None),
