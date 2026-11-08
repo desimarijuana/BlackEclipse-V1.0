@@ -23,6 +23,13 @@
   moved `2026-11-01` into `docs/changelog/2026-11.md` (a move, never a prune),
   preserving the archive's line endings. no doc change — rotation is tooling,
   the policy is unchanged.
+- **fix(lint): clear the three gate-blocking errors.** `folder-picker.tsx`
+  renamed the `useWindows` callback to `openWindows` (it is a `useCallback`
+  named like a hook, so `react-hooks/rules-of-hooks` failed the gate);
+  `desktop-launcher.test.ts` replaced its two `any`s with a typed
+  `LauncherTheme` shape. `npx eslint .` now exits 0 (0 errors, 118 warnings).
+  Verified: `npx tsc --noEmit`, the two affected Vitest files (19 tests) and
+  `python/tests/test_decisions.py` (28). no doc change — lint-only.
 
 ## 2026-11-07
 - **feat(decisions): typed decision models (System One-shaped) as a first-class

@@ -181,7 +181,7 @@ export function FolderPicker({
     }
   }, [newName, path, load]);
 
-  const useWindows = useCallback(async () => {
+  const openWindows = useCallback(async () => {
     if (nativeBusy) return;
     setNativeBusy(true);
     setNativeNote('Waiting for the Windows folder window…');
@@ -280,7 +280,7 @@ export function FolderPicker({
             <button
               type="button"
               disabled={nativeBusy || busy}
-              onClick={() => void useWindows()}
+              onClick={() => void openWindows()}
               className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-border/40 px-2.5 text-[11.5px] text-foreground transition-colors hover:bg-accent disabled:opacity-40"
               title="Open the Windows Select Folder window"
             >

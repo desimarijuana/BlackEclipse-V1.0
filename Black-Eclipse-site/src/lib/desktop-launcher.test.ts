@@ -31,10 +31,27 @@ const splashModule = require(path.join(scripts, 'desktop-splash.js')) as {
   BUILD_HINTS: Record<string, string[]>;
   HINT_EVERY_MS: number;
 };
+// The shape `scripts/lib/app-theme.js` sanitizes to. Every field is present
+// after sanitize/read, so the test can assert real values without `any`.
+type LauncherTheme = {
+  source: string;
+  appName: string;
+  scheme: string;
+  colors: { primary: string; accent: string; [key: string]: string };
+  fontUi: string;
+  fontMono: string;
+  radius: number;
+  glass: { enabled: boolean; blur: number; opacity: number; tint: string };
+  background: string;
+  logoUrl: string;
+  faviconUrl: string;
+  [key: string]: unknown;
+};
+
 const themeModule = require(path.join(scripts, 'app-theme.js')) as {
   DEFAULT_THEME: Record<string, unknown>;
-  sanitizeTheme: (raw: unknown) => Record<string, any>;
-  readTheme: () => Record<string, any>;
+  sanitizeTheme: (raw: unknown) => LauncherTheme;
+  readTheme: () => LauncherTheme;
 };
 
 const opened: Array<{ close: () => void }> = [];
