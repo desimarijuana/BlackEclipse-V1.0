@@ -51,7 +51,9 @@
   production posture with generated secrets passes; without them it exits 1.
   `docs/DEPLOYMENT.md` now states that the script reads the process environment
   (not `.env`) and shows `node --env-file=.env scripts/security-preflight.js`
-  for checking a filled file without exporting it. Docs updated:
+  for checking a filled file without exporting it. Also verified the clean
+  build actually serves: `next start` on the fresh `.next` returned
+  `GET /login` 200 in 2 s. Docs updated:
   `docs/PRODUCTION-READINESS.md`, `docs/DEPLOYMENT.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-07
