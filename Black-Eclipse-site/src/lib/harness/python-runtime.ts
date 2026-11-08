@@ -385,26 +385,24 @@ async function ensurePythonRuntimeUncached(): Promise<boolean> {
       // "runtime unavailable" for the rest of the session. Measured 2026-11-06.
       return true;
     }
-    {
-      // A runtime that answered recently is far more likely to be BUSY than
-      // genuinely hung (a running agent can briefly delay a probe). Killing a
-      // busy runtime orphans its runs, so require that we have NOT seen it
-      // healthy inside the busy-grace window before clearing the port.
-      const recentlyHealthy = isRecentlyHealthy(g.__harnessPyHealthyAt, Date.now());
-      if (recentlyHealthy) {
-        console.warn(
-          "[harness] runtime port is silent but the runtime answered recently — treating it as busy, not killing it"
-        );
-        // Do NOT fall through to the spawn below. A second uvicorn would fail to
-        // bind the still-held port (`WinError 10048`) — but only AFTER FastAPI
-        // runs its lifespan boot, whose `fail_orphaned_runs` reconciliation would
-        // mark the very runs this busy runtime is executing as RUN_ORPHANED. A
-        // busy runtime is up; let a later probe (past the grace window) re-check.
-        return true;
-      }
-      killListenerOnPort();
-      await new Promise((r) => setTimeout(r, 300));
+    // A runtime that answered recently is far more likely to be BUSY than
+    // genuinely hung (a running agent can briefly delay a probe). Killing a
+    // busy runtime orphans its runs, so require that we have NOT seen it
+    // healthy inside the busy-grace window before clearing the port.
+    const recentlyHealthy = isRecentlyHealthy(g.__harnessPyHealthyAt, Date.now());
+    if (recentlyHealthy) {
+      console.warn(
+        "[harness] runtime port is silent but the runtime answered recently — treating it as busy, not killing it"
+      );
+      // Do NOT fall through to the spawn below. A second uvicorn would fail to
+      // bind the still-held port (`WinError 10048`) — but only AFTER FastAPI
+      // runs its lifespan boot, whose `fail_orphaned_runs` reconciliation would
+      // mark the very runs this busy runtime is executing as RUN_ORPHANED. A
+      // busy runtime is up; let a later probe (past the grace window) re-check.
+      return true;
     }
+    killListenerOnPort();
+    await new Promise((r) => setTimeout(r, 300));
   }
 
   // Cross-context lock: if another server context is already cold-starting the
