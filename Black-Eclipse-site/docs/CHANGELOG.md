@@ -30,6 +30,15 @@
   `LauncherTheme` shape. `npx eslint .` now exits 0 (0 errors, 118 warnings).
   Verified: `npx tsc --noEmit`, the two affected Vitest files (19 tests) and
   `python/tests/test_decisions.py` (28). no doc change — lint-only.
+- **chore(release): complete P0 and land it on `main`.** The typed-decision and
+  legal work (`cc5519ea`) and the roadmap + lint fix (`9785b485`) are merged into
+  local `main` as `b48d3ba5`; the `CHANGELOG.md` merge conflict kept BOTH sides'
+  `2026-11-04` entries and the rotated archive now carries main's `2026-11-01`
+  bullets (including the `423,998` size re-pin), so no history was dropped.
+  `npm run check:all` on `main` passes **ALL GATES** (tsc, eslint 0 errors,
+  secret scan, advisory preflight, ADR + size, Vitest + Python, eval gates,
+  corpus). `main` is clean and not pushed. Docs updated:
+  `docs/PRODUCTION-READINESS.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-07
 - **feat(decisions): typed decision models (System One-shaped) as a first-class

@@ -278,7 +278,7 @@ below. Do not mark a phase done because the code side is finished.
 | Date | Phase | State | Evidence |
 |---|---|---|---|
 | 2026-11-08 | Baseline | measured | gates above; live gate FAIL; tree dirty; eslint 3 errors |
-| | P0 | not started | |
+| 2026-11-08 | P0 | **done** | eslint 0 errors; `tsc --noEmit` pass; decisions+legal `cc5519ea`, roadmap `9785b485`, merged into `main` as `b48d3ba5`; `main` clean; `npm run check:all` → ALL GATES PASSED. Not pushed. |
 | | P1 | not started | |
 | | P2 | not started | |
 | | P3 | not started | |
