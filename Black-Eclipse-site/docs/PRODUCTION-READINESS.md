@@ -1,7 +1,7 @@
 ---
 title: Production Readiness Roadmap
 status: Current
-last-verified: 2026-11-08
+last-verified: 2026-11-09
 ---
 
 # Production Readiness Roadmap
