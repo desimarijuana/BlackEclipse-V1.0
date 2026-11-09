@@ -187,7 +187,10 @@ def test_the_published_report_uses_the_pinned_baseline_when_no_run_is_recorded()
     live, reason = _latest_live_baseline()
     assert reason == ""
     assert live is not None
-    assert live.aggregates["task_success"] == pytest.approx(0.8520, abs=0.001)
+    # The newest pinned live baseline (`live:7e9d161037e45360f95717198f839ced`)
+    # measured task_success 0.9574. The old 0.8520 pin (ADR-071) is superseded by
+    # the passing run recorded in `baselines/live_v1.json`.
+    assert live.aggregates["task_success"] == pytest.approx(0.9574, abs=0.001)
     text = to_benchmarks(None, live)
     live_section = text.split("## Live tier", 1)[1]
     assert "NOT MEASURED" not in live_section

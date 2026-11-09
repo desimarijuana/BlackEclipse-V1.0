@@ -1,6 +1,96 @@
 # Change Log
 
 ## 2026-11-09
+- **fix(eval): make the release gate honest again.** The hallucination grader now
+  counts every source the release gate withheld as fabricated — grading only the
+  redacted answer let a fabrication pass — while `test_graph` asserts the
+  documented redaction (`unverified source` + withheld note, no pointer). The
+  live-baseline pin follows the newest recorded `live:7e9d…` run (task_success
+  **0.9574**, superseding the 0.8520 ADR-071 pin), and the corpus manifest is
+  regenerated for the committed `eclipse-benchmark` dataset (338 tasks). Verified:
+  the four target tests pass; remaining offline-gate failures come from
+  uncommitted harness WIP, not this change. docs updated: `docs/CHANGELOG.md`.
+- **feat(economics): fill snapshot and calendar gaps.** `WEB_SPECS` now covers
+  every snapshot metric family — all 11 policy rates, CPI/unemployment for the
+  tracked economies, GDP growth and the US 10Y — so a FRED outage degrades to a
+  labelled official-page value instead of a blank card (max 8 enrichments per
+  snapshot, never overwriting a LIVE value). Added the Census
+  **Advance Retail Sales** schedule (`calendars/census.ts`) to the official
+  calendar fan-out. Docs: `docs/DATA-FLOW.md`, `docs/NAVIGATION.md`.
+- **feat(commands): read-only workspace commands plus `/stop`.** Added
+  `/alerts`, `/news [query|--ticker]`, `/theses [symbol]`, `/journal
+  [all|open|closed]`, `/jobs`, `/artifacts`, `/sessions`, `/git
+  [status|diff|log] [--staged]`, and `/stop [runId]` (lists active runs, or
+  cancels one through the same cooperative route as the Stop button;
+  operator-gated). `/memory` now accepts a query and searches the memory
+  explorer. The readers only call existing front doors and never write or
+  fabricate a row; `/git` deliberately exposes no stage/commit/push. The new
+  domain handlers live in `command-handlers-workspace.ts`, with shared
+  `Handler`/`HandlerOutput`/`fail`/`frontDoorError` moved to
+  `command-handler-kit.ts`. Router tests cover each reader, the active-run
+  filter, cancellation, and memory search. The command-registry ratchet is
+  pinned at 1379 (split candidate: per-domain spec modules).
+  Docs updated: `docs/harness/slash-commands.md`, `docs/NAVIGATION.md`.
+- **fix(chat): the project chip shows the real folder path and works before a
+  chat exists.** The empty-state chip was a static "Eclipse repo" pill inside a
+  full-width row. It is now content-sized, always a button, and displays the
+  folder name plus its absolute path (the bound root, or the server-resolved
+  default returned as `defaultRoot` by `GET /api/workspace/roots` and the
+  `/api/chat/session/project` GET). Choosing/approving a folder before the
+  conversation id exists is remembered in `eclipse.pendingProjectRoot` and bound
+  automatically when the first message creates the chat, so the folder is no
+  longer "not found". Docs: `docs/NAVIGATION.md`.
+- **feat(filings): first non-US filing list — PSX company announcements.**
+  `src/lib/fundamentals/filings/psx-announcements.ts` parses the Pakistan Stock
+  Exchange company page's Financial Results / Board Meetings / Others tables
+  into the same filing-row shape as SEC EDGAR, with the official PSX PDF URL.
+  `/api/stocks/[symbol]/filings?market=PK` branches to it, and the Fundamentals
+  filings tab hides the SEC form filter and labels the PSX source for non-US
+  markets. A market without an adapter still returns `not_covered`. Docs:
+  `docs/DATA-FLOW.md`, `docs/NAVIGATION.md`.
+- **feat(chat): a real command surface — grouped palette, ⌘K dialog, recents/
+  pins, and argument completion.** The inline palette moved out of the
+  1200-line composer into `command-palette.tsx` (+ pure ordering in
+  `command-palette-model.ts`): Pinned → Recent → categories, a description/usage
+  footer, risk/operator gates and accessible listbox navigation. `command-dialog.tsx`
+  adds ⌘K / Ctrl+K as a centered two-column command surface (only the visible
+  composer answers). `command-history.ts` persists the last 50 commands and 24
+  pins in `localStorage` (a convenience, not an authority), and the composer
+  records a command when it is submitted. `command-suggest.ts` +
+  `GET /api/harness/suggest` add argument completion for skills, symbols,
+  portfolios, workflows and models, with a debounced, fail-silent popover.
+  `/quote` declares `completion: "symbols"`; the registry contract now knows the
+  full provider allowlist. Tests cover palette ordering, the history store,
+  completion detection and the suggest route. The `en.ts` ratchet moved
+  1317→1326 for nine new `code.command.*` keys.
+  Docs updated: `docs/harness/slash-commands.md`, `docs/NAVIGATION.md`.
+- **feat(economics): broader BLS release coverage.** The BLS adapter now reads
+  eight official schedules — CPI, Employment Situation, PPI, JOLTS, ECI, Real
+  Earnings, Import/Export Prices and Productivity & Costs — with per-page
+  failure isolation (one blocked page no longer blanks the rest). Releases carry
+  high/medium importance for calendar filtering. Docs: `docs/DATA-FLOW.md`.
+- **fix(notifications): header alerts show the full headline and open the real
+  source.** The notification-center title is no longer truncated, and news
+  alerts carry the article `url` (absolute http/https only, validated in
+  `news-diff.ts` and `store.ts`) so selecting the item opens the publisher page
+  in a new tab instead of the in-app News feed. Items without a link still jump
+  to their owning tab, and selecting one marks only that item read. Docs:
+  `docs/NAVIGATION.md`.
+- **feat(filings): ticker mapping, search date window and a dashboard widget.**
+  The latest-filings route now attaches a ticker from the cached SEC
+  `company_tickers` reverse map (CIK→ticker; unmapped issuers stay null, never
+  guessed), and the tab links a known ticker to its chart. Full-text search gained
+  From/To date controls (the API already supported the window). Added the
+  Command Center **Recent SEC Filings** widget backed by the `sec:filings` topic.
+  Docs: `docs/DATA-FLOW.md`.
+- **feat(economics): EDGAR full-text filing search.** The Economy **SEC Filings**
+  tab now has a keyword search over the SEC's official full-text index
+  (`src/lib/economics/edgar-search.ts` → `GET /api/economics/filings/search`),
+  with form filters and an optional date window. Hits normalize to the same
+  filing shape as the latest feed, document URLs are built only from the SEC's
+  own accession + filename pair, results cache for 3 minutes, and short queries
+  or malformed dates are rejected before any network call. Docs:
+  `docs/DATA-FLOW.md`, `docs/NAVIGATION.md`.
 - **feat(economics): market-wide SEC filings feed.** New
   `src/lib/economics/sec-filings-feed.ts` parses EDGAR's official current-events
   Atom feed (company, CIK, form, filed date/time, item summary, filing index

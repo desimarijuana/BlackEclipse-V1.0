@@ -774,8 +774,12 @@ async def test_evidence_release_gate_discloses_an_unretrieved_citation(store, mo
         request(), registry(), FakeBridge({"status": "UNAVAILABLE"}), store
     )
     assert result.status == "completed"
-    assert "totally-made-up.example" in result.output
+    # The release gate WITHHOLDS the unretrieved URL rather than re-presenting it
+    # (a disclosure that repeats the pointer still presents it). The surrounding
+    # text and the unverified marker remain.
+    assert "totally-made-up.example" not in result.output
     assert "unverified" in result.output.lower()
+    assert "withheld" in result.output.lower()
     events = [e["data"] for e in store.list_events("run_test") if e["type"] == "evidence.release_gate"]
     assert len(events) == 1 and events[0]["status"] == "no_evidence"
     assert result.research is not None

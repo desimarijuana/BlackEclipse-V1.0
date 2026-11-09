@@ -28,7 +28,7 @@
         "validation": 31
       },
       "canaryCount": 0,
-      "checksum": "9bcb155e06d6defb44c1a528344f488e",
+      "checksum": "16922ab95a93bb7776677317b129be19",
       "liveOnly": 2,
       "missingContamination": [],
       "name": "eclipse-benchmark",
@@ -244,6 +244,6 @@
   "oracleCount": 263,
   "oracleCoverage": 0.778107,
   "oracleExemptCount": 75,
-  "recordedAt": "2026-10-23T19:30:45.387Z",
+  "recordedAt": "2026-11-09T20:57:29.920Z",
   "taskCount": 338
 }

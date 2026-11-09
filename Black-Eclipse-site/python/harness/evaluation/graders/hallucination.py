@@ -47,18 +47,30 @@ class HallucinationGrader(Grader):
 
         citations = extract_citations(output)
         trajectory_sources: set[str] = set()
+        # The release gate WITHHOLDS an unretrieved citation from the released
+        # answer (so a citation parser cannot re-count it). Its verdict still
+        # names the source, and that verdict is the honest evidence that the
+        # model fabricated it. Grading the redacted text alone would let a
+        # fabricated source pass simply because the delivery seam hid it.
+        withheld_sources: set[str] = set()
         retrieval_calls = 0
         for event in getattr(ctx.trajectory, "events", []):
             if event.type in ("research.evidence_retrieved", "citation.created", "research.citation_created"):
                 url = (event.data or {}).get("url") or (event.data or {}).get("source")
                 if url:
                     trajectory_sources.add(str(url).lower())
+            elif event.type in ("evidence.release_gate", "research.evidence.release_gate"):
+                for url in (event.data or {}).get("unverified") or []:
+                    if url:
+                        withheld_sources.add(str(url).lower())
         for call in ctx.tool_calls:
             if call.get("status") == "completed" and any(h in str(call.get("name")) for h in _RETRIEVAL_HINTS):
                 retrieval_calls += 1
 
-        # Fabricated sources: a cited URL never retrieved and not known/allowed.
-        fabricated_sources: list[str] = []
+        # Fabricated sources: a cited URL never retrieved and not known/allowed,
+        # PLUS every source the release gate explicitly withheld as unverified.
+        citation_urls = {url.lower() for url in citations}
+        fabricated_sources: list[str] = sorted(withheld_sources - citation_urls)
         for url in citations:
             host = urlparse(url).netloc.lower()
             known = (
@@ -96,7 +108,7 @@ class HallucinationGrader(Grader):
                     temporal.append(f"{y}-{m}-{d}")
 
         total_claims = max(1, len(sentences))
-        total_sources = max(1, len(citations))
+        total_sources = max(1, len(citations) + len(withheld_sources - citation_urls))
         fabricated_source_rate = len(fabricated_sources) / total_sources
         unsupported_claim_rate = len(unsupported) / total_claims
         hallucination_rate = (
