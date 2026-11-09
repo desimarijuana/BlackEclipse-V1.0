@@ -1,6 +1,11 @@
 # Change Log
 
 ## 2026-11-09
+- **fix(chat): remove the AI notice from chat entirely.** The composer one-liner,
+  the per-answer footer, and the response-view footer are gone; the
+  `AiOutputNotice` component and its test were deleted so no chat surface can
+  render it again. The first-run risk acknowledgement is unchanged. No doc
+  change — copy/placement only, contracts unchanged.
 - **fix(chat): remove the repeated AI notice below every answer.** The point-of-use
   disclosure remains in the persistent composer one-liner and the first-run risk
   acknowledgement; the output placement now renders nothing. No doc change —
@@ -86,6 +91,15 @@
   "this order is my decision and my responsibility" checkbox before Confirm &
   send (the typed live phrase is unchanged). Docs: `docs/legal/disclosures.md`,
   ADR-074 in `docs/DECISIONS.md` + `skills/ARCHITECT.md`, `docs/CHANGELOG.md`.
+- **refine(legal): notice intensity by deployment, one short line per answer.**
+  The per-answer notice is now a single responsibility clause ("Verify with your
+  broker; decisions are yours") with the full text behind the expander, instead
+  of repeating the whole paragraph every turn. The upgrade notice is a
+  dismissible bottom banner on local self-hosted (auth off on loopback) and a
+  blocking modal only on hosted/remote requests; `GET /api/setup` reports
+  `hosted` from the auth config + request host. Docs:
+  `docs/legal/disclosures.md`, ADR-075 in `docs/DECISIONS.md` +
+  `skills/ARCHITECT.md`, `docs/CHANGELOG.md`.
 - **feat(finance): one deterministic calculator for the metrics the agent must
   not do mentally.** New `finance_calc` computes percentage change/return
   (signed), EPS, P/E, P/S, margins, position_size (reward/risk), CAGR and FCF
