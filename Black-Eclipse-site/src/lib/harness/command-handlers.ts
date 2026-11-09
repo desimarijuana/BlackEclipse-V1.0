@@ -7,6 +7,8 @@ import {
   allCommands,
   commandArgHint,
   isCommandAvailable,
+  resolveCommand,
+  searchCommands,
   type CommandCategory,
   type CommandSpec,
 } from "./command-registry";
@@ -44,13 +46,112 @@ function invalid(code: string, message: string): HandlerOutput {
   return { status: "invalid", error: { code, message } };
 }
 
+/** One command's full contract: usage, arguments, flags, risk and examples. */
+function renderCommandDetail(spec: CommandSpec): ResponseBlock[] {
+  const hint = commandArgHint(spec);
+  const blocks: ResponseBlock[] = [
+    heading(`/${spec.name}`, 2),
+    markdown(spec.description),
+    keyValue("Contract", [
+      { label: "Id", value: spec.id },
+      { label: "Category", value: spec.category },
+      { label: "Status", value: isCommandAvailable(spec) ? "available" : spec.status },
+      { label: "Risk", value: spec.risk },
+      { label: "Approval", value: spec.permissions.approval ?? "none" },
+      { label: "Execution", value: spec.executionMode },
+      { label: "Version", value: spec.version },
+    ]),
+    markdown(`**Usage:** \`/${spec.name}${hint ? ` ${hint}` : ""}\``),
+  ];
+  if (spec.aliases.length) {
+    blocks.push(markdown(`**Aliases:** ${spec.aliases.map((a) => `\`/${a}\``).join(", ")}`));
+  }
+  if (spec.args.length) {
+    blocks.push(
+      dataTable(
+        "Arguments",
+        [
+          { key: "name", label: "Argument" },
+          { key: "required", label: "Required" },
+          { key: "type", label: "Type" },
+          { key: "values", label: "Values" },
+          { key: "description", label: "Description" },
+        ],
+        spec.args.map((a) => ({
+          name: a.variadic ? `${a.name}…` : a.name,
+          required: a.required ? "yes" : "no",
+          type: a.type ?? "string",
+          values: a.values?.join(", ") ?? "",
+          description: a.description,
+        })),
+      ),
+    );
+  }
+  if (spec.flags.length) {
+    blocks.push(
+      dataTable(
+        "Flags",
+        [
+          { key: "flag", label: "Flag" },
+          { key: "type", label: "Type" },
+          { key: "values", label: "Values" },
+          { key: "description", label: "Description" },
+        ],
+        spec.flags.map((f) => ({
+          flag: `--${f.name}${f.alias ? ` (-${f.alias})` : ""}`,
+          type: f.type ?? "boolean",
+          values: f.values?.join(", ") ?? "",
+          description: f.description,
+        })),
+      ),
+    );
+  }
+  if (spec.examples.length) {
+    blocks.push(markdown(["**Examples:**", ...spec.examples.map((e) => `- \`${e}\``)].join("\n")));
+  }
+  if (spec.deprecation) {
+    const alternative = spec.deprecation.alternative
+      ? ` Use \`${spec.deprecation.alternative}\` instead.`
+      : "";
+    blocks.push(callout("warning", "Deprecated", `${spec.deprecation.note}${alternative}`));
+  }
+  if (!isCommandAvailable(spec) && spec.unavailabilityReason) {
+    blocks.push(callout("note", "Why it is unavailable", spec.unavailabilityReason));
+  }
+  return blocks;
+}
+
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
 export const handlers: Record<string, Handler> = {
-  "native.help": async (_ctx, _spec, _args, _deps) => {
+  "native.help": async (_ctx, _spec, args, _deps) => {
+    const topic = (Array.isArray(args.positionals.command) ? (args.positionals.command as string[]) : [])
+      .join(" ")
+      .trim();
+
+    if (topic) {
+      const spec = resolveCommand(topic);
+      if (!spec) {
+        const suggestions = searchCommands(topic, { includeUnavailable: true })
+          .slice(0, 3)
+          .map((s) => `\`/${s.name}\``);
+        return {
+          status: "completed",
+          blocks: [
+            heading("Unknown command", 2),
+            markdown(
+              `No command \`/${topic}\`.${suggestions.length ? ` Did you mean ${suggestions.join(", ")}?` : ""} ` +
+                "Type `/help` for the full catalog.",
+            ),
+          ],
+        };
+      }
+      return { status: "completed", blocks: renderCommandDetail(spec) };
+    }
+
     const blocks: ResponseBlock[] = [
       heading("Eclipse commands", 2),
-      markdown("Type `/` to autocomplete. Commands with a handler run immediately; unavailable commands return an explicit error."),
+      markdown("Type `/` to autocomplete. Commands with a handler run immediately; unavailable commands return an explicit error. Use `/help <command>` for one command's arguments, risk and examples."),
     ];
     const byCategory = new Map<CommandCategory, CommandSpec[]>();
     for (const spec of allCommands()) {
@@ -531,28 +632,74 @@ export const handlers: Record<string, Handler> = {
     const command = (Array.isArray(args.positionals.command) ? (args.positionals.command as string[]) : [])
       .join(" ")
       .trim();
-    if (!command) return invalid("MISSING_ARG", "Usage: `/terminal <command>`.");
+    if (!command) return invalid("MISSING_ARG", "Usage: `/terminal [--shell <name>] [--cwd <path>] <command>`.");
+    const shell = typeof args.flags.shell === "string" ? args.flags.shell : undefined;
+    const cwd = typeof args.flags.cwd === "string" ? args.flags.cwd : undefined;
     const { ok, status, data } = await deps.frontDoor.request("/api/terminal/execute", {
       method: "POST",
-      body: { command },
+      body: { command, ...(shell ? { shell } : {}), ...(cwd ? { cwd } : {}) },
       timeoutMs: 900_000,
     });
     if (!ok) return fail("TERMINAL_FAILED", frontDoorError(data, status));
-    const d = (data ?? {}) as Record<string, unknown>;
-    const stdout = String(d.stdout ?? d.output ?? "");
+
+    // The terminal route returns `{ success, result: CommandResult }`; unwrap it so
+    // the real stdout/stderr/exit code are rendered instead of "no output".
+    const payload = (data ?? {}) as Record<string, unknown>;
+    const d = (
+      payload.result && typeof payload.result === "object" ? payload.result : payload
+    ) as Record<string, unknown>;
+    const stdout = String(d.stdout ?? "");
     const stderr = String(d.stderr ?? "");
     const exitCode = d.exitCode ?? d.exit_code ?? d.code;
-    const blocks: ResponseBlock[] = [heading("Terminal", 2)];
+    const runtime = typeof d.runtime === "string" ? d.runtime : "local";
+    const cwdUsed = typeof d.cwd === "string" ? d.cwd : (cwd ?? "workspace root");
+    const durationMs = typeof d.durationMs === "number" ? d.durationMs : undefined;
+    const timedOut = d.timedOut === true;
+    const truncated = d.truncated === true;
+    const runStatus = typeof d.status === "string" ? d.status : undefined;
+    const error = d.error && typeof d.error === "object" ? (d.error as Record<string, unknown>) : null;
+    const errorMessage = error ? String(error.message ?? "") : "";
+
+    const blocks: ResponseBlock[] = [
+      heading("Terminal", 2),
+      keyValue("Execution", [
+        { label: "Shell", value: shell ?? "host default" },
+        { label: "Working directory", value: cwdUsed },
+        { label: "Runtime", value: runtime },
+      ]),
+    ];
+    if (timedOut) {
+      blocks.push(callout("warning", "Timed out", "The command exceeded its time limit and was stopped."));
+    }
     if (stdout) blocks.push(markdown("```\n" + stdout.slice(0, 18_000) + "\n```"));
     if (stderr) blocks.push(callout("warning", "stderr", "```\n" + stderr.slice(0, 4_000) + "\n```"));
-    if (!stdout && !stderr) blocks.push(markdown("The command produced no output."));
-    if (exitCode !== undefined) {
-      blocks.push(keyValue("Result", [
-        { label: "Exit code", value: typeof exitCode === "number" ? exitCode : String(exitCode) },
-        { label: "Actor", value: ctx.operator ? "operator" : "user" },
-      ]));
-    }
-    return { status: "completed", blocks };
+    if (truncated) blocks.push(callout("note", "Output truncated", "Only the first part of the output is shown."));
+    if (errorMessage) blocks.push(callout("danger", "Command error", errorMessage));
+    if (!stdout && !stderr && !errorMessage) blocks.push(markdown("The command produced no output."));
+
+    const result: Array<{ label: string; value: string | number }> = [
+      { label: "Exit code", value: typeof exitCode === "number" ? exitCode : String(exitCode ?? "—") },
+      { label: "Actor", value: ctx.operator ? "operator" : "user" },
+    ];
+    if (runStatus) result.push({ label: "Status", value: runStatus });
+    if (durationMs !== undefined) result.push({ label: "Duration", value: `${durationMs} ms` });
+    blocks.push(keyValue("Result", result));
+
+    // A non-zero exit code is a real result, not a failed command turn: the card
+    // shows it. Only a runtime that could not run the command at all is `failed`.
+    const unavailable = runStatus === "unavailable" && Boolean(errorMessage);
+    return {
+      status: unavailable ? "failed" : "completed",
+      blocks,
+      ...(unavailable
+        ? {
+            error: {
+              code: String(error?.category ?? "TERMINAL_UNAVAILABLE"),
+              message: errorMessage,
+            },
+          }
+        : {}),
+    };
   },
 
   "code.task": async (_ctx, _spec, args, deps) => {

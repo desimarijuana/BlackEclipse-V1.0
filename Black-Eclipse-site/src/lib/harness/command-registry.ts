@@ -152,15 +152,21 @@ const HELP: CommandSpec = {
   tags: ["core", "discovery"],
   version: V,
   status: "available",
-  args: [],
+  args: [
+    {
+      name: "command",
+      description: "A command to describe in detail (name or alias).",
+      variadic: true,
+    },
+  ],
   flags: [],
   handler: { type: "native", target: "native.help" },
   permissions: { approval: "none" },
   risk: "none",
   executionMode: "sync",
   idempotent: true,
-  output: { type: "response", summary: "A grouped command catalog." },
-  examples: ["/help"],
+  output: { type: "response", summary: "A grouped command catalog, or one command's detail card." },
+  examples: ["/help", "/help quote"],
 };
 
 const COMPACT: CommandSpec = {
@@ -930,14 +936,31 @@ const TERMINAL: CommandSpec = {
   version: V,
   status: "available",
   args: [{ name: "command", description: "The command to run.", variadic: true }],
-  flags: [],
+  flags: [
+    {
+      name: "shell",
+      description: "Which shell to run in. Defaults to the host shell.",
+      type: "string",
+      values: ["powershell", "cmd", "wsl", "bash"],
+    },
+    {
+      name: "cwd",
+      description: "Working directory, relative to the workspace root.",
+      type: "string",
+    },
+  ],
   handler: { type: "native", target: "runtime.terminal" },
   permissions: { approval: "operator" },
   risk: "high",
   executionMode: "sync",
   timeoutMs: 900_000,
-  output: { type: "response", summary: "stdout/stderr and the exit code." },
-  examples: ["/terminal ls -la", "/run git status"],
+  output: { type: "response", summary: "stdout/stderr, the exit code, the shell and the working directory." },
+  examples: [
+    "/terminal ls -la",
+    "/run git status",
+    "/terminal --shell cmd dir /s",
+    "/terminal --shell powershell --cwd src npm run test",
+  ],
 };
 
 export const COMMAND_REGISTRY: readonly CommandSpec[] = [
@@ -1021,6 +1044,27 @@ function isSubsequence(needle: string, haystack: string): boolean {
   return needle.length === 0;
 }
 
+/** Levenshtein distance, used only as a typo-tolerant fallback in search. */
+function editDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + cost,
+      );
+    }
+    previous = current;
+  }
+  return previous[b.length];
+}
+
 /** Score a command against a query. Higher is better; 0 = no match. */
 function scoreCommand(spec: CommandSpec, query: string): number {
   if (!query) return 1;
@@ -1034,6 +1078,14 @@ function scoreCommand(spec: CommandSpec, query: string): number {
   if (spec.tags.some((t) => t.toLowerCase().includes(query))) return 250;
   if (spec.summary.toLowerCase().includes(query)) return 150;
   if (isSubsequence(query, name)) return 100;
+  // Typo-tolerant fallback ("quotte" -> "quote"). Kept below every prefix /
+  // substring match so it only rescues queries that would otherwise find nothing.
+  const nameDistance = editDistance(query, name);
+  if (nameDistance <= 2) return 120 - nameDistance * 20;
+  if (spec.aliases.length) {
+    const aliasDistance = Math.min(...spec.aliases.map((a) => editDistance(query, a.toLowerCase())));
+    if (aliasDistance <= 1) return 110 - aliasDistance * 20;
+  }
   return 0;
 }
 

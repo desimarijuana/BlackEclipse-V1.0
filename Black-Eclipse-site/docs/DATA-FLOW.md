@@ -201,12 +201,23 @@ honours quiet hours, and records a durable `PriceAlertEvent` with
 
 The **economic calendar** merges two sources instead of inventing a schedule:
 the Fincept release mirror (actual/forecast/previous values) and official
-central-bank schedules. `src/lib/economics/calendars/fomc.ts` reads the Federal
-Reserve's own meeting page (`federalreserve.gov/monetarypolicy/fomccalendars.htm`),
-keeping the Fed's tentative marker; `mergeOfficialEvents` upgrades a mirror
-row's date to the official one without discarding its values. If both sources
-fail the route returns `source: "unavailable"` and an empty list — there is no
+institution schedules. `src/lib/economics/calendars/` has one adapter per source,
+each reading the institution's own page: `fomc.ts` (Federal Reserve meeting
+calendar, preserving its tentative marker), `bls.ts` (CPI + Employment
+Situation release dates/times), `bea.ts` (GDP + PCE), `ecb.ts` (Governing
+Council decision days), `boe.ts` (MPC dates) and `boj.ts` (MPM dates). `index.ts`
+fans out independently, so one institution's outage is a warning, not a blank
+calendar. `mergeOfficialEvents` upgrades a mirror row's date to the official one
+without discarding its values, matching by release family (CPI, NFP, GDP, PCE,
+FOMC, ECB, BoE, BoJ) rather than exact title. If both sources fail the route
+serves the last-known-good calendar as `source: "cached"`, or
+`source: "unavailable"` with an empty list when there is none — there is no
 synthetic-date fallback.
+
+Slow-moving snapshot and calendar payloads are also persisted in `SystemConfig`
+(`src/lib/economics/state-cache.ts`). A provider gap is backfilled from the last
+confirmed value and labelled `CACHED` with its confirmation date; a fresh
+provider value is never overwritten.
 
 When a structured snapshot metric is missing, `src/lib/economics/enrichment.ts`
 applies the screener's search pattern: web search → keep official statistical
@@ -224,6 +235,14 @@ route `GET /api/stocks/[symbol]/filings` wraps it with rate limiting and a
 tab (`src/components/screens/fundamentals/filings-section.tsx`). It is US-only —
 a non-US market returns `not_covered`, and a filing without a provider-published
 document renders no link.
+
+For a market-wide view, `src/lib/economics/sec-filings-feed.ts` parses EDGAR's
+current-events Atom feed (`browse-edgar?action=getcurrent&output=atom`) into
+company, CIK, form, filed date/time, item summary and the filing index URL.
+`GET /api/economics/filings?form=8-K&limit=40` serves it with a 3-minute cache,
+and the Economics **SEC Filings** tab (`filings-feed.tsx`) renders the newest
+filings with form filters. The form is applied at the source; an unparseable
+entry is dropped, never guessed.
 
 ### Investor Eye world state
 

@@ -64,4 +64,14 @@ describe("mergeOfficialEvents", () => {
     const [merged] = mergeOfficialEvents([mirror()], [official({ confirmed: false })]);
     expect(merged.confirmed).toBe(false);
   });
+
+  it("matches release families whose titles differ between providers", () => {
+    const [merged] = mergeOfficialEvents(
+      [mirror({ id: "cpi", title: "Consumer Price Index (CPI)", forecast: "3.1%" })],
+      [official({ id: "official-cpi", title: "US Consumer Price Index (CPI)" })],
+    );
+    expect(merged.date).toBe("2026-01-28");
+    expect(merged.forecast).toBe("3.1%");
+    expect(merged.source).toBe("official");
+  });
 });

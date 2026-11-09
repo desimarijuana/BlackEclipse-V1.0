@@ -10,7 +10,7 @@
 // There is NO synthetic fallback. If neither source yields a date, the event is
 // absent (or its date stays empty) — a fabricated date is worse than a gap.
 
-import { fetchFomcSchedule } from "./calendars/fomc";
+import { fetchOfficialSchedules } from "./calendars";
 
 export type CalendarProvenance = "mirror" | "official" | "web";
 
@@ -84,11 +84,22 @@ function dayDistance(a: string, b: string): number {
 }
 
 function sameRelease(a: string, b: string): boolean {
-  const x = a.toLowerCase();
-  const y = b.toLowerCase();
-  const isFomc = (t: string) => /fomc|federal reserve|federal open market/.test(t);
-  if (isFomc(x) && isFomc(y)) return true;
-  return x === y;
+  const family = (title: string): string | null => {
+    const t = title.toLowerCase();
+    if (/fomc|federal open market|federal reserve/.test(t)) return "fomc";
+    if (/consumer price|\bcpi\b/.test(t)) return "cpi";
+    if (/nonfarm|non-farm|payroll|employment situation|\bnfp\b/.test(t)) return "nfp";
+    if (/gross domestic|\bgdp\b/.test(t)) return "gdp";
+    if (/personal income|personal consumption|\bpce\b/.test(t)) return "pce";
+    if (/\becb\b|european central bank/.test(t)) return "ecb";
+    if (/\bboe\b|bank of england/.test(t)) return "boe";
+    if (/\bboj\b|bank of japan/.test(t)) return "boj";
+    return null;
+  };
+  const fa = family(a);
+  const fb = family(b);
+  if (fa && fb) return fa === fb;
+  return a.toLowerCase() === b.toLowerCase();
 }
 
 /**
@@ -123,7 +134,7 @@ export function mergeOfficialEvents(
 
 export interface EconomicCalendar {
   events: CalendarEvent[];
-  source: "mirror" | "official" | "mirror+official" | "unavailable";
+  source: "mirror" | "official" | "mirror+official" | "cached" | "unavailable";
   /** Non-fatal diagnostics, e.g. "FOMC schedule unreachable". */
   warnings: string[];
 }
@@ -149,17 +160,18 @@ export async function fetchEconomicCalendar(): Promise<EconomicCalendar> {
 
   let official: CalendarEvent[] = [];
   try {
-    const meetings = await fetchFomcSchedule();
+    const { events: schedule, warnings: scheduleWarnings } = await fetchOfficialSchedules();
+    warnings.push(...scheduleWarnings);
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    official = meetings
+    official = schedule
       .filter((m) => Date.parse(m.date) >= cutoff)
       .map((m) => ({
-        id: `fomc-${m.date}`,
+        id: `official-${m.country}-${m.date}-${m.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
         date: m.date,
         time: m.time,
         country: m.country,
         title: m.title,
-        importance: "high" as const,
+        importance: m.importance,
         actual: null,
         forecast: null,
         previous: null,
@@ -169,7 +181,7 @@ export async function fetchEconomicCalendar(): Promise<EconomicCalendar> {
       }));
   } catch (err) {
     warnings.push(
-      `FOMC schedule failed: ${err instanceof Error ? err.message : String(err)}`,
+      `official schedules failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 

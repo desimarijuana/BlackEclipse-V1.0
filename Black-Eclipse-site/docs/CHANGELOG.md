@@ -1,6 +1,29 @@
 # Change Log
 
 ## 2026-11-09
+- **feat(economics): market-wide SEC filings feed.** New
+  `src/lib/economics/sec-filings-feed.ts` parses EDGAR's official current-events
+  Atom feed (company, CIK, form, filed date/time, item summary, filing index
+  URL). `GET /api/economics/filings?form=8-K&limit=40` serves it with a 3-minute
+  cache, and a new **SEC Filings** tab on the Economics page
+  (`filings-feed.tsx`) shows the newest filings with form filters. Global search
+  now resolves "sec filings"/"edgar" to that tab. Docs: `docs/DATA-FLOW.md`,
+  `docs/NAVIGATION.md`.
+- **fix(harness): make slash commands honest — terminal output, enforced
+  metadata, and `/help <command>`.** `/terminal` now unwraps the Python route's
+  `{success, result}` envelope (it previously ran the command and then reported
+  "no output"), shows exit code/duration/shell/cwd and honest
+  `timedOut`/`truncated` markers, and accepts `--shell`/`--cwd` (on Windows the
+  default is PowerShell, so `--shell cmd` is how cmd.exe syntax runs). The router
+  now enforces declared `timeoutMs`, retries only `idempotent` commands, prepends
+  a deprecation notice, and records `risk`/`approval` in the audit event; the
+  composer palette shows operator and high/critical-risk chips; search gained a
+  typo-tolerant fallback (`/help quotte` → `/quote`). `/help <command>` renders
+  one command's full contract, and the new
+  `command-registry.contract.test.ts` fails CI on a missing handler target or an
+  unsafe high-risk/approval declaration.
+  Docs updated: `docs/harness/slash-commands.md`,
+  `docs/harness/architecture.md`, `docs/NAVIGATION.md`.
 - **fix(chat): remove the AI notice from chat (user-directed reversal).** The
   composer one-liner, per-answer footer and response-view footer are gone again;
   the `AiOutputNotice` component and its test are deleted. The first-run risk

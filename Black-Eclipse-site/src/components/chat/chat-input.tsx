@@ -670,6 +670,10 @@ export function ChatInput({
           {commandMatches.map((c, i) => {
             const available = isCommandAvailable(c);
             const hint = commandArgHint(c);
+            const gates = [
+              c.permissions.approval === 'operator' ? 'operator' : '',
+              c.risk === 'high' || c.risk === 'critical' ? `${c.risk} risk` : '',
+            ].filter(Boolean).join(' · ');
             return (
               <button
                 key={c.name}
@@ -696,6 +700,11 @@ export function ChatInput({
                 <span className="shrink-0 rounded-full bg-accent/30 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/60">
                   {c.category}
                 </span>
+                {gates && (
+                  <span className="shrink-0 rounded-full bg-rose-400/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-rose-300/80">
+                    {gates}
+                  </span>
+                )}
                 {!available && (
                   <span className="shrink-0 text-[9px] uppercase tracking-wide text-amber-400/70">soon</span>
                 )}

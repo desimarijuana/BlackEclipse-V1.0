@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useRef, useState } from 'react';
-import { Globe, LineChart, Activity, CalendarDays } from '@/lib/icons';
+import { Globe, LineChart, Activity, CalendarDays, ScrollText } from '@/lib/icons';
 import { TabBar } from '@/components/ui/tab-bar';
 import { PageHeader } from '@/components/layout/page-header';
 import { DataAttribution } from '@/components/screens/data-attribution';
@@ -12,6 +12,7 @@ import { EconPanel } from './panel';
 import { SnapshotView } from './snapshot';
 import { CalendarView } from './calendar';
 import { DecisionDashboard } from './dashboard';
+import { FilingsFeedView } from './filings-feed';
 
 // Group the source registry into the reference's taxonomy. Each group renders
 // as its own section with a tab bar to pick which source to view.
@@ -24,20 +25,21 @@ const SOURCE_GROUPS: { label: string; ids: string[] }[] = [
   { label: 'Decision indicators', ids: ['real-rate', 'yield-curve', 'breakeven', 'credit-spread', 'money-supply', 'leading-indicators', 'pmi', 'consumer-confidence', 'housing', 'fed-balance-sheet', 'dollar', 'liquidity'] },
 ];
 
-const SECTIONS: Array<{ id: 'overview' | 'calendar' | 'explorer'; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }> = [
+const SECTIONS: Array<{ id: 'overview' | 'calendar' | 'filings' | 'explorer'; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }> = [
   { id: 'overview', label: 'Overview', icon: Activity },
   { id: 'calendar', label: 'Calendar', icon: CalendarDays },
+  { id: 'filings', label: 'SEC Filings', icon: ScrollText },
   { id: 'explorer', label: 'Time-series Explorer', icon: LineChart },
 ];
 
 export function EconomicsScreen() {
-  const [section, setSection] = useState<'overview' | 'calendar' | 'explorer'>('overview');
+  const [section, setSection] = useState<'overview' | 'calendar' | 'filings' | 'explorer'>('overview');
   // Indicator focus dispatched by global search (e.g. 'NFP'), applied to the
   // calendar section. Cleared when the user changes sections away from it.
   const [calendarFocus, setCalendarFocus] = useState<string | undefined>(undefined);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  const selectSection = (id: 'overview' | 'calendar' | 'explorer') => {
+  const selectSection = (id: 'overview' | 'calendar' | 'filings' | 'explorer') => {
     setSection(id);
     if (id !== 'calendar') setCalendarFocus(undefined);
   };
@@ -59,6 +61,8 @@ export function EconomicsScreen() {
       setCalendarFocus(req.focus);
     } else if (req.subroute === 'explorer') {
       setSection('explorer');
+    } else if (req.subroute === 'filings') {
+      setSection('filings');
     } else if (req.subroute === 'overview') {
       setSection('overview');
     }
@@ -72,7 +76,7 @@ export function EconomicsScreen() {
           <PageHeader
             icon={Globe}
             title="Economics"
-            description="Snapshot, explore and calendar the global macro picture. Every value carries its source and vintage — nothing fabricated."
+            description="Snapshot, explore and calendar the global macro picture, and track the newest SEC filings. Every value carries its source and vintage — nothing fabricated."
             size="lg"
           />
           <div className="mt-3">
@@ -124,6 +128,16 @@ export function EconomicsScreen() {
               desc="Schedule only · no fabricated numbers. Forecasts appear only when a real consensus exists."
             />
             <CalendarView focus={calendarFocus} />
+          </section>
+        )}
+
+        {section === 'filings' && (
+          <section>
+            <SectionHead
+              title="SEC filings · live market feed"
+              desc="The newest EDGAR filings across all US issuers, filtered by form type. Official source, keyless, newest first."
+            />
+            <FilingsFeedView />
           </section>
         )}
 

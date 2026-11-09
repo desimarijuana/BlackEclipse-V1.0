@@ -8,6 +8,7 @@ import {
 } from "./command-router";
 import { bindArgs, tokenizeArgs } from "./command-parser";
 import { resolveCommand } from "./command-registry";
+import { handlers } from "./command-handlers";
 import type { SkillDetail, SkillDraft, SkillExecutionResult, SkillSummary } from "./skills-types";
 
 function summary(id: string, extra: Partial<SkillSummary> = {}): SkillSummary {
@@ -87,7 +88,24 @@ function makeDeps(overrides: Partial<CommandDeps["skills"]> = {}): CommandDeps {
         if (path === "/api/backtest/strategies") return { ok: true, status: 200, data: { strategies: [{ id: "s1", name: "Momentum", version: "1" }] } };
         if (path === "/api/backtest/backtest") return { ok: true, status: 200, data: { result: { sharpe: 1.2, totalReturn: 0.3 } } };
         if (path === "/api/research/run") return { ok: true, status: 200, data: { success: true, result: { answer: "Answer text", sources: [{ title: "S", url: "https://e.com" }], status: { state: "completed" }, claims: [] } } };
-        if (path === "/api/terminal/execute") return { ok: true, status: 200, data: { stdout: "ok\n", stderr: "", exitCode: 0 } };
+        if (path === "/api/terminal/execute") {
+          return {
+            ok: true,
+            status: 200,
+            data: {
+              success: true,
+              result: {
+                status: "completed",
+                stdout: "ok\n",
+                stderr: "",
+                exitCode: 0,
+                cwd: "/workspace",
+                runtime: "local",
+                durationMs: 12,
+              },
+            },
+          };
+        }
         if (path === "/api/code/tasks") return { ok: true, status: 200, data: { task: { id: "task_1", status: "created" } } };
         return { ok: true, status: 200, data: {} };
       }),
@@ -234,11 +252,17 @@ describe("executeCommandFromText", () => {
     expect(run.output).toContain("sharpe");
   });
 
-  it("runs a terminal command and shows its output", async () => {
+  it("unwraps the terminal result and forwards the shell and cwd", async () => {
     const deps = makeDeps();
-    const res = (await executeCommandFromText("/terminal ls -la", opCtx, deps))!;
+    const res = (await executeCommandFromText("/terminal --shell cmd --cwd src dir /s", opCtx, deps))!;
     expect(res.status).toBe("completed");
     expect(res.output).toContain("ok");
+    expect(res.output).toContain("cmd");
+    expect(res.output).toContain("Exit code");
+    expect(deps.frontDoor.request).toHaveBeenCalledWith(
+      "/api/terminal/execute",
+      expect.objectContaining({ body: { command: "dir /s", shell: "cmd", cwd: "src" } }),
+    );
   });
 
   it("denies /terminal for a non-operator", async () => {
@@ -260,6 +284,47 @@ describe("executeCommandFromText", () => {
     expect(res.status).toBe("completed");
     expect(res.output).toContain("eclipse-response");
     expect(res.output).toContain("skills");
+  });
+
+  it("describes one command with /help <command>", async () => {
+    const res = (await executeCommandFromText("/help quote", ctx, makeDeps()))!;
+    expect(res.status).toBe("completed");
+    expect(res.output).toContain("markets.quote");
+    expect(res.output).toContain("symbols");
+    expect(res.output).toContain("/quote AAPL");
+  });
+
+  it("suggests the closest command for an unknown help topic", async () => {
+    const res = (await executeCommandFromText("/help quotte", ctx, makeDeps()))!;
+    expect(res.status).toBe("completed");
+    expect(res.output).toContain("Did you mean");
+    expect(res.output).toContain("/quote");
+  });
+
+  it("enforces a command's declared timeout", async () => {
+    handlers["test.slow"] = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return { status: "completed" as const };
+    };
+    try {
+      const spec = {
+        ...resolveCommand("status")!,
+        id: "test.slow",
+        name: "slow",
+        timeoutMs: 5,
+        handler: { type: "native" as const, target: "test.slow" },
+      };
+      const res = await executeCommand(
+        { spec, name: "slow", rest: "", unknown: false, raw: "/slow" },
+        bindArgs(spec, tokenizeArgs("")),
+        ctx,
+        makeDeps(),
+      );
+      expect(res.status).toBe("failed");
+      expect(res.error?.code).toBe("COMMAND_TIMEOUT");
+    } finally {
+      delete handlers["test.slow"];
+    }
   });
 
   it("executes /status from real runtime health", async () => {

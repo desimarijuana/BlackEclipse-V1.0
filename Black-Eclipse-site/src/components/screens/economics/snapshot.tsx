@@ -14,8 +14,9 @@ interface SnapshotMetric {
   unit: string;
   country: string;
   source: string;
-  state: 'LIVE' | 'WEB' | 'UNAVAILABLE';
+  state: 'LIVE' | 'WEB' | 'CACHED' | 'UNAVAILABLE';
   url: string | null;
+  cachedAt?: string | null;
 }
 
 interface SnapshotData {
@@ -259,7 +260,12 @@ function SnapCard({ m }: { m: SnapshotMetric }) {
               WEB · {m.source.replace(/^WEB · /, '')}
             </a>
           ) : (
-            <div className="font-mono text-[10px] text-primary mt-0.5">{m.source}</div>
+            <div className={`font-mono text-[10px] mt-0.5 ${m.state === 'CACHED' ? 'text-amber-300/80' : 'text-primary'}`}>{m.source}</div>
+          )}
+          {m.state === 'CACHED' && m.cachedAt && (
+            <div className="font-mono text-[9px] text-muted-foreground/60 mt-0.5">
+              last confirmed {m.cachedAt.slice(0, 10)}
+            </div>
           )}
         </>
       ) : (

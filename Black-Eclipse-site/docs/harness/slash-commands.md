@@ -1,7 +1,7 @@
 ---
 title: Slash Commands
 status: Current
-last-verified: 2026-10-17
+last-verified: 2026-11-09
 ---
 
 # Slash Commands
@@ -79,7 +79,11 @@ every routed command.
    `src/lib/harness/command-handlers.ts` that calls the **existing** systems
    (skills-client, tasks-client, workflows-client, python-client, and loopback
    calls to the app's own `/api/...` front doors). The router owns no agent loop,
-   task queue, or skill database.
+   task queue, or skill database. The router also enforces the declared contract:
+   `timeoutMs` (a handler that overruns returns `COMMAND_TIMEOUT`), `retries`
+   only when `idempotent: true`, and a deprecation notice before a deprecated
+   command's output. Idempotency is what makes retrying safe; a side-effecting
+   command is never retried implicitly.
 6. **Render** — build validated `eclipse-response` blocks (`command-render.ts`);
    each block is checked against `src/lib/response/contract.ts` before it is
    emitted.
@@ -88,6 +92,21 @@ every routed command.
 
 Handlers are injected through `CommandDeps`, so the router is fully
 unit-testable without a live runtime.
+
+### Contract enforcement (not just documentation)
+
+- **Handler targets are verified.** `command-registry.contract.test.ts` fails CI
+  if a routed command names a handler target that is not in the dispatch table,
+  if two commands share an id, if a high/critical-risk command lacks the
+  operator gate, if a completion provider is unknown, or if an `available`
+  command is missing its summary/examples/output/version.
+- **Risk is visible.** The composer palette shows an `operator` chip when
+  `permissions.approval` is `operator` and a red risk chip for `high`/`critical`
+  commands. The audit event records the declared `risk` and `approval` alongside
+  the command id and status.
+- **Search is typo tolerant.** Prefix/alias/substring matches still win, but a
+  query within edit distance 2 of a command name (or 1 of an alias) is offered
+  as a fallback, so `/help quotte` suggests `/quote`.
 
 ## Where it is wired
 
@@ -109,9 +128,10 @@ unit-testable without a live runtime.
 
 Backed by real handlers/endpoints:
 
-- Runtime: `/help`, `/status` (alias `/health`), `/compact`, `/tasks` (alias
-  `/plans`), `/workflows`, `/agents`, `/models` (alias `/providers`), `/tools`,
-  `/usage` (alias `/cost`).
+- Runtime: `/help` (bare = grouped catalog; `/help <command>` = one command's
+  full contract with arguments, flags, risk, approval and examples), `/status`
+  (alias `/health`), `/compact`, `/tasks` (alias `/plans`), `/workflows`,
+  `/agents`, `/models` (alias `/providers`), `/tools`, `/usage` (alias `/cost`).
 - Markets / portfolio / memory / MCP: `/market` (gateway providers + health),
   `/quote` (`/quotes` — JDdS quotes with honest freshness), `/portfolio` (real
   portfolios), `/memory` (overview + recent), `/mcp` (configured servers).
@@ -120,7 +140,13 @@ Backed by real handlers/endpoints:
   engine, returning the answer with its sources.
 - Quant: `/backtest` — lists saved strategies, or backtests one by id.
 - Dev: `/code` (start a code task), `/terminal` (aliases `/run`, `/sh` — run a
-  shell command; operator- and effect-gated).
+  shell command; operator- and effect-gated). `/terminal` takes
+  `--shell powershell|cmd|wsl|bash` and `--cwd <path>`; on Windows the host
+  default is PowerShell, so use `--shell cmd` for cmd.exe-specific syntax. The
+  result card shows the requested shell, the resolved working directory, the
+  exit code, duration, and honest `timedOut` / `truncated` markers. The handler
+  unwraps the Python route's `{ success, result }` envelope, so stdout/stderr are
+  real output rather than an empty result.
 - Visual: `/anatomy` (aliases `/visualize`, `/mechanism`) — explain a concept as
   an interactive **3D model** (an orbitable `model3d` block with labelled parts,
   mechanism recipes and step-through stages); an agent-turn command that authors a
@@ -223,6 +249,9 @@ explicit command surfaces.
 
 - `src/lib/harness/command-registry.test.ts` — resolution, aliases, conflicts,
   availability, search, argument hints.
+- `src/lib/harness/command-registry.contract.test.ts` — registry↔handler
+  coverage, self-describing commands, risk/approval invariants, completion
+  providers, deprecation/unavailability metadata, `/help <command>`.
 - `src/lib/harness/command-parser.test.ts` — quoting, escapes, Unicode, enum and
   required-arg validation, pass-through flags.
 - `src/lib/harness/command-agent.test.ts` — `/skill` rewrites into a skill-authoring

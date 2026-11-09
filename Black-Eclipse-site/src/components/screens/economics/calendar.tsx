@@ -142,9 +142,11 @@ export function CalendarView({ focus }: { focus?: string } = {}) {
         ? 'official schedules only'
         : source === 'mirror'
           ? 'release mirror'
-          : source === 'unavailable'
-            ? 'sources unavailable'
-            : '';
+          : source === 'cached'
+            ? 'cached official schedule'
+            : source === 'unavailable'
+              ? 'sources unavailable'
+              : '';
 
   return (
     <div className="flex flex-col gap-4">

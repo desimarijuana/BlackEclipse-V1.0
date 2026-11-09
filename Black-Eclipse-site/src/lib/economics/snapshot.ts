@@ -7,7 +7,7 @@
 import { isHtmlPayload } from "./fetch";
 import { enrichMetrics, type WebMetricSpec } from "./enrichment";
 
-export type SnapshotState = "LIVE" | "WEB" | "UNAVAILABLE";
+export type SnapshotState = "LIVE" | "WEB" | "CACHED" | "UNAVAILABLE";
 
 export interface SnapshotMetric {
   id: string;
@@ -20,10 +20,12 @@ export interface SnapshotMetric {
   country: string;
   /** Exact provider identity of the value actually fetched (e.g. "FRED · DFF"). */
   source: string;
-  /** LIVE = structured provider; WEB = official page found via search. */
+  /** LIVE = structured provider; WEB = official page found via search; CACHED = last known good. */
   state: SnapshotState;
   /** Source page for WEB values. */
   url: string | null;
+  /** When a CACHED value was last confirmed by a provider. */
+  cachedAt?: string | null;
 }
 
 interface FREDMeta {

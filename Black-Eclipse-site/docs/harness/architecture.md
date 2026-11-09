@@ -1,7 +1,7 @@
 ---
 title: Harness Architecture
 status: Current
-last-verified: 2026-11-06
+last-verified: 2026-11-09
 ---
 
 # Harness Architecture
@@ -1646,7 +1646,7 @@ front door can raise a restart/build requirement; `test_selfhost_landing.py`.
 
 | To add… | Do this |
 |---|---|
-| A chat slash command | Add a `ChatCommand` to `CHAT_COMMANDS` in `src/lib/harness/commands.ts` (name, aliases, summary, forced `profile`); the front door parses/strips it in `startChatRun`. No runtime change unless the command needs a new marker. |
+| A chat slash command | Add a `CommandSpec` to `COMMAND_REGISTRY` in `src/lib/harness/command-registry.ts` and its handler to `src/lib/harness/command-handlers.ts`; routed commands run through the shared router, and agent-turn rewrites live in `command-agent.ts`. Profile commands also need a `ChatCommand` in `src/lib/harness/commands.ts` (forced `profile`), parsed/stripped in `startChatRun`. `command-registry.contract.test.ts` fails if the handler target is missing or a high-risk command lacks the operator gate. |
 | An agent-authored skill / extension | No code change: the agent calls `skill_create`/`skill_update`/`skill_delete` (approval-gated). To add a new *kind* of extension tool, add a handler + `ToolDefinition` in `python/harness/skills/manage_tools.py`, gate it in `make_skill_manage_authorizer`, and add its name to `code.policy.ACQUISITION_WRITE_TOOLS`. |
 | A skill lifecycle tool (history/review/evaluate/activate/learning mode) | Add it next to the existing six in `python/harness/skills/lifecycle_tools.py`; reuse `versioning.*` / `PolicyStore.set`, gate writes in `make_skill_lifecycle_authorizer`, register it in `install_tools.register_skill_install_tools`, and add any write name to `code.policy.ACQUISITION_WRITE_TOOLS` + the agent allowlists. |
 | A tool | Define a `ToolDefinition` in `python/harness/`, register it in `register_finance_tools` (or a new `register_*`). Read-only required. |

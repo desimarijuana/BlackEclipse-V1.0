@@ -10,10 +10,12 @@ import {
   commandArgHint,
   isCommandAvailable,
   listCommands,
+  type CommandApproval,
+  type CommandRisk,
   type CommandSpec,
 } from "./command-registry";
 import { parseAndBind, type BoundArgs, type CommandInvocation } from "./command-parser";
-import { fenceEnvelope } from "./command-render";
+import { callout, fenceEnvelope } from "./command-render";
 import { fail, frontDoorError, handlers, type HandlerOutput } from "./command-handlers";
 import { redactSecrets } from "./errors";
 import {
@@ -72,6 +74,10 @@ export interface CommandAuditEvent {
   skillId?: string;
   runId?: string;
   errorCode?: string;
+  /** Declared risk of the command that ran (enforced by contract tests). */
+  risk?: CommandRisk;
+  /** Declared approval gate (operator gates are re-enforced in Python). */
+  approval?: CommandApproval;
 }
 
 /** The result of a real conversation compaction (`/compact`). */
@@ -313,6 +319,7 @@ function buildResult(
       ...(output.meta?.skillId ? { skillId: output.meta.skillId } : {}),
       ...(output.meta?.runId ? { runId: output.meta.runId } : {}),
       ...(output.error ? { errorCode: output.error.code } : {}),
+      ...(spec ? { risk: spec.risk, approval: spec.permissions.approval ?? "none" } : {}),
     },
   };
 
@@ -386,11 +393,54 @@ export async function executeCommand(
     });
   }
 
+  const invoke = (): Promise<HandlerOutput> => {
+    const task = handler({ ...ctx, actor }, spec, args, deps);
+    if (!spec.timeoutMs || spec.timeoutMs <= 0) {
+      return task.catch((err: unknown) =>
+        fail("EXECUTION_ERROR", redactSecrets(err instanceof Error ? err.message : String(err))),
+      );
+    }
+    return new Promise<HandlerOutput>((resolve) => {
+      const timer = setTimeout(() => {
+        resolve({
+          status: "failed",
+          error: {
+            code: "COMMAND_TIMEOUT",
+            message: `\`/${spec.name}\` exceeded its ${spec.timeoutMs} ms limit.`,
+          },
+        });
+      }, spec.timeoutMs);
+      task.then(
+        (out) => {
+          clearTimeout(timer);
+          resolve(out);
+        },
+        (err: unknown) => {
+          clearTimeout(timer);
+          resolve(fail("EXECUTION_ERROR", redactSecrets(err instanceof Error ? err.message : String(err))));
+        },
+      );
+    });
+  };
+
+  // Retry only when the command declares itself idempotent; a side-effecting
+  // command is never retried implicitly.
+  const maxAttempts = 1 + (spec.idempotent ? Math.max(0, spec.retries ?? 0) : 0);
   let output: HandlerOutput;
-  try {
-    output = await handler({ ...ctx, actor }, spec, args, deps);
-  } catch (err) {
-    output = fail("EXECUTION_ERROR", redactSecrets(err instanceof Error ? err.message : String(err)));
+  let attempt = 0;
+  do {
+    output = await invoke();
+    attempt += 1;
+  } while (output.status !== "completed" && attempt < maxAttempts);
+
+  if (spec.deprecation && output.status === "completed") {
+    const alternative = spec.deprecation.alternative
+      ? ` Use \`${spec.deprecation.alternative}\` instead.`
+      : "";
+    output = {
+      ...output,
+      blocks: [callout("warning", "Deprecated", `${spec.deprecation.note}${alternative}`), ...(output.blocks ?? [])],
+    };
   }
 
   const result = buildResult(spec, name, { ...ctx, actor }, spec.handler.target, startedAt, deps, output);
