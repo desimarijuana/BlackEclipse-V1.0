@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Download, Loader2, Play, RotateCcw, X } from '@/lib/icons';
+import { Download, Loader2, Play, RotateCcw, X } from '@/lib/icons';
 import { cn } from '@/lib/utils';
 import { downloadUrl, inlineUrl } from '@/lib/harness/artifacts-browser';
 import { VideoApiError, cancelVideoJob, getVideoJob, renderVideoProject } from '@/lib/harness/video-client';
@@ -226,7 +226,6 @@ function VideoJobRow({
 
       {status?.terminal && !failed ? <SuccessDetail ref_={ref_} status={status} /> : null}
       {status?.artifactId ? (
-        // eslint-disable-next-line jsx-a11y/media-has-caption
         <video
           controls
           preload="metadata"

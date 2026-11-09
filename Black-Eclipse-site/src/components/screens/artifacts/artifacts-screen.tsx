@@ -253,7 +253,6 @@ function PreviewBody({ artifact, preview }: { artifact: Artifact; preview: Artif
       // Plays inline (the download route serves `inline=1` and honors byte
       // ranges, so seeking works). A honest fallback below when the browser
       // cannot play the codec.
-      // eslint-disable-next-line jsx-a11y/media-has-caption
       return (
         <video
           controls

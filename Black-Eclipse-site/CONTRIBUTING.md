@@ -20,9 +20,14 @@ New to the codebase? Read [`docs/OVERVIEW.md`](docs/OVERVIEW.md) first, then use
 
 `npm run check:all` is **the** release gate (same steps as CI,
 `.github/workflows/ci.yml`): `prisma generate` → `tsc --noEmit` → `eslint` →
-`npm test` (Vitest + Python) → `npm run test:evals`. Run it before any push.
+committed-secret scan → security preflight → decision-record (ADR) check →
+harness size budget → `npm test` (Vitest + Python) → eval gates → the corpus
+gate. CI additionally runs the two Playwright drift smokes
+(`npm run test:drift`). Run the gate before any push.
 Individual pieces: `npm test`, `npm run test:py`, `npm run test:evals`,
-`npm run lint`, `npm run typecheck`.
+`npm run test:drift`, `npm run lint`, `npm run typecheck`,
+`npm run check:secrets`, `npm run security:preflight`, `npm run check:adr`,
+`npm run check:size`.
 
 Two release-tag preconditions are **NOT part of the gate** because they hit the
 network. A human must run **both** before creating a release tag:

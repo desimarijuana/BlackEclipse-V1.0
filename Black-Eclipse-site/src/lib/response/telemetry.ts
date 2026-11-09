@@ -32,7 +32,6 @@ export function setResponseTelemetryReporter(next: Reporter | null): () => void 
 /** Report one client telemetry record (no-op unless a reporter is installed). */
 export function reportResponseTelemetry(record: ResponseTelemetryRecord): void {
   if (process.env.NODE_ENV !== 'production') {
-    // eslint-disable-next-line no-console
     console.debug('[eclipse-response] telemetry', record);
   }
   reporter?.(record);

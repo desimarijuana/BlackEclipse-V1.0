@@ -237,7 +237,6 @@ export function setResponseDegradeReporter(next: DegradeReporter | null): () => 
 export function reportResponseDegrade(records: DegradeRecord[]): void {
   if (records.length === 0) return;
   if (process.env.NODE_ENV !== 'production') {
-    // eslint-disable-next-line no-console
     console.warn('[eclipse-response] degraded blocks', records);
   }
   reporter?.(records);

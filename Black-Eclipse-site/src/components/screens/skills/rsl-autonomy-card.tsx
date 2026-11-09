@@ -52,7 +52,9 @@ export function RslAutonomyCardView({
   className,
 }: RslAutonomyCardViewProps) {
   const t = useT();
-  const paused = Boolean(status?.killSwitch.paused);
+  // A partial/older payload (or a proxy error envelope) may omit `killSwitch`.
+  // The whole skills panel must not crash because one sub-object is missing.
+  const paused = Boolean(status?.killSwitch?.paused);
   const budgetLeft = status
     ? status.activationsToday < status.autoMaxPerDay
     : false;
@@ -245,9 +247,10 @@ export function RslAutonomyCard({ className }: { className?: string }) {
     setBusy(true);
     setError(null);
     try {
+      const paused = status.killSwitch?.paused ?? false;
       await setEvolutionAutonomyPausedBrowser(
-        !status.killSwitch.paused,
-        status.killSwitch.paused ? "" : "operator pause from the control panel",
+        !paused,
+        paused ? "" : "operator pause from the control panel",
       );
       await load();
     } catch (err) {

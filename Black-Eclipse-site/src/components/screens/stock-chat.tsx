@@ -463,7 +463,6 @@ function StockChatContent() {
       unsub();
       window.removeEventListener('popstate', onPopState);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);
 
   // Keep the URL in sync with the active tab so a refresh/share opens the same

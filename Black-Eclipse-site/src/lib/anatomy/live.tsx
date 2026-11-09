@@ -24,6 +24,11 @@ export function useInView<T extends Element>(ref: React.RefObject<T | null>) {
   const [inView, setInView] = React.useState(false);
   const watched = React.useRef<Element | null>(null);
   const observer = React.useRef<IntersectionObserver | null>(null);
+  // No dependency list on purpose: refs do not trigger a render, so a node that
+  // mounts later is only noticed by re-checking on the next render. The
+  // `node === watched.current` guard makes the repeated run a no-op, and
+  // `setInView(false)` is idempotent for the same node — it cannot loop.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   React.useEffect(() => {
     const node = ref.current;
     if (node === watched.current) return;

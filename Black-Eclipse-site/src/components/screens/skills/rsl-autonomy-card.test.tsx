@@ -81,6 +81,15 @@ describe("the autonomy card", () => {
     expect(applyButton(markup)).toContain('disabled=""');
   });
 
+  it("survives a partial status payload without a killSwitch", () => {
+    // A proxy error envelope or an older payload can omit killSwitch. The card
+    // must render (treating it as not paused), not throw and blank the panel.
+    const partial = { ...STATUS, killSwitch: undefined } as unknown as EvolutionAutonomyStatus;
+    const markup = render({ status: partial });
+    expect(markup).toContain("evolution.autonomy.title");
+    expect(markup).not.toContain("evolution.autonomy.paused");
+  });
+
   it("disables apply when the daily budget is exhausted or autonomy is off", () => {
     const spent = render({
       status: { ...STATUS, activationsToday: 1, autoMaxPerDay: 1 },

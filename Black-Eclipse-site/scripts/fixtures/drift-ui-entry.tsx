@@ -48,6 +48,20 @@ function json(body: unknown) {
 
 globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
+  // More specific than `/api/evolution/rsl`: the autonomy card reads this shape
+  // and needs `killSwitch`, not the RSL status shape below.
+  if (url.includes("/api/evolution/rsl/autonomy")) {
+    return json({
+      success: true,
+      level: "supervised",
+      autoEligible: false,
+      riskCeiling: "low",
+      autoMinLift: 0.05,
+      autoMaxPerDay: 1,
+      activationsToday: 0,
+      killSwitch: { paused: false, at: null, reason: "" },
+    });
+  }
   if (url.includes("/api/evolution/rsl")) {
     return json({
       success: true, mode: "observe", running: true, busy: false,

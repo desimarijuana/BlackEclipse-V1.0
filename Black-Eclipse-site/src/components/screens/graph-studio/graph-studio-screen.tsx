@@ -264,7 +264,6 @@ export function GraphStudioScreen({
     } else {
       setRightPanel((current) => (current === 'node' ? null : current));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [singleSelectedId, inspectedNodeId]);
 
   const save = useCallback(async (): Promise<boolean> => {
