@@ -46,6 +46,8 @@ import { ghostSpecFromId } from '@/lib/bots/ghost';
 import { useT } from '@/lib/i18n/use-t';
 import { isKeyboardScopeVisible } from '@/lib/keyboard';
 import { CHAT_FOCUS_EVENT } from '@/hooks/use-chat-focus-keybind';
+import type { QueuedPrompt } from '@/lib/chat/message-queue';
+import { MessageQueue } from './message-queue';
 
 // Grow the composer to roughly four lines, then scroll instead of growing.
 const MAX_HEIGHT = 120;
@@ -126,6 +128,17 @@ interface ChatInputProps {
    * absent, a long paste is inserted normally.
    */
   onPasteText?: (text: string) => void;
+  /**
+   * Prompts waiting to run after the current reply. While the agent is busy a
+   * submit QUEUES the draft instead of dropping it; the panel lets the user
+   * edit, reorder, remove or promote each item.
+   */
+  queued?: QueuedPrompt[];
+  onQueueEdit?: (id: string, text: string) => void;
+  onQueueRemove?: (id: string) => void;
+  onQueueMove?: (id: string, direction: 'up' | 'down') => void;
+  onQueueRunNow?: (id: string) => void;
+  onQueueClear?: () => void;
 }
 
 export function ChatInput({ 
@@ -149,6 +162,12 @@ export function ChatInput({
   contextFraction,
   mentionTargets,
   onPasteText,
+  queued,
+  onQueueEdit,
+  onQueueRemove,
+  onQueueMove,
+  onQueueRunNow,
+  onQueueClear,
   }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Dictation inserts at the caret captured when the mic is pressed, never at
@@ -366,9 +385,11 @@ export function ChatInput({
       }
     }
     // Enter sends; Shift+Enter inserts a newline. Ignore IME composition.
+    // While the agent is busy the host QUEUES the prompt instead of dropping it,
+    // so submit is always forwarded and the host decides send-vs-queue.
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      if (!busy) onSend(e);
+      onSend(e);
     }
   };
 
@@ -436,6 +457,17 @@ export function ChatInput({
   return (
     <div className="w-full">
       <TradeApprovalBanner onCancel={onCancel} />
+      {queued && queued.length > 0 && onQueueEdit && onQueueRemove && onQueueMove && onQueueRunNow && onQueueClear && (
+        <MessageQueue
+          items={queued}
+          busy={busy}
+          onEdit={onQueueEdit}
+          onRemove={onQueueRemove}
+          onMove={onQueueMove}
+          onRunNow={onQueueRunNow}
+          onClear={onQueueClear}
+        />
+      )}
       {attachments && attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap items-center gap-1.5" aria-label="Attached documents">
           {attachments.map((file) => (
@@ -703,16 +735,30 @@ export function ChatInput({
               className="h-8 w-8"
             />
             {busy ? (
-              <Button
-                type="button"
-                size="icon"
-                onClick={onCancel}
-                title="Stop generating"
-                aria-label="Stop generating"
-                className="p-1.5 bg-foreground/90 text-background hover:bg-foreground rounded-full shrink-0 h-8 w-8 cursor-pointer transition-colors flex items-center justify-center focus-visible:ring-0 focus-visible:outline-none"
-              >
-                <Pause size={15} fill="currentColor" />
-              </Button>
+              <div className="flex items-center gap-1.5">
+                {(query.trim() || (attachments && attachments.length > 0)) && (
+                  <Button
+                    type="submit"
+                    size="icon"
+                    title="Queue this prompt — it runs after the current reply"
+                    aria-label="Queue this prompt"
+                    className="flex h-8 items-center gap-1 rounded-full border border-primary/40 bg-primary/15 px-2.5 text-primary transition-colors hover:bg-primary/25 focus-visible:ring-0 focus-visible:outline-none"
+                  >
+                    <ArrowUp size={14} />
+                    <span className="hidden text-[11px] font-semibold min-[420px]:inline">Queue</span>
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  size="icon"
+                  onClick={onCancel}
+                  title="Stop generating"
+                  aria-label="Stop generating"
+                  className="p-1.5 bg-foreground/90 text-background hover:bg-foreground rounded-full shrink-0 h-8 w-8 cursor-pointer transition-colors flex items-center justify-center focus-visible:ring-0 focus-visible:outline-none"
+                >
+                  <Pause size={15} fill="currentColor" />
+                </Button>
+              </div>
             ) : (
               <Button 
                 type="submit" 

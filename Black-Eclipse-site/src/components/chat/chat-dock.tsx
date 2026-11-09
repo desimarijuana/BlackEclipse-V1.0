@@ -53,6 +53,8 @@ import { ModelSelector } from './chat-input';
 import { EffortControl } from './effort-control';
 import { ApprovalCard } from './approval-card';
 import { ClarificationCard } from './clarification-card';
+import { MessageQueue } from './message-queue';
+import { useMessageQueue } from '@/lib/chat/use-message-queue';
 
 const STORAGE_KEY = 'be_chat_dock_v1';
 /** Stable workspace-folder id for the dock, so its runs also persist output. */
@@ -161,6 +163,9 @@ export function ChatDock({
   const [messages, setMessages] = useState<Message[]>([]);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
+  // Prompts submitted while this dock's agent is replying. They run in order
+  // once the current answer finishes; each can be edited/reordered/promoted.
+  const messageQueue = useMessageQueue();
   // Manual expand/collapse of the transcript (independent of focus, so the user
   // can scroll back through an answer without the panel collapsing).
   const [expanded, setExpanded] = useState(false);
@@ -434,8 +439,9 @@ export function ChatDock({
     append([]);
     setQuery('');
     setExpanded(false);
+    messageQueue.clear();
     textareaRef.current?.focus();
-  }, [append]);
+  }, [append, messageQueue]);
 
   /**
    * Run one turn: append the user prompt + an empty assistant turn, then let
@@ -520,9 +526,38 @@ export function ChatDock({
     }
   };
 
+  // ── Queue drain ────────────────────────────────────────────────────────
+  // Run queued prompts one at a time as soon as the dock is idle. `drainingRef`
+  // covers the gap between removing the head and `startTurn` marking the dock
+  // busy (removing the item re-renders before the run does).
+  const drainingQueueRef = useRef(false);
+  useEffect(() => {
+    if (busy || drainingQueueRef.current) return;
+    const next = messageQueue.peek();
+    if (!next) return;
+    drainingQueueRef.current = true;
+    messageQueue.remove(next.id);
+    const history = messagesRef.current.map(m => ({ role: m.role, content: m.content }));
+    void startTurn(history, next.text).finally(() => {
+      drainingQueueRef.current = false;
+    });
+    // Keyed on run state + queue contents; startTurn/refs are intentionally not
+    // dependencies so the effect does not restart mid-drain.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, messageQueue.items]);
+
   const send = async () => {
     const text = query.trim();
-    if (!text || busy) return;
+    if (!text) return;
+    // Busy means "queue it", never "drop it". The queue drains automatically as
+    // each reply completes, in the order the prompts were typed.
+    if (busy || messageQueue.size() > 0) {
+      if (messageQueue.enqueue(text)) {
+        setQuery('');
+        sound.tick();
+      }
+      return;
+    }
     const history = messagesRef.current.map(m => ({ role: m.role, content: m.content }));
     await startTurn(history, text);
   };
@@ -582,7 +617,16 @@ export function ChatDock({
     }
   };
 
-  const canSend = query.trim().length > 0 && !busy;
+  // A draft is sendable whether or not a reply is running: while busy the send
+  // action queues it instead of dropping it.
+  const canSend = query.trim().length > 0;
+  const canQueue = busy && canSend;
+
+  /** Promote a queued prompt and interrupt the current reply so it runs next. */
+  const runQueuedNext = (id: string) => {
+    messageQueue.promote(id);
+    if (busy) void cancel();
+  };
 
   const dock = hostVisible && visible && mounted && typeof document !== 'undefined' && createPortal(
     <div
@@ -689,6 +733,18 @@ export function ChatDock({
           </div>
         )}
 
+        {/* Queued prompts — visible while the assistant is replying, so a
+            follow-up is never silently lost and order is explicit. */}
+        <MessageQueue
+          items={messageQueue.items}
+          busy={busy}
+          onEdit={messageQueue.update}
+          onRemove={messageQueue.remove}
+          onMove={messageQueue.move}
+          onRunNow={runQueuedNext}
+          onClear={messageQueue.clear}
+        />
+
         {/* Composer — always visible, bottom-centre. */}
         <div
           ref={setComposerEl}
@@ -791,15 +847,29 @@ export function ChatDock({
                 iconSize={17}
               />
               {busy ? (
-                <button
-                  type="button"
-                  onClick={() => void cancel()}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-foreground/90 text-background transition-colors hover:bg-foreground cursor-pointer"
-                  title="Stop generating"
-                  aria-label="Stop generating"
-                >
-                  <Pause size={14} fill="currentColor" />
-                </button>
+                <>
+                  {canQueue && (
+                    <button
+                      type="button"
+                      onClick={() => void send()}
+                      className="flex h-9 items-center gap-1 rounded-full border border-primary/40 bg-primary/15 px-2.5 text-primary transition-colors hover:bg-primary/25 cursor-pointer"
+                      title="Queue this prompt — it runs after the current reply"
+                      aria-label="Queue this prompt"
+                    >
+                      <ArrowUp size={14} />
+                      <span className="hidden text-[11px] font-semibold min-[420px]:inline">Queue</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void cancel()}
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-foreground/90 text-background transition-colors hover:bg-foreground cursor-pointer"
+                    title="Stop generating"
+                    aria-label="Stop generating"
+                  >
+                    <Pause size={14} fill="currentColor" />
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"

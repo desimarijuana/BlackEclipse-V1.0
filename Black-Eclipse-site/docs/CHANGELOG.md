@@ -1,6 +1,16 @@
 # Change Log
 
 ## 2026-11-09
+- **feat(chat): queue multiple prompts while the agent is replying.** Pressing
+  Enter (or the new Queue button) during a run now appends the draft to an
+  ordered queue instead of silently dropping it. A new `MessageQueue` panel
+  above the composer (Eclipse Agent page + floating Assistant dock) lists every
+  waiting prompt and lets the user edit, reorder, remove, clear, or promote one
+  with "Run this next" — which interrupts the in-flight reply and runs the
+  promoted prompt immediately. The queue drains one item at a time through the
+  same dispatch path as a normal send, in typed order. Rules live in
+  `src/lib/chat/message-queue.ts` (pure, tested) with `useMessageQueue` keeping
+  a synchronous ref for the async drain. Docs updated: `docs/CHANGELOG.md`.
 - **feat(settings): add global temperature and max-output-tokens controls.**
   Settings › AI gains an opt-in sampling block: temperature (Auto / Precise /
   Balanced / Creative plus a 0–2 slider) and a blank-by-default output cap.

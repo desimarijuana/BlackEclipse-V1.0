@@ -29,6 +29,7 @@ import { buildUserTurn } from '@/lib/chat/paste';
 import { mostRecentConversation, saveConversationsCache } from '@/lib/chat/chat-organization';
 import { useChatOrganization } from '@/lib/chat/use-chat-organization';
 import { useConversationPersistence } from '@/lib/chat/use-conversation-persistence';
+import { useMessageQueue } from '@/lib/chat/use-message-queue';
 import { useHydrateBackground } from '@/lib/backgrounds';
 import { useHydrateChatAppearance } from '@/lib/chat/appearance';
 import { Message } from '@/types/chat';
@@ -236,6 +237,9 @@ function StockChatContent() {
   const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
   // True while the agent is working — swaps the submit arrow for a pause button.
   const [agentBusy, setAgentBusy] = useState(false);
+  // Prompts the user submits while a run is in flight. They drain in order as
+  // soon as the current reply stops; each can be edited/reordered/promoted.
+  const messageQueue = useMessageQueue();
   // Shared session controller: the composer's "+" uploads and the bar displays.
   const sessionController = useSession(activeConversationId, sessionRefreshKey);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -552,6 +556,7 @@ function StockChatContent() {
     activeConversationIdRef.current = null;
     setActiveConversationId(null);
     setMessages([]);
+    messageQueue.clear();
     useWorkspaceStore.getState().clear();
   };
 
@@ -694,7 +699,20 @@ function StockChatContent() {
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (agentBusy) return;
+    const typed = query.trim();
+
+    // While a turn is in flight (or queued work is waiting) a submit becomes a
+    // QUEUED prompt instead of a silent no-op. The queue drains automatically
+    // when the current reply finishes, preserving the order the user typed.
+    if (agentBusy || runInFlightRef.current || messageQueue.size() > 0) {
+      if (!typed) return;
+      if (messageQueue.enqueue(typed)) {
+        setQuery('');
+        sound.tick();
+      }
+      return;
+    }
+
     const userMsg = buildUserTurn(query, sessionController.claimPastedAttachments(), attachmentChips.length > 0);
     if (!userMsg) return;
     sessionController.closePreview();
@@ -827,6 +845,28 @@ function StockChatContent() {
     else await runAgent(chatId, userText, userMsg);
   };
 
+  // ── Queue drain ────────────────────────────────────────────────────────
+  // One prompt at a time: when no run is active, take the head of the queue and
+  // run it through the SAME dispatch path as a manual send. `drainingRef` guards
+  // the window between removing the item and the run marking itself busy (the
+  // queue mutation re-renders synchronously and would otherwise re-enter).
+  const drainingQueueRef = useRef(false);
+  useEffect(() => {
+    if (agentBusy || runInFlightRef.current || drainingQueueRef.current) return;
+    const next = messageQueue.peek();
+    if (!next) return;
+    drainingQueueRef.current = true;
+    messageQueue.remove(next.id);
+    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: next.text };
+    const chatId = addMessageToActiveChat(userMsg);
+    void dispatchTurn(chatId, next.text, userMsg).finally(() => {
+      drainingQueueRef.current = false;
+    });
+    // `dispatchTurn`/`addMessageToActiveChat` are stable enough here: the effect
+    // is deliberately keyed on run state + queue contents only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentBusy, messageQueue.items]);
+
   /** Stop the in-flight run (cooperative cancel in the Python runtime). */
   const handleCancel = async () => {
     sound.tick();
@@ -835,6 +875,16 @@ function StockChatContent() {
     // keeps whatever already streamed (same contract as the Bots workspace Stop).
     if (abortDelegation()) return;
     agentRun.cancel();
+  };
+
+  /**
+   * Promote a queued prompt to the front and stop the current run, so it is the
+   * very next thing the agent does. This is the "override/re-steer" action: the
+   * queue keeps everything else, and the drain effect starts the promoted item.
+   */
+  const handleQueueRunNow = (id: string) => {
+    messageQueue.promote(id);
+    if (agentBusy || runInFlightRef.current) void handleCancel();
   };
 
   /** Record a user's rating on an assistant turn (persisted with the message). */
@@ -1271,6 +1321,12 @@ function StockChatContent() {
                         attachments={attachmentChips} onRemoveAttachment={handleRemoveAttachment} onOpenAttachment={sessionController.openAttachment}
                         onPasteText={(text) => void sessionController.attachText(text, reservedAttachmentNames)}
                         mentionTargets={mentionTargets}
+                        queued={messageQueue.items}
+                        onQueueEdit={messageQueue.update}
+                        onQueueRemove={messageQueue.remove}
+                        onQueueMove={messageQueue.move}
+                        onQueueRunNow={handleQueueRunNow}
+                        onQueueClear={messageQueue.clear}
                         contextLabel={sessionController.session && sessionController.session.contextChars > 0 ? `${(sessionController.session.contextChars / 1000).toFixed(1)}k / ${(sessionController.session.contextLimitChars / 1000).toFixed(0)}k chars` : undefined}
                         contextFraction={sessionController.session ? sessionController.session.contextChars / sessionController.session.contextLimitChars : 0}
                       />
