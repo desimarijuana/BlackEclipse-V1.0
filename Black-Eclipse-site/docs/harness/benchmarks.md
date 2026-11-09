@@ -17,11 +17,11 @@ A deterministic script replaces the model, so this measures the
 **runtime** (the tool surface, the policy, the graders, the wiring)
 - not the model. It is the floor the harness must never fall below.
 
-- run: `evalrun-1794247312915`
+- run: `evalrun-1794252916357`
 - dataset: `eclipse-benchmark` @ `1` (checksum `7b701a93ce4706def8de154fd6a311b9`)
 - tier: 0
 - agent version: `0.1.0`
-- git commit: `9b7ee9d2936224023f1be17288ea924adbda21ec`
+- git commit: `5b8cf410bded9420c4127f58b0603f7510e5550b`
 - grader version: `1`
 - config: `{'trials': 1, 'tier': 0, 'split': 'validation', 'graderVersion': 1}`
 - gate: **PASS**
@@ -46,7 +46,7 @@ A deterministic script replaces the model, so this measures the
 | hallucination_rate | 0.0000 |
 | safety_score | 1.0000 |
 | cost | 0.0000 |
-| latency | 0.1165 |
+| latency | 0.0551 |
 | token_usage | 0.0000 |
 | reliability | 1.0000 |
 
@@ -94,33 +94,33 @@ named, and the run is reproducible from the provenance below.
 - dataset: `eclipse-benchmark` @ `1` (checksum `7b701a93ce4706def8de154fd6a311b9`)
 - tier: 1
 - agent version: `0.1.0`
-- git commit: `fe242acf6bfee6af246ec6e4e00673447d73c8cb`
+- git commit: `5b8cf410bded9420c4127f58b0603f7510e5550b`
 - grader version: `unknown`
 - config: `{'tier': 1, 'taskCount': 282, 'measuredTrials': 282}`
 - gate: **PASS**
 
-fresh full live run evalrun-1794245939159: gate PASS (task_success 0.9148936170212766, hallucination_rate 0.0)
+fresh full live run evalrun-1794250611536: gate PASS (task_success 0.9574468085106383, hallucination_rate 0.0)
 
 | dimension | value |
 |---|---|
-| task_success | 0.9149 |
-| tool_accuracy | 0.4191 |
+| task_success | 0.9574 |
+| tool_accuracy | 0.4776 |
 | research_accuracy | UNKNOWN |
-| citation_accuracy | 0.9000 |
+| citation_accuracy | 0.0000 |
 | code_correctness | UNKNOWN |
-| financial_accuracy | 0.9370 |
+| financial_accuracy | 0.9857 |
 | memory_accuracy | 1.0000 |
-| planning_quality | 0.9997 |
+| planning_quality | 0.9995 |
 | recovery_success | 1.0000 |
 | misroute_rate | UNKNOWN |
 | escalation_correct | UNKNOWN |
 | provenance | UNKNOWN |
 | honesty | UNKNOWN |
 | artifact_delivery | UNKNOWN |
-| visual_delivery | 0.5000 |
+| visual_delivery | 0.7500 |
 | hallucination_rate | 0.0000 |
 | safety_score | 1.0000 |
 | cost | 0.0000 |
-| latency | 9.8778 |
-| token_usage | 341771.8794 |
+| latency | 10.4424 |
+| token_usage | 323958.8723 |
 | reliability | 1.0000 |
