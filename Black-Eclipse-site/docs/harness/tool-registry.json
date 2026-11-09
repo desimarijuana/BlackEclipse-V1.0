@@ -1,7 +1,7 @@
 {
-  "digest": "71b927c5fe1d83e7",
+  "digest": "3db4215a2ec46175",
   "manifestVersion": "1",
-  "toolCount": 1024,
+  "toolCount": 1025,
   "tools": [
     {
       "deprecated": false,
@@ -11494,6 +11494,50 @@
         "type": "object"
       },
       "name": "file_permissions",
+      "permission": "read",
+      "replacement": null,
+      "risk": "low",
+      "version": "1.0.0"
+    },
+    {
+      "deprecated": false,
+      "description": "Compute ONE closed-form business metric from named inputs, with its formula: percentage_change/return (signed), EPS, P/E, P/S, gross/net/operating margin, position_size (reward/risk), CAGR, FCF. Use this for every calculation and report the returned value verbatim, including its sign; never compute the arithmetic yourself.",
+      "effect": null,
+      "inputSchema": {
+        "properties": {
+          "inputs": {
+            "description": "percentage_change/return: {start,end}; eps: {net_income,shares}; pe: {price,eps}; ps: {price,sales_per_share}; position_size: {reward,risk}; margins: {gross_profit|net_income|operating_income, revenue}; cagr: {start,end,years}; fcf: {operating_cash_flow,capex}",
+            "type": "object"
+          },
+          "metric": {
+            "description": "the closed-form metric to compute",
+            "enum": [
+              "percentage_change",
+              "return",
+              "period_return",
+              "gross_margin",
+              "net_margin",
+              "operating_margin",
+              "margin",
+              "eps",
+              "pe",
+              "ps",
+              "position_size",
+              "risk_reward",
+              "risk_reward_ratio",
+              "cagr",
+              "fcf"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric",
+          "inputs"
+        ],
+        "type": "object"
+      },
+      "name": "finance_calc",
       "permission": "read",
       "replacement": null,
       "risk": "low",

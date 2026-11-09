@@ -1,6 +1,27 @@
 # Change Log
 
 ## 2026-11-09
+- **feat(finance): one deterministic calculator for the metrics the agent must
+  not do mentally.** New `finance_calc` computes percentage change/return
+  (signed), EPS, P/E, P/S, margins, position_size (reward/risk), CAGR and FCF
+  from named inputs, returning the value, formula and inputs. Its formulas match
+  the evaluation grader, and a 15-case test asserts the two agree. The prompt now
+  names the tool with worked examples and requires the returned value verbatim,
+  including its sign. Registered in the agent allowlist and the tool registry
+  (1,025 tools). Size ratchets re-pinned deliberately (total 465,125; see the
+  budget comment). Docs updated: `docs/CHANGELOG.md`.
+- **feat(updates): signed release notices and a safe `black update` path.**
+  Eclipse now tells users when a newer release exists, without phoning home:
+  the local server fetches a public GitHub release manifest, verifies an Ed25519
+  signature against `config/update-signing-key.pub`, and only then shows a
+  dismissible glass notice (`src/components/layout/update-banner.tsx`) with a
+  copyable `black update`. Settings › General › Updates owns the local-only
+  on/off toggle and a manual check that reports "couldn't check" honestly.
+  `black update` refuses a dirty tree, verifies the release tag's commit against
+  the signed manifest, backs up `jdds.db`, builds, and rolls back on failure.
+  The private key is generated locally (`npm run update:keys`) and must stay
+  offline; publishing steps are in the new doc. Not an auto-updater by design.
+  Docs updated: `docs/UPDATES.md`, `docs/NAVIGATION.md`, `docs/CHANGELOG.md`.
 - **fix(eval,research): close the hallucination gate and pin the passing live
   run.** `research/release_gate.py` now withholds an unretrieved citation from the
   released answer (`[label] (unverified source)`) and appends a URL-free note; the

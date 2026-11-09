@@ -889,6 +889,36 @@ async def finance_growth(args: dict[str, Any], ctx: ToolContext) -> tuple[str, A
     )
 
 
+async def finance_calc(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
+    """One deterministic closed-form business metric, with its formula."""
+    from . import web_finance
+
+    metric = str(args.get("metric") or "").strip().lower()
+    inputs = args.get("inputs")
+    if not isinstance(inputs, dict) or not inputs:
+        return (
+            "`inputs` is required (named values, e.g. {start, end} or {reward, risk}).",
+            {"status": "ERROR", "error": "inputs required"},
+        )
+    try:
+        result = web_finance.compute_simple(metric, inputs)
+    except Exception as exc:  # noqa: BLE001
+        return (
+            f"Could not compute {metric or 'the metric'} honestly: {exc}.",
+            {"status": "UNAVAILABLE", "error": str(exc)},
+        )
+    unit = str(result.get("unit") or "")
+    shown = f"{result['value']}{unit}" if unit == "%" else (
+        f"{result['value']} {unit}" if unit and unit != "currency" else f"{result['value']}"
+    )
+    return (
+        f"{result['metric']} = {shown} (formula: {result['formula']}; "
+        f"inputs: {result['inputs']}). Deterministic: use this value verbatim, "
+        "including its sign.",
+        {"status": "OK", "result": result},
+    )
+
+
 async def finance_fcf(args: dict[str, Any], ctx: ToolContext) -> tuple[str, Any]:
     """Deterministic free cash flow: simple (OCF−CapEx), FCFF or FCFE."""
     from . import web_finance
@@ -1096,6 +1126,15 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
         "years": {"type": "number", "description": "required for kind=cagr"},
         "currency": _STR,
     }, ["current", "prior"]),
+    "finance_calc": _obj({
+        "metric": {**_STR, "enum": [
+            "percentage_change", "return", "period_return",
+            "gross_margin", "net_margin", "operating_margin", "margin",
+            "eps", "pe", "ps", "position_size", "risk_reward",
+            "risk_reward_ratio", "cagr", "fcf",
+        ], "description": "the closed-form metric to compute"},
+        "inputs": {"type": "object", "description": "percentage_change/return: {start,end}; eps: {net_income,shares}; pe: {price,eps}; ps: {price,sales_per_share}; position_size: {reward,risk}; margins: {gross_profit|net_income|operating_income, revenue}; cagr: {start,end,years}; fcf: {operating_cash_flow,capex}"},
+    }, ["metric", "inputs"]),
     "finance_fcf": _obj({
         "kind": {**_STR, "enum": ["free_cash_flow", "fcff", "fcfe"]},
         "inputs": {"type": "object", "description": "free_cash_flow: {operating_cash_flow, capex}; fcff: {ebit, tax_rate, depreciation_amortization, capex, change_working_capital}; fcfe: {fcff, interest_expense, tax_rate, net_borrowing}"},
@@ -1140,6 +1179,7 @@ _TOOLS: list[tuple[str, str, Any, int]] = [
     ("finance_series", "Compute a deterministic risk/return time-series metric from dated observations: Sharpe, Sortino, historical/parametric/Monte-Carlo VaR, CVaR (expected shortfall), beta, Jensen alpha, correlation (pearson/spearman/kendall), covariance, cumulative/annualized return, volatility, max drawdown / full drawdown path, rolling volatility/correlation/beta, CAGR.", finance_series, 15_000),
     ("finance_valuation", "Compute a WACC, a DCF, a WACC×terminal-growth DCF SENSITIVITY grid, or named DCF SCENARIOS (bear/base/bull) from explicit, auditable inputs. A DCF/WACC is an ESTIMATE with every assumption recorded; no rate is defaulted and invalid sensitivity cells are null, never a number.", finance_valuation, 15_000),
     ("finance_growth", "Compute a deterministic growth figure (yoy/qoq/mom/ttm/percent/cagr) from two values, recording the comparison basis. A non-positive base is refused or warned on, never presented as meaningful.", finance_growth, 10_000),
+    ("finance_calc", "Compute ONE closed-form business metric from named inputs, with its formula: percentage_change/return (signed), EPS, P/E, P/S, gross/net/operating margin, position_size (reward/risk), CAGR, FCF. Use this for every calculation and report the returned value verbatim, including its sign; never compute the arithmetic yourself.", finance_calc, 10_000),
     ("finance_fcf", "Compute deterministic free cash flow: simple (OCF−CapEx), FCFF (unlevered) or FCFE (levered) from explicit inputs, with formula and assumptions recorded.", finance_fcf, 10_000),
     ("finance_security_analysis", "Compose a full deterministic security analysis (returns, volatility, risk, market beta/alpha/correlation, fundamentals, valuation) from the data the caller supplies. A metric that cannot be computed is reported UNAVAILABLE with its reason; nothing is fabricated.", finance_security_analysis, 20_000),
     ("finance_portfolio_analysis", "Compose a deterministic portfolio risk analysis (portfolio return/volatility, Sharpe/Sortino, VaR/CVaR, drawdown, covariance/correlation matrix, Euler risk contribution, concentration) from weighted assets.", finance_portfolio_analysis, 20_000),

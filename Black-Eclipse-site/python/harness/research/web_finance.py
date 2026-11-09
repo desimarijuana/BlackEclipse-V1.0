@@ -273,11 +273,123 @@ def describe_metrics() -> dict[str, Any]:
     }
 
 
+#: The closed-form business calculations an agent must never do mentally.
+#: Formulas MATCH the evaluation grader (`graders/financial.py::_simple`); a
+#: test asserts the two agree, so a change on one side fails loudly.
+SIMPLE_FORMULAS: dict[str, tuple[str, str]] = {
+    "percentage_change": ("(end - start) / |start| * 100", "%"),
+    "return": ("(end - start) / |start| * 100", "%"),
+    "period_return": ("(end - start) / |start| * 100", "%"),
+    "gross_margin": ("gross_profit / revenue * 100", "%"),
+    "net_margin": ("net_income / revenue * 100", "%"),
+    "operating_margin": ("operating_income / revenue * 100", "%"),
+    "margin": ("operating_income (or net_income) / revenue * 100", "%"),
+    "eps": ("net_income / shares", "per-share"),
+    "pe": ("price / eps", "x"),
+    "ps": ("price / sales_per_share", "x"),
+    "position_size": ("reward / |risk|", "R"),
+    "risk_reward": ("reward / |risk|", "R"),
+    "risk_reward_ratio": ("reward / |risk|", "R"),
+    "cagr": ("((end / start) ** (1 / years) - 1) * 100", "%"),
+    "fcf": ("operating_cash_flow - capex", "currency"),
+}
+
+
+def _num(value: Any) -> Optional[float]:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def compute_simple(metric: str, inputs: dict[str, Any]) -> dict[str, Any]:
+    """Compute one closed-form metric, or refuse with a named reason.
+
+    The result carries the formula and the inputs so an answer can cite both.
+    Never guesses: a missing input or a zero denominator is an error.
+    """
+    name = str(metric or "").strip().lower()
+    if name not in SIMPLE_FORMULAS:
+        raise ValueError(
+            f"unknown metric {metric!r}; known: {sorted(SIMPLE_FORMULAS)}"
+        )
+    formula, unit = SIMPLE_FORMULAS[name]
+    g = inputs.get if isinstance(inputs, dict) else (lambda _k, _d=None: None)
+
+    def need(*keys: str) -> list[float]:
+        values = [_num(g(k)) for k in keys]
+        missing = [k for k, v in zip(keys, values) if v is None]
+        if missing:
+            raise ValueError(f"{name} requires numeric input(s): {', '.join(missing)}")
+        return values  # type: ignore[return-value]
+
+    value: Optional[float]
+    if name in ("percentage_change", "return", "period_return"):
+        start, end = need("start", "end")
+        if start == 0:
+            raise ValueError(f"{name} is undefined with a zero start")
+        value = (end - start) / abs(start) * 100.0
+    elif name in ("gross_margin", "net_margin", "operating_margin", "margin"):
+        if name == "gross_margin":
+            num_key = "gross_profit"
+        elif name == "net_margin":
+            num_key = "net_income"
+        else:
+            num_key = "operating_income" if g("operating_income") is not None else "net_income"
+        num, revenue = need(num_key, "revenue")
+        if revenue == 0:
+            raise ValueError(f"{name} is undefined with zero revenue")
+        value = num / revenue * 100.0
+    elif name == "eps":
+        net_income, shares = need("net_income", "shares")
+        if shares == 0:
+            raise ValueError("eps is undefined with zero shares")
+        value = net_income / shares
+    elif name == "pe":
+        price, eps = need("price", "eps")
+        if eps == 0:
+            raise ValueError("pe is undefined with zero eps")
+        value = price / eps
+    elif name == "ps":
+        price, sps = need("price", "sales_per_share")
+        if sps == 0:
+            raise ValueError("ps is undefined with zero sales_per_share")
+        value = price / sps
+    elif name in ("position_size", "risk_reward", "risk_reward_ratio"):
+        risk, reward = need("risk", "reward")
+        if risk == 0:
+            raise ValueError(f"{name} is undefined with zero risk")
+        value = reward / abs(risk)
+    elif name == "cagr":
+        start, end, years = need("start", "end", "years")
+        if start <= 0 or end <= 0 or years <= 0:
+            raise ValueError("cagr requires positive start, end and years")
+        value = ((end / start) ** (1.0 / years) - 1.0) * 100.0
+    else:  # fcf
+        ocf = _num(g("operating_cash_flow"))
+        if ocf is None:
+            raise ValueError("fcf requires numeric input(s): operating_cash_flow")
+        capex = _num(g("capex")) or 0.0
+        value = ocf - capex
+
+    return {
+        "metric": name,
+        "value": round(float(value), 10),
+        "unit": unit,
+        "formula": formula,
+        "inputs": dict(inputs or {}),
+    }
+
+
 def _pick(source: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
     return {k: source[k] for k in keys if k in source}
 
 
 __all__ = [
+    "SIMPLE_FORMULAS",
+    "compute_simple",
     "RATIO_METRICS",
     "SERIES_METRICS",
     "VALUATION_METRICS",

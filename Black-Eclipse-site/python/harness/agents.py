@@ -247,6 +247,7 @@ WEB_RESEARCH_TOOLS = [
     "finance_series",
     "finance_valuation",
     "finance_growth",
+    "finance_calc",
     "finance_fcf",
     "finance_security_analysis",
     "finance_portfolio_analysis",

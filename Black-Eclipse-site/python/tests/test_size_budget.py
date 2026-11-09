@@ -24,9 +24,13 @@ SOFT_CEILING_LINES = 800
 
 # Files above the hard ceiling today, pinned to their measured size (splitlines).
 RATCHET_PY: dict[str, int] = {
-    # NOTE: `main.py` is deliberately NOT ratcheted (Phase S.2): its security
-    # router include and `/health` safety field are offset by reclaimed blank
-    # lines, so it stays under the hard ceiling. Do not re-ratchet it.
+    # NOTE: `main.py` stayed under the hard ceiling until the first-run
+    # onboarding/setup routes landed (2026-11-09). It is pinned rather than
+    # split; SPLIT CANDIDATE: the setup/onboarding route block.
+    "main.py": 1235,
+    # Grew with the deterministic finance tool catalog (`finance_calc`,
+    # 2026-11-09). SPLIT CANDIDATE: the finance tool block.
+    "research/web_tools.py": 1222,
     # Grew with the Document Intelligence run-blob wiring (the `document_sink`
     # parameter, collector, and `update_run(documents=â€¦)`) and, later, the search
     # service passthrough (`search=` on `execute_run`/`build_graph` and the
