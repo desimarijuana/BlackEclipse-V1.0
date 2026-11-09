@@ -35,8 +35,20 @@
   never-default for a paid product, and makes the bring-your-own-key rule
   explicit (no shared keys, no server-side proxy). Docs updated:
   `docs/onboarding-plan.md`, `docs/CHANGELOG.md`.
+- **feat(ui): real, type-any page pagination for Artifacts and Market News; fix cards that silently vanished.** Artifacts now uses ServerPaginationFooter instead of an append-only "Load more": numbered pages, a typed per-page box (1–200, the runtime's real cap), current-page polling, and last-page clamping after deletes. Artifact cards fall back to the category icon when an image/video has no generated thumbnail instead of rendering a 404 `<img>` (a blank card); the failed-thumbnail state is per card. Market News gets the same typed per-page control in its pagination footer plus a typed "go to page" box, and the Customize panel accepts any cards-per-page value; `/api/news`'s `limit` cap rises 50→200 and the UI clamps to it. Fixed the card toggle bug where "Timestamp" was nested inside "Badges", so disabling Badges hid timestamps even though the Timestamp toggle said on. Clustering now uses a fixed 600-row window so `pagination.total`/`totalPages` stay consistent between pages. Docs updated: `docs/DATA-FLOW.md`, `docs/CHANGELOG.md`.
 
 ## 2026-11-08
+- **docs(oss): make the repository publish-ready as MIT open source.** GitHub
+  renders the repository ROOT, which had no README or LICENSE (both lived only
+  under `Black-Eclipse-site/`), so the project read as unlicensed. Added root
+  `README.md` (what it is, quick start, layout, production status, license map)
+  and root `LICENSE` (MIT, with the scope note that
+  `Black-Eclipse-site/pine-engine/` is AGPL-3.0-only via `pinets`). Fixed
+  `pine-engine/NOTICE.md`, which still said the app "stays proprietary"; the app
+  is MIT, the Pine engine is the separate AGPL component. `package.json` now
+  declares `license: MIT`. The GitHub repository is still **private** —
+  flipping visibility is an owner action, not a repo edit. Docs updated:
+  `README.md` (root), `LICENSE`, `pine-engine/NOTICE.md`, `docs/CHANGELOG.md`.
 - **fix(evaluation): restore the live gate's `provider_configured` helper.** The
   v0.3.0 tree called and exported `provider_configured()` in
   `python/harness/evaluation/live_gate.py` but the definition was missing, so

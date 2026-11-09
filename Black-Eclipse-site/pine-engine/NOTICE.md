@@ -14,8 +14,9 @@ communicating at arm's length" pattern from the GPL FAQ.
 
 ## What that means for you
 
-- **The Eclipse app stays proprietary.** It never links against `pinets`; it
-  executes a program that does.
+- **The Eclipse app is MIT-licensed** (see the repository `LICENSE`). It never
+  links against `pinets`; it executes a separate program that does. This folder
+  is AGPL-3.0-only, so treat it as its own component, not as MIT code.
 - **This folder is the corresponding source of the AGPL-covered work here.**
   It is public, in this repository, and it is the exact source of the program
   the app runs. If you change `runner.mjs`, you change the corresponding
