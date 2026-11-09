@@ -110,10 +110,12 @@ try {
     });
   });
 
-  await page.goto(`${BASE}/?tab=skills`, { waitUntil: "domcontentloaded" });
-  await page.getByRole("button", { name: /^Journey$/ }).first().click();
-  await page.getByText("Learning journey", { exact: true }).first().waitFor({ timeout: 60_000 });
-  await page.getByText("Production drift").first().waitFor({ timeout: 30_000 });
+  // The drift operator console lives under Skills → Experiments (the Journey
+  // tab keeps only the read-only drift badge). Follow the UI, not the old path.
+  // Deep-link straight to the sub-tab: it is inside the "Operations" group, so
+  // a single top-level tab click would not reach it.
+  await page.goto(`${BASE}/?tab=skills&sub=skills.experiments`, { waitUntil: "domcontentloaded" });
+  await page.getByText("Production drift").first().waitFor({ timeout: 60_000 });
   try {
     await page.getByRole("button", { name: /eclipse-agent/ }).click();
   } catch (err) {
